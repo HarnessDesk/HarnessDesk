@@ -104,6 +104,41 @@ it('keeps moot controls greyed with their reason and omits empty Extension and M
   expect(container.querySelector('button[aria-label="Usage"][data-info-source="context"]')).not.toBeNull()
 })
 
+const permissionMode: ConfigOption = {
+  id: 'mode', label: 'Mode', description: 'Session permission mode', category: 'mode', type: 'select',
+  currentValue: 'default',
+  choices: [{ value: 'default', label: 'Manual' }, { value: 'acceptEdits', label: 'Accept edits' }],
+}
+
+it.each([false, true])('omits the permission placeholder when the declared mode governs permissions (live: %s)', (isLive) => {
+  const key = sessionKey(agent.id, liveSession.id)
+  const state: AppSnapshot = { ...snapshot(), draftOptions: [permissionMode],
+    sessions: new Map([[key, { ...liveSession, options: [permissionMode] }]]) }
+  const store = { subscribe: () => () => {}, getSnapshot: () => state } as unknown as AppStore
+  const controls = <><PermissionControl /><ModeControl /></>
+  act(() => root.render(<StoreProvider store={store}>
+    {isLive ? <PaneProvider scope={{ paneId: 'slots', view: { kind: 'conversation', session: key }, sessionKey: key }}>{controls}</PaneProvider> : controls}
+  </StoreProvider>))
+  expect(container.querySelector('[title="This agent has no permission setting"]')).toBeNull()
+  expect(container.textContent).toContain('Manual')
+})
+
+it('keeps the permission placeholder for a collaboration mode that declares no permissions', () => {
+  const state = { ...snapshot(), draftOptions: [{ ...permissionMode, description: 'How the agent works' }] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => state } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><PermissionControl /></StoreProvider>))
+  expect(container.querySelector('[title="This agent has no permission setting"]')).not.toBeNull()
+})
+
+it('keeps a separate permission option alongside a permission mode', () => {
+  const permission: ConfigOption = { id: 'approval', label: 'Approval', category: '_permissions', type: 'select',
+    currentValue: 'ask', choices: [{ value: 'ask', label: 'Ask first' }] }
+  const state = { ...snapshot(), draftOptions: [permission, permissionMode] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => state } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><PermissionControl /></StoreProvider>))
+  expect(container.querySelector('[title="What the agent may do"]')?.textContent).toContain('Ask first')
+})
+
 it('shows a single declared mode as a fact instead of opening a one-choice menu', () => {
   const onlyMode = {
     id: 'mode', label: 'Mode', category: 'mode', type: 'select', currentValue: 'default',
