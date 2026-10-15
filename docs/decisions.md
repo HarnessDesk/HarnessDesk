@@ -7,6 +7,35 @@ the rule is the last line of its section.
 
 ---
 
+## The sidebar keeps its rhythm quiet and its marks for attention — 2026-10-15
+
+The owner chose five changes so a long conversation list reads calmly and a
+mark means "needs you":
+
+- Rows have a 34px pitch: a centred 32px highlight with a 2px gap.
+- Group headers have about 20px of air above them, using the shared spacing
+  scale rather than another row's worth of space.
+- A project shows at most five rows, including Teams, with **Show more** and
+  **Show less**. A selected row beyond the first five takes the fifth slot;
+  an expanded project stays expanded for the UI session. Pinned loose
+  conversations remain uncapped above the projects.
+- Trailing marks are reserved for attention or errors. Running activity,
+  branch, worktree and pin facts remain on hover and in the existing menus;
+  running rows have no spinner.
+- The footer has a full-width hairline and a transparent account row, with
+  no pill around the identity. Readiness and usage live in the account menu.
+
+The extra air separates titles without making every group a large section;
+the five-row fold keeps one busy project from consuming the list. Keeping
+the selected row and an expanded project visible preserves the person's
+place. Quiet activity and a plain footer leave attention marks with one
+meaning: something needs the person.
+
+**The rule:** keep the 34px pitch, short project lists and plain footer;
+only attention or an error earns a trailing state mark.
+
+---
+
 ## Round is someone, square is a thing
 
 Faces are round and filled by default: an agent, a runtime, a Team's member, a
