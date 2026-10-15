@@ -1,0 +1,58 @@
+{
+  "before": "f30379ec0e904760b854eddddd77ae1090d0f85f",
+  "after": "0597b73fc5be62ce68414a4702090903071b64f8",
+  "viewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "captured": [
+    {
+      "name": "chooser-before-light.png",
+      "version": "before",
+      "theme": "light",
+      "surface": "chooser"
+    },
+    {
+      "name": "comparison-before-light.png",
+      "version": "before",
+      "theme": "light",
+      "surface": "comparison"
+    },
+    {
+      "name": "chooser-before-dark.png",
+      "version": "before",
+      "theme": "dark",
+      "surface": "chooser"
+    },
+    {
+      "name": "comparison-before-dark.png",
+      "version": "before",
+      "theme": "dark",
+      "surface": "comparison"
+    },
+    {
+      "name": "chooser-after-light.png",
+      "version": "after",
+      "theme": "light",
+      "surface": "chooser"
+    },
+    {
+      "name": "comparison-after-light.png",
+      "version": "after",
+      "theme": "light",
+      "surface": "comparison"
+    },
+    {
+      "name": "chooser-after-dark.png",
+      "version": "after",
+      "theme": "dark",
+      "surface": "chooser"
+    },
+    {
+      "name": "comparison-after-dark.png",
+      "version": "after",
+      "theme": "dark",
+      "surface": "comparison"
+    }
+  ]
+}
