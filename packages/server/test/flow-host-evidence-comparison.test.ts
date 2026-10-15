@@ -92,7 +92,8 @@ test('a judge granted edit is judged on the competitor it picked, never on its o
 for (const second of UNKNOWN) {
   test(`a judge on a runtime ${second.why} is never taken for independent`, E2E, async (t) => {
     const d = await desk(t, second)
-    const run = await start(d, await comparison(d, 1), TASK)
+    const source = (await comparison(d, 1)).replace('    grant: read\n    independentOf: []', '    grant: read\n    independentOf: [competitor]')
+    const run = await start(d, source, TASK)
     const [competitor] = await claimed(d, run.goal, 'competitor', 1)
     await write(d, competitor!, 'attempt 1')
     const stalled = await whenChanged(d, async () => {
@@ -103,6 +104,38 @@ for (const second of UNKNOWN) {
     assert.equal((await board(d, run.goal)).find((one) => one.role === 'judge')?.state, 'open', 'no Seat took the judge’s card')
   })
 }
+
+test('a same-vendor judge reaches the referee with its recorded choice', E2E, async (t) => {
+  const d = await desk(t, { id: 'fake-b', provider: 'vendor-a' })
+  const run = await start(d, await comparison(d, 2, false), TASK)
+  const competitors = await claimed(d, run.goal, 'competitor', 2)
+  const heads: string[] = []
+  for (const [index, card] of competitors.entries()) heads.push(await write(d, card, `attempt ${index + 1}`))
+  const [judge] = await claimed(d, run.goal, 'judge', 1)
+  await review(d, judge!, 'picked', heads[1]!)
+  const referee = await person(d, run.goal, 'referee', 'merged')
+  assert.match(referee.detail ?? '', new RegExp(heads[1]!))
+  await settled(d, run.id)
+})
+
+test('without an agent judge the referee offers both attempts and records the person’s choice', E2E, async (t) => {
+  const d = await desk(t)
+  const text = (await comparison(d, 2, false))
+    .replace(/  judge:\n[\s\S]*?(?=  referee:)/, '')
+    .replace('  referee:\n    kind: person\n', '  referee:\n    kind: person\n    review: true\n')
+    .replace(/rules:\n[\s\S]*?(?=messaging:)/, 'rules:\n  - id: to-person\n    on: competitor\n    then: { role: referee, title: "Choose and merge an attempt" }\n')
+  const run = await start(d, text, TASK)
+  const competitors = await claimed(d, run.goal, 'competitor', 2)
+  const heads: string[] = []
+  for (const [index, card] of competitors.entries()) heads.push(await write(d, card, `attempt ${index + 1}`))
+  const referee = await whenChanged(d, async () => (await board(d, run.goal)).find(one => one.role === 'referee' && one.state === 'open') ?? null, 'the person referee')
+  assert.equal((await board(d, run.goal)).some(one => one.role === 'judge'), false)
+  const offered = await d.host.call('flow/review/candidates', { run: run.id, card: referee.id })
+  assert.deepEqual(new Set(offered.map(one => one.at)), new Set(heads))
+  await d.host.call('flow/review/decide', { run: run.id, card: referee.id, candidate: offered.find(one => one.at === heads[1])!.id, verdict: 'merged' })
+  assert.equal((await board(d, run.goal)).find(one => one.id === referee.id)?.outcome, 'merged')
+  assert.equal((await settled(d, run.id)).state, 'settled')
+})
 
 /*
  * Issue #1032, gap 1: a mixed check result has no rule that covers it, so the

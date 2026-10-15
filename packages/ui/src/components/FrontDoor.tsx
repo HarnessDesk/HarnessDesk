@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AgentEntry, FlowEntry, FlowExecution, FlowPolicy, StartContext } from '@harnessdesk/protocol'
 
 import { ActionError, Banner, Button, Chip, Dialog, Field, IconTile, Input, Note, Row, SectionHead, Search, Text, Textarea } from '../design'
-import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary, supportsAttemptCheck, withAttemptCheck } from '../lib/team-start'
+import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary, supportsAttemptCheck, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from '../lib/team-start'
 import { ChevronIcon, FlowIcon, PencilIcon, PlusIcon, ReviewIcon, SearchIcon, SideBySideIcon, RouteIcon, TeamIcon } from './Icons'
 import { GoalCreate } from './GoalCreate'
 import styles from './FrontDoor.module.css'
@@ -185,9 +185,12 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
         templates.current = draft?.template ?? policy
         // The suggestion is a first-use default. A saved check or a draft
         // the person cleared remains theirs, including an empty command.
-        if (!draft && policy && learn.projectCheckCommand && supportsAttemptCheck(policy) && !policy.roles.some(role => role.kind === 'check')) {
+        let defaultsPolicy = policy
+        if (!draft && policy && supportsComparisonJudge(policy)) defaultsPolicy = withComparisonJudge(policy, policy, null)
+        if (!draft && defaultsPolicy && learn.projectCheckCommand && supportsAttemptCheck(defaultsPolicy) && !defaultsPolicy.roles.some(role => role.kind === 'check')) defaultsPolicy = withAttemptCheck(defaultsPolicy, policy!, learn.projectCheckCommand)
+        if (!draft && defaultsPolicy && defaultsPolicy !== policy) {
           setPolicyPending(true)
-          const rendered = await store.renderShape(withAttemptCheck(policy, policy, learn.projectCheckCommand))
+          const rendered = await store.renderShape(defaultsPolicy)
           if (mine !== sequence.current) return
           if (rendered.issues.length > 0 || !rendered.source) throw new Error(rendered.issues.map(issue => issue.text).join(' ') || 'That check could not be prepared.')
           text = rendered.source

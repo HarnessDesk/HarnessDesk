@@ -5491,7 +5491,7 @@ export class Host {
     return {
       ...record,
       name: described.name || basename(described.path),
-      git: git ? { branch: git.branch } : null,
+      git: git ? { branch: git.branch, sha: git.headSha } : null,
       // Which project this folder is, so the session list can put a worktree
       // opened as a workspace under the project it is a checkout of.
       repo: await this.#repoOf(described.path),

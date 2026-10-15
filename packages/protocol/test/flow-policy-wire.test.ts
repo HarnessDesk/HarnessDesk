@@ -19,6 +19,16 @@ const checkPolicy = (check: Record<string, unknown>) => ({
   seed: { role: 'verify', title: 'Verify' },
 })
 
+test('a terminal person review step keeps its revision choice through the wire', () => {
+  for (const review of [true, false]) {
+    const policy = { ...checkPolicy({}), roles: [{ id: 'referee', kind: 'person', outcomes: ['merged'], review }] }
+    const parsed = request('authoring/shape/render', { policy }).params as HostParams<'authoring/shape/render'>
+    assert.deepEqual(parsed.policy.roles, policy.roles)
+    assert.equal(isPersonReviewStep(parsed.policy, 'referee'), review)
+  }
+  assert.throws(() => request('authoring/shape/render', { policy: { ...checkPolicy({}), roles: [{ id: 'referee', kind: 'person', outcomes: ['merged'], review: 'yes' }] } }), ValidationError)
+})
+
 test('shape summaries are optional short single lines, with refusals at their field', () => {
   const policy = checkPolicy({})
   assert.doesNotThrow(() => request('authoring/shape/render', { policy }))

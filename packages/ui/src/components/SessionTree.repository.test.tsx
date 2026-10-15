@@ -123,6 +123,7 @@ const mount = (
     setOthersOpen: vi.fn(),
     forgetFolders: vi.fn(async () => {}),
     openSession: vi.fn(),
+    refreshWorkspaceGit: async () => {},
     ...storeOver,
   } as unknown as AppStore
   act(() => {

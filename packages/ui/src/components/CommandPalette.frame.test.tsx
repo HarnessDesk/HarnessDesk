@@ -53,6 +53,7 @@ const mount = async (patch: Partial<AppSnapshot> = {}) => {
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     loadAgents: async () => {},
     transport: { request },

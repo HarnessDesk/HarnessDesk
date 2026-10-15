@@ -6,7 +6,7 @@ import { runtimeId, sessionId, sessionKey, sessionIndexCompare, sessionIndexCurs
 import { focusedPane } from '../state/layout'
 import { destinationOf } from '../state/destinations'
 import { captureHealth, provenancePage, sceneCommit } from './provenance-fixture'
-export const frameDestinationStore = (fixture: AppStore): AppStore => {
+export const frameDestinationStore = (fixture: AppStore, { workspaceOutsideGit = false } = {}): AppStore => {
   const store = new AppStore('ws://localhost:0/')
   const seed: AppSnapshot = fixture.getSnapshot()
   const view = focusedPane(seed.layout).view
@@ -177,6 +177,9 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'provenance/status') return []
     if (method === 'runtime/catalog') return fixture.loadCatalog()
     if (method === 'runtime/apps/search') return {apps:[]}
+    // Generic frame menus need a folder outside Git; review frames keep
+    // their own fixture's status, even without workspace Git metadata.
+    if (workspaceOutsideGit && method === 'git/status' && query.root === store.getSnapshot().workspace?.path && !store.getSnapshot().workspace?.git) return null
     if (method === 'worktree/list') return store.getSnapshot().worktrees
     if (method === 'git/branches') return fixture.listBranches(query.root)
     if (method === 'runtime/installs') return null

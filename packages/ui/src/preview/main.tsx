@@ -1,4 +1,6 @@
 import { ProjectPolishFrame } from './frames-project-polish'
+import { RepositoryStatesPreview } from './repository-states'
+import { RepositoryMenuRepairsPreview } from './repository-menu-repairs'
 import { WorkspaceRecoveryPreview } from './workspace-recovery'
 import { CurrentPagePreview } from './page-preview'
 import { DashboardDestinationFixture } from './dashboard-destination-fixture'
@@ -11,6 +13,7 @@ import { SettingsNavigationProbe } from './frames-left-column'
 import { LeftColumnWorkProbe } from './frames-left-column'
 import { LeftColumnProbe } from './frames-left-column'
 import { TeamStartFrames } from './frames-team-start'
+import { OptionalJudgeFrame } from './frames-optional-judge'
 import { ReleaseStills } from './release-stills'
 import { TeamFrame } from './frames-team-frame'
 import { FrameWall } from './frames-frame-wall'
@@ -494,7 +497,11 @@ const SignInPreview = ({ scene, onClose }: { scene: SignInScene; onClose: () => 
 /* The page itself, not a second Settings sheet: a page has one Settings
    window, and the specs that find it by its name are right to expect one. */
 const RuntimesPreview = () => {
-  const own = useMemo(() => previewStore(runtimesSeed()), [])
+  const own = useMemo(() => {
+    // `?key-scene=` puts DeepSeek's key where one of the sign-in scenes does.
+    const scene = new URLSearchParams(window.location.search).get('key-scene')
+    return previewStore(runtimesSeed(SIGN_IN_SCENES.find((one) => one === scene)))
+  }, [])
   return (
     <StoreProvider store={own}>
       <div className="mx-auto max-w-[760px] px-8 py-10">
@@ -1225,7 +1232,15 @@ createRoot(container).render(
       <SignInMode.Provider value="embedded">
         {siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
-          : new URLSearchParams(window.location.search).has('workspace-recovery') ? <WorkspaceRecoveryPreview /> : new URLSearchParams(window.location.search).has('team-start')
+          : new URLSearchParams(window.location.search).has('repository-states')
+          ? <RepositoryStatesPreview />
+          : new URLSearchParams(window.location.search).has('repository-menu-repairs')
+          ? <RepositoryMenuRepairsPreview />
+          : new URLSearchParams(window.location.search).has('optional-judge')
+          ? <OptionalJudgeFrame />
+          : new URLSearchParams(window.location.search).has('workspace-recovery')
+          ? <WorkspaceRecoveryPreview />
+          : new URLSearchParams(window.location.search).has('team-start')
           ? <TeamStartFrames />
           : new URLSearchParams(window.location.search).has('tile-browsers')
           ? <TileBrowserFrames />

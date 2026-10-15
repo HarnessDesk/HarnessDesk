@@ -120,11 +120,12 @@ reason.
 
 The comparison flow the dialog previews and starts is an ordinary policy:
 one implementer role on the two chosen seats, an isolated checkout each,
-the chosen project check run against both branches, an
-independent judge that reviews what it actually observed and records a
-structured verdict — never prose read as a winner — and a person who does
-the actual merge. `docs/flows.md`'s "Agents and Seats (v2)" section
-describes the shape in full; racing is that shape, not a shape of its own.
+optional project checks run against both branches, and a person who chooses
+and merges an attempt by default. **Judge · optional** starts at **You** in
+both `/race` and New Team → Side by side. An agent judge may share a vendor
+with either competitor; when selected, it reviews the observed revisions and
+records a structured pick before the person merges. `docs/flows.md`'s
+"Agents and Seats (v2)" section describes the shape in full; racing is that shape, not a shape of its own.
 
 New Team suggests the project's declared test script and package manager for
 **Check each attempt with**. The person can replace it or leave it empty to

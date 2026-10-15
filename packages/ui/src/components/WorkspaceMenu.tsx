@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { migratedRoots, projectGroupRootOf, type ProjectGroup } from '../lib/projects'
+import { projectMenuGit } from '../lib/project-menu-git'
 import { isPathInside } from '../lib/paths'
 import { captureForRoot, captureWords } from '../lib/provenance'
 import { isDesktop } from '../lib/desktop'
@@ -26,6 +27,7 @@ import {
 } from './Icons'
 import {
   Button,
+  Row,
   ContextMenu,
   MenuItem,
   MiddleTruncate,
@@ -137,6 +139,7 @@ const WorkspaceRows = ({
   const close = useMenuClose()
   const [confirming, setConfirming] = useState<'archive' | 'remove' | null>(null)
   const [busy, setBusy] = useState(false)
+  useEffect(() => { void store.refreshWorkspaceGit(actualRoot) }, [store, actualRoot])
 
   // Canonical, like `group.root` itself — a workspace opened through an
   // alias (a symlink, or a non-git folder the host now resolves too, #907)
@@ -152,11 +155,13 @@ const WorkspaceRows = ({
   const place = order.indexOf(group.root)
   const pinned = place !== -1
   const ready = snapshot.health?.state === 'ready' || snapshot.health?.state === 'idle'
-  // Saved repository metadata also covers projects with no sessions and
-  // detached checkouts. Older entries may only have a branch fact.
-  const isRepo = current
-    ? Boolean(snapshot.workspace?.repo || snapshot.workspace?.git?.branch)
-    : Boolean(openEntry?.repo || openEntry?.git?.branch) || group.sessions.some((summary) => Boolean(summary.repo || summary.git?.branch))
+  // A repository is a precondition for a worktree. The group itself does not
+  // know; its sessions do, and the open workspace knows for certain. Saved
+  // repository metadata also covers projects with no sessions and detached
+  // checkouts.
+  const { isRepo: hasGit, git } = projectMenuGit(snapshot, actualRoot, current, openEntry, group)
+  const isRepo = hasGit || Boolean((current ? snapshot.workspace : openEntry)?.repo) ||
+    group.sessions.some((summary) => Boolean(summary.repo))
   const count = group.sessions.length
   const sessionsWord = count === 1 ? '1 session' : `${count} sessions`
   /* How capture is going, for the repository this project is homed in. It is
@@ -228,13 +233,25 @@ const WorkspaceRows = ({
         disabled={!ready}
         onSelect={() => void store.startSessionIn(actualRoot)}
       />
-      <MenuItem
-        icon={<BranchIcon size={14} />}
-        label="New worktree…"
-        title="Its own checkout on its own branch."
-        disabled={!isRepo ? 'Worktrees need a git repository.' : !ready ? 'Connect an agent to work in a worktree.' : false}
-        onSelect={() => onNewWorktree(actualRoot)}
-      />
+      {!isRepo ? (
+        <MenuItem
+          icon={<BranchIcon size={14} />}
+          label="New worktree…"
+          title="Its own checkout on its own branch."
+          disabled="Worktrees need a git repository."
+          onSelect={() => onNewWorktree(actualRoot)}
+        />
+      ) : git?.branch && git.sha === null ? (
+        <Row title="Make a first commit to work in a worktree" control={
+          <Button variant="quiet" size="sm" onClick={() => { close(); store.askCommit(actualRoot) }}>Commit</Button>
+        } />
+      ) : <MenuItem
+          icon={<BranchIcon size={14} />}
+          label="New worktree…"
+          title="Its own checkout on its own branch."
+          disabled={!ready ? 'Connect an agent to work in a worktree.' : false}
+          onSelect={() => onNewWorktree(actualRoot)}
+        />}
       <MenuSeparator />
 
       {!current && (
