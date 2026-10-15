@@ -52,6 +52,7 @@ import {
   ListRow,
   ListRows,
   Note,
+  PaneColumn,
   Row as SettingsRow,
   RowButton,
   Rows,
@@ -258,7 +259,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
         <div className={own.split}>
           {/* The sign-in roster stays below the dialog's own head. */}
           <SignInRail aria-label="Agents" className={own.rail}>
-            <div data-slot="sign-in-list" className={own.railList}>
+            <PaneColumn inset="rail" data-slot="sign-in-list" className={own.railList}>
               {groups.map((group) => (
                 <div key={group.name} role="group" aria-label={group.name} className={own.group}>
                   <SectionHead
@@ -332,7 +333,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                   <Text as="div" role="meta" className={own.railNote}>{registry.unavailable}</Text>
                 </div>
               )}
-            </div>
+            </PaneColumn>
 
             <SectionFooter>
               <Text as="div" role="muted">

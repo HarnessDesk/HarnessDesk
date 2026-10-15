@@ -1876,10 +1876,6 @@ export class AcpRuntime implements AgentRuntime {
     // rather than guessing wrong in either direction.
     const keyMethods = this.#keyMethods()
     const saved = this.#restored?.account ?? this.#lastAccount
-    if (this.#health.state !== 'ready' && saved) return { ...saved, signInMethods: [
-      ...(this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : []),
-      ...keyMethods, ...this.#observedAccount(false).signInMethods,
-    ] }
     // A stored key is an account: it is what "signed in" means for an agent
     // that authenticates with one, and the label never carries the value.
     const keyAccounts: Account[] = (this.#config.secrets ?? []).flatMap((secret) => {
@@ -1894,6 +1890,17 @@ export class AcpRuntime implements AgentRuntime {
           }]
         : []
     })
+    // Key presence and precedence are local reads, even while the agent is
+    // idle. Refresh them before returning observations from an older cache;
+    // only the agent-owned identities still need their saved answer.
+    if (this.#health.state !== 'ready' && saved) return this.#lastAccount = {
+      ...saved,
+      accounts: [...saved.accounts.filter(account => account.kind !== 'apiKey' && account.kind !== 'externalKey'), ...keyAccounts],
+      signInMethods: [
+        ...(this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : []),
+        ...keyMethods, ...this.#observedAccount(false).signInMethods,
+      ],
+    }
     if (this.#account && this.#health.state === 'ready') {
       const status = await this.#account.status()
       // An interactive-only CLI has no safe status probe. In that case the

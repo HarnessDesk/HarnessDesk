@@ -304,6 +304,49 @@ describe('an agent whose store outranks the key it was handed, through the runti
   })
 
   describe('before the agent has started in this process', () => {
+    for (const broker of [null, 'sk-from-the-broker']) {
+      it(`refreshes a restored key account from the previous cache shape ${broker ? 'with' : 'without'} a stored copy`, async () => {
+        const runtime = build('0.2.1-alpha.3', STORE, broker)
+        const agent = { kind: 'agent', label: 'Jane Doe', planType: 'Team' }
+        try {
+          runtime.restoreObservations({
+            launchedVersion: '0.2.1-alpha.3',
+            account: {
+              accounts: [agent, { kind: 'externalKey', label: 'DeepSeek API key', planType: 'its own store', ...(broker ? { storedCopy: true } : {}) }],
+              signInMethods: [],
+            },
+          })
+          const status = await runtime.getAccount()
+          assert.deepEqual(status.accounts, [agent, {
+            kind: 'externalKey', label: 'DeepSeek API key', planType: 'its own store',
+            outranksHandedKey: true, ...(broker ? { storedCopy: true } : {}),
+          }])
+          assert.equal(status.signInMethods[0]?.id, 'apiKey:DEEPSEEK_API_KEY')
+          assert.equal(runtime.health().state, 'idle', 'the read does not start an agent')
+        } finally {
+          await runtime.dispose()
+        }
+      })
+    }
+
+    it('replaces a stale restored key with the current source and remembered read order', async () => {
+      for (const [version, store] of [['0.2.0-rc.2', STORE], ['0.2.1-alpha.3', null]] as const) {
+        const runtime = build('0.2.1-alpha.3', store)
+        try {
+          runtime.restoreObservations({
+            launchedVersion: version,
+            account: {
+              accounts: [{ kind: 'externalKey', label: 'DeepSeek API key', planType: 'its own store', outranksHandedKey: true, storedCopy: true }],
+              signInMethods: [],
+            },
+          })
+          assert.deepEqual(await accountsOf(runtime), [{ kind: 'apiKey', planType: 'API key' }])
+        } finally {
+          await runtime.dispose()
+        }
+      }
+    })
+
     it('judges by the version the last process ran, so a cold read agrees with the warm one that follows', async () => {
       const runtime = build('0.2.1-alpha.3', STORE)
       try {

@@ -3117,6 +3117,11 @@ together; a balance read before that is kept for its normal few minutes. A key
 in a row's own `env` is read by the meter and not by the presence check, as it
 was before this change.
 
+An idle account read rebuilds declared key accounts from their current sources
+and that remembered version before returning saved agent identities. An account
+restored from an older cache therefore gets the same precedence flags as a fresh
+read, without starting the agent.
+
 *The copy HarnessDesk keeps.* An account's kind says where the key in use
 lives, and until now `externalKey` also meant HarnessDesk held no copy; the
 key dialog's Replace and Remove were drawn only for `apiKey`. With the store
