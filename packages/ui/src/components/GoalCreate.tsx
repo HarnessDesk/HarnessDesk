@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 
 import type { GoalView } from '@harnessdesk/protocol'
 
-import { Button, Checkbox, Chip, Dialog, Field, Fieldset, FormStack, IconTile, Input, Note, Row, Rows, Text, Textarea } from '../design'
+import { Banner, Button, Checkbox, Chip, Dialog, Field, Fieldset, FormStack, IconTile, Input, Note, Row, Rows, Text, Textarea } from '../design'
 import { TeamIcon } from './Icons'
 import { agentName, inForce } from '../lib/agents'
+import { projectNeedsOpening } from '../lib/workspace-recovery'
 import { useSnapshot, useStore } from '../state/context'
 
 export interface GoalCreateProps {
@@ -15,9 +16,11 @@ export interface GoalCreateProps {
   readonly onTaskChange?: (value: string) => void
   readonly onDoneChange?: (value: string) => void
   readonly onChangeShape?: () => void
+  readonly projectProblem?: string
+  readonly onProjectOpened?: () => void
 }
 
-export const GoalCreate = ({ root, onClose, task, done, onTaskChange, onDoneChange, onChangeShape }: GoalCreateProps) => {
+export const GoalCreate = ({ root, onClose, task, done, onTaskChange, onDoneChange, onChangeShape, projectProblem, onProjectOpened }: GoalCreateProps) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [sentence, setSentence] = useState('')
@@ -28,6 +31,19 @@ export const GoalCreate = ({ root, onClose, task, done, onTaskChange, onDoneChan
   const [seated, setSeated] = useState<ReadonlySet<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  const [openingProject, setOpeningProject] = useState(false)
+  const [projectOpened, setProjectOpened] = useState(false)
+  const failure = problem ?? (projectOpened ? null : projectProblem)
+  const openProject = async (): Promise<void> => {
+    if (openingProject || busy) return
+    setOpeningProject(true)
+    try {
+      if (!await store.openWorkspace(root)) return
+      setProblem(null)
+      setProjectOpened(true)
+      onProjectOpened?.()
+    } finally { setOpeningProject(false) }
+  }
 
   useEffect(() => {
     void store.loadAgents()
@@ -45,7 +61,7 @@ export const GoalCreate = ({ root, onClose, task, done, onTaskChange, onDoneChan
   }
 
   const submit = async (): Promise<void> => {
-    if (!valid || busy) return
+    if (!valid || busy || openingProject) return
     setBusy(true)
     setProblem(null)
     let goal = created
@@ -97,7 +113,7 @@ export const GoalCreate = ({ root, onClose, task, done, onTaskChange, onDoneChan
       footerAside={<Text role="meta">{`The Team opens under ${root.split('/').filter(Boolean).at(-1)} in the sidebar.`}</Text>}
       footer={
         <>
-          <Button variant="default" disabled={!valid || busy} onClick={() => void submit()}>
+          <Button variant="default" disabled={!valid || busy || openingProject} onClick={() => void submit()}>
             {busy ? 'Working…' : created ? 'Retry unfinished' : 'Start'}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
@@ -157,7 +173,10 @@ export const GoalCreate = ({ root, onClose, task, done, onTaskChange, onDoneChan
             </Rows>
           </Fieldset>
         ) : <Note>Add work or seat an Agent after this Team is created.</Note>}
-        {problem ? <Note tone="bad">{problem}</Note> : null}
+        {failure ? projectNeedsOpening(failure)
+          ? <Banner tone="danger" role="alert" actions={<Button variant="secondary" disabled={openingProject || busy} onClick={() => void openProject()}>{openingProject ? 'Opening…' : `Open ${root.split('/').filter(Boolean).at(-1) ?? root}`}</Button>}>{failure}</Banner>
+          : <Note tone="bad">{failure}</Note>
+          : null}
       </FormStack>
     </Dialog>
   )

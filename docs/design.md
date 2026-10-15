@@ -585,10 +585,11 @@ A second line is earned by exactly three things:
 
 Everything else goes on hover, as `title`.
 
-For plugin tools, the short manifest title is the name to scan and the tool's
-description is the visible second line. **Tool names** switches that label to
-the technical name while keeping the sentence below it. The page reads these
-from the plugin metadata; it does not translate long descriptions into labels.
+For plugin tools, the short manifest title is the name to scan. Capabilities
+keeps the owning plugin on the second line and the full description on hover;
+the plugin's own page shows that description as a wrapping second line.
+**Tool names** switches that label to the technical name while keeping the
+sentence below it. The page reads these from the plugin metadata; it does not translate long descriptions into labels.
 
 When a fact is identical across every row in a group, say it once in a group
 note. Keep the fact on each row only when it varies between those rows.

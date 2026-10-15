@@ -79,6 +79,7 @@ import {
   type SessionSettings,
   type SessionDeletion,
   type SessionSummary,
+  type WorkspaceEntry,
   type TeamInbound,
   type TeamPeerInfo,
   type TeamState,
@@ -150,6 +151,7 @@ import {
   type WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
+import { staleDefaults, type StaleDefault } from '../lib/composer-slots'
 import { agentKeyOf, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
 import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
@@ -1217,40 +1219,14 @@ export class AppStore {
    * Refreshes what the next session would start with. Draft picks the user
    * already made ride along so the runtime re-declares the list with them
    * applied; picks the runtime now refuses (a model that vanished with an
-   * account change) are dropped rather than fought over.
+   * account change) stay visible as warnings and are excluded from starts.
    */
   async loadDraftOptions(): Promise<void> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
-    const params = {
-      runtime,
-      ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
-    }
-    try {
-      const asked = this.#snapshot.draftValues
-      const options = await this.transport.request('runtime/sessionDefaults', {
-        ...params,
-        ...(Object.keys(asked).length > 0 ? { values: asked } : {}),
-      })
-      // Picks the runtime no longer honours are forgotten here rather than
-      // re-sent on every refresh; the list itself is the record of what the
-      // next session starts with.
-      const values = kept(asked, options)
-      this.#draftsByRuntime[runtime] = values
-      // A switch is cheap now, so two can happen inside one slow answer: the
-      // first agent's defaults must not land on the second agent's draft.
-      if (this.#snapshot.activeRuntime !== runtime) return
-      this.#patch({ draftValues: values, draftOptions: options.length > 0 ? options : null })
-    } catch {
-      try {
-        const options = await this.transport.request('runtime/sessionDefaults', params)
-        if (this.#snapshot.activeRuntime !== runtime) return
-        this.#patch({ draftOptions: options.length > 0 ? options : null, draftValues: {} })
-      } catch {
-        if (this.#snapshot.activeRuntime !== runtime) return
-        this.#patch({ draftOptions: null })
-      }
-    }
+    const options = await this.newSessionDefaultsFor(runtime)
+    if (this.#snapshot.activeRuntime !== runtime) return
+    this.#patch({ draftOptions: options.length > 0 ? options : null, draftValues: this.#draftsByRuntime[runtime] ?? {} })
   }
 
   // ------------------------------------------------------------------ sign-in
@@ -1282,6 +1258,8 @@ export class AppStore {
 
   #navigationQueue: Promise<void> = Promise.resolve()
   #navigationEpoch = 0
+  /** The source before a provisional conversation replaced it; shared by overlapping opens. */
+  #conversationWorkspaceSource: { navigation: number; path: string | null; workbench: Workbench } | null = null
 
   openDestination(page: PageDestination): void {
     this.#navigationEpoch += 1
@@ -2539,14 +2517,46 @@ export class AppStore {
   ): Promise<boolean> {
     const { runtime } = options
     const key = sessionKey(runtime, id)
+    const previous = this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+      ? this.#conversationWorkspaceSource
+      : { path: this.#snapshot.workspace?.path ?? null, workbench: this.#snapshot.workbench }
     const removalRevision = this.#sessionRemovalRevisions.get(key) ?? 0
     const stillHeld = () => (this.#sessionRemovalRevisions.get(key) ?? 0) === removalRevision
+    // Only a person's main-conversation navigation changes the workspace.
+    // Reads for a room, history preview or layout restoration do not navigate.
+    let navigation = options.reveal !== false && !options.restoring && (!options.area || options.area === 'main')
+      ? ++this.#navigationEpoch : null
+    const stillSelected = () => navigation !== null && navigation === this.#navigationEpoch && stillHeld()
+    let folderProblem: unknown = null
+    const followFolder = async (session: Pick<Session, 'cwd'>): Promise<void> => {
+      if (!stillSelected()) return
+      folderProblem = null
+      if (this.#snapshot.workspace?.path !== session.cwd) {
+        const selected = await this.#openWorkspace(session.cwd, stillSelected, key, previous, error => { folderProblem = error })
+        if (selected !== null) {
+          navigation = selected
+          if (stillSelected()) this.#conversationWorkspaceSource = null
+          return
+        }
+        if (!stillSelected()) return
+      }
+      this.#showInPane(key, options.split, options.area)
+      navigation = this.#navigationEpoch
+      this.#conversationWorkspaceSource = this.#snapshot.workspace?.path === session.cwd
+        ? null : { ...previous, navigation }
+    }
     if (options.preview || options.restoring) this.#markPreview(key)
     // Reading the conversation a draft is carrying — the chip's own link —
     // is not abandoning the hand-off. It waits for the next empty draft.
     const carried = this.#snapshot.draftHandoff
     if (carried && carried.runtime === runtime && carried.sessionId === id) this.#parkedHandoff = carried
-    if (options.reveal !== false) this.#showInPane(key, options.split, options.area)
+    if (options.reveal !== false) {
+      this.#showInPane(key, options.split, options.area)
+      if (navigation !== null) {
+        navigation = this.#navigationEpoch
+        this.#conversationWorkspaceSource = { ...previous, navigation }
+      }
+    }
     // Choosing a conversation is what a floating sidebar is open for — the one
     // already on screen included, which moves nothing the rule in `#patch` sees.
     if (options.reveal !== false && !options.restoring) this.closeFloatingSidebar()
@@ -2558,9 +2568,16 @@ export class AppStore {
       this.#setSession(session)
       readSucceeded = true
       if (!options.preview && !options.restoring) this.#ensureHistorySummary(session)
+      await followFolder(session)
+      if (!stillHeld()) return false
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       if (!stillHeld()) return false
       this.#setSession(live)
+      // Recreating a removed worktree may instead reopen its main checkout.
+      if (this.#snapshot.workspace?.path !== live.cwd) await followFolder(live)
+      // Resume owns a missing-folder refusal and may recreate the checkout.
+      // Only a successful resume with a still-unreadable workspace needs a toast.
+      if (folderProblem && stillSelected()) this.resultNotice('error', describe(folderProblem))
       // A conversation that reopened is the only evidence its refusal — gone
       // folder or not — no longer holds.
       this.#lastResumeRefusal.delete(key)
@@ -2600,6 +2617,7 @@ export class AppStore {
           turns: [],
           itemsLoaded: false,
         })
+        await followFolder(savedIdentity)
       }
       /* The folder it ran in, whether or not its transcript arrived: the
          sidebar row carries the folder too, and where nothing was painted the
@@ -2762,7 +2780,9 @@ export class AppStore {
       // session started elsewhere — a race, a hand-off — must not inherit
       // another agent's model: the target refuses the value and the session
       // never opens.
-      const values = this.#draftsByRuntime[runtime] ?? {}
+      // Validate saved picks at the creation boundary: declarations may have
+      // changed since the draft last read them.
+      const values = await this.#newSessionValues(runtime, cwd)
       const session = await this.transport.request('session/create', {
         runtime,
         options: {
@@ -4174,7 +4194,7 @@ export class AppStore {
   })
 
   /** Brings back the panels saved for this workspace, or starts with one empty pane. */
-  #restoreLayout(workspace: string | null): void {
+  #restoreLayout(workspace: string | null, selected?: { workspace: WorkspaceEntry; conversation: SessionKey }): void {
     this.#navigationEpoch += 1
     const raw = workspace ? this.#layouts?.[workspace] : null
     const saved = readWorkbench(raw, this.#snapshot.windowHeight)
@@ -4205,13 +4225,18 @@ export class AppStore {
       : null
     const migration = rehomed ? normalizeFixedWorkbench(rehomed, true) : null
     const restored = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
-    const workbench = settleConversationTool(restored, effectiveWindowMode(this.#snapshot.windowMode, restored) === 'editor', true)
+    const view = selected ? { kind: 'conversation' as const, session: selected.conversation } : null
+    const target = view ? { ...restored, main: onlyIn(restored.main, view),
+      navigation: visitDestination(restored.navigation, destinationOf(view)) } : restored
+    const workbench = settleConversationTool(target, effectiveWindowMode(this.#snapshot.windowMode, target) === 'editor', true)
     // Persisting what was just read back would be a no-op write; set directly.
     this.#patch({
+      ...(selected ? { workspace: selected.workspace } : {}),
       workbench,
       layout: workbench.main,
       detailsTab: visibleInspector(workbench),
     })
+    if (selected) this.#keepWorkbench(this.#snapshot.workbench)
     for (const view of migration?.legacyRoutes ?? []) {
       if (view.kind === 'board') this.openTeamBoard(view.room)
     }
@@ -4532,7 +4557,7 @@ export class AppStore {
     ]
     for (const { view } of onScreen) {
       const session = view.kind === 'conversation' ? view.session : null
-      if (!session) continue
+      if (!session || this.#snapshot.loadingSessions.has(session)) continue
       this.#markPreview(session)
       const known = this.#snapshot.sessions.get(session)
       if (known?.itemsLoaded && (known.status.type === 'active' || known.status.type === 'idle')) continue
@@ -6105,23 +6130,106 @@ export class AppStore {
     await this.setNewSessionDefault(runtime, id, value)
   }
 
+  #creationDefaults: Partial<Record<RuntimeId, Promise<Readonly<Record<string, OptionValue>>>>> = {}
+
+  /** Capture validated start values without competing starts invalidating each other. */
+  async #newSessionValues(runtime: RuntimeId, cwd: string): Promise<Readonly<Record<string, OptionValue>>> {
+    const previous = this.#creationDefaults[runtime] ?? Promise.resolve({})
+    const validation = previous.catch(() => ({})).then(async () => {
+      while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
+      if (Object.keys(this.#draftsByRuntime[runtime] ?? {}).length === 0) return {}
+      let revision: number
+      do {
+        const checking = this.newSessionDefaultsFor(runtime, cwd)
+        revision = this.#draftRevisions[runtime]!
+        await checking
+        // A refresh or a user pick may supersede a pending validation.
+        // Its cached answer is not permission to send the old defaults.
+      } while (this.#draftRevisions[runtime] !== revision)
+      return this.#draftsByRuntime[runtime] ?? {}
+    })
+    this.#creationDefaults[runtime] = validation
+    try { return await validation }
+    finally { if (this.#creationDefaults[runtime] === validation) delete this.#creationDefaults[runtime] }
+  }
+
   /**
    * What a new session on this agent would start with, the stored picks
    * applied. The same question the composer asks for its pre-session
    * controls — Settings and the composer read one answer.
    */
-  async newSessionDefaultsFor(runtime: RuntimeId): Promise<readonly ConfigOption[]> {
-    const values = this.#draftsByRuntime[runtime] ?? {}
+  async newSessionDefaultsFor(runtime: RuntimeId, cwd = this.#snapshot.workspace?.path): Promise<readonly ConfigOption[]> {
+    // A read must not invalidate a user pick whose answer is still in flight.
+    while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
+    const revision = this.#nextDraftRevision(runtime)
+    const asked = this.#draftsByRuntime[runtime] ?? {}
+    const params = { runtime, ...(cwd ? { cwd } : {}) }
     try {
-      return await this.transport.request('runtime/sessionDefaults', {
-        runtime,
-        ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
-        ...(Object.keys(values).length > 0 ? { values } : {}),
-      })
+      // Discover first: an obsolete saved value never rides the next request.
+      let declared = await this.transport.request('runtime/sessionDefaults', params)
+      if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      // Reasoning and other controls can depend on the selected model. Resolve
+      // a valid saved model (or profile that chooses one) before judging its
+      // dependent saved values against the agent's default declarations.
+      const selectors = Object.fromEntries(Object.entries(asked).filter(([id]) =>
+        declared.some((one) => one.id === id && (one.category === 'model' || one.category === '_profile'))))
+      const invalidSelectors = new Set(staleDefaults(selectors, declared)
+        .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+      const selectorValues = modelFirstValues(Object.fromEntries(Object.entries(selectors).filter(([id]) => !invalidSelectors.has(id))), declared)
+      if (Object.keys(selectorValues).length > 0 && Object.keys(asked).some((id) => !(id in selectors))) {
+        declared = await this.transport.request('runtime/sessionDefaults', { ...params, values: selectorValues })
+        if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      }
+      const invalid = new Set(staleDefaults(asked, declared, this.#draftOptionsByRuntime[runtime])
+        .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+      const applicable = modelFirstValues(Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id))), declared)
+      const options = Object.keys(applicable).length > 0
+        ? await this.transport.request('runtime/sessionDefaults', { ...params, values: applicable }) : declared
+      if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      await this.#rememberDraftDefaults(runtime, asked, options)
+      return options
     } catch {
-      return []
+      try {
+        const options = await this.transport.request('runtime/sessionDefaults', params)
+        if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+        await this.#rememberDraftDefaults(runtime, asked, options)
+        return options
+      } catch {
+        return []
+      }
     }
   }
+
+  /** Keeps the rejected fact and the accepted start values as separate records. */
+  async #rememberDraftDefaults(runtime: RuntimeId, asked: Readonly<Record<string, OptionValue>>, options: readonly ConfigOption[], replaced?: string): Promise<void> {
+    const rejected = staleDefaults(asked, options, this.#draftOptionsByRuntime[runtime])
+    const ids = new Set(rejected.map((one) => one.id))
+    const previous = this.#snapshot.staleDraftDefaults[runtime] ?? []
+    const stale = [...previous.filter((one) => one.id !== replaced && !ids.has(one.id)), ...rejected]
+    const values = kept(asked, options, this.#draftOptionsByRuntime[runtime])
+    const changed = JSON.stringify(this.#draftsByRuntime[runtime] ?? {}) !== JSON.stringify(values)
+      || JSON.stringify(previous) !== JSON.stringify(stale)
+    this.#draftsByRuntime[runtime] = values
+    this.#draftOptionsByRuntime[runtime] = options
+    const staleDraftDefaults = { ...this.#snapshot.staleDraftDefaults, [runtime]: stale }
+    this.#patch({ staleDraftDefaults, ...(this.#snapshot.activeRuntime === runtime
+      ? { draftValues: values, draftOptions: options.length > 0 ? options : null } : {}) })
+    if (changed) await this.#saveDraftDefaults()
+  }
+
+  /** Deletes a saved pick without changing the agent's current selection. */
+  async clearNewSessionDefault(runtime: RuntimeId, id: string): Promise<readonly ConfigOption[]> {
+    this.#nextDraftRevision(runtime)
+    const { [id]: _removed, ...values } = this.#draftsByRuntime[runtime] ?? {}
+    this.#draftsByRuntime[runtime] = values
+    const staleDraftDefaults = { ...this.#snapshot.staleDraftDefaults,
+      [runtime]: (this.#snapshot.staleDraftDefaults[runtime] ?? []).filter((one) => one.id !== id) }
+    this.#patch({ staleDraftDefaults, ...(this.#snapshot.activeRuntime === runtime ? { draftValues: values } : {}) })
+    await this.#saveDraftDefaults()
+    return this.newSessionDefaultsFor(runtime)
+  }
+
+  #pendingDraftSetters: Partial<Record<RuntimeId, Promise<readonly ConfigOption[]>>> = {}
 
   /**
    * One default for one agent's next sessions, persisted host-side under the
@@ -6129,19 +6237,33 @@ export class AppStore {
    * agent, whichever surface wrote it. When the agent is the active one the
    * open draft follows immediately.
    */
-  async setNewSessionDefault(
+  setNewSessionDefault(
     runtime: RuntimeId,
     id: string,
     value: OptionValue,
   ): Promise<readonly ConfigOption[]> {
-    const asked = { ...(this.#draftsByRuntime[runtime] ?? {}), [id]: value }
+    const pending = this.#setNewSessionDefault(runtime, id, value).finally(() => {
+      if (this.#pendingDraftSetters[runtime] === pending) delete this.#pendingDraftSetters[runtime]
+    })
+    this.#pendingDraftSetters[runtime] = pending
+    return pending
+  }
+
+  async #setNewSessionDefault(
+    runtime: RuntimeId,
+    id: string,
+    value: OptionValue,
+  ): Promise<readonly ConfigOption[]> {
+    const revision = this.#nextDraftRevision(runtime)
+    const asked = modelFirstValues({ ...(this.#draftsByRuntime[runtime] ?? {}), [id]: value }, this.#draftOptionsByRuntime[runtime] ?? [])
     try {
       const options = await this.transport.request('runtime/sessionDefaults', {
         runtime,
         ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
         values: asked,
       })
-      const values = kept(asked, options)
+      if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      const values = kept(asked, options, this.#draftOptionsByRuntime[runtime])
       // What the runtime did with a pick is read off the list it answered
       // with, not assumed from the call returning. A model with no thinking
       // mode leaves the switch off and says why; keeping `thinking: true`
@@ -6157,15 +6279,20 @@ export class AppStore {
       }
       const refused = findOption(options, id)
       if (refused?.disabled && !(id in values)) this.resultNotice('info', refused.disabled)
-      this.#draftsByRuntime[runtime] = values
-      if (this.#snapshot.activeRuntime === runtime) {
-        this.#patch({ draftValues: values, draftOptions: options.length > 0 ? options : null })
-      }
-      void this.#writePreference({ draftValues: this.#draftsByRuntime }, 'The draft options')
+      await this.#rememberDraftDefaults(runtime, asked, options, id)
       return options
     } catch (error) {
       this.resultNotice('warning', describe(error))
-      return this.newSessionDefaultsFor(runtime)
+      try {
+        const options = await this.transport.request('runtime/sessionDefaults', {
+          runtime, ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
+          // Validate the accepted picks independently of the failed change.
+          values: this.#draftsByRuntime[runtime] ?? {},
+        })
+        if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+        await this.#rememberDraftDefaults(runtime, asked, options, id)
+        return options
+      } catch { return this.#draftOptionsByRuntime[runtime] ?? [] }
     }
   }
 
@@ -6207,6 +6334,26 @@ export class AppStore {
     this.#patch({ hiddenModels })
     void this.#writePreference({ hiddenModels }, 'The model picker')
   }
+
+  #draftRevisions: Record<string, number> = {}
+  #nextDraftRevision(runtime: RuntimeId): number {
+    return this.#draftRevisions[runtime] = (this.#draftRevisions[runtime] ?? 0) + 1
+  }
+
+  #draftWrite: Promise<unknown> = Promise.resolve()
+  #saveDraftDefaults(): Promise<unknown> {
+    // Only metadata for saved picks: enough to name a removed option after reload.
+    const draftDefaultOptions = Object.fromEntries(Object.entries(this.#draftOptionsByRuntime).map(([runtime, options]) => [runtime,
+      options.filter((one) => one.id in (this.#draftsByRuntime[runtime] ?? {})).map((one) => ({
+        id: one.id, label: one.label, category: one.category, type: one.type, currentValue: one.currentValue,
+        ...(one.type === 'select' ? { choices: one.choices.filter((choice) => choice.value === one.currentValue).map(({ value, label }) => ({ value, label })) } : {}),
+      })),
+    ]))
+    const patch = { draftValues: { ...this.#draftsByRuntime }, staleDraftDefaults: this.#snapshot.staleDraftDefaults, draftDefaultOptions }
+    return this.#draftWrite = this.#draftWrite.then(() => this.#writePreference(patch, 'The draft options'))
+  }
+
+  #draftOptionsByRuntime: Record<string, readonly ConfigOption[]> = {}
 
   #draftsByRuntime: Record<string, Readonly<Record<string, OptionValue>>> = {}
 
@@ -6707,6 +6854,31 @@ export class AppStore {
           ? (layouts as Record<string, Workbench>)
           : {}
       if (this.#snapshot.workspace) this.#restoreLayout(this.#snapshot.workspace.path)
+      const savedOptions = preferences['draftDefaultOptions']
+      if (typeof savedOptions === 'object' && savedOptions !== null && !Array.isArray(savedOptions)) {
+        for (const [runtime, options] of Object.entries(savedOptions)) {
+          if (!Array.isArray(options)) continue
+          this.#draftOptionsByRuntime[runtime] = options.filter((one): one is ConfigOption => one
+            && typeof one.id === 'string' && typeof one.label === 'string'
+            && (one.category === undefined || typeof one.category === 'string')
+            && (one.type === 'boolean' ? typeof one.currentValue === 'boolean'
+              : one.type === 'select' && typeof one.currentValue === 'string' && Array.isArray(one.choices)
+                && one.choices.every((choice: { value?: unknown; label?: unknown }) => choice && typeof choice.value === 'string' && typeof choice.label === 'string')))
+        }
+      }
+      const staleSaved = preferences['staleDraftDefaults']
+      if (typeof staleSaved === 'object' && staleSaved !== null && !Array.isArray(staleSaved)) {
+        const staleDraftDefaults: Record<string, StaleDefault[]> = {}
+        for (const [runtime, entries] of Object.entries(staleSaved)) {
+          if (!Array.isArray(entries)) continue
+          staleDraftDefaults[runtime] = entries.filter((one): one is StaleDefault =>
+            one && typeof one.id === 'string' && typeof one.label === 'string'
+            && typeof one.valueLabel === 'string' && typeof one.reason === 'string'
+            && (typeof one.value === 'string' || typeof one.value === 'boolean')
+            && (one.category === undefined || typeof one.category === 'string'))
+        }
+        this.#patch({ staleDraftDefaults })
+      }
       const drafts = preferences['draftValues']
       if (typeof drafts === 'object' && drafts !== null && !Array.isArray(drafts)) {
         this.#draftsByRuntime = drafts as Record<string, Readonly<Record<string, OptionValue>>>
@@ -6929,19 +7101,86 @@ export class AppStore {
    * Switches workspace. The panes belong to a workspace, so the previous
    * layout is put away and this one's comes back.
    */
-  async openWorkspace(path: string): Promise<void> {
-    this.#navigationEpoch += 1
+  async openWorkspace(path: string): Promise<boolean> {
+    const previous = this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+      ? this.#conversationWorkspaceSource : undefined
+    const navigation = ++this.#navigationEpoch
+    return await this.#openWorkspace(path, () => navigation === this.#navigationEpoch, undefined, previous) !== null
+  }
+
+  #workspaceOpensPending = 0
+  #workspaceReconcileNeeded = false
+
+  #preserveWorkspaceSource(previous?: { path: string | null; workbench: Workbench }): void {
+    if (previous?.path && previous.path === this.#snapshot.workspace?.path) {
+      this.#layouts = { ...this.#layouts, [previous.path]: previous.workbench }
+      this.#persistLayouts()
+    }
+    this.#conversationWorkspaceSource = null
+  }
+
+  /** All replies must settle before repairing the host's shell/plugin scope. */
+  async #settleWorkspaceOpen(): Promise<void> {
+    this.#workspaceOpensPending -= 1
+    while (this.#workspaceOpensPending === 0 && this.#workspaceReconcileNeeded) {
+      this.#workspaceReconcileNeeded = false
+      const path = this.#snapshot.workspace?.path
+      if (!path) return
+      this.#workspaceOpensPending += 1
+      try {
+        // This repairs host state only: the chosen pane and layout stay put.
+        await this.transport.request('workspace/open', { path })
+      } catch (error) {
+        if (this.#snapshot.workspace?.path === path) this.resultNotice('error', describe(error))
+      } finally {
+        this.#workspaceOpensPending -= 1
+        if (this.#snapshot.workspace?.path !== path) this.#workspaceReconcileNeeded = true
+      }
+    }
+  }
+
+  /** Apply the folder and requested conversation together, before restoring anything else. */
+  async #openWorkspace(path: string, current: () => boolean, conversation?: SessionKey, previous?: { path: string | null; workbench: Workbench }, onError?: (error: unknown) => void): Promise<number | null> {
+    // Overlapping host mutations can finish in either order, even when their
+    // renderer replies are discarded. Reassert the final choice once quiet.
+    if (this.#workspaceOpensPending > 0) this.#workspaceReconcileNeeded = true
+    this.#workspaceOpensPending += 1
     try {
       const workspace = await this.transport.request('workspace/open', { path })
+      if (!current()) {
+        this.#workspaceReconcileNeeded = true
+        return null
+      }
+      if (!workspace) return null
       this.#flowGeneration += 1
-      this.#patch({ workspace })
-      if (this.#layouts) this.#restoreLayout(workspace.path)
+      // An explicit folder open can abandon the loading conversation too.
+      // Put back the source before changing the workspace in either path.
+      this.#preserveWorkspaceSource(previous)
+      if (conversation) {
+        // The loading composer is selected immediately, but belongs to the
+        // destination folder. Keep the source folder's saved work unchanged.
+        this.#restoreLayout(workspace.path, { workspace, conversation })
+      }
+      else {
+        this.#patch({ workspace })
+        if (this.#layouts) this.#restoreLayout(workspace.path)
+      }
+      const selected = this.#navigationEpoch
       await this.loadWorkspaces()
-      void this.loadDraftOptions()
-      // Another folder is another project's Agents.
-      if (this.#agentsRequested) void this.loadAgents()
+      if (selected === this.#navigationEpoch) {
+        void this.loadDraftOptions()
+        // Another folder is another project's Agents.
+        if (this.#agentsRequested) void this.loadAgents()
+      }
+      return selected
     } catch (error) {
-      this.resultNotice('error', describe(error))
+      if (current()) {
+        if (onError) onError(error)
+        else this.resultNotice('error', describe(error))
+      } else this.#workspaceReconcileNeeded = true
+      return null
+    } finally {
+      await this.#settleWorkspaceOpen()
     }
   }
 
@@ -6998,12 +7237,21 @@ export class AppStore {
    * which is the caller's cue to fall back to the in-app picker.
    */
   async pickWorkspace(): Promise<boolean> {
-    const workspace = await this.transport.request('workspace/pick', {})
-    if (!workspace) return false
-    this.#patch({ workspace })
-    if (this.#layouts) this.#restoreLayout(workspace.path)
-    await this.loadWorkspaces()
-    return true
+    if (this.#workspaceOpensPending > 0) this.#workspaceReconcileNeeded = true
+    this.#workspaceOpensPending += 1
+    try {
+      const workspace = await this.transport.request('workspace/pick', {})
+      if (!workspace) return false
+      this.#preserveWorkspaceSource(this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+        ? this.#conversationWorkspaceSource : undefined)
+      this.#navigationEpoch += 1
+      this.#patch({ workspace })
+      if (this.#layouts) this.#restoreLayout(workspace.path)
+      await this.loadWorkspaces()
+      return true
+    } finally {
+      await this.#settleWorkspaceOpen()
+    }
   }
 
   // ---------------------------------------------------------------- view-only
@@ -8007,6 +8255,9 @@ export class AppStore {
     }
     const next = reduceSession(existing, event)
     if (next !== existing) this.#setSession(next)
+    if (event.type === 'session/options' && Object.keys(this.#draftsByRuntime[runtime] ?? {}).length > 0) {
+      void this.newSessionDefaultsFor(runtime)
+    }
   }
 
   /** Newer history reads supersede older replies, including a clear after search. */
@@ -8143,6 +8394,16 @@ export type TerminalNotification = Extract<
   { method: 'terminal/output' } | { method: 'terminal/exited' }
 >
 
+/** Agents apply entries in order; a model must precede its dependent picks. */
+const modelFirstValues = (
+  values: Readonly<Record<string, OptionValue>>,
+  options: readonly ConfigOption[],
+): Readonly<Record<string, OptionValue>> => {
+  const models = new Set(options.filter((one) => one.category === 'model').map((one) => one.id))
+  const entries = Object.entries(values)
+  return Object.fromEntries([...entries.filter(([id]) => models.has(id)), ...entries.filter(([id]) => !models.has(id))])
+}
+
 /**
  * The picks that actually landed: the ones the runtime's fresh list agrees
  * with. Anything else was refused or has no control on the model now chosen,
@@ -8156,13 +8417,10 @@ export type TerminalNotification = Extract<
 const kept = (
   asked: Readonly<Record<string, OptionValue>>,
   options: readonly ConfigOption[],
+  previous: readonly ConfigOption[] = [],
 ): Readonly<Record<string, OptionValue>> => {
-  if (options.length === 0) return asked
-  const landed: Record<string, OptionValue> = {}
-  for (const [id, value] of Object.entries(asked)) {
-    if (findOption(options, id)?.currentValue === value) landed[id] = value
-  }
-  return landed
+  const rejected = new Set(staleDefaults(asked, options, previous).map((one) => one.id))
+  return modelFirstValues(Object.fromEntries(Object.entries(asked).filter(([id]) => !rejected.has(id))), options)
 }
 
 /** The `(runtime, sessionId)` pair a session-scoped wire method takes. */

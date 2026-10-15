@@ -9,6 +9,7 @@ import { GoalCreate } from './GoalCreate'
 import styles from './FrontDoor.module.css'
 import { shortSha } from '../lib/evidence'
 import { boundInputValues } from '../lib/shapes'
+import { projectNeedsOpening } from '../lib/workspace-recovery'
 import { useSnapshot, useStore } from '../state/context'
 import { FlowStart } from './FlowStart'
 import { ShapeEditor } from './ShapeEditor'
@@ -69,6 +70,8 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   const snapshot = useSnapshot()
   const root = context.root
   const [entries, setEntries] = useState<readonly FlowEntry[] | null>(null)
+  const [catalogRevision, setCatalogRevision] = useState(0)
+  const [openingProject, setOpeningProject] = useState(false)
   const [unlisted, setUnlisted] = useState<string | null>(null)
   const [roster, setRoster] = useState<ReadonlyMap<string, AgentEntry>>(new Map())
   const [query, setQuery] = useState('')
@@ -101,7 +104,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   // `previewFrontDoor` call is still in the air.
   useEffect(() => {
     store.openFrontDoor(context, goal)
-    return () => store.closeFrontDoor()
+    return () => { sequence.current += 1; store.closeFrontDoor() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -129,7 +132,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
     return () => {
       live = false
     }
-  }, [root, store])
+  }, [root, store, catalogRevision])
 
   const runPreview = useCallback(
     async (text: string, nextVars: Readonly<Record<string, string>>): Promise<void> => {
@@ -149,7 +152,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   )
 
   const choose = useCallback(
-    async (entry: FlowEntry): Promise<void> => {
+    async (entry: Chosen): Promise<void> => {
       sequence.current += 1
       const mine = sequence.current
       // Retires the shape just left behind before its own file is even
@@ -241,7 +244,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   /** Which of `inputs` the shape's own layout fills from the resolved target — head, base, a pull request — rather than from a person typing. */
   const bound = compiled?.format === 'agents' ? boundInputValues(compiled.flow) : new Map<string, never>()
   const errors = (flow?.problems ?? []).filter((one) => one.level === 'error')
-  const startable = preview !== null && !problem && flow !== null && flow.token !== null && compiled?.format === 'agents' && errors.length === 0
+  const startable = preview !== null && !openingProject && !problem && flow !== null && flow.token !== null && compiled?.format === 'agents' && errors.length === 0
   const primary = inputs.find(input => !bound.has(input.id) && input.id !== 'brief')
   const sentenceValid = sentence.trim().length <= 2000 && (primary ? task.trim().length > 0 : true)
   const changeShape = (): void => {
@@ -297,10 +300,32 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
     return <ShapeEditor root={root} context={context} goal={goal} onClose={() => setOwnShape(false)} onStarted={onStarted} />
   }
 
-  if (plainTeam) return <GoalCreate root={root} task={task} onTaskChange={value => { taskRef.current = value; setTask(value) }} done={sentence} onDoneChange={setSentence} onChangeShape={() => setPlainTeam(false)} onClose={onClose} />
+  if (plainTeam) return <GoalCreate root={root} task={task} onTaskChange={value => { taskRef.current = value; setTask(value) }} done={sentence} onDoneChange={setSentence} onChangeShape={() => setPlainTeam(false)} onClose={onClose}
+    projectProblem={unlisted && projectNeedsOpening(unlisted) ? unlisted : undefined} onProjectOpened={() => setCatalogRevision(value => value + 1)} />
 
   const icon = (id: string) => id === 'comparison' ? <SideBySideIcon /> : id === 'fix-and-review' ? <PencilIcon /> : id === 'staged-relay' ? <RouteIcon /> : id.includes('review') ? <ReviewIcon /> : id === 'investigation' ? <SearchIcon /> : <FlowIcon />
   const project = root.split('/').filter(Boolean).at(-1) ?? root
+  const openProject = async (): Promise<void> => {
+    if (openingProject) return
+    const mine = ++sequence.current
+    setOpeningProject(true)
+    try {
+      if (!await store.openWorkspace(root) || mine !== sequence.current) return
+      setStartProblem(null)
+      // Relearn the shape with a fresh token; keep edits, including its policy.
+      if (chosen) {
+        if (source) drafts.current.set(`${chosen.origin}:${chosen.id}`, { source, vars, template: templates.current })
+        await choose(chosen)
+      }
+      setCatalogRevision(value => value + 1)
+    } finally { setOpeningProject(false) }
+  }
+  const recovery = (text: string) => projectNeedsOpening(text)
+    ? <Button variant="secondary" disabled={openingProject} onClick={() => void openProject()}>{openingProject ? 'Opening…' : `Open ${project}`}</Button>
+    : undefined
+  const failure = (text: string) => recovery(text)
+    ? <Banner tone="danger" role="alert" actions={recovery(text)}>{text}</Banner>
+    : <ActionError>{text}</ActionError>
   let cardIndex = 0
   const group = (name: string, list: readonly FlowEntry[], extra?: ReactNode) => (list.length > 0 || extra) && <section className={styles.section} aria-label={name}>
     <SectionHead name={name} />
@@ -342,7 +367,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
         }
       }} className={styles.picker}>
         <Search autoFocus label="Search shapes" placeholder="Search shapes…" value={query} onChange={value => { setQuery(value); setActiveCard(0) }} />
-        {unlisted !== null && <Banner tone="danger" title="These shapes could not be read">{unlisted}</Banner>}
+        {unlisted !== null && <Banner tone="danger" title="These shapes could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
         {group('This project', sections.project)}
         {group('Most used', sections.most)}
         {group('More shapes', sections.more, showPlain && <Button variant="choice" size="panel" className={styles.card} data-stretched data-selected={activeCard === cards.length ? '' : undefined} ref={element => { cardRefs.current[cards.length] = element }} onFocus={() => setActiveCard(cards.length)} onClick={() => setPlainTeam(true)}>
@@ -361,7 +386,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
             else if (compiled?.format === 'agents') void editPolicy({ ...compiled.flow, seed: { ...compiled.flow.seed, title: event.target.value } })
           }} />}
         </Field>}
-        {problem && <ActionError>{problem}</ActionError>}
+        {problem && failure(problem)}
         {compiled?.format === 'agents' && flow && <FlowStart root={root} onChange={() => {}} team={{ flow: compiled.flow, template: templates.current ?? compiled.flow, preview: flow, roster, vars, primary: primary?.id, disabled: starting || policyPending, editingDisabled: starting, onVar: setVar, onReadingChange: setBriefReading, onPolicy: policy => void editPolicy(policy),
           done: <Field label="Done when · optional" error={sentence.trim().length > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
             {control => <Input {...control} aria-label="Done when · optional" value={sentence} disabled={starting} onChange={event => setSentence(event.target.value)} />}
@@ -372,8 +397,8 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
             <Button variant="quiet" disabled={starting} onClick={() => setEveryTime(true)}>Every time…</Button>
           </>,
         }} />}
-        {errors.length > 0 && <Banner tone="danger" title="This will not run yet"><ul>{errors.map(one => <li key={`${one.at}-${one.text}`}>{one.text}</li>)}</ul></Banner>}
-        {startProblem && <ActionError>{startProblem}</ActionError>}
+        {errors.length > 0 && <Banner tone="danger" title="This will not run yet" actions={recovery(errors.map(one => one.text).join(" "))}><ul>{errors.map(one => <li key={`${one.at}-${one.text}`}>{one.text}</li>)}</ul></Banner>}
+        {startProblem && failure(startProblem)}
       </>}
       {everyTime && chosen && <TriggerCreate root={root} opens={{ flow: chosen.id }} onClose={() => setEveryTime(false)} onSaved={() => setEveryTime(false)} />}
     </Dialog>

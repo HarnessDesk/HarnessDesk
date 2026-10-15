@@ -195,6 +195,170 @@ test('fails coverage when a public component has no catalog registration', () =>
   assert.deepEqual(result.missingUi, ['new-control'])
 })
 
+const siblingExports = [
+  { path: 'packages/ui/src/design/index.ts', source: "export { Button, NewControl, CatalogOnly } from './ui/button'\nexport { AccountMark } from './patterns/Settings'" },
+  { path: 'packages/ui/src/design/ui/button.tsx', source: 'export const Button = () => null\nexport const NewControl = () => null\nexport const CatalogOnly = () => null' },
+  { path: 'packages/ui/src/design/patterns/Settings.tsx', source: 'export const AccountMark = () => null' },
+  { path: 'packages/ui/src/components/Screen.tsx', source: "import { Button, NewControl, AccountMark as Mark } from '../design'\nexport const Screen = () => <><Button /><NewControl /><Mark /></>" },
+]
+
+const siblingCoverage = (entries, exportExemptions = []) => catalogCoverage({
+  uiModules: ['button'], patternModules: ['Settings'],
+  registeredUi: ['button'], registeredPatterns: ['Settings'],
+  graph: importGraph(siblingExports),
+  screenPaths: ['packages/ui/src/components/Screen.tsx'],
+  entries, exportExemptions,
+})
+
+test('fails for consumed public siblings even when their modules are registered (#987)', () => {
+  const result = siblingCoverage([
+    { implementationPath: siblingExports[1].path, symbols: ['Button'] },
+    { implementationPath: siblingExports[2].path, symbols: [] },
+  ])
+  assert.deepEqual(result.missingExports, [
+    `${siblingExports[2].path}#AccountMark`, `${siblingExports[1].path}#NewControl`,
+  ])
+  assert.deepEqual(result.missingUi, [])
+})
+
+test('accepts explicit sibling registration and only reasoned export exemptions (#987)', () => {
+  const entries = [
+    { implementationPath: siblingExports[1].path, symbols: ['Button', 'NewControl'] },
+  ]
+  const key = `${siblingExports[2].path}#AccountMark`
+  const exempt = siblingCoverage(entries, [{ export: key, reason: 'AccountMark is a nonvisual helper checked in its dedicated scenario.' }])
+  assert.deepEqual(exempt.missingExports, [])
+  assert.deepEqual(exempt.invalidExportExemptions, [])
+  const invalid = siblingCoverage(entries, [{ export: key, reason: '' }])
+  assert.deepEqual(invalid.missingExports, [key])
+  assert.deepEqual(invalid.invalidExportExemptions, [key])
+  assert.deepEqual(siblingCoverage([...entries, { implementationPath: siblingExports[2].path, symbols: ['Retired'] }]).staleExports, [`${siblingExports[2].path}#Retired`])
+})
+
+test('symbol reachability does not credit another export of the same module (#987)', () => {
+  const files = siblingExports.map((file) => file.path.endsWith('Screen.tsx')
+    ? { ...file, source: "import { Button } from '../design'" } : file)
+  const graph = importGraph(files)
+  assert.equal(isReachable(graph, files[3].path, `${files[1].path}#Button`), true)
+  assert.equal(isReachable(graph, files[3].path, `${files[1].path}#NewControl`), false)
+})
+
+test('fails when local union size values are missing from a registered sibling (#987)', () => {
+  const implementationPath = 'packages/ui/src/design/patterns/Settings.tsx'
+  const source = `
+    type MarkSize = 'sm' | 'lg' | 'dot'
+    type MarkProps = React.ComponentProps<'span'> & { size?: MarkSize }
+    export const AccountMark = ({ size }: MarkProps) => <span />
+    export const Other = ({ size }: { size?: 'compact' }) => <span />
+  `
+  const args = {
+    entries: [{
+      id: 'pattern.Settings', category: 'Patterns', implementationPath,
+      symbols: ['AccountMark'], symbolAxes: { AccountMark: { size: ['sm', 'lg'] } },
+      exampleId: 'row', examples: ['example.tsx'], consumers: ['consumer.tsx'],
+      variants: ['default'], sizes: ['default'], states: ['default'], visual: true,
+    }],
+    existingPaths: new Set([implementationPath, 'example.tsx', 'consumer.tsx']),
+    exampleIds: new Set(['row']), requiredSurfaces: [],
+    sourceByPath: new Map([[implementationPath, source]]),
+  }
+  assert.deepEqual(catalogIntegrity(args).mismatchedUnionAxes, ['pattern.Settings:AccountMark:size'])
+  args.entries[0].symbolAxes.AccountMark.size.push('dot')
+  assert.deepEqual(catalogIntegrity(args).mismatchedUnionAxes, [])
+})
+
+test('reads local function union variants through interfaces and discriminated props (#987)', () => {
+  const implementationPath = 'packages/ui/src/design/ui/probe.tsx'
+  const args = {
+    entries: [{
+      id: 'primitive.probe', implementationPath, symbols: ['Probe'], symbolAxes: { Probe: { variant: ['plain'] } },
+      exampleId: 'probe', examples: ['example.tsx'], consumers: ['consumer.tsx'],
+      variants: ['default'], sizes: ['default'], states: ['default'], visual: true,
+    }],
+    existingPaths: new Set([implementationPath, 'example.tsx', 'consumer.tsx']),
+    exampleIds: new Set(['probe']), requiredSurfaces: [],
+    sourceByPath: new Map([[implementationPath, `
+      interface Base { size?: 'sm' | 'lg' }
+      type Props = Base & ({ variant: 'plain' } | { variant: 'quiet' })
+      function Probe({ variant }: Props) { return null }
+      export { Probe }
+    `]]),
+  }
+  assert.deepEqual(catalogIntegrity(args).mismatchedUnionAxes, ['primitive.probe:Probe:size', 'primitive.probe:Probe:variant'])
+})
+
+test('does not register type-only exports and keeps a public re-export facade (#987)', () => {
+  const files = [
+    { path: 'packages/ui/src/design/index.ts', source: "export * from './patterns/Probe'" },
+    { path: 'packages/ui/src/design/patterns/Probe.tsx', source: "import type { ImportedProps } from './types'\nexport type ExplicitProps = { size: 'sm' }\ninterface LocalProps { size: 'sm' }\nexport { LocalProps, type ImportedProps }\nexport { ImportedProps as ReexportedProps } from './types'\nexport { Probe as PublicProbe } from './implementation'" },
+    { path: 'packages/ui/src/design/patterns/types.ts', source: 'export type ImportedProps = {}' },
+    { path: 'packages/ui/src/design/patterns/implementation.tsx', source: 'export const Probe = () => null' },
+    { path: 'packages/ui/src/components/Screen.tsx', source: "import { PublicProbe, type ReexportedProps } from '../design'" },
+  ]
+  const result = catalogCoverage({
+    uiModules: [], patternModules: ['Probe'], registeredUi: [], registeredPatterns: ['Probe'],
+    graph: importGraph(files), screenPaths: [files[4].path],
+    entries: [{ implementationPath: files[1].path, symbols: ['PublicProbe'] }],
+  })
+  assert.deepEqual(result.missingExports, [])
+  assert.deepEqual(result.staleExports, [])
+})
+
+test('checks a locally aliased export with nullable union props (#987)', () => {
+  const implementationPath = 'packages/ui/src/design/ui/probe.tsx'
+  const result = catalogIntegrity({
+    entries: [{
+      id: 'primitive.probe', implementationPath, symbols: ['PublicProbe'],
+      symbolAxes: { PublicProbe: { size: ['sm'] } },
+      exampleId: 'probe', examples: ['example.tsx'], consumers: ['consumer.tsx'],
+      variants: ['default'], sizes: ['default'], states: ['default'], visual: true,
+    }],
+    existingPaths: new Set([implementationPath, 'example.tsx', 'consumer.tsx']),
+    exampleIds: new Set(['probe']), requiredSurfaces: [],
+    sourceByPath: new Map([[implementationPath, `
+      const Probe = ({ size }: { size?: 'sm' | 'lg' | undefined }) => null
+      export { Probe as PublicProbe }
+    `]]),
+  })
+  assert.deepEqual(result.mismatchedUnionAxes, ['primitive.probe:PublicProbe:size'])
+})
+
+test('inventories namespace and default re-exports through the symbol graph (#987)', () => {
+  const files = [
+    { path: 'packages/ui/src/design/index.ts', source: "export * as Controls from './ui'" },
+    { path: 'packages/ui/src/design/ui/index.ts', source: "export * from './probe'" },
+    { path: 'packages/ui/src/design/ui/probe.tsx', source: "export { default as NewControl } from './implementation'" },
+    { path: 'packages/ui/src/design/ui/implementation.tsx', source: 'export default function Control() { return null }' },
+    { path: 'packages/ui/src/components/Screen.tsx', source: "import { Controls } from '../design'\nconst Screen = () => <Controls.NewControl />" },
+  ]
+  for (const source of [
+    'export default function Control() { return null }',
+    'export default () => null',
+    'export default function () { return null }',
+  ]) {
+    files[3].source = source
+    const result = catalogCoverage({
+      uiModules: ['probe'], patternModules: [], registeredUi: ['probe'], registeredPatterns: [],
+      graph: importGraph(files), screenPaths: [files[4].path], entries: [],
+    })
+    assert.deepEqual(result.missingExports, [`${files[2].path}#NewControl`], source)
+  }
+})
+
+test('does not count a type-only screen import as a value consumer (#987)', () => {
+  for (const source of [
+    "import type { NewControl } from '../design'",
+    "import { type NewControl } from '../design'",
+  ]) {
+    const files = siblingExports.map((file) => file.path.endsWith('Screen.tsx') ? { ...file, source } : file)
+    const result = catalogCoverage({
+      uiModules: ['button'], patternModules: ['Settings'], registeredUi: ['button'], registeredPatterns: ['Settings'],
+      graph: importGraph(files), screenPaths: [files[3].path], entries: [],
+    })
+    assert.deepEqual(result.missingExports, [], source)
+  }
+})
+
 test('rejects dangling implementation paths and example ids', () => {
   const result = catalogIntegrity({
     entries: [{

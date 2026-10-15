@@ -131,6 +131,7 @@ export const todoPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'todo_write',
+        title: 'Update the task list',
         description:
           'Write the task list for this conversation. Send the whole list every time, each task with its status — the call replaces what was there, and it is what the user sees in the Tasks panel. Use it when you plan multi-step work, call it again as each task finishes, and send an empty list when the plan no longer applies.',
         inputSchema: {
@@ -229,6 +230,7 @@ export const todoPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'todo_read',
+        title: 'Read the task list',
         description: 'Read the current task list.',
         inputSchema: { type: 'object', properties: {} },
         execute: (_args: unknown, scope: ScopeQuery) => renderTodos(listFor(listKey(scope))),

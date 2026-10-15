@@ -15,9 +15,11 @@
 .row .button[data-active='true'] { background: var(--hd-selected); color: var(--hd-foreground); }
 .button [data-slot='sidebar-menu-label'] { padding-inline-end: var(--hd-icon-target); }
 .button [data-slot='sidebar-menu-icon'] { width: var(--hd-space-4); height: var(--hd-space-4); }
-.button [data-slot='sidebar-menu-icon'] svg { width: var(--hd-space-4); height: var(--hd-space-4); }
+.button [data-slot='sidebar-menu-icon'] svg { width: var(--hd-space-4); height: var(--hd-space-4); display: block; }
+/* A glyph inside an inline wrapper (the hover-card trigger, a label span) sits on the text baseline of a 20px line box, a few pixels above the row's centre line; as a block it fills its wrapper and the slot centres it. */
 .trailing { pointer-events: none; position: absolute; inset-inline-end: var(--hd-space-2); top: 50%; translate: 0 -50%; width: var(--hd-icon-target); height: var(--hd-icon-target); display: grid; place-items: center; }
 .mark, .action { grid-area: 1 / 1; }
+.mark { display: flex; align-items: center; justify-content: center; }
 .action { display: inline-flex; align-items: center; justify-content: center; width: var(--hd-icon-target); height: var(--hd-icon-target); border-radius: var(--hd-radius-sm); visibility: hidden; opacity: 0; pointer-events: none; }
 .row:is(:hover, :focus-within:not(:has(.button[aria-expanded])), :has(:focus-visible)) .action, .action[aria-expanded='true'] { visibility: visible; opacity: 1; pointer-events: auto; }
 .row:is(:hover, :focus-within:not(:has(.button[aria-expanded])), :has(:focus-visible)):has(.action) .mark, .row:has(.action[aria-expanded='true']) .mark { visibility: hidden; }

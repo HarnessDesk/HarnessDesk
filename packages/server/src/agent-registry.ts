@@ -19,7 +19,7 @@ import type {
 
 import type { AcpRegistry } from './acp-registry.js'
 import { channelLabel } from './installs/channels.js'
-import { CLAUDE_PASTE_PROMPT, CLAUDE_PASTE_REJECTED, currentNameOf, knownAgent } from './installs/known-agents.js'
+import { CLAUDE_PASTE_PROMPT, CLAUDE_PASTE_REJECTED, currentNameOf, DSH_STORE_FIRST_FROM, knownAgent } from './installs/known-agents.js'
 import type { JudgedInstall } from './installs/locate.js'
 import type { InstallService } from './installs/service.js'
 
@@ -150,7 +150,7 @@ const TEMPLATES: readonly AgentTemplate[] = [
         helpUrl: 'https://platform.deepseek.com/api_keys',
         description: 'DeepSeek authenticates with a provider key rather than a browser sign-in.',
         alsoAt: [
-          { path: '${DSH_HOME:-~/.dsh}/.credentials.yaml', format: 'yaml', label: "DeepSeek's own store (.credentials.yaml in its home)" },
+          { path: '${DSH_HOME:-~/.dsh}/.credentials.yaml', format: 'yaml', label: "DeepSeek's own store (.credentials.yaml in its home)", outranksEnvFrom: DSH_STORE_FIRST_FROM },
           { path: '${DSH_HOME:-~/.dsh}/.env', format: 'dotenv', label: '.env in its home' },
         ],
       },

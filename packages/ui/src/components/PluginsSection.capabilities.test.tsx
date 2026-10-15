@@ -18,7 +18,7 @@ import { PluginsTestPage } from '../test/plugins-test-page'
  * The capability inventory: everything plugins contribute, findable.
  *
  * Three promises. The search finds a tool by what it does, not only by its
- * wire name. The kind filter narrows to one vocabulary. And the reach chip is
+ * wire name. The kind filter narrows to one vocabulary. And the reach note is
  * honest about an agent that refuses the session-request server: DeepSeek
  * Harness loads the same bridge from its own composition, so "no reach" was
  * a lie the moment §28.5 landed — the chip may only claim what the host can
@@ -72,6 +72,7 @@ const tool = (
   name: string,
   description: string,
   scope: CapabilityContribution['scope'] = { kind: 'global' },
+  title?: string,
 ): CapabilityContribution =>
   ({
     id: `${owner}/${name}`,
@@ -82,6 +83,7 @@ const tool = (
     namespace: owner,
     name,
     description,
+    title,
     inputSchema: {},
   }) as unknown as CapabilityContribution
 
@@ -108,10 +110,10 @@ const makeStore = (
     readonly activeSessionKey?: SessionKey
   },
 ): AppStore => {
-  const git = plugin('git', 'Git', [tool('git', 'git_status', 'Show the working tree status.')])
+  const git = plugin('git', 'Git', [tool('git', 'git_status', 'Show the working tree status.', undefined, 'Show Git status')])
   const guard = plugin('guardrails', 'Guardrails', [hook('guardrails', 'Checks every tool call')])
   const web = plugin('web', 'Web', [
-    tool('web', 'web_fetch', 'Fetch a page from an allowed host.', here?.webScope),
+    tool('web', 'web_fetch', 'Fetch a page from an allowed host.', here?.webScope, 'Read a web page'),
   ])
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -166,14 +168,14 @@ it('search finds a tool by what it does, and the kind filter narrows the list', 
   mount(makeStore(runtime('codex', 'Codex', true)))
   openCapabilities()
 
-  expect(container.textContent).toContain('Show the working tree status.')
+  expect(container.textContent).toContain('Show Git status')
   expect(container.textContent).toContain('Checks every tool call')
 
   const search = container.querySelector<HTMLInputElement>('input[aria-label="Search capabilities"]')
   expect(search).toBeTruthy()
   setValue(search as HTMLInputElement, 'working tree')
-  expect(container.textContent).toContain('Show the working tree status.')
-  expect(container.textContent).not.toContain('Fetch a page')
+  expect(container.textContent).toContain('Show Git status')
+  expect(container.textContent).not.toContain('Read a web page')
   expect(container.textContent).not.toContain('Checks every tool call')
 
   setValue(search as HTMLInputElement, '')
@@ -181,13 +183,37 @@ it('search finds a tool by what it does, and the kind filter narrows the list', 
   expect(kind).toBeTruthy()
   setValue(kind as HTMLSelectElement, 'hook')
   expect(container.textContent).toContain('Checks every tool call')
-  expect(container.textContent).not.toContain('Show the working tree status.')
+  expect(container.textContent).not.toContain('Show Git status')
 })
 
-it('an agent that takes the server shows every tool as reaching it', () => {
+it('uses tool titles, owner second lines, and descriptions only on hover', () => {
+  mount(makeStore(runtime('one', 'First Agent', true)), 'capabilities')
+  const title = [...container.querySelectorAll('[data-slot="row-title"]')].find(row => row.textContent === 'Show Git status')
+  const row = title?.closest('button')
+  expect(row).toBeTruthy()
+  expect(row?.querySelector('[data-slot="row-desc"]')?.textContent).toBe('Git')
+  expect(row?.querySelector('[title="Show the working tree status."]')).toBeTruthy()
+  expect(container.textContent).not.toContain('Show the working tree status.')
+  setValue(container.querySelector('input[aria-label="Search capabilities"]')!, 'Show Git status')
+  expect(container.textContent).toContain('Show Git status')
+  expect(container.textContent).not.toContain('Read a web page')
+})
+
+it('an untitled external tool uses its name rather than model instructions', () => {
+  const store = makeStore(runtime('one', 'First Agent', true))
+  const snapshot = { ...store.getSnapshot(), contributions: [tool('outside', 'fetch_document', 'Model instructions belong on hover.')] }
+  store.getSnapshot = () => snapshot
+  mount(store, 'capabilities')
+  expect(container.querySelector('[data-slot="row-title"]')?.textContent).toBe('Fetch document')
+  expect(container.textContent).not.toContain('Model instructions belong on hover.')
+})
+
+it('an agent that takes the server says so once for the tool group', () => {
   mount(makeStore(runtime('codex', 'Codex', true)))
   openCapabilities()
-  expect(container.textContent).toContain('Reaches agent')
+  const note = container.querySelector('section[aria-label="2 tools"] [data-slot="section-description"]')
+  expect(note?.textContent).toContain('Reaches agent')
+  expect([...container.querySelectorAll('[data-slot="chip"]')].some(chip => chip.textContent === 'Reaches agent')).toBe(false)
   expect(container.textContent).not.toContain('Own config only')
 })
 
@@ -226,11 +252,11 @@ it('“applies here” is the host’s answer, not the pushed list filtered agai
      contribution regardless of scope and filters by kind alone, so it cannot
      answer this question at all — only the host evaluates a scope. */
   const asked: Asked[] = []
-  const only = tool('git', 'git_status', 'Show the working tree status.')
+  const only = tool('git', 'git_status', 'Show the working tree status.', undefined, 'Show Git status')
   mount(makeStore(runtime('codex', 'Codex', true), { answers: [only], asked }))
   openCapabilities()
 
-  expect(container.textContent).toContain('Fetch a page from an allowed host.')
+  expect(container.textContent).toContain('Read a web page')
 
   const where = container.querySelector<HTMLSelectElement>('select[aria-label="Where it applies"]')
   expect(where, 'the scope filter exists').toBeTruthy()
@@ -241,8 +267,8 @@ it('“applies here” is the host’s answer, not the pushed list filtered agai
   // narrowing it: `web_fetch` is in the pushed set and not in the host's.
   expect(asked.map((one) => one.kind)).toContain('tool')
   expect(asked.map((one) => one.kind)).toContain('hook')
-  expect(container.textContent).toContain('Show the working tree status.')
-  expect(container.textContent).not.toContain('Fetch a page from an allowed host.')
+  expect(container.textContent).toContain('Show Git status')
+  expect(container.textContent).not.toContain('Read a web page')
 })
 
 it('changing the kind under “applies here” does not show the last kind’s answer', async () => {
@@ -252,7 +278,7 @@ it('changing the kind under “applies here” does not show the last kind’s a
      Selecting Tools left hooks and panels on screen until it landed. */
   const asked: Asked[] = []
   const answers = [
-    tool('git', 'git_status', 'Show the working tree status.'),
+    tool('git', 'git_status', 'Show the working tree status.', undefined, 'Show Git status'),
     hook('guardrails', 'Checks every tool call'),
   ]
   mount(makeStore(runtime('codex', 'Codex', true), { answers, asked }))
@@ -270,7 +296,7 @@ it('changing the kind under “applies here” does not show the last kind’s a
   expect(container.textContent).not.toContain('Checks every tool call')
 
   await act(async () => {})
-  expect(container.textContent).toContain('Show the working tree status.')
+  expect(container.textContent).toContain('Show Git status')
 })
 
 it('the conversation’s id reaches the host before its session has been read in', async () => {

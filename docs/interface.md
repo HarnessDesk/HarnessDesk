@@ -413,6 +413,12 @@ fold has Open usage, scoped to that agent; an agent needing an account has Sign
 in. Then come Settings and signing out of the default agent. Dashboard in the
 sidebar opens on everything.
 
+The quota forecast, "&lt;agent&gt; will run out before it refills", stays above a
+visible composer and on the Dashboard. Every other page uses a warning dot
+beside the account mark instead of the full notice; its hover text and
+accessible name carry the same title and detail. Dismissing or silencing the
+notice also puts away that dot for the same occurrence or kind.
+
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every
 group, the way a Mac's own settings open on their owner — and the page is its
@@ -532,6 +538,10 @@ continued here. Opening History or returning focus rescans imported agents;
 the host limits completed rescans to once a minute.
 
 ## The conversation
+
+Opening a conversation from the sidebar, command palette or a conversation
+link opens its folder as the workspace, including a worktree whose repository
+is closed. Workspace-scoped Agents, Plugins and New Team follow that folder.
 
 **The header earns each button**: title · status group · browser button ·
 terminal toggle · ⋮. The status group puts the ceiling, status, background work,
@@ -841,6 +851,13 @@ three labelled columns. Descriptions wrap, a warning names a needed fix, and
 only agents that load the entry appear as faces; Matrix and the entry’s sheet
 keep the per-agent detail. Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
 the generic plugin glyph is omitted only when the list has no mapped glyphs.
+Plugin tools use their short titles in Capabilities, on their own page and in
+the transcript. Capabilities keeps the owning plugin below each title and the
+full description on hover; the plugin page keeps the full description visible.
+Tools that reach the active agent through the session request say so once above
+the group. Tools available only through the agent's own configuration keep
+that exception beside their title.
+
 Model efforts are words beside the description, and endpoint, key and preset
 removals live in their row’s actions menu. Keyboard shortcuts show one keycap
 per key, with the four focus-tile shortcuts grouped as 1 – 4.
@@ -1294,6 +1311,12 @@ changed before Start; the dry run shows the exact command for each attempt.
 Leaving it empty sends the
 attempts straight to the judge in Side by side, or to your choice in Mechanical
 contest, without a check round.
+
+If the project is outside every open workspace, the refusal offers **Open**
+followed by the project name. Opening it keeps the form and refreshes the dry run so
+**Start** can proceed once its requirements are met.
+**Just a Team** keeps that recovery action too, along with the task, completion
+sentence and checkout choice already entered.
 
 The form reads the identical strict dry run before **Start**: every Seat must
 *hold* its ceiling here, so a runtime that can only be asked shows its exact

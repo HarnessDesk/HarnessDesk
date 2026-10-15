@@ -965,6 +965,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'git_status',
+        title: 'Show Git status',
         description: 'Show the working tree status of the open workspace.',
         inputSchema: { type: 'object', properties: {} },
         execute: async () => (await git(['status', '--short', '--branch'])) || 'clean',
@@ -972,6 +973,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'git_diff',
+        title: 'Show changes',
         description: 'Show uncommitted changes, optionally limited to one path.',
         inputSchema: {
           type: 'object',
@@ -994,6 +996,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'git_log',
+        title: 'Show recent commits',
         description: 'Show recent commits.',
         inputSchema: {
           type: 'object',
@@ -1015,6 +1018,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'pr_create',
+        title: 'Open a pull request',
         description:
           'Open a pull request on GitHub for the current branch, through HarnessDesk. The branch must already be pushed to its remote — this never pushes, and says what to run when it is not. The description is signed for this conversation’s seat (agent, model, effort) by the desk; do not add a signature or a “Generated with” line of your own. Use this rather than `gh pr create`: the pull request is then recorded in the conversation.',
         inputSchema: {
@@ -1126,6 +1130,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'pr_update',
+        title: 'Update a pull request',
         description:
           'Change a pull request’s title, description or base branch, through HarnessDesk. A new description keeps the latest seat for each role and agent pair, up to eight pairs. Adding a ninth drops the earliest-added pair, even if it was updated later. Do not write a signature yourself. Names the pull request by number, or takes the one open for the current branch.',
         inputSchema: {
@@ -1182,6 +1187,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'pr_merge',
+        title: 'Merge a pull request',
         description:
           'Merge a pull request, through HarnessDesk, with the person’s own gh — only one you were asked to merge, only at the reviewed commit, and only after every required check on the base branch is green. It reads the base branch’s rules and classic protection summary and uses their combined requirements; if either answer cannot be read, every check on the commit must be green. A missing, pending or failed required check refuses the merge. GitHub also refuses if the branch moved since review. Squash unless told otherwise. Only a seat whose ceiling is merge may call this; the desk refuses it for any other.',
         inputSchema: {
@@ -1251,6 +1257,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'pr_review',
+        title: 'Review a pull request',
         description:
           'Post a review on a pull request — approve, request changes, or comment — through HarnessDesk. The review opens with a line naming this conversation’s seat; do not add one. Names the pull request by number, or takes the one open for the current branch.',
         inputSchema: {
@@ -1301,6 +1308,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'pr_comment',
+        title: 'Comment on a pull request',
         description:
           'Leave a comment on a pull request’s conversation, through HarnessDesk. The desk signs the opening line for this conversation’s role and seat. Names the pull request by number, or takes the one open for the current branch.',
         inputSchema: {
@@ -1329,6 +1337,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'pr_view',
+        title: 'Read a pull request',
         description:
           'Read a pull request: title, state, author, branches, size and description. Names it by number, or takes the one open for the current branch.',
         inputSchema: {
@@ -1340,6 +1349,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'pr_checks',
+        title: 'Read pull request checks',
         description: 'The CI checks on a pull request, each with its state and link. Names it by number, or takes the one open for the current branch.',
         inputSchema: {
           type: 'object',
@@ -1374,6 +1384,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'issue_view',
+        title: 'Read an issue',
         description: 'Read a GitHub issue: title, state, labels, body and discussion.',
         inputSchema: {
           type: 'object',
@@ -1400,6 +1411,7 @@ export const gitPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'issue_comment',
+        title: 'Comment on an issue',
         description: 'Leave a comment on a GitHub issue, through HarnessDesk. The desk signs the opening line for this conversation’s role and seat.',
         inputSchema: {
           type: 'object',

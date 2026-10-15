@@ -95,6 +95,15 @@ it('gives a text mark a tone only when it judges, and the muted ink otherwise', 
   expect(judged?.className).not.toContain('text-(--hd-muted-foreground)')
 })
 
+it('exposes a labelled status mark and keeps decorative marks hidden', () => {
+  act(() => root.render(<><TextMark label="Stale saved default" tone="warning"><svg /></TextMark><TextMark><svg /></TextMark></>))
+  const [status, decoration] = [...container.querySelectorAll<HTMLElement>('[data-mark]')]
+  expect(status?.getAttribute('aria-label')).toBe('Stale saved default')
+  expect(status?.hasAttribute('aria-hidden')).toBe(false)
+  expect(status?.className).toContain('shrink-0')
+  expect(decoration?.getAttribute('aria-hidden')).toBe('true')
+})
+
 it('strikes a finished item through and steps it back, and leaves the rest alone', () => {
   act(() => root.render(<><Text role="navigation" done>Read it</Text><Text role="navigation">Fix it</Text></>))
   const [done, open] = [...container.querySelectorAll<HTMLElement>('[data-slot="text"]')]

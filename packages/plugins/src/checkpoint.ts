@@ -93,6 +93,7 @@ export const checkpointPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'create_checkpoint',
+        title: 'Create a checkpoint',
         description:
           'Record a recoverable snapshot of the working tree. Useful before a risky change.',
         inputSchema: {
@@ -108,6 +109,7 @@ export const checkpointPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'list_checkpoints',
+        title: 'List checkpoints',
         description: 'List the recoverable snapshots taken during this session.',
         inputSchema: { type: 'object', properties: {} },
         execute: (_args: unknown, scope: ScopeQuery) => {

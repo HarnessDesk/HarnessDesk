@@ -16,6 +16,7 @@ const accountDisplay = (account: NonNullable<RuntimeObservations['account']>): N
     kind: entry.kind, label: entry.label,
     ...(entry.planType !== undefined ? { planType: entry.planType } : {}),
     ...(entry.anonymous !== undefined ? { anonymous: entry.anonymous } : {}),
+    ...(entry.storedCopy !== undefined ? { storedCopy: entry.storedCopy } : {}),
   })),
   signInMethods: [],
   signInFlows: [...new Set(account.signInFlows ?? account.signInMethods.map(method => method.flow))]
@@ -59,6 +60,7 @@ const display = (entry: CachedRuntime): CachedRuntime => ({
   ...(entry.sessionOptions ? { sessionOptions: optionsDisplay(entry.sessionOptions) } : {}),
   ...(entry.commands ? { commands: commandsDisplay(entry.commands) } : {}),
   ...(entry.account ? { account: accountDisplay(entry.account) } : {}),
+  ...(typeof entry.launchedVersion === 'string' ? { launchedVersion: entry.launchedVersion } : {}),
   ...(entry.info ? { info: { version: entry.info.version, capabilities: Object.fromEntries(Object.entries(entry.info.capabilities).filter(([, value]) => typeof value === 'boolean')) as typeof entry.info.capabilities } } : {}),
   ...(entry.start ? { start: { readyMs: entry.start.readyMs, modelsMs: entry.start.modelsMs } } : {}),
 })
