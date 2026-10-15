@@ -307,10 +307,10 @@ it('chooses Agents layout from the allocation inside the reading inset at the un
  } finally {vi.unstubAllGlobals()}
 })
 
-it('owns its centred reading Page and a single reading gutter', () => {
+it('owns its centred wide Page and a single gutter', () => {
  render([])
  const page=box.querySelector('[data-slot="team-overview"] > [data-slot="page"]')
  expect(page).not.toBeNull()
- expect(page?.getAttribute('data-width')).toBe('reading')
+ expect(page?.getAttribute('data-width')).toBe('wide')
  expect(page?.querySelector('[data-inset="reading"]')).toBeNull()
 })
