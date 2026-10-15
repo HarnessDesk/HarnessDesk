@@ -406,11 +406,11 @@ body[data-hd-corners='round'] {
 /*
  * Faces: the customizer's fourth dial, and the smallest. It moves one pair of
  * tokens, so every face in the app (agents and people, at every size) turns
- * round together and nothing else does: an account's ring was already round,
- * and a thing's tile (a plugin, a file, a section) stays square, because a
- * circle is how the app says "someone".
+ * square together and nothing else does: an account stays a hollow ring, and
+ * a thing's tile (a plugin, a file, a section) was already square. Round is
+ * the default, because a circle is how the app says "someone".
  */
-body[data-hd-faces='round'] {
-  --hd-face-radius: var(--hd-radius-full);
-  --hd-face-radius-lg: var(--hd-radius-full);
+body[data-hd-faces='square'] {
+  --hd-face-radius: var(--hd-radius-sm);
+  --hd-face-radius-lg: var(--hd-radius);
 }

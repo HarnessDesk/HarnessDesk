@@ -112,11 +112,11 @@ const open = async (page: Page, url: string, ready: string) => {
   await page.evaluate(async () => { await document.fonts.ready })
 }
 
-/** Faces are square unless the person chose round: an absent attribute is square. */
+/** Faces are round unless the person chose square: an absent attribute is round. */
 const setFaces = (page: Page, how: FacesHow, faces: 'square' | 'round') =>
   page.evaluate(({ how, value }) => {
     if (how === 'attribute') {
-      if (value === 'square') document.body.removeAttribute('data-hd-faces')
+      if (value === 'round') document.body.removeAttribute('data-hd-faces')
       else document.body.setAttribute('data-hd-faces', value)
       return
     }

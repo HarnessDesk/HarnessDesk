@@ -304,13 +304,15 @@ body {
      Faces are one object wherever they are drawn (the chat, a team's rail, a
      board card's holder, the agent card, the seat, a name inside a sentence),
      so they take their corner from here rather than from the tile they sit
-     in. Square by default, on the radius scale the way every mark is, with
-     the larger face a rung up so 24px and 44px read as one object at two
-     sizes. A person may choose round (Settings > Appearance > Faces), which
-     `body[data-hd-faces='round']` writes in shadcn-themes.css. An account's
-     ring is not a face and stays a ring whichever is chosen. */
-  --hd-face-radius: var(--hd-radius-sm);
-  --hd-face-radius-lg: var(--hd-radius);
+     in. Round by default: round is someone, and square is a thing (a plugin,
+     a file, a section), so the two never read alike. A person may choose
+     square (Settings > Appearance > Faces), which
+     `body[data-hd-faces='square']` writes in shadcn-themes.css, on the radius
+     scale with the larger face a rung up so 24px and 44px read as one object
+     at two sizes. An account is neither: it is a hollow ring, whichever is
+     chosen. */
+  --hd-face-radius: var(--hd-radius-full); /* desk: 6 → full, round is someone */
+  --hd-face-radius-lg: var(--hd-radius-full); /* desk: 10 → full, round is someone */
 
   /* A hairline is one device pixel, not one CSS pixel, so it stays a hairline
      on the retina displays this app actually runs on. */

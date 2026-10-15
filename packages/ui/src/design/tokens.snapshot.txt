@@ -159,8 +159,8 @@
 --hd-ease-in = cubic-bezier(0.5, 0, 0.75, 0)
 --hd-ease-out = cubic-bezier(0.16, 1, 0.3, 1)
 --hd-external-canvas = rgb(255, 255, 255)
---hd-face-radius = 6px
---hd-face-radius-lg = 10px
+--hd-face-radius = 9999px
+--hd-face-radius-lg = 9999px
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
 --hd-field-h = 32px
@@ -333,7 +333,7 @@
 --hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
---hd-table-face-radius = calc(6px * 4 / 3)
+--hd-table-face-radius = calc(9999px * 4 / 3)
 --hd-table-fact-size = 12px
 --hd-table-head-h = 40px
 --hd-table-head-ink = rgb(49, 49, 49)
@@ -738,8 +738,8 @@
 --hd-ease-in = cubic-bezier(0.5, 0, 0.75, 0)
 --hd-ease-out = cubic-bezier(0.16, 1, 0.3, 1)
 --hd-external-canvas = rgb(255, 255, 255)
---hd-face-radius = 6px
---hd-face-radius-lg = 10px
+--hd-face-radius = 9999px
+--hd-face-radius-lg = 9999px
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
 --hd-field-h = 32px
@@ -912,7 +912,7 @@
 --hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
---hd-table-face-radius = calc(6px * 4 / 3)
+--hd-table-face-radius = calc(9999px * 4 / 3)
 --hd-table-fact-size = 12px
 --hd-table-head-h = 40px
 --hd-table-head-ink = rgb(208, 208, 208)
@@ -1322,8 +1322,8 @@
 --hd-ease-in = cubic-bezier(0.5, 0, 0.75, 0)
 --hd-ease-out = cubic-bezier(0.16, 1, 0.3, 1)
 --hd-external-canvas = rgb(255, 255, 255)
---hd-face-radius = 6px
---hd-face-radius-lg = 10px
+--hd-face-radius = 9999px
+--hd-face-radius-lg = 9999px
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
 --hd-field-h = 32px
@@ -1500,7 +1500,7 @@
 --hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
---hd-table-face-radius = calc(6px * 4 / 3)
+--hd-table-face-radius = calc(9999px * 4 / 3)
 --hd-table-fact-size = 12px
 --hd-table-head-h = 40px
 --hd-table-head-ink = rgb(49, 49, 49)
@@ -1910,8 +1910,8 @@
 --hd-ease-in = cubic-bezier(0.5, 0, 0.75, 0)
 --hd-ease-out = cubic-bezier(0.16, 1, 0.3, 1)
 --hd-external-canvas = rgb(255, 255, 255)
---hd-face-radius = 6px
---hd-face-radius-lg = 10px
+--hd-face-radius = 9999px
+--hd-face-radius-lg = 9999px
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
 --hd-field-h = 32px
@@ -2088,7 +2088,7 @@
 --hd-table-edge = 12px
 --hd-table-end-gap = 12px
 --hd-table-face = 32px
---hd-table-face-radius = calc(6px * 4 / 3)
+--hd-table-face-radius = calc(9999px * 4 / 3)
 --hd-table-fact-size = 12px
 --hd-table-head-h = 40px
 --hd-table-head-ink = rgb(208, 208, 208)

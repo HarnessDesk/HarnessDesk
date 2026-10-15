@@ -786,24 +786,27 @@ Three shapes, and each one means something wherever it appears:
 | Shape | What it is | Examples |
 | --- | --- | --- |
 | Face | Someone: an agent at work, a runtime or a person | A sender in the chat, a member in a Team's popover, a board card's holder, a runtime, session or member card, your seat, a name inside a sentence |
-| Ring | An account | The seat menu's account marks, an account card |
+| Ring | An account | The seat's account mark, the seat menu's account marks, an account card |
 | Square | A thing or a category | A plugin, a skill, a file, a section |
 
-A face takes its corner from `--hd-face-radius` and never from the tile it sits
-in. It is square by default, and a person can make every face round in
-Settings › Appearance › Faces (`body[data-hd-faces='round']`). Draw a face with
+The short form is *round is someone, square is a thing*. A face takes its
+corner from `--hd-face-radius` and never from the tile it sits in. It is round
+and filled by default, and a person can make every face square in
+Settings › Appearance › Faces (`body[data-hd-faces='square']`). Draw a face with
 `IconTile shape="face"` or `Face`, and an agent named inside a sentence with
 `MemberName`. A face drawn as a bare `square` tile would be the one face that
-ignores the setting. The ring and the square do not move with Faces: an
-account was already round, and a thing staying square is how a round face
-still reads as someone. An unassigned job uses `IconTile shape="face" empty`:
+ignores the setting. The ring and the square do not move with Faces. An
+account is a hollow ring (`AccountMark`, or `IconTile shape="round"` with a
+`tint`): its colour on the edge, the agent's mark inside and no plate, so the
+seat's account beside your filled face never reads as a second face. A thing
+stays square whichever is chosen. An unassigned job uses `IconTile shape="face" empty`:
 an empty face outline means nobody is assigned, and follows the Faces setting.
 A finished job with no recoverable completer shows only a quiet dash; no empty
 face claims that nobody did the work.
 
 A tinted face is filled with its tint's ink and uses the accent foreground for
-its mark or initials. Other tinted tiles, including square and round ones,
-keep the soft tint wash.
+its mark or initials. A tinted ring is hollow, its edge in the tint and its
+mark in the tint's ink. A tinted square keeps the soft tint wash.
 
 A new surface cannot draw someone in a fixed corner without a test failing.
 `IconTile`, `DetailMark`, `AvatarStack`, `Face`, `AccountMark` and a notice’s
