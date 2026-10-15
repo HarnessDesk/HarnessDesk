@@ -4,6 +4,21 @@ import expectedFolds from './composer-slot-record.json' with { type: 'json' }
 const shapes = ['Assistant A', 'Assistant B', 'Assistant C', 'Assistant D']
 const slots = ['add', 'work-in', 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
 
+test('permission modes keep their chosen label in draft and live composers', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await page.goto('/preview.html?composer-slots')
+  for (const layout of ['draft', 'live']) {
+    const composer = page.locator(`[data-permission-mode-case="${layout}"]`)
+    await expect(composer).toBeVisible()
+    await expect(composer.getByText('This agent has no permission setting', { exact: true })).toHaveCount(0)
+    await expect(composer.locator('[title="This agent has no permission setting"]')).toHaveCount(0)
+    await expect(composer.locator('[data-composer-track="permissions"]')).toHaveCount(0)
+    const label = composer.locator('[data-composer-track="mode"] [data-slot="text"]')
+    await expect(label).toHaveText('Accept edits')
+    await expect(label).toBeVisible()
+  }
+})
+
 const aligned = (page: Page, width: string, layout: 'draft' | 'live') => page.evaluate(({ width, layout, shapes, slots }) => {
   const testedSlots = layout === 'draft' ? slots : slots.filter((slot) => slot !== 'work-in')
   const positions: Record<string, number[]> = Object.fromEntries(testedSlots.map((slot) => [slot, []]))

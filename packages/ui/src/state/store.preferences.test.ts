@@ -136,11 +136,11 @@ it('keeps the shape of faces like every other appearance preference, and reads i
     return method === 'app/state/get' ? stored : null
   }) as never)
 
-  expect(store.getSnapshot().faces).toBe('square')
-  store.setFaces('round')
   expect(store.getSnapshot().faces).toBe('round')
-  await vi.waitFor(() => expect(asked).toContainEqual({ method: 'app/state/set', params: { patch: { faces: 'round' } } }))
-  expect(stored['faces']).toBe('round')
+  store.setFaces('square')
+  expect(store.getSnapshot().faces).toBe('square')
+  await vi.waitFor(() => expect(asked).toContainEqual({ method: 'app/state/set', params: { patch: { faces: 'square' } } }))
+  expect(stored['faces']).toBe('square')
 
   // A fresh window reads it back; a value this build does not know is ignored,
   // never trusted onto the body.
@@ -148,19 +148,19 @@ it('keeps the shape of faces like every other appearance preference, and reads i
   vi.spyOn(fresh.transport, 'request').mockImplementation((async (method: string) =>
     method === 'app/state/get' ? stored : null) as never)
   await fresh.loadPreferences()
-  expect(fresh.getSnapshot().faces).toBe('round')
+  expect(fresh.getSnapshot().faces).toBe('square')
   stored['faces'] = 'hexagon'
   const other = new AppStore('ws://localhost:0/')
   vi.spyOn(other.transport, 'request').mockImplementation((async (method: string) =>
     method === 'app/state/get' ? stored : null) as never)
   await other.loadPreferences()
-  expect(other.getSnapshot().faces).toBe('square')
+  expect(other.getSnapshot().faces).toBe('round')
 })
 
 it('says so when the shape of faces does not reach the host', async () => {
   refuse = true
-  store.setFaces('round')
+  store.setFaces('square')
   await vi.waitFor(() => expect(messages()).toHaveLength(1))
   expect(messages()[0]).toContain('The shape of faces could not be saved')
-  expect(store.getSnapshot().faces).toBe('round')
+  expect(store.getSnapshot().faces).toBe('square')
 })

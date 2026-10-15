@@ -144,6 +144,26 @@ export const solidTint = cva('', {
   defaultVariants: { tint: 'blue' },
 })
 
+/**
+ * A tint as a hollow ring around the ink: an account. A face is filled
+ * (`solidTint`), so an account drawn beside one never reads as a second face.
+ */
+export const ringTint = cva('', {
+  variants: {
+    tint: {
+      blue: 'bg-transparent text-(--hd-tint-blue-ink) shadow-[inset_0_0_0_1.5px_var(--hd-tint-blue-edge)]',
+      green: 'bg-transparent text-(--hd-tint-green-ink) shadow-[inset_0_0_0_1.5px_var(--hd-tint-green-edge)]',
+      amber: 'bg-transparent text-(--hd-tint-amber-ink) shadow-[inset_0_0_0_1.5px_var(--hd-tint-amber-edge)]',
+      violet: 'bg-transparent text-(--hd-tint-violet-ink) shadow-[inset_0_0_0_1.5px_var(--hd-tint-violet-edge)]',
+      rose: 'bg-transparent text-(--hd-tint-rose-ink) shadow-[inset_0_0_0_1.5px_var(--hd-tint-rose-edge)]',
+      teal: 'bg-transparent text-(--hd-tint-teal-ink) shadow-[inset_0_0_0_1.5px_var(--hd-tint-teal-edge)]',
+      orange: 'bg-transparent text-(--hd-tint-orange-ink) shadow-[inset_0_0_0_1.5px_var(--hd-tint-orange-edge)]',
+      sky: 'bg-transparent text-(--hd-tint-sky-ink) shadow-[inset_0_0_0_1.5px_var(--hd-tint-sky-edge)]',
+    },
+  },
+  defaultVariants: { tint: 'blue' },
+})
+
 /** A tint as a solid dot — the marker on a board column's name. */
 export const dotTint = cva('', {
   variants: {

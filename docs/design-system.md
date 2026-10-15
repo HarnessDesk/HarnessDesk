@@ -185,8 +185,8 @@ Four radii carry the whole interface, and a fifth name says "pill". `sm` is a sm
 | `--hd-radius-xl` | `16px` |
 | `--hd-radius-full` | `9999px` |
 | `--hd-radius-matted` | `calc(14px - 2px)` |
-| `--hd-face-radius` | `6px` |
-| `--hd-face-radius-lg` | `10px` |
+| `--hd-face-radius` | `9999px` |
+| `--hd-face-radius-lg` | `9999px` |
 | `--hd-border-width` | `1px` |
 
 ### Type
@@ -238,7 +238,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-usage-meter-reading` | `64px` |
 | `--hd-usage-meter-reset` | `88px` |
 | `--hd-table-face` | `32px` |
-| `--hd-table-face-radius` | `calc(6px * 4 / 3)` |
+| `--hd-table-face-radius` | `calc(9999px * 4 / 3)` |
 | `--hd-table-lead-gap` | `12px` |
 | `--hd-table-name-size` | `14px` |
 | `--hd-table-fact-size` | `12px` |
@@ -553,7 +553,7 @@ A table scope owns its density, including list and settings examples. Restating 
 | `--hd-table-edge` | `12px` | `12px` |
 | `--hd-table-end-gap` | `12px` | `8px` |
 | `--hd-table-face` | `32px` | `24px` |
-| `--hd-table-face-radius` | `calc(6px * 4 / 3)` | `6px` |
+| `--hd-table-face-radius` | `calc(9999px * 4 / 3)` | `9999px` |
 | `--hd-table-fact-size` | `12px` | `12px` |
 | `--hd-table-head-h` | `40px` | `32px` |
 | `--hd-table-head-ink` | `rgb(49, 49, 49)` | `rgb(49, 49, 49)` |
@@ -2332,14 +2332,13 @@ built for.
 A person's face: the picture they chose, or the house mark when they have
 not.
 
-It is the avatar above — the plate and the hairline the account marks wear —
-in the face shape, because a person is not an account: account marks are
-rings, a face is whatever the person chose for faces (`--hd-face-radius`,
-squared unless they picked round; the avatars were drawn as squared tiles,
-`assets/avatars/README.md`), and it is the same corner the agents' marks
-beside it wear.
-The corner steps up the radius scale with the size, so the seat's 24px and
-the profile page's 44px read as one object at two sizes.
+It is the avatar above, filled with its plate and hairline, in the face
+shape, because a person is not an account: account marks are hollow rings,
+a face is whatever the person chose for faces (`--hd-face-radius`, round
+unless they picked square), and it is the same corner the agents' marks
+beside it wear. When faces are square the corner steps up the radius scale
+with the size, so the seat's 24px and the profile page's 44px read as one
+object at two sizes.
 
 Without a `size` it fills the box it is put in and takes that box's corner:
 a room's message rows draw a tile for every sender, and a person's face

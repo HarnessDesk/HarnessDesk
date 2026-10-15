@@ -25,6 +25,10 @@ const optionsFor = (shape: number): ConfigOption[] => {
     case 1: return [mode, model, modelConfig, reasoning]
     case 2: return [other]
     case 4: return []
+    case 5: return [{
+      ...mode, description: 'Session permission mode', currentValue: 'accept-edits',
+      choices: [{ value: 'manual', label: 'Manual' }, { value: 'accept-edits', label: 'Accept edits' }, { value: 'plan', label: 'Plan' }, { value: 'auto', label: 'Auto' }],
+    }, model, reasoning]
     default: return [mode, model, reasoning, permissions, other]
   }
 }
@@ -32,7 +36,8 @@ const optionsFor = (shape: number): ConfigOption[] => {
 const SHAPES = ['Assistant A', 'Assistant B', 'Assistant C', 'Assistant D'] as const
 
 const SlotToolbar = ({ shape, live, extensionAction = false, contentBoxProbe = false }: { shape: number; live: boolean; extensionAction?: boolean; contentBoxProbe?: boolean }) => {
-  const runtime = { id: runtimeId(`preview-${shape}`), name: SHAPES[shape], capabilities: { metered: false }, presentation: { name: SHAPES[shape] } } as unknown as RuntimeInfo
+  const name = shape === 5 ? 'Assistant E' : SHAPES[shape]
+  const runtime = { id: runtimeId(`preview-${shape}`), name, capabilities: { metered: false }, presentation: { name } } as unknown as RuntimeInfo
   const key = sessionKey(runtime.id, sessionId(`composer-slots-${shape}`))
   const options = optionsFor(shape).map(option => contentBoxProbe && option.type === 'select' && ['mode', '_permissions'].includes(option.category ?? '')
     ? { ...option, choices: option.choices.map(choice => choice.value === option.currentValue
@@ -140,6 +145,16 @@ export const ComposerSlotsContent = () => (
         </section>
       ))}
       <LayoutSwitchCase />
+      <section className="grid grid-cols-2 min-w-0 gap-2">
+        {([false, true] as const).map(live => (
+          <section key={String(live)} data-permission-mode-case={live ? 'live' : 'draft'} className="grid min-w-0 gap-1">
+            <h3 className="text-sm font-medium">Permission mode — {live ? 'Live' : 'Draft'}</h3>
+            <div className="w-(--hd-column) max-w-full">
+              <SlotToolbar shape={5} live={live} />
+            </div>
+          </section>
+        ))}
+      </section>
       <ExtensionWidthCase />
       <ComposerWidthExtensionCase />
       <EmptyMoreCase />

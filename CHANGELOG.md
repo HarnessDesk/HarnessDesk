@@ -7,6 +7,14 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Faces are round.** Agents, Team members, senders in a chat and your own
+  seat are now drawn as filled circles, so a Teams card with four agents shows
+  four faces instead of a strip of cropped squares, and someone no longer looks
+  like the square tile of a plugin or a file. An account is a hollow ring in its
+  colour, so the account beside your face never reads as a second face. Square
+  faces are still one choice away in Settings › Appearance › Faces, and a desk
+  that already chose square keeps it.
+
 - **Teams shows what needs you.** The page is a board with Needs you, Working
   and Ready to wrap columns, searchable across projects. Cards show the ask,
   current step or outcome, the Run's path and its Seats. Wrapped receipts fold
