@@ -1,10 +1,15 @@
 import type { FlowEntry, FlowPolicy, FlowSeat } from '@harnessdesk/protocol'
 
 export const supportsComparisonJudge = (flow: FlowPolicy): boolean =>
-  flow.roles.some(role => role.id === 'competitor' && role.kind === 'agent') && flow.roles.some(role => role.id === 'judge' && role.kind === 'agent')
+  flow.roles.some(role => role.id === 'competitor' && role.kind === 'agent') &&
+  flow.roles.some(role => role.id === 'judge' && role.kind === 'agent') &&
+  flow.roles.some(role => role.id === 'referee' && role.kind === 'person') &&
+  flow.rules.some(rule => (rule.on === 'competitor' || rule.on === 'verify') && rule.then.role === 'judge') &&
+  flow.rules.some(rule => rule.on === 'judge' && rule.then.role === 'referee')
 
 /** Both entry points freeze the same optional judge and person-choice routes as ordinary policy data. */
 export const withComparisonJudge = (flow: FlowPolicy, template: FlowPolicy, seat: FlowSeat | null): FlowPolicy => {
+  if (!supportsComparisonJudge(template)) return flow
   const judge = flow.roles.find(role => role.id === 'judge' && role.kind === 'agent') ?? template.roles.find(role => role.id === 'judge' && role.kind === 'agent')
   if (!judge || judge.kind !== 'agent') return flow
   const before = flow.roles.some(role => role.id === 'verify' && role.kind === 'check') ? 'verify' : 'competitor'

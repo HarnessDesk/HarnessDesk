@@ -1,5 +1,15 @@
 import { expect, test } from '@playwright/test'
 
+for (const theme of ['light', 'dark'] as const) test(`a completed person choice retains both attempt labels in ${theme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: theme })
+  await page.goto(`/preview.html?comparison-verdict=person-merged&theme=${theme}`)
+  const frame = page.locator('[data-frame-id="comparison-person-merged"]')
+  const tiles = frame.locator('[data-slot="side-by-side-tile"]')
+  await expect(tiles.nth(0).locator(':scope > header')).toContainText('Picked')
+  await expect(tiles.nth(1).locator(':scope > header')).toContainText('Not kept')
+  await expect(frame.getByRole('button', { name: 'Pick an attempt…' })).toHaveCount(0)
+})
+
 test('Side by side defaults to You and allows either attempt’s provider to judge', async ({ page }) => {
   await page.goto('/preview.html?team-start=comparison')
   const judge = page.getByRole('combobox', { name: 'Agent for Judge', exact: true })

@@ -122,7 +122,7 @@ export const ComparisonVerdictPreview = () => {
     <label>theme <NativeSelect aria-label="theme" value={snapshot.theme} onChange={event => store.setTheme(event.target.value as 'light' | 'dark')}>
       <option value="light">light</option><option value="dark">dark</option>
     </NativeSelect></label>
-    <SideBySideFrames comparisonOnly scene={scene === 'approval' || scene === 'long-reason' || scene === 'merged' || scene === 'stopped' || scene === 'combined' ? scene : undefined} />
+    <SideBySideFrames comparisonOnly scene={scene === 'approval' || scene === 'long-reason' || scene === 'merged' || scene === 'person-merged' || scene === 'stopped' || scene === 'combined' ? scene : undefined} />
   </div>
 }
 
