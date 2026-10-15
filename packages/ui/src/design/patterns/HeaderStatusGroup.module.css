@@ -30,6 +30,11 @@
   .chip[data-slot='chip'] {
     padding: 0;
   }
+  /* On a phone the bar that holds the readings takes the rail's gutter: the
+     roomier 12 would push them out of the row. */
+  [data-slot='bar']:has(.group) {
+    padding-inline: var(--hd-rail-inset); /* desk: 12 → 8 under 400px, the readings keep their room */
+  }
 }
 
 .reading {

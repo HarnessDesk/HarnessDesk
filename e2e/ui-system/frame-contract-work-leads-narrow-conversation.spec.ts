@@ -1,5 +1,5 @@
+import { expectTitleRoom } from './title-contract'
 import { expect, test } from '@playwright/test'
-import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES } from './frame-wall-destinations'
 import { applyFrameActions } from './frame-actions'
 import { openFrame, B6_WORK_DESTINATIONS } from './frame-contract-helpers'
@@ -27,8 +27,7 @@ for (const theme of WALL_THEMES) {
           const lead = bar.locator('[data-topbar="lead"]')
           await expectLead(bar, width, false, true)
           await expect(lead.getByRole('button', { name: 'Show sidebar', exact: true })).toBeVisible()
-          await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0,
-            { message: `${destination.id} title floor` }).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+          await expectTitleRoom(bar.locator('[data-topbar-title]'))
           titleXs.push((await bar.locator('[data-topbar="place"]').boundingBox())!.x)
           allOrigins.push(...titleXs);
           expect(Math.max(...titleXs) - Math.min(...titleXs), JSON.stringify({ referenceX, titleXs })).toBeLessThanOrEqual(1)

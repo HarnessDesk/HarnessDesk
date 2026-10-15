@@ -245,7 +245,8 @@ const SectionBody = ({
     className={cn(
       spacing === 'default' && 'py-4 first:pt-4 [&:not(:first-child)]:pt-3',
       spacing === 'compact' && 'py-3',
-      inset && (spacing === 'tool-prose' ? 'px-(--hd-space-4)' : spacing === 'inline' ? 'px-(--hd-inset-row)' : spacing === 'compact' ? 'px-3' : 'px-4'),
+      /* desk: tool prose 16 → 12, a card's prose stands on its rows' edge (owner, 2026-10-14) */
+      inset && (spacing === 'tool-prose' || spacing === 'inline' ? 'px-(--hd-inset-row)' : spacing === 'compact' ? 'px-3' : 'px-4'),
       className,
     )}
     {...props}

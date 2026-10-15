@@ -283,7 +283,7 @@ test('on a page a section head sits 32px under the card above and 12px over its 
       aboveSection: Math.round(box('[data-testid="app-section"]').top - box('[data-testid="legacy-card"]').bottom),
     }
   })
-  expect(gaps).toEqual({ headMargin: '20px', aboveHead: 32, labelToCard: 12, sectionLabelToCard: 12, aboveSection: 32 })
+  expect(gaps).toEqual({ headMargin: '16px', aboveHead: 32, labelToCard: 12, sectionLabelToCard: 12, aboveSection: 32 })
 })
 
 test('section furniture keeps the page edge while each body owns its inset', async ({ page }) => {

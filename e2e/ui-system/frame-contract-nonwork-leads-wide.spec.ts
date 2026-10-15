@@ -1,5 +1,5 @@
+import { expectTitleRoom } from './title-contract'
 import { expect, test } from '@playwright/test'
-import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES } from './frame-wall-destinations'
 import { openFrame } from './frame-contract-helpers'
 import { useFrameContractEvidence } from './frame-contract-split-setup'
@@ -23,13 +23,12 @@ for (const theme of WALL_THEMES) for (const width of [1440]) for (const [group, 
       await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
       if (settings) await expectQuietSettings(page, bar)
       else {
-        await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0,
-          { message: `${destination.id} child title floor` }).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+        await expectTitleRoom(bar.locator('[data-topbar-title]'))
         const title = (await bar.locator('[data-topbar-title]').boundingBox())!
         const origin = (await bar.locator('[data-topbar="place"]').boundingBox())!.x
         // Bars slot 2 and the approved Agent/Settings drawing put the parent
         // before the child. Pin that entire place origin, and separately keep
-        // the child title's unchanged 180px floor; work title-x stays in B6.
+        // the child's intrinsic title room; work title-x stays in B6.
         expect(Math.abs(origin - referenceX), `${destination.id} place origin`).toBeLessThanOrEqual(1)
         measured.push({ destination: destination.id, origin, childX: title.x, titleWidth: title.width })
       }

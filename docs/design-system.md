@@ -259,13 +259,16 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-bar-h` | `40px` |
 | `--hd-bar-divider-h` | `14px` |
 | `--hd-bar-title-min` | `180px` |
+| `--hd-bar-title-max` | `320px` |
 | `--hd-bar-gap` | `6px` |
-| `--hd-bar-pad` | `8px` |
+| `--hd-bar-pad` | `12px` |
+| `--hd-bar-tool-gap` | `4px` |
 | `--hd-rail-inset` | `8px` |
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
 | `--hd-page-wide` | `1320px` |
 | `--hd-page-gutter` | `24px` |
+| `--hd-page-stack` | `16px` |
 | `--hd-menu-min` | `200px` |
 | `--hd-popover-width-wide` | `340px` |
 | `--hd-menu-row-radius` | `calc(10px - 6px)` |
@@ -434,7 +437,7 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 | --- | --- |
 | `--hd-nav-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-nav-h-group` | `calc(20px + 4px * 2 + 2px)` |
-| `--hd-left-row-h` | `30px` |
+| `--hd-left-row-h` | `32px` |
 | `--hd-left-row-gap` | `0px` |
 | `--hd-left-menu-gap` | `8px` |
 | `--hd-frame-icon-button` | `28px` |
@@ -531,7 +534,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-card-fill` | `` |
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
-| `--hd-left-row-h` | `30px` |
+| `--hd-left-row-h` | `32px` |
 | `--hd-left-row-gap` | `0px` |
 | `--hd-left-menu-gap` | `8px` |
 | `--hd-nav-radius` | `10px` |
@@ -562,6 +565,20 @@ A table scope owns its density, including list and settings examples. Restating 
 | `--hd-table-row-min` | `56px` | `40px` |
 | `--hd-table-row-min-bare` | `44px` | `32px` |
 | `--hd-table-sentence-size` | `13px` | `12px` |
+
+### Panel cards
+
+The right panel is a stack of cards on the left column's ground: a piece of work's facts and actions, each card showing its summary while folded (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md). A card is the main ground on a hairline; its header is one 20px line and each row inside it is 28. On `body`, where the spacing scale it is built from lives.
+
+| token | value |
+| --- | --- |
+| `--hd-panel-pad` | `8px` |
+| `--hd-panel-card-gap` | `8px` |
+| `--hd-panel-card-pad-y` | `10px` |
+| `--hd-panel-card-pad-x` | `12px` |
+| `--hd-panel-card-radius` | `10px` |
+| `--hd-panel-head-h` | `20px` |
+| `--hd-panel-row-h` | `28px` |
 
 ### Popup rows
 
@@ -1474,8 +1491,8 @@ step after the last row so it can be scrolled clear of what sits below.
 
 `density` is the one way they differ, and it is the rail's own density, the
 word the window rail already carries as `data-hd-density`: `compact` is the
-sidebar, whose rows stand on the bars' gutter (`--hd-bar-pad`) so their ink
-lines up with the bars above them; `comfortable` is the window rail, whose
+sidebar, whose rows stand on the rail's gutter (`--hd-rail-inset`) so their
+ink lines up with the column's own top row; `comfortable` is the window rail, whose
 rows carry a second line and take a wider gutter and longer steps.
 
 `corner` puts the head below the band the native window buttons sit in,
@@ -2457,11 +2474,34 @@ The sign-in boundary's own navigation ground.
 
 The shell tabs and panel actions share one row above the terminal screen.
 
+### `ToolSection`
+
+`packages/ui/src/design/patterns/ToolBody.tsx`
+
+One card of the right panel (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md).
+
+The header is the card's label, a disclosure when it folds, and its `value`
+— the summary a folded card still shows, so a glance down the panel reads
+every card's state without opening one. A card's rows keep their own 12px
+edge, which is the card's side padding; the card adds the top and bottom.
+
+### `ToolRow`
+
+`packages/ui/src/design/patterns/ToolBody.tsx`
+
+One line of a card: a 16px icon, a label, one trailing fact and at most one action.
+
+### `ToolFold`
+
+`packages/ui/src/design/patterns/ToolBody.tsx`
+
+The rest of a card behind one quiet line: "All facts", "Show all".
+
 ### `ToolProse`
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
-A missing-fact note uses the row edge and second-line type; prose keeps its reading inset.
+Prose and a missing-fact note stand on the card's row edge; a note takes second-line type.
 
 ### `TopBarToolButton`
 

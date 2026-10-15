@@ -80,8 +80,8 @@ WorkbenchRail.displayName = 'WorkbenchRail'
  *
  * `density` is the one way they differ, and it is the rail's own density, the
  * word the window rail already carries as `data-hd-density`: `compact` is the
- * sidebar, whose rows stand on the bars' gutter (`--hd-bar-pad`) so their ink
- * lines up with the bars above them; `comfortable` is the window rail, whose
+ * sidebar, whose rows stand on the rail's gutter (`--hd-rail-inset`) so their
+ * ink lines up with the column's own top row; `comfortable` is the window rail, whose
  * rows carry a second line and take a wider gutter and longer steps.
  *
  * `corner` puts the head below the band the native window buttons sit in,
@@ -110,7 +110,7 @@ export const RailSection = forwardRef<
       data-density={density}
       {...(stretch === 'head' && ruled ? { 'data-ruled': '' } : {})}
       className={cn(
-        compact ? 'px-(--hd-bar-pad)' : 'px-3',
+        compact ? 'px-(--hd-rail-inset)' : 'px-3',
         stretch === 'head' && corner && 'pt-(--hd-titlebar-height)',
         stretch === 'head' && ruled && !corner && (compact ? 'pt-(--hd-space-1)' : 'pt-2'),
         stretch === 'head' && (compact ? 'pb-(--hd-space-1)' : 'pb-2'),
@@ -249,9 +249,8 @@ export const DockPanelBar = ({ className, contentInset, ...props }: React.Compon
          across the window. */
       // A plain view title shares the inspector search's leading glyph inset.
       'flex h-(--hd-bar-h) shrink-0 items-center gap-1 border-b border-(--hd-border)',
-      contentInset === 'tool'
-        ? 'px-(--hd-inset-row)'
-        : 'px-2 [&>[data-slot=text]]:ml-2.5',
+      'pr-(--hd-bar-pad)', /* desk: 8 → 12, every bar's edge (FRAME.bar.pad) */
+      contentInset !== 'tool' && '[&>[data-slot=text]]:ml-1.5', /* a plain title keeps its 18 */
       /* And a top row is a handle for the window, like every other one: the
          conversation's header, a tool's, the sidebar's title bar. This strip
          was the only chrome in the app that was not, so a room or a board in
@@ -264,9 +263,11 @@ export const DockPanelBar = ({ className, contentInset, ...props }: React.Compon
          to fill the window, a board in the middle with the sidebar away — so
          its left padding is the greater of its own and whatever room the shell
          says this box owes them. See `--titlebar-inset` in `app.css`. */
+      /* A strip over panel cards names their text: the rail's pad, the
+         card's border and its row edge (desk: 12 → 21, the cards' ink). */
       contentInset === 'tool'
-        ? 'pl-[max(var(--hd-inset-row),var(--titlebar-inset,0px))]'
-        : 'pl-[max(var(--hd-space-2),var(--titlebar-inset,0px))]',
+        ? 'pl-[max(calc(var(--hd-panel-pad)+var(--hd-border-width)+var(--hd-inset-row)),var(--titlebar-inset,0px))]'
+        : 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]',
       className,
     )}
     {...props}

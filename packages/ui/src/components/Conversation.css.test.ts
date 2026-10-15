@@ -9,8 +9,9 @@ it('the conversation no longer imposes private header or title folds', () => {
   expect(css).not.toMatch(/\.title\s*\{/)
   expect(css).not.toMatch(/\.header\s*\{/)
 })
-it('the shared shell keeps fixed controls and an elastic title', () => {
+it('the shared shell keeps fixed controls and a title as wide as its words', () => {
   expect(shellCss).toMatch(/\.fixed\s*\{[^}]*flex:\s*none/)
-  expect(shellCss).toMatch(/\.title\s*\{[^}]*flex:\s*1/)
+  expect(shellCss).toMatch(/\.title\s*\{[^}]*flex:\s*0 1 auto/)
+  expect(shellCss).toMatch(/\.title\s*\{[^}]*max-width:\s*var\(--hd-bar-title-max\)/)
   expect(shellCss).not.toMatch(/\[data-work-tool[^}]*display:\s*none/)
 })

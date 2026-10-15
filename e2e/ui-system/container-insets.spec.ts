@@ -312,11 +312,12 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       const title = element.querySelector('[data-slot="tool-section"] [data-slot="group-label"] [data-slot="text"]')!
       const prose = element.querySelector('[data-slot="tool-prose"] [data-slot="text"]')!
       const fact = element.querySelector('[data-slot="summary-item"] dt')!
-      const body = element.querySelector('[data-slot="inspector-body"]')!
-      const origin = body.getBoundingClientRect().left + parseFloat(getComputedStyle(body).paddingLeft)
+      // Measured from the card's own content edge: inside its border, every line stands on one 12.
+      const card = element.querySelector('[data-slot="tool-section"]')!
+      const origin = card.getBoundingClientRect().left + parseFloat(getComputedStyle(card).borderLeftWidth)
       return [title, fact, prose].map(node => node.getBoundingClientRect().left - origin)
     })
-    expect(edges).toEqual([12, 12, 16])
+    expect(edges).toEqual([12, 12, 12])
     await expect(runBar(frame)).toBeVisible()
     await expect(frame.locator('[data-slot="run-header"]')).toHaveCount(0)
     await expect(frame.locator('[data-slot="run-scroll"]')).toBeVisible()

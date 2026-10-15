@@ -1,3 +1,4 @@
+import { expectTitleRoom } from './title-contract'
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
@@ -59,7 +60,7 @@ for (const theme of ['light', 'dark'] as const) {
   await expect(header.locator('[data-slot="tabs-list"]')).toHaveAttribute('data-variant','default')
   expect((await header.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
   const title=header.locator('[data-topbar-title]')
-  await expect.poll(async()=>(await title.boundingBox())?.width??0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+  await expectTitleRoom(title)
   await shot('wide')
   await selectTeamPage(frame,'room')
   await header.getByRole('button',{name:'View',exact:true}).click()
@@ -71,7 +72,7 @@ for (const theme of ['light', 'dark'] as const) {
   await page.goto(`/preview.html?team-frame=running&right-panel&theme=${theme}`)
   await expect(page.getByRole('textbox',{name:'Address',exact:true})).toBeVisible()
   expect((await header.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
-  await expect.poll(async()=>(await title.boundingBox())?.width??0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+  await expectTitleRoom(title)
   await shot('right-panel')
   await selectTeamPage(frame,'board')
   const board=header.locator('[data-team-page="board"]')
@@ -86,7 +87,7 @@ for (const theme of ['light', 'dark'] as const) {
    // Wait for the measured destination state after resize, not the previous
    // viewport's already-wide title before ResizeObserver resets its fold.
    await expect(header).toHaveAttribute('data-fold',width===720?'2':'0')
-   await expect.poll(async()=>(await title.boundingBox())?.width??0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+   await expectTitleRoom(title)
    const folded=await header.getAttribute('data-fold')==='2'
    if(folded) await header.getByTitle('Destination views',{exact:true}).click()
    const listed=folded?page.locator('[role="menu"] [data-team-page]:visible'):header.locator('[data-team-page]')

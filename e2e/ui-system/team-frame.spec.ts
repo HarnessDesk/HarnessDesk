@@ -1,3 +1,4 @@
+import { expectTitleRoom } from './title-contract'
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { FRAME } from '../../packages/ui/src/design/frame'
@@ -32,7 +33,7 @@ for (const theme of ['light', 'dark'] as const) {
     await closeTeamDetails(team)
     await expect(header.getByRole('button', { name: 'Wrap', exact: true })).toHaveCount(0)
     expect((await header.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
-    expect((await header.locator('[data-topbar-title]').boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+    await expectTitleRoom(header.locator('[data-topbar-title]'))
     await captureFrame(page, `after-frame-running-1440-${theme}`)
     await selectTeamPage(team, 'room')
     await header.getByRole('button', { name: 'View', exact: true }).click()
@@ -191,7 +192,7 @@ for (const theme of ['light', 'dark'] as const) {
 test('the Team title uses the fixed shell width and stays inside the bar', async ({ page }) => {
   await page.goto('/preview.html?team-frame=running')
   const header = teamBar(page.locator('[data-frame-id="team-frame"]'))
-  await expect.poll(async () => (await header.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+  await expectTitleRoom(header.locator('[data-topbar-title]'))
   const bar = (await header.boundingBox())!, title = (await header.locator('[data-topbar-title]').boundingBox())!
   expect(title.x).toBeGreaterThanOrEqual(bar.x)
   expect(title.x + title.width).toBeLessThanOrEqual(bar.x + bar.width)

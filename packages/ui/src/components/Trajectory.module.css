@@ -5,7 +5,7 @@
    Scoped under the overview so it outranks the key strip's own top margin:
    the bar already leaves the gap above it. */
 .overview > .keys {
-  margin: 0 var(--hd-space-2) var(--hd-space-2-5);
+  margin: 0 var(--hd-inset-row) var(--hd-space-2-5); /* desk: 8 → 12, the key stands on the card's row edge */
 }
 
 /* The ledger starts below a rule, as the list does under the panel's bar. */

@@ -1,5 +1,5 @@
+import { expectTitleRoom } from './title-contract'
 import { expect, type Locator } from '@playwright/test'
-import { FRAME } from '../../packages/ui/src/design/frame'
 
 /** Canonical Team slots, scoped to one synthetic fixture's shell. */
 export const teamBar = (frame: Locator): Locator => frame.locator('[data-slot="top-bar"]:visible').first()
@@ -24,7 +24,7 @@ export const selectTeamDestination = async (frame: Locator, value: string): Prom
 
 export const selectTeamPage = async (frame: Locator, value: string): Promise<void> => {
   const bar = teamBar(frame)
-  await expect.poll(async()=>(await bar.locator('[data-topbar-title]').boundingBox())?.width??0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+  await expectTitleRoom(bar.locator('[data-topbar-title]'))
   await selectTeamDestination(frame, value)
 }
 

@@ -1,3 +1,4 @@
+import { expectTitleRoom } from './title-contract'
 import { applyPageFrameActions } from './frame-page-actions'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { settleFrameBar } from './frame-actions'
@@ -80,8 +81,7 @@ for (const destination of WALL_DESTINATIONS) {
         for (const bar of await page.locator('[data-slot="top-bar"]:visible').all()) {
           await settleFrameBar(bar)
           const title = bar.locator('[data-topbar-title]')
-          await expect.poll(async () => (await title.boundingBox())?.width ?? 0)
-            .toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+          await expectTitleRoom(title)
           const ink = (await title.boundingBox())!, place = (await bar.locator('[data-topbar="place"]').boundingBox())!
           expect(ink.x + ink.width).toBeLessThanOrEqual(place.x + place.width)
         }

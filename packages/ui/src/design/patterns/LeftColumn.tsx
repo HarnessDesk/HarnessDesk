@@ -112,7 +112,7 @@ export interface LeftColumnTopProps {
  * absent in Settings. Its compact cells use the shared switcher appearance.
  */
 export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top className={styles.top}>
-  <Bar corner className="hd-drag">
+  <Bar inset="rail" corner className="hd-drag">
     <div className={styles.lead}>
       <Button variant="ghost" size="pattern" className={`${styles.topButton} hd-no-drag`}
         aria-label={props.shown ? 'Hide sidebar' : 'Show sidebar'} title={props.shown ? 'Hide the sidebar' : 'Show the sidebar'}
@@ -142,7 +142,7 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
 /** The account row closes the column without a separator hairline above it. */
 export const LeftColumnSeat = ({ menu, notifications, settingsOpen, onSettings }: {
   menu: ReactNode; notifications?: ReactNode; settingsOpen: boolean; onSettings: () => void
-}) => <Bar><div data-left-seat className={styles.seat}>
+}) => <Bar inset="rail"><div data-left-seat className={styles.seat}>
   <div className={styles.seatMenu}>{menu}</div>
   <div className={`${styles.topActions} hd-no-drag`}>{notifications}</div>
   <Button variant="ghost" size="pattern" className={styles.topButton} aria-label="Settings" title="Settings"

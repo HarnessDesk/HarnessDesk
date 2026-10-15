@@ -1,3 +1,4 @@
+import { expectTitleRoom } from './title-contract'
 import { expect, test } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES, WALL_WIDTHS } from './frame-wall-destinations'
@@ -34,13 +35,24 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
         stateLeft: stateSlot?.getBoundingClientRect().left ?? null,
       }
     })
-    expect(geometry.titleWidth).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+    await expectTitleRoom(bar.locator('[data-topbar-title]'))
     expect(geometry.stateLeft, `${one.title} exposes a state chip`).not.toBeNull()
     expect(geometry.stateLeft! - geometry.inkRight, `${one.title} state gap`).toBeCloseTo(FRAME.bar.gap, 0)
 
 
   })
 }
+
+for (const theme of WALL_THEMES) test(`a short Library title keeps its tabs and verb in ${theme}`, async ({ page }) => {
+  await openFrame(page, 'frame-wall=library', theme)
+  const bar = page.locator('[data-slot="top-bar"]:visible')
+  await settleFrameBar(bar)
+  await expectTitleRoom(bar.locator('[data-topbar-title]'))
+  expect((await bar.locator('[data-topbar-title]').boundingBox())!.width).toBeLessThan(FRAME.bar.titleMin)
+  await expect(bar).toHaveAttribute('data-fold', '0')
+  await expect(bar.locator('[role="tab"][data-team-page="skill"]')).toBeVisible()
+  await expect(bar.getByRole('button', { name: 'New skill', exact: true })).toBeVisible()
+})
 
 for (const theme of WALL_THEMES) for (const filter of ['All', 'Open', 'Blocking']) {
   test(`B11 native-width lead folds the Findings ${filter} verb last in ${theme}`, async ({ page }) => {
@@ -55,7 +67,7 @@ for (const theme of WALL_THEMES) for (const filter of ['All', 'Open', 'Blocking'
     // Match the measured native traffic-light reserve, without changing app
     // tokens or the browser preview's ordinary corner policy.
     await bar.evaluate(node => { node.closest('header')!.style.paddingLeft = '78px' })
-    await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+    await expectTitleRoom(bar.locator('[data-topbar-title]'))
     await expect(bar).toHaveAttribute('data-fold', '3')
     const textEdge = await bar.evaluate(node => node.querySelector('[data-topbar="lead"]')!.getBoundingClientRect().right + parseFloat(getComputedStyle(node).columnGap))
     expect((await bar.locator('[data-topbar="place"]').boundingBox())!.x).toBe(textEdge)
@@ -327,7 +339,7 @@ for (const theme of WALL_THEMES) {
     await openFrame(page, 'frame-wall=topbar', theme, 720)
     const row = page.locator('[data-slot="top-bar"]')
     await expect(row).toHaveAttribute('data-fold', '2')
-    expect((await row.locator('[data-topbar-title]').boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+    await expectTitleRoom(row.locator('[data-topbar-title]'))
     await selectFrameTab(page, 'run')
     await expect(page.getByTitle('Destination views', { exact: true })).toContainText('Run')
     await expect(row).toHaveAttribute('data-fold', '2')
@@ -351,7 +363,7 @@ for (const theme of WALL_THEMES) {
     const narrow = rows.nth(2)
     await expect(narrow).toHaveAttribute('data-fold', '2')
     await expect(narrow.getByRole('button', { name: 'Decide this run', exact: true })).toHaveText('Decide this run')
-    expect((await narrow.locator('[data-topbar-title]').boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+    await expectTitleRoom(narrow.locator('[data-topbar-title]'))
     await expect(rows.nth(3).getByRole('button', { name: 'View', exact: true })).toBeDisabled()
     await page.screenshot({ path: `output/frame-wall/B1-catalogue-${theme}.png`, fullPage: true })
   })
@@ -364,7 +376,7 @@ for (const theme of WALL_THEMES) {
 
       await openFrame(page, 'frame-wall=team', theme, width)
       const bar = page.locator('[data-slot="top-bar"]:visible')
-      await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+      await expectTitleRoom(bar.locator('[data-topbar-title]'))
       const order = await bar.evaluate(node => [...node.children].map(one => one.getAttribute('data-topbar')))
       if (order.includes('state')) {
         expect(order.indexOf('place')).toBeLessThan(order.indexOf('state'))
@@ -374,9 +386,20 @@ for (const theme of WALL_THEMES) {
       expect(order.indexOf('tabs')).toBeLessThan(order.indexOf('spacer'))
       const track = bar.locator('[data-slot="tabs-list"]')
       if (await track.isVisible()) {
-        expect(await track.evaluate(node => { const style = getComputedStyle(node); return [style.paddingTop, style.gap, style.borderRadius] })).toEqual(['1px', '1px', '8px'])
-        expect(await track.locator('[role="tab"]').first().evaluate(node => { const style = getComputedStyle(node); return [node.getBoundingClientRect().height, style.paddingLeft, style.borderRadius, style.fontSize] })).toEqual([30, '12px', '6px', '13px'])
-        expect(await track.locator('[aria-selected="true"]').evaluate(node => getComputedStyle(node).boxShadow)).not.toBe('none')
+        await expect(track).toHaveAttribute('data-look', 'quiet')
+        expect(await track.evaluate(node => { const style = getComputedStyle(node); return [style.paddingTop, style.gap, style.borderRadius] })).toEqual(['0px', '2px', '8px'])
+        expect(await track.locator('[role="tab"]').first().evaluate(node => { const style = getComputedStyle(node); return [node.getBoundingClientRect().height, style.paddingLeft, style.borderRadius, style.fontSize] })).toEqual([FRAME.bar.tabHeight, `${FRAME.bar.tabPad}px`, `${FRAME.bar.tabRadius}px`, '13px'])
+        const selected = track.locator('[aria-selected="true"]')
+        await expect(selected).toHaveCSS('box-shadow', 'none')
+        const muted = await track.evaluate(node => {
+          const probe = document.createElement('span')
+          probe.style.background = 'var(--hd-muted)'
+          node.append(probe)
+          const color = getComputedStyle(probe).backgroundColor
+          probe.remove()
+          return color
+        })
+        await expect(selected).toHaveCSS('background-color', muted)
       }
       await bar.getByRole('button', { name: 'Details', exact: true }).click()
       const tools = bar.locator('[data-topbar="tools"]')
@@ -384,7 +407,9 @@ for (const theme of WALL_THEMES) {
       await expect(panel).toBeVisible()
       const pressed = bar.locator('[data-work-tool="details"]')
       await expect(pressed).toHaveAttribute('aria-pressed', 'true')
-      expect(await pressed.evaluate(node => getComputedStyle(node).boxShadow)).toContain('inset')
+      await expect(pressed).toHaveCSS('box-shadow', 'none')
+      expect(await pressed.evaluate(node => getComputedStyle(node).backgroundColor))
+        .not.toBe(await bar.locator('[data-work-tool="changes"]').evaluate(node => getComputedStyle(node).backgroundColor))
       expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
       if (width >= FRAME.fold.panelFloats) {
         const top = (await tools.boundingBox())!, body = (await panel.boundingBox())!

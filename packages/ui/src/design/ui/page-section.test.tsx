@@ -242,11 +242,12 @@ it('ToolBody composes the shared tool inset, group head and prose boundaries', a
   draw(<ToolBody><ToolSection label="Plan"><ToolProse>No plan yet.</ToolProse></ToolSection></ToolBody>)
   const scroll = container.querySelector('[data-slot="tool-scroll"]')!
   expect(scroll.getAttribute('data-inset')).toBe('tool')
-  expect(scroll.className).toContain('py-(--hd-inset-row)')
+  expect(scroll.className).toContain('p-(--hd-panel-pad)')
+  expect(container.querySelector('[data-slot="tool-section"]')?.className).toContain('rounded-(--hd-panel-card-radius)')
   const head = container.querySelector('[data-slot="group-label"][data-group-surface="tool"]')!
   expect(head.getAttribute('data-group-surface')).toBe('tool')
   expect(head.className).toContain('px-(--hd-inset-row)')
-  expect(container.querySelector('[data-slot="tool-prose"]')?.className).toContain('px-(--hd-space-4)')
+  expect(container.querySelector('[data-slot="tool-prose"]')?.className).toContain('px-(--hd-inset-row)')
 })
 
 it('a panel Checklist requests the shared edge without changing default lists', () => {

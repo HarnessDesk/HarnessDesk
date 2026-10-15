@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 const toolWall = process.env.FRAME_TOOL_WALL_DIR ?? 'output/frame-wall/tool-bodies'
 
@@ -82,7 +83,8 @@ for (const theme of ['light', 'dark'] as const) {
           await facts.scrollIntoViewIfNeeded()
           await expect(facts).toBeInViewport()
           const edge = await facts.evaluate(element => element.getBoundingClientRect().left - element.closest('[data-slot="work-tools"]')!.getBoundingClientRect().left)
-          expect(edge, 'contributed prose uses the canonical 16px inset').toBe(16)
+          // The rail inset and the card's border precede the row edge prose shares.
+          expect(edge, 'contributed prose stands on the card row edge').toBe(FRAME.panel.pad + 1 + FRAME.panel.cardPadX)
           await expect(panel.locator('[data-slot="tool-section"]')).not.toHaveCount(0)
         }
         await expect.poll(async () => page.locator('[data-slot="workbench-main"]').evaluate(main => {
@@ -96,7 +98,7 @@ for (const theme of ['light', 'dark'] as const) {
       }
     })
   }
-  test(`B7a actual Details labels and facts share the panel edge in ${theme}`, async ({ page }) => {
+  test(`B7a actual Details labels and facts share the card inset in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
       await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?frame-wall=conversation&theme=${theme}`)
@@ -109,7 +111,8 @@ for (const theme of ['light', 'dark'] as const) {
         const fact = element.querySelector('[data-slot="summary-item"] dt')!
         return [label, fact].map(node => node.getBoundingClientRect().left - element.getBoundingClientRect().left)
       })
-      expect(edges).toEqual([12, 12])
+      // The rail inset and the card's border precede its own row inset.
+      expect(edges).toEqual(Array(2).fill(FRAME.panel.pad + 1 + FRAME.panel.cardPadX))
     }
   })
   test(`B7a terminal carries its actual resource id and synthetic scrollback in ${theme}`, async ({ page }) => {

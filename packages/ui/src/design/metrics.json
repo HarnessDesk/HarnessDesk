@@ -1060,7 +1060,7 @@
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "0 8 1 8",
+    "pad": "0 12 1 12",
     "radius": 0
   },
   "team-bar/bar/size/lg": {
@@ -1068,7 +1068,7 @@
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "0 8 1 8",
+    "pad": "0 12 1 12",
     "radius": 0
   },
   "team-bar/bar/size/sm": {
@@ -1076,7 +1076,7 @@
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "0 8 1 8",
+    "pad": "0 12 1 12",
     "radius": 0
   },
   "tile/icon-tile/size/default": {
