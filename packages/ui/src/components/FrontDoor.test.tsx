@@ -783,3 +783,139 @@ it('source or input changes disable Start immediately, before the fresh dry run 
   resolveSecond(held)
   await settle()
 })
+
+it('opens the refused project and refreshes the preview without losing the task or completion sentence', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let opened = false
+  const base = emptyFlow('fresh-token')
+  const flow: FlowPreview = { ...base, compiled: { ...base.compiled, document: { format: 'agents', flow: {
+    ...(base.compiled.document.format === 'agents' ? base.compiled.document.flow : neverFlow()),
+    inputs: [{ id: 'task', label: 'Task' }],
+  } } } }
+  const request = requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [], 'flow/source': () => 'source',
+    'workspace/open': () => { opened = true; return { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 } },
+    'workspace/recent': () => [{ path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 }],
+    'worktree/list': () => [],
+    'authoring/start/preview': params => {
+      if (!opened) throw new Error('/work/storefront is outside every folder and repository opened here. Open it first.')
+      return previewOf(flow, { vars: (params as { vars: Record<string, string> }).vars })
+    },
+    'flow/start-goal': () => EXECUTION,
+  })
+  const { onStarted } = render(store, { kind: 'project', root: '/work/storefront' })
+  await settle()
+  act(() => rowFor('Review').click())
+  await settle()
+  expect(button('Start').disabled).toBe(true)
+  // A task already entered must survive a refused preview and its recovery.
+  const task = document.querySelector<HTMLTextAreaElement>('textarea')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(task, 'Fix the cart')
+    task.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => button('Open storefront').click())
+  expect(store.getSnapshot().workspace?.path).toBe('/work/storefront')
+  expect(document.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Fix the cart')
+  expect(document.body.textContent).not.toContain('outside every folder and repository opened here')
+  const done = document.querySelector<HTMLInputElement>('[aria-label="Done when · optional"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(done, 'The cart works')
+    done.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(button('Start').disabled).toBe(false)
+  await act(async () => button('Start').click())
+  expect(request.mock.calls.find(([method]) => method === 'flow/start-goal')?.[1]).toMatchObject({ root: '/work/storefront', token: 'fresh-token', sentence: 'The cart works', vars: { task: 'Fix the cart' } })
+  expect(onStarted).toHaveBeenCalledWith(EXECUTION)
+})
+
+it('keeps recovery available and Start disabled when opening the refused folder fails', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [], 'flow/source': () => 'source',
+    'authoring/start/preview': () => { throw new Error('/work/storefront is outside every folder and repository opened here. Open it first.') },
+    'workspace/open': () => { throw new Error('The folder is unavailable.') },
+  })
+  render(store, { kind: 'project', root: '/work/storefront' })
+  await settle()
+  act(() => rowFor('Review').click())
+  await settle()
+  await act(async () => button('Open storefront').click())
+  expect(button('Start').disabled).toBe(true)
+  expect(button('Open storefront').disabled).toBe(false)
+  expect(store.getSnapshot().workspace).toBeNull()
+})
+
+it('can open a project before its shape catalogue can be read', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let opened = false
+  requestSpy(store, {
+    'flow/catalog': () => {
+      if (!opened) throw new Error('/work/storefront is outside every folder and repository opened here. Open it first.')
+      return [ENTRY('review', 'Review')]
+    },
+    'agent/list': () => [], 'worktree/list': () => [],
+    'workspace/open': () => { opened = true; return { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 } },
+    'workspace/recent': () => [{ path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 }],
+  })
+  render(store, { kind: 'project', root: '/work/storefront' })
+  await settle()
+  expect(button('Continue').disabled).toBe(true)
+  await act(async () => button('Open storefront').click())
+  expect(rowFor('Review')).toBeDefined()
+  expect(button('Continue').disabled).toBe(false)
+  expect(document.body.textContent).not.toContain('outside every folder and repository opened here')
+})
+
+it.each(['catalogue', 'create'])('Just a Team recovers a %s refusal and keeps the form choices', async stage => {
+  const store = new AppStore('ws://localhost:0/')
+  const refusal = '/work/storefront is outside every folder and repository opened here. Open it first.'
+  let opened = false
+  let finishOpen!: () => void
+  requestSpy(store, {
+    'flow/catalog': () => {
+      if (stage === 'catalogue' && !opened) throw new Error(refusal)
+      return []
+    },
+    'agent/list': () => [], 'worktree/list': () => [],
+    'workspace/open': () => new Promise(resolve => { finishOpen = () => {
+      opened = true
+      resolve({ path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 })
+    } }),
+    'workspace/recent': () => [{ path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 }],
+  })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  const create = vi.spyOn(store, 'createGoal').mockImplementation(async () => {
+    if (!opened) throw new Error(refusal)
+    return { goal: { id: 'team-1' } } as import('@harnessdesk/protocol').GoalView
+  })
+  const add = vi.spyOn(store, 'teamAdd').mockResolvedValue(undefined)
+  vi.spyOn(store, 'openGoal').mockImplementation(() => {})
+  const { onClose } = render(store, { kind: 'project', root: '/work/storefront' })
+  await settle()
+  act(() => rowFor('Just a Team').click())
+  await settle()
+  const task = document.querySelector<HTMLTextAreaElement>('textarea')!
+  const done = document.querySelector<HTMLInputElement>('[aria-label="Done when · optional"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(task, 'Investigate the cart')
+    task.dispatchEvent(new Event('input', { bubbles: true }))
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(done, 'The cause is documented')
+    done.dispatchEvent(new Event('input', { bubbles: true }))
+    document.querySelector<HTMLButtonElement>('[aria-label="Use an isolated checkout"]')!.click()
+  })
+  if (stage === 'create') await act(async () => button('Start').click())
+  // The catalogue's known refusal must survive entering the plain-Team form too.
+  expect(document.body.textContent).toContain(refusal)
+  await act(async () => button('Open storefront').click())
+  expect(button('Start').disabled).toBe(true)
+  await act(async () => finishOpen())
+  expect(task.value).toBe('Investigate the cart')
+  expect(done.value).toBe('The cause is documented')
+  expect(document.querySelector('[aria-label="Use an isolated checkout"]')?.getAttribute('aria-checked')).toBe('true')
+  expect(document.body.textContent).not.toContain(refusal)
+  await act(async () => button('Start').click())
+  expect(create).toHaveBeenLastCalledWith({ root: '/work/storefront', sentence: 'The cause is documented', checkout: 'isolated' })
+  expect(add).toHaveBeenCalledWith('team-1', { title: 'Investigate the cart' })
+  expect(onClose).toHaveBeenCalledOnce()
+})

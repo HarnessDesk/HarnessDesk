@@ -79,6 +79,7 @@ import {
   type SessionSettings,
   type SessionDeletion,
   type SessionSummary,
+  type WorkspaceEntry,
   type TeamInbound,
   type TeamPeerInfo,
   type TeamState,
@@ -1282,6 +1283,8 @@ export class AppStore {
 
   #navigationQueue: Promise<void> = Promise.resolve()
   #navigationEpoch = 0
+  /** The source before a provisional conversation replaced it; shared by overlapping opens. */
+  #conversationWorkspaceSource: { navigation: number; path: string | null; workbench: Workbench } | null = null
 
   openDestination(page: PageDestination): void {
     this.#navigationEpoch += 1
@@ -2539,14 +2542,46 @@ export class AppStore {
   ): Promise<boolean> {
     const { runtime } = options
     const key = sessionKey(runtime, id)
+    const previous = this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+      ? this.#conversationWorkspaceSource
+      : { path: this.#snapshot.workspace?.path ?? null, workbench: this.#snapshot.workbench }
     const removalRevision = this.#sessionRemovalRevisions.get(key) ?? 0
     const stillHeld = () => (this.#sessionRemovalRevisions.get(key) ?? 0) === removalRevision
+    // Only a person's main-conversation navigation changes the workspace.
+    // Reads for a room, history preview or layout restoration do not navigate.
+    let navigation = options.reveal !== false && !options.restoring && (!options.area || options.area === 'main')
+      ? ++this.#navigationEpoch : null
+    const stillSelected = () => navigation !== null && navigation === this.#navigationEpoch && stillHeld()
+    let folderProblem: unknown = null
+    const followFolder = async (session: Pick<Session, 'cwd'>): Promise<void> => {
+      if (!stillSelected()) return
+      folderProblem = null
+      if (this.#snapshot.workspace?.path !== session.cwd) {
+        const selected = await this.#openWorkspace(session.cwd, stillSelected, key, previous, error => { folderProblem = error })
+        if (selected !== null) {
+          navigation = selected
+          if (stillSelected()) this.#conversationWorkspaceSource = null
+          return
+        }
+        if (!stillSelected()) return
+      }
+      this.#showInPane(key, options.split, options.area)
+      navigation = this.#navigationEpoch
+      this.#conversationWorkspaceSource = this.#snapshot.workspace?.path === session.cwd
+        ? null : { ...previous, navigation }
+    }
     if (options.preview || options.restoring) this.#markPreview(key)
     // Reading the conversation a draft is carrying — the chip's own link —
     // is not abandoning the hand-off. It waits for the next empty draft.
     const carried = this.#snapshot.draftHandoff
     if (carried && carried.runtime === runtime && carried.sessionId === id) this.#parkedHandoff = carried
-    if (options.reveal !== false) this.#showInPane(key, options.split, options.area)
+    if (options.reveal !== false) {
+      this.#showInPane(key, options.split, options.area)
+      if (navigation !== null) {
+        navigation = this.#navigationEpoch
+        this.#conversationWorkspaceSource = { ...previous, navigation }
+      }
+    }
     // Choosing a conversation is what a floating sidebar is open for — the one
     // already on screen included, which moves nothing the rule in `#patch` sees.
     if (options.reveal !== false && !options.restoring) this.closeFloatingSidebar()
@@ -2558,9 +2593,16 @@ export class AppStore {
       this.#setSession(session)
       readSucceeded = true
       if (!options.preview && !options.restoring) this.#ensureHistorySummary(session)
+      await followFolder(session)
+      if (!stillHeld()) return false
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       if (!stillHeld()) return false
       this.#setSession(live)
+      // Recreating a removed worktree may instead reopen its main checkout.
+      if (this.#snapshot.workspace?.path !== live.cwd) await followFolder(live)
+      // Resume owns a missing-folder refusal and may recreate the checkout.
+      // Only a successful resume with a still-unreadable workspace needs a toast.
+      if (folderProblem && stillSelected()) this.resultNotice('error', describe(folderProblem))
       // A conversation that reopened is the only evidence its refusal — gone
       // folder or not — no longer holds.
       this.#lastResumeRefusal.delete(key)
@@ -2600,6 +2642,7 @@ export class AppStore {
           turns: [],
           itemsLoaded: false,
         })
+        await followFolder(savedIdentity)
       }
       /* The folder it ran in, whether or not its transcript arrived: the
          sidebar row carries the folder too, and where nothing was painted the
@@ -4174,7 +4217,7 @@ export class AppStore {
   })
 
   /** Brings back the panels saved for this workspace, or starts with one empty pane. */
-  #restoreLayout(workspace: string | null): void {
+  #restoreLayout(workspace: string | null, selected?: { workspace: WorkspaceEntry; conversation: SessionKey }): void {
     this.#navigationEpoch += 1
     const raw = workspace ? this.#layouts?.[workspace] : null
     const saved = readWorkbench(raw, this.#snapshot.windowHeight)
@@ -4205,13 +4248,18 @@ export class AppStore {
       : null
     const migration = rehomed ? normalizeFixedWorkbench(rehomed, true) : null
     const restored = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
-    const workbench = settleConversationTool(restored, effectiveWindowMode(this.#snapshot.windowMode, restored) === 'editor', true)
+    const view = selected ? { kind: 'conversation' as const, session: selected.conversation } : null
+    const target = view ? { ...restored, main: onlyIn(restored.main, view),
+      navigation: visitDestination(restored.navigation, destinationOf(view)) } : restored
+    const workbench = settleConversationTool(target, effectiveWindowMode(this.#snapshot.windowMode, target) === 'editor', true)
     // Persisting what was just read back would be a no-op write; set directly.
     this.#patch({
+      ...(selected ? { workspace: selected.workspace } : {}),
       workbench,
       layout: workbench.main,
       detailsTab: visibleInspector(workbench),
     })
+    if (selected) this.#keepWorkbench(this.#snapshot.workbench)
     for (const view of migration?.legacyRoutes ?? []) {
       if (view.kind === 'board') this.openTeamBoard(view.room)
     }
@@ -4532,7 +4580,7 @@ export class AppStore {
     ]
     for (const { view } of onScreen) {
       const session = view.kind === 'conversation' ? view.session : null
-      if (!session) continue
+      if (!session || this.#snapshot.loadingSessions.has(session)) continue
       this.#markPreview(session)
       const known = this.#snapshot.sessions.get(session)
       if (known?.itemsLoaded && (known.status.type === 'active' || known.status.type === 'idle')) continue
@@ -6929,19 +6977,86 @@ export class AppStore {
    * Switches workspace. The panes belong to a workspace, so the previous
    * layout is put away and this one's comes back.
    */
-  async openWorkspace(path: string): Promise<void> {
-    this.#navigationEpoch += 1
+  async openWorkspace(path: string): Promise<boolean> {
+    const previous = this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+      ? this.#conversationWorkspaceSource : undefined
+    const navigation = ++this.#navigationEpoch
+    return await this.#openWorkspace(path, () => navigation === this.#navigationEpoch, undefined, previous) !== null
+  }
+
+  #workspaceOpensPending = 0
+  #workspaceReconcileNeeded = false
+
+  #preserveWorkspaceSource(previous?: { path: string | null; workbench: Workbench }): void {
+    if (previous?.path && previous.path === this.#snapshot.workspace?.path) {
+      this.#layouts = { ...this.#layouts, [previous.path]: previous.workbench }
+      this.#persistLayouts()
+    }
+    this.#conversationWorkspaceSource = null
+  }
+
+  /** All replies must settle before repairing the host's shell/plugin scope. */
+  async #settleWorkspaceOpen(): Promise<void> {
+    this.#workspaceOpensPending -= 1
+    while (this.#workspaceOpensPending === 0 && this.#workspaceReconcileNeeded) {
+      this.#workspaceReconcileNeeded = false
+      const path = this.#snapshot.workspace?.path
+      if (!path) return
+      this.#workspaceOpensPending += 1
+      try {
+        // This repairs host state only: the chosen pane and layout stay put.
+        await this.transport.request('workspace/open', { path })
+      } catch (error) {
+        if (this.#snapshot.workspace?.path === path) this.resultNotice('error', describe(error))
+      } finally {
+        this.#workspaceOpensPending -= 1
+        if (this.#snapshot.workspace?.path !== path) this.#workspaceReconcileNeeded = true
+      }
+    }
+  }
+
+  /** Apply the folder and requested conversation together, before restoring anything else. */
+  async #openWorkspace(path: string, current: () => boolean, conversation?: SessionKey, previous?: { path: string | null; workbench: Workbench }, onError?: (error: unknown) => void): Promise<number | null> {
+    // Overlapping host mutations can finish in either order, even when their
+    // renderer replies are discarded. Reassert the final choice once quiet.
+    if (this.#workspaceOpensPending > 0) this.#workspaceReconcileNeeded = true
+    this.#workspaceOpensPending += 1
     try {
       const workspace = await this.transport.request('workspace/open', { path })
+      if (!current()) {
+        this.#workspaceReconcileNeeded = true
+        return null
+      }
+      if (!workspace) return null
       this.#flowGeneration += 1
-      this.#patch({ workspace })
-      if (this.#layouts) this.#restoreLayout(workspace.path)
+      // An explicit folder open can abandon the loading conversation too.
+      // Put back the source before changing the workspace in either path.
+      this.#preserveWorkspaceSource(previous)
+      if (conversation) {
+        // The loading composer is selected immediately, but belongs to the
+        // destination folder. Keep the source folder's saved work unchanged.
+        this.#restoreLayout(workspace.path, { workspace, conversation })
+      }
+      else {
+        this.#patch({ workspace })
+        if (this.#layouts) this.#restoreLayout(workspace.path)
+      }
+      const selected = this.#navigationEpoch
       await this.loadWorkspaces()
-      void this.loadDraftOptions()
-      // Another folder is another project's Agents.
-      if (this.#agentsRequested) void this.loadAgents()
+      if (selected === this.#navigationEpoch) {
+        void this.loadDraftOptions()
+        // Another folder is another project's Agents.
+        if (this.#agentsRequested) void this.loadAgents()
+      }
+      return selected
     } catch (error) {
-      this.resultNotice('error', describe(error))
+      if (current()) {
+        if (onError) onError(error)
+        else this.resultNotice('error', describe(error))
+      } else this.#workspaceReconcileNeeded = true
+      return null
+    } finally {
+      await this.#settleWorkspaceOpen()
     }
   }
 
@@ -6998,12 +7113,21 @@ export class AppStore {
    * which is the caller's cue to fall back to the in-app picker.
    */
   async pickWorkspace(): Promise<boolean> {
-    const workspace = await this.transport.request('workspace/pick', {})
-    if (!workspace) return false
-    this.#patch({ workspace })
-    if (this.#layouts) this.#restoreLayout(workspace.path)
-    await this.loadWorkspaces()
-    return true
+    if (this.#workspaceOpensPending > 0) this.#workspaceReconcileNeeded = true
+    this.#workspaceOpensPending += 1
+    try {
+      const workspace = await this.transport.request('workspace/pick', {})
+      if (!workspace) return false
+      this.#preserveWorkspaceSource(this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+        ? this.#conversationWorkspaceSource : undefined)
+      this.#navigationEpoch += 1
+      this.#patch({ workspace })
+      if (this.#layouts) this.#restoreLayout(workspace.path)
+      await this.loadWorkspaces()
+      return true
+    } finally {
+      await this.#settleWorkspaceOpen()
+    }
   }
 
   // ---------------------------------------------------------------- view-only
