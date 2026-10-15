@@ -3784,3 +3784,22 @@ test('preview-frame endpoint restricts navigation and form actions in CSP (#474)
   assert.match(csp, /form-action 'none'/, 'CSP must forbid form submission navigation')
   assert.match(csp, /navigate-to 'none'/, 'CSP must forbid document navigation')
 })
+
+test('workspace reads carry the first-commit boundary through the wire', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const root = await mkdtemp(join(tmpdir(), 'hd-first-commit-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await gitIn(root, 'init', '-q', '-b', 'main')
+  const opened = await client.call('workspace/open', { path: root }) as { git?: { branch?: string; sha?: string | null } }
+  assert.deepEqual(opened.git, { branch: 'main', sha: null })
+  const before = await client.call('workspace/recent', {}) as { git?: { sha?: string | null } }[]
+  assert.equal(before[0]?.git?.sha, null)
+  await writeFile(join(root, 'first.txt'), 'first\n')
+  await gitIn(root, 'add', '.')
+  await gitIn(root, 'commit', '-qm', 'first')
+  const after = await client.call('workspace/recent', {}) as { git?: { sha?: string | null } }[]
+  assert.equal(after[0]?.git?.sha, (await gitIn(root, 'rev-parse', 'HEAD')).trim())
+})

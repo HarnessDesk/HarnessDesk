@@ -287,6 +287,9 @@ utility and inline `textTransform` outside a `Keycap`, and its ceiling may only
 fall. The screens still spelling them — the Team's members list, the trajectory, the
 agent card and the transcript's small tags — are the burn-down.
 
+Settings names each page with a visible h1 in the page role, above its
+description. Its bar carries no title, so the name is shown once.
+
 ### Where a label lands
 
 One inset for a whole column or bar, and one derived place for the words in it.

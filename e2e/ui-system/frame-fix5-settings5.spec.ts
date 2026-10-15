@@ -22,6 +22,7 @@ for (const theme of themes) for (const width of widths) {
   test(`R11.15 ceilings show one selected level and a status chip at ${width} in ${theme}`, async ({ page }) => {
     await openSettings(page, 'permissions', theme, width)
     const section = page.locator('section[aria-label="Ceilings"]')
+    await section.getByRole('button', { name: /^Other agents · / }).click()
     const rows = section.locator('[data-slot="rows"] > [data-slot="row"]')
     await expect(rows).toHaveCount(12)
 

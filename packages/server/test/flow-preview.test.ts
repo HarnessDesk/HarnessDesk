@@ -1,6 +1,8 @@
 import { independentProviderReason } from '../src/flow-provider.js'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 import type { AgentEntry, AttachmentDeclaration, CeilingLevel, FlowSeat, SeatPlan } from '@harnessdesk/protocol'
 
@@ -9,6 +11,7 @@ import { rig as consentRig } from './fixtures/intake-consent.js'
 import { AttachmentsPlane } from '../src/attachments/plane.js'
 import { bundleDigest } from '../src/attachments/catalog.js'
 import { tempDir } from './scratch.js'
+import { builtinFlowRoot } from '../src/host.js'
 
 /*
  * A dry run spends nothing and opens nothing; its token authorizes exactly
@@ -60,6 +63,36 @@ const rig = (): Rig => {
   }
   return state
 }
+
+test('the shipped comparison previews a same-vendor judge without independence problems', async () => {
+  const state = rig()
+  state.agentsRoster = [AGENT('implementer'), { ...AGENT('judge'), definition: { ...AGENT('judge').definition!, answers: ['picked'], produces: ['review'] } }]
+  state.port.providerOf = async () => 'same-vendor'
+  const source = await readFile(join(builtinFlowRoot(), 'comparison.yml'), 'utf8')
+  const preview = await new FlowPreviews(state.port).preview('/repo', source, { task: 'Fix the cart' })
+  assert.deepEqual(preview.problems, [])
+  assert.ok(preview.token)
+  assert.equal(preview.seats.find(one => one.role === 'judge')?.plan.winner, 0)
+})
+
+test('a comparison with no judge previews its terminal person choice without problems', async () => {
+  const state = rig()
+  state.agentsRoster = [AGENT('implementer')]
+  const source = `version: 2
+name: Side by side
+roles:
+  competitor: { kind: agent, uses: [implementer], count: 2, isolate: true, grant: edit }
+  referee: { kind: person, review: true, outcomes: [merged] }
+complete: { referee: [merged] }
+seed: { role: competitor, title: Fix the cart }
+rules:
+  - { id: to-person, on: competitor, then: { role: referee, title: Choose and merge an attempt } }
+`
+  const preview = await new FlowPreviews(state.port).preview('/repo', source)
+  assert.deepEqual(preview.problems, [])
+  assert.ok(preview.token)
+  assert.equal(preview.seats.length, 2)
+})
 
 const attachmentRig = (suppress = true) => {
   const state = rig()

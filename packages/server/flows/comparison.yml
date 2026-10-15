@@ -1,7 +1,7 @@
 version: 2
 name: "Side by side"
-summary: "Two agents, one task; a judge picks, you merge."
-description: "One task, two isolated agents; optional checks, then a judge picks, then a person merges."
+summary: "Two agents, one task; you choose, or an optional judge picks."
+description: "One task, two isolated agents; optional checks, then you choose and merge. An optional agent judge may share a vendor with either attempt."
 inputs:
   task:
     label: "Task"
@@ -17,7 +17,7 @@ roles:
     kind: agent
     uses: [judge]
     grant: read
-    independentOf: [competitor]
+    independentOf: []
   referee:
     kind: person
     outcomes: [merged]

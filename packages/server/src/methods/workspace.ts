@@ -80,7 +80,7 @@ export const workspaceMethods = {
     return [
       {
         ...latest,
-        git: latestGit ? { branch: latestGit.branch } : null,
+        git: latestGit ? { branch: latestGit.branch, sha: latestGit.headSha } : null,
         repo: latestRepo,
         checkoutRoot: latestCheckoutRoot,
         realPath: latestReal,

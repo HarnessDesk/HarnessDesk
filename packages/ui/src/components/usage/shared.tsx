@@ -215,6 +215,7 @@ export const Card = ({
   const balance = balanceOf(report.credits)
   const state = stateOf(report, borrowed ? describeReport(report, { now, maxLanes: 0 }) : view)
   const hero = view.hero
+  const headlineReset = hero ? resetOf(hero, view.all.length > 1) : null
   const agent = info?.presentation.name ?? 'Agent'
 
   // The headline. It is not a second number: it is whichever row of the table
@@ -230,7 +231,7 @@ export const Card = ({
       ? amount(balance.remaining, balance.unit)
       : (money ?? '—')
   const word = hero
-    ? 'left'
+    ? view.all.length === 1 ? `left · ${hero.title}` : 'left'
     : balance
       ? 'left on the balance'
       : report.error
@@ -284,12 +285,12 @@ export const Card = ({
                 tone={paletteTone(hero.tone)}
                 label={`${hero.title} — what is left`}
               />
-              {resetOf(hero) && <Text as="div" role="meta">{resetOf(hero)}</Text>}
+              {headlineReset && <Text as="div" role="meta">{headlineReset}</Text>}
             </>
           )}
         </DashboardLanes>
 
-        {view.all.length > 0 && (
+        {view.all.length > 1 && (
           <DashboardLanes>
             <Separator />
           {view.all.map((lane) => (
@@ -543,8 +544,8 @@ const amount = (value: number, unit: string): string =>
   unit === 'USD' ? (formatMoney(value) ?? '—') : `${value.toLocaleString()} ${unit}`
 
 /** Which window the headline belongs to, and when it comes back. */
-const resetOf = (lane: LaneView): string =>
-  [lane.title, lane.resetClock && `resets ${lane.resetClock}`, lane.countdown && `in ${lane.countdown}`]
+const resetOf = (lane: LaneView, name: boolean): string =>
+  [name && lane.title, lane.resetClock && `resets ${lane.resetClock}`, lane.countdown && `in ${lane.countdown}`]
     .filter(Boolean)
     .join(' · ')
 

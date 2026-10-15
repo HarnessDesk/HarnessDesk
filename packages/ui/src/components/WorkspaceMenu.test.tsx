@@ -36,12 +36,14 @@ afterEach(() => {
 const group = (root: string, name: string): ProjectGroup => ({ root, name, sessions: [], updatedAt: 0, folders: [root] })
 
 /** A store that answers a move the way the real one does: the pinned run is the order. */
-const mount = (pinned: string[], subject: ProjectGroup) => {
-  let snapshot = { ...emptySnapshot(), home: '/home/dev', listPrefs: { ...emptySnapshot().listPrefs, pinned } } as AppSnapshot
+const mount = (pinned: string[], subject: ProjectGroup, overrides: Partial<AppSnapshot> = {}) => {
+  let snapshot = { ...emptySnapshot(), home: '/home/dev', listPrefs: { ...emptySnapshot().listPrefs, pinned }, ...overrides } as AppSnapshot
   const listeners = new Set<() => void>()
   const store = {
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
+    askCommit: vi.fn(),
     moveProject: vi.fn((root: string, to: number) => {
       const rest = snapshot.listPrefs.pinned.filter((entry) => entry !== root)
       const next = to < 0 || to > rest.length ? rest : [...rest.slice(0, to), root, ...rest.slice(to)]
@@ -98,7 +100,8 @@ it('moves the last project back into automatic order from the Move flyout', asyn
 
 it('says nothing when the store has not moved anything', async () => {
   const snapshot = { ...emptySnapshot(), listPrefs: { ...emptySnapshot().listPrefs, pinned: ['/a', '/b'] } } as AppSnapshot
-  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, moveProject: vi.fn() } as unknown as AppStore
+  const store = { subscribe: () => () => {}, refreshWorkspaceGit: vi.fn(async () => {}),
+    getSnapshot: () => snapshot, moveProject: vi.fn() } as unknown as AppStore
   act(() => root.render(
     <StoreProvider store={store}>
       <WorkspaceMenu
@@ -188,6 +191,7 @@ const mountCapture = (subject: ProjectGroup, health: readonly CaptureHealth[]) =
   const snapshot = { ...emptySnapshot(), home: '/home/dev', captureHealth: new Map(health.map((one) => [one.project, one])) } as AppSnapshot
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     retryCapture: vi.fn(async () => captureHealth()),
     setCapture: vi.fn(async () => captureHealth()),
@@ -258,4 +262,15 @@ it('distinguishes resetting order from moving a project down', async () => {
   expect(row('Move down').querySelector('[data-menu-label]')?.textContent).toBe('Move down')
   expect(back.querySelector('[data-menu-icon]')).not.toBeNull()
   expect(row('Move down').querySelector('[data-menu-icon]')).not.toBeNull()
+})
+
+it('offers Commit for an open project before its first revision', () => {
+  const path = '/work/storefront'
+  const store = mount([], group(path, 'storefront'), {
+    workspaces: [{ path, name: 'storefront', lastOpenedAt: 1, git: { branch: 'main', sha: null } }],
+  })
+  expect(document.body.textContent).toContain('Make a first commit to work in a worktree')
+  const commit = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Commit')!
+  act(() => commit.click())
+  expect(store.askCommit).toHaveBeenCalledWith(path)
 })

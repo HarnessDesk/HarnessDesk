@@ -7,6 +7,7 @@ import type { AgentEntry, FlowEntry, FlowPreview, SeatPlan } from '@harnessdesk/
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { RaceStart } from './RaceStart'
+import { TEAM_START_POLICIES, TEAM_START_SOURCES } from '../preview/team-start-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -24,30 +25,7 @@ afterEach(() => {
 
 const settle = (): Promise<void> => act(async () => {})
 
-const COMPARISON_SOURCE = [
-  'version: 2',
-  'name: "Comparison"',
-  'roles:',
-  '  competitor:',
-  '    kind: agent',
-  '    uses: [implementer]',
-  '    isolate: true',
-  '    grant: edit',
-  '    independentOf: []',
-  '  verify:',
-  '    kind: check',
-  '    run: "pnpm verify"',
-  '    timeout: 600',
-  'seed: { role: competitor, title: "{{task}}" }',
-  'rules:',
-  '  - id: to-verify',
-  '    on: competitor',
-  '    then: { role: verify, title: "Check the attempt" }',
-  'messaging: board-only',
-  'wait: 240',
-  'layout: {"race":"competitor"}',
-  '',
-].join('\n')
+const COMPARISON_SOURCE = TEAM_START_SOURCES.comparison
 
 const ENTRY: FlowEntry = { id: 'comparison', origin: 'builtin', path: 'comparison.yml', name: 'Comparison', description: null, format: 'agents', problem: null, shadows: [] }
 const AGENT: AgentEntry = {
@@ -67,17 +45,7 @@ const emptyPreview = (): FlowPreview => ({
   compiled: {
     document: {
       format: 'agents',
-      flow: {
-        version: 2, name: 'Comparison', inputs: [{ id: 'task', label: 'Task' }],
-        roles: [
-          { id: 'competitor', kind: 'agent', uses: ['implementer'], seats: [], isolate: true, grant: 'edit', independentOf: [] },
-          { id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 600, exits: { 0: 'pass' }, otherwise: 'fail' } },
-        ],
-        rules: [{ id: 'to-verify', on: 'competitor', then: { role: 'verify', title: 'Check the attempt' } }],
-        seed: { role: 'competitor', title: '{{task}}' },
-        messaging: 'board-only', wait: 240,
-        layout: { race: 'competitor' },
-      },
+      flow: TEAM_START_POLICIES.comparison,
     },
     bindings: [], problems: [],
   },
@@ -85,7 +53,7 @@ const emptyPreview = (): FlowPreview => ({
 })
 
 const fakeStore = (options: { readonly plan?: SeatPlan } = {}): { store: AppStore; startFlowGoal: ReturnType<typeof vi.fn>; previewFlow: ReturnType<typeof vi.fn> } => {
-  const snapshot = emptySnapshot()
+  const snapshot = { ...emptySnapshot(), runtimes: [{ id: 'alpha', presentation: { name: 'Alpha' } } as never] }
   const previewFlow = vi.fn(async () => emptyPreview())
   const startFlowGoal = vi.fn(async () => ({ version: 2 as const, id: 'run-1', goal: 'goal-1', document: emptyPreview().compiled.document, state: 'running' as const, rounds: [], operations: [], legacyRun: null, reason: null }))
   const store = {
@@ -97,6 +65,7 @@ const fakeStore = (options: { readonly plan?: SeatPlan } = {}): { store: AppStor
     plansIn: vi.fn(async () => [options.plan ?? PLAN]),
     previewFlow,
     startFlowGoal,
+    renderShape: vi.fn(async (policy: import('@harnessdesk/protocol').FlowPolicy) => ({ source: JSON.stringify(policy), issues: [] })),
     openGoal: vi.fn(),
     newSession: vi.fn(),
   } as unknown as AppStore
@@ -126,6 +95,8 @@ it('one Agent and two exact seats produce a normal preview, never a session crea
   const { store, startFlowGoal, previewFlow } = fakeStore()
   render(store)
   await settle()
+  expect(document.body.textContent).toContain('Judge · optional')
+  expect(document.querySelector<HTMLSelectElement>('select[aria-label="Judge · optional"]')?.selectedOptions[0]?.textContent).toBe('You')
   await selectAgent('implementer')
   await settle()
 
@@ -135,8 +106,8 @@ it('one Agent and two exact seats produce a normal preview, never a session crea
   // second previews the actual substituted source — never a `newSession` call either way.
   expect(previewFlow).toHaveBeenCalledTimes(2)
   const [, substitutedSource] = previewFlow.mock.calls[1]!
-  expect(substitutedSource).toContain('uses: ["implementer"]')
-  expect(substitutedSource).toContain('seats: ["alpha", "alpha/high"]')
+  expect(JSON.parse(substitutedSource).roles.find((role: { id: string }) => role.id === 'competitor')).toMatchObject({ uses: ['implementer'], seats: [{ runtime: 'alpha' }, { runtime: 'alpha', effort: 'high' }] })
+  expect(JSON.parse(substitutedSource).roles.some((role: { id: string }) => role.id === 'judge')).toBe(false)
 
   act(() => startButton.click())
   await settle()
@@ -178,4 +149,29 @@ it('identical seats cannot start, with an actionable reason on screen', async ()
   await settle()
   expect(document.body.textContent).toContain('Choose two different seats to compare.')
   expect(start().disabled).toBe(true)
+})
+
+it('previews and starts the same-vendor judge selection, and can return to You', async () => {
+  const { store, startFlowGoal, previewFlow } = fakeStore()
+  render(store)
+  await settle()
+  const choose = async (value: string) => {
+    await act(async () => {
+      const judge = document.querySelector<HTMLSelectElement>('select[aria-label="Judge · optional"]')!
+      judge.value = value
+      judge.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+  await choose('alpha')
+  const selected = JSON.parse(previewFlow.mock.calls.at(-1)![1])
+  expect(selected.roles.find((role: { id: string }) => role.id === 'judge')).toMatchObject({ seats: [{ runtime: 'alpha' }], independentOf: [] })
+  expect(selected.rules.find((rule: { id: string }) => rule.id === 'to-referee').then.detail).toContain('{{evidence.review.at}}')
+  const start = [...document.body.querySelectorAll('button')].find(one => one.textContent === 'Start')!
+  act(() => start.click())
+  await settle()
+  expect(startFlowGoal.mock.calls[0]![0].source).toBe(previewFlow.mock.calls.at(-1)![1])
+  await choose('')
+  const human = JSON.parse(previewFlow.mock.calls.at(-1)![1])
+  expect(human.roles.some((role: { id: string }) => role.id === 'judge')).toBe(false)
+  expect(human.roles.find((role: { id: string }) => role.id === 'referee')).toMatchObject({ review: true })
 })

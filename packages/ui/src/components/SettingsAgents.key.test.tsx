@@ -91,9 +91,15 @@ describe('the account page for a key the agent reads from somewhere else', () =>
     expect(text()).toContain('Read from its own store. HarnessDesk holds no copy.')
   })
 
-  it('says the copy HarnessDesk keeps comes after it, rather than that there is none', async () => {
-    await mount({ storedCopy: true })
+  it('says the copy HarnessDesk keeps comes after it, and is used only if that one is removed', async () => {
+    await mount({ storedCopy: true, outranksHandedKey: true })
     expect(text()).toContain('Read from its own store, which comes before the copy HarnessDesk keeps — encrypted by the system keychain.')
+    expect(text()).toContain('The copy is used only if that one is removed.')
     expect(text()).not.toContain('holds no copy')
+  })
+
+  it('says a key stored here would come after it, when HarnessDesk holds none yet', async () => {
+    await mount({ outranksHandedKey: true })
+    expect(text()).toContain('Read from its own store, which comes before any key stored here. HarnessDesk holds no copy.')
   })
 })

@@ -733,7 +733,7 @@ const TEXT_INK = {
 
 export type TextRole = keyof typeof TEXT_ROLE
 export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
-  as?: 'span' | 'div' | 'p' | 'strong' | 'b' | 'h2' | 'h3' | 'h4' | 'summary' | 'label' | 'li'
+  as?: 'span' | 'div' | 'p' | 'strong' | 'b' | 'h1' | 'h2' | 'h3' | 'h4' | 'summary' | 'label' | 'li'
   children: ReactNode
   role?: TextRole
   tone?: Tone

@@ -262,7 +262,13 @@ docked panels, notices and the seat.
 in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
 start**: New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
-until its first message. New Team opens a searchable shape picker, then one
+until its first message. Before a repository has its first commit, New worktree…
+is replaced by **Make a first commit to work in a worktree**, with a **Commit**
+button that opens the existing commit flow. After that commit the normal
+worktree choice returns. Menus re-read the checkout when opened, so commits
+made by an agent or terminal also restore the choice. This applies to the
+composer and project menu too.
+New Team opens a searchable shape picker, then one
 form for the task, roles and optional Done when. Just a Team opens a shared
 board without fixed steps. Change returns to the picker and keeps the draft.
 
@@ -271,8 +277,11 @@ session: the same icon, label and trailing badge grammar as the conversation
 list. Their labels truncate with the rest of the row when space is short; they
 remain visible at the sidebar's 200px minimum. Agents shows its in-force count
 when the roster has been read, Plugins shows the live plugin count, and
-Dashboard shows an attention count only while an agent needs attention. A row
-fills when its destination window is open.
+Dashboard shows an attention count only while an agent needs attention.
+Its Overview hides the Turns tile when no agent reports turns; a reported zero
+remains a reading. A plan card with one window names it beside the headline
+reading and draws its meter once. Multiple windows keep their named meter rows.
+A row fills when its destination window is open.
 
 The magnifier beside the brand says **Search everything (⌘K)** and opens the
 search palette across sessions, files, agents and commands. The funnel beside
@@ -686,6 +695,12 @@ rides in the conversation: the agent is told, through its own instruction
 layer, to use the tools; the desk does the rest. Text a person writes
 themselves carries no signature.
 
+Once a turn's recorded edits are found in a commit, its changed-files card
+shows **Committed <short revision>** and hides Undo. Review remains available;
+undoing a commit belongs to the Repository pane. Edits without commit evidence
+keep the existing Undo and Redo actions. A workspace refresh rechecks each
+card's own checkout, including a conversation in another worktree.
+
 **Under every finished turn, a summary**: files changed (Review → Editor mode),
 commands run, tests passed or failed, what broke, and "waiting for your
 answer" when the agent ended on a question. All read off the items by
@@ -707,6 +722,11 @@ tool output** adds output from tools and commands, with those hits marked
 on this viewer.
 
 ## The composer
+
+A signed-out agent’s empty conversation offers one normal Sign in button.
+Its composer does not repeat the sign-in notice while the page already explains
+it; an existing transcript keeps that notice and its action. In Editor mode,
+the notice returns to the strip while the conversation panel is hidden.
 
 *The textarea carries intent; chips carry context and capability.* Full design
 in [extending.md](extending.md).
@@ -827,6 +847,13 @@ Grouped navigation, one short page each: a rail of pages, a 20px title with a
 one-line blurb, small grey section labels over cards of rows, one control at
 the right of each row. The rail starts with you — your face and name, above
 every group — and that row opens your profile.
+
+The page name is a visible h1 above its description. The Settings top bar
+keeps only the column toggle; it carries no page title or breadcrumb.
+Permissions shows ceiling rows for agents signed in or used in known
+conversations first. Other agents sit behind one **Other agents · N**
+disclosure, which expands their rows in place and reports its expanded state.
+Account slots stay with their agent; the count is agents, not accounts.
 
 | Group | Pages |
 | --- | --- |
@@ -1168,8 +1195,8 @@ merge question for that exact recorded revision and the actual destination
 branch. **Compare changes** opens the existing diff between the two revisions.
 **Keep B instead** changes the person's pending merge choice, preserving the
 judge's recorded recommendation. A stopped Run or one without a pending person
-merge step cannot merge or change its pick. A waiting person judge sees
-**Pick an attempt…**, which opens the Board's same attempt dialog. No recorded
+merge step cannot merge or change its pick. A waiting person judge, or a
+referee choosing without an agent judge, sees **Pick an attempt…**, which opens the Board's same attempt dialog. No recorded
 selected attempt means no decision card.
 
 A conflict-free merge records its revision, resulting commit, destination and
@@ -1275,8 +1302,9 @@ agent cannot reopen.
 
 **`/race`** opens a dialog asking for one Agent and two explicit, isolated
 seats — never the other installed runtime, never two ordinary drafts. It
-shows the same full dry run before Start, including the judge and person
-steps a comparison names. A Goal a flow opened shows its own status strip
+shows **Judge · optional**, defaulting to **You**. An agent judge may share
+a vendor with either attempt. It shows the same full dry run before Start,
+including the selected judge and person steps a comparison names. A Goal a flow opened shows its own status strip
 beside the ordinary Goal header — Running, Waiting for evidence, Waiting for
 a person, Interrupted, Stopped or Settled — and an interrupted check's own
 **Review and run again…** action, which asks for a fresh confirmation

@@ -1,4 +1,4 @@
-import { checkRetryRefusal, currentTurn, isBusy, sessionKey, type Session, type SessionKey, type BoardEvidence, type EvidenceView, type FindingRunView, type FindingView, type FlowCheckAttempt, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { checkRetryRefusal, currentTurn, isBusy, isPersonReviewStep, sessionKey, type Session, type SessionKey, type BoardEvidence, type EvidenceView, type FindingRunView, type FindingView, type FlowCheckAttempt, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { lifecycleWords } from './words.js'
 import { reviewPublication, runPublication, type ReviewPublication } from './review-publication.js'
 import { wordOf } from './words.js'
@@ -244,7 +244,9 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
   const kept = new Map<number, 'kept' | 'not-kept'>()
   for (const round of sorted) for (const id of round.cards) {
     const attempts = attemptsBefore(round.n)
-    const reviewView = factsOf(input.evidence, id).filter(one => one.record.fact.kind === 'review' && one.record.fact.verdict === 'picked' && !one.record.restored).sort(newest)[0]
+    const personReview = execution.document.format === 'agents' && isPersonReviewStep(execution.document.flow, round.role)
+    const reviewView = factsOf(input.evidence, id).filter(one => one.record.fact.kind === 'review'
+      && (one.record.fact.verdict === 'picked' || (personReview && one.record.fact.verdict === 'merged')) && !one.record.restored).sort(newest)[0]
     const review = reviewView?.record.fact
     if (!attempts.length || review?.kind !== 'review') continue
     const matching = attempts.filter(one => one.revision === review.at && (!reviewView?.record.checkout?.cwd || one.cwd === reviewView.record.checkout.cwd))

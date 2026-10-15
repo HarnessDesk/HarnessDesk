@@ -215,6 +215,9 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
 
+  const workspacePath = snapshot.workspace?.path
+  useEffect(() => { if (workspacePath) void store.refreshWorkspaceGit(workspacePath) }, [store, workspacePath])
+
   // The roster, for "Start as" — read once if nothing has read it yet.
   useEffect(() => {
     if (store.getSnapshot().agents === null) void store.loadAgents()
@@ -316,12 +319,13 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       {
         id: 'worktree',
         group: 'Actions',
-        label: 'New worktree…',
+        label: snapshot.workspace?.git?.sha === null ? 'Make a first commit to work in a worktree' : 'New worktree…',
         title: 'Its own checkout, on its own branch',
         icon: <BranchIcon size={14} />,
         run: () => {
           close()
-          store.askNewWorktree(snapshot.workspace?.path ?? null)
+          if (snapshot.workspace?.git?.sha === null) store.askCommit(snapshot.workspace.path)
+          else store.askNewWorktree(snapshot.workspace?.path ?? null)
         },
       },
       /*

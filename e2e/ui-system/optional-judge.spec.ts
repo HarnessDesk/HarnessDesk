@@ -1,0 +1,42 @@
+import { expect, test } from '@playwright/test'
+
+for (const theme of ['light', 'dark'] as const) test(`a completed person choice retains both attempt labels in ${theme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: theme })
+  await page.goto(`/preview.html?comparison-verdict=person-merged&theme=${theme}`)
+  const frame = page.locator('[data-frame-id="comparison-person-merged"]')
+  const tiles = frame.locator('[data-slot="side-by-side-tile"]')
+  await expect(tiles.nth(0).locator(':scope > header')).toContainText('Picked')
+  await expect(tiles.nth(1).locator(':scope > header')).toContainText('Not kept')
+  await expect(frame.getByRole('button', { name: 'Pick an attempt…' })).toHaveCount(0)
+  const decision = frame.locator('[data-slot="comparison-decision"]')
+  await expect(decision).toContainText('The judge picked A')
+  await expect(decision.getByRole('button', { name: /^Merge / })).toHaveCount(0)
+  await expect(decision.getByRole('button', { name: 'Refresh merge destination' })).toHaveCount(0)
+  await expect(decision.getByRole('button', { name: /^Keep / })).toHaveCount(0)
+  await expect(decision.getByRole('button', { name: 'Compare changes' })).toBeEnabled()
+})
+
+test('Side by side defaults to You and allows either attempt’s provider to judge', async ({ page }) => {
+  await page.goto('/preview.html?team-start=comparison')
+  const judge = page.getByRole('combobox', { name: 'Agent for Judge', exact: true })
+  await expect(page.getByText('Judge · optional', { exact: true })).toBeVisible()
+  await expect(judge.locator('option:checked')).toHaveText('You')
+  await expect(page.getByRole('combobox', { name: 'Model for Judge' })).toHaveCount(0)
+  await judge.selectOption('codex')
+  await expect(judge.locator('option:checked')).toHaveText('Runtime 1')
+  await expect(page.getByRole('combobox', { name: 'Model for Judge' })).toBeVisible()
+  await judge.selectOption('')
+  await expect(judge.locator('option:checked')).toHaveText('You')
+})
+
+test('/race defaults to You and offers both providers as judges', async ({ page }) => {
+  await page.goto('/preview.html?optional-judge')
+  const judge = page.getByRole('combobox', { name: 'Judge · optional', exact: true })
+  await expect(judge.locator('option:checked')).toHaveText('You')
+  await judge.selectOption('alpha')
+  await expect(judge.locator('option:checked')).toHaveText('Runtime 1')
+  await judge.selectOption('beta')
+  await expect(judge.locator('option:checked')).toHaveText('Runtime 2')
+  await judge.selectOption('')
+  await expect(judge.locator('option:checked')).toHaveText('You')
+})

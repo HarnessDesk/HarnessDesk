@@ -17,6 +17,7 @@ const accountDisplay = (account: NonNullable<RuntimeObservations['account']>): N
     ...(entry.planType !== undefined ? { planType: entry.planType } : {}),
     ...(entry.anonymous !== undefined ? { anonymous: entry.anonymous } : {}),
     ...(entry.storedCopy !== undefined ? { storedCopy: entry.storedCopy } : {}),
+    ...(entry.outranksHandedKey !== undefined ? { outranksHandedKey: entry.outranksHandedKey } : {}),
   })),
   signInMethods: [],
   signInFlows: [...new Set(account.signInFlows ?? account.signInMethods.map(method => method.flow))]
