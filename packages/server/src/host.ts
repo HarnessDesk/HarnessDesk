@@ -152,6 +152,7 @@ import { planOverlay } from './usage/plan-merge.js'
 import { CredentialBroker, plainCipher, type CredentialCipher } from './credentials.js'
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
+import { verifyMerge } from './git-actions.js'
 import { canonicalDestination } from './git-worktree.js'
 import { canonicalPath, withCanonicalPaths } from './path-identity.js'
 import { dropFlowBase, fetchFlowBase } from './flow-base.js'
@@ -1303,6 +1304,10 @@ export class Host {
       now: () => Date.now(),
     })
     this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
+      verifyPersonMerge: async (goal, revision, expectedBranch) => {
+        const state = this.#goalState(goal)
+        return verifyMerge(state.cwd ?? state.root, revision, expectedBranch)
+      },
       /* Opened with the seat's picks, then *read back*: a runtime drops a
          pick it declines rather than failing, so a seat that believes it is
          running at an effort it is not is a seat with an unchecked claim on

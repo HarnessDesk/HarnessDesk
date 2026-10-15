@@ -364,6 +364,21 @@ export const merge = async (root: string, ref: string, expectedBranch?: string):
   }
 })
 
+/** A person's merge answer is earned by reachability on the named destination. */
+export const verifyMerge = async (root: string, revision: string, expectedBranch: string): Promise<{ branch: string; commit: string }> => withGitMutation(root, async () => {
+  const branch = await currentBranch(root)
+  if (!branch || branch !== expectedBranch) throw new Error('The destination branch changed. Check Changes before verifying the merge.')
+  if (await concluding(root)) throw new Error('Conclude the current Git operation before verifying the merge.')
+  const picked = await resolveCommitish(root, revision)
+  const commit = await resolveCommitish(root, `refs/heads/${branch}`)
+  try {
+    await git(root, ['merge-base', '--is-ancestor', picked, commit])
+  } catch {
+    throw new Error(`The picked attempt is not reachable from ${branch}. Merge it before recording this answer.`)
+  }
+  return { branch, commit }
+})
+
 /**
  * Rebases the current branch onto a revision — and aborts itself on
  * conflict, reporting that nothing changed. See the module note: a paused

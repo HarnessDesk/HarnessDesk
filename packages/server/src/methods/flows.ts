@@ -183,7 +183,7 @@ export const flowMethods = {
 
   'flow/review/candidates': (ctx, params) => ctx.flows.personReviewCandidates(params.run, params.card),
 
-  'flow/review/decide': (ctx, params) => ctx.flows.decidePersonReview(params.run, params.card, params.candidate, params.verdict),
+  'flow/review/decide': (ctx, params) => ctx.flows.decidePersonReview(params.run, params.card, params.candidate, params.verdict, params.expectedBranch),
 
   'flow/update/preview': (ctx, params) => ctx.flowUpdates.preview(params.root, params.id),
 

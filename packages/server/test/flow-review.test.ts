@@ -199,6 +199,25 @@ test('candidates offered for a card with no binding are empty, and recording aga
   await assert.rejects(() => review.record({ intent: 9, candidate: 'anything', verdict: 'approve' }, scope), /do not hold this card/)
 })
 
+for (const changed of ['stopped', 'revision'] as const) test(`a person merge records no review if its ${changed} changes during verification`, async () => {
+  const port = new FakePort()
+  const binding: ReviewBinding = {
+    goal: 'goal-1', seat: PERSON_REVIEWER_ID, answers: ['merged'], round: 4,
+    subjects: [{ card: 7, round: 2, checkout: { cwd: '/repo/attempt', branch: 'attempt-one' }, at: SHA_A }],
+  }
+  port.personBindings.set('run-1\u00005', binding)
+  const review = new FlowReview(port)
+  const [candidate] = await review.personCandidates('run-1', 5)
+  let answered = false
+  await assert.rejects(review.decidePerson('goal-1', 'run-1', 5, candidate!.id, 'merged', async () => { answered = true }, async offered => {
+    assert.equal(offered.at, SHA_A)
+    if (changed === 'stopped') port.personBindings.delete('run-1\u00005')
+    else port.personBindings.set('run-1\u00005', { ...binding, subjects: [{ ...binding.subjects[0]!, at: SHA_B }] })
+  }), /changed while verifying/)
+  assert.equal(answered, false)
+  assert.equal(port.facts_.get('goal-1')?.length ?? 0, 0)
+})
+
 test('a person review records the stable person marker on a held candidate and refuses stale, unknown, and conflicting choices', async () => {
   const port = new FakePort()
   const binding: ReviewBinding = {

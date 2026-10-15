@@ -132,6 +132,8 @@ export interface FlowPort {
   confine(folder: string): Promise<void>
   /** Refuses a new run before it opens Seats or writes cards. */
   canMutateBoard?(goal: string): { ok: true } | { ok: false; reason: string }
+  /** Reads Git on the Goal's destination; never accepts a renderer's merge receipt. */
+  verifyPersonMerge?(goal: string, revision: string, expectedBranch: string): Promise<{ readonly branch: string; readonly commit: string }>
   /**
    * Runs a check's command. Resolves with its exit status, or null if it ran
    * over. `card` says which card and round it is for, so the desk can record
@@ -427,17 +429,44 @@ export class Flows implements TeamFlows {
   }
 
   /** Records the pick, then answers the person's card through the Board's own Team action. */
-  async decidePersonReview(run: string, card: number, candidate: string, verdict: string): Promise<FlowExecution> {
+  async decidePersonReview(run: string, card: number, candidate: string, verdict: string, expectedBranch?: string): Promise<FlowExecution> {
     if (!this.#review) throw new Error('Runs on Goals are not available on this desk.')
     const stored = this.#executions?.stored(run)
     if (!stored) throw new Error(`There is no flow run ${run}.`)
+    let context: string | undefined
+    const verify = async (picked: ReviewCandidate): Promise<void> => {
+      if (!expectedBranch || !this.#port.verifyPersonMerge) throw new Error('Choose a destination branch before verifying the merge.')
+      const merged = await this.#port.verifyPersonMerge(stored.goal, picked.at, expectedBranch)
+      context = JSON.stringify({ comparisonMerge: { version: 1, run, card: picked.card, revision: picked.at, ...merged, at: now() } })
+    }
     return this.#review.decidePerson(stored.goal, run, card, candidate, verdict, async () => {
-      await this.#team.intentAction(stored.goal, card, 'done', undefined, verdict)
+      const key = `${run}:${card}`
+      if (verdict === 'merged') {
+        if (!context) {
+          const answered = this.#team.stateFor(stored.goal).intents.find(one => one.id === card)
+          if (answered?.state === 'done' && answered.outcome === 'merged') return this.executionOf(run)!
+          throw new Error('Verify the picked attempt before recording merged.')
+        }
+        this.#verifiedPersonMerges.add(key)
+      }
+      try {
+        await this.#team.intentAction(stored.goal, card, 'done', undefined, verdict, context)
+        if (verdict === 'merged') {
+          const saved = this.#team.stateFor(stored.goal).intents.find(one => one.id === card)
+          if (saved?.state !== 'done' || saved.outcome !== 'merged' || saved.handoff !== context) {
+            throw new Error('The merge was verified, but its answer was not saved. Retry this question before completing the Run.')
+          }
+        }
+      } finally {
+        this.#verifiedPersonMerges.delete(key)
+      }
       const execution = this.executionOf(run)
       if (!execution) throw new Error(`There is no flow run ${run}.`)
       return execution
-    })
+    }, verdict === 'merged' ? verify : undefined)
   }
+
+  readonly #verifiedPersonMerges = new Set<string>()
 
   /** Runs an interrupted check again, once a person has reviewed it. The only way a v2 check ever runs a second time. */
   retryCheck(run: string, card: number, approved?: CheckRetry): Promise<FlowExecution> {
@@ -1051,6 +1080,10 @@ export class Flows implements TeamFlows {
   }
 
   refuseOutcome(room: string, intent: Intent, outcome: string | null): string | null {
+    const step = flowStepOf(intent, undefined, this.executionsFor(room))
+    if (step?.kind === 'person' && step.review && outcome === 'merged' && !this.#verifiedPersonMerges.has(`${step.run}:${intent.id}`)) {
+      return 'Verify the picked attempt on the destination branch before recording merged.'
+    }
     if (this.#modernCard(room, intent.id)) return this.#executions!.refuseOutcome(room, intent, outcome)
     const run = this.#runFor(room, intent.id)
     if (!run) return null
