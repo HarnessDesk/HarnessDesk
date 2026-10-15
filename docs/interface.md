@@ -707,7 +707,8 @@ on this viewer.
 
 A signed-out agent’s empty conversation offers one normal Sign in button.
 Its composer does not repeat the sign-in notice while the page already explains
-it; an existing transcript keeps that notice and its action.
+it; an existing transcript keeps that notice and its action. In Editor mode,
+the notice returns to the strip while the conversation panel is hidden.
 
 *The textarea carries intent; chips carry context and capability.* Full design
 in [extending.md](extending.md).

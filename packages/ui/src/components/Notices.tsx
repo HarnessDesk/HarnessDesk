@@ -33,7 +33,7 @@ import { conditionFor } from '../lib/usage-alerts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
 import { useMount } from '../panels/mount'
-import { areaVisible, fixedSubject, focusedComposerVisible, mainNoticeHost, noticeArea, visibleViews, type AreaId } from '../state/workbench'
+import { areaVisible, fixedSubject, focusedComposerVisible, mainNoticeHost, noticeArea, rightPanelDrawn, visibleViews, type AreaId } from '../state/workbench'
 import { findPane } from '../state/layout'
 import { useImportOffer } from './ImportOffer'
 
@@ -698,8 +698,12 @@ export const NoticeStripOutlet = ({
   if (!host) return null
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
+  const subject = fixedSubject(snapshot.workbench.main)
+  // Editor replaces the main conversation; only its open Conversation tool can own sign-in.
+  const conversationBodyVisible = effectiveWindowMode(snapshot.windowMode, snapshot.workbench) !== 'editor' ||
+    (rightPanelDrawn(snapshot.workbench) && subject !== null && snapshot.workbench.frameTools[subject]?.tool === 'conversation')
   const signInOnPage = bodyShowsSignIn(standing,
-    pane?.view.kind === 'conversation' || Boolean(fallbackPane?.view.kind === 'conversation' && currentDestination.kind === 'work' && currentDestination.view.kind === 'conversation'),
+    conversationBodyVisible && (pane?.view.kind === 'conversation' || Boolean(fallbackPane?.view.kind === 'conversation' && currentDestination.kind === 'work' && currentDestination.view.kind === 'conversation')),
     conversationSessionKey, session)
   if (standing && !bodyShowsStandingHealth && !signInOnPage) {
     if (standingOutlet(snapshot, standing, registry?.mounts ?? [], registry !== null) === 'strip') {
