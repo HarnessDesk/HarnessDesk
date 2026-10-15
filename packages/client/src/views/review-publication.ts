@@ -20,7 +20,7 @@ export function reviewPublication(input: {
     case 'uncertain': return { label: 'Not confirmed', tone: 'warning', needsYou: true }
     case 'local': return input.pr !== null && input.postingOn
       ? { label: 'Not posted', tone: 'warning', needsYou: true }
-      : { label: 'Kept on the desk', tone: 'neutral', needsYou: false }
+      : { label: 'This desk only', tone: 'neutral', needsYou: false }
   }
 }
 export const runPublication = (view: FindingRunView | null | undefined, postingOn = true): ReviewPublication | null => view

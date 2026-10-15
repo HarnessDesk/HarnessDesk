@@ -333,7 +333,7 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
     })
     const findings = roundFindings
     if (findings.length) rows.push(row(`findings-${round.n}`, 'findings', `${findings.length} ${findings.length === 1 ? 'finding' : 'findings'}`, {
-      round: round.n, publication: roundPublication, detail: findings.map(one => `${one.title} · ${lifecycleWords(one)}${one.inactiveReason ? ' · Not kept' : ''}${one.problem ? ` · ${one.problem}` : ''}`).join('\n'),
+      round: round.n, publication: roundPublication, detail: findings.map(one => `${one.title} · ${lifecycleWords(one)}${one.inactiveReason ? ' · Not published' : ''}${one.problem ? ` · ${one.problem}` : ''}`).join('\n'),
     }))
   }
   // The rounds that wait on a person's answer, drawn ahead of it and not yet reached.

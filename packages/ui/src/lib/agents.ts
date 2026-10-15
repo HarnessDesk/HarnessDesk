@@ -246,6 +246,7 @@ export const reasonWords = (reason: SeatReason, runtime: string, modelLabel?: Mo
       // shown as written rather than thrown on indexing `LEVEL_WORD`.
       const level = isCeilingLevel(reason.level) ? LEVEL_WORD[reason.level].toLowerCase() : reason.level
       const detail = reason.detail ? `: ${reason.detail}` : ''
+      if (reason.required && reason.level === 'read') return `${runtime} can be asked to stay read-only here but cannot be held to it.${reason.detail ? ` ${reason.detail.replace(/[.!?]$/, '')}.` : ''} Choose another agent, or start from /race.`
       // `required` is a front-door start's own need — every Seat holds its
       // ceiling, whatever this Mac's setting says. The runtime is running;
       // it simply does not hold this level, or read back holding a different
@@ -298,11 +299,11 @@ export const seatTaken = (plan: SeatPlan | undefined): SeatCandidate | null => {
  * absolute path. A blocked plan reads as one plain sentence instead, with
  * nothing this file cannot account for in it.
  */
-export const firstReason = (plan: SeatPlan): string | null => {
+export const firstReason = (plan: SeatPlan, runtimes: readonly RuntimeInfo[] = []): string | null => {
   if (plan.blocked) return 'Its file has a problem'
   if (seatTaken(plan)) return null
   const first = plan.candidates.find((one) => one.reason !== null)
-  if (first?.reason) return reasonWords(first.reason, first.runtimeName)
+  if (first?.reason) return reasonWords(first.reason, runtimes.find(one => one.id === first.seat.runtime)?.presentation.name ?? first.runtimeName)
   return plan.candidates.length === 0 ? 'It names no seat to try' : null
 }
 
