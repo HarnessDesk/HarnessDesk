@@ -17,6 +17,11 @@ export const frameDestinationStore = (fixture: AppStore, { workspaceOutsideGit =
   // when the store replaces its displayed first page with a smaller slice.
   let indexedHistory: AppSnapshot['history'] | null = null
   store.transport.request = (async (method: HostMethodName, params: HostParams<HostMethodName>) => {
+    // Page terminals admit their named folder without navigating the fixture.
+    if (method === 'workspace/open' && store.getSnapshot().workbench.navigation.current.kind !== 'work') {
+      const { path } = params as HostParams<'workspace/open'>
+      return { path, name: path.split('/').at(-1) || path, lastOpenedAt: 1 }
+    }
     if (method === 'session/read' || method === 'session/resume') {
       const query = params as { runtime: RuntimeId; sessionId: SessionId }
       const session = store.getSnapshot().sessions.get(sessionKey(query.runtime, query.sessionId))

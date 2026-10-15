@@ -65,7 +65,7 @@ for (const theme of WALL_THEMES) {
 
 for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
   test(`E9 only the permanent shell frames a destination ${width} ${theme}`, async ({ page }) => {
-    await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=capabilities', 'wide', theme, width, { more: 'absent' })
+    await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=capabilities', 'wide', theme, width)
     await expect(page.locator('[data-app-window-left-frame], [data-slot="app-window"]')).toHaveCount(0)
     await expect(page.locator('[data-slot="page-head"], [data-slot="detail-head"]')).toHaveCount(0)
     await expectDestinationTab(page, 'capabilities')

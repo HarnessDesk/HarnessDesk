@@ -209,6 +209,11 @@ Zed on the way.
 
 ## Window chrome
 
+**Show Terminal**, from the palette or a menu, opens in the chosen project
+folder, including while a page is open. A conversation uses its own checkout;
+Project settings and Changes review use the project they name. Without a
+chosen folder, the command asks for one.
+
 The window has no status bar. The seat menu carries plan usage and scoped
 Open usage / Sign in actions; background tasks lead Activity, whose tool button
 has a dot while any task runs. Connection trouble is a Banner at main's top,
@@ -262,7 +267,9 @@ docked panels, notices and the seat.
 in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
 start**: New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
-until its first message. Before a repository has its first commit, New worktree…
+until its first message. The project’s right-click menu also offers **New worktree…**,
+for that project, including one with no sessions yet. A folder outside git keeps
+the row disabled with its reason. Before a repository has its first commit, New worktree…
 is replaced by **Make a first commit to work in a worktree**, with a **Commit**
 button that opens the existing commit flow. After that commit the normal
 worktree choice returns. Menus re-read the checkout when opened, so commits
@@ -1069,6 +1076,9 @@ why. The section appears only once the project has a checks file.
 Only the result of a person's action opens a toast: success leaves on its
 own; failure stays until closed. Conditions needing attention keep their
 existing composer, strip or sidebar card, with their action and Inbox option.
+Toasts appear at the upper-right of the window, above the composer, leaving
+Send and the model picker clear. Composer notices keep their action below
+the copy in a narrow container, returning it to the right when widened.
 
 Runtime information belongs quietly in the Inbox. The bell shows an unread
 dot. One row per kind and content keeps a count and the latest time; reading

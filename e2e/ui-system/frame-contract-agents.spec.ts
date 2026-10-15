@@ -32,7 +32,7 @@ test('E4 Agents named history', async ({ page }) => {
 for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
   for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roster'} ${width} ${theme}`, async ({ page }) => {
 
-    await measureDestination(page, `frame-wall=agents${detail ? '&frame-detail=agent' : ''}`, detail ? 'reading' : 'wide', theme, width, detail ? {} : { more: 'absent' })
+    await measureDestination(page, `frame-wall=agents${detail ? '&frame-detail=agent' : ''}`, detail ? 'reading' : 'wide', theme, width)
     await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
     const bar = page.locator('[data-slot="top-bar"]:visible')
     if (detail) {
@@ -43,7 +43,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
 }
 for (const state of ['parse', 'refused', 'missing']) test(`E4 Agents ${state} keeps the destination`, async ({ page }) => {
 
-  await measureDestination(page, `frame-wall=agents&frame-agent-case=${state}`, state === 'missing' ? 'wide' : 'reading', 'light', 1440, state === 'missing' ? { more: 'absent' } : {})
+  await measureDestination(page, `frame-wall=agents&frame-agent-case=${state}`, state === 'missing' ? 'wide' : 'reading', 'light', 1440)
   const main = page.locator('[data-page-destination="agents"]:visible')
   if (state === 'parse') await expect(main).toContainText('Why it will not parse')
   if (state === 'refused') await expect(main).toContainText('signed out')
@@ -72,18 +72,14 @@ for (const width of [1440, 720]) test(`E4 Agents column opens draft session and 
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
 })
 
-for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roster'} More excludes Terminal and Back to app`, async ({ page }) => {
+for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roster'} More offers the project Terminal without Back to app`, async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
   await page.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Agents', exact: true }).click()
-  if (!detail) {
-    await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
-    return
-  }
   if (detail) await page.getByRole('button', { name: /Code reviewer/ }).first().click()
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
   const items = page.locator('[role="menuitem"], [role="menuitemradio"]')
   await expect(items.filter({ hasText: 'Back to app' })).toHaveCount(0)
-  await expect(items.filter({ hasText: 'Terminal' })).toHaveCount(0)
+  await expect(items.filter({ hasText: 'Terminal' })).toHaveCount(1)
 })
 
 test('R10 Agents source notes keep middle-truncated paths content-sized', async ({ page }) => {

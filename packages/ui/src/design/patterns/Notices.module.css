@@ -187,6 +187,15 @@
   padding-left: var(--hd-space-2);
 }
 
+.composerFrame {
+  container: hd-composer-notice / inline-size;
+  width: 100%;
+}
+
+.composerActions {
+  flex: none;
+}
+
 .composer {
   display: flex;
   align-items: center; /* desk: flex-start → center so a one-line notice shares the controls' midpoint */
@@ -232,6 +241,21 @@
 
 .lineBody {
   color: var(--hd-muted-foreground);
+}
+
+/* Match Banner's narrow measure: copy keeps the row and the action follows. */
+@container hd-composer-notice (max-width: 400px) {
+  .composer {
+    flex-wrap: wrap;
+    row-gap: var(--hd-space-2);
+  }
+
+  .composerActions {
+    order: 1;
+    flex-basis: 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
 }
 
 /* --- strip: one slim line above a pane ------------------------------------ */

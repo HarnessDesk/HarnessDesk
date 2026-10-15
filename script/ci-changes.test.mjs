@@ -23,7 +23,7 @@ const check = (paths, expected, event = 'pull_request', env = {}) => {
     const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
     assert.equal(output.browser, expected[0])
     assert.equal(output.native, String(expected[1]))
-    assert.deepEqual(JSON.parse(output.server_specs), ['e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/run-ending.spec.ts', 'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts'])
+    assert.deepEqual(JSON.parse(output.server_specs), ['e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/project-composer-terminal.spec.ts', 'e2e/ui-system/run-ending.spec.ts', 'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts'])
     return output
   } finally {
     rmSync(directory, { recursive: true, force: true })
@@ -267,7 +267,7 @@ test('deleting a spec runs nothing', () =>
 test('a spec edit beside a host change also runs the server-facing specs', () => {
   const run = plan(['e2e/ui-system/row-box.spec.ts', 'packages/server/src/host.ts'])
   assert.deepEqual(JSON.parse(run.browser_specs), [
-    'e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/run-ending.spec.ts',
+    'e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/project-composer-terminal.spec.ts', 'e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/run-ending.spec.ts',
     'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts',
   ])
 })

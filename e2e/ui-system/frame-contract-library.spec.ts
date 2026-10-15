@@ -122,11 +122,9 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     await expect(page.locator('[data-page-destination="library"]')).toBeVisible()
   })
 }
-// Shared TopBarOutlet policy is owned by the play/foundation integration.
-// This owner regression remains red until the play merge supplies folder-bound action policy.
-test('E6 Library More excludes Terminal even with retained work in a folder', async ({ page }) => {
+test('E6 Library More offers Terminal in the chosen project', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library', 'light')
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
-  await expect(page.getByRole('menuitemradio',{name:/Terminal/})).toHaveCount(0)
+  await expect(page.getByRole('menuitemradio',{name:/Terminal/})).toHaveCount(1)
   await expect(page.getByRole('menuitem',{name:'Back to app',exact:true})).toHaveCount(0)
 })

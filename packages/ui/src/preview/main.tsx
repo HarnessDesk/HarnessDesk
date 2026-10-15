@@ -1,3 +1,4 @@
+import { ProjectPolishFrame } from './frames-project-polish'
 import { RepositoryStatesPreview } from './repository-states'
 import { RepositoryMenuRepairsPreview } from './repository-menu-repairs'
 import { WorkspaceRecoveryPreview } from './workspace-recovery'
@@ -1275,6 +1276,8 @@ createRoot(container).render(
           ? <TablesPreview />
           : new URLSearchParams(window.location.search).has('undo-refused')
           ? <RefusedUndoPreview />
+          : new URLSearchParams(window.location.search).has('project-polish')
+          ? <ProjectPolishFrame />
           : new URLSearchParams(window.location.search).has('notices')
           ? <NoticesFrame />
           : new URLSearchParams(window.location.search).has('findings')

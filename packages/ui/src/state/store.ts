@@ -3947,14 +3947,29 @@ export class AppStore {
     }
     const runtime = this.#snapshot.activeRuntime
     const sessionKeyNow = this.#snapshot.activeSessionKey
-    const session = sessionKeyNow ? this.#snapshot.sessions.get(sessionKeyNow) : undefined
     const cwd = options.cwd ?? terminalCwdForSnapshot(this.#snapshot)
+    const candidate = sessionKeyNow ? this.#snapshot.sessions.get(sessionKeyNow) : undefined
+    const session = this.#snapshot.workbench.navigation.current.kind === 'work' && candidate?.cwd === cwd
+      ? candidate : undefined
     if (!runtime || !cwd) {
       this.resultNotice('warning', 'Choose a project folder before opening a terminal.')
       return
     }
     const epoch = this.#dockEpoch
     try {
+      if (!session && cwd !== this.#snapshot.workspace?.path) {
+        // A page can name the main checkout while only a linked worktree
+        // is open. Admit that explicit choice without changing the page or
+        // its retained workspace, then restore the host's shell/plugin scope.
+        this.#workspaceOpensPending += 1
+        this.#workspaceReconcileNeeded = true
+        try {
+          await this.transport.request('workspace/open', { path: cwd })
+        } finally {
+          await this.#settleWorkspaceOpen()
+        }
+        if (epoch !== this.#dockEpoch) return
+      }
       const { terminalId, runtime: provider } = await this.transport.request('terminal/open', {
         runtime,
         cwd,

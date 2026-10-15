@@ -21,7 +21,7 @@ for (const theme of WALL_THEMES) for (const destination of ['settings', 'agents'
     await expect(page.locator('[data-slot="top-bar"]:visible')).toHaveCount(1)
     await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
     expect((await bar.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
-    await expect(bar.getByRole('button', { name: 'More', exact: true })).toHaveCount(0)
+    await expect(bar.getByRole('button', { name: 'More', exact: true })).toHaveCount(destination === 'settings' ? 0 : 1)
     const lead = bar.getByRole('button', { name: 'Show sidebar', exact: true })
     await lead.focus()
     await expect(lead).toBeFocused()

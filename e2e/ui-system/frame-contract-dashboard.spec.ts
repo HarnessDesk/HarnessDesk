@@ -273,10 +273,11 @@ test('E3 Dashboard command opens main and Back restores work', async ({ page }) 
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
 })
-test('E3 Dashboard omits More when the page has no actions', async ({ page }) => {
+test('E3 Dashboard More offers the chosen project Terminal', async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
   await page.keyboard.press('Meta+u')
-  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
+  await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
 })
 for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
   for (const view of ['overview', 'plans', 'spend', 'activity', 'projects']) {

@@ -261,7 +261,8 @@ export const NoticeCard = ({
  * A message about the conversation it sits over, fastened to the top of that
  * conversation's composer — the control it is about. A calm bar the
  * composer's own width: the tone is in the tile, the words wrap, and the
- * action sits at the right as a small button.
+ * action sits at the right as a small button, moving below the copy in a
+ * narrow container.
  */
 export const ComposerNotice = ({
   message,
@@ -272,7 +273,9 @@ export const ComposerNotice = ({
   onDismiss?: () => void
   onMute?: (() => void) | undefined
 }) => (
-  <ComposerNoticeRow message={message} onDismiss={onDismiss} onMute={onMute} />
+  <div className={styles.composerFrame}>
+    <ComposerNoticeRow message={message} onDismiss={onDismiss} onMute={onMute} />
+  </div>
 )
 
 const ComposerNoticeRow = ({ message, onDismiss, onMute }: { message: NoticeMessage; onDismiss?: () => void; onMute?: (() => void) | undefined }) => {
@@ -287,7 +290,7 @@ const ComposerNoticeRow = ({ message, onDismiss, onMute }: { message: NoticeMess
           {message.body ? <span className={styles.lineBody} data-part="notice-detail"> {message.body}</span> : null}
         </span>
       </span>
-      {message.action ? <ActionButton action={message.action} variant="outline" /> : null}
+      {message.action ? <div className={styles.composerActions}><ActionButton action={message.action} variant="outline" /></div> : null}
       {onDismiss ? <Dismiss onDismiss={onDismiss} onMute={onMute} /> : null}
     </div>
   )
