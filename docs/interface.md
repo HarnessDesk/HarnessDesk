@@ -408,7 +408,9 @@ tooltip still names who new sessions run as and any applicable quota warning.
 The menu behind the row opens on you, and pressing that row opens your
 profile. Then comes switching: **Run new sessions as** lists every account of
 every agent, one line each — its name, and the same figure the header strip
-shows — and the default is the filled row. The address and plan behind a name
+shows — and the default is the filled row. Unavailable or Needs sign-in takes
+the figure's place when the agent cannot run; cached usage stays in its usage
+fold. The address and plan behind a name
 are on the name's tooltip. An agent with more than one
 account is a heading — its mark and its name, not a choice — with its accounts
 under it, each one line on the heading's name column after a small ring in the
@@ -427,10 +429,9 @@ in. Then come Settings and signing out of the default agent. Dashboard in the
 sidebar opens on everything.
 
 The quota forecast, "&lt;agent&gt; will run out before it refills", stays above a
-visible composer and on the Dashboard. Every other page uses a warning dot
-beside the account mark instead of the full notice; its hover text and
-accessible name carry the same title and detail. Dismissing or silencing the
-notice also puts away that dot for the same occurrence or kind.
+visible composer and on the Dashboard. Every other page carries the same title
+and detail in the account trigger's tooltip. Dismissing or silencing the notice
+also removes that warning from the tooltip for the same occurrence or kind.
 
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every

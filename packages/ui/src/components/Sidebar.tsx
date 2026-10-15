@@ -600,14 +600,17 @@ export const AccountFooter = ({
               if (group.length === 0) return null
               const renderSeat = (seat: Seat, child: boolean) => {
                 const mark = child ? <AccountMark size="dot" aria-hidden="true" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}>{null}</AccountMark> : <AccountMark size="menu" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : seat.state === 'signin' ? { 'data-off': '' } : {})}><RuntimeMark runtime={seat.info} size={16} /></AccountMark>
-                // What is left, where it is measured; otherwise the one word
-                // that is wrong. A ready seat with nothing metered says
+                // A launch or sign-in failure outranks a cached reading.
+                // Otherwise show what is left, where it is measured, or the
+                // one word that is wrong. A ready seat with nothing metered says
                 // nothing, and neither does one that has not answered yet.
-                const figure: MenuAccountFigure | undefined = seat.figure
-                  ? { kind: 'reading', text: seat.figure, tone: usageReadingTone(seat.tone) }
-                  : seat.state !== 'ready' && seat.state !== 'available' && seat.state !== 'unknown'
-                    ? { kind: 'word', text: READINESS_LABEL[seat.state], tone: readinessTone(seat.state) }
-                    : undefined
+                const figure: MenuAccountFigure | undefined = seat.state === 'broken' || seat.state === 'signin'
+                  ? { kind: 'word', text: READINESS_LABEL[seat.state], tone: readinessTone(seat.state) }
+                  : seat.figure
+                    ? { kind: 'reading', text: seat.figure, tone: usageReadingTone(seat.tone) }
+                    : seat.state === 'limit'
+                      ? { kind: 'word', text: READINESS_LABEL[seat.state], tone: readinessTone(seat.state) }
+                      : undefined
                 return (
                   <MenuAccountRow
                     key={seat.key}

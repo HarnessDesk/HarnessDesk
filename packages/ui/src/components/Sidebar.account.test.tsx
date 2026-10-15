@@ -786,6 +786,35 @@ it('says what is wrong with a seat that has no figure, in the figure’s place',
   expect(seatNamed('shane@example.com')?.textContent).toContain('Unavailable')
 })
 
+it.each([true, false])('shows unavailable readiness ahead of cached usage when current is %s', current => {
+  mount({
+    activeRuntime: current ? CODEX : CLAUDE,
+    accountsByRuntime: { [CODEX]: signedIn('jane@example.com'), [CLAUDE]: signedIn('dev@example.com') },
+    accountPrefs: {},
+    healthByRuntime: { [CODEX]: { state: 'unavailable', reason: 'crashed', message: 'exited' }, [CLAUDE]: { state: 'ready' } },
+    usage: [{ ...usageReport(CODEX, [lane({ id: 'weekly', usedPercent: 40 })]), account: 'jane@example.com' }],
+  })
+  click(row())
+  if (!current) {
+    const selected = document.querySelector('[role="menuitem"][data-current]')!
+    click(selected)
+  }
+  const seat = seatNamed('jane@example.com')
+  expect(seat?.querySelector('[data-menu-trailing]')?.textContent).toContain('Unavailable')
+  expect(seat?.querySelector('[data-menu-trailing]')?.textContent).not.toContain('60%')
+  // The reading remains available in the existing usage fold.
+  expect(document.body.textContent).toContain('60%')
+})
+
+it('shows sign-in readiness ahead of cached usage for the default agent', () => {
+  mount({ activeRuntime: CODEX, accountsByRuntime: { [CODEX]: signedOut, [CLAUDE]: signedIn('dev@example.com') },
+    usage: [usageReport(CODEX, [lane({ id: 'weekly', usedPercent: 40 })])] })
+  click(row())
+  const selected = document.querySelector('[role="menuitem"][data-current]')!
+  expect(selected.querySelector('[data-menu-trailing]')?.textContent).toContain('Needs sign-in')
+  expect(selected.querySelector('[data-menu-trailing]')?.textContent).not.toContain('60%')
+})
+
 it('keeps an agent that has not answered yet, without calling it signed out', () => {
   mount({
     accountsByRuntime: { [CLAUDE]: signedIn('olivia@acme.dev') },
