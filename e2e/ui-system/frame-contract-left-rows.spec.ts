@@ -27,6 +27,24 @@ for (const theme of WALL_THEMES) {
 }
 
 for (const theme of WALL_THEMES) {
+  test(`D4 every row's icon and trailing mark sit on the row's centre line in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'sidebar-structure', theme)
+    const rows = page.locator('#sidebar-structure [data-left-row]:visible:not(:has([data-draggable]))')
+    // A glyph wrapped in an inline span (the session hover card) used to sit on the text baseline, a few pixels above the centre.
+    const offsets = await rows.evaluateAll(nodes => nodes.flatMap(node => {
+      const row = node.getBoundingClientRect()
+      const centre = (el: Element | null) => el ? (() => { const box = el.getBoundingClientRect(); return (box.top + box.bottom) / 2 - (row.top + row.bottom) / 2 })() : null
+      return [
+        { part: 'icon', offset: centre(node.querySelector('[data-slot="sidebar-menu-icon"] svg')) },
+        { part: 'mark', offset: centre(node.querySelector('[data-left-mark] > *')) },
+      ].filter((entry): entry is { part: string; offset: number } => entry.offset !== null)
+    }))
+    expect(offsets.length).toBeGreaterThan(6)
+    for (const entry of offsets) expect(Math.abs(entry.offset), `a row's ${entry.part} is centred on the row`).toBeLessThanOrEqual(0.5)
+  })
+}
+
+for (const theme of WALL_THEMES) {
   test(`D4 trailing substitution and keyboard menus in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=left-work', theme)
     const column = page.locator('[data-left-column]:visible')

@@ -369,6 +369,39 @@ it('draws one key open under the ways in', async () => {
   expect(document.activeElement).not.toBe(input)
 })
 
+it('keeps offering to replace or remove the key HarnessDesk holds while the agent reads another one first', async () => {
+  // The account says where the key in use lives; whether HarnessDesk also has
+  // a copy is a separate fact, and it is the copy these buttons act on.
+  await mount({
+    accountsByRuntime: {
+      codex: {
+        accounts: [{ kind: 'externalKey', label: 'Codex API key', planType: 'its own store', storedCopy: true }],
+        signInMethods: [{ id: 'key', flow: 'apiKey', label: 'API key', keyLabel: 'Codex API key' }],
+      },
+    },
+  } as never)
+
+  const buttons = [...detail().querySelectorAll('button')].map((button) => button.textContent)
+  expect(buttons).toContain('Replace')
+  expect(buttons).toContain('Remove')
+  expect(detail().querySelector('input[type="password"]')).toBeNull()
+})
+
+it('offers only the empty field while the agent reads a key HarnessDesk holds no copy of', async () => {
+  await mount({
+    accountsByRuntime: {
+      codex: {
+        accounts: [{ kind: 'externalKey', label: 'Codex API key', planType: 'its own store' }],
+        signInMethods: [{ id: 'key', flow: 'apiKey', label: 'API key', keyLabel: 'Codex API key' }],
+      },
+    },
+  } as never)
+
+  const buttons = [...detail().querySelectorAll('button')].map((button) => button.textContent)
+  expect(buttons).not.toContain('Remove')
+  expect(detail().querySelector('input[type="password"]')).not.toBeNull()
+})
+
 it('sets a one-time code verbatim on the code plate, at the page step', async () => {
   await mount({
     accountsByRuntime: { codex: status([], ['deviceCode']) },

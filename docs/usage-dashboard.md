@@ -283,9 +283,11 @@ key) rather than a new one:
   wherever DSH's own process would read it — the desk's own stored copy
   first, then `DEEPSEEK_API_KEY` in the row's environment, then DSH's own
   store (`${DSH_HOME:-~/.dsh}/.credentials.yaml`, the file its "Models" page
-  writes, or a `.env` beside it) — the same two files and the same order
+  writes, or a `.env` beside it); from 0.2.1-alpha.3 that store is read first of
+  all, ahead of the desk's copy, because DSH then prefers it to its launch
+  environment (`docs/decisions.md`) — the same two files and the same order
   `whereSecretLives`/`readsKey` in `@harnessdesk/adapter-acp` already check
-  for *presence*; this is the one place the *value* is read, and only to put
+  for *presence* (`secretReadOrder` decides it for both); this is the one place the *value* is read, and only to put
   it in a request header — never logged, stored beyond that read, or shown
   past its last four characters.
 - **OpenRouter** is not an agent at all, so it is never bound by runtime: any

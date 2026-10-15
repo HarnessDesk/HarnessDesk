@@ -413,6 +413,12 @@ fold has Open usage, scoped to that agent; an agent needing an account has Sign
 in. Then come Settings and signing out of the default agent. Dashboard in the
 sidebar opens on everything.
 
+The quota forecast, "&lt;agent&gt; will run out before it refills", stays above a
+visible composer and on the Dashboard. Every other page uses a warning dot
+beside the account mark instead of the full notice; its hover text and
+accessible name carry the same title and detail. Dismissing or silencing the
+notice also puts away that dot for the same occurrence or kind.
+
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every
 group, the way a Mac's own settings open on their owner — and the page is its

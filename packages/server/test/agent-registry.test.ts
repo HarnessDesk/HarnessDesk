@@ -203,6 +203,16 @@ test("DeepSeek Harness is a template: its own ACP server, the key it keeps in it
   assert.equal(secret?.env, 'DEEPSEEK_API_KEY')
   // Under $DSH_HOME when that is set, as DSH itself reads it.
   assert.deepEqual(secret?.alsoAt?.map((source) => source.path), ['${DSH_HOME:-~/.dsh}/.credentials.yaml', '${DSH_HOME:-~/.dsh}/.env'])
+  // Its own store is read ahead of the environment the desk hands the key over
+  // in from the first build that does (measured against 0.2.1-alpha.1 → alpha.3);
+  // the `.env` has never been. The known-agent table spells the same secret and
+  // must say the same, since presence detection and the balance meter both
+  // follow what the registry declares.
+  assert.deepEqual(
+    secret?.alsoAt?.map((source) => source.outranksEnvFrom ?? null),
+    ['0.2.1-alpha.3', null],
+  )
+  assert.deepEqual(knownAgent('dsh')?.auth.secrets?.[0]?.alsoAt, secret?.alsoAt)
 })
 
 test('the template set is a decision', async (t) => {

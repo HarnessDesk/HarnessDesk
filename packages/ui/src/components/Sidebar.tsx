@@ -8,7 +8,7 @@ import { Slot } from '../slots/registry'
 import { sidebarPlacement } from '../state/workbench'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
-import { SidebarNotices, useInboxMessages } from './Notices'
+import { SidebarNotices, useAccountQuotaWarning, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useActiveSession, useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
@@ -389,6 +389,7 @@ export const AccountFooter = ({
   // Outside every pane, so this is the default agent — the one ⌘N starts —
   // and not the focused conversation's.
   const runtime = useRuntime()
+  const quotaWarning = useAccountQuotaWarning()
   const [open, setOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
@@ -582,9 +583,9 @@ export const AccountFooter = ({
           neutral and says nothing it does not know, as the badge beside it
           and the menu already do. */}
       <Dot
-        {...(unanswered ? {} : { state: here?.state ?? 'available' })}
+        {...(quotaWarning ? { tone: 'warning', title: quotaWarning } : unanswered ? {} : { state: here?.state ?? 'available' })}
         role="img"
-        aria-label={here ? (unanswered ? agentName : `${agentName}: ${READINESS_LABEL[here.state]}`) : 'No agent'}
+        aria-label={quotaWarning ?? (here ? (unanswered ? agentName : `${agentName}: ${READINESS_LABEL[here.state]}`) : 'No agent')}
       />
     </>
   )
