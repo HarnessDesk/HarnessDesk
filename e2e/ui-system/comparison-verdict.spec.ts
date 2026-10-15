@@ -69,7 +69,9 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByRole('combobox',{name:'theme',exact:true}).selectOption(theme)
     const decision=page.locator('[data-slot="comparison-decision"]')
     await expect(decision).toContainText('The judge picked A')
-    await expect(decision.getByRole('button',{name:'Merge A into main'})).toBeDisabled()
+    await expect(decision.getByRole('button',{name:/^Merge /})).toHaveCount(0)
+    await expect(decision.getByRole('button',{name:'Refresh merge destination'})).toHaveCount(0)
+    await expect(decision.getByRole('button',{name:'Compare changes'})).toBeEnabled()
     await expect(decision.getByRole('button',{name:'Keep B instead'})).toHaveCount(0)
   })
 }
