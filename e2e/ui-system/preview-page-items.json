@@ -48,7 +48,7 @@
     {
       "selector": "[data-frame-id=\"workspace-triggers\"] > div",
       "id": "workspace-triggers",
-      "title": "Settings \u203a Workspaces \u2014 Triggers on this Mac"
+      "title": "Flows \u2014 Triggers on this Mac"
     },
     {
       "selector": "[data-frame-id=\"dashboard-overview\"] > div",
@@ -302,6 +302,9 @@
     "CodeBlock",
     "Message \u00b7 Bubble",
     "Channel",
+    "Flow canvas workspace",
+    "Flow cards",
+    "Flow canvas toolbar",
     "Sign-in rail",
     "Dashboard bands",
     "Page records",

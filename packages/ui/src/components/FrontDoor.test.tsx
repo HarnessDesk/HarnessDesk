@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -127,6 +127,31 @@ it('previews an unsaved Flow source without re-reading its catalogue file', asyn
   expect(document.querySelector('[data-slot="flow-card"][aria-pressed="true"]')).not.toBeNull()
   await act(async () => button('Start Team').click())
   expect(spy.mock.calls.find(([method]) => method === 'flow/start-goal')?.[1]).toMatchObject({ source, token: 'unsaved-token' })
+})
+
+it('reissues the initial source in StrictMode and ignores the retired preview before starting', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const source = JSON.stringify(emptyFlow('fresh-token').compiled.document.flow)
+  let finishRetired!: (value: FrontDoorPreview) => void
+  let previews = 0
+  const spy = requestSpy(store, {
+    'flow/catalog': () => [], 'agent/list': () => [],
+    'authoring/start/preview': () => ++previews === 1
+      ? new Promise<FrontDoorPreview>(resolve => { finishRetired = resolve })
+      : previewOf(emptyFlow('fresh-token'), { source }),
+    'flow/start-goal': () => EXECUTION,
+  })
+  const onStarted = vi.fn()
+  act(() => root.render(<StrictMode><StoreProvider store={store}><FrontDoor context={{ kind: 'project', root: '/repo' }} initialSource={source} onClose={() => {}} onStarted={onStarted} /></StoreProvider></StrictMode>))
+  await settle()
+  expect(previews).toBe(2)
+  expect(document.querySelector('[data-slot="flow-card"][aria-pressed="true"]')?.textContent).toContain('Review')
+  expect(button('Start Team').disabled).toBe(false)
+  await act(async () => finishRetired(previewOf(emptyFlow('retired-token'), { source: 'retired source' })))
+  expect(store.getSnapshot().frontDoor?.preview?.flow.token).toBe('fresh-token')
+  await act(async () => button('Start Team').click())
+  expect(spy.mock.calls.find(([method]) => method === 'flow/start-goal')?.[1]).toMatchObject({ source, token: 'fresh-token' })
+  expect(onStarted).toHaveBeenCalledExactlyOnceWith(EXECUTION)
 })
 
 it('starts a legal just-a-team Flow from its source even when the plain prefill is also present', async () => {

@@ -57,3 +57,11 @@
 - Final review expanded coverage for inactive preview ownership, post-save readback conflicts, first-match rule order and overlapping/exact-source Undo.
 - Public before/after frames use the preview harness with placeholder data.
 - Publication follows a green `pnpm check:push --fast`; the full planner also runs, with broad CI-owned suites reported separately.
+
+## Browser integration follow-up
+
+- Updated the existing dialog, keyboard, footer and race contracts for one persistent New Team dialog.
+- The new page workflow builds and edits a draft, saves the previewed bytes, then starts its current unsaved source in both themes against the synthetic backend.
+- Fixed an effect-replay initialization bug exposed by that browser workflow; retired previews cannot replace the current token.
+- Kept machine trigger preferences in a direct Flows specimen and added the new pages and pattern boards to the full preview inventory.
+- The standard local push planner timed out only its unchanged 110-second retention child under server-suite concurrency; the isolated four-test retention file passed. The repository-supported fast push gate is used for publication, with CI results reported separately.

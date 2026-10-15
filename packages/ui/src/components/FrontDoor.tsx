@@ -120,6 +120,9 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   // choosing a different shape mid-flight elsewhere — retires whatever
   // `previewFrontDoor` call is still in the air.
   useEffect(() => {
+    // A lifecycle replay retires the first read too; allow its replacement
+    // to select the initial source while the sequence rejects the old reply.
+    initialTried.current = false
     store.openFrontDoor(context, goal)
     return () => { sequence.current += 1; store.closeFrontDoor() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -452,8 +455,8 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     <Dialog title="New Team" titleAside={<Chip tone="neutral">{project}</Chip>}
       size="wide" tall onClose={onClose}
       footer={<>
-        <Button variant="secondary" disabled={starting || openingProject || policyPending || readingAccounts || (!plainTeam && !source)} onClick={dryRun}>Dry run</Button>
         <Button variant="default" aria-describedby={reason ? 'team-start-reason' : undefined} disabled={!canStart} onClick={() => void (plainTeam ? submitPlain() : start())}>{starting ? 'Starting…' : created ? 'Retry unfinished' : 'Start Team'}</Button>
+        <Button variant="secondary" disabled={starting || openingProject || policyPending || readingAccounts || (!plainTeam && !source)} onClick={dryRun}>Dry run</Button>
         <Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button>
       </>}
       footerAside={reason && <Note id="team-start-reason" role="status">{reason}</Note>}

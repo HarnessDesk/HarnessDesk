@@ -99,7 +99,30 @@ it('keeps Agent triggers reachable for arming, disarming and review after they l
   const manage = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Manage triggers'))
   expect(manage).toBeDefined()
   await act(async () => manage!.click())
-  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Project triggers')
+  expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Triggers')
   expect(document.querySelector('[aria-label="Arm agent-review"]')).not.toBeNull()
   expect(document.querySelector('[aria-label="Pause every trigger"]')).not.toBeNull()
+})
+
+it('keeps machine-wide trigger preferences reachable without a project or project-trigger read', async () => {
+  const { store } = await mount(store => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspace: null, workspaces: [] })
+  })
+  const projectTriggers = vi.spyOn(store, 'projectTriggers')
+  const setPreferences = vi.spyOn(store, 'setTriggerPreferences')
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  const manage = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Manage triggers'))!
+  expect(manage.getAttribute('aria-disabled')).not.toBe('true')
+  await act(async () => manage.click())
+  const dialog = document.querySelector('[role="dialog"][aria-label="Triggers"]')!
+  expect(dialog).not.toBeNull()
+  expect(dialog.querySelector('select')).toBeNull()
+  expect(projectTriggers).not.toHaveBeenCalled()
+  expect(dialog.querySelector('[aria-label="Stop for the day after, in US dollars"]')).not.toBeNull()
+  const pause = dialog.querySelector<HTMLButtonElement>('[aria-label="Pause every trigger"]')!
+  expect(pause).not.toBeNull()
+  await act(async () => pause.click())
+  expect(setPreferences).toHaveBeenCalledOnce()
+  expect(pause.getAttribute('aria-checked')).toBe('true')
+  expect(projectTriggers).not.toHaveBeenCalled()
 })

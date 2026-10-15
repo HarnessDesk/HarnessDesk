@@ -540,7 +540,7 @@ test.describe('preview coverage', () => {
       for (const component of teamStartCoverage.covered) covered.add(component)
     })
 
-    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers']).entries()) test(`coverage page 1: query ${item}`, async () => {
+    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers', '?flows-page=catalogue', '?flows-page=editor']).entries()) test(`coverage page 1: query ${item}`, async () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto(`/preview.html${query}`)
       if (query === '?board-list') {
@@ -550,6 +550,8 @@ test.describe('preview coverage', () => {
         await expect(board.locator('[data-slot="board-list"]')).toBeVisible()
       }
       if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', { name: 'Fill the window', exact: true })).toBeVisible()
+      if (query === '?flows-page=catalogue') await expect(page.getByRole('button', { name: 'New Flow', exact: true })).toBeVisible()
+      if (query === '?flows-page=editor') await expect(page.getByRole('main', { name: 'Flow editor', exact: true })).toBeVisible()
       await settleCoveragePage(page)
       const result = await collectCoverage(page)
       allComponents = result.allComponents

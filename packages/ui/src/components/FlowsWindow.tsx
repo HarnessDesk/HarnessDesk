@@ -16,10 +16,12 @@ export const FlowsWindow = ({ onOpen, onNew }: {
   const active = useDestinationActive(), store = useStore(), snapshot = useSnapshot()
   const { rows, roots, loading, problems } = useFlowCatalogue(active)
   const [origin, setOrigin] = useState('all'), [query, setQuery] = useState(''), [newTeam, setNewTeam] = useState(false)
+  const [triggersOpen, setTriggersOpen] = useState(false)
   const [triggerRoot, setTriggerRoot] = useState<string | null>(null)
   const countKnown = useFlowRunCoverage(active)
-  useEffect(() => { if (!active) { setNewTeam(false); setTriggerRoot(null) } }, [active])
+  useEffect(() => { if (!active) { setNewTeam(false); setTriggersOpen(false); setTriggerRoot(null) } }, [active])
   const selectedRoot = roots.find(root => root === origin) ?? roots[0] ?? null
+  const currentTriggerRoot = roots.find(root => root === triggerRoot) ?? selectedRoot
   const words = query.trim().toLocaleLowerCase()
   const visible = rows.filter(({ root, entry }) =>
     (origin === 'all' || origin === 'builtin' ? origin === 'all' || entry.origin === 'builtin' : entry.origin === 'project' && root === origin)
@@ -28,7 +30,7 @@ export const FlowsWindow = ({ onOpen, onNew }: {
   const projectName = (root: string) => snapshot.workspaces.find(workspace => workspace.path === root)?.name ?? root.split('/').filter(Boolean).at(-1) ?? root
 
   return <>
-    <DestinationBar place="Flows" more={close => <MenuItem label="Manage triggers…" icon={<ClockIcon size={16} />} disabled={selectedRoot ? false : 'Open a project folder first.'} onSelect={() => { setTriggerRoot(selectedRoot); close() }} />} />
+    <DestinationBar place="Flows" more={close => <MenuItem label="Manage triggers…" icon={<ClockIcon size={16} />} onSelect={() => { setTriggerRoot(selectedRoot); setTriggersOpen(true); close() }} />} />
     <Page width="wide">
       <div className="flex flex-wrap items-center gap-(--hd-space-3)">
         <Button variant="default" disabled={!selectedRoot} title={selectedRoot ? undefined : 'Open a project folder to build a Flow.'} onClick={() => { if (selectedRoot) onNew(selectedRoot) }}>New Flow</Button>
@@ -52,9 +54,11 @@ export const FlowsWindow = ({ onOpen, onNew }: {
       {!loading && visible.length === 0 && !plain && <EmptyState variant="inline" title="No matching Flows" />}
     </Page>
     {active && newTeam && selectedRoot && <FrontDoor context={{ kind: 'project', root: selectedRoot }} initialPlain onClose={() => setNewTeam(false)} onStarted={execution => { setNewTeam(false); store.openGoal(execution.goal) }} />}
-    {active && triggerRoot && <Dialog title="Project triggers" size="lg" onClose={() => setTriggerRoot(null)} footer={<Button variant="default" onClick={() => setTriggerRoot(null)}>Close</Button>}>
-      <Field label="Project">{control => <NativeSelect {...control} value={triggerRoot} onChange={event => setTriggerRoot(event.target.value)}>{roots.map(root => <option key={root} value={root}>{projectName(root)}</option>)}</NativeSelect>}</Field>
-      <ProjectTriggers key={triggerRoot} root={triggerRoot} />
+    {active && triggersOpen && <Dialog title="Triggers" size="lg" onClose={() => setTriggersOpen(false)} footer={<Button variant="default" onClick={() => setTriggersOpen(false)}>Close</Button>}>
+      {currentTriggerRoot && <>
+        <Field label="Project">{control => <NativeSelect {...control} value={currentTriggerRoot} onChange={event => setTriggerRoot(event.target.value)}>{roots.map(root => <option key={root} value={root}>{projectName(root)}</option>)}</NativeSelect>}</Field>
+        <ProjectTriggers key={currentTriggerRoot} root={currentTriggerRoot} />
+      </>}
       <TriggerSettings />
     </Dialog>}
   </>
