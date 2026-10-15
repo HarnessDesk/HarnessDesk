@@ -6088,6 +6088,7 @@ export class AppStore {
   async #newSessionValues(runtime: RuntimeId, cwd: string): Promise<Readonly<Record<string, OptionValue>>> {
     const previous = this.#creationDefaults[runtime] ?? Promise.resolve({})
     const validation = previous.catch(() => ({})).then(async () => {
+      while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
       if (Object.keys(this.#draftsByRuntime[runtime] ?? {}).length === 0) return {}
       let revision: number
       do {
@@ -6110,6 +6111,8 @@ export class AppStore {
    * controls — Settings and the composer read one answer.
    */
   async newSessionDefaultsFor(runtime: RuntimeId, cwd = this.#snapshot.workspace?.path): Promise<readonly ConfigOption[]> {
+    // A read must not invalidate a user pick whose answer is still in flight.
+    while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
     const revision = this.#nextDraftRevision(runtime)
     const asked = this.#draftsByRuntime[runtime] ?? {}
     const params = { runtime, ...(cwd ? { cwd } : {}) }
@@ -6178,13 +6181,27 @@ export class AppStore {
     return this.newSessionDefaultsFor(runtime)
   }
 
+  #pendingDraftSetters: Partial<Record<RuntimeId, Promise<readonly ConfigOption[]>>> = {}
+
   /**
    * One default for one agent's next sessions, persisted host-side under the
    * same key the composer's picks use — there is exactly one set of picks per
    * agent, whichever surface wrote it. When the agent is the active one the
    * open draft follows immediately.
    */
-  async setNewSessionDefault(
+  setNewSessionDefault(
+    runtime: RuntimeId,
+    id: string,
+    value: OptionValue,
+  ): Promise<readonly ConfigOption[]> {
+    const pending = this.#setNewSessionDefault(runtime, id, value).finally(() => {
+      if (this.#pendingDraftSetters[runtime] === pending) delete this.#pendingDraftSetters[runtime]
+    })
+    this.#pendingDraftSetters[runtime] = pending
+    return pending
+  }
+
+  async #setNewSessionDefault(
     runtime: RuntimeId,
     id: string,
     value: OptionValue,
@@ -6221,6 +6238,8 @@ export class AppStore {
       try {
         const options = await this.transport.request('runtime/sessionDefaults', {
           runtime, ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
+          // Validate the accepted picks independently of the failed change.
+          values: this.#draftsByRuntime[runtime] ?? {},
         })
         if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
         await this.#rememberDraftDefaults(runtime, asked, options, id)

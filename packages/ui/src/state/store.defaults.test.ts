@@ -136,6 +136,64 @@ it('serializes concurrent creations so their defaults validations do not invalid
   expect(reads).toBe(5) // One saved pick, then discovery and application per creation.
 })
 
+it.each(['saved model', 'first pick'] as const)('waits for a delayed model pick before starting with %s', async (initial) => {
+  const store = new AppStore('ws://localhost:0/')
+  let preferences: Record<string, unknown> = {}
+  let release!: () => void
+  let delay = true
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown>; patch?: Record<string, unknown> }) => {
+    if (method === 'runtime/sessionDefaults') {
+      if (params.values?.model === 'current' && delay) {
+        delay = false
+        await new Promise<void>((resolve) => { release = resolve })
+      }
+      return [{ ...declared[0]!, currentValue: params.values?.model ?? 'old' }, declared[1]!]
+    }
+    if (method === 'app/state/set') preferences = { ...preferences, ...params.patch }
+    if (method === 'session/create') return { runtime, id: sessionId('pending-pick'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return {}
+  }) as never)
+  if (initial === 'saved model') await store.setNewSessionDefault(runtime, 'model', 'old')
+  const picked = store.setNewSessionDefault(runtime, 'model', 'current')
+  const creating = store.newSession({ runtime, cwd: '/workspace' })
+  // Let creation reach its defaults boundary while the user pick is pending.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  release()
+  await Promise.all([picked, creating])
+
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1])
+    .toMatchObject({ options: { options: { model: 'current' } } })
+  expect(preferences).toMatchObject({ draftValues: { [runtime]: { model: 'current' } }, staleDraftDefaults: { [runtime]: [] } })
+})
+
+it.each(['refusal', 'transient error'] as const)('keeps a saved non-default model when a mode update fails with %s', async (failure) => {
+  const store = new AppStore('ws://localhost:0/')
+  let preferences: Record<string, unknown> = {}
+  let failing = true
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown>; patch?: Record<string, unknown> }) => {
+    if (method === 'runtime/sessionDefaults') {
+      if (params.values?.mode === 'act' && failing) {
+        failing = failure === 'refusal'
+        throw new Error(failure === 'refusal' ? 'The agent refused this mode.' : 'Request interrupted.')
+      }
+      return [{ ...declared[0]!, currentValue: params.values?.model ?? 'old' },
+        { ...declared[1]!, choices: [{ value: 'plan', label: 'Plan' }, { value: 'act', label: 'Act' }] }]
+    }
+    if (method === 'app/state/set') preferences = { ...preferences, ...params.patch }
+    if (method === 'session/create') return { runtime, id: sessionId('failed-mode'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return {}
+  }) as never)
+  await store.setNewSessionDefault(runtime, 'model', 'current')
+  await store.setNewSessionDefault(runtime, 'mode', 'act')
+
+  expect(store.getSnapshot().staleDraftDefaults[runtime]).toMatchObject([{ id: 'mode', value: 'act' }])
+  expect(store.getSnapshot().staleDraftDefaults[runtime]).toHaveLength(1)
+  expect(preferences).toMatchObject({ draftValues: { [runtime]: { model: 'current' } } })
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1])
+    .toMatchObject({ options: { options: { model: 'current' } } })
+})
+
 it('retains a rejected saved pick with its original value while accepted defaults still send', async () => {
   const store = new AppStore('ws://localhost:0/')
   let options = declared
