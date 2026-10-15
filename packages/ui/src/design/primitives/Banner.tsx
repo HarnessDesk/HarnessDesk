@@ -197,3 +197,11 @@ export const BannerAction = ({
 export const BannerStack = ({ children }: { children: ReactNode }) => (
   <NoticeHost size="compact" floating><div className={styles.stack}>{children}</div></NoticeHost>
 )
+
+export const NoticeListShell = ({ title, children }: { title?: ReactNode; children?: ReactNode }) => {
+  if (!title && !children) return null
+  return <NoticeHost size="compact"><section className={styles.list} data-slot="notice-list">
+    {title ? <div className={styles.listTitle}>{title}</div> : null}
+    {children}
+  </section></NoticeHost>
+}

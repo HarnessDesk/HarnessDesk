@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { Button } from '../ui/button'
-import { NoticeHost, NoticeShell, type BannerTone } from './Banner'
-import styles from './Banner.module.css'
+import { NoticeHost, NoticeListShell, NoticeShell, type BannerTone } from './Banner'
 
 /** Content only: hosts own size and placement, the notice owns presentation. */
 export type NoticeAction = {
@@ -36,11 +35,5 @@ export const NoticeStatus = (props: NoticeProps) => NoticeContent(props, 'status
 /** A row in a compact notice panel. */
 export const NoticeRow = (props: NoticeProps) => NoticeContent(props, 'row')
 /** The shared plate for Inbox or queued-message rows; placement stays with its host. */
-export const NoticeList = ({ title, children }: { title?: ReactNode; children?: ReactNode }) => {
-  if (!title && !children) return null
-  return <NoticeHost size="compact"><section className={styles.list} data-slot="notice-list">
-    {title ? <div className={styles.listTitle}>{title}</div> : null}
-    {children}
-  </section></NoticeHost>
-}
+export const NoticeList = NoticeListShell
 export { NoticeHost }
