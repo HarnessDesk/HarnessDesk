@@ -1028,3 +1028,23 @@ it('the toaster consumes results only, never quiet runtime information', () => {
   act(() => root.render(<StoreProvider store={store}><Notices /></StoreProvider>))
   expect(showToast).not.toHaveBeenCalled()
 })
+
+
+it('leaves sign-in to the empty conversation page, but keeps it for a transcript', () => {
+  const key = sessionKey('a' as never, 's1' as never)
+  const store = makeStore({ account: { accounts: [], signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }] } })
+  act(() => root.render(<StoreProvider store={store}>
+    <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: null }, sessionKey: null }}>
+      <StatusBanner onSignIn={() => {}} />
+    </PaneProvider>
+  </StoreProvider>))
+  expect(container.textContent).not.toContain('is not signed in')
+  const session = { id: 's1', runtime: 'a', cwd: '/workspace', createdAt: 1, updatedAt: 2, itemsLoaded: true, turns: [{ id: 't1', status: 'completed', items: [] }] } as unknown as import('@harnessdesk/protocol').Session
+  act(() => store.patch({ sessions: new Map([[key, session]]) }))
+  act(() => root.render(<StoreProvider store={store}>
+    <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: key }, sessionKey: key }}>
+      <StatusBanner onSignIn={() => {}} />
+    </PaneProvider>
+  </StoreProvider>))
+  expect(container.textContent).toContain('is not signed in')
+})

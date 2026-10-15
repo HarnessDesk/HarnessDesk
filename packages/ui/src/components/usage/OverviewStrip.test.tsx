@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import type { LedgerReport, SpendProvenance } from '@harnessdesk/protocol'
+import { runtimeId, type LedgerReport, type SpendProvenance } from '@harnessdesk/protocol'
 
 import { OverviewStrip } from './OverviewStrip'
 
@@ -62,4 +62,24 @@ describe('OverviewStrip Value cell', () => {
     expect(valueButton?.getAttribute('title')).toBe(`Value (${phrase}). Switch the chart below to cost per day`)
     if (provenance === 'unknown') expect(valueButton?.textContent).toContain('—')
   })
+})
+
+
+describe('OverviewStrip Turns cell', () => {
+  it.each([undefined, 0, 12])('only shows turns when they are reported (%s)', (turns) => {
+    const report = { ...ledger('listPrice'), totals: { input: 100, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 1, ...(turns === undefined ? {} : { turns }) } }
+    act(() => root.render(<OverviewStrip reports={[]} ledger={report} wideLedger={null} range={30} now={0} metric="value" onMetricChange={() => {}} onOpenPlan={() => {}} />))
+    const tile = host.querySelector('button[title^="Turns"]')
+    if (turns === undefined) expect(tile).toBeNull()
+    else expect(tile?.textContent).toContain(String(turns))
+  })
+})
+
+
+it('keeps the Turns tile for partial coverage even when the total is unknown', () => {
+  const alpha = runtimeId('alpha')
+  const report = { ...ledger('listPrice'), coverage: { ...ledger('listPrice').coverage, turnsKnownFor: [alpha] },
+    rows: [{ key: 'alpha', label: 'Alpha', runtime: alpha, cost: 12, tokens: 100, hasUnpriced: false }] }
+  act(() => root.render(<OverviewStrip reports={[]} ledger={report} wideLedger={null} range={30} now={0} metric="value" onMetricChange={() => {}} onOpenPlan={() => {}} />))
+  expect(host.querySelector('button[title^="Turns"]')?.textContent).toContain('—')
 })
