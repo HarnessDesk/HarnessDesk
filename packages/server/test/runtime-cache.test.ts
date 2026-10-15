@@ -61,20 +61,20 @@ test('invalid costs and unreadable cache do not prevent launch or become measure
   assert.equal(failures.length, 2)
 })
 
-test('the version last launched and a key copy HarnessDesk still holds survive a restart, and nothing else rides along', async t => {
+test('the version last launched and what a key account says about its copy survive a restart, and nothing else rides along', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-launched-version-cache-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const path = join(dir, 'runtime-cache.json')
   const cache = new RuntimeCache(path, error => { throw error })
   cache.update('one', {
     launchedVersion: '0.2.1-alpha.3',
-    account: { accounts: [{ kind: 'externalKey', label: 'DeepSeek API key', planType: "DeepSeek's own store", storedCopy: true }], signInMethods: [] },
+    account: { accounts: [{ kind: 'externalKey', label: 'DeepSeek API key', planType: "DeepSeek's own store", storedCopy: true, outranksHandedKey: true }], signInMethods: [] },
   })
   cache.update('two', { launchedVersion: 7 as unknown as string })
   await cache.flush()
   const again = new RuntimeCache(path, error => { throw error })
   await again.load()
   assert.equal(again.get('one').launchedVersion, '0.2.1-alpha.3')
-  assert.deepEqual(again.get('one').account?.accounts, [{ kind: 'externalKey', label: 'DeepSeek API key', planType: "DeepSeek's own store", storedCopy: true }])
+  assert.deepEqual(again.get('one').account?.accounts, [{ kind: 'externalKey', label: 'DeepSeek API key', planType: "DeepSeek's own store", storedCopy: true, outranksHandedKey: true }])
   assert.equal(again.get('two').launchedVersion, undefined, 'only a string is a version')
 })
