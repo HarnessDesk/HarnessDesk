@@ -2,13 +2,27 @@ import { expect, it } from 'vitest'
 import type { FlowEntry, FlowPolicy } from '@harnessdesk/protocol'
 import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
 import { CONTEST_START_POLICY } from './contest-start-fixture'
-import { pickerSections, shapeSummary, withAttemptCheck } from './team-start'
+import { pickerSections, shapeSummary, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from './team-start'
 
 const entry = (id: string, over: Partial<FlowEntry> = {}): FlowEntry => ({
   id, name: id, origin: 'builtin', path: `${id}.yml`, description: 'First sentence. More details.',
   format: 'agents', problem: null, shadows: [], ...over,
 })
 const shapes = ['review', 'investigation', 'comparison', 'alignment', 'independent-review', 'fix-and-review'].map(id => entry(id))
+
+it('leaves a project comparison with a renamed person destination intact', () => {
+  const base = TEAM_START_POLICIES.comparison
+  const project: FlowPolicy = { ...base,
+    roles: base.roles.map(role => role.id === 'referee' ? { ...role, id: 'merge' } : role),
+    rules: base.rules.map(rule => ({ ...rule, on: rule.on === 'referee' ? 'merge' : rule.on,
+      then: { ...rule.then, role: rule.then.role === 'referee' ? 'merge' : rule.then.role } })),
+    complete: { merge: ['merged'] },
+  }
+  expect(supportsComparisonJudge(base)).toBe(true)
+  expect(supportsComparisonJudge(project)).toBe(false)
+  expect(withComparisonJudge(project, project, null)).toBe(project)
+  expect(withComparisonJudge(project, project, { runtime: 'runtime-1' })).toBe(project)
+})
 
 it.each(['comparison', 'mechanical-contest'] as const)('preserves separating spaces as %s’s project check is typed', id => {
   const template = id === 'mechanical-contest' ? CONTEST_START_POLICY : TEAM_START_POLICIES.comparison

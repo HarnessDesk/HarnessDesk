@@ -1,4 +1,40 @@
-import type { FlowEntry, FlowPolicy } from '@harnessdesk/protocol'
+import type { FlowEntry, FlowPolicy, FlowSeat } from '@harnessdesk/protocol'
+
+export const supportsComparisonJudge = (flow: FlowPolicy): boolean =>
+  flow.roles.some(role => role.id === 'competitor' && role.kind === 'agent') &&
+  flow.roles.some(role => role.id === 'judge' && role.kind === 'agent') &&
+  flow.roles.some(role => role.id === 'referee' && role.kind === 'person') &&
+  flow.rules.some(rule => (rule.on === 'competitor' || rule.on === 'verify') && rule.then.role === 'judge') &&
+  flow.rules.some(rule => rule.on === 'judge' && rule.then.role === 'referee')
+
+/** Both entry points freeze the same optional judge and person-choice routes as ordinary policy data. */
+export const withComparisonJudge = (flow: FlowPolicy, template: FlowPolicy, seat: FlowSeat | null): FlowPolicy => {
+  if (!supportsComparisonJudge(template)) return flow
+  const judge = flow.roles.find(role => role.id === 'judge' && role.kind === 'agent') ?? template.roles.find(role => role.id === 'judge' && role.kind === 'agent')
+  if (!judge || judge.kind !== 'agent') return flow
+  const before = flow.roles.some(role => role.id === 'verify' && role.kind === 'check') ? 'verify' : 'competitor'
+  const incoming = flow.rules.find(rule => rule.on === before && (rule.then.role === 'judge' || rule.then.role === 'referee'))
+  const roles = flow.roles.filter(role => role.id !== 'judge').map(role => {
+    if (role.id !== 'referee' || role.kind !== 'person') return role
+    const { review: _review, ...person } = role
+    const declared = template.roles.find(one => one.id === role.id)
+    return seat ? { ...person, ...(declared?.kind === 'person' && declared.review !== undefined ? { review: declared.review } : {}) } : { ...person, review: true }
+  })
+  if (!seat) return { ...flow, roles, rules: [
+    ...flow.rules.filter(rule => rule.on !== 'judge' && rule.then.role !== 'judge' && rule.id !== incoming?.id),
+    { id: 'to-person', on: before, ...(incoming?.when ? { when: incoming.when } : {}), then: { role: 'referee', title: 'Choose and merge an attempt' } },
+  ] }
+  roles.splice(roles.findIndex(role => role.id === 'referee'), 0, { ...judge, seats: [seat] })
+  if (flow.roles.some(role => role.id === 'judge')) return { ...flow, roles }
+  return { ...flow, roles, rules: [
+    ...flow.rules.filter(rule => rule.id !== incoming?.id),
+    ...template.rules.filter(rule => rule.on === 'judge' || rule.then.role === 'judge').map(rule => {
+      if (rule.then.role !== 'judge') return rule
+      const when = before === 'verify' ? (rule.on === 'verify' ? rule.when : { any: ['pass'] }) : incoming?.when
+      return { ...rule, on: before, ...(when ? { when } : { when: undefined }) }
+    }),
+  ] }
+}
 
 /** Both attempt forms edit ordinary policy data; the engine receives only concrete commands and routes. */
 export const supportsAttemptCheck = (flow: FlowPolicy): boolean =>

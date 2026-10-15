@@ -11,7 +11,7 @@ export const ComparisonDecision = ({ title, reason, mergeLabel, mergeRefusal, on
   reason?: ReactNode
   mergeLabel: string
   mergeRefusal?: string
-  onMerge: () => void
+  onMerge?: () => void
   onRefresh?: () => void
   onCompare: () => void
   compareRefusal?: string
@@ -29,6 +29,6 @@ export const ComparisonDecision = ({ title, reason, mergeLabel, mergeRefusal, on
     {onRefresh && <Button variant="ghost" size="icon-sm" aria-label="Refresh merge destination" title="Refresh destination" onClick={onRefresh}><RefreshIcon size={14} /></Button>}
     {onKeep && keepLabel && <Button variant="ghost" size="sm" onClick={onKeep}>{keepLabel}</Button>}
     <Button variant="outline" size="sm" disabled={Boolean(compareRefusal)} title={compareRefusal} onClick={onCompare}>Compare changes</Button>
-    <Button size="sm" disabled={Boolean(mergeRefusal)} title={mergeRefusal} onClick={onMerge}>{mergeLabel}</Button>
+    {onMerge && <Button size="sm" disabled={Boolean(mergeRefusal)} title={mergeRefusal} onClick={onMerge}>{mergeLabel}</Button>}
   </div>
 </Card>

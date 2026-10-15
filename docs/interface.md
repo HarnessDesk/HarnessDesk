@@ -1168,8 +1168,8 @@ merge question for that exact recorded revision and the actual destination
 branch. **Compare changes** opens the existing diff between the two revisions.
 **Keep B instead** changes the person's pending merge choice, preserving the
 judge's recorded recommendation. A stopped Run or one without a pending person
-merge step cannot merge or change its pick. A waiting person judge sees
-**Pick an attempt…**, which opens the Board's same attempt dialog. No recorded
+merge step cannot merge or change its pick. A waiting person judge, or a
+referee choosing without an agent judge, sees **Pick an attempt…**, which opens the Board's same attempt dialog. No recorded
 selected attempt means no decision card.
 
 A conflict-free merge records its revision, resulting commit, destination and
@@ -1275,8 +1275,9 @@ agent cannot reopen.
 
 **`/race`** opens a dialog asking for one Agent and two explicit, isolated
 seats — never the other installed runtime, never two ordinary drafts. It
-shows the same full dry run before Start, including the judge and person
-steps a comparison names. A Goal a flow opened shows its own status strip
+shows **Judge · optional**, defaulting to **You**. An agent judge may share
+a vendor with either attempt. It shows the same full dry run before Start,
+including the selected judge and person steps a comparison names. A Goal a flow opened shows its own status strip
 beside the ordinary Goal header — Running, Waiting for evidence, Waiting for
 a person, Interrupted, Stopped or Settled — and an interrupted check's own
 **Review and run again…** action, which asks for a fresh confirmation

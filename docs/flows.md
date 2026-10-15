@@ -1079,7 +1079,19 @@ two explicit seats for the two attempts a person chose, so a race started
 that way compares two named seats instead of two cards on the role's one
 default Agent.
 
-The `to-judge` rule reads `any: [pass]`, not `every: [pass]`: the judge round
+The comparison judge is optional and may share a vendor with either
+competitor. `/race` and New Team → Side by side default **Judge · optional**
+to **You**: completed attempts go directly to the person referee, who chooses
+the attempt to merge. Selecting an agent judge keeps its recorded-pick path;
+the shipped judge declares no independence constraint. Other flows can still
+require `independentOf`.
+
+A `kind: person` role can declare `review: true` to choose a predecessor
+revision even when it is the last step. The attempt dialog records that
+revision with the person's answer. Without this field, an outgoing review
+evidence guard still makes a person step a review step as before.
+
+When an agent judge is selected and checks are enabled, the `to-judge` rule reads `any: [pass]`, not `every: [pass]`: the judge round
 opens once every competitor's check has finished and at least one passed,
 with every competitor's own check card still on the board as the judge's
 evidence, mixed or not. Only
