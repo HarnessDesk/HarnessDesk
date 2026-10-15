@@ -26,7 +26,13 @@ export interface FlowAgentRole {
 
 export type FlowPolicyRole = FlowAgentRole
   | { readonly id: string; readonly kind: 'check'; readonly check: FlowCheck }
-  | { readonly id: string; readonly kind: 'person'; readonly outcomes: readonly string[] }
+  | {
+    readonly id: string
+    readonly kind: 'person'
+    readonly outcomes: readonly string[]
+    /** Choose a predecessor revision, including at a terminal step. */
+    readonly review?: boolean
+  }
 
 export type FlowEvidenceGuard =
   | { readonly check: string }
@@ -91,9 +97,11 @@ export interface FlowPolicy {
   readonly layout?: unknown
 }
 
-/** A person role is a review step only when its outgoing rule reads a review fact. */
+/** A person may explicitly choose a revision, or be required to by an outgoing review guard. */
 export const isPersonReviewStep = (policy: FlowPolicy, roleId: string): boolean => {
-  if (policy.roles.find((role) => role.id === roleId)?.kind !== 'person') return false
+  const role = policy.roles.find((role) => role.id === roleId)
+  if (role?.kind !== 'person') return false
+  if (role.review === true) return true
   return policy.rules?.some((rule) =>
     rule.on === roleId && rule.when?.evidence?.some((guard) => 'review' in guard) === true,
   ) ?? false

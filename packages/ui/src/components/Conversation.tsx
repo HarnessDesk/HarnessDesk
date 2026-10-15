@@ -205,7 +205,7 @@ const ConversationEmpty = ({
         {driveable ? (
           /* This pane's agent, by name: an empty member column on another
              agent must not open the default's sign-in. */
-          <Button type="button" variant="quiet" size="content" onClick={() => onSignIn(runtime.id)}>
+          <Button type="button" onClick={() => onSignIn(runtime.id)}>
             Sign in
           </Button>
         ) : (

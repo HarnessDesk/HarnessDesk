@@ -554,6 +554,7 @@ export interface AppSnapshot {
    */
   readonly seatAgents: ReadonlyMap<string, AgentEntry | null>
 
+  readonly workspaceGitFacts: ReadonlyMap<string, WorkspaceEntry['git']>
   readonly workspaces: readonly WorkspaceEntry[]
   readonly workspace: WorkspaceEntry | null
 
@@ -925,6 +926,7 @@ const EMPTY: AppSnapshot = {
   seatFix: null,
   frontDoor: null,
   seatAgents: new Map(),
+  workspaceGitFacts: new Map(),
   workspaces: [],
   workspace: null,
   skills: [],
@@ -979,6 +981,7 @@ const EMPTY: AppSnapshot = {
 /** A blank snapshot, for tests that render a component against a made-up state. */
 export const emptySnapshot = (): AppSnapshot => ({
   ...EMPTY,
+  workspaceGitFacts: new Map(),
   editorState: [],
   editorDocuments: new Map(),
   editorLiveDocuments: new Map(),

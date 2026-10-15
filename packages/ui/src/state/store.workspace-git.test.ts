@@ -28,6 +28,7 @@ it('keeps the newest read when an older Git answer arrives last', async () => {
   resolve(status(null))
   await old
   expect(store.getSnapshot().workspaces[1]?.git?.sha).toBe('beef123')
+  expect(store.getSnapshot().workspaceGitFacts.get(tree.path)?.sha).toBe('beef123')
 })
 
 it('preserves established facts when a Git read fails', async () => {
@@ -36,4 +37,12 @@ it('preserves established facts when a Git read fails', async () => {
   vi.spyOn(store.transport, 'request').mockRejectedValue(new Error('Unavailable'))
   await store.refreshWorkspaceGit(tree.path)
   expect(store.getSnapshot()).toBe(snapshot)
+})
+
+it('retains a confirmed non-repository answer for a root absent from recents', async () => {
+  const store = rig()
+  vi.spyOn(store.transport, 'request').mockResolvedValue(null as never)
+  await store.refreshWorkspaceGit('/work/plain')
+  expect(store.getSnapshot().workspaceGitFacts.has('/work/plain')).toBe(true)
+  expect(store.getSnapshot().workspaceGitFacts.get('/work/plain')).toBeNull()
 })

@@ -208,7 +208,7 @@ describe('the builder document', () => {
   })
 
   it('reports an independentOf parent whose predecessor path was removed', () => {
-    const source = shipped['../../../../server/flows/comparison.yml'] as string
+    const source = (shipped['../../../../server/flows/comparison.yml'] as string).replace('    grant: read\n    independentOf: []', '    grant: read\n    independentOf: [competitor]')
     const template = policyOf(source)
     const document = createDocument(withAttemptCheck(template, template, 'pnpm test'))
     const verify = document.steps.find((step) => step.role === 'verify')!

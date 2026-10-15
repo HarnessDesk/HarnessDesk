@@ -22,8 +22,15 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: shape === 'comparison' ? 'Side by side' : 'Write and review', exact: true }).click()
     const dialog = page.getByRole('dialog').last()
     await expect(dialog.getByLabel(shape === 'comparison' ? 'What should both try?' : 'What should they do?')).toBeVisible()
-    const rows = dialog.locator('section[aria-label="Who does what"] [data-slot="row"]')
-    await expect(rows).toHaveCount(shape === 'comparison' ? 3 : 2)
+    let rows = dialog.locator('section[aria-label="Who does what"] [data-slot="row"]')
+    await expect(rows).toHaveCount(2)
+    if (shape === 'comparison') {
+      const judge = dialog.locator('[data-slot="row"]').filter({ has: page.getByText('Judge · optional', { exact: true }) })
+      await expect(judge).toHaveCount(1)
+      await expect(judge.getByRole('combobox', { name: 'Agent for Judge', exact: true })).toBeVisible()
+      rows = rows.or(judge)
+      await expect(rows).toHaveCount(3)
+    }
     for (const row of await rows.all()) {
       // Shared Row centres the whole copy block, including an earned refusal
       // sentence. Measuring only its first line falsely nudges the controls.

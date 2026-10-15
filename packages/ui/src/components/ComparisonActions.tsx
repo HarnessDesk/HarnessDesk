@@ -68,8 +68,8 @@ export const ComparisonActions = ({ room, root, execution, cards, verdict, choic
       reason={verdict.reason ? <>{choice.card !== verdict.attempt.card && `Judge picked ${verdict.attempt.label.replace(/^Attempt /, '')}: `}“{sanitizeText(verdict.reason)}”</> : undefined}
       mergeLabel={`Merge ${label} into ${sanitizeText(refs?.branch ?? '…')}`}
       mergeRefusal={refusal}
-      onMerge={() => setDialog('merge')}
-      onRefresh={refresh}
+      onMerge={canComplete ? () => setDialog('merge') : undefined}
+      onRefresh={canComplete ? refresh : undefined}
       onCompare={() => setDialog('compare')}
       compareRefusal={attempts.length !== 2 || attempts.some(one => !one.revision) ? 'Both attempts need a recorded commit to compare changes.' : undefined}
       keepLabel={other ? `Keep ${other.label.replace(/^Attempt /, '')} instead` : undefined}

@@ -402,9 +402,15 @@ export const sessionMethods = {
   },
 
   'session/turnCommit': async (ctx, params) => {
-    const record = ctx.registry.get(ctx.runtimes.resolve(params).info.id, makeSessionId(params.sessionId))
-    const turn = record?.session.turns.find((entry) => entry.id === params.turnId)
-    return { sha: record && turn ? await gitOps.turnCommit(record.session.cwd, turn) : null }
+    const runtime = ctx.runtimes.resolve(params).info.id
+    const id = makeSessionId(params.sessionId)
+    const live = ctx.registry.get(runtime, id)?.session
+    // Body retention is independent of runtime handles. Read the host's copy
+    // without admitting the session or starting its agent just to check Git.
+    const session = live?.turns.some((entry) => entry.id === params.turnId)
+      ? live : await ctx.transcripts.recover(runtime, id)
+    const turn = session?.turns.find((entry) => entry.id === params.turnId)
+    return { sha: session && turn ? await gitOps.turnCommit(session.cwd, turn) : null }
   },
 
   'session/revertTurn': async (ctx, params) => {

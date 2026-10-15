@@ -531,6 +531,7 @@ const treeWith = (
     openTeamRoom: vi.fn(),
     openSession: vi.fn(),
     triggerGoal: vi.fn(async () => null),
+    refreshWorkspaceGit: async () => {},
     ...storeOverrides,
   } as unknown as AppStore
   act(() => {

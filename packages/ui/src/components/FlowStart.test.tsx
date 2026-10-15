@@ -123,7 +123,7 @@ it('does not describe a one-off judge as fresh each round', async () => {
   expect(container.textContent).not.toContain('Fresh each round')
 })
 
-it.each([false, true])('keeps the attempt check editable when empty, including a saved checked template (%s)', checked => {
+it.each([false, true])('keeps the attempt check editable when empty, including a saved checked template (%s)', async checked => {
   const original: FlowPolicy = TEAM_START_POLICIES.comparison
   const baseline = { ...original, roles: original.roles.filter(role => role.kind !== 'check'), rules: [
     { id: 'to-judge', on: 'competitor', then: { role: 'judge', title: 'Pick the best attempt' } },
@@ -131,7 +131,7 @@ it.each([false, true])('keeps the attempt check editable when empty, including a
   ] }
   const template = checked ? withAttemptCheck(baseline, baseline, 'npm test') : baseline
   let current: FlowPolicy = template
-  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview, runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } } as never] })
   const onPolicy = (policy: FlowPolicy) => { current = policy; paint() }
   const paint = () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: current, template, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>)
   act(paint)
@@ -150,17 +150,22 @@ it.each([false, true])('keeps the attempt check editable when empty, including a
   expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'competitor', then: { role: 'judge' } })
   expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toBeUndefined()
   expect(container.textContent).toContain('Leave empty to let the judge read the attempts directly.')
-  const judge = () => container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="A judge picks the better one"]')!
-  act(() => judge().click())
+  const judge = () => {
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')!
+    select.value = current.roles.some(role => role.id === 'judge') ? '' : 'gamma'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  }
+  act(() => judge())
   expect(current.rules.find(rule => rule.id === 'to-person')).toMatchObject({ on: 'competitor', then: { role: 'referee' } })
-  act(() => judge().click())
+  act(() => judge())
   expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toBeUndefined()
-  act(() => judge().click())
+  act(() => judge())
   type('node check.mjs')
   expect(current.rules.find(rule => rule.id === 'to-person')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
-  act(() => judge().click())
+  act(() => judge())
   expect(current.rules.filter(rule => rule.on === 'competitor').map(rule => rule.then.role)).toEqual(['verify'])
   expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
+  await act(async () => {})
 })
 
 it('offers the same optional attempt check for a contest without a judge', async () => {
@@ -172,7 +177,7 @@ it('offers the same optional attempt check for a contest without a judge', async
   expect(container.textContent).toContain('Leave empty to choose from the attempts directly.')
 })
 
-it('keeps a saved custom check’s success and incoming guards through clearing, restoring and judge toggles', () => {
+it('keeps a saved custom check’s success and incoming guards through clearing, restoring and judge toggles', async () => {
   const base: FlowPolicy = TEAM_START_POLICIES.comparison
   const success = { any: ['clean'], evidence: [{ check: 'verify' }] }
   const template: FlowPolicy = { ...base, roles: [base.roles[0]!, {
@@ -184,7 +189,7 @@ it('keeps a saved custom check’s success and incoming guards through clearing,
     ...base.rules.filter(rule => rule.on === 'judge'),
   ] }
   let current = template
-  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview, runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } } as never] })
   const onPolicy = (flow: FlowPolicy) => { current = flow; paint() }
   const paint = () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: current, template, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>)
   act(paint)
@@ -194,7 +199,11 @@ it('keeps a saved custom check’s success and incoming guards through clearing,
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  const toggle = () => act(() => container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="A judge picks the better one"]')!.click())
+  const toggle = () => act(() => {
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')!
+    select.value = current.roles.some(role => role.id === 'judge') ? '' : 'gamma'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
   type('')
   toggle()
   expect(current.rules.find(rule => rule.id === 'to-person')?.when).toEqual({ every: ['published'] })
@@ -206,13 +215,14 @@ it('keeps a saved custom check’s success and incoming guards through clearing,
   toggle()
   expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toEqual(success)
   expect(current.rules.find(rule => rule.id === 'retry')).toEqual(template.rules.find(rule => rule.id === 'retry'))
+  await act(async () => {})
 })
 
 it('the review options preserve the review cap and require recorded approval before automatic merging', async () => {
   const flow: import('@harnessdesk/protocol').FlowPolicy = TEAM_START_POLICIES['fix-and-review']
   let current = flow
   const onPolicy = vi.fn((next: import('@harnessdesk/protocol').FlowPolicy) => { current = next; paint() })
-  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview, runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } } as never] })
   const paint = () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: current, template: flow, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>)
   act(paint)
   const press = (label: string) => act(() => [...container.querySelectorAll('button')].find(one => one.textContent === label)!.click())
@@ -231,7 +241,7 @@ it('the review options preserve the review cap and require recorded approval bef
 it('keeps a mechanically checked review on its declared path to a person', () => {
   const flow = TEAM_START_POLICIES['review-pr']
   const onPolicy = vi.fn()
-  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview, runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } } as never] })
   act(() => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow, template: flow, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>))
   expect(container.querySelector('[aria-label="When the review approves"]')).toBeNull()
   expect(container.querySelector('[aria-label="Review rounds, at most"]')).toBeNull()
@@ -241,7 +251,7 @@ it('keeps a mechanically checked review on its declared path to a person', () =>
 
 it('holds Details variables while a compact form is disabled', () => {
   const flow = { ...TEAM_START_POLICIES['fix-and-review'], inputs: [{ id: 'ticket', label: 'Ticket', default: '42' }] }
-  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview, runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } } as never] })
   act(() => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow, template: flow, preview: emptyPreview(), roster: new Map(), vars: { ticket: '42' }, disabled: true, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {} }} /></StoreProvider>))
   expect(container.querySelector<HTMLInputElement>('input')!.disabled).toBe(true)
 })

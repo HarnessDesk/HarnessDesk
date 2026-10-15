@@ -90,6 +90,20 @@ rules:
 
 const errors = (text: string): readonly string[] => parseFlowPolicy(text).problems.map((one) => `${one.at}: ${one.text}`)
 
+test('a person step can explicitly choose a revision without an outgoing review guard', () => {
+  for (const review of [true, false]) {
+    const text = source('    kind: agent\n    uses: writer').replace('    outcomes: [done]', `    outcomes: [done]\n    review: ${review}`)
+    const parsed = parseFlowPolicy(text)
+    assert.equal(parsed.document?.format, 'agents', JSON.stringify(parsed.problems))
+    if (parsed.document?.format !== 'agents') return
+    assert.deepEqual(parsed.document.flow.roles.find(role => role.id === 'person'), { id: 'person', kind: 'person', outcomes: ['done'], review })
+    const reread = parseFlowPolicy(serializeFlowPolicy(parsed.document.flow)).document
+    assert.equal(reread?.format, 'agents')
+    if (reread?.format === 'agents') assert.deepEqual(reread.flow.roles, parsed.document.flow.roles)
+  }
+  assert.ok(errors(source('    kind: agent\n    uses: writer').replace('    outcomes: [done]', '    outcomes: [done]\n    review: yes')).some(one => one.includes('roles.person.review')))
+})
+
 test('a short summary is optional, validated and survives rendering', () => {
   const plain = source('    kind: agent\n    uses: writer')
   const parsed = parseFlowPolicy(`${plain}\nsummary: One writes, another reads.\n`)

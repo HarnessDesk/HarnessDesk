@@ -277,8 +277,11 @@ session: the same icon, label and trailing badge grammar as the conversation
 list. Their labels truncate with the rest of the row when space is short; they
 remain visible at the sidebar's 200px minimum. Agents shows its in-force count
 when the roster has been read, Plugins shows the live plugin count, and
-Dashboard shows an attention count only while an agent needs attention. A row
-fills when its destination window is open.
+Dashboard shows an attention count only while an agent needs attention.
+Its Overview hides the Turns tile when no agent reports turns; a reported zero
+remains a reading. A plan card with one window names it beside the headline
+reading and draws its meter once. Multiple windows keep their named meter rows.
+A row fills when its destination window is open.
 
 The magnifier beside the brand says **Search everything (⌘K)** and opens the
 search palette across sessions, files, agents and commands. The funnel beside
@@ -719,6 +722,11 @@ tool output** adds output from tools and commands, with those hits marked
 on this viewer.
 
 ## The composer
+
+A signed-out agent’s empty conversation offers one normal Sign in button.
+Its composer does not repeat the sign-in notice while the page already explains
+it; an existing transcript keeps that notice and its action. In Editor mode,
+the notice returns to the strip while the conversation panel is hidden.
 
 *The textarea carries intent; chips carry context and capability.* Full design
 in [extending.md](extending.md).
@@ -1180,8 +1188,8 @@ merge question for that exact recorded revision and the actual destination
 branch. **Compare changes** opens the existing diff between the two revisions.
 **Keep B instead** changes the person's pending merge choice, preserving the
 judge's recorded recommendation. A stopped Run or one without a pending person
-merge step cannot merge or change its pick. A waiting person judge sees
-**Pick an attempt…**, which opens the Board's same attempt dialog. No recorded
+merge step cannot merge or change its pick. A waiting person judge, or a
+referee choosing without an agent judge, sees **Pick an attempt…**, which opens the Board's same attempt dialog. No recorded
 selected attempt means no decision card.
 
 A conflict-free merge records its revision, resulting commit, destination and
@@ -1287,8 +1295,9 @@ agent cannot reopen.
 
 **`/race`** opens a dialog asking for one Agent and two explicit, isolated
 seats — never the other installed runtime, never two ordinary drafts. It
-shows the same full dry run before Start, including the judge and person
-steps a comparison names. A Goal a flow opened shows its own status strip
+shows **Judge · optional**, defaulting to **You**. An agent judge may share
+a vendor with either attempt. It shows the same full dry run before Start,
+including the selected judge and person steps a comparison names. A Goal a flow opened shows its own status strip
 beside the ordinary Goal header — Running, Waiting for evidence, Waiting for
 a person, Interrupted, Stopped or Settled — and an interrupted check's own
 **Review and run again…** action, which asks for a fresh confirmation

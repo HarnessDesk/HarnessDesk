@@ -211,7 +211,7 @@ export const FrameWall = () => {
         ? frameDestinationStore(reviewPageStore('empty'))
       : destination === 'library' && (query.get('frame-library-state') === 'autopilot' || query.get('frame-library-state') === 'import')
         ? frameDestinationStore(showing(libraryAuditFixtureStore(query.get('frame-library-state') as 'autopilot' | 'import'), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
-      : frameDestinationStore(storeFor(destination))
+      : frameDestinationStore(storeFor(destination), { workspaceOutsideGit: true })
     if (initial && !['dashboard','agents','agent','plugins'].includes(destination)) next.openDestination(initial)
     if (destination==='changes-review') next.openReview()
     if (query.get('layout-registry') === '1') {
