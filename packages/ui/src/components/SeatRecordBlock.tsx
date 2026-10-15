@@ -70,7 +70,7 @@ export const SeatRecordView = ({ seat }: { readonly seat: SeatRecord }) => {
   return (
     <section aria-label="Seat record">
       <GroupLine left="Seat record" right={seat.restored ? 'From a backup' : seat.closed ? 'Closed' : 'Open'} />
-      <KeyValue className="px-(--hd-inset-row)">
+      <KeyValue inset="row">
         <KeyValueRow label="Agent">
           {seat.agent
             ? `${seat.agent.name} · ${originWords(seat.agent.origin, project)}`
