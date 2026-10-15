@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { FileChange, Turn } from '@harnessdesk/protocol'
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 import { withGitMutation } from './git-mutation.js'
 
 /**
@@ -484,4 +485,81 @@ const repositoryPath = async (root: string, field: string, signal?: AbortSignal)
   } catch (cause) {
     throw new Error(GIT_LOOKUP_RETRY, { cause })
   }
+}
+
+/**
+ * Prove a turn against immutable trees, never against a clean working tree.
+ * A private index lets Git reverse the recorded edits without touching the
+ * person's index or files. Only history since the turn began can prove a
+ * historical match; without a timestamp the current tree must match first.
+ * Missing or unsupported evidence stays unproven. The oldest matching tree
+ * names the commit that first contained all these edits, including a turn
+ * committed in parts. Later edits do not make committed work undoable again.
+ */
+export const turnCommit = async (root: string, turn: Turn): Promise<string | null> => {
+  if (turn.status === 'inProgress') return null
+  const changes = turn.items.flatMap((item) => item.type === 'fileChange' ? item.changes : [])
+  if (changes.length === 0) return null
+  const top = await topLevel(root)
+  if (!top) return null
+  const located = await Promise.all(changes.map(async (change) => ({ change, path: (await locate(root, top, change.path)).inRepo })))
+  if (located.some(({ path }) => path === '..' || path.startsWith('../'))) return null
+  const dir = await mkdtemp(join(tmpdir(), 'hd-turn-commit-'))
+  const env = { ...process.env, GIT_INDEX_FILE: join(dir, 'index') }
+  const read = async (args: string[]): Promise<string> => (await run('git', ['-C', top, ...HARDENED_GIT_CONFIG, ...args], {
+    env, timeout: 20_000, maxBuffer: 32 * 1024 * 1024,
+  })).stdout
+  try {
+    const since = turn.startedAt == null ? [] : [`--since-as-filter=@${Math.floor(turn.startedAt / 1000)}`]
+    const emptyFiles = turn.diff?.trim() ? [] : located.filter(({ change }) => change.diff === '' && change.kind.type !== 'update')
+    // An empty per-file record cannot reconstruct intermediate edits of the same path.
+    if (emptyFiles.some(({ path }) => located.filter((entry) => entry.path === path).length > 1)) return null
+    const patches: string[] = []
+    if (turn.diff?.trim()) patches.push(turn.diff)
+    else for (const { change, path } of [...located].reverse()) {
+      if (change.kind.type === 'update') {
+        // A rename without an aggregated patch lacks its full file geometry.
+        if (change.kind.movePath || !change.diff.trim()) return null
+        patches.push(`--- ${JSON.stringify(`a/${path}`)}\n+++ ${JSON.stringify(`b/${path}`)}\n${change.diff}`)
+      } else {
+        if (!change.diff) continue
+        const add = change.kind.type === 'add'
+        const lines = change.diff.replace(/\n$/, '').split('\n')
+        const body = lines.map((line) => `${add ? '+' : '-'}${line}\n`).join('') + (change.diff.endsWith('\n') ? '' : '\\ No newline at end of file\n')
+        patches.push(`--- ${add ? '/dev/null' : JSON.stringify(`a/${path}`)}\n+++ ${add ? JSON.stringify(`b/${path}`) : '/dev/null'}\n@@ -${add ? '0,0' : `1,${lines.length}`} +${add ? `1,${lines.length}` : '0,0'} @@\n${body}`)
+      }
+    }
+    const patchFiles = await Promise.all(patches.map(async (patch, index) => {
+      const file = join(dir, `${index}.patch`)
+      await writeFile(file, patch.endsWith('\n') ? patch : `${patch}\n`)
+      return file
+    }))
+    const history = (await read(['log', '--first-parent', ...since, '--format=%H', 'HEAD', '--', ...new Set(located.map(({ path }) => path))])).trim().split('\n').filter(Boolean)
+    let found: string | null = null
+    for (const sha of history) {
+      try {
+        // Reversing a deletion can create a path that was never tracked.
+        // Every deletion needs history, whatever contents the agent recorded.
+        for (const { path } of located.filter(({ change }) => change.kind.type === 'delete')) {
+          const deletion = await read(['log', '--first-parent', ...since, '-1', '--diff-filter=D', '--format=%H', sha, '--', path])
+          if (!deletion.trim()) throw new Error('The deletion is not committed.')
+        }
+        await read(['read-tree', sha])
+        for (const patch of patchFiles) await read(['apply', '--cached', '-R', '--whitespace=nowarn', patch])
+        for (const { path, change } of emptyFiles) {
+          if (change.kind.type === 'add') {
+            if (await read(['show', `:${path}`]) !== '') throw new Error('The added file is not empty.')
+          } else {
+            const present = await read(['ls-files', '--error-unmatch', '--', path]).then(() => true, () => false)
+            if (present) throw new Error('The deletion is not committed.')
+          }
+        }
+        found = sha
+      } catch {
+        if (found || turn.startedAt == null) return found
+      }
+    }
+    return found
+  } catch { return null }
+  finally { await rm(dir, { recursive: true, force: true }) }
 }

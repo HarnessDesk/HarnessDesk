@@ -96,6 +96,7 @@ const mount = async (over: Partial<AppSnapshot> = {}): Promise<{
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     transport: { request: vi.fn(async () => ({ data: [], nextCursor: null })) },
     selectRuntime,

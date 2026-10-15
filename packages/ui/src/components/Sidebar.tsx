@@ -24,6 +24,7 @@ import {
   Bar,
   Dot,
   Menu,
+  Row,
   MenuItem,
   MenuAccountGroup,
   MenuAccountRow,
@@ -176,7 +177,7 @@ export const Sidebar = ({
     <LeftColumnNavigation>
       <LeftColumnRow label="New session" icon={<PlusIcon size={16} />}
         disabled={!ready || !snapshot.workspace} title="Start a session here" onClick={() => store.newDraft()}
-        menu={{ icons: 'all', label: 'More ways to start', onOpenChange: open => { if (open) void store.loadWorktrees() },
+        menu={{ icons: 'all', label: 'More ways to start', onOpenChange: open => { if (open) { void store.loadWorktrees(); if (snapshot.workspace) void store.refreshWorkspaceGit(snapshot.workspace.path) } },
           content: close => <WorktreeItems close={close} onChoose={() => { store.returnToWork(); setStarting(true) }} /> }} />
       <LeftColumnGroup label="Main sections" heading={false}>
         {pageDoors.map(door => <LeftColumnRow key={door.id} label={door.label} icon={door.icon}
@@ -266,7 +267,11 @@ const WorktreeItems = ({ onChoose, close }: { readonly onChoose: () => void; rea
         <Menu close={close}>
           <MenuItem icon={<PlusIcon size={14} />} label="New session" shortcut="⌘N" onSelect={() => { close(); store.newDraft() }} />
           <MenuItem icon={<TeamIcon size={14} />} label="New Team…" shortcut="⌘⇧N" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose() }} />
-          <MenuItem
+          {isRepo && snapshot.workspace?.git?.sha === null ? (
+            <Row title="Make a first commit to work in a worktree" control={
+              <Button variant="quiet" size="sm" onClick={() => { close(); store.askCommit(snapshot.workspace!.path) }}>Commit</Button>
+            } />
+          ) : <MenuItem
             icon={<BranchIcon size={14} />}
             label="New worktree…"
             title="Its own checkout, on a branch of its own."
@@ -275,7 +280,7 @@ const WorktreeItems = ({ onChoose, close }: { readonly onChoose: () => void; rea
               close()
               store.askNewWorktree(snapshot.workspace?.path ?? null)
             }}
-          />
+          />}
           {mine.length > 0 && (
             <>
               <MenuLabel>Start in one</MenuLabel>

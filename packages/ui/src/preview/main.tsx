@@ -1,3 +1,5 @@
+import { RepositoryStatesPreview } from './repository-states'
+import { RepositoryMenuRepairsPreview } from './repository-menu-repairs'
 import { WorkspaceRecoveryPreview } from './workspace-recovery'
 import { CurrentPagePreview } from './page-preview'
 import { DashboardDestinationFixture } from './dashboard-destination-fixture'
@@ -1229,6 +1231,10 @@ createRoot(container).render(
       <SignInMode.Provider value="embedded">
         {siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
+          : new URLSearchParams(window.location.search).has('repository-states')
+          ? <RepositoryStatesPreview />
+          : new URLSearchParams(window.location.search).has('repository-menu-repairs')
+          ? <RepositoryMenuRepairsPreview />
           : new URLSearchParams(window.location.search).has('optional-judge')
           ? <OptionalJudgeFrame />
           : new URLSearchParams(window.location.search).has('workspace-recovery')
