@@ -275,9 +275,9 @@ button that opens the existing commit flow. After that commit the normal
 worktree choice returns. Menus re-read the checkout when opened, so commits
 made by an agent or terminal also restore the choice. This applies to the
 composer and project menu too.
-New Team opens a searchable shape picker, then one
-form for the task, roles and optional Done when. Just a Team opens a shared
-board without fixed steps. Change returns to the picker and keeps the draft.
+New Team opens the shared dialog with its task, searchable Flow picker, roles
+and optional Done when. Just a Team opens a shared board without fixed steps.
+Changing the Flow stays in the dialog and keeps each draft.
 
 **Agents**, **Dashboard** and **Plugins** each have a full row under New
 session: the same icon, label and trailing badge grammar as the conversation
@@ -1351,6 +1351,8 @@ solo session directly.
 The form shows placeholder rows while it reads the chosen shape and checks
 its seats. When **Start Team** is disabled, one line by the action explains what is
 needed, such as **Add a task first** or **Checking the seats and inputs…**.
+At narrow widths, the New session explanation and action stack consistently
+while the chosen Flow loads, keeping the footer in place.
 Starting a comparison opens its **Side by side** tiles; **Overview** stays one
 tab away. A saved page choice is preserved when revisiting a Team.
 

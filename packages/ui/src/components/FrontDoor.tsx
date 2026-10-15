@@ -460,7 +460,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
         <Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button>
       </>}
       footerAside={reason && <Note id="team-start-reason" role="status">{reason}</Note>}
-      footerNavigation={<span className={styles.solo}><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" disabled={locked} onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></span>}
+      footerNavigation={<><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" disabled={locked} onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></>}
     >
       <FormStack>
         <Field label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'}>

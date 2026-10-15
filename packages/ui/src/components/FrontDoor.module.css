@@ -4,4 +4,3 @@
   gap: var(--hd-space-3);
 }
 .picker { gap: var(--hd-space-5); }
-.solo { display: flex; align-items: center; flex-wrap: wrap; gap: var(--hd-space-1); }

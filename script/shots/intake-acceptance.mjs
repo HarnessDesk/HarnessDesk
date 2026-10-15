@@ -28,12 +28,13 @@ import { randomUUID } from 'node:crypto'
  * never published — this script does not push, post or open a PR.
  */
 import { execFileSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { closeDesk, launchDesk, sleep, STORE, waitForSnapshot } from '../lib/desk.mjs'
+import { removeTemporaryDirectory } from '../lib/temporary-directory.mjs'
 import { connect } from 'node:net'
 import { toolSocketPath } from '../../packages/server/dist/src/bootstrap.js'
 
@@ -52,6 +53,27 @@ const shoot = async (cdp, name) => {
 
 const click = (cdp, selector) =>
   cdp.eval(`(() => { const node = ${selector}; if (!node) throw new Error('click target not found'); node.click(); return true })()`)
+
+const triggerDialog = '[role="dialog"][aria-label="Triggers"]'
+const openTriggers = async (cdp, project) => {
+  if (!(await cdp.eval(`Boolean(document.querySelector(${q(triggerDialog)}))`))) {
+    await click(cdp, `document.querySelector('button[title="Flows"]')`)
+    await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[data-page-destination="flows"]:not([hidden])'))`), Boolean)
+    await click(cdp, `document.querySelector('[data-slot="top-bar"] button[title="More"]')`)
+    await click(cdp, `[...document.querySelectorAll('[role="menuitem"]')].find(node => node.textContent.trim() === 'Manage triggers…')`)
+    await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector(${q(triggerDialog)}))`), Boolean)
+  }
+  // A restored desk can contain several projects; use this rig's own root.
+  await cdp.eval(`(() => {
+    const label = [...document.querySelectorAll(${q(`${triggerDialog} label`)})].find(node => node.textContent.trim() === 'Project')
+    const select = label && document.getElementById(label.htmlFor)
+    if (!(select instanceof HTMLSelectElement)) throw new Error('no trigger project selector')
+    select.value = ${q(project)}
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    document.querySelector(${q(`${triggerDialog} section[aria-label="Triggers"]`)})?.scrollIntoView({ block: 'start' })
+    return true
+  })()`)
+}
 
 if (mode === 'live') {
   const repo = process.env['HD_INTAKE_ACCEPTANCE_REPO']
@@ -176,7 +198,7 @@ try {
   await shoot(cdp, 'workspace-open')
 
   // The project's own Triggers section: off, by declaration alone.
-  await cdp.eval(`${STORE}.askSettings('workspaces', ${q(project)})`)
+  await openTriggers(cdp, project)
   try {
     await waitForSnapshot(
       () => cdp.eval(`document.querySelector('[aria-label="Triggers"] [role="switch"][aria-label="Arm triage-issue"]')?.getAttribute('aria-checked') === 'false'`),
@@ -185,7 +207,7 @@ try {
     )
   } catch (error) {
     const body = await cdp.eval(`document.body.innerText`)
-    say(`--- debug: settings body text ---\n${body}\n--- end debug ---`)
+    say(`--- debug: triggers body text ---\n${body}\n--- end debug ---`)
     throw error
   }
   await shoot(cdp, 'triggers-off')
@@ -277,14 +299,13 @@ try {
     const goal = await cdp.eval(
       `[...${STORE}.getSnapshot().goals.values()].find(g => g.goal.origin.kind === 'trigger').goal.id`,
     )
-    // Settings is its own full-window overlay; leave it before opening the
-    // Goal so the shot is the Goal's own pane, not Settings underneath a
-    // notice.
-    await click(cdp, `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Back to app')`).catch(() => {})
+    await click(cdp, `document.querySelector(${q(`${triggerDialog} button[aria-label="Close"]`)})`)
     await sleep(300)
     await cdp.eval(`${STORE}.openGoal(${q(goal)})`)
+    await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[data-slot="top-bar"] button[aria-label="Details"]'))`), Boolean)
+    await click(cdp, `document.querySelector('[data-slot="top-bar"] button[aria-label="Details"]')`)
     await waitForSnapshot(
-      () => cdp.eval(`document.querySelector('[aria-label="Trigger origin"]') !== null`),
+      () => cdp.eval(`[...document.querySelectorAll('[data-slot="summary-item"]')].some(node => node.querySelector('dt')?.textContent.trim() === 'Trigger' && node.textContent.includes('Issue #42'))`),
       Boolean,
       { attempts: 150 },
     )
@@ -352,14 +373,15 @@ try {
       return { stop: status?.budget?.stop ?? null, waits: (status?.waits ?? []).map((one) => one.sentence), state: execution?.state ?? null, held: execution?.intake?.heldFor ?? null, rounds: execution?.rounds.length ?? 0 }
     })`)
   }
-  // Settings > Workspaces > Triggers on this Mac: pause every trigger.
-  await cdp.eval(`${STORE}.askSettings('workspaces', 'triggers')`)
+  // Flows > Manage triggers: pause every trigger on this Mac.
+  await openTriggers(cdp, project)
   await waitForSnapshot(
     () => cdp.eval(`document.querySelector('[aria-label="Triggers on this Mac"]') !== null`),
     Boolean,
     { attempts: 150 },
   )
   await sleep(300)
+  await cdp.eval(`document.querySelector('[aria-label="Triggers on this Mac"]')?.scrollIntoView({ block: 'center' }); true`)
   await shoot(cdp, 'machine-settings')
   const before = goalOpened ? await statusOf() : null
   say(`before pausing: ${JSON.stringify(before)}`)
@@ -401,15 +423,15 @@ try {
   }
 
   // Back to the project's history.
-  await cdp.eval(`${STORE}.askSettings('workspaces', ${q(project)})`)
-  await waitForSnapshot(() => cdp.eval(`document.querySelector('[aria-label="Triggers"]') !== null`), Boolean, { attempts: 150 })
-  await click(cdp, `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'History')`)
-  await sleep(500)
+  await openTriggers(cdp, project)
+  await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(`${triggerDialog} button[aria-label="History"]`)}) !== null`), Boolean, { attempts: 150 })
+  await click(cdp, `document.querySelector(${q(`${triggerDialog} button[aria-label="History"]`)})`)
+  await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(triggerDialog)})?.textContent.includes('#42')`), Boolean, { attempts: 150 })
   await shoot(cdp, 'history')
 
   // A source gap, and Watch from now: resume triggers, then a burst of 101 labelled issues — more than one read may
   // hold — stops the issue source at a gap; the trigger's row says so and offers Watch from now, which resumes it.
-  await cdp.eval(`${STORE}.askSettings('workspaces', 'triggers')`)
+  await openTriggers(cdp, project)
   await waitForSnapshot(() => cdp.eval(`document.querySelector('[aria-label="Triggers on this Mac"] [role="switch"]') !== null`), Boolean, { attempts: 150 })
   if (await cdp.eval(`document.querySelector('[aria-label="Triggers on this Mac"] [role="switch"]').getAttribute('aria-checked') === 'true'`)) {
     await click(cdp, `document.querySelector('[aria-label="Triggers on this Mac"] [role="switch"]')`)
@@ -422,7 +444,7 @@ try {
   }
   writeFileSync(ghState, JSON.stringify(burst, null, 2))
   say('seeded 101 labelled issues at once; waiting for the source to stop at a gap')
-  await cdp.eval(`${STORE}.askSettings('workspaces', ${q(project)})`)
+  await openTriggers(cdp, project)
   const gapRow = `[...document.querySelectorAll('[aria-label="Triggers"] *')].some((node) => node.textContent?.trim() === 'Its source stopped at a gap')`
   const gapped = await waitForSnapshot(() => cdp.eval(gapRow), Boolean, { attempts: 2400 }).catch(() => false)
   if (!gapped) {
@@ -451,5 +473,5 @@ try {
   if (desk) await closeDesk(desk)
   // The app's own output, kept for reading after the rig is gone.
   if (process.env['HD_INTAKE_APP_LOG'] && existsSync(logPath)) copyFileSync(logPath, process.env['HD_INTAKE_APP_LOG'])
-  rmSync(rig, { recursive: true, force: true })
+  removeTemporaryDirectory(rig)
 }

@@ -134,7 +134,7 @@ const openInvestigation = async (page: Page, theme: 'light' | 'dark', width: num
 
 {
 
-  for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720]).entries()) test(`R12.2 the New Team footer stays in place while choosing a Flow [item ${[item0, item1].join('-')}]`, async ({ page }) => {
+  for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720, 712]).entries()) test(`R12.2 the New Team footer stays in place while choosing a Flow [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'team-start=picker', theme, width)
     const dialog = page.getByRole('dialog')
@@ -150,6 +150,12 @@ const openInvestigation = async (page: Page, theme: 'light' | 'dark', width: num
     expect(form.height, `dialog height at ${width}px in ${theme}`).toBeCloseTo(picker.height, 1)
     expect(form.footerTop, `footer position at ${width}px in ${theme}`).toBeCloseTo(picker.footerTop, 1)
     expect(form.top, `dialog top at ${width}px in ${theme}`).toBeCloseTo(picker.top, 1)
+    await dialog.getByLabel('What should they do?', { exact: true }).fill('Trace the checkout failure')
+    await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled()
+    const ready = await geometry()
+    expect(ready.height, `ready dialog height at ${width}px in ${theme}`).toBeCloseTo(picker.height, 1)
+    expect(ready.footerTop, `ready footer position at ${width}px in ${theme}`).toBeCloseTo(picker.footerTop, 1)
+    expect(ready.top, `ready dialog top at ${width}px in ${theme}`).toBeCloseTo(picker.top, 1)
 
 
   })
