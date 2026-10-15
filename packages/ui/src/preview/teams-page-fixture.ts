@@ -8,15 +8,15 @@ import { teamListRow } from '../lib/teams-list'
 export const TEAMS_PAGE_STATES=['active','needs-you','settled','empty','pending','failed','narrow'] as const
 export type TeamsScene=typeof TEAMS_PAGE_STATES[number]
 const now=Date.now()
-const sentences=['Review the checkout retry','Choose the deployment target','Retry the checkout call on a 502','Keep the invoice rounding change','Finish the usage cache change']
-const turnTotals=[21,8,137,46,92]
+const sentences=['Review the checkout retry','Choose the deployment target','Retry the checkout call on a 502','Keep the invoice rounding change','Finish the usage cache change','Document the release checklist']
+const turnTotals=[21,8,137,46,92,16]
 export const teamsPageStore=(scene:TeamsScene='active',finished?:'before'|'after')=>{
  const teams=new Map<string,TeamState>()
  const goals=new Map<string,GoalView>();const sessions=new Map<SessionKey,Session>()
  const executions=new Map<string,FlowExecution>()
  const reports=new Map<string,InsightReport>()
  let approvals:AppSnapshot['approvals'][number][]=[]
- for(let n=0;n<5;n++) {
+ for(let n=0;n<6;n++) {
   const base=overviewTeamStore(finished?'done':n===0?'needs-you':n===1?'stalled':n===2?'running':'done').getSnapshot()
   const id=`team-${n}`;const project=n===3?'/work/billing':'/work/storefront';const at=now-(45-n*8)*60_000
   const old=base.goals.get('overview-team')!
@@ -26,13 +26,13 @@ export const teamsPageStore=(scene:TeamsScene='active',finished?:'before'|'after
   }) as SeatRecord[]
   const keys=members.map(record=>sessionKey(record.session.runtime,record.session.sessionId))
   const board={...old.board,id,root:project,name:sentences[n]!,updatedAt:at,
-   intents:old.board.intents.map(card=>({...card,createdAt:at,updatedAt:at,claim:card.claim?{...card.claim,sessionId:members[card.id-1]?.session.sessionId ?? keys[0]!,at}:null})),
+   intents:old.board.intents.map(card=>({...card,createdAt:at,updatedAt:at,...(n===2&&card.id===1?{state:'done' as const,claim:null}:{claim:card.claim?{...card.claim,sessionId:members[card.id-1]?.session.sessionId ?? keys[0]!,at}:null})})),
    channel:old.board.channel.map(entry=>entry.kind==='signal'?{...entry,at,by:entry.by.kind==='agent'?{...entry.by,sessionId:members[(entry.intent ?? 1)-1]?.session.sessionId ?? members[0]!.session.sessionId}:entry.by}:entry)}
-  const goal={...old,goal:{...old.goal,id,root:project,cwd:project,sentence:board.name,createdAt:at,updatedAt:at,origin:{kind:'flow' as const,run:`${id}-run`}},board,members,activity:n===0||n===1?'needs-you' as const:n===2?'working' as const:'ready-to-wrap' as const}
+  const goal={...old,goal:{...old.goal,id,root:project,cwd:project,sentence:board.name,createdAt:at,updatedAt:at,state:n===5?'wrapped' as const:old.goal.state,origin:{kind:'flow' as const,run:`${id}-run`}},board,members,activity:n===0||n===1?'needs-you' as const:n===2?'working' as const:'ready-to-wrap' as const}
   goals.set(id,goal);teams.set(id,board)
   const run=base.flowExecutions.get('overview-run')!
   executions.set(`${id}-run`,{...run,id:`${id}-run`,goal:id,startedAt:at,endedAt:n>2||n===1?at:null,reason:n===3?'Review accepted the invoice rounding change.':run.reason,
-   rounds:run.rounds.map(round=>({...round,seats:round.seats.map(seat=>seat.replace('seat-',`${id}-seat-`))}))})
+   rounds:run.rounds.map(round=>({...round,cards:round.cards.filter(id=>board.intents.some(card=>card.id===id)),seats:round.seats.map(seat=>seat.replace('seat-',`${id}-seat-`))}))})
   for(const [index,record] of members.entries()) {
    const key=keys[index]!
    const original=[...base.sessions.values()][index%base.sessions.size]!

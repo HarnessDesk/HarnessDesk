@@ -79,7 +79,7 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
         }) }
   })
   const gutter = widthKind === 'canvas' ? FRAME.page.canvasGutter : FRAME.page.gutter
-  const topInset = actions.expectedTopInset === 'page'
+  const topInset = params.get('frame-wall') === 'teams' ? 16 : actions.expectedTopInset === 'page'
     ? FRAME.page.gutter - FRAME.page.canvasGutter + 1
     : gutter
   expect([value.left, value.right, value.top]).toEqual([gutter, gutter, topInset])

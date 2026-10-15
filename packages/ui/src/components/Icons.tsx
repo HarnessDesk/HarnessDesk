@@ -98,6 +98,7 @@ import {
   File,
   FileCode2,
   FileDiff,
+  Flag,
   Folder,
   FoldVertical,
   Forward,
@@ -207,6 +208,7 @@ export const PlusIcon = animated(PlusGlyph, Plus, 'PlusIcon')
 export const SearchIcon = animated(SearchGlyph, Search, 'SearchIcon')
 export const SettingsIcon = animated(SettingsGlyph, Settings, 'SettingsIcon')
 export const SlidersIcon = animated(SlidersHorizontalGlyph, SlidersHorizontal, 'SlidersIcon')
+export const FlagIcon = icon(Flag, 'FlagIcon')
 /** Narrowing a list you can already see — not searching for what you cannot. */
 export const FilterIcon = icon(Funnel, 'FilterIcon')
 export const MoreIcon = icon(Ellipsis, 'MoreIcon')

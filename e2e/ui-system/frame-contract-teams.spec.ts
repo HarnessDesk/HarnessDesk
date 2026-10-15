@@ -42,15 +42,13 @@ test('E5 Teams column background reaches the window top', async ({ page }) => {
 })
 {
 
-  for (const [item0, query] of (['frame-wall=teams', 'frame-wall=teams&frame-no-folder=1']).entries()) test(`E5 Teams More offers Terminal only with a chosen folder [item ${[item0].join('-')}]`, async ({ page }) => {
+  for (const [item0, query] of (['frame-wall=teams', 'frame-wall=teams&frame-no-folder=1']).entries()) test(`E5 Teams More keeps Refresh and offers Terminal only with a chosen folder [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, query, 'light')
-    const more = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
-    await expect(more).toHaveCount(query.includes('frame-no-folder=1') ? 0 : 1)
-    if (!query.includes('frame-no-folder=1')) {
-      await more.click()
-      await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
-    }
+    await page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button').click()
+    await expect(page.getByRole('menuitem',{name:'Refresh Teams',exact:true})).toBeVisible()
+    await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(query.includes('frame-no-folder=1') ? 0 : 1)
+    await expect(page.getByRole('menuitem', { name: 'New Team', exact: true })).toHaveCount(0)
 
 
   })
@@ -60,13 +58,14 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
   for (const filter of ['active', 'needs-you', 'settled']) test(`E5 Teams ${filter} ${width} ${theme}`, async ({ page }) => {
 
     await measureDestination(page, `frame-wall=teams&frame-filter=${filter}`, 'wide', theme, width)
-    await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'New Team', exact: true })).toBeVisible()
-    const records = page.locator('[data-slot="page-records"]:visible').first()
-    await expect(records).toHaveAttribute('data-layout', (await records.boundingBox())!.width < 600 ? 'narrow' : 'table')
-    await expect(records.locator('[data-team-row]')).not.toHaveCount(0)
+    const bar=page.locator('[data-slot="top-bar"]:visible')
+    await expect(bar.getByRole('button', {name:'New Team',exact:true})).toHaveCount(0)
+    await expect(bar.locator('[role="tab"]')).toHaveCount(0)
+    const body=page.locator('[data-page-destination="teams"]:visible')
+    await expect(body.locator('[data-slot="teams-board-toolbar"]').getByRole('button',{name:'New Team',exact:true})).toBeVisible()
+    await expect(body.locator('[data-slot="teams-board-column"]')).toHaveCount(3)
+    await expect(body.locator('[data-team-row]')).toHaveCount(5)
     await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
-    const views = page.locator('[data-page-destination="teams"]:visible [data-slot="page"]').first().locator(':scope > [data-slot="tabs"]')
-    await expect(views.getByRole('tab', { name: filter === 'active' ? /^Active/ : filter === 'needs-you' ? /^Needs you/ : /^Settled/ })).toHaveAttribute('aria-selected', 'true')
   })
 }
 for (const theme of ['light', 'dark'] as const) test(`E5 Teams empty state uses the shared main block ${theme}`, async ({ page }) => {
@@ -75,7 +74,7 @@ for (const theme of ['light', 'dark'] as const) test(`E5 Teams empty state uses 
   const empty = page.locator('[data-page-destination="teams"]:visible [data-slot="page"] > [data-slot="empty-state"][data-variant="panel"]')
   await expect(empty).toBeVisible()
   await expect(empty.locator('svg')).toHaveCount(1)
-  await expect(empty.getByRole('heading', { name: 'No active Teams', exact: true })).toBeVisible()
+  await expect(empty.getByRole('heading', { name: 'No Teams yet', exact: true })).toBeVisible()
   await expect(empty.getByText(/Create a Team/)).toBeVisible()
   await expect(empty.getByRole('button', { name: 'New Team', exact: true })).toBeVisible()
 })
@@ -93,7 +92,7 @@ test('R10 empty Teams keeps its action content-width and centred', async ({ page
 test('E5 Team row enters work and keeps room navigation separate from page history', async ({ page }) => {
 
   await openFrame(page, 'frame-wall=teams', 'dark')
-  await page.locator('[data-slot="page-records"]:visible').getByRole('button', { name: /^Open / }).first().click()
+  await page.locator('[data-slot="teams-board"]:visible').getByRole('button', { name: /^Open / }).first().click()
   await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
   await selectFrameTab(page, 'findings')
   await page.keyboard.press('Meta+[')
@@ -102,22 +101,20 @@ test('E5 Team row enters work and keeps room navigation separate from page histo
   await expect(page.locator('[data-slot="team-room"]')).toBeVisible()
   await expect(page.locator('[data-team-page="findings"]')).toBeVisible()
 })
-for (const theme of ['light', 'dark'] as const) test(`E5 Teams filters replace the route and New Team invokes the existing dialog ${theme}`, async ({ page }) => {
-
+for (const theme of ['light', 'dark'] as const) test(`E5 Teams body choices survive page history and New Team opens the existing dialog ${theme}`, async ({ page }) => {
   await openFrame(page, 'frame-wall=teams', theme)
-  const views = page.getByRole('tablist', { name: 'Teams views' })
-  await views.getByRole('tab', { name: /^Settled/ }).click()
-  await expect(views.getByRole('tab', { name: /^Settled/ })).toHaveAttribute('aria-selected', 'true')
+  const search=page.getByRole('searchbox',{name:'Search Teams',exact:true})
+  await search.fill('invoice')
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
   await page.keyboard.press('Meta+]')
-  await expect(views.getByRole('tab', { name: /^Settled/ })).toHaveAttribute('aria-selected', 'true')
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'New Team', exact: true }).click()
+  await expect(search).toHaveValue('invoice')
+  await page.locator('[data-slot="teams-board-toolbar"]').getByRole('button',{name:'New Team',exact:true}).click()
   await expect(page.getByRole('dialog')).toBeVisible()
 })
 test('E5 Teams without a folder refuses New Team', async ({ page }) => {
 
   await openFrame(page, 'frame-wall=teams&frame-no-folder=1', 'light')
-  const create = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'New Team', exact: true })
+  const create = page.locator('[data-slot="teams-board-toolbar"]').getByRole('button', { name: 'New Team', exact: true })
   await expect(create).toBeDisabled(); await expect(create).toHaveAttribute('title', 'Open a project folder first.')
 })

@@ -7,27 +7,23 @@ import { TopBarProvider } from '../panels/top-bar'
 import { type TeamFilter } from '../lib/teams-list'
 import { TeamsWindow } from './TeamsWindow'
 import { overviewTeamStore } from '../preview/team-overview-fixture'
-import { goalInsightsFrom } from '../preview/harness'
-import type { FindingRunView, InsightGoalsReport } from '@harnessdesk/protocol'
-import { teamsInput } from '../lib/teams-snapshot'
-import { teamsList } from '../lib/teams-list'
+import type { FindingRunView } from '@harnessdesk/protocol'
 import type { AppStore } from '../state/store'
 
-const drawn=vi.hoisted(()=>({marks:0,pageCommits:0,context:null as import('react').Context<boolean>|null}))
+const drawn=vi.hoisted(()=>({marks:0,context:null as import('react').Context<boolean>|null}))
 vi.mock('./BrandIcons',async original=>{
  const actual=await original<typeof import('./BrandIcons')>()
  const React=await import('react')
  drawn.context??=React.createContext(false)
  return {...actual,RuntimeMark:(props:Parameters<typeof actual.RuntimeMark>[0])=>{if(React.useContext(drawn.context!))drawn.marks+=1;return actual.RuntimeMark(props)}}
 })
-// The shell now owns separate clocks and publications. Measure the actual
-// page subtree so the one-update and time-cell-only contracts keep their scope.
+// Count only marks inside the page when checking the time-cell-only clock.
 vi.mock('../design',async original=>{
  const actual=await original<typeof import('../design')>()
  const React=await import('react')
  drawn.context??=React.createContext(false)
  return {...actual,Page:(props:Parameters<typeof actual.Page>[0])=>React.createElement(drawn.context!.Provider,{value:true},
-  React.createElement(React.Profiler,{id:'teams-page',onRender:()=>{drawn.pageCommits+=1}},React.createElement(actual.Page,props)))}
+  React.createElement(actual.Page,props))}
 })
 const TestPage = ({initialFilter='active',filter:controlled,onFilter:change,onNew=()=>{}}: {initialFilter?:TeamFilter;filter?:TeamFilter;onFilter?:(filter:TeamFilter)=>void;onNew?:()=>void}) => {
  const [filter,setFilter]=useState<TeamFilter>(initialFilter)
@@ -51,185 +47,70 @@ const mount=async(scene:Parameters<typeof overviewTeamStore>[0]='running', witho
  return {seen,hidden,open}
 }
 const button=(label:string)=>[...container.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent?.includes(label))!
-it('opens Active with counts and the real Team sentence, face stack and earned round',async()=>{
+it('shows three attention columns, cards and the existing face stack',async()=>{
  await mount('running',true)
- expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain('Active')
+ expect([...container.querySelectorAll('[data-slot="teams-board-column"]')].map(el=>el.getAttribute('aria-label'))).toEqual(['Needs you','Working','Ready to wrap'])
  expect(container.querySelector('[data-team-row]')?.textContent).toContain('Retry the checkout call')
  expect(container.querySelectorAll('[data-team-row] [data-shape="face"]')).toHaveLength(2)
- expect(container.querySelector('[data-team-row]')?.textContent).toContain('Round 2')
+ expect(container.querySelector('[data-team-row]')?.textContent).toContain('round 2')
+ expect(container.querySelector('[role="tablist"]')).toBeNull()
 })
-it('folds Ready to wrap, lets Settled open it, and Hide never deletes it',async()=>{
- const {hidden}=await mount('done')
- expect(container.querySelector('[data-team-row]')).toBeNull()
- await act(async()=>button('Ready to wrap').click())
- expect(container.querySelector('[data-team-row]')).not.toBeNull()
- await act(async()=>container.querySelector<HTMLButtonElement>('[data-team-row] button[title="More"]')!.click())
- await act(async()=>document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click())
- expect(hidden).toHaveBeenCalledWith('overview-team',true)
- await act(async()=>button('Settled').click())
- expect(container.querySelector('[data-team-row]')).not.toBeNull()
+it('keeps ready Teams visible without opening a fold',async()=>{
+ await mount('done')
+ expect(container.querySelector('[aria-label="Ready to wrap"] [data-team-row]')).not.toBeNull()
 })
-it('opening a row records exactly its observed change and opens the Team',async()=>{
+it('opening a card records its observed change and opens the Team once',async()=>{
  const {seen,open}=await mount()
- await act(async()=>container.querySelector('[data-team-row]')!.dispatchEvent(new MouseEvent('click',{bubbles:true})))
+ await act(async()=>container.querySelector<HTMLButtonElement>('[data-team-row]')!.click())
  expect(seen).toHaveBeenCalledWith('overview-team',expect.any(String))
+ expect(open).toHaveBeenCalledOnce()
  expect(open).toHaveBeenCalledWith('overview-team',expect.any(String))
 })
-it('shows a complete waiting reason, and usage read failures leave a dash',async()=>{
+it('shows complete waiting reasons in the attention column',async()=>{
  await mount('needs-you')
- expect(container.querySelector('[data-team-row] [data-slot="team-detail"]')?.textContent).toContain('choose whether to keep the original payment method')
- expect(container.querySelector('[data-team-row] [data-slot="team-detail"]')?.getAttribute('title')).toContain('choose whether')
+ const detail=container.querySelector('[aria-label="Needs you"] [data-slot="team-detail"]')!
+ expect(detail.textContent).toContain('choose whether to keep the original payment method')
+ expect(detail.getAttribute('title')).toContain('choose whether')
 })
-
-it('keeps pending and failed usage visibly different from a known zero, and names a refresh failure',async()=>{
- const {teamsPageStore}=await import('../preview/teams-page-fixture')
- await act(async()=>root.render(<StoreProvider store={teamsPageStore('pending')}><PageScope><TestPage/></PageScope></StoreProvider>))
- expect(container.textContent).toContain('Reading recorded usage')
- expect(container.textContent).not.toContain('$0.00')
- await act(async()=>root.render(<StoreProvider store={teamsPageStore('failed')}><PageScope><TestPage/></PageScope></StoreProvider>))
- expect(container.textContent).toContain('The Team usage record could not be read')
- expect(container.textContent).not.toContain('Reading recorded usage')
-})
-it('shows the empty desk without inventing a Team',async()=>{
- const {teamsPageStore}=await import('../preview/teams-page-fixture')
- await act(async()=>root.render(<StoreProvider store={teamsPageStore('empty')}><PageScope><TestPage/></PageScope></StoreProvider>))
- expect(container.textContent).toContain('No active Teams')
- expect(container.querySelector('[data-team-row]')).toBeNull()
-})
-
-it('tints only attention and working states, leaving ready rows in plain words',async()=>{
+it('searches all columns and filters by the projects actually held on the desk',async()=>{
  const {teamsPageStore}=await import('../preview/teams-page-fixture')
  await act(async()=>root.render(<StoreProvider store={teamsPageStore()}><PageScope><TestPage/></PageScope></StoreProvider>))
- await act(async()=>button('Ready to wrap').click())
- const chips=[...container.querySelectorAll('[data-team-row] [data-slot="chip"]')]
- expect(chips).toHaveLength(3)
- expect(chips.map(chip=>[chip.textContent,chip.getAttribute('data-variant'),chip.getAttribute('data-tone')])).toEqual([
-  ['Needs you','default','warning'],['Needs you','default','warning'],['Working','default','info'],
- ])
+ const search=container.querySelector<HTMLInputElement>('input[aria-label="Search Teams"]')!
+ expect(search).not.toBeNull()
+ await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(search,'invoice');search.dispatchEvent(new Event('input',{bubbles:true}))})
+ expect(container.querySelectorAll('[data-team-row]')).toHaveLength(1)
+ expect(container.querySelector('[data-team-row]')?.textContent).toContain('invoice')
+ await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(search,'');search.dispatchEvent(new Event('input',{bubbles:true}))})
+ await act(async()=>container.querySelector<HTMLButtonElement>('button[title="Filter Teams by project"]')!.click())
+ const billing=[...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(el=>el.textContent?.includes('billing'))!
+ await act(async()=>billing.click())
+ expect(container.querySelectorAll('[data-team-row]')).toHaveLength(1)
+ expect(container.querySelector('[data-team-row="team-3"]')).not.toBeNull()
 })
-
-it('the rig has differing recorded turn totals consistent with its Seat partitions',async()=>{
+it('shows the empty desk and keeps New Team in the body',async()=>{
  const {teamsPageStore}=await import('../preview/teams-page-fixture')
- const store=teamsPageStore()
- const reports=await Promise.all([...store.getSnapshot().goals.keys()].map(id=>store.readGoalInsight(id)))
- const turns=reports.map(report=>report.totals.turns.value)
- expect(new Set(turns).size).toBe(5)
- expect(turns.every(value=>value!==null&&value>0)).toBe(true)
- for(const report of reports) {
-  const seats=report.breakdowns.find(group=>group.dimension==='seat')!
-  expect(seats.rows.reduce((sum,row)=>sum+(row.amounts.turns.value??0),seats.unattributed.turns.value??0)).toBe(report.totals.turns.value)
- }
+ const onNew=vi.fn()
+ await act(async()=>root.render(<StoreProvider store={teamsPageStore('empty')}><PageScope><TestPage onNew={onNew}/></PageScope></StoreProvider>))
+ expect(container.textContent).toContain('No Teams yet')
+ expect(container.querySelector('[data-team-row]')).toBeNull()
+ await act(async()=>button('New Team').click())
+ expect(onNew).toHaveBeenCalledOnce()
 })
-
-it('reads an uncached Run and only counts its Team as Needs you after publication is confirmed', async () => {
- const base = overviewTeamStore('done')
- let snapshot = base.getSnapshot()
- const execution = snapshot.flowExecutions.get('overview-run')!
- const listeners = new Set<() => void>()
- let answer!: () => void
- const findingRun: FindingRunView = { run: execution.id, goal: execution.goal, round: 2, finished: 2, total: 3,
-  embargoed: false, open: 1, blocking: 1, reason: 'The closed review is waiting to be posted.', ceilingStop: false,
-  stamp: 'read-1', publication: 'local', rounds: [{ round: 2, state: 'local', reason: null, pr: 7, cards: [2,3] }],
-  reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
-  boundPr: { repo: 'acme/widgets', pr: 7 }, unbound: null, undecidable: null }
- const read = vi.fn(() => new Promise<void>(resolve => { answer = () => {
-  snapshot = { ...snapshot, findingRuns: new Map([[execution.id, findingRun]]) }
-  for (const notify of listeners) notify()
-  resolve()
- } }))
- const store = new Proxy(base, { get(target, key) {
-  if (key === 'getSnapshot') return () => snapshot
-  if (key === 'subscribe') return (notify: () => void) => { listeners.add(notify); return () => listeners.delete(notify) }
-  if (key === 'loadFindingRun') return read
-  return Reflect.get(target, key)
- } })
- await act(async () => root.render(<StoreProvider store={store}><PageScope><TestPage /></PageScope></StoreProvider>))
- expect(read).toHaveBeenCalledWith(execution.goal, execution.id)
- expect(teamsList(teamsInput(snapshot)).counts['needs-you']).toBe(0)
- expect(container.textContent).not.toContain('The closed review is waiting to be posted.')
- await act(async () => answer())
- const input = teamsInput(snapshot)[0]!
- expect(input.overview.run?.needsYou).toBe(true)
- expect(teamsList([input]).counts['needs-you']).toBe(1)
- expect(container.querySelector('[data-team-row]')?.textContent).toContain('Needs you')
- expect(container.querySelector('[data-team-row]')?.textContent).toContain('The closed review is waiting to be posted.')
-})
-
-it('keeps unread before the name and separates numeric readings under headers',async()=>{
- await mount('needs-you')
- const row=container.querySelector('[data-team-row]')!
- expect(row.querySelector('[data-slot="team-identity"] [aria-label="Unread changes"]')).not.toBeNull()
- expect([...container.querySelectorAll('th[data-align="end"]')].map(one=>one.textContent)).toEqual(['Time','Turns'])
- expect(row.querySelectorAll('td[data-align="end"]')).toHaveLength(2)
-})
-
-it('omits the money column when every displayed Team has unknown money',async()=>{
+it('keeps refresh failures visible',async()=>{
  const {teamsPageStore}=await import('../preview/teams-page-fixture')
- await act(async()=>root.render(<StoreProvider store={teamsPageStore('pending')}><PageScope><TestPage/></PageScope></StoreProvider>))
- expect([...container.querySelectorAll('th')].map(one=>one.textContent)).not.toContain('Cost')
+ await act(async()=>root.render(<StoreProvider store={teamsPageStore('failed')}><PageScope><TestPage/></PageScope></StoreProvider>))
+ expect(container.textContent).toContain('The Team usage record could not be read')
 })
-
-it('observes the page after the window mounts it and switches narrow Teams to list rows',async()=>{
- const observed=vi.fn()
- vi.stubGlobal('ResizeObserver',class {
-  constructor(private callback:ResizeObserverCallback){}
-  observe(node:Element){observed(node);this.callback([{target:node,contentRect:{width:352}}] as ResizeObserverEntry[],this as unknown as ResizeObserver)}
-  unobserve(){}
-  disconnect(){}
- })
- await mount()
- expect(observed).toHaveBeenCalled()
- expect(container.querySelector('table')).toBeNull()
- expect(container.querySelector('[data-team-row] [data-slot="list-row-content"]')).not.toBeNull()
-})
-
-it.each([352,1000])('a portalled Team menu panel does not open its row at %spx',async width=>{
- vi.stubGlobal('ResizeObserver',class {
-  constructor(private callback:ResizeObserverCallback){}
-  observe(target:Element){if(target.matches('[data-slot="page-records"]'))this.callback([{target,contentRect:{width}}] as ResizeObserverEntry[],this as unknown as ResizeObserver)}
-  unobserve(){}
-  disconnect(){}
- })
- const {seen,open}=await mount('done')
- await act(async()=>button('Ready to wrap').click())
- const row=container.querySelector('[data-team-row]')!
- await act(async()=>row.querySelector<HTMLButtonElement>('button[title="More"]')!.click())
- const panel=document.querySelector('[data-slot="popover-popup"]')!
- expect(panel).toBeDefined()
- await act(async()=>panel.dispatchEvent(new MouseEvent('click',{bubbles:true})))
- expect(open).not.toHaveBeenCalled();expect(seen).not.toHaveBeenCalled()
- expect(row.querySelector('button[aria-label^="Open "]')?.getAttribute('aria-label')).toBe('Open Retry the checkout call')
- await act(async()=>document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click())
-})
-
-it('explains unavailable time and both known and unavailable money',async()=>{
- await mount('waiting-evidence')
- const time=container.querySelector('[data-team-row] td[data-align="end"] [data-slot="text"]')!
- expect(time.textContent).toBe('—')
- expect(time.getAttribute('title')).toBe('Time in this state is unavailable')
- const {teamsPageStore}=await import('../preview/teams-page-fixture')
- const base=teamsPageStore('active')
- const snapshot=base.getSnapshot()
- const meteredSnapshot={...snapshot,runtimes:snapshot.runtimes.map(runtime=>({...runtime,capabilities:{...runtime.capabilities,metered:true}}))}
- const store=new Proxy(base,{get(target,key){
-  if(key==='getSnapshot')return ()=>meteredSnapshot
-  if(key==='readGoalInsights')return goalInsightsFrom((id:string)=>id==='team-0'?Promise.reject(new Error('Usage unavailable')):target.readGoalInsight(id))
-  return Reflect.get(target,key)
- }})
- await act(async()=>root.render(<StoreProvider store={store}><PageScope><TestPage/></PageScope></StoreProvider>))
- const money=(id:string)=>container.querySelector(`[data-team-row="${id}"] td[data-align="end"]:nth-last-child(2) [data-slot="text"]`)!
- expect(money('team-0').textContent).toBe('—')
- expect(money('team-0').getAttribute('title')).toBe('Recorded usage is unavailable')
- expect(money('team-1').getAttribute('title')).toBe('Recorded Team usage; money only from metered accounts with a known rate')
-})
-
-it('opens the wide Team once through its named button',async()=>{
- const {open}=await mount()
- const row=container.querySelector('[data-team-row]')!
- const action=row.querySelector<HTMLButtonElement>('button[aria-label^="Open "]')
- expect(action).not.toBeNull()
- await act(async()=>action!.click())
- expect(open).toHaveBeenCalledOnce()
+it('moves a Team to Needs you only after publication is confirmed',async()=>{
+ const base=overviewTeamStore('done')
+ base.patch({findingRuns:new Map()})
+ await act(async()=>root.render(<StoreProvider store={base}><PageScope><TestPage/></PageScope></StoreProvider>))
+ expect(container.querySelector('[aria-label="Needs you"] [data-team-row]')).toBeNull()
+ const execution=base.getSnapshot().flowExecutions.get('overview-run')!
+ const review:FindingRunView={run:execution.id,goal:execution.goal,publication:'local',rounds:[{round:2,state:'local',reason:null,pr:7,cards:[2,3]}],boundPr:{repo:'acme/widgets',pr:7},reason:'The review is waiting to be posted.',
+  round:2,finished:2,total:2,embargoed:false,open:0,blocking:0,ceilingStop:false,stamp:'read-1',reviewersFinished:null,reviewersTotal:null,pendingExceptions:[],repair:null,unbound:null,undecidable:null}
+ await act(async()=>base.patch({findingRuns:new Map([[execution.id,review]])}))
+ expect(container.querySelector('[aria-label="Needs you"] [data-team-row]')?.textContent).toContain(review.reason)
 })
 
 type Snapshot=ReturnType<AppStore['getSnapshot']>
@@ -240,8 +121,7 @@ const recorded=async(edit:(snapshot:Snapshot)=>Partial<Snapshot>=()=>({}))=>{
  let snapshot={...base.getSnapshot(),...edit(base.getSnapshot())}
  const listeners=new Set<()=>void>()
  const land=(change:(snapshot:Snapshot)=>Partial<Snapshot>)=>{snapshot={...snapshot,...change(snapshot)};for(const notify of listeners)notify()}
- const answers:((report:InsightGoalsReport)=>void)[]=[]
- const insights=vi.fn((goals:readonly string[])=>new Promise<InsightGoalsReport>(resolve=>answers.push(resolve)))
+ const insights=vi.fn(async()=>({reports:[],failed:[]}))
  const runs=vi.fn(async(_runs:readonly string[])=>{})
  const findings=vi.fn(async(_goal:string,_run:string)=>{})
  const store=new Proxy(base,{get(target,key){
@@ -252,25 +132,24 @@ const recorded=async(edit:(snapshot:Snapshot)=>Partial<Snapshot>=()=>({}))=>{
   if(key==='loadFindingRun')return findings
   return Reflect.get(target,key)
  }}) as AppStore
- return {store,base,insights,answers,runs,findings,land}
+ return {store,base,insights,runs,findings,land}
 }
-const tab=(label:string)=>[...container.querySelectorAll<HTMLButtonElement>('[role="tablist"] button')].find(one=>one.textContent?.startsWith(label))!
 
-it('reads usage only for the rows the open tab shows, in one request and one update',async()=>{
- const {store,base,insights,answers}=await recorded()
- await act(async()=>root.render(<StoreProvider store={store}><PageScope><TestPage/></PageScope></StoreProvider>))
- expect(insights).toHaveBeenCalledOnce()
- expect(insights.mock.calls[0]![0]).toEqual(['team-0','team-1','team-2'])
- const reports=await Promise.all(['team-0','team-1','team-2'].map(id=>base.readGoalInsight(id)))
- const commits=drawn.pageCommits
- await act(async()=>answers[0]!({reports,failed:[]}))
- expect(drawn.pageCommits-commits).toBe(1)
- expect(container.querySelector('[data-team-row="team-2"]')?.textContent).toContain('137')
- // Settled Teams are read when they are shown: unfolded, or on their own tab.
- await act(async()=>button('Ready to wrap').click())
- expect(insights.mock.calls.at(-1)![0]).toEqual(['team-0','team-1','team-2','team-3','team-4'])
- await act(async()=>tab('Settled').click())
- expect(insights.mock.calls.at(-1)![0]).toEqual(['team-3','team-4'])
+it('filters and refreshes the board without requesting unused usage reports',async()=>{
+ vi.useFakeTimers({toFake:['Date','setInterval','clearInterval']})
+ try {
+  const {store,insights,land}=await recorded()
+  await act(async()=>root.render(<StoreProvider store={store}><PageScope><TestPage/></PageScope></StoreProvider>))
+  const search=container.querySelector<HTMLInputElement>('input[aria-label="Search Teams"]')!
+  for(const value of ['r','re','rev',''])await act(async()=>{
+   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(search,value)
+   search.dispatchEvent(new Event('input',{bubbles:true}))
+  })
+  await act(async()=>land(snapshot=>({teams:new Map([...snapshot.teams].map(([id,team])=>[id,{...team,intents:team.intents.map(card=>({...card,state:'done' as const}))}]))})))
+  await act(async()=>button('Wrapped').click())
+  await act(async()=>vi.advanceTimersByTimeAsync(60_000))
+  expect(insights).not.toHaveBeenCalled()
+ } finally {act(()=>root.render(null));vi.useRealTimers()}
 })
 
 it('reads a wrapped Team\'s Run once its row is shown, and never its review',async()=>{
@@ -283,7 +162,7 @@ it('reads a wrapped Team\'s Run once its row is shown, and never its review',asy
  await act(async()=>root.render(<StoreProvider store={store}><PageScope><TestPage/></PageScope></StoreProvider>))
  expect(runs).not.toHaveBeenCalled()
  expect(findings.mock.calls.map(([goal])=>goal).sort()).toEqual(['team-0','team-1','team-2'])
- await act(async()=>tab('Settled').click())
+ await act(async()=>button('Wrapped').click())
  expect(runs.mock.calls).toEqual([[['team-3-run']]])
  expect(findings.mock.calls.map(([goal])=>goal).sort()).toEqual(['team-0','team-1','team-2'])
 })
@@ -371,17 +250,16 @@ it('says time in a state in hours and days, and only the time cells follow a min
  vi.useFakeTimers({toFake:['Date','setInterval','clearInterval']})
  try {
   const now=Date.now()
-  const {store,answers}=await recorded(snapshot=>{
+  const {store}=await recorded(snapshot=>{
    const flowExecutions=new Map(snapshot.flowExecutions)
-   for(const [run,endedAt] of [['team-3-run',now-63*3_600_000],['team-4-run',now-5*3_600_000-20*60_000]] as const)flowExecutions.set(run,{...flowExecutions.get(run)!,endedAt})
-   return {flowExecutions}
+   for(const [run,endedAt] of [['team-3-run',now-63*3_600_000],['team-4-run',now-5*3_600_000-20*60_000]] as const)flowExecutions.set(run,{...flowExecutions.get(run)!,startedAt:endedAt,endedAt})
+  const goals=new Map(snapshot.goals)
+  for(const [id,createdAt] of [['team-3',now-63*3_600_000],['team-4',now-5*3_600_000-20*60_000]] as const){const view=goals.get(id)!;goals.set(id,{...view,goal:{...view.goal,createdAt}})}
+  return {flowExecutions,goals}
   })
   await act(async()=>root.render(<StoreProvider store={store}><PageScope><TestPage/></PageScope></StoreProvider>))
-  await act(async()=>answers[0]!({reports:[],failed:[]}))
-  await act(async()=>tab('Settled').click())
-  const time=(id:string)=>container.querySelector(`[data-team-row="${id}"] td[data-align="end"] [data-slot="text"]`)!.textContent
+  const time=(id:string)=>container.querySelector(`[data-team-row="${id}"] [data-slot="team-age"]`)!.textContent
   expect([time('team-3'),time('team-4')]).toEqual(['3d','5h'])
-  await act(async()=>tab('Active').click())
   const before=time('team-2'); const marks=drawn.marks
   expect(marks).toBeGreaterThan(0)
   await act(async()=>{vi.advanceTimersByTime(59_000)})
@@ -393,60 +271,35 @@ it('says time in a state in hours and days, and only the time cells follow a min
 })
 
 
-it('E5 controlled filter belongs to the first page body row', async () => {
- const {teamsPageStore}=await import('../preview/teams-page-fixture')
- const onFilter=vi.fn()
- await act(async()=>root.render(<StoreProvider store={teamsPageStore()}><PageScope><TestPage {...{filter:'settled' as const,onFilter,onNew:()=>{}}}/></PageScope></StoreProvider>))
- expect(container.querySelector('[data-slot="page"][data-width="wide"]')).not.toBeNull()
- expect(container.querySelector('[data-slot="page"]')?.firstElementChild?.querySelector('[role="tablist"]')?.getAttribute('aria-label')).toBe('Teams views')
- expect(container.querySelector('nav')).toBeNull()
-})
-it('E5 empty Teams uses the shared block inside the main Page', async () => {
- const {teamsPageStore}=await import('../preview/teams-page-fixture')
- const onNew=vi.fn()
- await act(async()=>root.render(<StoreProvider store={teamsPageStore('empty')}><PageScope><TestPage onNew={onNew}/></PageScope></StoreProvider>))
- const empty=container.querySelector('[data-slot="page"] [data-slot="empty-state"][data-variant="panel"]')
- expect(empty).not.toBeNull()
- expect(empty?.textContent).toContain('No active Teams')
- expect(empty?.querySelector('svg')).not.toBeNull()
- expect(empty?.querySelector('p')?.textContent).toContain('Create a Team')
- const action=empty?.querySelector<HTMLButtonElement>('button')
- expect(action?.textContent).toBe('New Team')
- await act(async()=>action?.click())
- expect(onNew).toHaveBeenCalledOnce()
+it('keeps New Team, project scope and search in the first body row',async()=>{
+ await mount()
+ const first=container.querySelector('[data-slot="page"]')!.firstElementChild!
+ expect(first.getAttribute('data-slot')).toBe('teams-board-toolbar')
+ expect(first.textContent).toContain('New Team')
+ expect(first.textContent).toContain('All projects')
+ expect(first.querySelector('input[aria-label="Search Teams"]')).not.toBeNull()
 })
 
-it('E5 retained inactive Teams stops usage reads and retry timers',async()=>{
+it('E5 retained inactive Teams stops retry timers',async()=>{
  vi.useFakeTimers()
  try {
   const {store,insights,runs,findings,land}=await recorded(snapshot=>{const flowExecutions=new Map(snapshot.flowExecutions);flowExecutions.delete('team-0-run');return {flowExecutions}})
   runs.mockRejectedValue(new Error('Run unavailable'));findings.mockRejectedValue(new Error('Review unavailable'))
   const render=(active:boolean)=>root.render(<StoreProvider store={store}><PageScope><DestinationPageScope owner="destination:teams" active={active}><TestPage/></DestinationPageScope></PageScope></StoreProvider>)
   await act(async()=>render(true))
-  expect(insights).toHaveBeenCalledOnce()
+  expect(insights).not.toHaveBeenCalled()
   await act(async()=>render(false))
   await act(async()=>vi.advanceTimersByTimeAsync(60_000))
   await act(async()=>land(snapshot=>({goals:new Map(snapshot.goals)})))
-  expect(insights).toHaveBeenCalledOnce();expect(runs).toHaveBeenCalledOnce()
+  expect(insights).not.toHaveBeenCalled();expect(runs).toHaveBeenCalledOnce()
   expect(findings).toHaveBeenCalledTimes(4)
  } finally {act(()=>root.render(null));vi.useRealTimers()}
-})
-
-it('E5 leaving Teams dismisses its portalled row menu',async()=>{
- const store=overviewTeamStore('done')
- const render=(active:boolean)=>root.render(<StoreProvider store={store}><PageScope><DestinationPageScope owner="destination:teams" active={active}><TestPage/></DestinationPageScope></PageScope></StoreProvider>)
- await act(async()=>render(true))
- await act(async()=>button('Ready to wrap').click())
- await act(async()=>container.querySelector<HTMLButtonElement>('[data-team-row] button[title="More"]')!.click())
- expect(document.querySelector('[role="menu"]')).not.toBeNull()
- await act(async()=>render(false))
- expect(document.querySelector('[role="menu"]')).toBeNull()
 })
 
 it('E5 controlled page opens a room exactly once',async()=>{
  const base=overviewTeamStore('running'),open=vi.fn(),close=vi.fn()
  const store=new Proxy(base,{get(target,key){if(key==='openTeamRoom')return open;return Reflect.get(target,key)}}) as AppStore
  await act(async()=>root.render(<StoreProvider store={store}><TopBarProvider><DestinationPageScope owner="destination:teams" active><TeamsWindow filter="active" onFilter={()=>{}} onNew={()=>{}}/></DestinationPageScope></TopBarProvider></StoreProvider>))
- await act(async()=>container.querySelector<HTMLButtonElement>('[data-team-row] button[aria-label^="Open "]')!.click())
+ await act(async()=>container.querySelector<HTMLButtonElement>('[data-team-row][aria-label^="Open "]')!.click())
  expect(open).toHaveBeenCalledOnce();expect(close).not.toHaveBeenCalled()
 })

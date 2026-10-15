@@ -58,6 +58,14 @@ const lit = (element: HTMLElement): number =>
   ).length
 
 describe('SegmentMeter', () => {
+  it('draws an observed path with named completed, current and unreached steps', () => {
+    mount(<SegmentMeter label="Run path" steps={[{key:'write',label:'Write',state:'done'},{key:'review',label:'Review',state:'current'},{key:'wrap',label:'Wrap',state:'future'}]}/>)
+    const path=container.querySelector('[data-variant="steps"]')!
+    expect(path.getAttribute('role')).toBe('img')
+    expect([...path.querySelectorAll('[data-step-state]')].map(node=>[node.getAttribute('data-step-state'),node.getAttribute('title')])).toEqual([
+      ['done','Write: done'],['current','Review: current'],['future','Wrap: not reached'],
+    ])
+  })
   it('fills with what is LEFT, so a full meter always means plenty', () => {
     mount(<SegmentMeter percent={25} label="Weekly" segments={40} />)
     expect(meter().getAttribute('aria-valuenow')).toBe('25')

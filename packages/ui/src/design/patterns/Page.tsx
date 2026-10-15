@@ -36,13 +36,13 @@ export const Page = ({ width, measure, gutter = 'page', fill = false, topInset, 
   readonly gutter?: 'page' | 'none'
   /** Fill the destination body's height so a page empty state can centre in its remaining space. */
   readonly fill?: boolean
-  /** Give a dense canvas page the page's vertical content inset while keeping its canvas frame. */
-  readonly topInset?: 'page'
+  /** A canvas can keep the page inset; a compact board starts on the 16px stack. */
+  readonly topInset?: 'page' | 'compact'
   readonly children: ReactNode
 }) => {
   const attributes = { 'data-slot': 'page', 'data-width': width, 'data-gutter': gutter, ...(measure ? { 'data-measure': measure } : {}), ...(fill ? { 'data-fill': '' } : {}), ...(topInset ? { 'data-top-inset': topInset } : {}), className: styles.page, ...props }
   const content = measure ? <div data-page-measure={measure} className={styles.measure}>{children}</div> : children
   if (gutter === 'none') return <div {...attributes}>{content}</div>
   return <PaneColumn {...(width === 'canvas' ? { inset: 'canvas' as const } : { inset: 'reading' as const, page: true })}
-    style={topInset === 'page' ? { paddingTop: 'calc(var(--hd-page-gutter) - var(--hd-space-2) + var(--hd-space-px))' } : undefined} {...attributes}>{content}</PaneColumn>
+    style={topInset === 'page' ? { paddingTop: 'calc(var(--hd-page-gutter) - var(--hd-space-2) + var(--hd-space-px))' } : topInset === 'compact' ? { paddingTop: 'var(--hd-space-4)' } : undefined} {...attributes}>{content}</PaneColumn>
 }

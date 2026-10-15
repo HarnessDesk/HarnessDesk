@@ -6,7 +6,7 @@ export interface PageFrameActions extends FrameActions, WallActions {
   readonly bodyChoice?: { readonly label: string; readonly value: string; readonly item?: string }
   readonly moreChoice?: string
   readonly bodySearch?: { readonly label: string; readonly value: string }
-  readonly expandReady?: boolean
+  readonly expandWrapped?: boolean
   readonly expandLibraryEntry?: boolean
   readonly expectedTopInset?: 'page'
 }
@@ -33,8 +33,8 @@ export const applyPageFrameActions = async (page: Page, actions: PageFrameAction
     await choice.click()
   }
   if (actions.bodySearch) await page.getByRole('searchbox', { name: actions.bodySearch.label, exact: true }).fill(actions.bodySearch.value)
-  if (actions.expandReady) {
-    const ready = page.getByRole('button', { name: /^Ready to wrap · / })
+  if (actions.expandWrapped) {
+    const ready = page.getByRole('button', { name: /^Wrapped · / })
     await expect(ready).toHaveAttribute('aria-expanded', 'false')
     await ready.click()
     await expect(ready).toHaveAttribute('aria-expanded', 'true')
