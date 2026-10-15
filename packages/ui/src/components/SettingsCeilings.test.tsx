@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { NO_CAPABILITIES, runtimeId, type RuntimeInfo } from '@harnessdesk/protocol'
+import { NO_CAPABILITIES, runtimeId, sessionId, sessionKey, type RuntimeInfo, type Session } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore, type UnheldCeilings } from '../state/store'
@@ -48,6 +48,7 @@ const mount = ({
   loadUnattended = vi.fn(async () => 'refuse' as UnheldCeilings),
   saveUnattended = vi.fn(async () => {}),
   focus = null,
+  evidence,
 }: {
   runtimes?: readonly RuntimeInfo[]
   load?: AppStore['loadUnheldCeilings']
@@ -55,8 +56,12 @@ const mount = ({
   loadUnattended?: AppStore['loadUnattendedCeilings']
   saveUnattended?: AppStore['setUnattendedCeilings']
   focus?: string | null
+  evidence?: Partial<AppSnapshot>
 } = {}) => {
-  let snapshot = { ...emptySnapshot(), status: 'open', runtimes: [...runtimes] } as AppSnapshot
+  let snapshot = { ...emptySnapshot(), status: 'open', runtimes: [...runtimes],
+    accountsByRuntime: Object.fromEntries(runtimes.map(info => [info.id, { accounts: [{ kind: 'plan', label: 'dev@example.com' }], signInMethods: [] }])),
+    ...evidence,
+  } as AppSnapshot
   const listeners = new Set<() => void>()
   const store = {
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
@@ -75,6 +80,55 @@ const mount = ({
     }),
   }
 }
+
+const ceilingTitles = () => [...container.querySelectorAll('section[aria-label="Ceilings"] [data-slot="row-title"]')]
+  .map(node => node.querySelector('[data-slot="row-title-name"]')?.textContent ?? node.textContent)
+const otherAgents = () => container.querySelector<HTMLButtonElement>('section[aria-label="Ceilings"] button[aria-expanded]')
+const usedSession = (id: string): Session => ({ id: sessionId(id), runtime: runtimeId(id), cwd: '/synthetic/project',
+  status: { type: 'idle' }, createdAt: 1, updatedAt: 1, turns: [], itemsLoaded: true })
+
+it('lists signed-in and used agents first and folds all other ceiling rows once', async () => {
+  const runtimes = ['unused', 'signed', 'open', 'history', 'identity'].map(id => runtime(id, id))
+  const open = usedSession('open'), history = usedSession('history'), identity = usedSession('identity')
+  mount({ runtimes, evidence: {
+    accountsByRuntime: { [runtimeId('signed')]: { accounts: [{ kind: 'plan', label: 'dev@example.com' }], signInMethods: [] } },
+    sessions: new Map([[sessionKey(open.runtime, open.id), open]]), history: [history], historyIdentity: [identity],
+  } })
+  await act(async () => {})
+  expect(ceilingTitles()).toEqual(['signed', 'open', 'history', 'identity', 'Other agents · 1'])
+  const disclosure = otherAgents()!
+  expect(disclosure).not.toBeNull()
+  expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+  act(() => disclosure.click())
+  expect(disclosure.getAttribute('aria-expanded')).toBe('true')
+  expect(ceilingTitles()).toEqual(['signed', 'open', 'history', 'identity', 'Other agents · 1', 'unused'])
+  act(() => disclosure.click())
+  expect(ceilingTitles()).not.toContain('unused')
+})
+
+it('keeps a used account sibling with its agent, counting unused agents rather than account slots', async () => {
+  const base = runtime('base', 'Base'), slot = { ...runtime('slot', 'Base account'), slot: { agent: base.id, home: '/synthetic/account', removable: true, canAdd: false } }
+  const unused = runtime('unused', 'Unused'), unusedSlot = { ...runtime('unused-slot', 'Unused account'), slot: { agent: unused.id, home: '/synthetic/unused', removable: true, canAdd: false } }
+  mount({ runtimes: [unused, unusedSlot, base, slot], evidence: {
+    accountsByRuntime: { [slot.id]: { accounts: [{ kind: 'plan', label: 'dev@example.com' }], signInMethods: [] } },
+  } })
+  await act(async () => {})
+  expect(ceilingTitles()).toEqual(['Base', 'Base account', 'Other agents · 1'])
+  act(() => otherAgents()!.click())
+  expect(ceilingTitles()).toEqual(['Base', 'Base account', 'Other agents · 1', 'Unused', 'Unused account'])
+})
+
+it('offers one disclosure when no agents are in use and none when all are in use', async () => {
+  mount({ evidence: { accountsByRuntime: {} } })
+  await act(async () => {})
+  expect(ceilingTitles()).toEqual(['Other agents · 2'])
+  act(() => otherAgents()!.click())
+  expect(ceilingTitles()).toEqual(['Other agents · 2', 'Alpha', 'Beta'])
+  mount()
+  await act(async () => {})
+  expect(ceilingTitles()).toEqual(['Alpha', 'Beta'])
+  expect(otherAgents()).toBeNull()
+})
 
 /** The watched group's own two radios — "In a conversation you are watching". */
 const choices = (): HTMLButtonElement[] =>

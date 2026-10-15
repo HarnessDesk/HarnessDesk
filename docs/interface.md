@@ -828,6 +828,13 @@ one-line blurb, small grey section labels over cards of rows, one control at
 the right of each row. The rail starts with you — your face and name, above
 every group — and that row opens your profile.
 
+The page name is a visible h1 above its description. The Settings top bar
+keeps only the column toggle; it carries no page title or breadcrumb.
+Permissions shows ceiling rows for agents signed in or used in known
+conversations first. Other agents sit behind one **Other agents · N**
+disclosure, which expands their rows in place and reports its expanded state.
+Account slots stay with their agent; the count is agents, not accounts.
+
 | Group | Pages |
 | --- | --- |
 | **General** | General · Appearance · Notifications · Keyboard shortcuts |
