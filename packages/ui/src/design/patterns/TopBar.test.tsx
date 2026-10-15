@@ -345,3 +345,31 @@ test('settling a destination fold preserves the current View menu focus', async 
   expect(trigger.getAttribute('aria-expanded')).toBe('true')
   expect(document.body.querySelector('[role="switch"]')).toBe(option)
 })
+
+test('a subject with verbs makes its title the menu button', () => {
+  const rename = vi.fn()
+  render({ place: 'Retry the checkout call', placeTitle: 'Retry the checkout call. Keep the wait under ten seconds.',
+    placeMenu: close => <MenuItem icon={<PlusIcon />} label="Rename…" onSelect={() => { rename(); close() }} /> })
+  const title = container.querySelector<HTMLElement>('[data-topbar-title]')!
+  expect(title.getAttribute('title')).toBe('Retry the checkout call. Keep the wait under ten seconds.')
+  const trigger = title.querySelector<HTMLButtonElement>('button')!
+  expect(trigger.querySelector('[data-topbar-place-menu]')?.textContent).toContain('Retry the checkout call')
+  act(() => trigger.click())
+  act(() => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent?.includes('Rename'))!.click())
+  expect(rename).toHaveBeenCalledOnce()
+})
+
+test('a title shorter than the floor needs only its own words, not a fold', () => {
+  vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.matches('[data-topbar-title]') ? 60 : 0
+  })
+  availableTitle = 90
+  render({ place: 'Library' })
+  expect(container.querySelector('[data-slot="top-bar"]')!.getAttribute('data-fold')).toBe('0')
+  expect(container.querySelector('[role="tablist"]')).not.toBeNull()
+})
+
+test('destination tabs use the quiet switcher look', () => {
+  render({})
+  expect(container.querySelector('[role="tablist"]')?.getAttribute('data-look')).toBe('quiet')
+})

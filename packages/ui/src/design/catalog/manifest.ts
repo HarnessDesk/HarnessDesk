@@ -722,7 +722,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'SignInRail': ['SignInRail'],
   'SubjectActionsMenu': ['SubjectActionsMenu'],
   'TerminalShellTabs': ['TerminalShellTabs'],
-  'ToolBody': ['ToolBody', 'ToolBodyControls', 'ToolBodySections', 'ToolProse', 'ToolSection'],
+  'ToolBody': ['ToolBody', 'ToolBodyControls', 'ToolBodySections', 'ToolFold', 'ToolProse', 'ToolRow', 'ToolSection'],
   'ToolFooter': ['ToolFooterOutlet', 'ToolFooterProvider', 'ToolFooterPublisher', 'ToolFooterScope', 'ToolFooterSuppressed'],
   'TopBar': ['TopBar', 'TopBarToolButton'],
   'TurnWork': ['TurnItem', 'TurnWorkBody', 'TurnWorkHeader', 'TurnWorkHeaderLabel', 'TurnWorkLive'],

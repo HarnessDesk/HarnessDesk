@@ -7,12 +7,12 @@ const classOf = (markup: string): string[] => /class="([^"]*)"/.exec(markup)?.[1
 
 it('holds a compact rail on the bars’ gutter with a short head step and a long list tail', () => {
   const head = classOf(renderToStaticMarkup(<RailSection stretch="head">places</RailSection>))
-  expect(head).toContain('px-(--hd-bar-pad)')
+  expect(head).toContain('px-(--hd-rail-inset)')
   expect(head).toContain('pb-(--hd-space-1)')
   expect(head.some((one) => one.startsWith('pt-'))).toBe(false)
 
   const list = classOf(renderToStaticMarkup(<RailSection stretch="list">sessions</RailSection>))
-  expect(list).toContain('px-(--hd-bar-pad)')
+  expect(list).toContain('px-(--hd-rail-inset)')
   expect(list).toContain('pt-(--hd-space-0-5)')
   expect(list).toContain('pb-3')
 })

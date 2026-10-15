@@ -35,6 +35,10 @@ export interface TopBarProps {
   readonly parents?: readonly { readonly label: string; readonly run: () => void }[]
   readonly mark?: ReactNode
   readonly place: ReactNode
+  /** The subject's own verbs: the title becomes a menu button with a ⌄. */
+  readonly placeMenu?: (close: () => void) => ReactNode
+  /** The whole name on hover, when `place` is a shortened one. */
+  readonly placeTitle?: string
   readonly state?: ReactNode
   readonly tabs?: readonly TopBarTab[]
   readonly tab?: string
@@ -118,7 +122,7 @@ export const TopBar = (props: TopBarProps) => {
     observer?.observe(node)
     if (props.rightColumnWidth && tools.current) observer?.observe(tools.current)
     return () => { observer?.disconnect() }
-  }, [props.place, props.parent?.label, props.parents?.map(one => one.label).join('\0'), props.mark, Boolean(props.view), props.state, props.tab, props.tabs, props.verb?.label, props.verb?.icon, props.lead, props.tools, props.rightColumnWidth, hasProvidedMoreRows])
+  }, [props.place, Boolean(props.placeMenu), props.parent?.label, props.parents?.map(one => one.label).join('\0'), props.mark, Boolean(props.view), props.state, props.tab, props.tabs, props.verb?.label, props.verb?.icon, props.lead, props.tools, props.rightColumnWidth, hasProvidedMoreRows])
   useLayoutEffect(() => {
     // Probe every intrinsic stage before paint. RAF-separated renders exposed
     // expanded slots beside the retained menu on live publications. Layout
@@ -132,7 +136,9 @@ export const TopBar = (props: TopBarProps) => {
     const occupied = siblings.reduce((sum, child) => sum + child.getBoundingClientRect().width, 0) + siblings.length * gap
     const width = title ? Math.min(title.getBoundingClientRect().width,
       (parent?.getBoundingClientRect().width ?? title.getBoundingClientRect().width) - occupied) : 0
-    const titleMin = Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-bar-title-min'))
+    // A title shorter than the floor needs only its own words.
+    const titleMin = Math.min(Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-bar-title-min')),
+      title?.scrollWidth || Number.POSITIVE_INFINITY)
     if (width >= titleMin || fold === 3 || (fold === 2 && (!props.verb || props.verb.icon))) {
       setSettledFold(fold)
       return
@@ -166,13 +172,16 @@ export const TopBar = (props: TopBarProps) => {
       <div data-topbar="place" className={styles.place}>
         {shownParents.map((one, index) => <Button key={`${index}:${one.label}`} className="hd-no-drag" variant="link" size="inline-link" onClick={one.run}>{one.label} ›</Button>)}
         {props.mark && <span data-topbar-mark className={styles.fixed}>{props.mark}</span>}
-        <div ref={place} data-topbar-title className={styles.title}>
-          <Text role="subject" truncate>{props.place}</Text>
+        <div ref={place} data-topbar-title className={styles.title} title={props.placeTitle}>
+          {props.placeMenu ? <Popover title="Subject" triggerVariant={{ variant: 'ghost', size: 'sm' }} icons="all"
+            label={<span data-topbar-place-menu className={styles.placeMenu}><Text role="subject" truncate>{props.place}</Text><CaretIcon /></span>}>
+            {close => <Menu close={close}>{props.placeMenu?.(close)}</Menu>}
+          </Popover> : <Text role="subject" truncate>{props.place}</Text>}
           {fold === 0 && <div data-topbar="state" className={styles.fixed}>{props.state}</div>}
         </div>
       </div>
       {props.tabs && <div data-topbar="tabs" className={styles.fixed}>{fold < 2 && <Tabs key="expanded" value={props.tab ?? null}>
-        <TabsList aria-label="Destination views" className={styles.tabs}>
+        <TabsList aria-label="Destination views" data-look="quiet" className={styles.tabs}>
           {props.tabs.map(one => <DestinationTab key={one.value} tab={one} />)}
         </TabsList>
       </Tabs>}{(fold >= 2 || settledFold >= 2) && <div key="folded" style={fold < 2 && foldedAnchor.current ? {

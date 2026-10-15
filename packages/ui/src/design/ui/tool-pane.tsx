@@ -154,14 +154,14 @@ const ToolPaneBody = ({
   ...props
 }: React.ComponentProps<'div'> & {
   bleed?: boolean
-  /** `dense`: the canvas gutter; `page`: the reading gutter; `tool`: flat panel sections. */
+  /** `dense`: the canvas gutter; `page`: the reading gutter; `tool`: panel cards on the column ground. */
   inset?: 'dense' | 'page' | 'tool'
 }) => (
   <div
     data-slot="tool-pane-body"
     {...(bleed ? { 'data-bleed': '' } : {})}
     data-inset={inset}
-    className={cn('min-h-0 flex flex-col gap-(--hd-card-gap) flex-1 overflow-auto', bleed ? 'p-0' : inset === 'tool' ? 'py-(--hd-inset-row)' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
+    className={cn('min-h-0 flex flex-col flex-1 overflow-auto', inset === 'tool' ? 'gap-(--hd-panel-card-gap) bg-(--hd-sidebar)' : 'gap-(--hd-card-gap)', bleed ? 'p-0' : inset === 'tool' ? 'p-(--hd-panel-pad)' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
     {...props}
   />
 )

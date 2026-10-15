@@ -80,8 +80,8 @@ WorkbenchRail.displayName = 'WorkbenchRail'
  *
  * `density` is the one way they differ, and it is the rail's own density, the
  * word the window rail already carries as `data-hd-density`: `compact` is the
- * sidebar, whose rows stand on the bars' gutter (`--hd-bar-pad`) so their ink
- * lines up with the bars above them; `comfortable` is the window rail, whose
+ * sidebar, whose rows stand on the rail's gutter (`--hd-rail-inset`) so their
+ * ink lines up with the column's own top row; `comfortable` is the window rail, whose
  * rows carry a second line and take a wider gutter and longer steps.
  *
  * `corner` puts the head below the band the native window buttons sit in,
@@ -110,7 +110,7 @@ export const RailSection = forwardRef<
       data-density={density}
       {...(stretch === 'head' && ruled ? { 'data-ruled': '' } : {})}
       className={cn(
-        compact ? 'px-(--hd-bar-pad)' : 'px-3',
+        compact ? 'px-(--hd-rail-inset)' : 'px-3',
         stretch === 'head' && corner && 'pt-(--hd-titlebar-height)',
         stretch === 'head' && ruled && !corner && (compact ? 'pt-(--hd-space-1)' : 'pt-2'),
         stretch === 'head' && (compact ? 'pb-(--hd-space-1)' : 'pb-2'),
