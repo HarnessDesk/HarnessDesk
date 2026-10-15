@@ -126,7 +126,7 @@ test('Owner 5 Settings leaves a block gap between Back and Search settings', asy
   expect(searchBox.y - backBox.bottom).toBeGreaterThan(0)
 })
 
-test('Owner 5 terminal hides on folderless pages and restores its same shells and height', async ({ page }) => {
+test('Owner 5 terminal stays available on project pages and retains its shells and height', async ({ page }) => {
   await openFrame(page, 'frame-wall=conversation', 'light', 1280)
   await page.locator('[data-slot="top-bar"]:visible button[aria-label="More"]').click()
   await page.getByRole('menuitemradio', { name: /Terminal/ }).click()
@@ -142,10 +142,10 @@ test('Owner 5 terminal hides on folderless pages and restores its same shells an
   const bottomRegion = page.locator('[data-frame-region="bottom"]')
   const height = await bottomRegion.evaluate(element => element.getBoundingClientRect().height)
 
-  const expectFolderless = async (destination: string): Promise<void> => {
+  const expectProjectPage = async (destination: string): Promise<void> => {
     await expect(page.locator(`[data-page-destination="${destination}"]:visible`)).toHaveCount(1)
-    await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-bottom-open', 'false')
-    await expect(page.locator('[data-terminal-shell-tabs]')).toBeHidden()
+    await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-bottom-open', 'true')
+    await expect(page.locator('[data-terminal-shell-tabs]')).toBeVisible()
     await expect(page.locator('[data-terminal-mount][data-owner5-witness="retained"]')).toHaveCount(1)
     expect(await page.locator('[data-terminal-mount]').evaluateAll(nodes =>
       nodes.map(node => node.getAttribute('data-terminal-mount')))).toEqual(shellIds)
@@ -154,7 +154,7 @@ test('Owner 5 terminal hides on folderless pages and restores its same shells an
     const more = page.locator('[data-topbar="more"] button:visible')
     if (await more.count()) {
       await more.first().click()
-      await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(0)
+      await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveAttribute('aria-checked', 'true')
       await expect(page.getByRole('menuitem', { name: /Terminal/ })).toHaveCount(0)
       await page.keyboard.press('Escape')
     }
@@ -171,7 +171,7 @@ test('Owner 5 terminal hides on folderless pages and restores its same shells an
   }
 
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await expectFolderless('settings')
+  await expectProjectPage('settings')
   await page.getByRole('navigation', { name: 'Settings navigation' }).getByRole('button', { name: 'Back', exact: true }).click()
   await expect(page.locator('[data-terminal-shell-tabs]')).toBeVisible()
 
@@ -179,11 +179,7 @@ test('Owner 5 terminal hides on folderless pages and restores its same shells an
     ['Dashboard', 'dashboard'], ['Agents', 'agents'], ['Teams', 'teams'], ['Library', 'library'], ['Plugins', 'plugins'],
   ] as const) {
     await page.getByRole('navigation', { name: 'Workspace actions' }).getByRole('button', { name: label, exact: true }).click()
-    await expectFolderless(destination)
-    if (destination === 'dashboard') {
-      await page.keyboard.press('Control+Backquote')
-      await expectFolderless(destination)
-    }
+    await expectProjectPage(destination)
     await returnToWork()
   }
 
@@ -191,6 +187,19 @@ test('Owner 5 terminal hides on folderless pages and restores its same shells an
   await expect(page.locator('[data-terminal-shell-tabs]')).toBeVisible()
   await expect(page.locator('[data-terminal-mount][data-owner5-witness="retained"]')).toHaveCount(1)
   expect(await page.locator('[data-frame-region="bottom"]').evaluate(element => element.getBoundingClientRect().height)).toBe(height)
+})
+
+test('Owner 5 terminal keyboard toggle closes and opens a shell on a project page', async ({ page }) => {
+  await openFrame(page, 'frame-wall=conversation&frame-terminal=1', 'light', 1280)
+  await expect(page.locator('[data-terminal-mount]')).toHaveCount(1)
+  await page.getByRole('navigation', { name: 'Workspace actions' }).getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Control+Backquote')
+  await expect(page.locator('[data-terminal-mount]')).toHaveCount(0)
+  await page.keyboard.press('Control+Backquote')
+  await expect(page.locator('[data-terminal-mount]')).toHaveCount(1)
+  await expect(page.locator('[data-terminal-shell-tabs]')).toBeVisible()
+  await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
 })
 
 for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720]) {

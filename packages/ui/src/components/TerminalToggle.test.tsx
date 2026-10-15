@@ -187,11 +187,11 @@ it('the keyboard toggle preserves retained shells on folderless pages', () => {
   act(() => toggleTerminal(store))
   expect([opened, closed]).toEqual([0, 0])
 })
-it('the keyboard toggle does not create a shell from a page borrowing retained work', () => {
+it('the keyboard toggle opens a shell in the project chosen on a page', () => {
   const store = mount([])
   Object.assign(store.getSnapshot().workbench, { navigation: { current: { kind: 'dashboard', view: 'overview', scope: null }, back: [], forward: [] } })
   act(() => toggleTerminal(store))
-  expect([opened, closed]).toEqual([0, 0])
+  expect([opened, closed]).toEqual([1, 0])
 })
 
 it('More omits Terminal on folderless pages even with retained shells', () => {

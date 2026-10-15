@@ -43,14 +43,16 @@ it('opens a conversation terminal in that conversation’s worktree', async () =
   expect(store.transport.request).toHaveBeenCalledWith('terminal/open', expect.objectContaining({ cwd: WORKTREE, sessionId: ID }))
 })
 
-it('new default terminals do not borrow the retained conversation scope on pages', async () => {
+it('new default terminals use the chosen project without the retained conversation context on pages', async () => {
   await store.selectRuntime(RUNTIME)
   await store.openWorkspace(PROJECT)
   await store.openSession(ID, { runtime: RUNTIME })
   store.setWindowSize(1280, 800)
   store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } })
   await store.openTerminal()
-  expect(store.transport.request).not.toHaveBeenCalledWith('terminal/open', expect.anything())
+  expect(store.transport.request).toHaveBeenCalledWith('terminal/open', expect.objectContaining({ cwd: PROJECT }))
+  const opened = vi.mocked(store.transport.request).mock.calls.find(([method]) => method === 'terminal/open')!
+  expect(opened[1]).not.toHaveProperty('sessionId')
   await store.openTerminal({ cwd: '/synthetic/retained-shell' })
   expect(store.transport.request).toHaveBeenCalledWith('terminal/open', expect.objectContaining({ cwd: '/synthetic/retained-shell' }))
 })

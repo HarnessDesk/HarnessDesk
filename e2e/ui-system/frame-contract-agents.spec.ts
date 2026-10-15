@@ -72,18 +72,14 @@ for (const width of [1440, 720]) test(`E4 Agents column opens draft session and 
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
 })
 
-for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roster'} More excludes Terminal and Back to app`, async ({ page }) => {
+for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roster'} More offers the project Terminal without Back to app`, async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
   await page.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Agents', exact: true }).click()
-  if (!detail) {
-    await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
-    return
-  }
   if (detail) await page.getByRole('button', { name: /Code reviewer/ }).first().click()
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
   const items = page.locator('[role="menuitem"], [role="menuitemradio"]')
   await expect(items.filter({ hasText: 'Back to app' })).toHaveCount(0)
-  await expect(items.filter({ hasText: 'Terminal' })).toHaveCount(0)
+  await expect(items.filter({ hasText: 'Terminal' })).toHaveCount(1)
 })
 
 test('R10 Agents source notes keep middle-truncated paths content-sized', async ({ page }) => {

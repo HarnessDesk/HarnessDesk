@@ -1285,6 +1285,8 @@ for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plug
   const terminal = container.querySelector('[data-testid="view-terminal"]')!
   const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
   const height = shell.style.getPropertyValue('--frame-bottom-size')
+  const workspace = harness.store.getSnapshot().workspace
+  Object.assign(harness.store.getSnapshot(), { workspace: null })
   Object.assign(harness.store.getSnapshot().workbench.navigation, { current: destination })
   act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<div>Page</div>} /></StoreProvider>))
   expect(shell.dataset.bottomOpen).toBe('false')
@@ -1292,6 +1294,7 @@ for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plug
   expect(terminal.closest('[inert]')).not.toBeNull()
   expect(container.querySelector('[data-testid="view-terminal"]')).toBe(terminal)
   expect(harness.store.getSnapshot().workbench.bottom).toBe(before)
+  Object.assign(harness.store.getSnapshot(), { workspace })
   Object.assign(harness.store.getSnapshot().workbench.navigation, { current: { kind: 'work', view: { kind: 'conversation', session: null } } })
   render(harness.store)
   expect(shell.dataset.bottomOpen).toBe('true')

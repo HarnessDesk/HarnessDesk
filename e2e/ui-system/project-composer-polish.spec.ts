@@ -50,6 +50,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(toast).toHaveAttribute('data-mounted', 'true')
     await capture(page, `toast-${theme}`)
     const toastBox = (await toast.boundingBox())!
+    const bar = (await page.locator('[data-slot="top-bar"]:visible').boundingBox())!
+    expect(toastBox.y).toBeGreaterThanOrEqual(bar.y + bar.height)
     const composerBox = (await page.locator('[data-slot="composer-dock"]').first().boundingBox())!
     expect(toastBox.y + toastBox.height).toBeLessThan(composerBox.y)
     for (const control of [page.getByRole('button', { name: 'Send', exact: true }), page.locator('[data-composer-track="model"]').getByRole('button').first()]) {
