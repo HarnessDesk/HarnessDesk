@@ -308,12 +308,18 @@ try {
         await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Merge the picked change$/ })).toBeVisible()
         await photograph('10-referee-board')
         await chatView('Side by side')
-        // The View menu starts with every Team member. Compare the two
-        // attempts by taking the Judge off the grid through its tile menu.
-        const judgeTile = page.locator('[data-slot="side-by-side-tile"][aria-label="Judge"]')
-        await judgeTile.getByRole('button', { name: 'Judge actions', exact: true }).click()
-        await page.getByRole('menuitem', { name: 'Take off the grid', exact: true }).click()
-        await expect(judgeTile).toHaveCount(0)
+        // Comparisons keep the Judge off the attempt grid. Its conversation
+        // remains reachable through the Seats actions in Details.
+        const details = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Details', exact: true })
+        const judgeActions = page.getByRole('button', { name: 'Actions for Judge', exact: true })
+        const openedDetails = !(await judgeActions.isVisible())
+        if (openedDetails) await details.click()
+        await judgeActions.click()
+        await page.getByRole('menuitem', { name: 'Open conversation', exact: true }).click()
+        await expect(page.getByText('Verdict: picked', { exact: true })).toBeVisible()
+        if (openedDetails) await details.click()
+        await chatView('Side by side')
+        await expect(page.locator('[data-slot="side-by-side-tile"][aria-label="Judge"]')).toHaveCount(0)
         await expect(page.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
         await expect(page.locator('[data-slot="side-by-side-tile"]').getByText('Picked', { exact: true })).toHaveCount(1)
         await expect(page.locator('[data-slot="side-by-side-tile"]').getByText('Not kept', { exact: true })).toHaveCount(1)
