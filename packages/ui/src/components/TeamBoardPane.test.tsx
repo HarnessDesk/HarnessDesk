@@ -1060,7 +1060,7 @@ it('the attempt dialog asks for both an attempt and a declared answer before rec
   expect(document.body.textContent).toContain('That candidate has moved on. Ask for review candidates again.')
 })
 
-it('a one-outcome person review uses its only answer without adding an answer control', async () => {
+it.each(['picked', 'merged'])('a one-outcome person review uses %s without adding an answer control', async outcome => {
   const judge = intent({ id: 1, state: 'open', role: 'judge', title: 'Choose a route' })
   const attempt = intent({ id: 2, state: 'done', role: 'competitor', title: 'Implement checkout', outcome: 'pass' })
   const { store, snapshot } = rig([judge, attempt], {}, observed([], [cardEvidence(2, [])]))
@@ -1070,8 +1070,8 @@ it('a one-outcome person review uses its only answer without adding an answer co
   const execution = {
     id: 'flow-run-single-person-answer', goal: ROOM, version: 2, state: 'running', operations: [], legacyRun: null,
     document: { format: 'agents', flow: {
-      roles: [{ id: 'judge', kind: 'person', outcomes: ['picked'] }],
-      rules: [{ id: 'judge-review', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'next', title: 'Next' } }],
+      roles: [{ id: 'judge', kind: 'person', outcomes: [outcome], ...(outcome === 'merged' ? { review: true } : {}) }],
+      rules: outcome === 'merged' ? [] : [{ id: 'judge-review', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'next', title: 'Next' } }],
     } },
     rounds: [{ n: 1, role: 'judge', cards: [1], seats: [], evidence: [], state: 'running', cause: 'cause' }],
   }
@@ -1093,7 +1093,7 @@ it('a one-outcome person review uses its only answer without adding an answer co
   const confirm = [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Record answer')
   expect(confirm?.disabled).toBe(false)
   await act(async () => confirm!.click())
-  expect(store.decideFlowReview).toHaveBeenCalledWith(execution.id, 1, 'candidate-one', 'picked')
+  expect(store.decideFlowReview).toHaveBeenCalledWith(execution.id, 1, 'candidate-one', outcome)
 })
 
 /**

@@ -40,7 +40,7 @@ export const comparisonVerdictOf = (model: ReturnType<typeof runTimeline>, execu
     if (judge.kind === 'person' && judge.attention && judge.card !== null) {
       const card = cards.find(one => one.id === judge.card)
       const step = card ? flowStepOf(card, undefined, [execution]) : null
-      if (card && step?.review && step.outcomes.includes('picked')) return { kind: 'waiting', id: `${execution.id}:${judge.id}:waiting`, card, step }
+      if (card && step?.review) return { kind: 'waiting', id: `${execution.id}:${judge.id}:waiting`, card, step }
     }
   }
   return null

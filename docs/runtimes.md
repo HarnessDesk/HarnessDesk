@@ -605,7 +605,9 @@ The page therefore has three states rather than two: stored here, *"Already has
 a key — it reads one from DeepSeek Harness's own store"*, and nothing yet. The
 field stays open in the middle state, because a key stored here is used when the
 agent has no other, and takes precedence over a `.env` and, on the builds that
-read the environment first, over its store.
+read the environment first, over its store. On the builds that read the store
+first the page says so instead (`Account.outranksHandedKey`): a key stored here is
+used only if the store's key is removed, whether or not one is saved yet.
 
 #### Usage, honestly
 

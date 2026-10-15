@@ -95,9 +95,18 @@ export interface Account {
    * before HarnessDesk's own, and HarnessDesk also keeps a copy that it is not
    * using. The surface that offers to replace or remove the stored key needs
    * this, because the account's kind says where the key being used lives, not
-   * whether there is a copy to manage.
+   * whether there is a copy to manage. Always set together with
+   * `outranksHandedKey`.
    */
   readonly storedCopy?: boolean
+  /**
+   * A key account only: the runtime reads this key before the one HarnessDesk
+   * hands it when it starts, so a key saved through HarnessDesk is used only
+   * once this one is gone — whether or not one is saved yet. A surface that
+   * invites a key to be pasted needs this to say so; it is a different fact
+   * from `storedCopy`, which is whether there is a saved key to manage.
+   */
+  readonly outranksHandedKey?: boolean
 }
 
 /**

@@ -44,7 +44,7 @@ const BUDGET_LIMIT = 100
 const AGENT_FIELDS = new Set(['kind', 'uses', 'seats', 'count', 'isolate', 'grant', 'independentOf', 'blind'])
 const CHECK_FIELDS = new Set(['kind', 'check', 'run', 'exits', 'otherwise', 'timeout', 'cwd', 'onRequest'])
 const CHECK_VALUE_FIELDS = new Set(['run', 'exits', 'otherwise', 'timeout', 'cwd', 'onRequest'])
-const PERSON_FIELDS = new Set(['kind', 'outcomes'])
+const PERSON_FIELDS = new Set(['kind', 'outcomes', 'review'])
 const RULE_FIELDS = new Set(['id', 'on', 'when', 'then'])
 const THEN_FIELDS = new Set(['role', 'title', 'detail', 'files', 'split'])
 const WHEN_FIELDS = new Set(['every', 'any', 'evidence'])
@@ -318,7 +318,9 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
       if (check) roles.push({ id, kind: 'check', check })
     } else if (kind === 'person') {
       unknownKeys(record, PERSON_FIELDS, at, problems)
-      roles.push({ id, kind: 'person', outcomes: words(record['outcomes'], `${at}.outcomes`, problems) })
+      const review = record['review']
+      if (review !== undefined && typeof review !== 'boolean') problems.push(problem('error', `${at}.review`, 'review is true or false'))
+      roles.push({ id, kind: 'person', outcomes: words(record['outcomes'], `${at}.outcomes`, problems), ...(typeof review === 'boolean' ? { review } : {}) })
     } else problems.push(problem('error', `${at}.kind`, `"${kind}" is not a kind — it is agent, person or check`))
   }
   // Absent means no rules; anything else that is not a list is refused rather than read as none.
@@ -703,7 +705,10 @@ export const serializeFlowPolicy = (policy: FlowPolicy): string => {
       lines.push(`    grant: ${role.grant}`)
       if (role.independentOf.length) lines.push(`    independentOf: [${role.independentOf.map(scalar).join(', ')}]`)
       if (role.blind !== undefined) lines.push(`    blind: ${role.blind}`)
-    } else if (role.kind === 'person') lines.push(`    outcomes: [${role.outcomes.map(scalar).join(', ')}]`)
+    } else if (role.kind === 'person') {
+      lines.push(`    outcomes: [${role.outcomes.map(scalar).join(', ')}]`)
+      if (role.review !== undefined) lines.push(`    review: ${role.review}`)
+    }
     else {
       lines.push(`    run: ${scalar(role.check.run)}`, `    exits: { ${Object.entries(role.check.exits).map(([code, outcome]) => `${code}: ${scalar(outcome)}`).join(', ')} }`, `    otherwise: ${scalar(role.check.otherwise)}`, `    timeout: ${role.check.timeout}`)
       if (role.check.onRequest !== undefined) lines.push(`    onRequest: ${role.check.onRequest}`)

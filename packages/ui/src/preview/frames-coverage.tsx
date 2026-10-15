@@ -67,11 +67,13 @@ const noticeWorkbench = (() => {
     },
   }
 })()
-const noticePace: UsageReport = {
+// A spent window still uses the generic fallback on a board or hidden composer.
+// Forecasts are covered separately: they only draw on a composer or Dashboard.
+const noticeQuota: UsageReport = {
   runtime: runtimeId('codex'),
   account: null,
   plan: null,
-  lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10_080, resetsAt: Date.now() + 3.5 * 24 * 60 * 60_000, usageKnown: true }],
+  lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10_080, resetsAt: Date.now() + 3.5 * 24 * 60 * 60_000, usageKnown: true }],
   credits: null,
   spend: null,
   reached: null,
@@ -137,7 +139,7 @@ const noticeLayoutStore = (id: string, options: {
     preferencesLoaded: true,
     noticePolicy: { muted: [], records: {}, seen: [], surfaces: {}, kept: [] },
     narrowWindow: options.narrow ?? false,
-    usage: [noticePace],
+    usage: [noticeQuota],
     workbench: normalizeFixedWorkbench(workbench).workbench,
     ...(options.pendingRoomApproval ? { approvals: [{ key: approvalKey, approval: { id: 'preview-room-approval', type: 'command', kind: 'shell', command: 'pnpm test', cwd: PREVIEW_ROOT } }] as never } : {}),
     layout: { ...noticeBase.layout, root, focused: second ? second.id : paneId, expanded: null },

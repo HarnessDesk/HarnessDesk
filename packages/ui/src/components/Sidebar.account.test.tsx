@@ -6,6 +6,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runtimeId, sessionId, sessionKey, type AccountStatus, type RuntimeId, type RuntimeInfo, type Session, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import { accountKey } from '../lib/accounts'
+import { conditionFor } from '../lib/usage-alerts'
+import { emptyNoticePolicy, withMuted, afterDismiss } from '../lib/notice-policy'
+import { emptyWorkbench } from '../state/workbench'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dismissOverlays } from '../design'
@@ -136,6 +139,45 @@ const row = (): HTMLButtonElement => {
   if (!found) throw new Error('no seat row')
   return found
 }
+
+const quotaWarning = () => usageReport(CLAUDE, [lane({
+  id: 'weekly', usedPercent: 40, usageKnown: true,
+  resetsAt: Date.now() + 6.5 * 24 * 3_600_000,
+})])
+
+it('marks a low quota window beside the account on a page, with the notice text on hover and for assistive technology', () => {
+  const report = quotaWarning()
+  const workbench = emptyWorkbench()
+  mount({ preferencesLoaded: true, usage: [report], workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'library', section: 'skill' } } } })
+  const warning = conditionFor(CLAUDE, [report], () => claude.presentation.name, Date.now())!
+  const dot = row().querySelector('[data-slot="dot"][data-tone="warning"]')
+  expect(dot).not.toBeNull()
+  expect(dot?.getAttribute('title')).toBe(`${warning.title}. ${warning.detail}`)
+  expect(dot?.getAttribute('aria-label')).toBe(dot?.getAttribute('title'))
+  expect(dot?.getAttribute('role')).toBe('img')
+  expect(row().textContent).not.toContain('will run out before it refills')
+})
+
+it.each(['dismissed', 'muted'] as const)('keeps a %s quota prediction out of the account dot', silence => {
+  const report = quotaWarning()
+  const condition = conditionFor(CLAUDE, [report], () => claude.presentation.name, Date.now())!
+  const policy = silence === 'muted' ? withMuted(emptyNoticePolicy(), condition.kind, true)
+    : afterDismiss(emptyNoticePolicy(), { ...condition, lifetime: 'occurrence' }, Date.now())
+  const workbench = emptyWorkbench()
+  mount({ preferencesLoaded: true, usage: [report], noticePolicy: policy, workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'library', section: 'skill' } } } })
+  expect(row().querySelector('[data-slot="dot"][data-tone="warning"]')).toBeNull()
+})
+
+it.each(['composer', 'dashboard'] as const)('does not repeat the %s quota notice in the account dot', place => {
+  const workbench = emptyWorkbench()
+  const session = sessionKey(CLAUDE, sessionId('quota-conversation'))
+  mount({ preferencesLoaded: true, usage: [quotaWarning()], workbench: {
+    ...workbench,
+    main: { ...workbench.main, root: { kind: 'pane', id: workbench.main.focused, view: { kind: 'conversation', session } } },
+    ...(place === 'dashboard' ? { navigation: { ...workbench.navigation, current: { kind: 'dashboard', view: 'overview', scope: null } } } : {}),
+  } })
+  expect(row().querySelector('[data-slot="dot"][data-tone="warning"]')).toBeNull()
+})
 
 /** A group of one agent's accounts, found by the heading that names it. */
 const groupNamed = (name: string): Element | undefined =>

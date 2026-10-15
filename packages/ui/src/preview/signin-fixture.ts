@@ -81,13 +81,26 @@ const ACCOUNTS: Record<string, AccountStatus> = {
   opencode: { accounts: [{ kind: 'agent', label: 'Signed in', anonymous: true }], signInMethods: [] },
 } as unknown as Record<string, AccountStatus>
 
-export const SIGN_IN_SCENES = ['refused', 'key only', 'browser and key', 'code', 'paste code', 'connected'] as const
+export const SIGN_IN_SCENES = [
+  'refused',
+  'key only',
+  'key elsewhere',
+  'store first',
+  'store first, copy kept',
+  'browser and key',
+  'code',
+  'paste code',
+  'connected',
+] as const
 export type SignInScene = (typeof SIGN_IN_SCENES)[number]
 
 /** Which agent each scene opens on. */
 export const SIGN_IN_SELECTED: Record<SignInScene, RuntimeId> = {
   refused: runtimeId('qwen'),
   'key only': runtimeId('deepseek'),
+  'key elsewhere': runtimeId('deepseek'),
+  'store first': runtimeId('deepseek'),
+  'store first, copy kept': runtimeId('deepseek'),
   'browser and key': runtimeId('gemini'),
   code: runtimeId('devin'),
   'paste code': runtimeId('claude'),
@@ -104,10 +117,39 @@ const PASTE_CODE_ACCOUNTS: Record<string, AccountStatus> = {
   claude: { accounts: [], signInMethods: [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' }] },
 } as unknown as Record<string, AccountStatus>
 
+/**
+ * DeepSeek's key already lives somewhere else, in the three ways the dialog
+ * tells apart: a file read after the key this app hands over, the agent's own
+ * store read before it with nothing saved here, and the same with a copy
+ * saved here that is not the one in use.
+ */
+const KEY_ELSEWHERE: Partial<Record<SignInScene, Record<string, unknown>>> = {
+  'key elsewhere': { planType: 'a .env in its home' },
+  'store first': { planType: "DeepSeek's own store (.credentials.yaml in its home)", outranksHandedKey: true },
+  'store first, copy kept': {
+    planType: "DeepSeek's own store (.credentials.yaml in its home)",
+    outranksHandedKey: true,
+    storedCopy: true,
+  },
+}
+
+const accountsFor = (scene: SignInScene): Record<string, AccountStatus> => {
+  if (scene === 'paste code') return PASTE_CODE_ACCOUNTS
+  const elsewhere = KEY_ELSEWHERE[scene]
+  if (!elsewhere) return ACCOUNTS
+  return {
+    ...ACCOUNTS,
+    deepseek: {
+      ...ACCOUNTS['deepseek']!,
+      accounts: [{ kind: 'externalKey', label: 'DeepSeek API key', ...elsewhere }],
+    },
+  } as unknown as Record<string, AccountStatus>
+}
+
 export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
   runtimes: RUNTIMES,
   activeRuntime: runtimeId('codex'),
-  accountsByRuntime: scene === 'paste code' ? PASTE_CODE_ACCOUNTS : ACCOUNTS,
+  accountsByRuntime: accountsFor(scene),
   healthByRuntime: {},
   credentialProtection: 'macOS Keychain',
   // One lane spent on the first account, so the rail shows the limit tone.
@@ -156,10 +198,11 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
  * The same roster for Settings › Runtimes, with one agent that did not start
  * as well — so the page's "Needs attention" group holds every kind of
  * attention at once: signed out, at a limit, and unavailable — and two that
- * have not answered yet.
+ * have not answered yet. A scene says where DeepSeek's key already lives, for
+ * the page that names where a key is read from.
  */
-export const runtimesSeed = (): Partial<AppSnapshot> => ({
-  ...signInSeed('refused'),
+export const runtimesSeed = (scene: SignInScene = 'refused'): Partial<AppSnapshot> => ({
+  ...signInSeed(scene),
   // Two that have not answered yet (#1038): a second Codex account, whose
   // row on Codex's own page names its credential home, and a whole agent,
   // which the list puts under a heading of its own.
