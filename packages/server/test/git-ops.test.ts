@@ -6,9 +6,13 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
 
-import { DirtyTreeError, RevertError, applyTurn, checkout, listBranches, reapplyTurn, revertTurn } from '../src/git-ops.js'
+import { status } from '../src/git.js'
+import { TranscriptStore } from '../src/transcripts.js'
+import { sessionMethods } from '../src/methods/sessions.js'
+import type { HostContext } from '../src/methods/context.js'
+import { DirtyTreeError, RevertError, applyTurn, checkout, listBranches, reapplyTurn, revertTurn, turnCommit } from '../src/git-ops.js'
 
 /**
  * Reverting a turn and switching branches against a real repository. The
@@ -431,3 +435,156 @@ test('patch headers normalize Windows backslashes so git apply succeeds (#461)',
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('turnCommit proves all edits in history without changing either index or working files', async () => {
+  const dir = await repo()
+  try {
+    const turn = { ...turnOf([fileChange(dir, [
+      { path: join(dir, 'a.txt'), kind: { type: 'update' }, diff: '@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n' },
+      { path: join(dir, 'new.txt'), kind: { type: 'add' }, diff: 'fresh\n' },
+      { path: join(dir, 'gone.txt'), kind: { type: 'delete' }, diff: 'bye\n' },
+    ])]), startedAt: Date.now() }
+    await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
+    await writeFile(join(dir, 'new.txt'), 'fresh\n')
+    await rm(join(dir, 'gone.txt'))
+    assert.equal(await turnCommit(dir, turn), null)
+    await git(dir, 'add', 'a.txt')
+    await git(dir, 'commit', '-qm', 'partial')
+    assert.equal(await turnCommit(dir, turn), null)
+    await git(dir, 'add', '.')
+    await git(dir, 'commit', '-qm', 'complete')
+    const sha = (await git(dir, 'rev-parse', 'HEAD')).trim()
+    assert.equal(await turnCommit(dir, turn), sha)
+    await writeFile(join(dir, 'a.txt'), 'later\n')
+    await git(dir, 'add', 'a.txt')
+    const before = await git(dir, 'diff', '--cached')
+    assert.equal(await turnCommit(dir, turn), sha)
+    assert.equal(await git(dir, 'diff', '--cached'), before)
+    await git(dir, 'commit', '-qm', 'later')
+    assert.equal(await turnCommit(dir, turn), sha)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('status distinguishes a repository before and after its first commit', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-unborn-'))
+  try {
+    await git(dir, 'init', '-q', '-b', 'main')
+    assert.equal((await status(dir))?.branch, 'main')
+    assert.equal((await status(dir))?.headSha, null)
+    await writeFile(join(dir, 'first.txt'), 'first\n')
+    await git(dir, 'add', '.')
+    await git(dir, 'commit', '-qm', 'first')
+    assert.equal((await status(dir))?.headSha, (await git(dir, 'rev-parse', 'HEAD')).trim())
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('a matching historical tree from before the turn is not proof of a new commit', async () => {
+  const dir = await repo()
+  try {
+    await run('git', ['-C', dir, 'commit', '--amend', '--no-edit', '--date=2000-01-01T00:00:00Z'], {
+      env: { ...env, GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' },
+    })
+    const turn = { ...turnOf([fileChange(dir, [
+      { path: join(dir, 'a.txt'), kind: { type: 'add' }, diff: 'one\ntwo\nthree\n' },
+    ])]), startedAt: Date.now() }
+    assert.equal(await turnCommit(dir, turn), null)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('proves a committed deletion without recorded contents and an empty added file', async () => {
+  const dir = await repo()
+  try {
+    const turn = { ...turnOf([fileChange(dir, [
+      { path: join(dir, 'gone.txt'), kind: { type: 'delete' }, diff: '' },
+      { path: join(dir, 'empty.txt'), kind: { type: 'add' }, diff: '' },
+    ])]), startedAt: Date.now() }
+    await rm(join(dir, 'gone.txt'))
+    await writeFile(join(dir, 'empty.txt'), '')
+    assert.equal(await turnCommit(dir, turn), null)
+    await git(dir, 'add', '.')
+    await git(dir, 'commit', '-qm', 'record deletion and empty file')
+    assert.equal(await turnCommit(dir, turn), (await git(dir, 'rev-parse', 'HEAD')).trim())
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('the turn endpoint refuses committed Undo even from a card that has not refreshed', async () => {
+  const dir = await repo()
+  try {
+    const turn = turnOf([fileChange(dir, [
+      { path: join(dir, 'a.txt'), kind: { type: 'update' }, diff: '@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n' },
+    ])])
+    const runtime = runtimeId('demo')
+    const id = sessionId('committed-turn')
+    const ctx = {
+      runtimes: { resolve: () => ({ info: { id: runtime } }) },
+      registry: { get: () => ({ runtime, session: { id, cwd: dir, turns: [turn] } }) },
+      audit: { append: () => {} },
+    } as unknown as HostContext
+    const params = { runtime, sessionId: id, turnId: turn.id }
+    await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
+    assert.deepEqual(await sessionMethods['session/turnCommit'](ctx, params), { sha: null })
+    await git(dir, 'add', '.')
+    await git(dir, 'commit', '-qm', 'record turn')
+    const sha = (await git(dir, 'rev-parse', 'HEAD')).trim()
+    assert.deepEqual(await sessionMethods['session/turnCommit'](ctx, params), { sha })
+    await assert.rejects(sessionMethods['session/revertTurn'](ctx, params), /committed.*Repository/)
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\n2\nthree\n')
+    assert.equal((await git(dir, 'status', '--porcelain')).trim(), '')
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+for (const aggregated of [false, true]) {
+  test(`an untracked deletion cannot prove a partial commit (aggregated=${aggregated})`, async () => {
+    const dir = await repo()
+    try {
+      const changes: FileChange[] = [
+        { path: join(dir, 'a.txt'), kind: { type: 'update' }, diff: '@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n' },
+        { path: join(dir, 'never-tracked.txt'), kind: { type: 'delete' }, diff: 'local contents\n' },
+      ]
+      const patch = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/never-tracked.txt b/never-tracked.txt\ndeleted file mode 100644\n--- a/never-tracked.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-local contents\n'
+      const turn = { ...turnOf([fileChange(dir, changes)], aggregated ? patch : undefined), startedAt: Date.now() }
+      await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
+      await git(dir, 'add', 'a.txt')
+      await git(dir, 'commit', '-qm', 'commit only tracked edit')
+      await writeFile(join(dir, 'staged.txt'), 'leave staged\n')
+      await git(dir, 'add', 'staged.txt')
+      const index = await readFile(join(dir, '.git', 'index'))
+      assert.equal(await turnCommit(dir, turn), null)
+      assert.deepEqual(await readFile(join(dir, '.git', 'index')), index)
+      assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\n2\nthree\n')
+      await assert.rejects(stat(join(dir, 'never-tracked.txt')))
+    } finally { await rm(dir, { recursive: true, force: true }) }
+  })
+}
+
+for (const released of [false, true]) {
+  test(`turn commit reads durable evidence without reopening a runtime (released=${released})`, async () => {
+    const dir = await repo()
+    const home = await mkdtemp(join(tmpdir(), 'hd-commit-stored-'))
+    const transcripts = new TranscriptStore(join(home, 'transcripts'))
+    try {
+      const runtime = runtimeId('demo')
+      const id = sessionId('stored-turn')
+      const turn = turnOf([fileChange(dir, [
+        { path: join(dir, 'a.txt'), kind: { type: 'update' }, diff: '@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n' },
+      ])])
+      transcripts.record({ id, runtime, cwd: dir, status: { type: 'idle' }, createdAt: 1, updatedAt: 2, itemsLoaded: true, turns: [turn] })
+      const ctx = {
+        runtimes: { resolve: () => ({ info: { id: runtime } }) },
+        registry: { get: () => released ? undefined : { session: { cwd: dir, turns: [] } } },
+        transcripts,
+      } as unknown as HostContext
+      const params = { runtime, sessionId: id, turnId: turn.id }
+      await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
+      assert.deepEqual(await sessionMethods['session/turnCommit'](ctx, params), { sha: null })
+      await git(dir, 'add', '.')
+      await git(dir, 'commit', '-qm', 'record stored turn')
+      assert.deepEqual(await sessionMethods['session/turnCommit'](ctx, params), { sha: (await git(dir, 'rev-parse', 'HEAD')).trim() })
+      assert.deepEqual(await sessionMethods['session/turnCommit'](ctx, { ...params, turnId: turnId('unknown') }), { sha: null })
+    } finally {
+      await transcripts.close()
+      await rm(home, { recursive: true, force: true })
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+}

@@ -82,6 +82,8 @@ describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', (
   // and is an illustration on the same terms. FlowGraph draws a Flow's rules
   // as curves with arrowheads computed from the document, the same drawing
   // ShapeGraph is excluded for.
+  // glyphs/ is the vendored animated drawings behind Icons.tsx: `glyph.tsx` is
+  // their one frame, and a component never imports from the folder.
   const others = Object.entries(sources).filter(
     ([path]) =>
       !/\/(Brand)?Icons\.tsx$/.test(path) &&
@@ -90,6 +92,7 @@ describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', (
       !/\/design\/patterns\/FlowGraph\.tsx$/.test(path) &&
       !/\/AppearancePreview\.tsx$/.test(path) &&
       !/\/design\/ui\/(spark|chart)\.tsx$/.test(path) &&
+      !/(^|\/)glyphs\//.test(path) &&
       !/\.test\.tsx?$/.test(path),
   )
   const offending = (pattern: RegExp): string[] => others.filter(([, text]) => pattern.test(text)).map(([path]) => path)

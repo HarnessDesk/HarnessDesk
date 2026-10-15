@@ -120,11 +120,14 @@ test('single-screen pattern accounting recognizes non-Git screen families', () =
   assert.equal(singleScreenAreaOf([dashboard]), 'usage')
 })
 
-test('single-screen pattern accounting groups Git screens but exempts cross-family use', () => {
+test('single-screen pattern accounting groups Git screens and recognizes the shared commit flow', () => {
   const gitPane = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
   const gitDialogs = path.join(repoRoot, 'packages/ui/src/components/GitDialogs.tsx')
   const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
-  assert.equal(singleScreenAreaOf([gitPane, gitDialogs]), 'git')
+  const gitWorktrees = path.join(repoRoot, 'packages/ui/src/components/GitWorktrees.tsx')
+  assert.equal(singleScreenAreaOf([gitPane, gitWorktrees]), 'git')
+  // The shell also opens CommitDialog for a repository's first commit.
+  assert.equal(singleScreenAreaOf([gitPane, gitDialogs]), null)
   assert.equal(singleScreenAreaOf([gitPane, sidebar]), null)
 })
 
@@ -858,13 +861,11 @@ test('screen families read correctly for known real cases, including the ones th
   const library = path.join(repoRoot, 'packages/ui/src/components/Library.tsx')
   assert.equal(screenAreaOf(library), 'library')
 
-  // Two more single-host files, named so a future reader can check them by
-  // hand against the real tree the same way: GitDialogs.tsx's only real
-  // importer is GitPane.tsx, and BranchSwitcher.tsx's is Conversation.tsx —
-  // a branch switcher in the transcript's own header, not Git's.
+  // The shell shares GitDialogs for the first-commit flow; BranchSwitcher
+  // still belongs to the conversation header.
   const gitDialogs = path.join(repoRoot, 'packages/ui/src/components/GitDialogs.tsx')
   const branchSwitcherFile = path.join(repoRoot, 'packages/ui/src/components/BranchSwitcher.tsx')
-  assert.equal(screenAreaOf(gitDialogs), 'git')
+  assert.equal(screenAreaOf(gitDialogs), 'gitdialogs')
   assert.equal(screenAreaOf(branchSwitcherFile), 'conversation')
 })
 

@@ -328,6 +328,8 @@ export interface GitFileStatus {
 export type GitConclusion = 'merge' | 'cherry-pick' | 'revert'
 
 export interface GitStatus {
+  /** Null before the first commit; absent only from an older host. */
+  readonly headSha?: string | null
   readonly root: string
   /** Canonical directory admitted for this status request, which may be below root.
    * Maps the caller's folder spelling to Git paths without guessing aliases. */
@@ -592,7 +594,8 @@ export interface WorkspaceEntry {
   readonly path: string
   readonly name: string
   readonly lastOpenedAt: number
-  readonly git?: { readonly branch?: string | null } | null
+  /** `sha: null` is a repository before its first commit; absent means unread. */
+  readonly git?: { readonly branch?: string | null; readonly sha?: string | null } | null
   /**
    * The repository the folder belongs to, when the host has read it. A
    * worktree opened as a workspace is still the project its main checkout
@@ -1415,6 +1418,11 @@ export interface HostMethods {
   'session/rollback': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly turns: number }
     result: null
+  }
+  /** A reachable commit containing this turn's recorded edits, or null when unproven. */
+  'session/turnCommit': {
+    params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly turnId: string }
+    result: { readonly sha: string | null }
   }
   /**
    * Puts back the files one turn changed — that turn's diff reversed, nothing

@@ -4574,6 +4574,10 @@ export class AppStore {
   // ---------------------------------------------------------------- worktrees
 
   /** Raises the new-worktree dialog for a repository, or puts it away. */
+  askCommit(root: string | null): void {
+    this.#patch({ commitFor: root })
+  }
+
   askNewWorktree(root: string | null): void {
     this.#patch({ newWorktreeFor: root })
   }
@@ -7047,6 +7051,29 @@ export class AppStore {
       await this.transport.request('app/state/set', { patch: { customPresets: presets } })
     } catch (error) {
       this.resultNotice('warning', describe(error))
+    }
+  }
+
+  readonly #workspaceGitReads = new Map<string, object>()
+
+  /** Refresh a menu's checkout without opening it or reordering recent folders. */
+  async refreshWorkspaceGit(root: string): Promise<void> {
+    const read = {}
+    this.#workspaceGitReads.set(root, read)
+    try {
+      const status = await this.transport.request('git/status', { root })
+      if (this.#workspaceGitReads.get(root) !== read) return
+      const update = (entry: WorkspaceEntry): WorkspaceEntry => entry.path === root
+        ? { ...entry, git: status ? { branch: status.branch, sha: status.headSha } : null }
+        : entry
+      this.#patch({
+        workspace: this.#snapshot.workspace ? update(this.#snapshot.workspace) : null,
+        workspaces: this.#snapshot.workspaces.map(update),
+        workspaceGitFacts: new Map(this.#snapshot.workspaceGitFacts).set(root, status ? { branch: status.branch, sha: status.headSha } : null),
+      })
+    } catch { /* Keep the last known facts when Git cannot be read. */ }
+    finally {
+      if (this.#workspaceGitReads.get(root) === read) this.#workspaceGitReads.delete(root)
     }
   }
 

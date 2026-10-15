@@ -39,6 +39,12 @@ Contributors. Icon paths, unmodified, inlined at build time. Part of the set
 derives from Feather (MIT, Copyright (c) 2013-present Cole Bemis); the vendored
 licence text carries that notice.
 
+**lucide-animated — MIT** (`licenses/MIT-lucide-animated.txt`), Copyright (c)
+2024-2026 pqoqubbw. The motion for sixty-nine of those icons, vendored as source
+in `packages/ui/src/components/glyphs`: one file per icon, with its variants and
+timings as published. What was changed — one shared frame, no per-icon hover
+handler, the app's code style — is listed in that folder's `index.ts`.
+
 **Lobe Icons — MIT** (`licenses/MIT-lobe-icons.txt`), Copyright (c) 2023 LobeHub.
 Vendor marks, inlined at build time, unmodified except for size and colour. The
 logos are their owners' trademarks, used to identify those products only.
@@ -69,6 +75,7 @@ the packaged app.
 | `@agentclientprotocol/claude-agent-acp` | Apache-2.0 | Running Claude Code as an ACP agent |
 | `@agentclientprotocol/sdk` | Apache-2.0 | The ACP client surface |
 | `lucide-react` | ISC | The icon set |
+| `motion` | MIT | Plays the animated icons |
 | `@lobehub/icons-static-svg` | MIT | Vendor and agent marks |
 | `@xyflow/react`, `@xyflow/system` | MIT | The builder canvas interaction engine; attribution remains visible |
 | `react`, `react-dom` | MIT | The renderer |

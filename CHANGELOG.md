@@ -7,6 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Icons move.** Sixty-nine of the app's icons — the bell, the gear, the
+  copy, the chevrons, the refresh and retry arrows, the pin, the lock and
+  more — now play a short motion while the pointer is over the button, link,
+  menu row or tab that holds them, and rest when it leaves. An icon with
+  nothing to click around it stays still, and so does every icon when the
+  system asks for reduced motion.
+
 - **DeepSeek shows the key it is really using.** From DeepSeek Harness
   0.2.1-alpha.3 a key saved in its own store is used ahead of the one this app
   hands it, so with both present the account row said "stored here" about a key
