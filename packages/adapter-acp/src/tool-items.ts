@@ -7,7 +7,8 @@ export interface ToolItemState {
   readonly call: ToolCallItem
   readonly kind?: string
   readonly title?: string
-  readonly changes?: readonly FileChange[]
+  readonly diffContent?: AcpToolCallUpdate['content']
+  readonly locations?: AcpToolCallUpdate['locations']
   readonly item: Extract<AgentItem, { type: 'toolCall' | 'fileChange' | 'command' }>
 }
 
@@ -28,7 +29,9 @@ const unifiedDiff = (oldText: string, newText: string, oldLine: number, newLine:
   const from = Math.max(0, prefix - 3)
   const oldEnd = Math.min(old.length, old.length - suffix + 3)
   const newEnd = Math.min(next.length, next.length - suffix + 3)
-  const marked = (mark: string, text: string) => `${mark}${text.endsWith('\n') ? text : `${text}\n\\ No newline at end of file\n`}`
+  // A block can be a joined hunk snippet: its last line says nothing about
+  // the file's final newline. EOF markers would make Undo reject that hunk.
+  const marked = (mark: string, text: string) => `${mark}${text.endsWith('\n') ? text : `${text}\n`}`
   const body = [
     ...old.slice(from, prefix).map(text => marked(' ', text)),
     ...old.slice(prefix, old.length - suffix).map(text => marked('-', text)),
@@ -72,14 +75,28 @@ export const projectToolItem = (
   if (incoming) call = { ...call, args: { ...objectOf(call.args), ...incoming } }
   const kind = update.kind ?? previous?.kind
   const title = update.title ?? previous?.title
-  let changes = changesOf(update, cwd) ?? previous?.changes
+  const locations = update.locations ?? previous?.locations
+  let changes = changesOf({ ...update, locations }, cwd)
+  const diffContent = changes ? update.content : previous?.diffContent
+  changes ??= changesOf({ toolCallId: call.id, content: diffContent, locations }, cwd)
+  if (!changes && kind === 'edit') {
+    const input = objectOf(call.args)
+    const path = input?.file_path ?? input?.path ?? input?.filePath
+    const content = input?.content ?? input?.file_text ?? input?.file_content
+    if (typeof path === 'string' && path.trim()) {
+      const diff = typeof input?.old_string === 'string' && typeof input.new_string === 'string'
+        ? { path, oldText: input.old_string || null, newText: input.new_string }
+        : typeof content === 'string' ? { path, oldText: null, newText: content } : undefined
+      if (diff) changes = changesOf({ toolCallId: call.id, content: [{ type: 'diff', ...diff }], locations }, cwd)
+    }
+  }
   let item: ToolItemState['item'] = call
   const base = { id: call.id, status: call.status, startedAt: call.startedAt, completedAt: call.completedAt }
   if (kind === 'edit' || changes) {
     const byPath = new Map((changes ?? []).map(change => [change.path, change]))
     const input = objectOf(call.args)
     const paths: unknown[] = [
-      ...(Array.isArray(update.locations) ? update.locations.map(location => location?.path) : []),
+      ...(Array.isArray(locations) ? locations.map(location => location?.path) : []),
       input?.file_path ?? input?.path ?? input?.filePath ?? input?.notebook_path,
     ]
     for (const path of paths) {
@@ -94,7 +111,7 @@ export const projectToolItem = (
     const command = shellCommandOf(call)
     // A meaningful title is the agent's narration. Preserve that existing
     // posture; generic shell labels and command-only titles use CommandItem.
-    if (command && (!title || /^(terminal|bash|shell|execute|command)$/i.test(title.trim()) || title === command || title === `\`${command}\``)) {
+    if (command && !call.result?.some(part => part.type === 'image') && (!title || /^(terminal|bash|shell|execute|command)$/i.test(title.trim()) || title === command || title === `\`${command}\``)) {
       const text = call.result?.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n')
       const stored = call.result?.find(part => part.type === 'json')
       const raw = stored?.type === 'json' ? stored.value : undefined
@@ -113,5 +130,5 @@ export const projectToolItem = (
       }
     }
   }
-  return { call, kind, title, changes, item }
+  return { call, kind, title, diffContent, locations, item }
 }

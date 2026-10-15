@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { mkdirSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -114,7 +116,7 @@ test('a completion without an announcement can supply several hunks for the same
   assert.equal(edit.changes[0]?.diff, '@@ -2,1 +2,1 @@\n-return a - b\n+return a + b\n@@ -8,1 +8,1 @@\n-return a - b\n+return a + b\n')
 })
 
-test('a final diff corrects an optimistic creation and marks missing final newlines', async t => {
+test('a final diff corrects an optimistic creation without inferring EOF from snippets', async t => {
   const { items } = await run(t, [
     start({ content: [{ type: 'diff', path: 'app.js', oldText: null, newText: 'after' }] }),
     finish({ content: [{ type: 'diff', path: 'app.js', oldText: 'before', newText: 'after' }] }),
@@ -123,7 +125,76 @@ test('a final diff corrects an optimistic creation and marks missing final newli
   const edit = items[0]
   assert.ok(edit?.type === 'fileChange')
   assert.equal(edit.status, 'completed')
-  assert.deepEqual(edit.changes, [{ path: `${cwd}/app.js`, kind: { type: 'update' }, diff: '@@ -1,1 +1,1 @@\n-before\n\\ No newline at end of file\n+after\n\\ No newline at end of file\n' }])
+  assert.deepEqual(edit.changes, [{ path: `${cwd}/app.js`, kind: { type: 'update' }, diff: '@@ -1,1 +1,1 @@\n-before\n+after\n' }])
+})
+
+for (const replay of [false, true]) {
+  test(`input-only edits preserve replacement text (${replay ? 'replay' : 'live'})`, async t => {
+    const { items } = await run(t, [
+      start({ rawInput: { file_path: 'app.js', old_string: 'before', new_string: 'after' } }),
+      finish({ rawOutput: 'model-facing reply' }),
+    ], replay)
+    const edit = items[0]
+    assert.ok(edit?.type === 'fileChange')
+    assert.equal(edit.changes[0]?.diff, '@@ -1,1 +1,1 @@\n-before\n+after\n')
+    assert.ok(!JSON.stringify(edit).includes('model-facing'))
+  })
+}
+
+test('input-only writes preserve file content until an authoritative diff arrives', async t => {
+  const { items, events } = await run(t, [
+    start({ title: 'Write app.js', rawInput: { file_path: 'app.js', content: 'written\n' } }),
+    finish({ content: [{ type: 'diff', path: 'app.js', oldText: 'previous\n', newText: 'written\n' }] }),
+  ])
+  assert.ok(events.some(event => event.type === 'item/started' && event.item.type === 'fileChange' && event.item.changes[0]?.diff === 'written\n'))
+  const edit = items[0]
+  assert.ok(edit?.type === 'fileChange')
+  assert.equal(edit.changes[0]?.kind.type, 'update')
+  assert.equal(edit.changes[0]?.diff, '@@ -1,1 +1,1 @@\n-previous\n+written\n')
+})
+
+test('bridge hunk snippets without trailing newlines still support Undo', async t => {
+  const { items } = await run(t, [start(), finish({
+    locations: [{ path: 'app.js', line: 2 }],
+    content: [{ type: 'diff', path: 'app.js', oldText: 'context\nbefore', newText: 'context\nafter' }],
+  })])
+  const edit = items[0]
+  assert.ok(edit?.type === 'fileChange')
+  const patch = edit.changes[0]?.diff
+  assert.ok(patch)
+  const root = mkdtempSync('/tmp/acp-edit-1670/undo-')
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  execFileSync('git', ['init', '-q', root])
+  writeFileSync(join(root, 'app.js'), 'header\ncontext\nafter\n')
+  execFileSync('git', ['apply', '-R', '--check', '-'], { cwd: root, input: `--- a/app.js\n+++ b/app.js\n${patch}` })
+})
+
+for (const locationsFirst of [true, false]) {
+  test(`split diff and locations retain hunk positions (${locationsFirst ? 'locations first' : 'content first'})`, async t => {
+    const locations = { locations: [{ path: 'app.js', line: 50 }, { path: 'app.js', line: 80 }] }
+    const content = { content: [diff(), diff()] }
+    const { items } = await run(t, [
+      start(locationsFirst ? locations : content),
+      finish(locationsFirst ? content : locations),
+      finish(),
+    ])
+    const edit = items[0]
+    assert.ok(edit?.type === 'fileChange')
+    assert.equal(edit.changes[0]?.diff, '@@ -50,1 +50,1 @@\n-return a - b\n+return a + b\n@@ -80,1 +80,1 @@\n-return a - b\n+return a + b\n')
+  })
+}
+
+test('a generic shell completion preserves image results and the running command', async t => {
+  const image = { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' }
+  const { items, events } = await run(t, [
+    start({ kind: 'execute', title: 'Terminal', rawInput: { command: 'render-chart' } }),
+    finish({ content: [{ type: 'content', content: image }], rawOutput: [image] }),
+    finish(),
+  ])
+  assert.ok(events.some(event => event.type === 'item/started' && event.item.type === 'command' && event.item.command === 'render-chart'))
+  const shell = items[0]
+  assert.ok(shell?.type === 'toolCall')
+  assert.ok(shell.result?.some(part => part.type === 'image' && part.url === 'data:image/png;base64,aGVsbG8='))
 })
 
 test('an edit with only an input path still becomes a file card without a model reply', async t => {
