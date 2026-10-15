@@ -385,8 +385,9 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
       footer={chosen
         ? <><Button variant="default" aria-describedby={startReason ? "team-start-reason" : undefined} disabled={!startable || !sentenceValid || briefReading || policyPending || starting} onClick={() => void start()}>{starting ? 'Starting…' : 'Start'}</Button><Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button></>
         : <><Button variant="default" disabled={entries === null} onClick={continueShape}>Continue</Button><Button variant="secondary" onClick={onClose}>Cancel</Button></>}
+      footerAside={chosen && startReason && <Note id="team-start-reason" role="status">{startReason}</Note>}
       footerNavigation={chosen
-        ? <span className={styles.solo}><Button variant="quiet" bordered={false} disabled={starting || policyPending || readingAccounts} onClick={changeShape}>Back</Button>{startReason && <Note id="team-start-reason" role="status">{startReason}</Note>}</span>
+        ? <Button variant="quiet" bordered={false} disabled={starting || policyPending || readingAccounts} onClick={changeShape}>Back</Button>
         : <span className={styles.solo}><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></span>}
     >
       {!chosen && <div onKeyDown={event => {

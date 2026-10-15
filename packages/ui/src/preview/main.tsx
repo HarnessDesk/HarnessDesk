@@ -391,7 +391,7 @@ Object.assign(store as unknown as Record<string, unknown>, {
  */
 
 /** Catalogue Teams each own a synthetic frame, alongside the shared screen rig. */
-const TeamStandaloneFrame = ({room}:{room:string}) => {
+const TeamStandaloneFrame = ({room, overview = false}:{room:string;overview?:boolean}) => {
   const own=useMemo(()=> {
     const frame=previewStore(store.getSnapshot())
     Object.assign(frame,{teamPeers:store.teamPeers.bind(store),triggerGoal:store.triggerGoal.bind(store),readGoalInsight:store.readGoalInsight.bind(store),
@@ -402,7 +402,7 @@ const TeamStandaloneFrame = ({room}:{room:string}) => {
     })
     return frame
   },[])
-  return <Mount with={own}><TeamFramePreview room={room} /></Mount>
+  return <Mount with={own}><TeamFramePreview room={room} view={overview ? { kind: 'room', room, framePage: 'overview' } : undefined} /></Mount>
 }
 
 /** A stand-in pane, so the frame's own edges are what the frame shows. */
@@ -1133,7 +1133,7 @@ const Preview = () => {
             is what moves this frame. */}
       <div className="col-span-full"><Frame id="goal-front-door" title="Goal — a front-door start's pinned revision or stop line">
           <div className="h-[540px]">
-            <TeamStandaloneFrame key={flowScene} room={PREVIEW_FLOW_GOAL.goal.id} />
+            <TeamStandaloneFrame key={flowScene} room={PREVIEW_FLOW_GOAL.goal.id} overview />
           </div>
         </Frame></div>
       </div>

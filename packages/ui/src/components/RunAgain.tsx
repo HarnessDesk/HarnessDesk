@@ -44,7 +44,7 @@ export const RunAgain = ({ execution, root, sentence, onClose, onStarted }: {
       setBusy(false)
     }
   }
-  return <Dialog title="Run again" size="md" onClose={onClose} footerNavigation={!choice && <Note id="run-start-reason" role="status">{problem ? 'Resolve the error before starting.' : progress ?? 'Check the seats and inputs before starting.'}</Note>} footer={<>
+  return <Dialog title="Run again" size="md" onClose={onClose} footerAside={!choice && <Note id="run-start-reason" role="status">{problem ? 'Resolve the error before starting.' : `${progress ?? 'Check the seats and inputs before starting.'}`}</Note>} footer={<>
     <Button aria-describedby={!choice ? "run-start-reason" : undefined} disabled={!choice || busy} onClick={() => void start()}>{busy ? 'Starting…' : 'Start'}</Button>
     <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
   </>}>

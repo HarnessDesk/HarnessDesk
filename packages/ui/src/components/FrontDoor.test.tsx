@@ -587,7 +587,7 @@ it('choosing a different shape clears the old dry run and its token immediately,
   await settle()
 })
 
-it('Back sits in the footer while Every time stays with the shape details', async () => {
+it('Back stays a direct footer navigation child while Every time stays with the shape details', async () => {
   const preview = previewOf(emptyFlow('strict-token'))
   const store = new AppStore('ws://localhost:0/')
   requestSpy(store, {
@@ -603,7 +603,7 @@ it('Back sits in the footer while Every time stays with the shape details', asyn
   await settle()
 
   const footer = document.body.querySelector('[data-slot="dialog-footer"]')!
-  expect([...footer.querySelectorAll('button')].map(button => button.textContent?.trim())).toContain('Back')
+  expect(button('Back').parentElement).toBe(footer.querySelector('[data-slot="dialog-footer-navigation"]'))
   expect(button('Every time…').closest('[data-slot="dialog-footer"]')).toBeNull()
 })
 
@@ -975,7 +975,12 @@ it('keeps placeholder rows visible until the chosen form has loaded and explains
   act(() => rowFor('Side by side').click())
   await settle()
   expect(document.querySelector('[aria-label="Loading Team form"]')?.querySelectorAll('[data-slot="row"]').length).toBeGreaterThanOrEqual(2)
-  expect(document.body.textContent).toContain('Reading the shape')
+  const reason = document.getElementById('team-start-reason')!
+  expect(reason.textContent).toContain('Reading the shape')
+  expect(reason.closest('[data-slot="dialog-footer"]')).not.toBeNull()
+  expect(reason.closest('[data-slot="dialog-footer-navigation"]')).toBeNull()
+  expect(button('Start').getAttribute('aria-describedby')).toBe(reason.id)
+  expect(button('Back').parentElement?.getAttribute('data-slot')).toBe('dialog-footer-navigation')
   await act(async () => release('source'))
   expect(document.querySelector('[aria-label="Loading Team form"]')).toBeNull()
   expect(button('Start').disabled).toBe(true)
