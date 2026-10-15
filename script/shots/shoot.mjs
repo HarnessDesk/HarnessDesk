@@ -2089,9 +2089,19 @@ rules:
     await stageSidebarMarks()
     await hover(workspaceHoverAction)
   } }
-  const sessionHoverAction = '[data-region="session-row"] [data-left-row]:has([data-left-mark][aria-label^="Worktree "]) [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
+  const sessionHoverAction = '[data-region="session-row"] [data-left-row]:has([data-slot="sidebar-menu-button"][title*=" · Worktree "]) [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
   SCENES['session-hover'] = { leaveOverlay: true, hover: sessionHoverAction, run: async () => {
     await stageSidebarMarks()
+    // Teams share the five-row fold with conversations. Reveal the staged
+    // worktree rows through the same control the person uses.
+    await cdp.eval(`(() => {
+      const project = [...document.querySelectorAll('[data-project-root]')]
+        .find(node => node.getAttribute('data-project-root') === ${q(REPO)})
+      if (!project) throw new Error('missing staged project')
+      const more = [...project.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Show more')
+      more?.click()
+      return true
+    })()`)
     await hover(sessionHoverAction)
   } }
   /**

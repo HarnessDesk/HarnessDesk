@@ -356,6 +356,12 @@ export const expectDestinationPopupContracts = async (page: Page, destination: t
   await applyLeftColumnActions(page, destination)
   await applySettingsNavigationActions(page, destination)
   await openWallDestination(page, destination)
+  if (destination.id === 'popup-account-info') {
+    const menu = page.getByRole('menu')
+    await expect(menu.locator('[data-menu-account-name]').first()).toHaveAttribute('title', /.+/)
+    await expect(menu.locator('[data-usage-details]')).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'Open usage', exact: true })).toBeVisible()
+  }
   const kinds = new Set<string>()
   const rich = page.locator('[data-slot="popover-popup"]:visible,[data-slot="popover-surface"]:visible,[data-slot="dropdown-menu-popup"][data-popup-kind]:visible,[data-slot="dropdown-menu-content"]:visible,[data-slot="dropdown-menu-sub-content"]:visible,[data-slot="hover-card-content"]:visible,[data-slot="select-content"]:visible')
   // This destination stages a selection after the lazy editor mounts. Counting
@@ -435,6 +441,7 @@ export const S17_ICON_POLICY: Readonly<Record<string, 'all' | 'none'>> = {
   'popup-branch-flyout': 'all',
   'popup-branch-context': 'all',
   'popup-account-menu': 'all',
+  'popup-account-info': 'all',
   'popup-other-agents': 'all',
   'popup-info-menu-exclusion': 'all',
   'popup-publication-actions': 'all',
