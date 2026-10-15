@@ -480,10 +480,26 @@ export const NoticeStripFallback = ({ area }: { readonly area: AreaId }) => {
  */
 const standingOutlet = (snapshot: AppSnapshot, standing: Standing, mounts: readonly ComposerMountRecord[], hasRegistry: boolean): NoticeSurface | null => {
   const place = placeOf(snapshot.noticePolicy, standing)
-  if (place === 'composer' && (hasRegistry
-    ? standingComposer(mounts, standing.runtime) === null
-    : !focusedComposerVisible(snapshot.workbench, snapshot.windowWidth))) return 'strip'
+  const hasComposer = hasRegistry
+    ? standingComposer(mounts, standing.runtime) !== null
+    : focusedComposerVisible(snapshot.workbench, snapshot.windowWidth)
+  if (standing.identity.kind === 'usage:pace' && place !== 'inbox') {
+    const destination = snapshot.workbench.navigation.current
+    if (destination.kind === 'dashboard') return 'strip'
+    if (destination.kind !== 'work' || !hasComposer) return null
+  }
+  if (place === 'composer' && !hasComposer) return 'strip'
   return place
+}
+
+/** The account's quiet form of a quota forecast when no full notice belongs on screen. */
+export const useAccountQuotaWarning = (): string | null => {
+  const snapshot = useSnapshot()
+  const registry = useContext(ComposerMountsContext)
+  const standing = useStanding()
+  if (!standing || standing.identity.kind !== 'usage:pace' ||
+    standingOutlet(snapshot, standing, registry?.mounts ?? [], registry !== null) !== null) return null
+  return [standing.message.title, standing.message.body].filter(part => typeof part === 'string').join('. ')
 }
 
 /**
