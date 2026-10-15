@@ -164,6 +164,22 @@ describe('runTimeline · a comparison', () => {
   })
 
   describe('a pick keeps one attempt', () => {
+    for (const [kind, review, verdict, selected] of [
+      ['person', true, 'merged', true], ['person', false, 'merged', false],
+      ['person', true, 'dropped', false], ['agent', false, 'merged', false],
+    ] as const) it(`projects ${kind} review=${review} verdict=${verdict} as a selection only when declared`, () => {
+      const input = comparison({ facts: [view(1, 1, diff(REV.a, 1, 1)), view(2, 1, diff(REV.b, 1, 1)),
+        view(5, 3, { kind: 'review', verdict, by: 'person' as never, at: REV.a })] })
+      if (input.execution.document.format !== 'agents') throw new Error('wrong fixture')
+      input.execution = { ...input.execution, state: 'settled', rounds: input.execution.rounds.filter(one => one.n <= 3),
+        document: { format: 'agents', flow: { ...input.execution.document.flow,
+          roles: input.execution.document.flow.roles.map(role => role.id === 'judge' && kind === 'person' ? { id: role.id, kind, review, outcomes: [verdict] } : role),
+        } } }
+      const rows = rowsOf(input)
+      const chosen = rows.find(one => one.card === 5)!
+      assert.equal(chosen.pick?.revision ?? null, selected ? REV.a : null)
+      assert.deepEqual(rows.filter(one => one.attempt).map(one => one.keep), selected ? ['kept', 'not-kept'] : [null, null])
+    })
     it('names the revision the judge picked on its card, with each attempt and whether it was kept', () => {
       const rows = rowsOf(comparison())
       assert.deepEqual(find(rows, 'card-3-5').pick, { revision: REV.a, attempts: [

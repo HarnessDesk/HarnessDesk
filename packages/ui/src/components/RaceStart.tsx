@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import type { AgentEntry, FlowPreview, FlowSeat, SeatCandidate, SeatPlan } from '@harnessdesk/protocol'
+import type { AgentEntry, FlowPolicy, FlowPreview, FlowSeat, SeatCandidate, SeatPlan } from '@harnessdesk/protocol'
 
 import { ActionError, Banner, Button, Dialog, Field, FormStack, NativeSelect, Note } from '../design'
 import { agentName, inForce, seatTaken } from '../lib/agents'
 import { raceRoleId, substituteAgentRole } from '../lib/flows'
-import { useStore } from '../state/context'
+import { useSnapshot, useStore } from '../state/context'
+import { supportsComparisonJudge, withComparisonJudge } from '../lib/team-start'
 import { FlowPreviewReport } from './FlowStart'
 
 export interface RaceStartProps {
@@ -22,6 +23,10 @@ export interface RaceStartProps {
  */
 export const RaceStart = ({ root, task, onClose }: RaceStartProps) => {
   const store = useStore()
+  const snapshot = useSnapshot()
+  const [template, setTemplate] = useState<FlowPolicy | null>(null)
+  const [judge, setJudge] = useState('')
+  const [readySource, setReadySource] = useState<string | null>(null)
   const [source, setSource] = useState<string | null>(null)
   const [roleId, setRoleId] = useState<string | null>(null)
   const [setupProblem, setSetupProblem] = useState<string | null>(null)
@@ -57,6 +62,7 @@ export const RaceStart = ({ root, task, onClose }: RaceStartProps) => {
             setSetupProblem('This comparison file needs a two-seat Agent step. Open the file to choose its steps.')
             return
           }
+          setTemplate(flow)
           setSource(text)
           setRoleId(role.id)
         } catch (error) {
@@ -88,49 +94,49 @@ export const RaceStart = ({ root, task, onClose }: RaceStartProps) => {
   const identical = candidates.length > 0 && seatA === seatB
     && JSON.stringify(candidates[seatA]?.seat) === JSON.stringify(candidates[seatB]?.seat)
 
-  const runPreview = useCallback(
-    async (nextSource: string): Promise<void> => {
-      setPreview(null)
-      setPreviewProblem(null)
-      try {
-        const dry = await store.previewFlow(root, nextSource, { task })
-        setPreview(dry)
-        if (dry.problems.some((one) => one.level === 'error')) {
-          setPreviewProblem(dry.problems.find((one) => one.level === 'error')!.text)
-        }
-      } catch (error) {
-        setPreviewProblem(error instanceof Error ? error.message : String(error))
-      }
-    },
-    [root, store, task],
-  )
-
   useEffect(() => {
-    if (!source || !roleId || !agentId || candidates.length < 2 || identical) {
-      setPreview(null)
-      return
-    }
+    let live = true
+    setPreview(null)
+    setReadySource(null)
+    setPreviewProblem(null)
+    if (!source || !roleId || !agentId || candidates.length < 2 || identical) return
     const seats: readonly FlowSeat[] = [candidates[seatA]!.seat, candidates[seatB]!.seat]
     const substituted = substituteAgentRole(source, roleId, agentId, seats)
     if (!substituted) {
       setPreviewProblem('The comparison file’s Agent step could not be edited safely. Open it and choose its steps by hand.')
       return
     }
-    void runPreview(substituted)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, roleId, agentId, seatA, seatB, identical])
+    void (async () => {
+      try {
+        let nextSource = substituted
+        if (template && supportsComparisonJudge(template)) {
+          const concrete = { ...template, roles: template.roles.map(role => role.id === roleId && role.kind === 'agent' ? { ...role, uses: [agentId], seats, count: undefined } : role) }
+          const rendered = await store.renderShape(withComparisonJudge(concrete, template, judge ? { runtime: judge } : null))
+          if (!rendered.source || rendered.issues.length) throw new Error(rendered.issues.map(one => one.text).join(' ') || 'The comparison could not be prepared.')
+          nextSource = rendered.source
+        }
+        if (!live) return
+        const dry = await store.previewFlow(root, nextSource, { task })
+        if (!live) return
+        setReadySource(nextSource)
+        setPreview(dry)
+        setPreviewProblem(dry.problems.find(one => one.level === 'error')?.text ?? null)
+      } catch (error) {
+        if (live) setPreviewProblem(error instanceof Error ? error.message : String(error))
+      }
+    })()
+    return () => { live = false }
+  }, [source, template, roleId, agentId, plans, seatA, seatB, identical, judge, store, root, task])
 
   const valid = preview !== null && preview.token !== null && !identical
     && preview.problems.every((one) => one.level !== 'error')
 
   const start = async (): Promise<void> => {
-    if (!valid || !preview?.token || !source || !roleId || !agentId || busy) return
+    if (!valid || !preview?.token || !readySource || !roleId || !agentId || busy) return
     setBusy(true)
     setStartProblem(null)
     try {
-      const seats: readonly FlowSeat[] = [candidates[seatA]!.seat, candidates[seatB]!.seat]
-      const substituted = substituteAgentRole(source, roleId, agentId, seats)!
-      const execution = await store.startFlowGoal({ root, source: substituted, token: preview.token, sentence: task, vars: { task } })
+      const execution = await store.startFlowGoal({ root, source: readySource, token: preview.token, sentence: task, vars: { task } })
       store.openGoal(execution.goal)
       onClose()
     } catch (error) {
@@ -197,6 +203,10 @@ export const RaceStart = ({ root, task, onClose }: RaceStartProps) => {
               {identical && <ActionError>Choose two different seats to compare.</ActionError>}
             </>
           )}
+          {template && supportsComparisonJudge(template) && <Field label="Judge · optional">{control => <NativeSelect {...control} aria-label="Judge · optional" value={judge} onChange={event => setJudge(event.target.value)}>
+            <option value="">You</option>
+            {snapshot.runtimes.map(runtime => <option key={runtime.id} value={runtime.id}>{runtime.presentation.name}</option>)}
+          </NativeSelect>}</Field>}
           <Note>Both seats run in their own isolated checkout, lane and browser profile, at the same ceiling.</Note>
           {previewProblem && <Banner tone="danger" title="This comparison will not run yet">{previewProblem}</Banner>}
           {preview && !identical && <FlowPreviewReport vars={{ task }} preview={preview} flow={preview.compiled.document.format === 'agents' ? preview.compiled.document.flow : null} warnings={preview.problems.filter((one) => one.level === 'warning')} roster={new Map(roster.map((entry) => [entry.id, entry]))} />}

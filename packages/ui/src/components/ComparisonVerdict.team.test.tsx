@@ -85,6 +85,18 @@ it('compares recorded attempt revisions through the existing diff dialog', async
   await click('Compare changes')
   expect(request).toHaveBeenCalledWith('git/diffRange', expect.objectContaining({from:'a'.repeat(40), to:'b'.repeat(40)}))
 })
+for (const scene of ['person-merged', 'stopped'] as const) it(`keeps the ${scene} choice and comparison without merge controls`, async () => {
+  const { store } = await mount(scene)
+  const request = vi.spyOn(store.transport, 'request')
+  const decision = box.querySelector('[data-slot="comparison-decision"]')!
+  expect(decision.textContent).toContain('The judge picked A')
+  expect([...decision.querySelectorAll('button')].map(one => one.textContent?.trim())).toEqual(['Compare changes'])
+  const bars = [...box.querySelectorAll('[data-slot="side-by-side-tile"] header')]
+  expect(bars[0]?.textContent).toContain('Picked')
+  expect(bars[1]?.textContent).toContain('Not kept')
+  await click('Compare changes')
+  expect(request).toHaveBeenCalledWith('git/diffRange', expect.objectContaining({from:'a'.repeat(40), to:'b'.repeat(40)}))
+})
 it('lets the person keep B for the pending merge without rewriting the judge', async () => {
   const {decide} = await mount('picked')
   await click('Keep B instead')
