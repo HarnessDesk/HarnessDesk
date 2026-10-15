@@ -28,14 +28,15 @@ test('E7 Plugins column New session and session rows navigate away with Back', a
   await column.getByRole('button', { name: 'Back', exact: true }).click()
   await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(1)
 })
-test('E7 Plugins omits More when the page has no actions', async ({ page }) => {
+test('E7 Plugins More offers the chosen project Terminal', async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
   await page.locator('[data-left-column]:visible').getByRole('button', { name: 'Plugins', exact: true }).click()
-  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
+  await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
 })
 for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
   for (const child of ['installed', 'capabilities', 'detail']) test(`E7 Plugins ${child} ${width} ${theme}`, async ({ page }) => {
-    await measureDestination(page, `frame-wall=plugins&frame-plugin-page=${child}`, child === 'detail' ? 'reading' : 'wide', theme, width, { more: 'absent' })
+    await measureDestination(page, `frame-wall=plugins&frame-plugin-page=${child}`, child === 'detail' ? 'reading' : 'wide', theme, width)
     await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
     if (child === 'detail') {
       await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Plugins ›', exact: true })).toBeVisible()
@@ -82,7 +83,7 @@ test('E7 install flow uses Dialog header body and right ordered footer actions',
 test('E7 Plugins pending Here keeps the host answer distinct from Anywhere', async ({ page }) => {
 
   await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=capabilities&frame-plugin-pending=1', 'wide', 'dark', 720,
-    { more: 'absent', bodyChoice: { label: 'Where it applies', value: 'here' } })
+    { bodyChoice: { label: 'Where it applies', value: 'here' } })
   await expect(page.getByText('Asking the host…', { exact: true })).toBeVisible()
   await expect(page.locator('[data-page-destination="plugins"]:visible button[data-kind="record"]')).toHaveCount(0)
 })

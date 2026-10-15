@@ -6,6 +6,16 @@ import { PREVIEW_AGENTS, previewStore } from './harness'
 import { frameDestinationStore, setFrameConnection } from './frame-destination-store'
 import { overviewTeamStore } from './team-overview-fixture'
 import { PREVIEW_SESSION_KEY } from './harness'
+
+it('admits a selected project for terminal requests without switching the fixture workspace', async () => {
+  const store = frameDestinationStore(previewStore())
+  const before = store.getSnapshot().workspace
+  const path = '/synthetic/selected-project'
+  store.openDestination({ kind: 'settings', route: { kind: 'project', root: path } })
+  expect(await store.transport.request('workspace/open', { path })).toMatchObject({ path, name: 'selected-project' })
+  expect(store.getSnapshot().workspace).toBe(before)
+})
+
 it('uses real store navigation, connection events and resource reads without connecting',async()=>{
   const clock = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
   try {

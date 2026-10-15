@@ -59,12 +59,16 @@ test(`E9 every destination More either stays absent or opens rows, and returns f
   const more = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
   await column.getByRole('button', { name: 'Dashboard', exact: true }).click()
   await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
-  await expect(more).toHaveCount(0)
+  await expect(more).toBeVisible()
+  await more.click()
+  await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
+  await page.keyboard.press('Escape')
   await column.getByRole('button', { name: 'Library', exact: true }).click()
   await expect(page.locator('[data-page-destination="library"]:visible')).toHaveCount(1)
   await expect(more).toBeVisible()
   await more.click()
-  await expect(page.getByRole('menu').locator('[role^="menuitem"], [role="switch"]')).toHaveCount(2)
+  await expect(page.getByRole('menu').locator('[role^="menuitem"], [role="switch"]')).toHaveCount(3)
+  await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
 })
 {
   const routes = [...new Set(PAGE_WALL_DESTINATIONS.map(destination => destination.query))]
@@ -132,7 +136,11 @@ for (const kind of ['library', 'plugins', 'dashboard']) test(`E9 owner Escape le
     await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Import', exact: true }).click()
   } else {
-    await expect(more).toHaveCount(0)
+    await more.click()
+    await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('[role="menu"]:visible')).toHaveCount(0)
+    await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
   }
   if (kind === 'library' || kind === 'plugins') {
     if (kind === 'plugins') await page.getByRole('button', { name: 'Add plugin', exact: true }).click()

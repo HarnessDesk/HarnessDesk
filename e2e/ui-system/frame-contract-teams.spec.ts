@@ -42,10 +42,15 @@ test('E5 Teams column background reaches the window top', async ({ page }) => {
 })
 {
 
-  for (const [item0, query] of (['frame-wall=teams', 'frame-wall=teams&frame-no-folder=1']).entries()) test(`E5 Teams omits empty More with or without a folder [item ${[item0].join('-')}]`, async ({ page }) => {
+  for (const [item0, query] of (['frame-wall=teams', 'frame-wall=teams&frame-no-folder=1']).entries()) test(`E5 Teams More offers Terminal only with a chosen folder [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, query, 'light')
-    await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
+    const more = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
+    await expect(more).toHaveCount(query.includes('frame-no-folder=1') ? 0 : 1)
+    if (!query.includes('frame-no-folder=1')) {
+      await more.click()
+      await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
+    }
 
 
   })
@@ -54,7 +59,7 @@ test('E5 Teams column background reaches the window top', async ({ page }) => {
 for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
   for (const filter of ['active', 'needs-you', 'settled']) test(`E5 Teams ${filter} ${width} ${theme}`, async ({ page }) => {
 
-    await measureDestination(page, `frame-wall=teams&frame-filter=${filter}`, 'wide', theme, width, { more: 'absent' })
+    await measureDestination(page, `frame-wall=teams&frame-filter=${filter}`, 'wide', theme, width)
     await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'New Team', exact: true })).toBeVisible()
     const records = page.locator('[data-slot="page-records"]:visible').first()
     await expect(records).toHaveAttribute('data-layout', (await records.boundingBox())!.width < 600 ? 'narrow' : 'table')
