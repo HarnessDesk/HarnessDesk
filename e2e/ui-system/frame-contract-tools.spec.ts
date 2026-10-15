@@ -203,21 +203,26 @@ for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
 }
 
 for (const theme of WALL_THEMES) {
-  test(`B8 Team reading column caps allocated rows and contains names in ${theme}`, async ({ page }) => {
+  test(`B8 Team wide column caps allocated rows and contains names in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
     const overview = page.locator('[data-slot="team-overview"]')
     const seats = overview.locator('[aria-label="Seats"]')
     const column = overview.locator('[data-slot="page"]')
-    // The reading cap stays below the 800px table threshold at every viewport.
-    for (const width of [1440, 1800]) {
+    await expect(column).toHaveAttribute('data-width', 'wide')
+    // Seats become a table at 800px; larger windows still cap the wide page.
+    for (const width of [1100, 1440, 1800, 2200]) {
       await page.setViewportSize({ width, height: 900 })
-      await expect.poll(async () => (await column.boundingBox())!.width).toBe(FRAME.page.reading + 2 * FRAME.page.gutter)
-      await expect.poll(async () => (await seats.boundingBox())!.width).toBe(FRAME.page.reading)
-      await expect(overview).toHaveAttribute('data-layout', 'narrow')
+      const columnWidth = Math.min((await overview.boundingBox())!.width, FRAME.page.wide + 2 * FRAME.page.gutter)
+      const seatsWidth = columnWidth - 2 * FRAME.page.gutter
+      await expect.poll(async () => (await column.boundingBox())!.width).toBe(columnWidth)
+      await expect.poll(async () => (await seats.boundingBox())!.width).toBe(seatsWidth)
+      const narrow = seatsWidth < 800
+      await expect(overview).toHaveAttribute('data-layout', narrow ? 'narrow' : 'table')
+      await expect(seats.getByRole('table')).toHaveCount(narrow ? 0 : 1)
       for (const name of ['Alpha', 'Beta']) {
         const action = seats.getByRole('button', { name: `Open ${name}`, exact: true })
         await expect(action).toBeVisible()
-        const cell = action.locator('xpath=ancestor::*[@data-slot="list-row-title"]')
+        const cell = action.locator(`xpath=ancestor::*[@data-slot="${narrow ? 'list-row-title' : 'table-cell'}"]`)
         const bounds = (await cell.boundingBox())!
         const label = (await action.boundingBox())!
         expect(label.x).toBeGreaterThanOrEqual(bounds.x)
