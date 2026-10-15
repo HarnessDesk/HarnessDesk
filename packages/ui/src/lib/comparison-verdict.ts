@@ -1,5 +1,6 @@
 import { flowStepOf, type FlowExecution, type FlowStep, type Intent } from '@harnessdesk/protocol'
 import type { RunAttempt, RunTimelineRow, runTimeline } from './run-timeline'
+import { comparisonMergeOf } from './comparison-merge'
 
 export type ComparisonVerdictModel = {
   kind: 'picked'
@@ -29,7 +30,8 @@ export const comparisonVerdictOf = (model: ReturnType<typeof runTimeline>, execu
       if (!attempt) return null
       // A person's timeline summary describes the step, not why they chose it.
       const card = cards.find(one => one.id === judge.card)
-      const words = judge.kind === 'person' ? card?.note?.trim() || card?.handoff?.trim() || null : judge.summary
+      const handoff = card && !comparisonMergeOf(execution.id, [card]) ? card.handoff?.trim() : null
+      const words = judge.kind === 'person' ? card?.note?.trim() || handoff || null : judge.summary
       const sentences = words ? new Intl.Segmenter('en', { granularity: 'sentence' }).segment(words) : []
       const reason = words && [...sentences].length === 1 ? words : null
       return { kind: 'picked', id: JSON.stringify([execution.id, judge.id, judge.pick.revision, judge.pick.attempts.map(one => [one.card, one.keep])]), judge, attempt, reason,

@@ -1210,8 +1210,14 @@ branch. **Compare changes** opens the existing diff between the two revisions.
 **Keep B instead** changes the person's pending merge choice, preserving the
 judge's recorded recommendation. A stopped Run or one without a pending person
 merge step cannot merge or change its pick. A waiting person judge, or a
-referee choosing without an agent judge, sees **Pick an attempt…**, which opens the Board's same attempt dialog. No recorded
-selected attempt means no decision card.
+referee choosing without an agent judge, sees **Pick an attempt…**, which opens the Board's same attempt dialog. Its rows name Attempt A, B and so on
+in comparison order, with each recorded commit. When the person also holds
+the merge step, **Merge Attempt A into main…** opens the merge question and
+**Show diff** compares that commit with the destination. **I merged it** checks
+a manual merge. Neither path records `merged` until the host verifies that
+the selected commit is reachable from the named destination branch; a refusal
+keeps the question open. A recorded person choice says **You picked A**. No
+recorded selected attempt means no decision card.
 
 A conflict-free merge records its revision, resulting commit, destination and
 time in the person step's handoff. Side by side then shows that receipt in the
