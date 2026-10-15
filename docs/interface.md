@@ -841,6 +841,13 @@ three labelled columns. Descriptions wrap, a warning names a needed fix, and
 only agents that load the entry appear as faces; Matrix and the entry’s sheet
 keep the per-agent detail. Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
 the generic plugin glyph is omitted only when the list has no mapped glyphs.
+Plugin tools use their short titles in Capabilities, on their own page and in
+the transcript. Capabilities keeps the owning plugin below each title and the
+full description on hover; the plugin page keeps the full description visible.
+Tools that reach the active agent through the session request say so once above
+the group. Tools available only through the agent's own configuration keep
+that exception beside their title.
+
 Model efforts are words beside the description, and endpoint, key and preset
 removals live in their row’s actions menu. Keyboard shortcuts show one keycap
 per key, with the four focus-tile shortcuts grouped as 1 – 4.

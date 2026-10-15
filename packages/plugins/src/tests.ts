@@ -164,6 +164,7 @@ export const testsPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'run_tests',
+        title: 'Run tests',
         description:
           'Run the workspace test suite with the detected framework. Optional filter narrows to matching tests. The answer leads with PASS/FAIL and failing file:lines.',
         inputSchema: {

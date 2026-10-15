@@ -123,6 +123,21 @@ test('every built-in plugin loads active and registers something', async (t) => 
   }
 })
 
+test('every built-in tool has a short human title', async (t) => {
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  for (const plugin of builtinPlugins) await kernel.load(plugin)
+  await settle()
+
+  const tools = kernel.list('tool')
+  assert.ok(tools.length > 0)
+  for (const tool of tools) {
+    assert.ok(tool.title, `${tool.namespace}/${tool.name} has no title`)
+    assert.equal(tool.title, tool.title.trim())
+    assert.ok(tool.title.length <= 60, `${tool.name} needs a short title`)
+  }
+})
+
 test('no built-in plugin asks for more than it needs', async (t) => {
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())

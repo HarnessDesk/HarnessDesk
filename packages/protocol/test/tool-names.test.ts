@@ -21,8 +21,8 @@ import {
  * the same sentence for both.
  */
 
-const tool = (namespace: string, name: string, description: string): CapabilityContribution =>
-  ({ kind: 'tool', namespace, name, description, id: `${namespace}/${name}`, owner: 'p1', revision: 1, scope: 'session', inputSchema: {} }) as unknown as CapabilityContribution
+const tool = (namespace: string, name: string, description: string): Extract<CapabilityContribution, { kind: 'tool' }> =>
+  ({ kind: 'tool', namespace, name, description, id: `${namespace}/${name}`, owner: 'p1', revision: 1, scope: 'session', inputSchema: {} }) as unknown as Extract<CapabilityContribution, { kind: 'tool' }>
 
 describe('bareToolName', () => {
   it('recovers the registered name from either agent’s spelling', () => {
@@ -68,6 +68,17 @@ describe('toolSentence', () => {
   const sentences = toolSentences([
     tool('browser', 'browser_open', 'Open a URL in the browser and return a screenshot. A screenshot’s pixels are the coordinates a click takes.'),
   ])
+
+  it('prefers a trimmed title to model instructions for every tool spelling', () => {
+    const titled = { ...tool('git', 'pr_create', 'Open a pull request for the current branch. Do not add a signature.'), title: '  Open a pull request  ' }
+    const labels = toolSentences([titled])
+    for (const name of ['pr_create', 'git_pr_create', 'mcp__harnessdesk__pr_create']) {
+      assert.equal(toolSentence(name, labels), 'Open a pull request')
+    }
+    assert.equal(toolSentence('browser_open', toolSentences([
+      { ...tool('browser', 'browser_open', 'Open a URL. More instructions.'), title: '  ' },
+    ])), 'Open a URL')
+  })
 
   it('says what the plugin said, only the first sentence of it', () => {
     assert.equal(toolSentence('browser_open', sentences),

@@ -108,18 +108,18 @@ export const describeContribution = (contribution: CapabilityContribution): stri
 /**
  * The same contribution as a sentence a person reads.
  *
- * A plugin that wrote a description gets to keep it. One that did not gets its
- * own identifier turned back into words — `browser_open` becomes "Browser
- * open" — which is a poor sentence but a better row than a symbol.
+ * Tools use their short title; their descriptions are model instructions.
+ * Other contributions keep their description or a readable identifier.
  */
 const contributionSentence = (contribution: CapabilityContribution): string => {
+  if (contribution.kind === 'tool') return toolLabel(contribution)
   const described =
     'description' in contribution && typeof contribution.description === 'string'
       ? contribution.description.trim()
       : ''
   if (described) return described
   const bare =
-    contribution.kind === 'tool' || contribution.kind === 'command'
+    contribution.kind === 'command'
       ? contribution.name
       : describeContribution(contribution)
   const words = bare.replace(/[_/-]+/g, ' ').trim()
@@ -331,7 +331,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
                 <Row
                   key={contribution.id}
                   title={wire ? <CodeText>{describeContribution(contribution)}</CodeText> : toolLabel(contribution)}
-                  desc={contributionSentence(contribution)}
+                  desc={contribution.description}
                 />
               ) : (
                 <Row
@@ -572,6 +572,7 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
       const needle = capQuery.toLowerCase()
       list = list.filter((c) =>
         contributionSentence(c).toLowerCase().includes(needle)
+        || ('description' in c && typeof c.description === 'string' && c.description.toLowerCase().includes(needle))
         || ('name' in c && typeof c.name === 'string' && c.name.toLowerCase().includes(needle))
         || c.owner.toLowerCase().includes(needle),
       )
@@ -651,7 +652,8 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
             </Rows>
           )}
           {byKind.map(([kind, entries]) => (
-            <Section key={kind} title={kindLabel(kind, entries.length)}>
+            <Section key={kind} title={kindLabel(kind, entries.length)}
+              description={kind === 'tool' && pluginToolsReach ? 'Reaches agent' : undefined}>
               <Rows>
                 {entries.map((contribution) => (
                   <RowButton
@@ -664,26 +666,18 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
                     }}
                     kind="record"
                     mark={contributionIcon(contribution.kind, 15)}
-                    title={contributionSentence(contribution)}
+                    title={contribution.kind === 'tool'
+                      ? <span title={contribution.description}>{toolLabel(contribution)}</span>
+                      : contributionSentence(contribution)}
                     /* A narrowed scope varies; global rows only name their owner. */
                     desc={
                       contribution.scope.kind === 'global'
                         ? pluginName(contribution.owner)
                         : `${pluginName(contribution.owner)} · ${scopeSentence(contribution.scope)}`
                     }
-                    control={
-                      contribution.kind === 'tool' ? (
-                        // 'available', not 'broken': an agent that refuses the
-                        // session-request server may still load the bridge from
-                        // its own configuration (DeepSeek Harness does), and the
-                        // host cannot see inside that. The chip states what the
-                        // host knows, without declaring the tool lost.
-                        <Chip
-                          state={pluginToolsReach ? 'ready' : 'available'}
-                          label={pluginToolsReach ? 'Reaches agent' : 'Own config only'}
-                        />
-                      ) : undefined
-                    }
+                    titleChip={contribution.kind === 'tool' && !pluginToolsReach
+                      ? <Chip state="available" label="Own config only" />
+                      : undefined}
                   />
                 ))}
               </Rows>

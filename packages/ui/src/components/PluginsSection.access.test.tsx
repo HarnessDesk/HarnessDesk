@@ -195,6 +195,7 @@ it('uses a scannable tool label and moves its technical name into that line behi
     kind: 'tool',
     namespace: 'git',
     name: 'git_status',
+    title: 'Show Git status',
     description: 'Show the working tree status.',
     inputSchema: {},
   }
@@ -202,7 +203,7 @@ it('uses a scannable tool label and moves its technical name into that line behi
   open('Git')
 
   const row = container.querySelector('section[aria-label="Tools"] [data-slot="row"]')!
-  expect(row.querySelector('[data-slot="row-title"]')?.textContent).toBe('Git status')
+  expect(row.querySelector('[data-slot="row-title"]')?.textContent).toBe('Show Git status')
   expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('Show the working tree status.')
   const toggle = container.querySelector('[aria-label="Show tool names"]')!
   expect(toggle.closest('[data-slot="row"]')?.querySelector('[data-slot="row-title"]')?.textContent).toBe('Tool names')

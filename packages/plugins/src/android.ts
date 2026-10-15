@@ -47,6 +47,7 @@ export const androidPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'android_devices',
+        title: 'List Android devices',
         description: 'List connected Android devices and running emulators, each with the serial the other Android tools take.',
         inputSchema: { type: 'object', properties: {} },
         execute: async () => {
@@ -58,6 +59,7 @@ export const androidPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'android_install',
+        title: 'Install an Android app',
         description: 'Install an APK onto the connected device or emulator.',
         inputSchema: {
           type: 'object',
@@ -72,6 +74,7 @@ export const androidPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'android_launch',
+        title: 'Launch an Android app',
         description:
           'Launch an app: a package name (com.example.app) or a full component (com.example.app/.MainActivity). Returns a screenshot.',
         inputSchema: {
@@ -88,6 +91,7 @@ export const androidPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'android_screenshot',
+        title: 'Screenshot the Android device',
         description: 'Screenshot the device. Tap coordinates use these exact pixels.',
         inputSchema: { type: 'object', properties: { serial: SERIAL } },
         execute: (args: { serial?: string }) => look('', serialOf(args)),
@@ -95,6 +99,7 @@ export const androidPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'android_tap',
+        title: 'Tap the Android device',
         description:
           'Tap at coordinates in the pixels of the screenshots (origin top-left), then return a fresh screenshot.',
         inputSchema: {
@@ -115,6 +120,7 @@ export const androidPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'android_key',
+        title: 'Press an Android key',
         description: 'Press a key: ENTER, BACK, HOME, TAB, or any KEYCODE_* name. Returns a screenshot.',
         inputSchema: {
           type: 'object',
@@ -130,6 +136,7 @@ export const androidPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'android_text',
+        title: 'Type on the Android device',
         description: 'Type text into the focused field, then return a screenshot.',
         inputSchema: {
           type: 'object',
@@ -145,6 +152,7 @@ export const androidPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'android_logcat',
+        title: 'Read Android logs',
         description: 'The last lines of logcat, optionally filtered to one tag.',
         inputSchema: {
           type: 'object',
