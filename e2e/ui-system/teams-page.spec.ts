@@ -4,6 +4,26 @@ import { openFrame } from './frame-contract-helpers'
 for (const theme of ['light','dark'] as const) {
  for (const width of [1440,1100,720,375]) test(`Teams board keeps three equal columns or stacks in reading order ${width} ${theme}`,async({page})=>{
   await openFrame(page,'frame-wall=teams',theme,width)
+  const bar=page.locator('[data-slot="top-bar"]:visible')
+  await expect(bar.getByRole('button',{name:'New Team',exact:true})).toHaveCount(0)
+  const toolbar=page.locator('[data-slot="teams-board-toolbar"]:visible')
+  await expect(toolbar.getByRole('button',{name:'New Team',exact:true})).toBeVisible()
+  await expect(toolbar.getByRole('button',{name:'All projects',exact:true})).toBeVisible()
+  await expect(toolbar.getByRole('searchbox',{name:'Search Teams',exact:true})).toBeVisible()
+  // The board owns creation and filtering. At 375px every remaining bar
+  // control still fits in its row and accepts keyboard focus.
+  if(width===375){
+   await expect(page.locator('[data-slot="status-bar"]')).toHaveCount(0)
+   const controls=bar.locator('button:visible')
+   expect(await controls.count()).toBeGreaterThan(0)
+   for(const control of await controls.all()){
+    await control.focus()
+    expect(await control.evaluate(node=>{
+     const row=node.closest('[data-slot="top-bar"]')!.getBoundingClientRect(),button=node.getBoundingClientRect()
+     return document.activeElement===node && button.left>=row.left-1 && button.right<=row.right+1 && button.top>=row.top-1 && button.bottom<=row.bottom+1
+    }),await control.getAttribute('aria-label') ?? await control.innerText()).toBe(true)
+   }
+  }
   const board=page.locator('[data-slot="teams-board"]:visible')
   const columns=board.locator('[data-slot="teams-board-column"]')
   await expect(columns).toHaveCount(3)

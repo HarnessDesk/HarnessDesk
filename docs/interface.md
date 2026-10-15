@@ -209,6 +209,11 @@ Zed on the way.
 
 ## Window chrome
 
+**Show Terminal**, from the palette or a menu, opens in the chosen project
+folder, including while a page is open. A conversation uses its own checkout;
+Project settings and Changes review use the project they name. Without a
+chosen folder, the command asks for one.
+
 The window has no status bar. The seat menu carries plan usage and scoped
 Open usage / Sign in actions; background tasks lead Activity, whose tool button
 has a dot while any task runs. Connection trouble is a Banner at main's top,
@@ -262,7 +267,9 @@ docked panels, notices and the seat.
 in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
 start**: New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
-until its first message. Before a repository has its first commit, New worktree…
+until its first message. The project’s right-click menu also offers **New worktree…**,
+for that project, including one with no sessions yet. A folder outside git keeps
+the row disabled with its reason. Before a repository has its first commit, New worktree…
 is replaced by **Make a first commit to work in a worktree**, with a **Commit**
 button that opens the existing commit flow. After that commit the normal
 worktree choice returns. Menus re-read the checkout when opened, so commits
@@ -1069,6 +1076,9 @@ why. The section appears only once the project has a checks file.
 Only the result of a person's action opens a toast: success leaves on its
 own; failure stays until closed. Conditions needing attention keep their
 existing composer, strip or sidebar card, with their action and Inbox option.
+Toasts appear at the upper-right of the window, above the composer, leaving
+Send and the model picker clear. Composer notices keep their action below
+the copy in a narrow container, returning it to the right when widened.
 
 Runtime information belongs quietly in the Inbox. The bell shows an unread
 dot. One row per kind and content keeps a count and the latest time; reading
@@ -1300,11 +1310,12 @@ Refreshing the agent's catalogue clears an unanswered option read so it can
 be tried again; it waits for real turns to finish and keeps conversations an
 agent cannot reopen.
 
-**`/race`** opens a dialog asking for one Agent and two explicit, isolated
-seats — never the other installed runtime, never two ordinary drafts. It
-shows **Judge · optional**, defaulting to **You**. An agent judge may share
-a vendor with either attempt. It shows the same full dry run before Start,
-including the selected judge and person steps a comparison names. A Goal a flow opened shows its own status strip
+**`/race <task>`** opens **New Team → Side by side**, with the task already
+filled in. The two attempts default to two signed-in agents when available;
+with only one signed in, both use it. Each attempt keeps its own model and
+effort controls. **Judge · optional** defaults to **You**, and an agent judge
+may also run either attempt. This is the same form and full dry run as New Team.
+A Goal a flow opened shows its own status strip
 beside the ordinary Goal header — Running, Waiting for evidence, Waiting for
 a person, Interrupted, Stopped or Settled — and an interrupted check's own
 **Review and run again…** action, which asks for a fresh confirmation
@@ -1332,6 +1343,12 @@ returns to the picker and preserves the typed task and each shape's edits.
 Write and review has one fresh independent reviewer and a maximum of one,
 two or three reviews, then either a reviewed merge or a handoff to the person.
 
+The form shows placeholder rows while it reads the chosen shape and checks
+its seats. When **Start** is disabled, one line by the action explains what is
+needed, such as **Add a task first** or **Checking the seats and inputs…**.
+Starting a comparison opens its **Side by side** tiles; **Overview** stays one
+tab away. A saved page choice is preserved when revisiting a Team.
+
 In Side by side and Mechanical contest, **Check each attempt with** starts
 with the project's declared test command when one is available. It can be
 changed before Start; the dry run shows the exact command for each attempt.
@@ -1347,7 +1364,12 @@ sentence and checkout choice already entered.
 
 The form reads the identical strict dry run before **Start**: every Seat must
 *hold* its ceiling here, so a runtime that can only be asked shows its exact
-refusal and fix rather than starting under a weaker policy. Git's branch
+refusal and fix rather than starting under a weaker policy. A read-only refusal
+names the agent and explains that it can be asked to stay read-only but cannot
+be held to it, then offers choosing another agent or starting from **/race**.
+When another agent declares a control for the required ceiling, **Use &lt;agent&gt;**
+selects it for that slot and refreshes the dry run before Start is available.
+Git's branch
 menu, a pull request's own row, ⌘K and an empty Goal's board each open it
 the same way, prefilled with what that place already knows — a branch, a
 pull request, the project itself.
@@ -1453,7 +1475,7 @@ result, findings, and why the Run ended. A repeated role gets its own round.
 Work in flight keeps its doing line; unknown durations and results stay unknown.
 A finding's repair remains a claim until review accepts it; a damaged history
 reads Unreadable with its reason, whatever state its records carry. A finding
-on an attempt a comparison did not keep stays Open and reads **Not kept**;
+on an attempt a comparison did not keep stays Open and reads **Not published**;
 its detail names the revision the review selected for the next step.
 Advisory findings on that attempt carry the same explanation; later reviews
 of the kept attempt leave it in place. An open list or detail updates when
@@ -1496,8 +1518,9 @@ recorded detail with a plain title. Narrow panes retain the reading inset.
 A round with several cards lays them side by side, two or three across when
 its column has room, and as a list beyond three or in a narrow column. Each
 comparison check names its attempt. A recorded pick names the kept revision:
-the kept attempt is lit, the others muted and marked **Not kept**, including
-their findings. Run details lists the attempts with the same pick states.
+the kept attempt is lit, the others muted and marked **Not kept**;
+their findings read **Not published** beside their unchanged lifecycle (for
+example, **Open**). Run details lists the attempts with the same pick states.
 An open blind round carries answered-of-asked progress in its title and one
 line below its cards, **Blind until the round closes**. Blindness comes from
 the host's enforced round policy, never a Seat's permission level.
@@ -1526,7 +1549,7 @@ Tabs closed during a visit stay closed when focus returns to that pane.
 The Run header, Overview strip and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:
 **Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
-**Not posted** when posting is on for a bound pull request, or **Kept on the desk**.
+**Not posted** when posting is on for a bound pull request, or **This desk only**.
 An absent round or one with no decision has no chip. The inspector keeps the
 host's reason whole and offers **Copy review** and **Post to pull request**
 only for a completed, recorded review with text to copy.
@@ -1546,8 +1569,10 @@ were used. An unrouted answer, stall or spent budget keeps the Run and Team
 **Needs you**.
 
 **Run again…** reads the earlier Run’s saved Flow, inputs and brief into the
-same start preview, with the seat preferences open to change. **Start**
-creates a fresh Run on the same Team and records which Run it continues; both
+same start preview, with the seat preferences open to change. Its progress
+first names the saved Flow and inputs being read, then the fresh seat and
+input check; Start keeps the current reason beside it until that check finishes.
+**Start** creates a fresh Run on the same Team and records which Run it continues; both
 stay in the chooser beside the Run’s name. This starts from the seed step.
 The Flow name and digest in the header open the frozen Flow tab. Check
 commands in the Flow drawing, Steps list, Timeline and inspector shorten the

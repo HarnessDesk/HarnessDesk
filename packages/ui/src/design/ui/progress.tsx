@@ -187,7 +187,7 @@ type ProgressStackProps = Omit<React.ComponentProps<'div'>, 'children'> & {
 
 const ProgressStack = ({ label, parts, className, ...props }: ProgressStackProps) => (
   <div data-slot="progress-stack" role="img" aria-label={label} className={cn('flex flex-col', className)} {...props}>
-    <div className="mx-2 mb-2 mt-0.5 flex h-1.5 gap-0.5 overflow-hidden rounded-(--hd-radius-xs)" aria-hidden>
+    <div className="mx-(--hd-inset-row) mb-2 mt-0.5 flex h-1.5 gap-0.5 overflow-hidden rounded-(--hd-radius-xs)" aria-hidden>
       {parts.map((part, index) => (
         <span
           key={part.id}
@@ -200,8 +200,8 @@ const ProgressStack = ({ label, parts, className, ...props }: ProgressStackProps
     </div>
     {parts.some((part) => part.label != null) && (
       <div className="flex flex-col">
-        {parts.map((part, index) => (
-          <div key={part.id} data-slot="progress-stack-row" className="flex items-baseline gap-2 px-2 py-1 text-sm leading-(--hd-line-sm)">
+        {parts.map((part, index) => part.label == null ? null : (
+          <div key={part.id} data-slot="progress-stack-row" className="flex items-baseline gap-2 px-(--hd-inset-row) py-1 text-sm leading-(--hd-line-sm)">
             <span aria-hidden {...(stackFill(part) ? {} : { 'data-part': index % 4 })} className={cn('size-2 shrink-0 self-center rounded-(--hd-radius-2xs)', stackFill(part) ?? styles.stackSwatch)} />
             <span className="min-w-0 flex-1 text-(--hd-secondary-foreground)">
               {part.label}

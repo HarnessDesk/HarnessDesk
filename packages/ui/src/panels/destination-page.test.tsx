@@ -55,7 +55,7 @@ for (const width of [720,1440]) it(`uses the existing work lead and corner polic
 
 it('folderless page More omits retained terminals while Settings keeps its quiet bar', async () => {
   const base = emptySnapshot()
-  const store = previewStore({ workbench: dock(base.workbench, 'bottom', { kind: 'terminal', terminalId: 'retained-pty', runtime: 'fixture' as never, cwd: '/synthetic/shell' }) })
+  const store = previewStore({ workspace: null, workbench: dock(base.workbench, 'bottom', { kind: 'terminal', terminalId: 'retained-pty', runtime: 'fixture' as never, cwd: '/synthetic/shell' }) })
   store.patch({ workbench: { ...store.getSnapshot().workbench, navigation: { ...base.workbench.navigation, current: { kind: 'agents', id: null } } } })
   const render = (owner: string) => act(() => root.render(<StoreProvider store={store}><TopBarProvider>
     <DestinationPageScope owner={owner} active><DestinationBar place="Agents" more={() => <span>Page actions</span>} /></DestinationPageScope>

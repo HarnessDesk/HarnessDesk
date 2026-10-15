@@ -228,10 +228,10 @@ describe('runTimeline · a comparison', () => {
     const finding = (id: string, patch: Partial<FindingView> = {}): FindingView => ({ id, origin: { goal: 'team', run: 'run', round: 3, card: 5, seat: 'seat-5', at: REV.b }, ownerGoal: 'team',
       title: `Finding ${id}`, body: '', category: 'ordinary', blocking: true, related: null, anchor: null, lifecycle: { state: 'open', confirmed: false, repairs: [] },
       sequence: 1, evidence: [], posted: [], restored: false, problem: null, ...patch }) as FindingView
-    it('says Not kept beside the lifecycle the finding is still in', () => {
+    it('says Not published beside the lifecycle the finding is still in', () => {
       const findings = [finding('kept'), finding('lost', { activeBlocking: false, inactiveReason: 'The review selected revision bbbbbbbbbbbb for the next step.' })]
       const detail = find(rowsOf({ ...comparison(), findings }), 'findings-3').detail!.split('\n')
-      assert.deepEqual(detail, ['Finding kept · Open', 'Finding lost · Open · Not kept'])
+      assert.deepEqual(detail, ['Finding kept · Open', 'Finding lost · Open · Not published'])
     })
   })
 })

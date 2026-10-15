@@ -18,6 +18,9 @@ import { cn } from '@/lib/utils'
  *           control, whose own box carries its ink. `ink` puts it where the
  *           rows below it draw their ink (`--hd-bar-ink`), for a bar that
  *           starts with words standing over a list of navigation rows.
+ *           `rail` is `box` on the left column's tighter gutter
+ *           (`--hd-rail-inset`) on both sides: the column's own top row and
+ *           seat, whose controls and names stand over its rows.
  *   corner  The bar owns the window's top-left corner, so its leading padding
  *           is at least the room the native window buttons take. See
  *           `--titlebar-inset` in `app.css`.
@@ -47,7 +50,7 @@ const Bar = ({
   ...props
 }: React.ComponentProps<'div'> & {
   as?: 'div' | 'header' | 'footer'
-  inset?: 'box' | 'ink'
+  inset?: 'box' | 'ink' | 'rail'
   corner?: boolean
   rule?: 'top' | 'bottom'
   /** Paint a seam without consuming a pixel of the controls' region. */
@@ -62,11 +65,13 @@ const Bar = ({
     {...(rule ? { 'data-rule': rule } : {})}
     {...(active ? { 'data-active': '' } : {})}
     className={cn(
-      'flex shrink-0 items-center gap-(--hd-bar-gap) pr-(--hd-bar-pad)',
+      'flex shrink-0 items-center gap-(--hd-bar-gap)',
+      inset === 'rail' ? 'pr-(--hd-rail-inset)' : 'pr-(--hd-bar-pad)',
       'h-(--hd-bar-h)',
       grow && ['h-auto py-(--hd-space-1)', 'min-h-(--hd-bar-h)'],
       inset === 'box' && (corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-pad)'),
       inset === 'ink' && (corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-ink)'),
+      inset === 'rail' && (corner ? 'pl-[max(var(--hd-rail-inset),var(--titlebar-inset,0px))]' : 'pl-(--hd-rail-inset)'),
       rule === 'bottom' && !paintedRule && 'border-b border-(--hd-border)',
       rule === 'top' && !paintedRule && 'border-t border-(--hd-border)',
       paintedRule && rule && ['relative after:absolute after:pointer-events-none after:inset-x-0 after:h-(--hd-border-width) after:bg-(--hd-border)', rule === 'top' ? 'after:top-0' : 'after:bottom-0'],

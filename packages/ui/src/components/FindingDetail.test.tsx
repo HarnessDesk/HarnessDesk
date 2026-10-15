@@ -318,7 +318,7 @@ it('shows why a losing attempt stays open without gating the picked attempt', as
   const reason = 'The review selected revision bbbbbbbbbbbb for the next step.'
   const { store } = rig(page({ finding: { ...base.finding, activeBlocking: false, inactiveReason: reason } }))
   await render(store)
-  expect(document.body.textContent).toContain('Not kept')
+  expect(document.body.textContent).toContain('Not published')
   expect(document.body.textContent).toContain(reason)
 })
 
@@ -347,9 +347,9 @@ it('an old first read cannot overwrite the accepted comparison detail', async ()
   await render(store)
   accept()
   await act(async () => {})
-  expect(document.body.textContent).toContain('Not kept')
+  expect(document.body.textContent).toContain('Not published')
   await act(async () => { finish(page()) })
-  expect(document.body.textContent).toContain('Not kept')
+  expect(document.body.textContent).toContain('Not published')
 })
 
 it('an old history page cannot overwrite the accepted comparison detail', async () => {
@@ -363,7 +363,7 @@ it('an old history page cannot overwrite the accepted comparison detail', async 
   readFinding.mockResolvedValue(page({ finding: { ...page().finding, inactiveReason: 'The review selected revision bbbbbbbbbbbb for the next step.' } }))
   accept()
   await act(async () => {})
-  expect(document.body.textContent).toContain('Not kept')
+  expect(document.body.textContent).toContain('Not published')
   await act(async () => { finish(page()) })
-  expect(document.body.textContent).toContain('Not kept')
+  expect(document.body.textContent).toContain('Not published')
 })

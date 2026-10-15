@@ -44,7 +44,10 @@ it.each(['unlisted', 'alias'])('refreshes the project menu independently of rece
     request.mockResolvedValueOnce(null as never)
     await act(async () => store.refreshWorkspaceGit(path))
     await act(async () => { await new Promise<void>(done => requestAnimationFrame(() => done())) })
-    expect(document.body.textContent).not.toContain('New worktree')
+    // A folder outside Git keeps the row, disabled with its reason (#1635).
+    const outside = [...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent?.startsWith('New worktree'))
+    expect(outside?.getAttribute('aria-disabled')).toBe('true')
+    expect(document.body.textContent).toContain('Worktrees need a git repository.')
     expect(document.body.textContent).not.toContain('Make a first commit to work in a worktree')
     expect(store.getSnapshot().workspaces).toEqual(recent)
     expect(store.getSnapshot().workspace).toBeNull()

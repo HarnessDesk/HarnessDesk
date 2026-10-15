@@ -42,11 +42,13 @@ test('E5 Teams column background reaches the window top', async ({ page }) => {
 })
 {
 
-  for (const [item0, query] of (['frame-wall=teams', 'frame-wall=teams&frame-no-folder=1']).entries()) test(`E5 Teams offers a useful More menu with or without a folder [item ${[item0].join('-')}]`, async ({ page }) => {
+  for (const [item0, query] of (['frame-wall=teams', 'frame-wall=teams&frame-no-folder=1']).entries()) test(`E5 Teams More keeps Refresh and offers Terminal only with a chosen folder [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, query, 'light')
     await page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button').click()
     await expect(page.getByRole('menuitem',{name:'Refresh Teams',exact:true})).toBeVisible()
+    await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(query.includes('frame-no-folder=1') ? 0 : 1)
+    await expect(page.getByRole('menuitem', { name: 'New Team', exact: true })).toHaveCount(0)
 
 
   })

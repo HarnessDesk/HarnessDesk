@@ -4,18 +4,24 @@
 .fixed { display: flex; align-items: center; flex: none; gap: var(--hd-bar-gap); }
 .fixed:empty { display: none; }
 .row [data-topbar="tabs"] { flex: none; }
-.place { display: flex; align-items: center; gap: var(--hd-bar-gap); flex: 0 1 auto; min-width: 0; }
-.title { display: flex; align-items: center; gap: var(--hd-bar-gap); flex: 1 1 auto; width: max-content; min-width: var(--hd-bar-title-min); }
+.place { display: flex; align-items: center; gap: var(--hd-bar-gap); flex: 0 1 auto; min-width: 0; margin-right: calc(var(--hd-space-4) - var(--hd-bar-gap)); }
+.title { display: flex; align-items: center; gap: var(--hd-bar-gap); flex: 0 1 auto; width: max-content; min-width: 0; max-width: var(--hd-bar-title-max); }
+.placeMenu { display: inline-flex; align-items: center; gap: var(--hd-space-1); min-width: 0; }
+.placeMenu > svg { flex: none; color: var(--hd-secondary-foreground); }
+/* A title that opens a menu is a ghost button; its padding stands out into the
+   bar's gap so the words keep the plain title's x. */
+.title:has([data-topbar-place-menu]) { margin-inline-start: calc(0px - var(--hd-space-2)); }
+.title [data-slot='popover-trigger'] { min-width: 0; max-width: 100%; }
 .place { flex-basis: max-content; }
 .title > [data-slot='text'] { display: block; flex: 0 1 auto; width: max-content; max-width: 100%; min-width: 0; }
 .title > [data-topbar='state'] { flex: none; }
 .spacer { flex: 1 1 0; min-width: 0; }
 .tabs { flex-wrap: nowrap; flex: none; }
 
-.row [data-topbar="tools"] { gap: var(--hd-space-0-5); }
+.row [data-topbar="tools"] { gap: var(--hd-bar-tool-gap); }
 .row [data-topbar="tools"][data-standing] { width: var(--topbar-right-column); height: var(--hd-bar-h); padding-inline: var(--hd-bar-pad); padding-bottom: var(--hd-border-width); margin-bottom: calc(0px - var(--hd-border-width)); margin-right: calc(0px - var(--hd-bar-pad)); }
 .row [data-work-tool][aria-pressed="true"],
-.row [data-work-panel-toggle][aria-pressed="true"] { background: var(--hd-muted); color: var(--hd-foreground); box-shadow: inset 0 0 0 var(--hd-border-width) var(--hd-border-strong); }
+.row [data-work-panel-toggle][aria-pressed="true"] { background: var(--hd-muted); color: var(--hd-foreground); }
 .row [data-work-tools-spacer] { flex: 1; min-width: 0; }
 
 .toolButton { position: relative; }

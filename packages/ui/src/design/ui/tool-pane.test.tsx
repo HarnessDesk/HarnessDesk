@@ -77,14 +77,17 @@ it('uses the header inset for a padded body so their content starts together', (
       <ToolPaneBody>body</ToolPaneBody>
     </ToolPane>,
   ))
-  expect(container.querySelector('[data-slot="tool-pane-header"]')?.className).toContain('px-(--hd-bar-pad)')
+  expect(container.querySelector('[data-slot="tool-pane-header"]')?.className).toContain('pl-(--hd-inset-dense)')
   expect(container.querySelector('[data-slot="tool-pane-body"]')?.className).toContain('p-(--hd-inset-dense)')
   expect(container.querySelector('[data-slot="tool-pane-body"]')?.className).toContain('gap-(--hd-card-gap)')
 })
 
-it('uses the shared stack gap for tool panel sections', () => {
+it('stacks tool panel cards on the column ground', () => {
   act(() => root.render(<ToolPaneBody inset="tool"><div>One</div><div>Two</div></ToolPaneBody>))
-  expect(container.querySelector('[data-slot="tool-pane-body"]')?.className).toContain('gap-(--hd-card-gap)')
+  const body = container.querySelector('[data-slot="tool-pane-body"]')?.className
+  expect(body).toContain('gap-(--hd-panel-card-gap)')
+  expect(body).toContain('bg-(--hd-background)')
+  expect(body).toContain('p-(--hd-panel-pad)')
 })
 
 it('owns the bars, messages, document tabs and activity anatomy', () => {

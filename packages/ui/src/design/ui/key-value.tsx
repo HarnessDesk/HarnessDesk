@@ -133,8 +133,14 @@ const KeyValue = ({
   className,
   columns = 1,
   variant = 'default',
+  inset,
   ...props
-}: React.ComponentProps<'dl'> & { columns?: 1 | 2; variant?: 'default' | 'panel' }) => (
+}: React.ComponentProps<'dl'> & {
+  columns?: 1 | 2
+  variant?: 'default' | 'panel'
+  /** `row`: the facts stand on the row edge, as a panel card's rows and headings do. */
+  inset?: 'row'
+}) => (
   <dl
     data-slot="key-value"
     data-variant={variant}
@@ -142,6 +148,7 @@ const KeyValue = ({
       'group/kv grid min-w-0',
       variant === 'default' && 'gap-x-6 gap-y-2 text-base',
       variant === 'panel' && 'gap-x-2.5 gap-y-0.5 text-sm',
+      inset === 'row' && 'px-(--hd-inset-row)',
       /* `minmax(0, 1fr)` says outright that the value column may be narrower
          than its content — the value's own `min-w-0` already let it. That is
          not what kept the path in the dialog: the path was one unbreakable

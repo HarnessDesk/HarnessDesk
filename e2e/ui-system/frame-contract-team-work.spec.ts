@@ -1,3 +1,4 @@
+import { expectTitleRoom } from './title-contract'
 import { selectRunView } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import { FRAME, FRAME_TOKENS } from '../../packages/ui/src/design/frame'
@@ -67,14 +68,14 @@ for (const theme of WALL_THEMES) {
       const verb = bar.getByRole('button', { name: 'Stop run…', exact: true })
       await expect(verb).toBeVisible()
       await expect(verb.locator('svg')).toHaveCount(0)
-      await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+      await expectTitleRoom(bar.locator('[data-topbar-title]'))
       const view = bar.locator('[data-topbar="view"]')
       const before = (await view.boundingBox())!
       await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Flow')
       await expect(main.locator('[data-slot="run-flow"]')).toBeVisible()
       await expect(main.locator('[data-slot="flow-canvas"] .react-flow__node')).toHaveCount(4)
       await expect.poll(async () => (await view.boundingBox())!.x).toBe(before.x)
-      await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+      await expectTitleRoom(bar.locator('[data-topbar-title]'))
       await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
       await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Timeline')
       await expect(main.locator('[data-slot="run-steps"]')).toBeVisible()

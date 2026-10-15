@@ -343,7 +343,7 @@ Two reads carry them, and they differ in what they cover:
 | `partial` (the Run's, or a round's) | Partly posted | warning |
 | `uncertain` (the Run's, or a round's) | Not confirmed | warning |
 | `local` (the Run's, or a round's), with a pull request bound and posting on | Not posted | warning |
-| `local`, otherwise | Kept on the desk | neutral |
+| `local`, otherwise | This desk only | neutral |
 | a round with no findings, or whose `state` is `none` | no chip | |
 
 The inspector says why in the host's words, and offers **Copy review**, which

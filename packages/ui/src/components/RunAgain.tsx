@@ -16,9 +16,14 @@ export const RunAgain = ({ execution, root, sentence, onClose, onStarted }: {
   const [initial, setInitial] = useState<FlowStartProps['initial']>(undefined)
   const [choice, setChoice] = useState<FlowChoice | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  const [progress, setProgress] = useState<string | null>('Reading the saved Flow and inputs…')
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     let live = true
+    setInitial(undefined)
+    setChoice(null)
+    setProblem(null)
+    setProgress('Reading the saved Flow and inputs…')
     void store.flowExecutionSource(execution.id).then(saved => {
       if (live) setInitial({ ...saved, seats: execution.overrides, attended: execution.attended !== false })
     }, error => { if (live) setProblem(error instanceof Error ? error.message : String(error)) })
@@ -39,13 +44,13 @@ export const RunAgain = ({ execution, root, sentence, onClose, onStarted }: {
       setBusy(false)
     }
   }
-  return <Dialog title="Run again" size="md" onClose={onClose} footer={<>
-    <Button disabled={!choice || busy} onClick={() => void start()}>{busy ? 'Starting…' : 'Start'}</Button>
+  return <Dialog title="Run again" size="md" onClose={onClose} footerAside={!choice && <Note id="run-start-reason" role="status">{problem ? 'Resolve the error before starting.' : `${progress ?? 'Check the seats and inputs before starting.'}`}</Note>} footer={<>
+    <Button aria-describedby={!choice ? "run-start-reason" : undefined} disabled={!choice || busy} onClick={() => void start()}>{busy ? 'Starting…' : 'Start'}</Button>
     <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
   </>}>
     <FormStack>
       <Note>This starts a new Run on this Team. The earlier Run’s cards, findings and output are kept.</Note>
-      {initial ? <FlowStart root={root} continues={execution.id} initial={initial} disabled={busy} onChange={setChoice} /> : !problem && <Note>Reading the earlier Run’s inputs…</Note>}
+      {initial ? <FlowStart root={root} continues={execution.id} initial={initial} disabled={busy} onChange={setChoice} onStatus={setProgress} /> : null}
       {problem && <ActionError>{problem}</ActionError>}
     </FormStack>
   </Dialog>

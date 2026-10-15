@@ -919,7 +919,7 @@ test('status and run show replay the window stream, including check evidence, pa
   const show = launch(t, directory, home, ['run', 'show', 'demo-run', '--trace-wire'])
   assert.equal(await show.exit, 0, show.output().stderr)
   assert.equal(show.output().stdout, [
-    'demo-run  Scripted demo  running  unattended  revision demo-revision  continues previous-run  Kept on the desk',
+    'demo-run  Scripted demo  running  unattended  revision demo-revision  continues previous-run  This desk only',
     ...replay.expectedRows, 'writer  override  demo', '',
   ].join('\n'))
   const sends = show.output().stderr.trim().split('\n').map(line => JSON.parse(line)).filter(e => e.direction === 'send')
@@ -935,5 +935,5 @@ test('status and run show replay the window stream, including check evidence, pa
   stopped = true
   const ended = launch(t, directory, home, ['run', 'show', 'demo-run'])
   assert.equal(await ended.exit, 0, ended.output().stderr)
-  assert.ok(ended.output().stdout.includes('Stopped by you  Kept on the desk  Pause the demo.'))
+  assert.ok(ended.output().stdout.includes('Stopped by you  This desk only  Pause the demo.'))
 })

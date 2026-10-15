@@ -807,7 +807,7 @@
    the tighter step it had, and so does the Dashboard's sticky band, which is a
    page heading with its own padding rather than a label over a card. */
 [data-slot='page'] .sectionHead:not([data-sticky]) {
-  margin-top: calc(var(--hd-space-8) - var(--hd-card-gap)); /* desk: 32px head margin → 20px plus page gap = the 32px section step */
+  margin-top: calc(var(--hd-space-8) - var(--hd-page-stack)); /* desk: 32px head margin → 16px plus the page's stack = the 32px section step */
 }
 
 .sectionHead[data-sticky] {

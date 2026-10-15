@@ -1,3 +1,4 @@
+import { expectTitleRoom } from './title-contract'
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
@@ -106,7 +107,7 @@ for (const theme of ['light', 'dark'] as const) {
     })
     expect(geometry.characters, JSON.stringify(geometry)).toBeGreaterThanOrEqual(10)
     expect(geometry.buttonsInside).toBe(true)
-    expect(geometry.titleWidth).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+    await expectTitleRoom(header.locator('[data-topbar-title]'))
     expect((await header.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
 
     const directory = process.env.TEAM_RUNS_SHOTS_DIR

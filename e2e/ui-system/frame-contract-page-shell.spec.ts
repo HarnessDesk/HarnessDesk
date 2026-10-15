@@ -1,3 +1,4 @@
+import { expectTitleRoom } from './title-contract'
 import { measureDestination, expectDestinationTab } from './frame-page-contract'
 import { expect, test } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
@@ -38,7 +39,7 @@ for (const theme of WALL_THEMES) {
       await expect(bar.locator('[data-topbar="place"] button')).toHaveCount(width===1440 ? 3 : 1)
       const labels = await bar.locator('[data-topbar="place"] button').allTextContents()
       expect(labels).toEqual(width===1440 ? ['Settings ›','Runtimes ›','Alpha ›'] : ['Alpha ›'])
-      expect((await bar.locator('[data-topbar-title]').boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+      await expectTitleRoom(bar.locator('[data-topbar-title]'))
       await bar.getByRole('button',{name:'Alpha ›',exact:true}).click()
       const receipt = page.locator('[data-parent-choice]')
       await expect(receipt).toHaveAttribute('data-parent-choice','Alpha')
@@ -65,7 +66,7 @@ for (const theme of WALL_THEMES) {
 
 for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
   test(`E9 only the permanent shell frames a destination ${width} ${theme}`, async ({ page }) => {
-    await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=capabilities', 'wide', theme, width, { more: 'absent' })
+    await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=capabilities', 'wide', theme, width)
     await expect(page.locator('[data-app-window-left-frame], [data-slot="app-window"]')).toHaveCount(0)
     await expect(page.locator('[data-slot="page-head"], [data-slot="detail-head"]')).toHaveCount(0)
     await expectDestinationTab(page, 'capabilities')

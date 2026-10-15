@@ -889,3 +889,15 @@ it('historical tasks callers open the complete Activity body', async () => {
   const subject = store.workSubject()!
   expect(store.getSnapshot().workbench.frameTools[subject]?.mode).toBe('activity')
 })
+
+
+it('Show Terminal uses the chosen project on a page instead of the retained conversation', async () => {
+  answers['session/read'] = conversation('old-project', OTHER.path)
+  answers['terminal/open'] = { terminalId: 'page-terminal', runtime: AGENT }
+  await store.openSession(sessionId('old-project'), { runtime: AGENT })
+  store.openDestination({ kind: 'settings', route: { kind: 'project', root: REPO.path } })
+  await store.openTerminal()
+  expect(calls('terminal/open').at(-1)).toMatchObject({ cwd: REPO.path })
+  expect(calls('terminal/open').at(-1)).not.toHaveProperty('sessionId')
+  expect(dockViews(store.getSnapshot().workbench.bottom).at(-1)?.view).toMatchObject({ kind: 'terminal', cwd: REPO.path })
+})

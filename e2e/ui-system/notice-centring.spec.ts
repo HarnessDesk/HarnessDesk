@@ -175,7 +175,7 @@ test('one-line notices centre every part; wrapped notices keep the lead on line 
   expect(Math.abs(dismiss!.y + dismiss!.height / 2 - (row!.y + row!.height / 2)), 'wrapped dismiss centres on the row').toBeLessThanOrEqual(1)
 })
 
-test('composer wrapping follows narrow and wide container resizes', async ({ page }) => {
+test('composer action placement follows narrow and wide container resizes', async ({ page }) => {
   await openBoard(page, 'Notices')
   const composer = page.locator('[data-alignment-board-id="notices"] [data-slot="composer-notice"]')
     .filter({ hasText: 'Alpha can continue.' }).first()
@@ -186,10 +186,10 @@ test('composer wrapping follows narrow and wide container resizes', async ({ pag
   await expect(composer).not.toHaveAttribute('data-wrapped', '')
 
   await parent.evaluate(element => { (element as HTMLElement).style.width = '320px' })
-  await expect(composer).toHaveAttribute('data-wrapped', '')
-  await expectLeadOnFirstLine(lead, line, 'resized composer')
-  await expectCentered(composer.getByRole('button', { name: 'Continue with Alpha' }), composer, 'narrow composer action')
-  await expectCentered(composer.getByRole('button', { name: 'Dismiss' }), composer, 'narrow composer dismiss')
+  const narrowLine = (await line.boundingBox())!
+  const narrowAction = (await composer.getByRole('button', { name: 'Continue with Alpha' }).boundingBox())!
+  expect(narrowAction.y, 'the action leaves the full row for copy').toBeGreaterThanOrEqual(narrowLine.y + narrowLine.height)
+  await expectCentered(composer.getByRole('button', { name: 'Dismiss' }), line, 'narrow composer dismiss')
 
   await parent.evaluate(element => { (element as HTMLElement).style.width = '900px' })
   await expect(composer).not.toHaveAttribute('data-wrapped', '')
@@ -206,7 +206,11 @@ test('unbreakable notice paths wrap before controls and a card keeps its copy in
   await expectLeadOnFirstLine(composer.locator('[data-slot="notice-lead"] [data-size="md"]'), composerLine, 'long-path composer')
   const composerAction = await composer.getByRole('button', { name: 'Continue with Alpha' }).boundingBox()
   expect(composerAction).not.toBeNull()
-  expect(Math.max(...(await textRects(composerLine)).map(rect => rect.right)), 'composer path must not enter action').toBeLessThanOrEqual(composerAction!.x)
+  for (const rect of await textRects(composerLine)) {
+    expect(rect.right <= composerAction!.x || rect.left >= composerAction!.x + composerAction!.width
+      || rect.top + rect.height <= composerAction!.y || rect.top >= composerAction!.y + composerAction!.height,
+    'composer path must not enter action, including when it folds below').toBe(true)
+  }
   const composerDismiss = await composer.getByRole('button', { name: 'Dismiss' }).boundingBox()
   expect(composerDismiss).not.toBeNull()
   expect(Math.max(...(await textRects(composerLine)).map(rect => rect.right)), 'composer path must not enter dismiss').toBeLessThanOrEqual(composerDismiss!.x)

@@ -1,3 +1,4 @@
+import { expectTitleRoom } from './title-contract'
 import { expect, test, type Locator } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { closeTeamDetails, seatActions, selectTeamPage, teamBar, teamSeats } from './team-frame-actions'
@@ -18,7 +19,7 @@ for (const theme of ['light', 'dark'] as const) {
       const titleBox = await title.boundingBox()
       const barBox = (await bar.locator('..').boundingBox())!
       expect(titleBox, `${scene}: the pane title is visible`).not.toBeNull()
-      expect(titleBox!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+      await expectTitleRoom(title)
       expect(barBox.height).toBe(FRAME.bar.height)
       expect(titleBox!.x).toBeGreaterThanOrEqual(barBox.x)
       expect(titleBox!.x + titleBox!.width).toBeLessThanOrEqual(barBox.x + barBox.width)

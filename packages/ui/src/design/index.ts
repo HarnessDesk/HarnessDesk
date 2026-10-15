@@ -231,7 +231,7 @@ export { MergeDialog, DiffRangeDialog } from './patterns/GitComparisonDialogs'
 
 export { TopBar, TopBarToolButton, type TopBarProps, type TopBarAction, type TopBarTab } from './patterns/TopBar'
 
-export { ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse } from './patterns/ToolBody'
+export { ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolRow, ToolFold } from './patterns/ToolBody'
 export { ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, ToolFooterSuppressed, type ToolFoot } from './patterns/ToolFooter'
 
 export { SeatList, type SeatListRow } from './patterns/SeatList'

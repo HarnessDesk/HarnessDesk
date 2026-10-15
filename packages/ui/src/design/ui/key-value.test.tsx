@@ -204,3 +204,10 @@ it.each(['Edited worktrees.ts', 'very filename.ts'])('keeps the word boundary vi
   expect(visible.join('').replaceAll('\u00a0', ' ')).toBe(text)
   expect(line.querySelector('.sr-only')?.textContent).toBe(text)
 })
+
+it('stands its facts on the row edge only when asked', () => {
+  act(() => root.render(<><KeyValue inset="row"><KeyValueRow label="Agent">Alpha</KeyValueRow></KeyValue><KeyValue><KeyValueRow label="Agent">Beta</KeyValueRow></KeyValue></>))
+  const [inset, flush] = container.querySelectorAll('[data-slot="key-value"]')
+  expect(inset!.className).toContain('px-(--hd-inset-row)')
+  expect(flush!.className).not.toContain('px-(--hd-inset-row)')
+})

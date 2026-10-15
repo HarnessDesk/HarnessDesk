@@ -63,8 +63,8 @@ export const lifecycleTone = (view: FindingView): LifecycleTone => {
  * an accepted selection may instead explain why an attempt was not kept;
  * other rows carry the raw claim.
  */
-export const blockingWords = (view: FindingView): 'Blocking' | 'Advisory' | 'Not kept' =>
-  view.inactiveReason ? 'Not kept' : ((view.activeBlocking ?? view.blocking) ? 'Blocking' : 'Advisory')
+export const blockingWords = (view: FindingView): 'Blocking' | 'Advisory' | 'Not published' =>
+  view.inactiveReason ? 'Not published' : ((view.activeBlocking ?? view.blocking) ? 'Blocking' : 'Advisory')
 
 /** Where one posting actually landed, in the reader's own words — never a raw wire kind. */
 export const postWords = (post: FindingPost): string => (post.kind === 'review-comment' ? 'Review thread' : 'PR comment')

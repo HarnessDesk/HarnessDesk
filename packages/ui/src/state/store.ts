@@ -2820,11 +2820,9 @@ export class AppStore {
   }
 
   /**
-   * Opens the race dialog on the typed task — dialog state only. It no
-   * longer picks the other installed runtime or creates two drafts itself:
-   * `RaceStart` chooses one Agent and two explicit, isolated seats, then
-   * starts the ordinary `comparison` flow through `flow/start-goal`, the
-   * same single-Goal path every other flow start takes.
+   * Opens New Team on Side by side with the typed task — dialog state only.
+   * `RaceStart` delegates to the ordinary form and its source-bound preview;
+   * starting creates one Team through the same `flow/start-goal` path.
    */
   async raceAgents(text: string): Promise<void> {
     this.#patch({ raceStart: { task: text } })
@@ -3947,14 +3945,29 @@ export class AppStore {
     }
     const runtime = this.#snapshot.activeRuntime
     const sessionKeyNow = this.#snapshot.activeSessionKey
-    const session = sessionKeyNow ? this.#snapshot.sessions.get(sessionKeyNow) : undefined
     const cwd = options.cwd ?? terminalCwdForSnapshot(this.#snapshot)
+    const candidate = sessionKeyNow ? this.#snapshot.sessions.get(sessionKeyNow) : undefined
+    const session = this.#snapshot.workbench.navigation.current.kind === 'work' && candidate?.cwd === cwd
+      ? candidate : undefined
     if (!runtime || !cwd) {
       this.resultNotice('warning', 'Choose a project folder before opening a terminal.')
       return
     }
     const epoch = this.#dockEpoch
     try {
+      if (!session && cwd !== this.#snapshot.workspace?.path) {
+        // A page can name the main checkout while only a linked worktree
+        // is open. Admit that explicit choice without changing the page or
+        // its retained workspace, then restore the host's shell/plugin scope.
+        this.#workspaceOpensPending += 1
+        this.#workspaceReconcileNeeded = true
+        try {
+          await this.transport.request('workspace/open', { path: cwd })
+        } finally {
+          await this.#settleWorkspaceOpen()
+        }
+        if (epoch !== this.#dockEpoch) return
+      }
       const { terminalId, runtime: provider } = await this.transport.request('terminal/open', {
         runtime,
         cwd,

@@ -51,12 +51,13 @@ export interface FlowStartProps {
   readonly onChange: (choice: FlowChoice | null) => void
   /** A Run's exact saved text and inputs, rather than the current catalogue file. */
   readonly initial?: { readonly source: string; readonly vars: Readonly<Record<string, string>> } & FlowRunOptions
+  readonly onStatus?: (status: string | null) => void
   readonly team?: TeamFormProps
 }
 
 export const FlowStart = (props: FlowStartProps) => props.team ? <TeamForm {...props.team} /> : <FlowStartContents {...props} />
 
-const FlowStartContents = ({ root, disabled, onChange, initial, continues }: FlowStartProps) => {
+const FlowStartContents = ({ root, disabled, onChange, initial, continues, onStatus }: FlowStartProps) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [entries, setEntries] = useState<readonly FlowEntry[] | null>(null)
@@ -87,7 +88,8 @@ const FlowStartContents = ({ root, disabled, onChange, initial, continues }: Flo
   const readingBrief = useCallback((reading: boolean): void => {
     briefReading.current = reading
     onChange(reading ? null : checkedChoice.current)
-  }, [onChange])
+    onStatus?.(reading ? 'Reading the attached brief…' : checkedChoice.current ? null : 'Checking the earlier Run’s seats and inputs…')
+  }, [onChange, onStatus])
 
   useEffect(() => {
     let live = true
@@ -120,6 +122,7 @@ const FlowStartContents = ({ root, disabled, onChange, initial, continues }: Flo
       const mine = ++sequence.current
       const generation = store.flowGeneration()
       reportChoice(null)
+      onStatus?.('Checking the earlier Run’s seats and inputs…')
       setProblem(null)
       try {
         const options = initial ? { seats: nextSeats, attended: initial.attended, ...(continues ? { continues } : {}) } : undefined
@@ -143,13 +146,16 @@ const FlowStartContents = ({ root, disabled, onChange, initial, continues }: Flo
           }
         }
         setPreview(dry)
+        onStatus?.(startable(dry) ? null : dry.problems.find(one => one.level === 'error')?.text ?? 'Resolve the dry-run requirements first.')
         if (startable(dry)) reportChoice({ source: text, token: dry.token!, vars: nextVars, ...options })
       } catch (error) {
         if (mine !== sequence.current) return
-        setProblem(error instanceof Error ? error.message : 'That flow could not be checked.')
+        const text = error instanceof Error ? error.message : 'That flow could not be checked.'
+        setProblem(text)
+        onStatus?.(text)
       }
     },
-    [reportChoice, root, store, seats, initial, continues],
+    [reportChoice, root, store, seats, initial, continues, onStatus],
   )
 
   useEffect(() => {
@@ -262,7 +268,7 @@ const FlowStartContents = ({ root, disabled, onChange, initial, continues }: Flo
           </NativeSelect>
         )}
       </Field>}
-      {initial && (document?.flow.name || !preview) && <Text role="subject">{document?.flow.name || 'Reading the earlier Run’s Flow…'}</Text>}
+      {initial && (document?.flow.name || !preview && !onStatus) && <Text role="subject">{document?.flow.name || 'Reading the earlier Run’s Flow…'}</Text>}
 
       {problem && <ActionError>That flow could not be read. {problem}</ActionError>}
 
@@ -622,13 +628,30 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
   const checkHint = judgeOn ? 'Leave empty to let the judge read the attempts directly.' : 'Leave empty to choose from the attempts directly.'
   const checkControl = (control: { id: string; 'aria-describedby'?: string }) => <Input {...control} disabled={editingDisabled} value={attemptCheck?.kind === 'check' ? attemptCheck.check.run : ''} onChange={event => onPolicy(withAttemptCheck(flow, template, event.target.value))} />
   const editRole = (role: FlowAgentRole): void => onPolicy({ ...flow, roles: flow.roles.map(one => one.id === role.id ? role : one) })
+  const alternativeFor = (seat: FlowPreviewSeat | undefined) => {
+    if (!seat || seatTaken(seat.plan)) return undefined
+    const refusal = seat.plan.candidates.find(one => one.reason !== null)?.reason
+    return refusal?.kind === 'unheld' && refusal.required
+      ? snapshot.runtimes.find(one => one.ceilings?.[refusal.level] && !seat.plan.candidates.some(candidate => candidate.seat.runtime === one.id)) : undefined
+  }
+  const chooseSeat = (seat: FlowPreviewSeat, next: FlowSeat): void => {
+    const role = flow.roles.find(one => one.id === seat.role)
+    if (role?.kind !== 'agent') return
+    const slots = preview.seats.filter(one => one.role === role.id).sort((a, b) => a.index - b.index)
+    const seats = slots.map(one => one.index === seat.index ? next : role.seats[one.index] ?? role.seats[0] ?? seatTaken(one.plan)?.seat ?? one.plan.candidates[0]?.seat)
+    if (seats.every((one): one is FlowSeat => one !== undefined)) editRole({ ...role, seats })
+  }
+  const chooseJudge = (next: FlowSeat | undefined): void => {
+    if (next && judgeOn && judgePreview) chooseSeat(judgePreview, next)
+    else onPolicy(withComparisonJudge(flow, template, next ?? null))
+  }
+  const judgeAlternative = judgeOn ? alternativeFor(judgePreview) : undefined
   return <div className={styles.flow}>
     <section aria-label="Who does what">
       <SectionHead name="Who does what" />
       <Rows>{preview.seats.map(seat => {
         const role = flow.roles.find(one => one.id === seat.role)
         if (role?.kind !== 'agent' || (hasJudge && role.id === 'judge')) return null
-        const slots = preview.seats.filter(one => one.role === role.id).sort((a, b) => a.index - b.index)
         const configured = role.seats[seat.index] ?? role.seats[0]
         const automatic = seatTaken(seat.plan)
         const picked = configured ?? automatic?.seat
@@ -637,14 +660,12 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
           : null
         const label = role.id === flow.seed.role && hasReviewLoop ? 'Writes' : role.id === 'reviewer' ? 'Reviews' : role.id === 'competitor' ? `Attempt ${String.fromCharCode(65 + seat.index)}` : role.id === 'judge' ? 'Judge' : stepName(role.id)
         const repeatsInReviewLoop = seat.reviews && flow.rules.some(rule => rule.on === seat.role && rule.then.role === flow.seed.role)
-        return <Row key={`${role.id}-${seat.index}`} title={<span className={styles.roleTitle}>{label}{repeatsInReviewLoop && <Chip tone="neutral" size="sm">Fresh each round</Chip>}</span>} desc={!seatTaken(seat.plan) ? firstReason(seat.plan) ?? undefined : undefined}
+        const alternative = alternativeFor(seat)
+        return <Row key={`${role.id}-${seat.index}`} title={<span className={styles.roleTitle}>{label}{repeatsInReviewLoop && <Chip tone="neutral" size="sm">Fresh each round</Chip>}</span>} desc={!seatTaken(seat.plan) ? firstReason(seat.plan, snapshot.runtimes) ?? undefined : undefined}
           mark={picked ? <RuntimeMark runtime={snapshot.runtimes.find(one => one.id === picked.runtime) ?? { id: picked.runtime, presentation: { name: 'Selected agent' } }} size={16} /> : <AgentIcon size={16} />}
           control={<div className={styles.roleControls}>
-            <TeamSeatControls label={label} seat={configured} automaticName={automaticName} disabled={disabled} onChange={next => {
-              if (!next) return
-              const seats = slots.map(one => one.index === seat.index ? next : role.seats[one.index] ?? role.seats[0] ?? seatTaken(one.plan)?.seat)
-              if (seats.every((one): one is FlowSeat => one !== undefined)) editRole({ ...role, seats })
-            }} />
+            <TeamSeatControls label={label} seat={configured} automaticName={automaticName} disabled={disabled} onChange={next => { if (next) chooseSeat(seat, next) }} />
+            {alternative && <Button variant="secondary" size="sm" disabled={disabled} onClick={() => chooseSeat(seat, { runtime: alternative.id })}>Use {alternative.presentation.name}</Button>}
           </div>} />
       })}</Rows>
     </section>
@@ -657,10 +678,11 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
         rules: flow.rules.map(rule => rule.then.role !== 'referee' ? rule : { ...rule, when: value === 'merge' ? { evidence: [{ review: 'approve' }, { pr: 'open' }] } : { every: ['approve'], evidence: [{ review: 'approve' }] }, then: { ...rule.then, title: value === 'merge' ? 'Merge the reviewed pull request' : 'Merge it — the reviewer approved', detail: value === 'merge' ? 'Merge only the approved revision after its required checks pass.' : 'Merging is yours; no agent in this Team may do it.' } }),
       })} />}</Field>
     </div>}
-    {hasJudge && <Rows><Row title="Judge · optional" desc={judgeOn && judgePreview && !judgeAutomatic ? firstReason(judgePreview.plan) ?? undefined : undefined} control={<div className={styles.roleControls}>
+    {hasJudge && <Rows><Row title="Judge · optional" desc={judgeOn && judgePreview && !judgeAutomatic ? firstReason(judgePreview.plan, snapshot.runtimes) ?? undefined : undefined} control={<div className={styles.roleControls}>
       <TeamSeatControls label="Judge" optional seat={judgeSeat}
         automaticName={null}
-        disabled={disabled} onChange={seat => onPolicy(withComparisonJudge(flow, template, seat ?? null))} />
+        disabled={disabled} onChange={chooseJudge} />
+      {judgeAlternative && <Button variant="secondary" size="sm" disabled={disabled} onClick={() => chooseJudge({ runtime: judgeAlternative.id })}>Use {judgeAlternative.presentation.name}</Button>}
     </div>} /></Rows>}
     {hasAttemptCheck && (hasJudge
       ? <Field label="Check each attempt with" hint={checkHint}>{checkControl}</Field>

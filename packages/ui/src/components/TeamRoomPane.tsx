@@ -22,6 +22,7 @@ import {
   type TriggerGoalStatus,
 } from '@harnessdesk/protocol'
 
+import { raceRoleId } from '../lib/flows'
 import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
@@ -325,14 +326,20 @@ export const TeamRoomPane = ({
   /* A wrapped Team opens on its Receipt, with or without a Run: the record is
      what the person came for, and the page tabs are the way around it. */
   const opensOnReceipt = record && Boolean(goal?.receipt)
+  const opensOnAttempts = !record && flowExecution?.document.format === 'agents' && raceRoleId(flowExecution.document.flow) !== null
   const [open, setOpen] = useState<TeamFramePage | 'side-by-side' | SessionKey>(
     () => mount?.view.kind === 'room' && mount.view.chatMember ? mount.view.chatMember
       : mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage === 'room' && (mount.view.chatLayout === 'side-by-side' || mount.view.chatLayout === undefined && grid.tiles.length > 0) ? 'side-by-side' : mount.view.framePage
-        : opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room',
+        : opensOnReceipt ? 'receipt' : grid.tiles.length > 0 || opensOnAttempts ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room',
   )
   const chatLayout = useRef(mount?.view.kind === 'room' && mount.view.chatLayout ? mount.view.chatLayout : grid.tiles.length > 0 ? 'side-by-side' : 'thread')
   const selectedPage = useRef<TeamFramePage>(mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage : opensOnReceipt ? 'receipt' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room')
   const destination = useRef({ room, chosen: mount?.view.kind === 'room' && mount.view.framePage !== undefined })
+  const changeGrid = useCallback((next: Parameters<typeof setGrid>[0]) => {
+    destination.current.chosen = true
+    store.setTeamFramePage(room, 'room', 'side-by-side')
+    setGrid(next)
+  }, [store, room])
   const roomView = mount?.view.kind === 'room' ? mount.view : undefined
   useEffect(() => {
     if (destination.current.room !== room) {
@@ -349,10 +356,10 @@ export const TeamRoomPane = ({
     // Runs are loaded after the Team opens. Apply its default only until the
     // person chooses a destination; a push must not take them away from Chat.
     if (destination.current.chosen || grid.tiles.length > 0) return
-    const next = opensOnReceipt ? 'receipt' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'
-    selectedPage.current = next
+    const next = opensOnReceipt ? 'receipt' : opensOnAttempts ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'
+    selectedPage.current = next === 'side-by-side' ? 'room' : next
     setOpen(next)
-  }, [room, flowExecution?.id, record])
+  }, [room, flowExecution?.id, record, opensOnAttempts])
   useEffect(() => {
     if (!roomView || roomView.room !== room) return
     chatLayout.current = roomView.chatLayout ?? (grid.tiles.length > 0 ? 'side-by-side' : 'thread')
@@ -370,7 +377,7 @@ export const TeamRoomPane = ({
       return
     }
     destination.current = { room, chosen: false }
-    const next = opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'
+    const next = opensOnReceipt ? 'receipt' : grid.tiles.length > 0 || opensOnAttempts ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'
     selectedPage.current = next === 'side-by-side' ? 'room' : next
     setOpen(next)
   }, [room, roomView?.room, roomView?.chatMember, roomView?.framePage, roomView?.chatLayout,
@@ -931,12 +938,20 @@ export const TeamRoomPane = ({
     ],
   )
 
-  /* The last tile gone — taken off, or its member left — leaves nothing for
-     the destination to show; the room's chat is where the pane goes, so
-     the rail and the body agree on what is open. */
+  /* New comparisons follow their attempt Seats as they arrive, until a
+     person navigates or arranges a tile. An agent judge stays off this grid.
+     Outside that default, removing the last tile returns to Chat. */
   useEffect(() => {
-    if (open === 'side-by-side' && grid.tiles.length === 0) setOpen('room')
-  }, [open, grid.tiles.length])
+    if (open !== 'side-by-side') return
+    if (opensOnAttempts && !destination.current.chosen) {
+      const role = flowExecution?.document.format === 'agents' ? raceRoleId(flowExecution.document.flow) : null
+      const attempts = seats.filter(seat => seat.record.role === role && !seat.record.closed)
+      const keys = (attempts.length ? attempts.map(seat => seat.key) : roster.map(member => member.key)).slice(0, MAX_TILES)
+      if (keys.some(key => !grid.tiles.includes(key))) setGrid(keys.reduce((state, key) => placeTile(state, key), grid))
+      return
+    }
+    if (grid.tiles.length === 0) setOpen('room')
+  }, [open, grid.tiles.length, opensOnAttempts, roster, seats, flowExecution])
 
   /* Every answer about who is in the room, not only the first: a member can
      leave from elsewhere — another window, the room's own Goal wrapping —
@@ -1292,7 +1307,7 @@ export const TeamRoomPane = ({
               onRaceAgain={flowExecution && goal?.goal.state === 'open' ? () => setAgain(flowExecution) : undefined}
             /> : <RoomMessagesHeld.Provider value={!messaging}><SideBySide
               state={grid}
-              onChange={setGrid}
+              onChange={changeGrid}
               paneId={mount?.id ?? 'team-room'}
               memberOf={(key) => {
                 const member = memberOf(key)

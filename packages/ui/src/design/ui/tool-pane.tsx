@@ -101,7 +101,8 @@ const ToolPaneHeader = ({
          arithmetic. */
       'flex shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border)',
       'h-(--hd-bar-h)',
-      variant === 'default' && 'px-(--hd-bar-pad)',
+      /* A default header names a dense canvas and starts with it; its controls keep the bar's 12. */
+      variant === 'default' && 'pl-(--hd-inset-dense) pr-(--hd-bar-pad)',
       variant === 'window' && 'pr-3 pl-4',
       corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]',
       contentInset === 'page' && 'pl-[max(var(--hd-space-6),var(--titlebar-inset,0px))]',
@@ -154,14 +155,14 @@ const ToolPaneBody = ({
   ...props
 }: React.ComponentProps<'div'> & {
   bleed?: boolean
-  /** `dense`: the canvas gutter; `page`: the reading gutter; `tool`: flat panel sections. */
+  /** `dense`: the canvas gutter; `page`: the reading gutter; `tool`: panel cards on the column ground. */
   inset?: 'dense' | 'page' | 'tool'
 }) => (
   <div
     data-slot="tool-pane-body"
     {...(bleed ? { 'data-bleed': '' } : {})}
     data-inset={inset}
-    className={cn('min-h-0 flex flex-col gap-(--hd-card-gap) flex-1 overflow-auto', bleed ? 'p-0' : inset === 'tool' ? 'py-(--hd-inset-row)' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
+    className={cn('min-h-0 flex flex-col flex-1 overflow-auto', inset === 'tool' ? 'gap-(--hd-panel-card-gap) bg-(--hd-background)' : 'gap-(--hd-card-gap)', bleed ? 'p-0' : inset === 'tool' ? 'p-(--hd-panel-pad)' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
     {...props}
   />
 )
