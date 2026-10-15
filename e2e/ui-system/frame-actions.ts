@@ -1,4 +1,5 @@
 import { expectTitleRoom } from './title-contract'
+import { closeFloatingTeamRail } from './team-frame-actions'
 import { expect, type Locator, type Page } from '@playwright/test'
 export interface FrameActions {
   readonly inspectFirst?: boolean
@@ -36,6 +37,7 @@ export const pageChoiceFor = (value: string): { title: string; label: string } =
   return choice
 }
 export const selectFrameTab = async (page: Page, value: string): Promise<void> => {
+  await closeFloatingTeamRail(page.locator('body'))
   const bar = page.locator('[data-slot="top-bar"]:visible').first()
   if (await page.locator('[data-page-destination]:visible').count()) await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
   else await expectTitleRoom(bar.locator('[data-topbar-title]'))
@@ -53,6 +55,7 @@ export const selectFrameTab = async (page: Page, value: string): Promise<void> =
   await expect(trigger).toContainText(choice.label)
 }
 export const applyFrameActions = async (page: Page, actions: FrameActions): Promise<void> => {
+  if (actions.viewChoice || actions.inspectFirst) await closeFloatingTeamRail(page.locator('body'))
   if (actions.tab) await selectFrameTab(page, actions.tab)
   if (actions.viewChoice) {
     await page.locator('[data-slot="page-options"]:visible').getByRole('button', { name: 'View', exact: true }).click()

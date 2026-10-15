@@ -1,5 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { App } from '../app/App'
+import { Workbench } from '../panels/Workbench'
+import { ShellProvider } from '../panels/views'
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { useStore } from '../state/context'
 import type { PaneView } from '../state/layout'
 
@@ -29,5 +32,7 @@ export const TeamFramePreview = ({ room, view }: { room: string; view?: Extract<
     observer.observe(element)
     return () => observer.disconnect()
   }, [store])
-  return <div ref={viewport} className="h-full min-h-0 overflow-hidden"><App /></div>
+  return <div ref={viewport} className="h-full min-h-0 overflow-hidden"><ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
+    <TopBarProvider><ShellHostsProvider><Workbench sidebar={null} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
+  </ShellProvider></div>
 }

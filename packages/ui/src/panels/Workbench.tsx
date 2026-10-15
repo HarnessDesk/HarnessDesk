@@ -37,6 +37,7 @@ import {
   SEAM,
   dockViews,
   activeView,
+  activeTerminalMount,
   noticeArea,
   rightPanelDrawn,
   fixedSubject,
@@ -410,8 +411,7 @@ const BottomPanel = ({ drawn }: { drawn: boolean }) => {
   const subject = fixedSubject(workbench.main)
   const entries = dockViews(dock).filter((entry): entry is Mounted & { readonly view: TerminalView } => entry.view.kind === 'terminal')
   const owned = entries.filter(entry => !workbench.toolOwners[entry.id] || workbench.toolOwners[entry.id] === subject)
-  const current = activeView(dock)
-  const active = owned.find(entry => entry.id === current?.id) ?? owned[0]
+  const active = activeTerminalMount(workbench)
   const activeTerminal = active?.view.kind === 'terminal' ? active.view : undefined
   const occurrences = new Map<string, number>()
   const terminalTabs = owned.map(entry => {

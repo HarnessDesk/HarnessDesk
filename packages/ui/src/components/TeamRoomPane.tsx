@@ -1088,7 +1088,7 @@ export const TeamRoomPane = ({
       {goal && <MenuItem icon={<PencilIcon />} label="Rename" disabled={record ? RECORD_REASON : false} onSelect={() => { setRename(goal.goal.sentence); setRenameError(null); setRenaming(true); close() }} />}
       {pullRequest && <MenuItem icon={<PullRequestIcon />} label="Open pull request" onSelect={() => { void openExternal(pullRequest.url); close() }} />}
       {flowExecution && <MenuItem icon={<RetryIcon />} label="Run again…" disabled={record ? RECORD_REASON : goal?.goal.state !== 'open' ? 'This Team is not open' : false} onSelect={() => { setAgain(flowExecution); close() }} />}
-      <MenuItem icon={<CommentIcon />} label="Wrap…" disabled={record ? RECORD_REASON : wrapDisabled} onSelect={() => { setWrapping(true); close() }} />
+      {goal?.goal.state !== 'wrapped' && <MenuItem icon={<CommentIcon />} label="Wrap…" disabled={record ? RECORD_REASON : wrapDisabled} onSelect={() => { setWrapping(true); close() }} />}
       {flowExecution && <MenuItem icon={<StopIcon />} label="Stop run…" disabled={record ? RECORD_REASON : flowExecution.state !== 'running' ? 'This Run is not running' : false} onSelect={() => { setStoppingRun(flowExecution.id); close() }} />}
     </>,
     tools: <WorkTools changesRefusal={teamChangesRefusal} />,

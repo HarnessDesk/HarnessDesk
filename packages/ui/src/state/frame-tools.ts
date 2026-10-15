@@ -9,6 +9,8 @@ export interface ToolIntent {
   readonly open: boolean
   readonly railOpen?: boolean
   readonly expanded?: boolean
+  /** The selected shell belongs to this subject, independently of the shared cache. */
+  readonly selectedTerminal?: string
   /** Conversation mode's panel, restored when this Editor visit ends. */
   readonly beforeEditor?: Omit<ToolIntent, 'beforeEditor'> & { readonly mount?: string }
 }
@@ -53,6 +55,7 @@ export const forgetFrameSubject = (before: Workbench, subject: string): Workbenc
 }
 
 export const chooseTool = (before: ToolIntent | undefined, tool: WorkTool, mode = tool as string, toggle = false): ToolIntent => ({
+  ...(before?.selectedTerminal ? { selectedTerminal: before.selectedTerminal } : {}),
   ...(before?.beforeEditor ? { beforeEditor: before.beforeEditor } : {}),
   ...(before?.railOpen === undefined ? {} : { railOpen: before.railOpen }),
   ...(before?.expanded === undefined ? {} : { expanded: toggle && before.open && before.tool === tool && before.mode === mode ? false : before.expanded }),
@@ -76,12 +79,14 @@ export const readToolIntents = (raw: unknown): Readonly<Record<string, ToolInten
     const prior = rawPrior && typeof rawPrior === 'object' ? readToolIntents({ prior: {
       tool: rawPrior.tool, mode: rawPrior.mode, open: rawPrior.open,
       railOpen: rawPrior.railOpen, expanded: rawPrior.expanded,
+      selectedTerminal: rawPrior.selectedTerminal,
     } }).prior : undefined
     const beforeEditor = prior && prior.tool !== 'conversation' ? { ...prior, ...(typeof rawPrior?.mount === 'string' ? { mount: rawPrior.mount } : {}) } : undefined
     return tool && validMode && typeof record.mode === 'string' && typeof record.open === 'boolean'
       ? [[key, { tool, mode: record.mode, open,
         ...(typeof record.railOpen === 'boolean' ? { railOpen: record.railOpen } : pureDetails ? { railOpen: record.open } : {}),
         ...(typeof record.expanded === 'boolean' ? { expanded: record.expanded && open } : {}),
+        ...(typeof record.selectedTerminal === 'string' ? { selectedTerminal: record.selectedTerminal } : {}),
         ...(beforeEditor ? { beforeEditor } : {}) }]] : []
   }))
 }
@@ -95,7 +100,7 @@ export const admitFixedTool = (before: Workbench, view: PaneView, toggle = false
     const mounted = dockViews(routed.bottom).find(one => sameView(one.view, view))!
     const pane = findPane(before.main, before.main.focused)!
     return { ...routed, toolOwners: { ...routed.toolOwners, [mounted.id]: subject },
-      frameTools: { ...routed.frameTools, [subject]: chooseTool(before.frameTools[subject], 'terminal', 'terminal', toggle) },
+      frameTools: { ...routed.frameTools, [subject]: { ...chooseTool(before.frameTools[subject], 'terminal', 'terminal', toggle), selectedTerminal: mounted.id } },
       frameSubjects: { ...routed.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } }
   }
   if (view.kind === 'conversation') {
@@ -147,7 +152,8 @@ export const settleConversationTool = (before: Workbench, editor: boolean, enter
     if (owner === subject) continue
     if (intent.beforeEditor || intent.tool === 'conversation') {
       const { mount, ...prior } = intent.beforeEditor ?? { tool: 'details', mode: 'details', open: false }
-      const restored = { ...prior, ...(intent.railOpen === undefined ? {} : { railOpen: intent.railOpen }) }
+      const restored = { ...prior, ...(intent.railOpen === undefined ? {} : { railOpen: intent.railOpen }),
+        ...(intent.selectedTerminal === undefined ? {} : { selectedTerminal: intent.selectedTerminal }) }
       const held = mount ? dockViews(next.right).find(one => one.id === mount && next.toolOwners[one.id] === owner && one.view.kind === restored.mode) : undefined
       if (held) next = activate(next, 'right', held.id)
       next = { ...next, frameTools: { ...next.frameTools, [owner]: restored } }
@@ -168,6 +174,7 @@ export const settleConversationTool = (before: Workbench, editor: boolean, enter
     next = { ...next, focus: null, frameTools: { ...next.frameTools, [subject]: {
       tool: 'conversation', mode: 'conversation', open: true, beforeEditor,
       ...(prior?.railOpen === undefined ? {} : { railOpen: prior.railOpen }),
+      ...(prior?.selectedTerminal === undefined ? {} : { selectedTerminal: prior.selectedTerminal }),
     } } }
   }
   const active = fixedSubject(next.main), selected = active ? next.frameTools[active] : undefined

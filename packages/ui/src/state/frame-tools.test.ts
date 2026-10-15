@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { chooseTool, readToolIntents, setToolOpen, toolOf } from './frame-tools'
+import { chooseTool, readToolIntents, setToolOpen, toolOf, settleConversationTool } from './frame-tools'
 import { toggleWorkRail, swapWorkPane, workRailOpen, workPaneExpanded } from './workbench'
 
 test('the rail is independent of the selected pane and remembered per subject', () => {
@@ -54,6 +54,27 @@ test('a terminal tool retains the process cache and reveals its captured subject
   expect(restored.main).toEqual(admitted.main)
   expect(restored.frameTools[Object.keys(admitted.frameTools)[0]!]?.tool).toBe('terminal')
 })
+test('each subject retains its selected shell across visits, tool changes and reloads', () => {
+  let state = emptyWorkbench()
+  const main = state.main, subject = fixedSubject(main)!
+  const terminal = (terminalId: string) => ({ kind: 'terminal' as const, terminalId, runtime: runtimeId('fixture'), cwd: '/repo' })
+  state = admitFixedTool(state, terminal('A1'))!
+  state = admitFixedTool(state, terminal('A2'))!
+  const a2 = dockViews(state.bottom).find(one => one.view.kind === 'terminal' && one.view.terminalId === 'A2')!
+  state = activate(state, 'bottom', a2.id)
+  state = { ...state, main: { ...main, focused: 'B', root: { kind: 'pane', id: 'B', view: { kind: 'room', room: 'B' } } } }
+  state = admitFixedTool(state, terminal('B1'))!
+  state = { ...state, main }
+  expect(activeTerminal(state)?.terminalId).toBe('A2')
+  state = { ...state, frameTools: readToolIntents({ ...state.frameTools, [subject]: chooseTool(state.frameTools[subject], 'changes') }) }
+  expect(activeTerminal(state)?.terminalId).toBe('A2')
+  state = settleConversationTool(state, true, true)
+  expect(activeTerminal(state)?.terminalId).toBe('A2')
+  state = settleConversationTool(state, false)
+  expect(activeTerminal(state)?.terminalId).toBe('A2')
+  state = undock(state, a2.id)
+  expect(activeTerminal(state)?.terminalId).toBe('A1')
+})
 test('every historical tool has one fixed destination', () => {
   expect(['run-details', 'agents', 'plugin'].map(kind => toolOf(kind))).toEqual(['details', 'details', 'details'])
   expect(['file', 'preview', 'changes'].map(kind => toolOf(kind))).toEqual(['files', 'files', 'changes'])
@@ -71,7 +92,7 @@ test('only a toggle request closes a selected tool; reveal and subject memories 
 })
 
 import { admitFixedTool, revealFixedTool, supportsFixedTool, conversationToolContext } from './frame-tools'
-import { emptyWorkbench } from './workbench'
+import { emptyWorkbench, fixedSubject, dockViews, activate, activeTerminal, undock } from './workbench'
 import { sessionKey, sessionId, runtimeId } from '@harnessdesk/protocol'
 test('Conversation admission requires Editor and exactly its live main subject', () => {
   const session = sessionKey(runtimeId('fixture'), sessionId('one'))

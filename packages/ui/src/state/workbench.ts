@@ -831,11 +831,15 @@ export const activate = (workbench: Workbench, area: DockId, id: MountedId): Wor
   if (!holding) return workbench
   // Only the stack holding it changes. A split panel has one active tab per
   // stack, and bringing a tab forward in one half must not disturb the other.
-  return patchDock(reveal(workbench, area), area, {
+  const next = patchDock(reveal(workbench, area), area, {
     ...current,
     root: mapStacks(current.root, (stack) => (stack.id === holding.id ? { ...stack, active: id } : stack)),
     collapsed: false,
   })
+  const owner = workbench.toolOwners[id]
+  const intent = owner ? workbench.frameTools[owner] : undefined
+  return owner && intent && holding.views.find(one => one.id === id)?.view.kind === 'terminal'
+    ? { ...next, frameTools: { ...next.frameTools, [owner]: { ...intent, selectedTerminal: id } } } : next
 }
 
 /**
@@ -901,17 +905,17 @@ const isTerminal = (view: PaneView): view is TerminalView => view.kind === 'term
 export const terminals = (workbench: Workbench): readonly TerminalView[] =>
   dockViews(workbench.bottom).map((entry) => entry.view).filter(isTerminal)
 
-/**
- * The terminal on screen, if the bottom panel is showing one.
- *
- * "On screen" is plural now that a panel can be split, so this asks every
- * visible stack before falling back — a shell in the right-hand half of a
- * split bottom panel is as visible as one in the left.
- */
-export const activeTerminal = (workbench: Workbench): TerminalView | null => {
-  const shown = visibleViews(workbench.bottom).find((entry) => isTerminal(entry.view))
-  return shown ? (shown.view as TerminalView) : (terminals(workbench)[0] ?? null)
+/** The current subject's selected shell, with a fallback for older saved layouts
+ * and a selected shell that has since closed. Other subjects keep their own choice. */
+export const activeTerminalMount = (workbench: Workbench): (Mounted & { readonly view: TerminalView }) | undefined => {
+  const subject = fixedSubject(workbench.main)
+  const owned = dockViews(workbench.bottom).filter((entry): entry is Mounted & { readonly view: TerminalView } =>
+    isTerminal(entry.view) && (!workbench.toolOwners[entry.id] || workbench.toolOwners[entry.id] === subject))
+  const selected = subject ? workbench.frameTools[subject]?.selectedTerminal : undefined
+  const current = activeView(workbench.bottom)
+  return owned.find(one => one.id === selected) ?? owned.find(one => one.id === current?.id) ?? owned[0]
 }
+export const activeTerminal = (workbench: Workbench): TerminalView | null => activeTerminalMount(workbench)?.view ?? null
 
 /** The mount holding a given process, for the verbs that speak in terminal ids. */
 export const mountOfTerminal = (workbench: Workbench, terminalId: string): MountedId | null =>

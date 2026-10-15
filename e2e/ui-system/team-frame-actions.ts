@@ -4,8 +4,18 @@ import { expect, type Locator } from '@playwright/test'
 /** Canonical Team slots, scoped to one synthetic fixture's shell. */
 export const teamBar = (frame: Locator): Locator => frame.locator('[data-slot="top-bar"]:visible').first()
 
+/** Body controls sit behind the floating rail until the person puts it away. */
+export const closeFloatingTeamRail = async (frame: Locator): Promise<void> => {
+  const shell = frame.locator('[data-slot="fixed-shell"]:visible').first()
+  if (await shell.count() && await shell.getAttribute('data-rail-floats') === 'true' && await shell.getAttribute('data-rail-open') === 'true') {
+    await teamBar(frame).locator('[data-work-rail-toggle]').click()
+    await expect(shell).toHaveAttribute('data-rail-open', 'false')
+  }
+}
+
 /** Select the real destination without prescribing a content fixture's width. */
 export const selectTeamDestination = async (frame: Locator, value: string): Promise<void> => {
+  await closeFloatingTeamRail(frame)
   const tab = frame.locator(`[data-team-page="${value}"]:visible`)
   await tab.click()
   await expect(tab).toHaveAttribute('aria-selected', 'true')

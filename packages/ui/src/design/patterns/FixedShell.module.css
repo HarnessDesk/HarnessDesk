@@ -45,7 +45,9 @@
   z-index: var(--hd-z-drawer);
 }
 .shell[data-pane-expanded='true'] .main { grid-area: right; }
-.shell[data-pane-expanded='true'] .right { grid-area: main; }
+/* The seam's hit area crosses this edge. Clip without letting keyboard focus
+   scroll the swapped frame sideways to reveal that hit area. */
+.shell[data-pane-expanded='true'] .right { grid-area: main; overflow: clip; }
 .shell[data-left-floats='true'] { --frame-left: 0px; }
 .shell[data-left-floats='true'] .left {
   grid-area: auto; position: absolute; top: 0; bottom: 0; left: 0; /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
@@ -63,6 +65,7 @@
 /* Region seams use the same retained drag projection. */
 .left > [data-slot='panel-seam'] { grid-area: auto; position: absolute; top: 0; bottom: 0; right: calc(-1 * var(--hd-border-width)); }
 .right [data-slot='panel-seam'] { grid-area: auto; position: absolute; top: 0; bottom: 0; left: calc(-1 * var(--hd-border-width)); }
+.shell[data-pane-expanded='true'] .right [data-slot='panel-seam'] { left: auto; right: calc(-1 * var(--hd-border-width)); }
 
 .shell [data-shell-tool-bodies] { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .shell [data-shell-file-body] { display: flex; flex: 1; min-width: 0; min-height: 0; position: relative; }

@@ -154,23 +154,17 @@ try {
       const tab = async name => {
         const value = ({ Overview: 'overview', Run: 'run', Board: 'board', Chat: 'room' })[name]
         assert.ok(value, `unknown Team destination ${name}`)
-        const bar = page.locator('[data-slot="top-bar"]:visible').first()
-        const direct = bar.locator(`[data-team-page="${value}"]:visible`)
-        const folded = bar.getByTitle('Destination views', { exact: true })
-        await direct.or(folded).first().click()
-        if (await bar.locator('button[title="Destination views"][aria-expanded="true"]').count()) {
-          await page.locator(`[role="menu"] [data-team-page="${value}"]:visible`).click()
-        }
-        await expect(bar.locator(`[data-team-page="${value}"][aria-selected="true"]:visible`)
-          .or(folded.filter({ hasText: new RegExp(`^${name}(?:\\s*\\d+)?$`) }))).toHaveCount(1)
+        const direct = page.locator(`[data-slot="workbench-main"] [data-team-page="${value}"]:visible`)
+        await direct.click()
+        await expect(direct).toHaveAttribute('aria-selected', 'true')
       }
       const runView = async name => {
-        await page.locator('[data-slot="top-bar"]:visible').first().getByRole('button', { name: 'View', exact: true }).click()
+        await page.locator('[data-slot="workbench-main"]:visible').getByRole('button', { name: 'View', exact: true }).click()
         await page.getByRole('menuitem', { name, exact: true }).click()
       }
       const chatView = async name => {
         await tab('Chat')
-        await page.locator('[data-slot="top-bar"]:visible').first().getByRole('button', { name: 'View', exact: true }).click()
+        await page.locator('[data-slot="workbench-main"]:visible').getByRole('button', { name: 'View', exact: true }).click()
         await page.getByRole('menuitemradio', { name, exact: true }).click()
       }
       const boardTitle = title => page.getByRole('heading', { level: 4, name: new RegExp(`^#\\d+ ${title}$`) })

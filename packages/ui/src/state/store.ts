@@ -4029,8 +4029,8 @@ export class AppStore {
         const currentIntent = opened.frameTools[subject]
         opened = { ...opened, toolOwners: { ...opened.toolOwners, [mount.id]: subject },
           frameSubjects: { ...opened.frameSubjects, [subject]: { paneId: origin.pane.id, view: origin.pane.view } },
-          frameTools: openingDoor && (currentIntent?.tool !== 'terminal' || !currentIntent.open)
-            ? opened.frameTools : { ...opened.frameTools, [subject]: chooseTool(currentIntent, 'terminal') } }
+          frameTools: { ...opened.frameTools, [subject]: { ...(openingDoor && (currentIntent?.tool !== 'terminal' || !currentIntent.open)
+            ? currentIntent ?? { tool: 'terminal', mode: 'terminal', open: false } : chooseTool(currentIntent, 'terminal')), selectedTerminal: mount.id } } }
       }
       this.#setWorkbench(opened)
     } catch (error) {
