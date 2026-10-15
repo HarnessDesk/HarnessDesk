@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -206,7 +206,7 @@ const writeChat = (
 const completedTurn = (event: AgentEvent) =>
   (event as Extract<AgentEvent, { type: 'turn/completed' }>).turn
 
-test('a turn streams thinking, a real tool call, and deduplicated text', async () => {
+test('a turn streams thinking, a real edit as a file change, and deduplicated text', async () => {
   const runtime = make()
   await runtime.start()
   const tape = record(runtime)
@@ -220,10 +220,10 @@ test('a turn streams thinking, a real tool call, and deduplicated text', async (
     const reasoning = turn.items.find((item) => item.type === 'reasoning')
     assert.ok(reasoning, 'thinking deltas surface as reasoning')
 
-    const tool = turn.items.find((item): item is Extract<AgentItem, { type: 'toolCall' }> => item.type === 'toolCall')
-    assert.ok(tool, 'the editToolCall surfaces as a tool call')
-    assert.equal(tool.status, 'completed')
-    assert.equal(tool.tool, 'Edit fake.txt')
+    const edit = turn.items.find((item): item is Extract<AgentItem, { type: 'fileChange' }> => item.type === 'fileChange')
+    assert.ok(edit, 'the editToolCall surfaces as a file change')
+    assert.equal(edit.status, 'completed')
+    assert.deepEqual(edit.changes, [{ path: realpathSync(join(cwd, 'fake.txt')), kind: { type: 'update' }, diff: '+hi\n' }])
     assert.equal(readFileSync(join(cwd, 'fake.txt'), 'utf8'), 'hi', 'the tool call really ran')
 
     const messages = turn.items.filter(
@@ -1240,11 +1240,12 @@ test('a tool call completed with a null or non-object result does not crash the 
     const session = await runtime.createSession({ cwd: WORKDIR })
     await session.send([{ type: 'text', text: 'tool-null-result' }])
     const turn = completedTurn(await tape.until((event) => event.type === 'turn/completed'))
-    const toolCall = turn.items.find(
-      (item): item is Extract<AgentItem, { type: 'toolCall' }> => item.type === 'toolCall',
+    const edit = turn.items.find(
+      (item): item is Extract<AgentItem, { type: 'fileChange' }> => item.type === 'fileChange',
     )
-    assert.ok(toolCall, 'tool call was recorded in turn items')
-    assert.equal(toolCall.status, 'failed')
+    assert.ok(edit, 'the failed edit was recorded as a file change in turn items')
+    assert.equal(edit.status, 'failed')
+    assert.deepEqual(edit.changes, [{ path: '/tmp/test.txt', kind: { type: 'update' }, diff: '' }])
   } finally {
     await runtime.dispose()
   }

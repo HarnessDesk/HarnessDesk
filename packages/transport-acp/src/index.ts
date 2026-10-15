@@ -438,6 +438,7 @@ export interface AcpToolCallUpdate {
   readonly content?: readonly { readonly type: string; readonly [key: string]: unknown }[]
   readonly rawInput?: unknown
   readonly rawOutput?: unknown
+  readonly locations?: readonly { readonly path: string; readonly line?: number }[]
 }
 
 export type AcpSessionUpdate =
