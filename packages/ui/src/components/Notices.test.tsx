@@ -10,6 +10,7 @@ import { MountProvider } from '../panels/mount'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { Notice as StoreNotice } from '../state/snapshot'
 import { emptyWorkbench, fixedSubject, type Workbench } from '../state/workbench'
+import { SETTINGS_SECTIONS, type Destination } from '../state/destinations'
 import type { PaneView } from '../state/layout'
 import { afterDismiss, emptyNoticePolicy, withKept, withMuted, withoutKept, withSurface, type NoticeIdentity } from '../lib/notice-policy'
 import { kept as keptInInbox, type InboxEntry } from '../lib/inbox'
@@ -161,7 +162,11 @@ const makeStore = (over: Partial<AppSnapshot>) => {
 }
 
 const mount = (over: Partial<AppSnapshot>): ReturnType<typeof makeStore> => {
-  const store = makeStore(over)
+  const workbench = emptyWorkbench()
+  const store = makeStore({
+    workbench: { ...workbench, main: { ...workbench.main, root: { kind: 'pane', id: workbench.main.focused, view: { kind: 'conversation', session: sessionKey('a' as never, 's1' as never) } } } },
+    ...over,
+  })
   act(() => {
     root.render(
       <StoreProvider store={store}>
@@ -208,6 +213,33 @@ const menuItem = (label: string): HTMLElement | null =>
 it('offers a way out of a warning that is only a prediction', () => {
   mount({ usage: [racing('a')] })
   expect(container.textContent).toContain('will run out before it refills')
+  expect(dismiss()).not.toBeNull()
+  expect(container.querySelector('[data-slot="composer-notice"]')).not.toBeNull()
+})
+
+const quietPages: readonly Destination[] = [
+  { kind: 'library', section: 'skill' },
+  { kind: 'teams', filter: 'active' },
+  { kind: 'plugins', section: 'installed', id: null },
+  { kind: 'agents', id: null },
+  ...SETTINGS_SECTIONS.map(section => ({ kind: 'settings' as const, route: { kind: 'section' as const, section, focus: null } })),
+  { kind: 'settings', route: { kind: 'runtime', runtime: 'a' as never } },
+  { kind: 'settings', route: { kind: 'account', runtime: 'a' as never, key: 'demo' } },
+  { kind: 'settings', route: { kind: 'project', root: '/work/storefront' } },
+  { kind: 'settings', route: { kind: 'skill', name: 'Example skill' } },
+  { kind: 'settings', route: { kind: 'add-runtime' } },
+]
+
+it.each(quietPages)('does not draw the quota prediction on $kind $route.section', destination => {
+  const workbench = emptyWorkbench()
+  mount({ usage: [racing('a')], workbench: { ...workbench, navigation: { ...workbench.navigation, current: destination } } })
+  expect(container.textContent).not.toContain('will run out before it refills')
+})
+
+it.each(['overview', 'plans', 'spend', 'activity', 'projects'] as const)('keeps the quota prediction on Dashboard %s', view => {
+  const workbench = emptyWorkbench()
+  mount({ usage: [racing('a')], workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'dashboard', view, scope: null } } } })
+  expect(container.querySelector('[data-slot="notice-strip"]')?.textContent).toContain('Agent A will run out before it refills')
   expect(dismiss()).not.toBeNull()
 })
 
@@ -490,7 +522,7 @@ it('dismissing a standing notice from either outlet removes it from every outlet
   expect(store.policy().seen.some((key) => key.startsWith('usage:pace:a:'))).toBe(true)
 })
 
-it('uses the strip when a docked tool has focus over a room with a nested member composer', () => {
+it('does not move the quota prediction to a tool strip over a room with no visible composer', () => {
   const session = sessionKey('a' as never, 's1' as never)
   const store = mount({
     workbench: dockToolFocusedOverVisibleRoom(),
@@ -512,9 +544,7 @@ it('uses the strip when a docked tool has focus over a room with a nested member
     )
   })
 
-  expect(container.querySelectorAll('[data-slot="composer-notice"], [data-slot="notice-strip"]')).toHaveLength(1)
-  expect(container.querySelector('[data-slot="composer-notice"]')).toBeNull()
-  expect(container.querySelector('[data-slot="notice-strip"]')).not.toBeNull()
+  expect(container.querySelectorAll('[data-slot="composer-notice"], [data-slot="notice-strip"]')).toHaveLength(0)
 })
 
 it('falls back to the strip when the focused mount is not a composer that can be seen, and never draws it twice when it is', () => {
