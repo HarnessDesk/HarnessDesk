@@ -3,10 +3,17 @@ export type CatalogVariant = 'barless' | 'default' | 'secondary' | 'outline' | '
 export type CatalogSize = 'stack' | 'default' | 'wrap' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-label' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
+type CatalogSymbolAxes = Readonly<Record<string, {
+  readonly variant?: readonly string[]
+  readonly size?: readonly string[]
+}>>
+
 export type CatalogEntry = {
   readonly id: string
   readonly category: CatalogCategory
   readonly implementationPath: string
+  readonly symbols?: readonly string[]
+  readonly symbolAxes?: CatalogSymbolAxes
   readonly purpose: string
   readonly exampleId: string
   readonly variants: readonly CatalogVariant[]
@@ -590,10 +597,177 @@ const sizesFor = (name: string): readonly CatalogSize[] => {
   return sizes
 }
 
+/** Explicit value exports reviewed with each module's existing example. A
+ * module registration never grants coverage to a new exported sibling. */
+const UI_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
+  'alert-dialog': ['AlertDialog', 'AlertDialogClose', 'AlertDialogContent', 'AlertDialogDescription', 'AlertDialogFooter', 'AlertDialogHeader', 'AlertDialogTitle'],
+  'alert': ['Alert', 'AlertContent', 'AlertDescription', 'AlertTitle'],
+  'attachment': ['Attachment', 'AttachmentMedia'],
+  'avatar-stack': ['AvatarStack'],
+  'avatar': ['Avatar', 'AvatarFallback', 'AvatarImage'],
+  'badge': ['Badge'],
+  'bar': ['Bar'],
+  'board': ['BOARD_COLUMN_MIN_WIDTH', 'BOARD_RAIL_WIDTH', 'Board', 'BoardCard', 'BoardColumn', 'BoardMenuButton'],
+  'breadcrumb': ['Breadcrumb', 'BreadcrumbItem', 'BreadcrumbList', 'BreadcrumbPage', 'BreadcrumbSeparator'],
+  'bubble': ['Bubble', 'BubbleContent'],
+  'button': ['Button', 'buttonEdge', 'buttonVariants'],
+  'card': ['Card', 'CardAction', 'CardContent', 'CardFooter', 'CardHeader', 'CardTitle', 'CardViewport'],
+  'chart': ['BurnDown', 'ChartAxis', 'ChartCard', 'ChartFoot', 'ChartFrame', 'ChartHead', 'ChartHint', 'ChartKey', 'ChartKeys', 'ChartTip', 'ChartTipRow', 'ChartTitle', 'ChartTools', 'DayColumns', 'PaceBadge', 'SegmentMeter', 'SeriesDot'],
+  'checkbox': ['Checkbox'],
+  'composer': ['ComposerChip', 'ComposerChips', 'ComposerDock', 'ComposerDropHint', 'ComposerGap', 'ComposerSend', 'ComposerShell', 'ComposerText', 'ComposerTools'],
+  'delta': ['Delta'],
+  'dialog': ['Dialog', 'DialogClose', 'DialogContent', 'DialogDescription', 'DialogOverlay', 'DialogPopup', 'DialogPortal', 'DialogTitle', 'DialogViewport'],
+  'disclosure-chevron': ['DisclosureChevron'],
+  'dropdown-menu': ['DropdownMenu', 'DropdownMenuCheckboxControl', 'DropdownMenuCheckboxItem', 'DropdownMenuContent', 'DropdownMenuItem', 'DropdownMenuPopup', 'DropdownMenuPortal', 'DropdownMenuPositioner', 'DropdownMenuSeparator', 'DropdownMenuSub', 'DropdownMenuSubContent', 'DropdownMenuSubControl', 'DropdownMenuSubTrigger', 'DropdownMenuTrigger'],
+  'empty-state': ['EmptyState'],
+  'field': ['Field'],
+  'flow-step': ['FlowDoingLine', 'FlowStepSurface'],
+  'group-label': ['GroupLabel'],
+  'heat-grid': ['HeatGrid', 'HeatLegend'],
+  'hover-card': ['HOVER_CARD_COLLISION_PADDING', 'HOVER_CARD_OPEN_DELAY', 'HOVER_CARD_SIDE_OFFSET', 'HOVER_CARD_WIDTH_REM', 'HoverCard', 'HoverCardContent', 'HoverCardTrigger'],
+  'icon-tile': ['FaceBadge', 'IconTile'],
+  'input': ['Input'],
+  'key-value': ['KeyValue', 'KeyValueRow', 'MiddleTruncate', 'SummaryItem', 'SummaryList'],
+  'label': ['Label'],
+  'list-row': ['ListRow', 'ListRowDetail', 'ListRows'],
+  'message': ['Message', 'MessageContent', 'MessageFooter'],
+  'menu-row': ['MenuListboxOption', 'MenuPresentation', 'MenuRowContent'],
+  'native-select': ['NativeSelect'],
+  'popover': ['Popover', 'PopoverPopup', 'PopoverPortal', 'PopoverPositioner', 'PopoverTrigger'],
+  'progress': ['Progress', 'ProgressRing', 'ProgressStack'],
+  'resize-handle': ['ResizeHandle'],
+  'section': ['Section', 'SectionBody', 'SectionFooter', 'Toolbar', 'ToolbarGap', 'useInPageSection'],
+  'separator': ['Separator'],
+  'sidebar': ['SidebarGroup', 'SidebarGroupContent', 'SidebarMenu', 'SidebarMenuAction', 'SidebarMenuBadge', 'SidebarMenuButton', 'SidebarMenuItem'],
+  'sortable-list': ['SortableAnnouncer', 'SortableHandle', 'sortableItemClass', 'useSortable'],
+  'spark': ['Tick'],
+  'stat': ['Stat', 'StatRow'],
+  'switch': ['Switch', 'SwitchShape'],
+  'table': ['Table', 'TableBody', 'TableCaption', 'TableCell', 'TableFooter', 'TableHead', 'TableHeader', 'TableRow'],
+  'tabs': ['Tabs', 'TabsList', 'TabsTrigger'],
+  'textarea': ['Textarea'],
+  'timeline-cards': ['TimelineCard', 'TimelineCardRow', 'TimelineCardWords', 'TimelineCards', 'TimelineDocument'],
+  'timeline': ['Timeline', 'TimelineItem'],
+  'toast': ['Toaster', 'toast'],
+  'toggle-group': ['ToggleGroup', 'ToggleGroupItem'],
+  'tone': ['dotTint', 'dotTone', 'inkTint', 'inkTone', 'softTint', 'softTone', 'solidTint', 'tintFor', 'tintsFor'],
+  'tool-pane': ['ToolPane', 'ToolPaneActivity', 'ToolPaneActivityMark', 'ToolPaneBar', 'ToolPaneBody', 'ToolPaneDocumentTab', 'ToolPaneEmptyState', 'ToolPaneGuest', 'ToolPaneHeader', 'ToolPaneHeaderDivider', 'ToolPaneMessage', 'ToolPaneNotice', 'ToolPaneStage', 'ToolPaneTabIcon', 'ToolPaneTabViewport', 'ToolPaneToolGroup'],
+  'tooltip': ['Tooltip', 'TooltipContent', 'TooltipTrigger'],
+}
+
+const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
+  'attachment': { 'AttachmentMedia': { 'variant': ['icon', 'image', 'picture'] } },
+  'avatar-stack': { 'AvatarStack': { 'size': ['sm', 'default', 'stack'] } },
+  'card': { 'Card': { 'variant': ['default', 'muted', 'flush', 'plate', 'raised'] }, 'CardViewport': { 'size': ['editor', 'lines'] } },
+  'dropdown-menu': { 'DropdownMenuItem': { 'variant': ['default', 'destructive'] } },
+  'empty-state': { 'EmptyState': { 'variant': ['panel', 'inline', 'row'] } },
+  'key-value': { 'KeyValue': { 'variant': ['default', 'panel'] }, 'KeyValueRow': { 'variant': ['default', 'panel'] } },
+  'list-row': { 'ListRow': { 'size': ['sm', 'default'] }, 'ListRows': { 'size': ['sm', 'default'] } },
+  'progress': { 'Progress': { 'size': ['xs', 'sm', 'default'] } },
+  'section': { 'SectionFooter': { 'variant': ['actions', 'facts'] } },
+  'table': { 'Table': { 'variant': ['default', 'framed', 'panel'] }, 'TableCaption': { 'variant': ['default', 'sr-only', 'panel'] }, 'TableCell': { 'variant': ['default', 'matrix', 'flush', 'detail', 'footer', 'panel'] }, 'TableFooter': { 'variant': ['default', 'plain'] }, 'TableHead': { 'variant': ['default', 'matrix', 'row', 'footer', 'panel'] }, 'TableHeader': { 'variant': ['default', 'log'] }, 'TableRow': { 'variant': ['default', 'matrix', 'panel'] } },
+  'tool-pane': { 'ToolPane': { 'variant': ['default', 'integrated'] }, 'ToolPaneBar': { 'variant': ['terminal', 'address', 'address-slim', 'find', 'annotate', 'tools'] }, 'ToolPaneHeader': { 'variant': ['default', 'window'] } },
+}
+
+const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
+  'ActionError': ['ActionError'],
+  'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],
+  'ApprovalDialog': ['ApprovalChoiceHint', 'ApprovalCode', 'ApprovalDialog', 'ApprovalFilePath', 'ApprovalMeta', 'ApprovalPermissionList', 'ApprovalQuestionText', 'ApprovalReason'],
+  'Change': ['ChangeStats', 'FileState', 'PatchHeader'],
+  'ChannelMessage': ['ChannelMessage', 'ChannelNotice', 'ChannelSignal'],
+  'Checklist': ['Checklist', 'ChecklistItem'],
+  'CodeBlock': ['CodeBlock'],
+  'CommandPalette': ['CommandPaletteControls', 'CommandPaletteDivider', 'CommandPaletteEmpty', 'CommandPaletteFooter', 'CommandPaletteKeyHint', 'CommandPalettePanel', 'CommandPaletteResult', 'CommandPaletteResults', 'CommandPaletteSearch'],
+  'ComparisonDecision': ['ComparisonDecision'],
+  'ComparisonNotice': ['ComparisonNotice'],
+  'ComparisonSummary': ['ComparisonSummary'],
+  'ComposerTrack': ['ComposerTrack'],
+  'ConfirmDialog': ['ConfirmDialog'],
+  'ConversationEmptyState': ['ConversationEmptyState'],
+  'CopyButton': ['CopyButton', 'copyButtonIconMarkup'],
+  'DashboardBands': ['DashboardAccountActivity', 'DashboardAccountBody', 'DashboardAccountFoot', 'DashboardAccountHead', 'DashboardAccounts', 'DashboardAgentReading', 'DashboardBurn', 'DashboardColumns', 'DashboardFact', 'DashboardFigure', 'DashboardLanes', 'DashboardMoney', 'DashboardOverviewStats', 'DashboardPlanName', 'DashboardPlanReading', 'DashboardReadingNote', 'DashboardStats', 'DashboardTable'],
+  'DialogForm': ['ChoiceList', 'Fieldset'],
+  'DockPanel': ['DockDropEdge', 'DockDropTarget', 'DockPanel', 'DockPanelActions', 'DockPanelBar', 'DockPanelBody', 'DockPanelTab', 'DockPanelTabs', 'FixedPanelBody', 'FixedPanelFrame', 'FixedToolLayer', 'PaneSurface', 'PanelSeam', 'RailSection', 'WorkbenchCanvas', 'WorkbenchRail', 'WorkbenchScrim'],
+  'FixedShell': ['FixedShell', 'ShellNoticeHost'],
+  'FlowCanvas': ['FLOW_CANVAS_CARD_WIDTH', 'FLOW_CANVAS_RUN_CARD_HEIGHT', 'FlowCanvas'],
+  'FlowGraph': ['FlowGraph'],
+  'FlowStepRow': ['FlowStepRow', 'RunStateChip'],
+  'GitComparisonDialogs': ['DiffRangeDialog', 'MergeDialog'],
+  'HeaderStatusGroup': ['HeaderStatusGroup', 'HeaderStatusReading', 'useHeaderStatusGroup'],
+  'InboxMenu': ['InboxMenu'],
+  'InfoCard': ['InfoCard', 'InfoCardBody'],
+  'InspectorPanel': ['Counts', 'GroupLine', 'PanelBody', 'PanelEmpty', 'PanelFilter', 'PanelFooter', 'PanelFrame', 'PanelRow', 'RowTime', 'RunDot'],
+  'LeftColumn': ['LeftColumn', 'LeftColumnBody', 'LeftColumnEmpty', 'LeftColumnGroup', 'LeftColumnHead', 'LeftColumnList', 'LeftColumnListOptions', 'LeftColumnModeHead', 'LeftColumnNavigation', 'LeftColumnProjectsHead', 'LeftColumnRename', 'LeftColumnRow', 'LeftColumnSeat', 'LeftColumnTop'],
+  'LibraryMatrix': ['LibraryMatrix'],
+  'Lightbox': ['Lightbox'],
+  'MainDestination': ['DestinationBody', 'MainDestination'],
+  'Menu': ['ContextMenu', 'Menu', 'MenuAccountGroup', 'MenuAccountRow', 'MenuItem', 'MenuLabel', 'MenuNote', 'MenuSeparator', 'MenuToggle', 'Submenu', 'useContextMenu', 'useMenuClose'],
+  'ModalDialog': ['Dialog', 'DialogBody', 'DialogFooter', 'DialogHead'],
+  'Notices': ['ComposerNotice', 'ComposerNoticeStack', 'ComposerTail', 'InboxPanel', 'NoticeCard', 'NoticeStrip', 'showToast'],
+  'Page': ['Page'],
+  'PageControls': ['PageControls', 'PageExplanation', 'PreservedText', 'ShortcutKeys'],
+  'PageOptions': ['PageOptions'],
+  'PageRecords': ['PageRecordViews', 'PageRecords'],
+  'PaneColumn': ['PaneColumn', 'ReadingMeasure', 'useComposerHeightVar'],
+  'PlanCard': ['PlanCard'],
+  'Popover': ['Popover', 'PopoverGroupLabel', 'PopoverSurface', 'dismissOverlays', 'useDismissOverlays', 'useEscapeSurface'],
+  'PublicationCard': ['KindGlyph', 'StatePill', 'publicationVerb', 'stateTone'],
+  'RefusedAction': ['RefusedAction'],
+  'SeatList': ['SeatList'],
+  'SelectionAction': ['SelectionAction'],
+  'Settings': ['AccountMark', 'Chip', 'Clipped', 'CodeText', 'DetailMark', 'Dot', 'Face', 'Field', 'FileButton', 'FormStack', 'InlineParts', 'Keycap', 'MetaList', 'Monogram', 'NavigationGroupHeader', 'NavigationList', 'Note', 'NoteList', 'Row', 'RowButton', 'RowChoice', 'RowInput', 'RowValue', 'Rows', 'Search', 'SectionHead', 'Segmented', 'SegmentedReadout', 'Spinner', 'Text', 'TextMark'],
+  'SettingsChoices': ['AccentChoices', 'PictureChoices', 'RingChoices'],
+  'SettingsRowMenu': ['SettingsRowMenu'],
+  'SidebarMenuState': ['SidebarMenuState'],
+  'SignInRail': ['SignInRail'],
+  'SubjectActionsMenu': ['SubjectActionsMenu'],
+  'TerminalShellTabs': ['TerminalShellTabs'],
+  'ToolBody': ['ToolBody', 'ToolBodyControls', 'ToolBodySections', 'ToolProse', 'ToolSection'],
+  'ToolFooter': ['ToolFooterOutlet', 'ToolFooterProvider', 'ToolFooterPublisher', 'ToolFooterScope', 'ToolFooterSuppressed'],
+  'TopBar': ['TopBar', 'TopBarToolButton'],
+  'TurnWork': ['TurnItem', 'TurnWorkBody', 'TurnWorkHeader', 'TurnWorkHeaderLabel', 'TurnWorkLive'],
+  'UsageMeterRow': ['UsageMeterRow'],
+  'WideMenu': ['MenuFacts', 'MenuSearch', 'WideMenu'],
+}
+
+const PATTERN_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
+  'Menu': { 'MenuLabel': { 'size': ['default', 'compact'] } },
+  'Notices': { 'InboxPanel': { 'size': ['icon-sm', 'icon-xs'] } },
+  'Settings': { 'AccountMark': { 'size': ['sm', 'lg', 'dot', 'row', 'menu'] }, 'Chip': { 'size': ['default', 'sm'], 'variant': ['default', 'outline', 'quiet'] }, 'CodeText': { 'size': ['default', 'inherit'] }, 'Dot': { 'variant': ['default', 'navigation', 'presence'] }, 'Search': { 'size': ['default', 'compact', 'bare'] } },
+  'ToolBody': { 'ToolProse': { 'variant': ['prose', 'note'] } },
+}
+
+/** Nonvisual public values have no independent catalogue case. Each exemption
+ * names the mechanism and the registered presentation that exercises it. */
+export const CATALOG_EXPORT_EXEMPTIONS = [
+  {
+    export: 'packages/ui/src/design/patterns/AgentCard.tsx#AgentCardModeContext',
+    reason: 'AgentCardModeContext carries the card presentation mode; the registered AgentCard renders its full and facts-only anatomy.',
+  },
+  {
+    export: 'packages/ui/src/design/ui/dialog.tsx#renderShellSlot',
+    reason: 'renderShellSlot portals children into an existing shell host; the registered dialog and frame patterns own the visible content.',
+  },
+  {
+    export: 'packages/ui/src/design/ui/menu-row.tsx#menuRowAttributes',
+    reason: 'menuRowAttributes returns data attributes without rendering; the registered MenuRowContent and MenuListboxOption own the row presentation.',
+  },
+  {
+    export: 'packages/ui/src/design/ui/menu-row.tsx#useMenuPresentation',
+    reason: 'useMenuPresentation reads menu context without rendering; the registered MenuPresentation and MenuRowContent exercise its layout policy.',
+  },
+  {
+    export: 'packages/ui/src/design/ui/popup-state.ts#useMenusOpen',
+    reason: 'useMenusOpen subscribes to popup state without rendering; the registered InfoCard uses it to suppress previews while a menu is open.',
+  },
+] as const satisfies readonly { readonly export: string; readonly reason: string }[]
+
 const primitive = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
   id: `primitive.${name}`,
   category: 'Primitives',
   implementationPath: `packages/ui/src/design/ui/${name}.${name === 'tone' ? 'ts' : 'tsx'}`,
+  symbols: UI_SYMBOLS[name] ?? [],
+  symbolAxes: UI_SYMBOL_AXES[name],
   purpose,
   exampleId,
   variants: variantsFor(name),
@@ -610,6 +784,8 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
   id: `pattern.${name}`,
   category: 'Patterns',
   implementationPath: `packages/ui/src/design/patterns/${name}.tsx`,
+  symbols: PATTERN_SYMBOLS[name] ?? [],
+  symbolAxes: PATTERN_SYMBOL_AXES[name],
   purpose,
   exampleId,
   variants: variantsFor(name),
