@@ -1,3 +1,4 @@
+import { changedWords, presentDiffLines } from './diff'
 import { describe, expect, test } from 'vitest'
 
 import {
@@ -784,5 +785,33 @@ describe('wholeTextDiff', () => {
     const diff = wholeTextDiff(bigA, bigB)
     expect(diff.startsWith('@@ -1,2200 +1,2200 @@')).toBe(true)
     expect(countChanges(diff)).toEqual({ added: 2200, removed: 2200 })
+  })
+})
+
+
+describe('changed words inside paired modified lines', () => {
+  const changed = (before: string, after: string) => changedWords(before, after).map(parts => parts.filter(part => part.changed).map(part => part.text).join(''))
+  test('finds a changed tail after a long shared prefix', () => {
+    const prefix = 'render this long unchanged prefix '.repeat(30)
+    expect(changed(prefix + 'before', prefix + 'after')).toEqual(['before', 'after'])
+  })
+  test('keeps common words between separate edits and preserves every byte', () => {
+    const pair = changedWords('old middle slow!', 'new middle fast!')
+    expect(changed('old middle slow!', 'new middle fast!')).toEqual(['oldslow', 'newfast'])
+    expect(pair.map(parts => parts.map(part => part.text).join(''))).toEqual(['old middle slow!', 'new middle fast!'])
+  })
+  test('bounds large pairs while preserving their text', () => {
+    const before = 'before '.repeat(1000), after = 'after '.repeat(1000)
+    expect(changedWords(before, after).map(parts => parts.map(part => part.text).join(''))).toEqual([before, after])
+  })
+  test('hides only whitespace-only pairs when requested, keeping original numbers', () => {
+    const lines = parseDiff('@@ -10,3 +10,3 @@\n-const a = 1\n-const b = 2\n+const  a = 1\n+const b = 3\n keep')
+    expect(presentDiffLines(lines, true).map(line => line.text)).toEqual(['@@ -10,3 +10,3 @@', 'const b = 2', 'const b = 3', 'keep'])
+    expect(presentDiffLines(lines, true)[1]?.oldNumber).toBe(11)
+    expect(presentDiffLines(lines, false)).toHaveLength(lines.length)
+  })
+  test('never pairs across a context, metadata or file boundary', () => {
+    const lines = parseDiff('@@ -1,2 +1,2 @@\n-same\n keep\n+same')
+    expect(presentDiffLines(lines, true)).toEqual(lines)
   })
 })

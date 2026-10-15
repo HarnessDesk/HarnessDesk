@@ -130,3 +130,13 @@
 .row[data-current] td:first-child {
   box-shadow: inset 2px 0 0 var(--hd-accent);
 }
+
+.options {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--hd-space-1) var(--hd-space-2);
+  border-bottom: 1px solid var(--hd-border);
+}
+
+.add .word { background: var(--hd-code-add-word-fill); }
+.remove .word { background: var(--hd-code-remove-word-fill); }

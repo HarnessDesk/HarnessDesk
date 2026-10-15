@@ -318,7 +318,7 @@ export const FieldEditDialog = ({
         <FormStack>
           <Text>{edit.path}</Text>
           <Note>The exact line this would write:</Note>
-          <DiffView diff={lineDiff(edit.path, edit.before ?? '', edit.after)} wrap />
+          <DiffView diff={lineDiff(edit.path, edit.before ?? '', edit.after)} />
         </FormStack>
       )}
     </Dialog>
@@ -521,7 +521,7 @@ export const PreferFieldDialog = ({
         <FormStack>
           <Text>{edit.path}</Text>
           <Note>The exact line this would write:</Note>
-          <DiffView diff={lineDiff(edit.path, edit.before ?? '', edit.after)} wrap />
+          <DiffView diff={lineDiff(edit.path, edit.before ?? '', edit.after)} />
         </FormStack>
       )}
     </Dialog>

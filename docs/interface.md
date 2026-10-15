@@ -52,6 +52,20 @@ then carries a badge for the number of views waiting there. A split that would
 leave either half below its minimum size stays disabled and tells you the size
 it needs and the size this panel has.
 
+### Reading changes
+
+Diffs wrap by default in the side pane and at full width. Modified lines keep
+their red/green ground and emphasize changed words with a stronger band on
+both sides. Line numbers, file paths and `+N −N` counts remain visible.
+The diff header's **View options** (⋮) menu saves **Word wrap** (on),
+**Highlight changed words** (on), and **Hide whitespace changes** (off) as
+personal preferences. Whitespace hiding omits paired lines that differ only
+in whitespace without renumbering the remaining lines. Multi-file patches
+also offer **Collapse all files**, **Expand all files**, **Show files** (on)
+and **Group files by folder** (off); hiding the file list keeps the patch's
+individual file headings and counts. The patch reader currently uses unified
+rows; it has no side-by-side mode.
+
 ### Editor mode
 
 A conversation's files have their own window mode. The two icon buttons at
