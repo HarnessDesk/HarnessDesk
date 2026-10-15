@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { shellCommandOf, type AgentItem, type FileChange, type ToolCallItem } from '@harnessdesk/protocol'
+import { PATH_KEYS, shellCommandOf, type AgentItem, type FileChange, type ToolCallItem } from '@harnessdesk/protocol'
 import type { AcpToolCallUpdate } from '@harnessdesk/transport-acp'
 
 /** Keep wire facts beside the generic call, never in the public transcript. */
@@ -14,6 +14,38 @@ export interface ToolItemState {
 
 const objectOf = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+
+// Input describes an intention, not a file's prior state or a line boundary.
+// Keep its text visible, but omit hunk headers so Undo refuses these fragments.
+// Only ACP diff content may establish a creation or a reversible line patch.
+const inputChangesOf = (call: ToolCallItem, cwd: string): readonly FileChange[] | undefined => {
+  const input = objectOf(call.args)
+  if (!input) return undefined
+  const path = PATH_KEYS.map(key => input[key]).find((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+  if (!path) return undefined
+  const stringOf = (...values: unknown[]) => values.find((value): value is string => typeof value === 'string')
+  const marked = (mark: string, text: string) => (text.match(/[^\n]*\n|[^\n]+$/g) ?? [])
+    .map(line => `${mark}${line.endsWith('\n') ? line : `${line}\n`}`).join('')
+  const replacement = (value: Record<string, unknown>): string | undefined => {
+    const before = stringOf(value.old_string, value.old_str)
+    const after = stringOf(value.new_string, value.new_str)
+    return before === undefined || after === undefined ? undefined
+      : before === after ? '' : marked('-', before) + marked('+', after)
+  }
+  let diff = replacement(input)
+  if (diff === undefined && Array.isArray(input.edits)) {
+    const edits = input.edits.map(edit => {
+      const value = objectOf(edit)
+      return value ? replacement(value) : undefined
+    })
+    if (edits.length && edits.every(edit => edit !== undefined)) diff = edits.join('')
+  }
+  if (diff === undefined) {
+    const content = stringOf(input.content, input.file_text, input.file_content, input.streamContent, input.code_edit, input.diff, input.patch, input.new_source)
+    if (content !== undefined) diff = marked('+', content)
+  }
+  return diff === undefined ? undefined : [{ path: resolve(cwd, path), kind: { type: 'update' }, diff }]
+}
 
 // ACP supplies old/new text, sometimes just a changed region. A single hunk
 // after trimming shared edges is linear in the text size and needs no file I/O.
@@ -79,17 +111,7 @@ export const projectToolItem = (
   let changes = changesOf({ ...update, locations }, cwd)
   const diffContent = changes ? update.content : previous?.diffContent
   changes ??= changesOf({ toolCallId: call.id, content: diffContent, locations }, cwd)
-  if (!changes && kind === 'edit') {
-    const input = objectOf(call.args)
-    const path = input?.file_path ?? input?.path ?? input?.filePath
-    const content = input?.content ?? input?.file_text ?? input?.file_content
-    if (typeof path === 'string' && path.trim()) {
-      const diff = typeof input?.old_string === 'string' && typeof input.new_string === 'string'
-        ? { path, oldText: input.old_string || null, newText: input.new_string }
-        : typeof content === 'string' ? { path, oldText: null, newText: content } : undefined
-      if (diff) changes = changesOf({ toolCallId: call.id, content: [{ type: 'diff', ...diff }], locations }, cwd)
-    }
-  }
+  if (!changes && kind === 'edit') changes = inputChangesOf(call, cwd)
   let item: ToolItemState['item'] = call
   const base = { id: call.id, status: call.status, startedAt: call.startedAt, completedAt: call.completedAt }
   if (kind === 'edit' || changes) {
@@ -97,7 +119,7 @@ export const projectToolItem = (
     const input = objectOf(call.args)
     const paths: unknown[] = [
       ...(Array.isArray(locations) ? locations.map(location => location?.path) : []),
-      input?.file_path ?? input?.path ?? input?.filePath ?? input?.notebook_path,
+      ...PATH_KEYS.map(key => input?.[key]),
     ]
     for (const path of paths) {
       if (typeof path !== 'string' || !path.trim()) continue

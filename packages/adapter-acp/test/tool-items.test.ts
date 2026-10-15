@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -136,7 +136,7 @@ for (const replay of [false, true]) {
     ], replay)
     const edit = items[0]
     assert.ok(edit?.type === 'fileChange')
-    assert.equal(edit.changes[0]?.diff, '@@ -1,1 +1,1 @@\n-before\n+after\n')
+    assert.equal(edit.changes[0]?.diff, '-before\n+after\n')
     assert.ok(!JSON.stringify(edit).includes('model-facing'))
   })
 }
@@ -146,12 +146,53 @@ test('input-only writes preserve file content until an authoritative diff arrive
     start({ title: 'Write app.js', rawInput: { file_path: 'app.js', content: 'written\n' } }),
     finish({ content: [{ type: 'diff', path: 'app.js', oldText: 'previous\n', newText: 'written\n' }] }),
   ])
-  assert.ok(events.some(event => event.type === 'item/started' && event.item.type === 'fileChange' && event.item.changes[0]?.diff === 'written\n'))
+  assert.ok(events.some(event => event.type === 'item/started' && event.item.type === 'fileChange' && event.item.changes[0]?.kind.type === 'update' && event.item.changes[0]?.diff === '+written\n'))
   const edit = items[0]
   assert.ok(edit?.type === 'fileChange')
   assert.equal(edit.changes[0]?.kind.type, 'update')
   assert.equal(edit.changes[0]?.diff, '@@ -1,1 +1,1 @@\n-previous\n+written\n')
 })
+
+for (const [input, after] of [
+  [{ content: 'written\n' }, 'written\n'],
+  [{ content: '' }, ''],
+  [{ old_string: '', new_string: 'written\n' }, 'written\n'],
+  [{ old_string: 'a - b', new_string: 'a + b' }, 'return a + b\n'],
+] as const) {
+  test(`input-only ${JSON.stringify(input)} preserves content without inventing an undo patch`, async t => {
+    const { items } = await run(t, [start({ rawInput: { file_path: 'app.js', ...input } }), finish()])
+    const edit = items[0]
+    assert.ok(edit?.type === 'fileChange')
+    const change = edit.changes[0]
+    assert.ok(change)
+    assert.equal(change.kind.type, 'update', 'input alone cannot establish file creation')
+    assert.ok(!change.diff.includes('@@'), 'substring edits have no line context')
+    const root = mkdtempSync('/tmp/acp-edit-1670/input-undo-')
+    t.after(() => rmSync(root, { recursive: true, force: true }))
+    execFileSync('git', ['init', '-q', root])
+    writeFileSync(join(root, 'app.js'), after)
+    const undo = spawnSync('git', ['apply', '-R', '-'], { cwd: root, input: `--- a/app.js\n+++ b/app.js\n${change.diff}` })
+    assert.equal(undo.error, undefined)
+    assert.notEqual(undo.status, 0, 'Undo must refuse input-only previews')
+    assert.equal(readFileSync(join(root, 'app.js'), 'utf8'), after)
+  })
+}
+
+for (const replay of [false, true]) {
+  for (const [input, expected] of [
+    [{ path: 'app.js', streamContent: 'streamed\n\ntext\n' }, '+streamed\n+\n+text\n'],
+    [{ file_path: 'app.js', old_str: 'before', new_str: 'after' }, '-before\n+after\n'],
+    [{ file_path: 'app.js', edits: [{ old_string: 'one', new_string: 'two' }, { old_str: 'three\n\nfour', new_str: 'five' }] }, '-one\n+two\n-three\n-\n-four\n+five\n'],
+  ] as const) {
+    test(`input-only dialect ${JSON.stringify(input)} survives ${replay ? 'replay' : 'live updates'}`, async t => {
+      const { items } = await run(t, [start({ rawInput: input }), finish({ rawOutput: 'model-facing reply' }), finish()], replay)
+      const edit = items[0]
+      assert.ok(edit?.type === 'fileChange')
+      assert.deepEqual(edit.changes, [{ path: `${cwd}/app.js`, kind: { type: 'update' }, diff: expected }])
+      assert.ok(!JSON.stringify(edit).includes('model-facing'))
+    })
+  }
+}
 
 test('bridge hunk snippets without trailing newlines still support Undo', async t => {
   const { items } = await run(t, [start(), finish({
