@@ -1,0 +1,16 @@
+{
+  "height": 40,
+  "text": "",
+  "controls": [
+    {
+      "name": "Show sidebar",
+      "x": 12,
+      "width": 28
+    },
+    {
+      "name": "More",
+      "x": 1760,
+      "width": 28
+    }
+  ]
+}
