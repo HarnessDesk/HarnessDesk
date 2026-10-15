@@ -1387,8 +1387,10 @@ const AccountDetail = ({
                 ? `Stored by HarnessDesk — ${snapshot.credentialProtection}. Handed to ${info.presentation.name} when it starts.`
                 : account.kind === 'externalKey'
                   ? account.storedCopy
-                    ? `Read from ${account.planType}, which comes before the copy HarnessDesk keeps — ${snapshot.credentialProtection}.`
-                    : `Read from ${account.planType}. HarnessDesk holds no copy.`
+                    ? `Read from ${account.planType}, which comes before the copy HarnessDesk keeps — ${snapshot.credentialProtection}. The copy is used only if that one is removed.`
+                    : account.outranksHandedKey
+                      ? `Read from ${account.planType}, which comes before any key stored here. HarnessDesk holds no copy.`
+                      : `Read from ${account.planType}. HarnessDesk holds no copy.`
                   : `${info.presentation.name} keeps the credential; HarnessDesk never stores it.`
             }
             action={

@@ -494,7 +494,11 @@ const SignInPreview = ({ scene, onClose }: { scene: SignInScene; onClose: () => 
 /* The page itself, not a second Settings sheet: a page has one Settings
    window, and the specs that find it by its name are right to expect one. */
 const RuntimesPreview = () => {
-  const own = useMemo(() => previewStore(runtimesSeed()), [])
+  const own = useMemo(() => {
+    // `?key-scene=` puts DeepSeek's key where one of the sign-in scenes does.
+    const scene = new URLSearchParams(window.location.search).get('key-scene')
+    return previewStore(runtimesSeed(SIGN_IN_SCENES.find((one) => one === scene)))
+  }, [])
   return (
     <StoreProvider store={own}>
       <div className="mx-auto max-w-[760px] px-8 py-10">

@@ -160,7 +160,7 @@ describe('a source the agent reads ahead of its environment', () => {
     const where = whereSecretLives(spec(sources), () => 'sk-from-the-broker', undefined, '0.2.1-alpha.3')
     assert.deepEqual(
       where,
-      { kind: 'externalKey', detail: 'its store', storedCopy: true },
+      { kind: 'externalKey', detail: 'its store', outranksHandedKey: true, storedCopy: true },
       'the agent sends the store key, so that is where the key lives — and the interface still holds a copy it can replace or remove',
     )
   })
@@ -169,7 +169,11 @@ describe('a source the agent reads ahead of its environment', () => {
     const store = file('store-first-alone.yaml', 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: sk-in-the-store\n')
     const sources = storeAndHomeEnv(store, join(dir, 'absent.env'))
     for (const resolve of [undefined, () => undefined]) {
-      assert.deepEqual(whereSecretLives(spec(sources), resolve, undefined, '0.2.1-alpha.3'), { kind: 'externalKey', detail: 'its store' })
+      assert.deepEqual(
+        whereSecretLives(spec(sources), resolve, undefined, '0.2.1-alpha.3'),
+        { kind: 'externalKey', detail: 'its store', outranksHandedKey: true },
+        'the store still comes first, so a key saved later would be the one ignored',
+      )
     }
   })
 
@@ -202,6 +206,17 @@ describe('a source the agent reads ahead of its environment', () => {
     const sources: AcpSecretSource[] = [{ path: dot, format: 'dotenv', label: 'its .env' }]
     assert.equal(whereSecretLives(spec(sources), () => 'sk-from-the-broker', undefined, '9.9.9')?.kind, 'apiKey')
     assert.equal(whereSecretLives(spec(sources), () => undefined, undefined, '9.9.9')?.detail, 'its .env')
+  })
+
+  it('says a key read after the environment does not outrank the one handed over', () => {
+    const dot = file('after-env.env', 'DEEPSEEK_API_KEY=sk-in-dotenv\n')
+    const sources: AcpSecretSource[] = [{ path: dot, format: 'dotenv', label: 'its .env' }]
+    // No key handed over: the file is the key in use, and it is read last.
+    assert.deepEqual(whereSecretLives(spec(sources), () => undefined, undefined, '9.9.9'), { kind: 'externalKey', detail: 'its .env' })
+    // A store this build reads after the environment is the same.
+    const store = file('store-after-env.yaml', 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: sk-in-the-store\n')
+    const older = storeAndHomeEnv(store, join(dir, 'absent.env'))
+    assert.deepEqual(whereSecretLives(spec(older), () => undefined, undefined, '0.2.0-rc.2'), { kind: 'externalKey', detail: 'its store' })
   })
 
   it('splits the sources by version, keeping the registry order inside each side', () => {
@@ -252,6 +267,7 @@ describe('an agent whose store outranks the key it was handed, through the runti
     (await runtime.getAccount()).accounts.map((account) => ({
       kind: account.kind,
       planType: account.planType,
+      ...(account.outranksHandedKey ? { outranksHandedKey: true } : {}),
       ...(account.storedCopy ? { storedCopy: true } : {}),
     }))
   const accountOf = async (version: string | null, store: string | null) => {
@@ -266,14 +282,14 @@ describe('an agent whose store outranks the key it was handed, through the runti
   const STORE = 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: sk-in-the-store\n'
 
   it('names the store as the account on a build that reads it first, and says the key HarnessDesk holds is still there to manage', async () => {
-    assert.deepEqual(await accountOf('0.2.1-alpha.3', STORE), [{ kind: 'externalKey', planType: 'its own store', storedCopy: true }])
+    assert.deepEqual(await accountOf('0.2.1-alpha.3', STORE), [{ kind: 'externalKey', planType: 'its own store', outranksHandedKey: true, storedCopy: true }])
   })
 
-  it('names the store without a copy to manage when HarnessDesk holds no key', async () => {
+  it('names the store without a copy to manage when HarnessDesk holds no key, and still says it comes first', async () => {
     const runtime = build('0.2.1-alpha.3', STORE, null)
     try {
       await runtime.start()
-      assert.deepEqual(await accountsOf(runtime), [{ kind: 'externalKey', planType: 'its own store' }])
+      assert.deepEqual(await accountsOf(runtime), [{ kind: 'externalKey', planType: 'its own store', outranksHandedKey: true }])
     } finally {
       await runtime.dispose()
     }
@@ -288,13 +304,56 @@ describe('an agent whose store outranks the key it was handed, through the runti
   })
 
   describe('before the agent has started in this process', () => {
+    for (const broker of [null, 'sk-from-the-broker']) {
+      it(`refreshes a restored key account from the previous cache shape ${broker ? 'with' : 'without'} a stored copy`, async () => {
+        const runtime = build('0.2.1-alpha.3', STORE, broker)
+        const agent = { kind: 'agent', label: 'Jane Doe', planType: 'Team' }
+        try {
+          runtime.restoreObservations({
+            launchedVersion: '0.2.1-alpha.3',
+            account: {
+              accounts: [agent, { kind: 'externalKey', label: 'DeepSeek API key', planType: 'its own store', ...(broker ? { storedCopy: true } : {}) }],
+              signInMethods: [],
+            },
+          })
+          const status = await runtime.getAccount()
+          assert.deepEqual(status.accounts, [agent, {
+            kind: 'externalKey', label: 'DeepSeek API key', planType: 'its own store',
+            outranksHandedKey: true, ...(broker ? { storedCopy: true } : {}),
+          }])
+          assert.equal(status.signInMethods[0]?.id, 'apiKey:DEEPSEEK_API_KEY')
+          assert.equal(runtime.health().state, 'idle', 'the read does not start an agent')
+        } finally {
+          await runtime.dispose()
+        }
+      })
+    }
+
+    it('replaces a stale restored key with the current source and remembered read order', async () => {
+      for (const [version, store] of [['0.2.0-rc.2', STORE], ['0.2.1-alpha.3', null]] as const) {
+        const runtime = build('0.2.1-alpha.3', store)
+        try {
+          runtime.restoreObservations({
+            launchedVersion: version,
+            account: {
+              accounts: [{ kind: 'externalKey', label: 'DeepSeek API key', planType: 'its own store', outranksHandedKey: true, storedCopy: true }],
+              signInMethods: [],
+            },
+          })
+          assert.deepEqual(await accountsOf(runtime), [{ kind: 'apiKey', planType: 'API key' }])
+        } finally {
+          await runtime.dispose()
+        }
+      }
+    })
+
     it('judges by the version the last process ran, so a cold read agrees with the warm one that follows', async () => {
       const runtime = build('0.2.1-alpha.3', STORE)
       try {
         assert.equal(runtime.launchedVersion, null, 'nothing is known about a runtime nobody has restored or launched')
         runtime.restoreObservations({ launchedVersion: '0.2.1-alpha.3' })
         assert.equal(runtime.launchedVersion, '0.2.1-alpha.3')
-        assert.deepEqual(await accountsOf(runtime), [{ kind: 'externalKey', planType: 'its own store', storedCopy: true }])
+        assert.deepEqual(await accountsOf(runtime), [{ kind: 'externalKey', planType: 'its own store', outranksHandedKey: true, storedCopy: true }])
       } finally {
         await runtime.dispose()
       }
