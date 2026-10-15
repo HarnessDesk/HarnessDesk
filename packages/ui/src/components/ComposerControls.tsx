@@ -99,6 +99,7 @@ const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) 
   const style = getComputedStyle(toolbar)
   const layout = toolbar.dataset.composerLayout
   const tracks = ['add', ...(layout === 'live' ? [] : ['work-in']), 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
+    .filter((track) => track !== 'permissions' || toolbar.querySelector('[data-composer-track="permissions"]'))
   const measuredWidths = wideTrackMeasurements.get(toolbar) ?? new Map<string, number>()
   for (const trackName of tracks) {
     const track = toolbar.querySelector<HTMLElement>(`[data-composer-track="${trackName}"]`)
@@ -132,7 +133,7 @@ const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) 
     let folded = 0
     for (const track of order) {
       if (width >= total(widths)) break
-      widths.set(track, foldedWidths.get(track) ?? 0)
+      if (widths.has(track)) widths.set(track, foldedWidths.get(track) ?? 0)
       folded += 1
     }
     return { folded, tight: folded === order.length && width < total(widths) }
@@ -462,8 +463,14 @@ export const PermissionControl = () => {
   const snapshot = useSnapshot()
   const { ref, folded, tight } = useNarrowToolbar('permissions')
   const all = useComposerOptions()
-  const options = optionsBySlot(all).permissions
+  const slots = optionsBySlot(all)
+  const options = slots.permissions
   const stale = useStaleDefaults('permissions')
+
+  // Some agents declare permissions through their Mode control. Keep its
+  // vocabulary and slot, without claiming it has no permission setting.
+  const permissionMode = slots.mode.some((option) => /\bpermissions?\b/i.test(`${option.label} ${option.description ?? ''}`))
+  if (options.length === 0 && permissionMode && stale.length === 0) return null
 
   if (options.length === 0) {
     return (
