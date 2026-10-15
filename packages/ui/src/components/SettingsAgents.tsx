@@ -1,3 +1,4 @@
+import { slotForCategory } from '../lib/composer-slots'
 import { CheckIcon } from './Icons'
 import { DestinationBar, useDestinationActive } from '../panels/destination-page'
 import { PageExplanation, PageControls, PageOptions, MenuItem, Toolbar } from '../design'
@@ -1559,6 +1560,7 @@ export const NewSessionDefaults = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const [options, setOptions] = useState<readonly ConfigOption[] | null>(null)
+  const stale = snapshot.staleDraftDefaults[info.id] ?? []
 
   useEffect(() => {
     if (!destinationActive) return
@@ -1576,8 +1578,10 @@ export const NewSessionDefaults = ({
     void store.setNewSessionDefault(info.id, id, value).then(setOptions)
   }
 
-  if (!Array.isArray(options)) return null
-  const listed = only ? options.filter(only) : options
+  const current = snapshot.activeRuntime === info.id ? snapshot.draftOptions ?? options : options
+  if (!Array.isArray(current)) return null
+  const listed = only ? current.filter(only) : current
+  const staleListed = only ? stale.filter((one) => only({ id: one.id, label: one.label, category: one.category } as ConfigOption)) : stale
   return (
     <>
       <SectionHead
@@ -1592,6 +1596,13 @@ export const NewSessionDefaults = ({
           )
         }
       />
+      {staleListed.length > 0 && <Rows>{staleListed.map((one) => (
+        <Row key={one.id} title={<>{`Saved ${one.label}: ${one.valueLabel}`} <Chip tone="warning">Stale</Chip></>}
+          desc={one.reason} data-composer-option-slot={slotForCategory(one.category)}
+          control={<Button variant="secondary" size="sm" onClick={() => void store.clearNewSessionDefault(info.id, one.id).then(setOptions)}>
+            Use the agent’s current value
+          </Button>} />
+      ))}</Rows>}
       {listed.length === 0 ? (
         <Rows>
           <Row

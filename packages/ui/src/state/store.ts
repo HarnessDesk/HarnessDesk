@@ -151,6 +151,7 @@ import {
   type WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
+import { staleDefaults, type StaleDefault } from '../lib/composer-slots'
 import { agentKeyOf, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
 import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
@@ -1218,40 +1219,14 @@ export class AppStore {
    * Refreshes what the next session would start with. Draft picks the user
    * already made ride along so the runtime re-declares the list with them
    * applied; picks the runtime now refuses (a model that vanished with an
-   * account change) are dropped rather than fought over.
+   * account change) stay visible as warnings and are excluded from starts.
    */
   async loadDraftOptions(): Promise<void> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
-    const params = {
-      runtime,
-      ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
-    }
-    try {
-      const asked = this.#snapshot.draftValues
-      const options = await this.transport.request('runtime/sessionDefaults', {
-        ...params,
-        ...(Object.keys(asked).length > 0 ? { values: asked } : {}),
-      })
-      // Picks the runtime no longer honours are forgotten here rather than
-      // re-sent on every refresh; the list itself is the record of what the
-      // next session starts with.
-      const values = kept(asked, options)
-      this.#draftsByRuntime[runtime] = values
-      // A switch is cheap now, so two can happen inside one slow answer: the
-      // first agent's defaults must not land on the second agent's draft.
-      if (this.#snapshot.activeRuntime !== runtime) return
-      this.#patch({ draftValues: values, draftOptions: options.length > 0 ? options : null })
-    } catch {
-      try {
-        const options = await this.transport.request('runtime/sessionDefaults', params)
-        if (this.#snapshot.activeRuntime !== runtime) return
-        this.#patch({ draftOptions: options.length > 0 ? options : null, draftValues: {} })
-      } catch {
-        if (this.#snapshot.activeRuntime !== runtime) return
-        this.#patch({ draftOptions: null })
-      }
-    }
+    const options = await this.newSessionDefaultsFor(runtime)
+    if (this.#snapshot.activeRuntime !== runtime) return
+    this.#patch({ draftOptions: options.length > 0 ? options : null, draftValues: this.#draftsByRuntime[runtime] ?? {} })
   }
 
   // ------------------------------------------------------------------ sign-in
@@ -2805,7 +2780,9 @@ export class AppStore {
       // session started elsewhere — a race, a hand-off — must not inherit
       // another agent's model: the target refuses the value and the session
       // never opens.
-      const values = this.#draftsByRuntime[runtime] ?? {}
+      // Validate saved picks at the creation boundary: declarations may have
+      // changed since the draft last read them.
+      const values = await this.#newSessionValues(runtime, cwd)
       const session = await this.transport.request('session/create', {
         runtime,
         options: {
@@ -6153,23 +6130,106 @@ export class AppStore {
     await this.setNewSessionDefault(runtime, id, value)
   }
 
+  #creationDefaults: Partial<Record<RuntimeId, Promise<Readonly<Record<string, OptionValue>>>>> = {}
+
+  /** Capture validated start values without competing starts invalidating each other. */
+  async #newSessionValues(runtime: RuntimeId, cwd: string): Promise<Readonly<Record<string, OptionValue>>> {
+    const previous = this.#creationDefaults[runtime] ?? Promise.resolve({})
+    const validation = previous.catch(() => ({})).then(async () => {
+      while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
+      if (Object.keys(this.#draftsByRuntime[runtime] ?? {}).length === 0) return {}
+      let revision: number
+      do {
+        const checking = this.newSessionDefaultsFor(runtime, cwd)
+        revision = this.#draftRevisions[runtime]!
+        await checking
+        // A refresh or a user pick may supersede a pending validation.
+        // Its cached answer is not permission to send the old defaults.
+      } while (this.#draftRevisions[runtime] !== revision)
+      return this.#draftsByRuntime[runtime] ?? {}
+    })
+    this.#creationDefaults[runtime] = validation
+    try { return await validation }
+    finally { if (this.#creationDefaults[runtime] === validation) delete this.#creationDefaults[runtime] }
+  }
+
   /**
    * What a new session on this agent would start with, the stored picks
    * applied. The same question the composer asks for its pre-session
    * controls — Settings and the composer read one answer.
    */
-  async newSessionDefaultsFor(runtime: RuntimeId): Promise<readonly ConfigOption[]> {
-    const values = this.#draftsByRuntime[runtime] ?? {}
+  async newSessionDefaultsFor(runtime: RuntimeId, cwd = this.#snapshot.workspace?.path): Promise<readonly ConfigOption[]> {
+    // A read must not invalidate a user pick whose answer is still in flight.
+    while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
+    const revision = this.#nextDraftRevision(runtime)
+    const asked = this.#draftsByRuntime[runtime] ?? {}
+    const params = { runtime, ...(cwd ? { cwd } : {}) }
     try {
-      return await this.transport.request('runtime/sessionDefaults', {
-        runtime,
-        ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
-        ...(Object.keys(values).length > 0 ? { values } : {}),
-      })
+      // Discover first: an obsolete saved value never rides the next request.
+      let declared = await this.transport.request('runtime/sessionDefaults', params)
+      if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      // Reasoning and other controls can depend on the selected model. Resolve
+      // a valid saved model (or profile that chooses one) before judging its
+      // dependent saved values against the agent's default declarations.
+      const selectors = Object.fromEntries(Object.entries(asked).filter(([id]) =>
+        declared.some((one) => one.id === id && (one.category === 'model' || one.category === '_profile'))))
+      const invalidSelectors = new Set(staleDefaults(selectors, declared)
+        .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+      const selectorValues = modelFirstValues(Object.fromEntries(Object.entries(selectors).filter(([id]) => !invalidSelectors.has(id))), declared)
+      if (Object.keys(selectorValues).length > 0 && Object.keys(asked).some((id) => !(id in selectors))) {
+        declared = await this.transport.request('runtime/sessionDefaults', { ...params, values: selectorValues })
+        if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      }
+      const invalid = new Set(staleDefaults(asked, declared, this.#draftOptionsByRuntime[runtime])
+        .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+      const applicable = modelFirstValues(Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id))), declared)
+      const options = Object.keys(applicable).length > 0
+        ? await this.transport.request('runtime/sessionDefaults', { ...params, values: applicable }) : declared
+      if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      await this.#rememberDraftDefaults(runtime, asked, options)
+      return options
     } catch {
-      return []
+      try {
+        const options = await this.transport.request('runtime/sessionDefaults', params)
+        if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+        await this.#rememberDraftDefaults(runtime, asked, options)
+        return options
+      } catch {
+        return []
+      }
     }
   }
+
+  /** Keeps the rejected fact and the accepted start values as separate records. */
+  async #rememberDraftDefaults(runtime: RuntimeId, asked: Readonly<Record<string, OptionValue>>, options: readonly ConfigOption[], replaced?: string): Promise<void> {
+    const rejected = staleDefaults(asked, options, this.#draftOptionsByRuntime[runtime])
+    const ids = new Set(rejected.map((one) => one.id))
+    const previous = this.#snapshot.staleDraftDefaults[runtime] ?? []
+    const stale = [...previous.filter((one) => one.id !== replaced && !ids.has(one.id)), ...rejected]
+    const values = kept(asked, options, this.#draftOptionsByRuntime[runtime])
+    const changed = JSON.stringify(this.#draftsByRuntime[runtime] ?? {}) !== JSON.stringify(values)
+      || JSON.stringify(previous) !== JSON.stringify(stale)
+    this.#draftsByRuntime[runtime] = values
+    this.#draftOptionsByRuntime[runtime] = options
+    const staleDraftDefaults = { ...this.#snapshot.staleDraftDefaults, [runtime]: stale }
+    this.#patch({ staleDraftDefaults, ...(this.#snapshot.activeRuntime === runtime
+      ? { draftValues: values, draftOptions: options.length > 0 ? options : null } : {}) })
+    if (changed) await this.#saveDraftDefaults()
+  }
+
+  /** Deletes a saved pick without changing the agent's current selection. */
+  async clearNewSessionDefault(runtime: RuntimeId, id: string): Promise<readonly ConfigOption[]> {
+    this.#nextDraftRevision(runtime)
+    const { [id]: _removed, ...values } = this.#draftsByRuntime[runtime] ?? {}
+    this.#draftsByRuntime[runtime] = values
+    const staleDraftDefaults = { ...this.#snapshot.staleDraftDefaults,
+      [runtime]: (this.#snapshot.staleDraftDefaults[runtime] ?? []).filter((one) => one.id !== id) }
+    this.#patch({ staleDraftDefaults, ...(this.#snapshot.activeRuntime === runtime ? { draftValues: values } : {}) })
+    await this.#saveDraftDefaults()
+    return this.newSessionDefaultsFor(runtime)
+  }
+
+  #pendingDraftSetters: Partial<Record<RuntimeId, Promise<readonly ConfigOption[]>>> = {}
 
   /**
    * One default for one agent's next sessions, persisted host-side under the
@@ -6177,19 +6237,33 @@ export class AppStore {
    * agent, whichever surface wrote it. When the agent is the active one the
    * open draft follows immediately.
    */
-  async setNewSessionDefault(
+  setNewSessionDefault(
     runtime: RuntimeId,
     id: string,
     value: OptionValue,
   ): Promise<readonly ConfigOption[]> {
-    const asked = { ...(this.#draftsByRuntime[runtime] ?? {}), [id]: value }
+    const pending = this.#setNewSessionDefault(runtime, id, value).finally(() => {
+      if (this.#pendingDraftSetters[runtime] === pending) delete this.#pendingDraftSetters[runtime]
+    })
+    this.#pendingDraftSetters[runtime] = pending
+    return pending
+  }
+
+  async #setNewSessionDefault(
+    runtime: RuntimeId,
+    id: string,
+    value: OptionValue,
+  ): Promise<readonly ConfigOption[]> {
+    const revision = this.#nextDraftRevision(runtime)
+    const asked = modelFirstValues({ ...(this.#draftsByRuntime[runtime] ?? {}), [id]: value }, this.#draftOptionsByRuntime[runtime] ?? [])
     try {
       const options = await this.transport.request('runtime/sessionDefaults', {
         runtime,
         ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
         values: asked,
       })
-      const values = kept(asked, options)
+      if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      const values = kept(asked, options, this.#draftOptionsByRuntime[runtime])
       // What the runtime did with a pick is read off the list it answered
       // with, not assumed from the call returning. A model with no thinking
       // mode leaves the switch off and says why; keeping `thinking: true`
@@ -6205,15 +6279,20 @@ export class AppStore {
       }
       const refused = findOption(options, id)
       if (refused?.disabled && !(id in values)) this.resultNotice('info', refused.disabled)
-      this.#draftsByRuntime[runtime] = values
-      if (this.#snapshot.activeRuntime === runtime) {
-        this.#patch({ draftValues: values, draftOptions: options.length > 0 ? options : null })
-      }
-      void this.#writePreference({ draftValues: this.#draftsByRuntime }, 'The draft options')
+      await this.#rememberDraftDefaults(runtime, asked, options, id)
       return options
     } catch (error) {
       this.resultNotice('warning', describe(error))
-      return this.newSessionDefaultsFor(runtime)
+      try {
+        const options = await this.transport.request('runtime/sessionDefaults', {
+          runtime, ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
+          // Validate the accepted picks independently of the failed change.
+          values: this.#draftsByRuntime[runtime] ?? {},
+        })
+        if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+        await this.#rememberDraftDefaults(runtime, asked, options, id)
+        return options
+      } catch { return this.#draftOptionsByRuntime[runtime] ?? [] }
     }
   }
 
@@ -6255,6 +6334,26 @@ export class AppStore {
     this.#patch({ hiddenModels })
     void this.#writePreference({ hiddenModels }, 'The model picker')
   }
+
+  #draftRevisions: Record<string, number> = {}
+  #nextDraftRevision(runtime: RuntimeId): number {
+    return this.#draftRevisions[runtime] = (this.#draftRevisions[runtime] ?? 0) + 1
+  }
+
+  #draftWrite: Promise<unknown> = Promise.resolve()
+  #saveDraftDefaults(): Promise<unknown> {
+    // Only metadata for saved picks: enough to name a removed option after reload.
+    const draftDefaultOptions = Object.fromEntries(Object.entries(this.#draftOptionsByRuntime).map(([runtime, options]) => [runtime,
+      options.filter((one) => one.id in (this.#draftsByRuntime[runtime] ?? {})).map((one) => ({
+        id: one.id, label: one.label, category: one.category, type: one.type, currentValue: one.currentValue,
+        ...(one.type === 'select' ? { choices: one.choices.filter((choice) => choice.value === one.currentValue).map(({ value, label }) => ({ value, label })) } : {}),
+      })),
+    ]))
+    const patch = { draftValues: { ...this.#draftsByRuntime }, staleDraftDefaults: this.#snapshot.staleDraftDefaults, draftDefaultOptions }
+    return this.#draftWrite = this.#draftWrite.then(() => this.#writePreference(patch, 'The draft options'))
+  }
+
+  #draftOptionsByRuntime: Record<string, readonly ConfigOption[]> = {}
 
   #draftsByRuntime: Record<string, Readonly<Record<string, OptionValue>>> = {}
 
@@ -6755,6 +6854,31 @@ export class AppStore {
           ? (layouts as Record<string, Workbench>)
           : {}
       if (this.#snapshot.workspace) this.#restoreLayout(this.#snapshot.workspace.path)
+      const savedOptions = preferences['draftDefaultOptions']
+      if (typeof savedOptions === 'object' && savedOptions !== null && !Array.isArray(savedOptions)) {
+        for (const [runtime, options] of Object.entries(savedOptions)) {
+          if (!Array.isArray(options)) continue
+          this.#draftOptionsByRuntime[runtime] = options.filter((one): one is ConfigOption => one
+            && typeof one.id === 'string' && typeof one.label === 'string'
+            && (one.category === undefined || typeof one.category === 'string')
+            && (one.type === 'boolean' ? typeof one.currentValue === 'boolean'
+              : one.type === 'select' && typeof one.currentValue === 'string' && Array.isArray(one.choices)
+                && one.choices.every((choice: { value?: unknown; label?: unknown }) => choice && typeof choice.value === 'string' && typeof choice.label === 'string')))
+        }
+      }
+      const staleSaved = preferences['staleDraftDefaults']
+      if (typeof staleSaved === 'object' && staleSaved !== null && !Array.isArray(staleSaved)) {
+        const staleDraftDefaults: Record<string, StaleDefault[]> = {}
+        for (const [runtime, entries] of Object.entries(staleSaved)) {
+          if (!Array.isArray(entries)) continue
+          staleDraftDefaults[runtime] = entries.filter((one): one is StaleDefault =>
+            one && typeof one.id === 'string' && typeof one.label === 'string'
+            && typeof one.valueLabel === 'string' && typeof one.reason === 'string'
+            && (typeof one.value === 'string' || typeof one.value === 'boolean')
+            && (one.category === undefined || typeof one.category === 'string'))
+        }
+        this.#patch({ staleDraftDefaults })
+      }
       const drafts = preferences['draftValues']
       if (typeof drafts === 'object' && drafts !== null && !Array.isArray(drafts)) {
         this.#draftsByRuntime = drafts as Record<string, Readonly<Record<string, OptionValue>>>
@@ -8131,6 +8255,9 @@ export class AppStore {
     }
     const next = reduceSession(existing, event)
     if (next !== existing) this.#setSession(next)
+    if (event.type === 'session/options' && Object.keys(this.#draftsByRuntime[runtime] ?? {}).length > 0) {
+      void this.newSessionDefaultsFor(runtime)
+    }
   }
 
   /** Newer history reads supersede older replies, including a clear after search. */
@@ -8267,6 +8394,16 @@ export type TerminalNotification = Extract<
   { method: 'terminal/output' } | { method: 'terminal/exited' }
 >
 
+/** Agents apply entries in order; a model must precede its dependent picks. */
+const modelFirstValues = (
+  values: Readonly<Record<string, OptionValue>>,
+  options: readonly ConfigOption[],
+): Readonly<Record<string, OptionValue>> => {
+  const models = new Set(options.filter((one) => one.category === 'model').map((one) => one.id))
+  const entries = Object.entries(values)
+  return Object.fromEntries([...entries.filter(([id]) => models.has(id)), ...entries.filter(([id]) => !models.has(id))])
+}
+
 /**
  * The picks that actually landed: the ones the runtime's fresh list agrees
  * with. Anything else was refused or has no control on the model now chosen,
@@ -8280,13 +8417,10 @@ export type TerminalNotification = Extract<
 const kept = (
   asked: Readonly<Record<string, OptionValue>>,
   options: readonly ConfigOption[],
+  previous: readonly ConfigOption[] = [],
 ): Readonly<Record<string, OptionValue>> => {
-  if (options.length === 0) return asked
-  const landed: Record<string, OptionValue> = {}
-  for (const [id, value] of Object.entries(asked)) {
-    if (findOption(options, id)?.currentValue === value) landed[id] = value
-  }
-  return landed
+  const rejected = new Set(staleDefaults(asked, options, previous).map((one) => one.id))
+  return modelFirstValues(Object.fromEntries(Object.entries(asked).filter(([id]) => !rejected.has(id))), options)
 }
 
 /** The `(runtime, sessionId)` pair a session-scoped wire method takes. */
