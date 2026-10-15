@@ -63,7 +63,7 @@ const GroupLine = ({ left, right, sticky = false, as = 'div' }: { left: ReactNod
 }
 
 const PanelEmpty = ({ children }: { children: ReactNode }) => (
-  <p data-slot="inspector-empty" className="m-0 px-2.5 py-6 text-center text-sm leading-(--hd-line-sm) text-(--hd-muted-foreground)">
+  <p data-slot="inspector-empty" className="m-0 px-(--hd-inset-row) py-6 text-center text-sm leading-(--hd-line-sm) text-(--hd-muted-foreground)">
     {children}
   </p>
 )
