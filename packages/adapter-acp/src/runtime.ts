@@ -115,7 +115,7 @@ import {
 import { CliAccount, type AcpAccountCommands } from './account.js'
 import { attachmentsMeta, decodeAttachmentCapability, toAttachmentSupport, validateAttachmentReceipt } from './attachments.js'
 import { AcpExtensions } from './extensions.js'
-import { resolveExecutable, type AcpExecutableSpec, type ResolvedExecutable } from './executable.js'
+import { resolveExecutable, versionAtLeast, type AcpExecutableSpec, type ResolvedExecutable } from './executable.js'
 import { acknowledgeEnvironment, environmentMeta, environmentSupported } from './lane-environment.js'
 import { CliMcp, type AcpMcpCommands } from './mcp.js'
 import { AcpTasks } from './tasks.js'
@@ -154,6 +154,9 @@ export interface AcpSecretSpec {
    * order — DeepSeek Harness reads `~/.dsh/.credentials.yaml` (what its own
    * Models page writes) and two `.env` files besides its environment.
    *
+   * Where the environment falls in that order can depend on the agent's
+   * version (`AcpSecretSource.outranksEnvFrom`).
+   *
    * HarnessDesk reads these to answer one question only: *does the agent
    * already have a key*. Without that it says "not signed in" about an agent
    * that runs perfectly, and offers a field for a key that is already there.
@@ -171,6 +174,16 @@ export interface AcpSecretSource {
   readonly format: 'yaml' | 'dotenv'
   /** How to name it to a person, e.g. "DeepSeek Harness's own store". */
   readonly label: string
+  /**
+   * From this agent version on, the agent reads this source *before* the
+   * environment it starts with — and so before any key HarnessDesk hands it.
+   * Absent, or on an older version, it is read after the environment.
+   * Measured, not assumed: DeepSeek Harness's `acp` profile took its launch
+   * environment ahead of `.credentials.yaml` through 0.2.0-rc.2 and the
+   * stored file ahead of it from 0.2.1-alpha.3 (the sitting is in
+   * `docs/decisions.md`).
+   */
+  readonly outranksEnvFrom?: string
 }
 
 /** What the host decided about starting this agent: run this, or do not, and why. */
@@ -633,28 +646,59 @@ const levelsOfOptions = (
 }
 
 /**
+ * The declared file sources an agent reads before its environment, and the
+ * ones it reads after, each in the order the registry lists them — at the
+ * version that will run.
+ *
+ * A version that is not known keeps the order this has always had (every
+ * file after the environment), because a gate that opens on a guess would
+ * name a file the agent may not be reading.
+ */
+export const secretReadOrder = (
+  secret: Pick<AcpSecretSpec, 'alsoAt'>,
+  version?: string | null,
+): { readonly before: readonly AcpSecretSource[]; readonly after: readonly AcpSecretSource[] } => {
+  const before: AcpSecretSource[] = []
+  const after: AcpSecretSource[] = []
+  for (const source of secret.alsoAt ?? []) {
+    const first = source.outranksEnvFrom !== undefined && versionAtLeast(version, source.outranksEnvFrom)
+    if (first) before.push(source)
+    else after.push(source)
+  }
+  return { before, after }
+}
+
+/**
  * Whether a declared secret is available to the agent, and from where — never
  * what it is.
  *
- * The order is the agent's own: HarnessDesk's broker feeds the process
- * environment, which every agent reads first, and the declared files are
- * consulted in the order the registry lists them. Reporting the source is the
- * point: "not signed in" about an agent that has a key in its own store is
- * false, and so is "key stored" when the interface's copy is the one being
- * ignored.
+ * The order is the agent's own, at the version that will run it
+ * (`secretReadOrder`): HarnessDesk's broker feeds the process environment,
+ * which most agents read first, and the declared files are consulted in the
+ * order the registry lists them — except a file the agent is known to read
+ * ahead of its environment, which wins over the broker's key too. Reporting
+ * the source is the point: "not signed in" about an agent that has a key in
+ * its own store is false, and so is "key stored" when the interface's copy is
+ * the one being ignored.
  */
 export const whereSecretLives = (
   secret: AcpSecretSpec,
   resolve?: (env: string) => string | undefined,
   /** The agent's own configured environment, which a path may name a variable from. */
   agentEnv?: Readonly<Record<string, string>>,
+  /** The version that will run, when the host read one. */
+  version?: string | null,
 ): { readonly kind: 'apiKey' | 'externalKey'; readonly detail: string } | null => {
+  const { before, after } = secretReadOrder(secret, version)
+  for (const source of before) {
+    if (readsKey(source, secret.env, agentEnv)) return { kind: 'externalKey', detail: source.label }
+  }
   if (typeof resolve?.(secret.env) === 'string') return { kind: 'apiKey', detail: 'API key' }
   const inherited = process.env[secret.env]
   if (typeof inherited === 'string' && inherited !== '') {
     return { kind: 'externalKey', detail: `the ${secret.env} in HarnessDesk's environment` }
   }
-  for (const source of secret.alsoAt ?? []) {
+  for (const source of after) {
     if (readsKey(source, secret.env, agentEnv)) return { kind: 'externalKey', detail: source.label }
   }
   return null
@@ -1821,7 +1865,7 @@ export class AcpRuntime implements AgentRuntime {
     // A stored key is an account: it is what "signed in" means for an agent
     // that authenticates with one, and the label never carries the value.
     const keyAccounts: Account[] = (this.#config.secrets ?? []).flatMap((secret) => {
-      const where = whereSecretLives(secret, this.#config.resolveSecret, this.#config.env)
+      const where = whereSecretLives(secret, this.#config.resolveSecret, this.#config.env, this.launchedVersion)
       return where ? [{ kind: where.kind, label: secret.label, planType: where.detail }] : []
     })
     if (this.#account && this.#health.state === 'ready') {

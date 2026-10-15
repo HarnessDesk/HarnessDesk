@@ -147,6 +147,19 @@ export const CLAUDE_PASTE_PROMPT = 'Paste code here if prompted'
  */
 export const CLAUDE_PASTE_REJECTED = 'Invalid code. Please make sure the full code was copied.'
 
+/**
+ * The first DeepSeek Harness whose `acp` profile reads a key saved in its own
+ * store (`.credentials.yaml`) ahead of the environment it starts with. Through
+ * 0.2.0-rc.2 the launch environment won, and HarnessDesk hands its own key
+ * over as exactly that; from 0.2.1-alpha.3 a key in the store beats it, so the
+ * key HarnessDesk holds is silently unused while the store has one. Found by
+ * bisecting 0.2.1-alpha.1 → alpha.3 against a fake endpoint that records the
+ * key it is sent (docs/decisions.md). Declared on the `.credentials.yaml`
+ * source in both places the secret is spelled — here and the `dsh` template in
+ * `agent-registry.ts` — so presence detection and the balance meter follow it.
+ */
+export const DSH_STORE_FIRST_FROM = '0.2.1-alpha.3'
+
 export const KNOWN_AGENTS: readonly KnownAgent[] = [
   {
     id: 'gemini',
@@ -676,7 +689,7 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
           helpUrl: 'https://platform.deepseek.com/api_keys',
           description: 'DeepSeek authenticates with a provider key rather than a browser sign-in.',
           alsoAt: [
-            { path: '${DSH_HOME:-~/.dsh}/.credentials.yaml', format: 'yaml', label: "DeepSeek's own store (.credentials.yaml in its home)" },
+            { path: '${DSH_HOME:-~/.dsh}/.credentials.yaml', format: 'yaml', label: "DeepSeek's own store (.credentials.yaml in its home)", outranksEnvFrom: DSH_STORE_FIRST_FROM },
             { path: '${DSH_HOME:-~/.dsh}/.env', format: 'dotenv', label: '.env in its home' },
           ],
         },

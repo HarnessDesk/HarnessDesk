@@ -7,6 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **DeepSeek shows the key it is really using.** From DeepSeek Harness
+  0.2.1-alpha.3 a key saved in its own store is used ahead of the one this app
+  hands it, so with both present the account row said "stored here" about a key
+  the agent ignored, and the balance was read for the wrong account. The row now
+  names the store, and the balance follows it, on those builds; older builds keep
+  the order they always had.
+
 - **Teams opens at once on a busy desk.** The page reads recorded usage only
   for the Teams its open tab shows, with one read of the usage sources for all
   of them rather than one per Team, and leaves wrapped Teams alone until
