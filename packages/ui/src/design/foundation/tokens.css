@@ -519,6 +519,9 @@ body {
      every page keeps one gutter on both sides of whichever measure it takes. */
   --hd-page-wide: 1320px;
   --hd-page-gutter: var(--hd-space-6);
+  /* The step between a page's blocks (#1646). A section head subtracts it to
+     stand 32 under the card above and 12 over its own. */
+  --hd-page-stack: var(--hd-space-4);
   /* A menu's room: at least 200, and a wide menu (a submenu, a long list with
      search, agents with meters) at most 340 — long names wrap rather than
      widen it. The seat menu's account rows and usage line fit at 340. */

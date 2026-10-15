@@ -227,6 +227,7 @@
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
 --hd-page-gutter = 24px
+--hd-page-stack = 16px
 --hd-page-wide = 1320px
 --hd-panel-card-gap = 8px
 --hd-panel-card-pad-x = 12px
@@ -801,6 +802,7 @@
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
 --hd-page-gutter = 24px
+--hd-page-stack = 16px
 --hd-page-wide = 1320px
 --hd-panel-card-gap = 8px
 --hd-panel-card-pad-x = 12px
@@ -1382,6 +1384,7 @@
 --hd-nav-radius = 6px
 --hd-page-group-gap = 0px
 --hd-page-gutter = 24px
+--hd-page-stack = 16px
 --hd-page-wide = 1320px
 --hd-panel-card-gap = 8px
 --hd-panel-card-pad-x = 12px
@@ -1965,6 +1968,7 @@
 --hd-nav-radius = 6px
 --hd-page-group-gap = 0px
 --hd-page-gutter = 24px
+--hd-page-stack = 16px
 --hd-page-wide = 1320px
 --hd-panel-card-gap = 8px
 --hd-panel-card-pad-x = 12px

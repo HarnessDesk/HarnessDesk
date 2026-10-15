@@ -24,7 +24,7 @@ it.each(['reading', 'wide', 'canvas'] as const)('keeps the %s page gutter on all
 })
 
 it('separates page blocks by the page stack step', () => {
-  expect(css).toMatch(/\.page\s*\{[^}]*gap:\s*var\(--hd-space-4\)/s)
+  expect(css).toMatch(/\.page\s*\{[^}]*gap:\s*var\(--hd-page-stack\)/s)
 })
 
 it('fills its destination body only when a page needs remaining-space alignment', () => {

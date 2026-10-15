@@ -94,15 +94,20 @@ for (const theme of ['light', 'dark'] as const) {
         expect(geometry.scroll, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.client + 1)
       }
       // Below the desktop's 720px minimum this embedded specimen keeps its
-      // body allocated; the More controls remain keyboard reachable.
+      // body allocated; every bar control stays in the row and keyboard
+      // reachable. A short title ("Teams") folds nothing, so its verb may
+      // stand in the bar rather than behind More.
       if (width === 375) {
         await expect(frame.locator('[data-slot="status-bar"]')).toHaveCount(0)
-        const more = frame.getByRole('button', { name: 'More', exact: true })
-        await more.focus()
-        expect(await more.evaluate(node => {
-          const row = node.closest('[data-slot="top-bar"]')!.getBoundingClientRect(), button = node.getBoundingClientRect()
-          return document.activeElement === node && button.left >= row.left - 1 && button.right <= row.right + 1
-        })).toBe(true)
+        const controls = frame.locator('[data-slot="top-bar"]:visible button:visible')
+        expect(await controls.count()).toBeGreaterThan(0)
+        for (const control of await controls.all()) {
+          await control.focus()
+          expect(await control.evaluate(node => {
+            const row = node.closest('[data-slot="top-bar"]')!.getBoundingClientRect(), button = node.getBoundingClientRect()
+            return document.activeElement === node && button.left >= row.left - 1 && button.right <= row.right + 1
+          }), await control.getAttribute('aria-label') ?? await control.innerText()).toBe(true)
+        }
       }
       await expect(frame.getByRole('tab', { name: /^Needs you(?: \d+)?$/ })).toBeVisible()
       const filters = await Promise.all(['Active', 'Needs you', 'Settled'].map(name => frame.getByRole('tab', { name: new RegExp(`^${name}(?: \\d+)?$`) }).boundingBox()))

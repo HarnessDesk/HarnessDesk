@@ -66,19 +66,19 @@ describe('the row under the macOS window buttons', () => {
 
   it("a terminal's own bar leaves room for them through its shared bar variant", () => {
     expect(terminalShellTabsSource).toMatch(/<DockPanelBar\b[^>]*data-terminal-shell-tabs=""[^>]*>/)
-    expect(dockPanel).toContain('pl-[max(var(--hd-space-2),var(--titlebar-inset,0px))]')
+    expect(dockPanel).toContain('pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]')
   })
 
   it("the sidebar's title bar leaves room for them through the shared bar's corner", () => {
     expect(sidebarCss).not.toMatch(/\.titlebar\s*{[^}]*padding/s)
     expect(sidebarSource).toMatch(/<LeftColumnTop\b/)
-    expect(leftColumnSource).toMatch(/<Bar corner\b/)
-    expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]'")
+    expect(leftColumnSource).toMatch(/<Bar inset="rail" corner\b/)
+    expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-rail-inset),var(--titlebar-inset,0px))]'")
   })
 
   it("a panel's tab strip leaves room for them too", () => {
     // Tailwind rather than a module, so the rule is a class on the component.
-    expect(dockPanel).toContain('pl-[max(var(--hd-space-2),var(--titlebar-inset,0px))]')
+    expect(dockPanel).toContain('pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]')
   })
 
   it('the room itself is zero until the shell says otherwise', () => {

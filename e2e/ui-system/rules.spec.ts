@@ -437,14 +437,14 @@ test.describe('rule: group labels', () => {
  * settings/usage rail row (`AppWindow.tsx`'s `WindowNavItem`, every row in
  * `[data-slot="app-window-nav"]` — both windows share this file), and
  * a canonical one-line menu item (`design/ui/menu-row.tsx`). The sidebar's
- * LeftColumnRow, the settings navigation recipe and the menu's row anatomy
- * share the frame's 30px rung. Selecting the sidebar button slot excludes
+ * LeftColumnRow and the settings navigation recipe share the frame's 32px
+ * rung; a menu's row anatomy keeps the popup's 30 (owner, 2026-10-14). Selecting the sidebar button slot excludes
  * the sibling hover action.
  *
  * Measured on every instance, not one sample per kind. Every row of every
  * kind is at least `--hd-nav-h` tall, every row of one kind agrees with its
  * own siblings, and the kinds agree with each other — in both interfaces.
- * Both interfaces use the app frame's 30px row. The floor and agreement
+ * Both interfaces use the app frame's 32px row. The floor and agreement
  * checks still reject a kind that retains a different interface height.
  *
  * Agreement across kinds is a claim about one-line rows, measured at the
@@ -480,7 +480,7 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
       for (const [where, list] of Object.entries(groups)) {
         measured += list.length
         for (const height of list) {
-          if (height < navH) out.push({ where, height, navH, reason: 'shorter than --hd-nav-h' })
+          if (where !== 'menu item' && height < navH) out.push({ where, height, navH, reason: 'shorter than --hd-nav-h' })
         }
         const distinctOwn = new Set(list)
         if (distinctOwn.size > 1) {
@@ -489,14 +489,15 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
           representative[where] = list[0]
         }
       }
-      // The Settings rail stands one rung roomier than the working rows (32 against 30), by decision;
-      // it is checked against its own value and the other kinds agree with each other.
-      const SETTINGS_ROW = 32
-      const settingsKind = 'settings/usage rail row'
-      if (representative[settingsKind] !== undefined && representative[settingsKind] !== SETTINGS_ROW) {
-        out.push({ where: settingsKind, height: representative[settingsKind], navH, reason: 'destination-row kinds disagree: ' + settingsKind + ' stands ' + representative[settingsKind] + ', not ' + SETTINGS_ROW })
+      // A menu's row keeps the popup's 30 (FRAME.menu.rowHeight) while the left column's rows stand 32
+      // (owner, 2026-10-14: the roomier column); it is checked against its own value, and the columns'
+      // kinds agree with each other.
+      const MENU_ROW = 30
+      const menuKind = 'menu item'
+      if (representative[menuKind] !== undefined && representative[menuKind] !== MENU_ROW) {
+        out.push({ where: menuKind, height: representative[menuKind], navH, reason: 'destination-row kinds disagree: ' + menuKind + ' stands ' + representative[menuKind] + ', not ' + MENU_ROW })
       }
-      delete representative[settingsKind]
+      delete representative[menuKind]
       const acrossKinds = new Set(Object.values(representative))
       if (acrossKindsToo && acrossKinds.size > 1) {
         for (const [where, height] of Object.entries(representative)) {

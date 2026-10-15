@@ -83,7 +83,8 @@ for (const theme of ['light', 'dark'] as const) {
           await facts.scrollIntoViewIfNeeded()
           await expect(facts).toBeInViewport()
           const edge = await facts.evaluate(element => element.getBoundingClientRect().left - element.closest('[data-slot="work-tools"]')!.getBoundingClientRect().left)
-          expect(edge, 'contributed prose uses the canonical 16px inset').toBe(16)
+          // The rail inset and the card's border precede the row edge prose shares.
+          expect(edge, 'contributed prose stands on the card row edge').toBe(FRAME.panel.pad + 1 + FRAME.panel.cardPadX)
           await expect(panel.locator('[data-slot="tool-section"]')).not.toHaveCount(0)
         }
         await expect.poll(async () => page.locator('[data-slot="workbench-main"]').evaluate(main => {

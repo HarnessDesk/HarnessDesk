@@ -101,7 +101,8 @@ const ToolPaneHeader = ({
          arithmetic. */
       'flex shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border)',
       'h-(--hd-bar-h)',
-      variant === 'default' && 'px-(--hd-bar-pad)',
+      /* A default header names a dense canvas and starts with it; its controls keep the bar's 12. */
+      variant === 'default' && 'pl-(--hd-inset-dense) pr-(--hd-bar-pad)',
       variant === 'window' && 'pr-3 pl-4',
       corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]',
       contentInset === 'page' && 'pl-[max(var(--hd-space-6),var(--titlebar-inset,0px))]',

@@ -80,7 +80,7 @@ export const ToolFold = ({ label, children }: { label: string; children: ReactNo
   </div>
 }
 
-/** A missing-fact note uses the row edge and second-line type; prose keeps its reading inset. */
+/** Prose and a missing-fact note stand on the card's row edge; a note takes second-line type. */
 export const ToolProse = ({ children, variant = 'prose' }: { children: ReactNode; variant?: 'prose' | 'note' }) => <SectionBody data-slot="tool-prose" spacing={variant === 'note' ? 'inline' : 'tool-prose'}><Text role={variant === 'note' ? 'meta' : 'prose'} ink="secondary">{children}</Text></SectionBody>
 
 export const ToolBodyControls = ({ children, ...props }: { children: ReactNode } & Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'>) => <div {...props} data-slot="tool-controls" data-surface=""

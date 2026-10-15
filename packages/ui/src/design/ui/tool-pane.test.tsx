@@ -77,7 +77,7 @@ it('uses the header inset for a padded body so their content starts together', (
       <ToolPaneBody>body</ToolPaneBody>
     </ToolPane>,
   ))
-  expect(container.querySelector('[data-slot="tool-pane-header"]')?.className).toContain('px-(--hd-bar-pad)')
+  expect(container.querySelector('[data-slot="tool-pane-header"]')?.className).toContain('pl-(--hd-inset-dense)')
   expect(container.querySelector('[data-slot="tool-pane-body"]')?.className).toContain('p-(--hd-inset-dense)')
   expect(container.querySelector('[data-slot="tool-pane-body"]')?.className).toContain('gap-(--hd-card-gap)')
 })

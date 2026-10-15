@@ -268,6 +268,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-column` | `736px` |
 | `--hd-page-wide` | `1320px` |
 | `--hd-page-gutter` | `24px` |
+| `--hd-page-stack` | `16px` |
 | `--hd-menu-min` | `200px` |
 | `--hd-popover-width-wide` | `340px` |
 | `--hd-menu-row-radius` | `calc(10px - 6px)` |
@@ -2499,7 +2500,7 @@ The rest of a card behind one quiet line: "All facts", "Show all".
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
-A missing-fact note uses the row edge and second-line type; prose keeps its reading inset.
+Prose and a missing-fact note stand on the card's row edge; a note takes second-line type.
 
 ### `TopBarToolButton`
 

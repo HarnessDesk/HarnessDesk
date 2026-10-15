@@ -5,7 +5,7 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: var(--hd-space-4); /* desk: 12 → 16, the page's shared block stack stands roomier (#1646). */
+  gap: var(--hd-page-stack); /* desk: 12 → 16, the page's shared block stack stands roomier (#1646). */
   width: 100%;
   margin-inline: auto;
 }
@@ -38,7 +38,7 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: var(--hd-card-gap);
+  gap: var(--hd-page-stack); /* desk: 12 → 16, the same stack as the page around it */
   width: 100%;
   min-width: 0;
   margin-inline: auto;
@@ -53,5 +53,11 @@
 .page > [data-section-head]:not(:first-child),
 .page > [data-page-measure] > [data-slot='section'][data-variant='page']:not(:first-child),
 .page > [data-page-measure] > [data-section-head]:not(:first-child) {
-  margin-block-start: calc(var(--hd-space-8) - var(--hd-card-gap));
+  margin-block-start: calc(var(--hd-space-8) - var(--hd-page-stack)); /* desk: 20 → 16, with the 16 stack still the 32px section step */
+}
+
+/* A head's label stands 12 over its own card, nearer it than the stack's step. */
+.page > [data-section-head] + *,
+.page > [data-page-measure] > [data-section-head] + * {
+  margin-block-start: calc(var(--hd-space-3) - var(--hd-page-stack)); /* desk: 0 → −4, so a label stays 12 over its card under the 16 stack */
 }
