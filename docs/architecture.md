@@ -417,6 +417,10 @@ on a run that already ended returns it unchanged and still cancels what it had
 not sent.
 `team/intent` admits only abandon at `run` and done at `answer`. A
 done requires the frozen Flow's live person role and a declared outcome.
+A person review requesting a merge carries its current candidate token to the
+host. Under the destination's Git mutation lock, the host re-reads the selected
+subject and checks the live Run, round and open card immediately before Git
+writes, then verifies reachability before recording the review and answer.
 The shared board mutation preserves the first answer to be saved and its
 handoff — a later answer waits for that save to land or be put back — and
 client provenance is supplied by the door rather than wire params. A start redeems a single-use preview token
