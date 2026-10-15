@@ -42,6 +42,16 @@ it('opens a conversation terminal in that conversation’s worktree', async () =
   await store.openTerminal()
 
   expect(store.transport.request).toHaveBeenCalledWith('terminal/open', expect.objectContaining({ cwd: WORKTREE, sessionId: ID }))
+  const subject = store.workSubject()!
+  expect(store.getSnapshot().workbench.frameTools[subject]).toMatchObject({ tool: 'terminal', open: true })
+  store.chooseWorkTool('terminal', 'terminal', true)
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+  expect(terminalsIn(store.getSnapshot().workbench)).toHaveLength(1)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(true)
+  expect(vi.mocked(store.transport.request).mock.calls.filter(([method]) => method === 'terminal/open')).toHaveLength(1)
+  store.closeTerminal('fixture-pty')
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
 })
 
 it('new default terminals use the chosen project without the retained conversation context on pages', async () => {
@@ -56,6 +66,114 @@ it('new default terminals use the chosen project without the retained conversati
   expect(opened[1]).not.toHaveProperty('sessionId')
   await store.openTerminal({ cwd: '/synthetic/retained-shell' })
   expect(store.transport.request).toHaveBeenCalledWith('terminal/open', expect.objectContaining({ cwd: '/synthetic/retained-shell' }))
+})
+
+it('keeps a late terminal with the subject that opened it', async () => {
+  await store.selectRuntime(RUNTIME)
+  await store.openWorkspace(PROJECT)
+  await store.openSession(ID, { runtime: RUNTIME })
+  const owner = store.workSubject()!
+  let finish!: (value: unknown) => void
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => method === 'terminal/open'
+    ? new Promise(resolve => { finish = resolve }) : null) as never)
+  const opening = store.openTerminal()
+  store.openDefaultView({ kind: 'room', room: 'another-team' })
+  const other = store.workSubject()!
+  finish({ terminalId: 'late-pty', runtime: RUNTIME })
+  await opening
+  const workbench = store.getSnapshot().workbench
+  const held = workbench.bottom.root.kind === 'stack' ? workbench.bottom.root.views[0]! : null
+  expect(held).not.toBeNull()
+  expect(workbench.toolOwners[held!.id]).toBe(owner)
+  expect(workbench.frameTools[other]).toBeUndefined()
+})
+
+it('closing a terminal door during allocation retains the late process without reopening or duplicating it', async () => {
+  await store.selectRuntime(RUNTIME)
+  await store.openWorkspace(PROJECT)
+  await store.openSession(ID, { runtime: RUNTIME })
+  let finish!: (value: unknown) => void
+  const request = vi.mocked(store.transport.request)
+  request.mockImplementation((async (method: HostMethodName) => method === 'terminal/open'
+    ? new Promise(resolve => { finish = resolve }) : null) as never)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  expect(request.mock.calls.filter(([method]) => method === 'terminal/open')).toHaveLength(1)
+  finish({ terminalId: 'pending-pty', runtime: RUNTIME })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.open).toBe(false)
+  expect(terminalsIn(store.getSnapshot().workbench)).toHaveLength(1)
+})
+
+it('a pending draft terminal follows that same pane when it becomes a session', async () => {
+  await store.selectRuntime(RUNTIME)
+  await store.openWorkspace(PROJECT)
+  const draft = store.workSubject()!, paneId = store.getSnapshot().layout.focused
+  let finish!: (value: unknown) => void
+  const previous = vi.mocked(store.transport.request).getMockImplementation()!
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'terminal/open') return new Promise(resolve => { finish = resolve })
+    if (method === 'session/create') return { ...conversation(), cwd: PROJECT }
+    return previous(method, params as never)
+  }) as never)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  const key = await store.newSession()
+  expect(key).not.toBeNull()
+  const subject = store.workSubject()!
+  expect(subject).not.toBe(draft)
+  expect(store.getSnapshot().layout.focused).toBe(paneId)
+  finish({ terminalId: 'promoted-pty', runtime: RUNTIME })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const workbench = store.getSnapshot().workbench
+  const held = workbench.bottom.root.kind === 'stack' ? workbench.bottom.root.views[0]! : null
+  expect(workbench.toolOwners[held!.id]).toBe(subject)
+  expect(workbench.frameTools[draft]).toBeUndefined()
+  store.chooseWorkTool('terminal', 'terminal', true)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  expect(vi.mocked(store.transport.request).mock.calls.filter(([method]) => method === 'terminal/open')).toHaveLength(1)
+})
+
+it('a promoted request cannot clear a newer pending door after its draft subject is reused', async () => {
+  await store.selectRuntime(RUNTIME)
+  await store.openWorkspace(PROJECT)
+  const draft = store.workSubject()!
+  const pending: ((value: unknown) => void)[] = []
+  const previous = vi.mocked(store.transport.request).getMockImplementation()!
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'terminal/open') return new Promise(resolve => pending.push(resolve))
+    if (method === 'session/create') return { ...conversation(), cwd: PROJECT }
+    return previous(method, params as never)
+  }) as never)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  await store.newSession()
+  const promoted = store.workSubject()!
+  store.newDraft()
+  expect(store.workSubject()).toBe(draft)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  expect(pending).toHaveLength(2)
+  pending[0]!({ terminalId: 'first-promoted-pty', runtime: RUNTIME })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  store.chooseWorkTool('terminal', 'terminal', true)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  expect(pending).toHaveLength(2)
+  pending[1]!({ terminalId: 'new-draft-pty', runtime: RUNTIME })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const workbench = store.getSnapshot().workbench
+  const entries = workbench.bottom.root.kind === 'stack' ? workbench.bottom.root.views : []
+  expect(entries.map(entry => workbench.toolOwners[entry.id])).toEqual([promoted, draft])
+})
+
+it('an early refused allocation releases its own pending-door guard', async () => {
+  await store.selectRuntime(RUNTIME)
+  await store.openWorkspace(PROJECT)
+  store.setWindowSize(1200, 100)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  store.setWindowSize(1200, 900)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(terminalsIn(store.getSnapshot().workbench)).toHaveLength(1)
 })
 
 it.each(['settings', 'changes-review'] as const)('admits the selected %s folder before opening its terminal without switching workspaces', async kind => {

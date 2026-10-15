@@ -67,6 +67,7 @@ import {
   SummaryList,
   Switch,
   Text,
+  Toolbar,
   sortableItemClass,
   useSortable,
 } from '../design'
@@ -226,9 +227,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
   const start = (): void => { void store.startAsAgent(entry.id) }
   return (
     <>
-      <DestinationBar place={name} parents={[{ label: 'Agents', run: onBack }]}
-        mark={<AgentFace entry={entry} />} state={definition ? <Chip label={ceilingWords(definition.ceiling)} tone="neutral" title={ceilingFlag ?? undefined} /> : undefined}
-        verb={definition ? { label: `Start a conversation as ${definition.name}`, run: start } : undefined}
+      <DestinationBar place={name}
         more={close => <>
           {canStartHigher && <MenuItem icon={<ShieldIcon size={14} />} label="Start at a higher ceiling…" onSelect={() => { setStartingHigher(true); close() }} />}
           {targets.length > 0 && <MenuItem icon={<CopyIcon size={14} />} label="Customize…" onSelect={() => { setCustomizing(true); close() }} />}
@@ -237,6 +236,12 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
           {folder && <MenuItem icon={<FolderIcon size={14} />} label="Reveal" onSelect={() => { void store.revealAgent(entry.id, entry.origin); close() }} />}
           {folder && entry.origin !== 'builtin' && <MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => { setRemoving(true); close() }} />}
       </>} />
+      <Toolbar>
+        {definition && <Button variant="outline" size="sm" onClick={start}>Start a conversation as {definition.name}</Button>}
+        <Button variant="ghost" size="sm" onClick={onBack}>Back to Agents</Button>
+        <AgentFace entry={entry} />
+        {definition && <Chip label={ceilingWords(definition.ceiling)} tone="neutral" title={ceilingFlag ?? undefined} />}
+      </Toolbar>
       {definition?.description && <PageExplanation>{definition.description}</PageExplanation>}
 
       {(folder || definition) && (

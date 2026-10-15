@@ -19,3 +19,19 @@ test('body choices print their current value and preserve the change callback', 
     expect(host.querySelector('[data-slot="page-options"]')?.textContent).toContain('Read just now')
   } finally { await act(async () => root.unmount()); host.remove() }
 })
+
+test('the page verb starts the row and a disabled verb keeps its reason', async () => {
+  const host = document.createElement('div'); document.body.append(host)
+  const root = createRoot(host), run = vi.fn()
+  try {
+    await act(async () => root.render(<PageOptions choices={[{ id: 'kind', label: 'Library sections', value: 'skill',
+      items: [{ value: 'skill', label: 'Skills' }], change: () => {} }]}
+      action={{ label: 'New skill', disabled: 'The library has not been read.', run }} />))
+    const row = host.querySelector('[data-slot="page-options"]')!
+    expect(row.firstElementChild?.textContent).toBe('New skill')
+    const action = row.querySelector<HTMLButtonElement>('button')!
+    expect(action.disabled).toBe(true)
+    expect(action.title).toBe('The library has not been read.')
+    act(() => action.click()); expect(run).not.toHaveBeenCalled()
+  } finally { await act(async () => root.unmount()); host.remove() }
+})

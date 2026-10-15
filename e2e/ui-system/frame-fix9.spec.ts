@@ -154,17 +154,17 @@ test('FIX9 spend grouping uses sentence case', async ({ page }) => {
 
 {
 
-  for (const [item0, width] of ([1100, 720]).entries()) test(`FIX9 floating Changes uses overlay elevation [item ${[item0].join('-')}]`, async ({ page }) => {
+  for (const [item0, width] of ([1100, 720]).entries()) test(`FIX9 narrow Changes uses the full-height pane region [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=conversation', width)
+    const main = page.locator('[data-frame-region="main"]')
+    const before = await main.boundingBox()
     await page.getByRole('button', { name: 'Changes', exact: true }).first().click()
     const panel = page.locator('[data-frame-region="right"]:visible')
-    const shadows = await panel.evaluate(element => {
-      const probe = document.createElement('div'); probe.style.boxShadow = 'var(--hd-shadow-lg)'; element.append(probe)
-      const values = [getComputedStyle(element).boxShadow, getComputedStyle(probe).boxShadow]; probe.remove(); return values
-    })
-    expect(shadows[0]).not.toBe('none')
-    expect(shadows[0]).toBe(shadows[1])
+    await expect(panel).toBeVisible()
+    expect(await panel.boundingBox()).toEqual({ x: before!.x, y: 0, width: width - before!.x, height: 900 })
+    expect(await panel.evaluate(element => getComputedStyle(element).boxShadow)).toBe('none')
+    await expect(main).toBeHidden()
 
 
   })

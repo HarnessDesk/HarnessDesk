@@ -99,7 +99,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(local.getByRole('button', { name: 'Post to pull request', exact: true })).toBeDisabled()
     const narrow = page.locator('#review-publication-narrow')
     await selectRunView(narrow, 'Timeline')
-    await narrow.locator('[data-work-panel-toggle]').click()
+    await narrow.getByRole('button', { name: 'Close pane', exact: true }).click()
     await expect(narrow.locator('[data-preview-tool-placement]')).toHaveCount(0)
     await narrow.locator('[data-row="card-3-3"]').click()
     await expect(narrow.locator('[data-slot="run-scroll"]')).toBeVisible()

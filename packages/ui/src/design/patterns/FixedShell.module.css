@@ -3,8 +3,8 @@
   --frame-right: 0px;
   --frame-right-size: 0px;
   --frame-main-min: min(var(--frame-reading-min), max(0px, calc(var(--frame-window-width) - var(--frame-left) - var(--frame-right-min) - var(--hd-border-width) - var(--hd-border-width))));
-  /* The grid and top bar inherit one pixel projection, including live left drags. */
   --frame-right-effective: max(0px, min(var(--frame-right-drag, var(--frame-right-size)), var(--frame-right-max), calc(var(--frame-window-width) - var(--frame-left) - var(--frame-canvas-gutter)), calc(var(--frame-window-width) - var(--frame-left) - var(--frame-main-min) - var(--hd-border-width) - var(--hd-border-width))));
+  --frame-rail: 0px;
   --frame-bottom: 0px;
   --frame-left-open: 0px;
   --frame-right-open: 0px;
@@ -15,39 +15,57 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  grid-template-columns: var(--frame-left) minmax(0, 1fr) var(--frame-right);
-  grid-template-rows: var(--hd-bar-h) minmax(0, 1fr) var(--frame-bottom);
-  grid-template-areas: 'left top top' 'left main right' 'left bottom right';
+  grid-template-columns: var(--frame-left) minmax(0, 1fr) var(--frame-rail) var(--frame-right); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
+  grid-template-rows: var(--hd-bar-h) minmax(0, 1fr); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
+  grid-template-areas: 'left top top right' 'left main rail right'; /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
 }
 .left { grid-area: left; position: relative; min-height: 0; min-width: 0; }
 .top { grid-area: top; min-width: 0; }
 .main { grid-area: main; position: relative; min-width: 0; min-height: 0; }
-.right { overflow: visible; grid-area: right; position: relative; min-width: 0; min-height: 0; }
-.bottom { overflow: visible; grid-area: bottom; position: relative; min-width: 0; min-height: 0; }
+.rail { grid-area: rail; position: relative; min-width: 0; min-height: 0; overflow: auto; }
+.right { overflow: hidden; grid-area: right; position: relative; min-width: 0; min-height: 0; }
+.bottom { visibility: hidden; pointer-events: none; position: absolute; left: var(--frame-left); right: 0; bottom: 0; top: calc(100% - var(--frame-bottom-retained)); }
+.shell[data-rail-open='true'][data-rail-floats='false'] { --frame-rail: var(--frame-rail-width); }
 .shell[data-left-open='false'] .left,
 .shell[data-right-open='false'] .right,
-.shell[data-bottom-open='false'] .bottom { visibility: hidden; pointer-events: none; }
-/* Hidden native hosts keep a useful box without taking grid room. */
+.shell[data-rail-open='false'] .rail { visibility: hidden; pointer-events: none; }
+/* Hidden native hosts retain their useful dimensions. */
 .shell[data-right-open='false'] .right {
-  grid-area: auto; position: absolute; top: var(--hd-bar-h); right: 0;
-  bottom: var(--frame-bottom); width: var(--frame-right-retained);
+  grid-area: auto; position: absolute; top: 0; right: 0; /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
+  bottom: 0; width: var(--frame-right-retained); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
 }
-.shell[data-bottom-open='false'] .bottom {
-  grid-area: auto; position: absolute; left: var(--frame-left); right: 0; top: calc(100% - var(--frame-bottom-retained)); bottom: 0;
+.shell[data-rail-open='false'] .rail {
+  grid-area: auto; position: absolute; top: var(--hd-bar-h); right: var(--frame-right); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
+  bottom: 0; width: var(--frame-rail-width); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
 }
-.shell[data-panel-floats='true'] { grid-template-columns: var(--frame-left) minmax(0, 1fr) var(--frame-right); }
-.shell[data-left-floats='true'][data-panel-floats='true'] { grid-template-columns: 0 minmax(0, 1fr) var(--frame-right); }
-.shell[data-panel-floats='true'] .right {
-  grid-area: auto; position: absolute; top: var(--hd-bar-h); right: 0;
-  bottom: var(--frame-bottom); width: var(--frame-right);
+.shell[data-rail-floats='true'] .rail {
+  grid-area: auto; position: absolute; /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
+  top: calc(var(--hd-bar-h) + var(--hd-rail-inset)); right: var(--hd-rail-inset); bottom: var(--hd-rail-inset);
+  width: min(var(--frame-rail-width), calc(100% - var(--hd-rail-inset) * 2)); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
   z-index: var(--hd-z-drawer);
 }
-.shell[data-left-floats='true'] { grid-template-columns: 0 minmax(0, 1fr) var(--frame-right); }
+.shell[data-pane-expanded='true'] .main { grid-area: right; }
+.shell[data-pane-expanded='true'] .right { grid-area: main; }
+.shell[data-left-floats='true'] { --frame-left: 0px; }
 .shell[data-left-floats='true'] .left {
-  grid-area: auto; position: absolute; top: 0; bottom: 0; left: 0;
-  width: var(--frame-left-open); z-index: var(--hd-z-drawer);
+  grid-area: auto; position: absolute; top: 0; bottom: 0; left: 0; /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
+  width: var(--frame-left-open); z-index: calc(var(--hd-z-drawer) + 2); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
 }
-/* Region edges own seams; their hit area may straddle the shared boundary. */
+/* A narrow pane replaces main. Its own return control is always in reach. */
+.shell[data-panel-floats='true'] { grid-template-columns: var(--frame-left) minmax(0, 1fr) 0 0; }
+.shell[data-panel-floats='true'] .right {
+  grid-area: auto; position: absolute; top: 0; right: 0; bottom: 0; left: var(--frame-left); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
+  width: auto; z-index: var(--hd-z-drawer); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
+}
+.shell[data-panel-floats='true'] .main,
+.shell[data-panel-floats='true'] .top,
+.shell[data-panel-floats='true'] .rail { visibility: hidden; pointer-events: none; }
+/* Region seams use the same retained drag projection. */
 .left > [data-slot='panel-seam'] { grid-area: auto; position: absolute; top: 0; bottom: 0; right: calc(-1 * var(--hd-border-width)); }
 .right [data-slot='panel-seam'] { grid-area: auto; position: absolute; top: 0; bottom: 0; left: calc(-1 * var(--hd-border-width)); }
-.bottom [data-slot='panel-seam'] { grid-area: auto; position: absolute; top: calc(-1 * var(--hd-border-width)); left: 0; right: 0; }
+
+.shell [data-shell-tool-bodies] { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.shell [data-shell-file-body] { display: flex; flex: 1; min-width: 0; min-height: 0; position: relative; }
+.shell [data-shell-file-body][data-hidden] { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
+.shell [data-shell-files-tree] { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.shell [data-shell-files-tree][data-file-open='true'] { flex: none; height: 40%; }

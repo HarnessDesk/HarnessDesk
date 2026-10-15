@@ -34,7 +34,8 @@ test('restored split payloads move without replacement or resource release', () 
     expect(right.find(one => one.id === expected.id)).toEqual(expected)
     expect(after.toolOwners[expected.id]).toBe('team:fixture-team')
   }
-  expect(after.frameTools['team:fixture-team']).toEqual({ tool: 'changes', mode: 'changes', open: true })
+  expect(after.toolOwners[terminal.id]).toBe('team:fixture-team')
+  expect(after.frameTools['team:fixture-team']).toEqual({ tool: 'terminal', mode: 'terminal', open: true })
   expect(after.focus).toBeNull()
   expect(after.zoom).toBeNull()
 })
@@ -55,7 +56,7 @@ test('equal file payloads retain separate subjects and revealing restores the re
   const revealed = revealFixedTool(second, mounted[0]!.id)!
   expect(fixedSubject(revealed.main)).toBe(owner)
   expect(revealed.frameSubjects[owner]).toEqual(remembered)
-  expect(revealed.frameTools[owner]).toEqual({ tool: 'changes', mode: 'file', open: true })
+  expect(revealed.frameTools[owner]).toEqual({ tool: 'files', mode: 'file', open: true })
   expect(revealed.toolOwners).toEqual(second.toolOwners)
 })
 

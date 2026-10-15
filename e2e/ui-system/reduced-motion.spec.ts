@@ -283,7 +283,7 @@ test('a floating sidebar put away with motion reduced is hidden at once, with no
   await page.goto('/design.html?view=panels')
   // At this width the right panel covers main, including the sidebar toggle.
   // Collapse the panel through its visible control before opening the sidebar.
-  const hidePanel = page.getByRole('button', { name: 'Toggle right panel', exact: true })
+  const hidePanel = page.getByRole('button', { name: 'Close pane', exact: true })
   await expect(hidePanel).toBeVisible()
   await hidePanel.click()
   const show = page.locator('button[aria-label="Show sidebar"]').filter({ visible: true }).first()

@@ -84,7 +84,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list')
     const pane = page.locator('[data-frame-id="board-list-page"]')
-    const view = pane.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true })
+    const view = pane.getByRole('button', { name: 'View', exact: true })
     await view.click()
     await page.getByRole('menuitem', { name: 'List', exact: true }).click()
     await expect(pane.locator('[data-slot="board-list"]')).toBeVisible()

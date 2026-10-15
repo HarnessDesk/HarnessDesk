@@ -262,6 +262,8 @@ import {
   settle as settleWorkbench,
   terminals as terminalsIn,
   toggleDock as toggleDockIn,
+  toggleWorkRail as toggleWorkRailIn,
+  swapWorkPane as swapWorkPaneIn,
   undock as undockIn,
   unzoom as unzoomIn,
   visibleInspector,
@@ -349,6 +351,12 @@ export { emptySnapshot } from './snapshot'
 const FORGOTTEN_FOLDERS_KEPT = 2000
 
 export type UnheldCeilings = 'seat' | 'refuse'
+
+interface TerminalOpenOptions {
+  readonly cwd?: string
+  readonly command?: readonly string[]
+  readonly size?: TerminalSize
+}
 
 export class AppStore {
   #windowModeChanged = false
@@ -2798,6 +2806,19 @@ export class AppStore {
         const promoted = focusedPane(this.#snapshot.layout)
         if (draftSubject && promoted.id === draftPane?.id && promoted.view.kind === 'conversation' && promoted.view.session === key) {
           const before = this.#snapshot.workbench
+          const promotedSubject = `session:${key}`
+          // Only this confirmed draft-to-session transition may change a
+          // pending shell's owner. Ordinary navigation keeps its captured work.
+          for (const origin of this.#terminalOpeningOrigins) {
+            if (origin.subject === draftSubject && origin.pane?.id === draftPane.id && origin.pane.view === draftPane.view) {
+              origin.subject = promotedSubject
+              origin.pane = promoted
+              if (origin.door && this.#terminalDoorsOpening.get(draftSubject) === origin.door) {
+                this.#terminalDoorsOpening.delete(draftSubject)
+                this.#terminalDoorsOpening.set(promotedSubject, origin.door)
+              }
+            }
+          }
           const { [draftSubject]: intent, ...frameTools } = before.frameTools
           const { [draftSubject]: scope, ...frameSubjects } = before.frameSubjects
           if (intent || scope) {
@@ -3924,6 +3945,8 @@ export class AppStore {
    * dock behind them.
    */
   #dockEpoch = 0
+  #terminalDoorsOpening = new Map<string, symbol>()
+  #terminalOpeningOrigins = new Set<{ subject: string | null; pane: ReturnType<typeof findPane>; door: symbol | undefined }>()
 
   /**
    * Opens a sandboxed terminal in the dock below the composer, in the
@@ -3932,19 +3955,20 @@ export class AppStore {
    * one takes the screen. The process is the runtime's; the dock only draws
    * it.
    */
-  async openTerminal(
-    options: {
-      readonly cwd?: string
-      readonly command?: readonly string[]
-      readonly size?: TerminalSize
-    } = {},
-  ): Promise<void> {
+  openTerminal(options: TerminalOpenOptions = {}): Promise<void> {
+    return this.#openTerminal(options)
+  }
+
+  async #openTerminal(options: TerminalOpenOptions, door?: symbol): Promise<void> {
     if (this.#snapshot.windowHeight < FRAME.bottomPanel.min * 2) {
       this.resultNotice('warning', 'The terminal needs a window at least 240px tall.')
       return
     }
     const runtime = this.#snapshot.activeRuntime
     const sessionKeyNow = this.#snapshot.activeSessionKey
+    const terminalSubject = this.workSubject()
+    const terminalPane = findPane(this.#snapshot.layout, this.#snapshot.layout.focused)
+    const openingDoor = door !== undefined && terminalSubject !== null && this.#terminalDoorsOpening.get(terminalSubject) === door
     const cwd = options.cwd ?? terminalCwdForSnapshot(this.#snapshot)
     const candidate = sessionKeyNow ? this.#snapshot.sessions.get(sessionKeyNow) : undefined
     const session = this.#snapshot.workbench.navigation.current.kind === 'work' && candidate?.cwd === cwd
@@ -3954,6 +3978,8 @@ export class AppStore {
       return
     }
     const epoch = this.#dockEpoch
+    const origin = { subject: terminalSubject, pane: terminalPane, door: openingDoor ? door : undefined }
+    this.#terminalOpeningOrigins.add(origin)
     try {
       if (!session && cwd !== this.#snapshot.workspace?.path) {
         // A page can name the main checkout while only a linked worktree
@@ -3979,8 +4005,7 @@ export class AppStore {
         void this.transport.request('terminal/close', { terminalId }).catch(() => {})
         return
       }
-      this.#setWorkbench(
-        dockIn(this.#snapshot.workbench, 'bottom', {
+      let opened = dockIn(this.#snapshot.workbench, 'bottom', {
           kind: 'terminal',
           terminalId,
           // The panel names whoever actually hosts the process, so its
@@ -3989,10 +4014,21 @@ export class AppStore {
           cwd,
           ...(sessionKeyNow && session ? { session: sessionKeyNow } : {}),
           ...(options.command ? { command: options.command } : {}),
-        }),
-      )
+        })
+      const subject = origin.subject
+      if (subject && origin.pane) {
+        const mount = dockViews(opened.bottom).find(one => one.view.kind === 'terminal' && one.view.terminalId === terminalId)!
+        const currentIntent = opened.frameTools[subject]
+        opened = { ...opened, toolOwners: { ...opened.toolOwners, [mount.id]: subject },
+          frameSubjects: { ...opened.frameSubjects, [subject]: { paneId: origin.pane.id, view: origin.pane.view } },
+          frameTools: openingDoor && (currentIntent?.tool !== 'terminal' || !currentIntent.open)
+            ? opened.frameTools : { ...opened.frameTools, [subject]: chooseTool(currentIntent, 'terminal') } }
+      }
+      this.#setWorkbench(opened)
     } catch (error) {
       this.resultNotice('error', describe(error))
+    } finally {
+      this.#terminalOpeningOrigins.delete(origin)
     }
   }
 
@@ -4048,6 +4084,8 @@ export class AppStore {
       const mount = mountOfTerminal(workbench, view.terminalId)
       if (mount) workbench = undockIn(workbench, mount)
     }
+    workbench = { ...workbench, frameTools: Object.fromEntries(Object.entries(workbench.frameTools).map(([subject, intent]) =>
+      [subject, intent.tool === 'terminal' ? { ...intent, open: false, expanded: false } : intent])) }
     this.#setWorkbench(workbench)
   }
 
@@ -4289,6 +4327,23 @@ export class AppStore {
       return
     }
     const intent = chooseTool(before.frameTools[subject], tool, mode, toggle)
+    if (tool === 'terminal' && intent.open && !dockViews(before.bottom).some(one => one.view.kind === 'terminal' && (!before.toolOwners[one.id] || before.toolOwners[one.id] === subject))) {
+      const pane = findPane(before.main, before.main.focused)!
+      this.#setWorkbench({ ...before, frameTools: { ...before.frameTools, [subject]: intent },
+        frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
+      if (!this.#terminalDoorsOpening.has(subject)) {
+        const door = Symbol('terminal-door')
+        this.#terminalDoorsOpening.set(subject, door)
+        // One request owns cleanup, including refusal before allocation. The
+        // token follows promotion and cannot clear a reused subject's request.
+        void this.#openTerminal({}, door).finally(() => {
+          for (const [owner, pending] of this.#terminalDoorsOpening) {
+            if (pending === door) this.#terminalDoorsOpening.delete(owner)
+          }
+        })
+      }
+      return
+    }
     if (intent.open && mode === tool && (tool === 'changes' || tool === 'activity')
       && !dockViews(before.right).some(one => before.toolOwners[one.id] === subject && one.view.kind === tool)) {
       this.showViewIn('right', { kind: tool })
@@ -4312,6 +4367,12 @@ export class AppStore {
     const before = this.#snapshot.workbench
     const current = before.frameTools[subject] ?? { tool: 'details', mode: 'details', open: false } as const
     this.chooseWorkTool(current.tool, current.mode, true)
+  }
+  toggleWorkRail(): void {
+    this.#setWorkbench(toggleWorkRailIn(this.#snapshot.workbench))
+  }
+  swapWorkPane(): void {
+    this.#setWorkbench(swapWorkPaneIn(this.#snapshot.workbench))
   }
 
   /** Mounts a view in an area, bringing it forward if it is already somewhere. */
@@ -4370,7 +4431,14 @@ export class AppStore {
     const mounted = this.#snapshot.workbench
     const found = DOCKS.flatMap((area) => dockViews(mounted[area])).find((entry) => entry.id === id)
     if (found) this.#release(found.view)
-    this.#setWorkbench(undockIn(mounted, id))
+    let next = undockIn(mounted, id)
+    const owner = mounted.toolOwners[id]
+    const intent = owner ? next.frameTools[owner] : undefined
+    if (found?.view.kind === 'terminal' && owner && intent?.tool === 'terminal'
+      && !dockViews(next.bottom).some(one => one.view.kind === 'terminal' && next.toolOwners[one.id] === owner)) {
+      next = { ...next, frameTools: { ...next.frameTools, [owner]: { ...intent, open: false, expanded: false } } }
+    }
+    this.#setWorkbench(next)
   }
 
   /**

@@ -105,6 +105,7 @@ const rig = (over: Partial<AppSnapshot>): void => {
     setDetailsTab: vi.fn(),
     openGitHistory: vi.fn(),
     seatRecord: vi.fn(async () => null),
+    refreshTasks: vi.fn(async () => {}),
   } as unknown as AppStore
   act(() => {
     root.render(

@@ -2,20 +2,24 @@ import type { CapabilityContribution } from '@harnessdesk/protocol'
 import { fixedSubject, dock, dockViews, replaceView, activate, activeView, focusView, type Workbench } from './workbench'
 import { findPane, sameView, type PaneView } from './layout'
 
-export type WorkTool = 'conversation' | 'details' | 'changes' | 'activity' | 'browser'
+export type WorkTool = 'conversation' | 'details' | 'changes' | 'activity' | 'browser' | 'terminal' | 'files'
 export interface ToolIntent {
   readonly tool: WorkTool
   readonly mode: string
   readonly open: boolean
+  readonly railOpen?: boolean
+  readonly expanded?: boolean
   /** Conversation mode's panel, restored when this Editor visit ends. */
   readonly beforeEditor?: Omit<ToolIntent, 'beforeEditor'> & { readonly mount?: string }
 }
 export interface FixedToolContext { readonly editor: boolean; readonly view: PaneView }
 export const conversationToolContext = (before: Workbench, editor: boolean): FixedToolContext => ({ editor, view: findPane(before.main, before.main.focused)!.view })
 export const toolOf = (kind: string): WorkTool | null => {
+  if (kind === 'terminal' || kind === 'files') return kind
   if (kind === 'conversation') return 'conversation'
   if (['run-details', 'agents', 'plugin', 'details'].includes(kind)) return 'details'
-  if (['changes', 'file', 'preview'].includes(kind)) return 'changes'
+  if (kind === 'changes') return 'changes'
+  if (kind === 'file' || kind === 'preview') return 'files'
   if (['activity', 'trajectory', 'tasks', 'git'].includes(kind)) return 'activity'
   return kind === 'browser' ? 'browser' : null
 }
@@ -33,7 +37,7 @@ export const supportsFixedTool = (view: PaneView, contributions: readonly Capabi
 
 /** Shared refusal for explicit cache consumers, before any legacy reveal fallback. */
 export const fixedToolRefusal = (before: Workbench, id: string, contributions: readonly CapabilityContribution[] = []): string | null => {
-  const held = dockViews(before.right).find(one => one.id === id)
+  const held = [...dockViews(before.right), ...dockViews(before.bottom)].find(one => one.id === id)
   if (!held || !toolOf(held.view.kind)) return null
   if (!supportsFixedTool(held.view, contributions)) return 'This plugin panel does not support the fixed right panel.'
   const owner = before.toolOwners[id]
@@ -50,6 +54,8 @@ export const forgetFrameSubject = (before: Workbench, subject: string): Workbenc
 
 export const chooseTool = (before: ToolIntent | undefined, tool: WorkTool, mode = tool as string, toggle = false): ToolIntent => ({
   ...(before?.beforeEditor ? { beforeEditor: before.beforeEditor } : {}),
+  ...(before?.railOpen === undefined ? {} : { railOpen: before.railOpen }),
+  ...(before?.expanded === undefined ? {} : { expanded: toggle && before.open && before.tool === tool && before.mode === mode ? false : before.expanded }),
   tool, mode, open: !(toggle && before?.open && before.tool === tool && before.mode === mode),
 })
 export const setToolOpen = (before: ToolIntent, open: boolean): ToolIntent => ({ ...before, open })
@@ -58,13 +64,17 @@ export const readToolIntents = (raw: unknown): Readonly<Record<string, ToolInten
   return Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => {
     if (typeof value !== 'object' || value === null) return []
     const record = value as Record<string, unknown>
-    const tool = typeof record.tool === 'string' ? toolOf(record.tool) : null
+    const tool = record.tool === 'changes' && (record.mode === 'file' || record.mode === 'preview') ? 'files'
+      : typeof record.tool === 'string' ? toolOf(record.tool) : null
     const validMode = typeof record.mode === 'string' && toolOf(record.mode) === tool
     const rawPrior = record.beforeEditor as Record<string, unknown> | undefined
     const prior = rawPrior && typeof rawPrior === 'object' ? readToolIntents({ prior: { tool: rawPrior.tool, mode: rawPrior.mode, open: rawPrior.open } }).prior : undefined
     const beforeEditor = prior && prior.tool !== 'conversation' ? { tool: prior.tool, mode: prior.mode, open: prior.open, ...(typeof rawPrior?.mount === 'string' ? { mount: rawPrior.mount } : {}) } : undefined
     return tool && validMode && typeof record.mode === 'string' && typeof record.open === 'boolean'
-      ? [[key, { tool, mode: record.mode, open: record.open, ...(beforeEditor ? { beforeEditor } : {}) }]] : []
+      ? [[key, { tool, mode: record.mode, open: record.open,
+        ...(typeof record.railOpen === 'boolean' ? { railOpen: record.railOpen } : {}),
+        ...(typeof record.expanded === 'boolean' ? { expanded: record.expanded && record.open } : {}),
+        ...(beforeEditor ? { beforeEditor } : {}) }]] : []
   }))
 }
 
@@ -72,6 +82,14 @@ export const admitFixedTool = (before: Workbench, view: PaneView, toggle = false
   if (view.kind === 'tasks') view = { kind: 'activity' }
   const subject = fixedSubject(before.main), tool = toolOf(view.kind)
   if (!subject || !tool || !supportsFixedTool(view, [], context)) return null
+  if (view.kind === 'terminal') {
+    const routed = dock(before, 'bottom', view, subject)
+    const mounted = dockViews(routed.bottom).find(one => sameView(one.view, view))!
+    const pane = findPane(before.main, before.main.focused)!
+    return { ...routed, toolOwners: { ...routed.toolOwners, [mounted.id]: subject },
+      frameTools: { ...routed.frameTools, [subject]: chooseTool(before.frameTools[subject], 'terminal', 'terminal', toggle) },
+      frameSubjects: { ...routed.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } }
+  }
   if (view.kind === 'conversation') {
     const intent = chooseTool(before.frameTools[subject], tool, view.kind, toggle)
     const pane = findPane(before.main, before.main.focused)!
@@ -100,7 +118,7 @@ export const admitFixedTool = (before: Workbench, view: PaneView, toggle = false
 
 /** An explicit resource reveal returns to its recorded work before selecting its tool. */
 export const revealFixedTool = (before: Workbench, id: string): Workbench | null => {
-  const held = dockViews(before.right).find(one => one.id === id)
+  const held = [...dockViews(before.right), ...dockViews(before.bottom)].find(one => one.id === id)
   const owner = before.toolOwners[id]
   const tool = held && toolOf(held.view.kind)
   const scope = owner ? before.frameSubjects[owner] : undefined
@@ -108,7 +126,7 @@ export const revealFixedTool = (before: Workbench, id: string): Workbench | null
   const main = fixedSubject(before.main) === owner ? before.main : {
     root: { kind: 'pane' as const, id: scope.paneId, view: scope.view }, focused: scope.paneId, expanded: null,
   }
-  const next = focusView(activate({ ...before, main }, 'right', id), id)
+  const next = focusView(activate({ ...before, main }, held.view.kind === 'terminal' ? 'bottom' : 'right', id), id)
   return { ...next, right: { ...next.right, collapsed: false },
     frameTools: { ...next.frameTools, [owner]: chooseTool(next.frameTools[owner], tool, held.view.kind) } }
 }
@@ -120,7 +138,8 @@ export const settleConversationTool = (before: Workbench, editor: boolean, enter
   for (const [owner, intent] of Object.entries(before.frameTools)) {
     if (owner === subject) continue
     if (intent.beforeEditor || intent.tool === 'conversation') {
-      const { mount, ...restored } = intent.beforeEditor ?? { tool: 'details', mode: 'details', open: false }
+      const { mount, ...prior } = intent.beforeEditor ?? { tool: 'details', mode: 'details', open: false }
+      const restored = { ...prior, ...(intent.railOpen === undefined ? {} : { railOpen: intent.railOpen }) }
       const held = mount ? dockViews(next.right).find(one => one.id === mount && next.toolOwners[one.id] === owner && one.view.kind === restored.mode) : undefined
       if (held) next = activate(next, 'right', held.id)
       next = { ...next, frameTools: { ...next.frameTools, [owner]: restored } }
@@ -140,6 +159,7 @@ export const settleConversationTool = (before: Workbench, editor: boolean, enter
       : { tool: 'details' as const, mode: 'details', open: false })
     next = { ...next, focus: null, frameTools: { ...next.frameTools, [subject]: {
       tool: 'conversation', mode: 'conversation', open: true, beforeEditor,
+      ...(prior?.railOpen === undefined ? {} : { railOpen: prior.railOpen }),
     } } }
   }
   const active = fixedSubject(next.main), selected = active ? next.frameTools[active] : undefined

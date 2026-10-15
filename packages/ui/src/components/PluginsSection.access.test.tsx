@@ -212,10 +212,10 @@ it('uses a scannable tool label and moves its technical name into that line behi
   expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('Show the working tree status.')
 })
 
-it('E7 plugin detail names Plugins as its parent crumb in the main bar', () => {
+it('E7 plugin detail keeps its return action in the body', () => {
   mount([plugin('quiet', 'Quiet', {})])
   open('Quiet')
   expect(container.querySelector('[data-topbar-title]')?.textContent).toContain('Quiet')
-  expect([...container.querySelectorAll('[data-topbar="place"] button')].find(button => button.textContent === 'Plugins ›')).toBeTruthy()
+  expect([...container.querySelectorAll('[data-slot="toolbar"] button')].find(button => button.textContent === 'Back to Plugins')).toBeTruthy()
   expect(container.querySelector('[data-slot="top-bar"] [role="tab"]')).toBeNull()
 })

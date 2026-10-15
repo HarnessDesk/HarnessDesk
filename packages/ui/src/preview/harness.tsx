@@ -4,7 +4,7 @@ import { panes, type TeamChatLayout, type TeamFramePage } from '../state/layout'
 import { replaceTeamPayload } from '../state/workbench'
 import { toStored, type SideBySideState } from '../lib/side-by-side'
 import { fixedToolRefusal, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from '../state/frame-tools'
-import { activeView, fixedSubject, dockViews } from '../state/workbench'
+import { toggleWorkRail as toggleWorkRailIn, swapWorkPane as swapWorkPaneIn, activeView, fixedSubject, dockViews } from '../state/workbench'
 import { browserView, drivenBrowserTab, findPane, show as showPane, type PaneView } from '../state/layout'
 import { BrowserTileRegistry, type BrowserTileMount } from '../lib/browser-tiles'
 import { addBrowserTab, patchBrowserTab, type BrowserView } from '../state/layout'
@@ -1341,7 +1341,9 @@ class PreviewStore {
   chooseWorkTool(tool: WorkTool, mode: string = tool, toggle = false): void {
     const subject = this.workSubject()
     if (!subject) { this.resultNotice('warning', 'Open a conversation or Team before opening this tool.'); return }
-    const before = this.#snapshot.workbench, intent = chooseTool(before.frameTools[subject], tool, mode, toggle)
+    const before = this.#snapshot.workbench
+    if (tool === 'terminal' && !dockViews(before.bottom).some(one => before.toolOwners[one.id] === subject && one.view.kind === 'terminal')) { void this.openTerminal(); return }
+    const intent = chooseTool(before.frameTools[subject], tool, mode, toggle)
     if (intent.open && mode === tool && (tool === 'changes' || tool === 'activity')
       && !dockViews(before.right).some(one => before.toolOwners[one.id] === subject && one.view.kind === tool)) {
       this.showViewIn('right', { kind: tool }); return
@@ -1358,6 +1360,8 @@ class PreviewStore {
       frameTools: { ...before.frameTools, [subject]: intent },
       frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
   }
+  toggleWorkRail(): void { this.#workbench(toggleWorkRailIn(this.#snapshot.workbench)) }
+  swapWorkPane(): void { this.#workbench(swapWorkPaneIn(this.#snapshot.workbench)) }
   toggleWorkPanel(): void {
     const subject = this.workSubject()
     if (!subject) return
@@ -1417,7 +1421,12 @@ class PreviewStore {
       return
     }
     if (!this.#snapshot.activeRuntime) return
-    this.showViewIn('bottom', { kind: 'terminal', terminalId: 'frame-pty', runtime: this.#snapshot.activeRuntime, cwd: PREVIEW_ROOT })
+    const subject = this.workSubject()
+    const before = this.#snapshot.workbench
+    const next = dock(before, 'bottom', { kind: 'terminal', terminalId: 'frame-pty', runtime: this.#snapshot.activeRuntime, cwd: PREVIEW_ROOT }, subject ?? undefined)
+    const entry = dockViews(next.bottom).find(one => one.view.kind === 'terminal' && !before.toolOwners[one.id])
+    this.#workbench({ ...next, toolOwners: entry && subject ? { ...next.toolOwners, [entry.id]: subject } : next.toolOwners })
+    this.chooseWorkTool('terminal')
   }
   closeTerminalDock(): void {
     let workbench = this.#snapshot.workbench

@@ -1,4 +1,3 @@
-import { runBar } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
 
@@ -58,9 +57,9 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(narrow.locator('[data-slot="run-inspector"]')).toContainText('Cap the attempts.')
     if (process.env.RUN_INSPECTOR_FRAMES_DIR) await narrow.screenshot({ path: path.join(process.env.RUN_INSPECTOR_FRAMES_DIR, `narrow-detail-${theme}.png`) })
     // The frame no longer pushes main away or mounts local return buttons.
-    await narrow.locator('[data-work-panel-toggle]').click()
+    await narrow.getByRole('button', { name: 'Close pane', exact: true }).click()
     await expect(narrow.locator('[data-preview-tool-placement]')).toHaveCount(0)
-    await runBar(narrow).getByRole('button', { name: 'Details', exact: true }).click()
+    await narrow.locator('[data-row="card-3-3"]').click()
     await expect(narrow.locator('[data-slot="run-scroll"]')).toBeVisible()
     await expect(narrow.locator('[data-slot="run-inspector"]')).toContainText('Cap the attempts.')
     await expect(narrow.locator('[data-slot="run-inspector"]')).toContainText('Keep the retry bounded and the last failure visible.')
@@ -70,7 +69,7 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await body.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     await page.setViewportSize({ width: 390, height: 900 })
     await expect(frame.locator('[data-slot="run-inspector"]')).toBeVisible()
-    await frame.locator('[data-work-panel-toggle]').click()
+    await frame.getByRole('button', { name: 'Close pane', exact: true }).click()
     await expect(frame.locator('[data-preview-tool-placement]')).toHaveCount(0)
     await frame.locator('[data-row="check-2-2"]').click()
     await expect(inspector).toContainText('Latest result')

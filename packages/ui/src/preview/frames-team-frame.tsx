@@ -12,6 +12,8 @@ import { emptyWorkbench } from '../state/workbench'
 import { overviewTeamStore } from './team-overview-fixture'
 import { triggerRunsStore } from './team-runs-fixture'
 import { TeamFramePreview } from './TeamFramePreview'
+// These shell examples mount TeamRoomPane through the built-in view registry.
+import '../panels/builtins'
 
 /** The real Team frame and unchanged sidebar, with placeholder-only membership. */
 export const TeamFrame = () => {

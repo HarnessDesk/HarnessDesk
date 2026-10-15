@@ -53,6 +53,7 @@ import {
   Rows,
   Switch,
   Text,
+  Toolbar,
 } from '../design'
 import { SchemaForm } from './SchemaForm'
 
@@ -288,8 +289,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
 
   return (
     <>
-      <DestinationBar place={plugin.identity.name} mark={pluginGlyph(plugin, 16)}
-        parents={[{ label: 'Plugins', run: onBack }]}
+      <DestinationBar place={plugin.identity.name}
         more={close => <>
           {plugin.identity.source.kind === 'local' && plugin.identity.source.path && <MenuItem
             label="Update from source" icon={<RetryIcon size={16} />}
@@ -298,6 +298,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
           {plugin.identity.source.kind !== 'builtin' && <MenuItem label="Uninstall" icon={<TrashIcon size={16} />} danger
             onSelect={() => { void store.uninstallPlugin(plugin.identity.id); onBack(); close() }} />}
         </>} />
+      <Toolbar><Button variant="ghost" size="sm" onClick={onBack}>Back to Plugins</Button>{pluginGlyph(plugin, 16)}</Toolbar>
       {plugin.identity.description && <PageExplanation>{plugin.identity.description}</PageExplanation>}
       <Rows><Row
         title={stateLabel(plugin.state)}
@@ -598,21 +599,24 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
 
   return (
     <>
-      <DestinationBar place="Plugins" tab={section}
-        tabs={[
-          { value: 'installed', label: 'Installed', count: livePlugins(snapshot.plugins).length, run: () => setTab('list') },
-          { value: 'capabilities', label: 'Capabilities', count: snapshot.contributions.length, run: () => setTab('capabilities') },
-        ]}
-        verb={tab === 'list' ? { label: 'Add plugin', run: () => setInstalling(true) } : undefined} />
-      {tab === 'list'
-        ? <PageOptions search={{ label: 'Search plugins', value: query, change: setQuery }} />
-        : <PageOptions search={{ label: 'Search capabilities', value: capQuery, change: setCapQuery }} choices={[
+      <DestinationBar place="Plugins" />
+      <PageOptions action={tab === 'list' ? { label: 'Add plugin', run: () => setInstalling(true) } : undefined}
+        search={tab === 'list' ? { label: 'Search plugins', value: query, change: setQuery }
+          : { label: 'Search capabilities', value: capQuery, change: setCapQuery }}
+        choices={[
+          { id: 'section', label: 'Plugin sections', value: section, mode: 'menu', showCount: true,
+            items: [
+              { value: 'installed', label: 'Installed', count: livePlugins(snapshot.plugins).length },
+              { value: 'capabilities', label: 'Capabilities', count: snapshot.contributions.length },
+            ], change: value => setTab(value === 'installed' ? 'list' : 'capabilities') },
+          ...(tab === 'list' ? [] : [
             { id: 'kind', label: 'Filter by kind', value: capKind, items: [{ value: 'all', label: 'All kinds' }, ...CAP_KINDS],
-              change: value => setCapKind(value as CapabilityContribution['kind'] | 'all') },
+              change: (value: string) => setCapKind(value as CapabilityContribution['kind'] | 'all') },
             { id: 'where', label: 'Where it applies', value: capWhere,
               items: [{ value: 'anywhere', label: 'Anywhere' }, { value: 'here', label: 'Applies here' }],
-              change: value => setCapWhere(value as 'anywhere' | 'here') },
-          ]} />}
+              change: (value: string) => setCapWhere(value as 'anywhere' | 'here') },
+          ]),
+        ]} />
       <PageExplanation>{pluginToolsReach
         ? 'Tools, guardrails, context and panels for every agent in this workspace.'
         : `Tools, guardrails, context and panels. ${runtime.presentation.name} does not take them in the session request, so they reach it only through its own configuration.`}</PageExplanation>

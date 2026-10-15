@@ -1,5 +1,4 @@
 import { expect } from '@playwright/test'
-import { FRAME } from '../../packages/ui/src/design/frame'
 import { applyLeftColumnActions } from './left-column-actions'
 import type { Page } from '@playwright/test'
 export interface WallActions { readonly popup?: string; readonly query?: string }
@@ -24,7 +23,8 @@ export const openWallDestination = async (page: Page, destination: WallActions):
     await page.locator('[data-popup-kind="info-card"]:visible').waitFor()
   }
   if (destination.git) {
-    await page.locator('[data-work-tool="details"]').click()
+    const rail = page.getByRole('button', { name: 'Toggle rail', exact: true })
+    if (await rail.getAttribute('aria-pressed') !== 'true') await rail.click()
     await page.getByRole('button', { name: 'Folder actions', exact: true }).click()
     if (destination.branch) {
       const branch = page.locator('[data-git-branch-row]').locator('xpath=ancestor::*[@role="menuitem"][1]')
@@ -82,13 +82,10 @@ export const openWallDestination = async (page: Page, destination: WallActions):
     return
   }
   if (destination.composerModel) await page.getByTitle(/model and reasoning/i).first().click()
-  if (destination.topbarPopup === 'view') await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'View', exact: true }).click()
+  if (destination.topbarPopup === 'view') await page.locator('[data-slot="page-options"]:visible').getByRole('button', { name: 'View', exact: true }).click()
   if (destination.topbarPopup === 'tabs') {
-    const folded = page.getByTitle('Destination views', { exact: true })
-    const shouldFold = (page.viewportSize()?.width ?? FRAME.fold.panelFloats) < FRAME.fold.panelFloats
-    if (shouldFold) await expect(folded).toBeVisible()
-    if (await folded.isVisible()) await folded.click()
-    if (shouldFold) await expect(page.getByRole('menu')).toBeVisible()
+    await expect(page.getByRole('tablist', { name: 'Team views', exact: true })).toBeVisible()
+    await expect(page.locator('[data-slot="top-bar"]:visible [role="tab"]')).toHaveCount(0)
   }
   if (destination.popup) await page.getByRole('button', { name: destination.popup, exact: true }).click()
 }

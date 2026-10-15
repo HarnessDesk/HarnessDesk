@@ -1,8 +1,7 @@
 import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
 import { Button } from '../design'
-import { FRAME } from '../design/frame'
-import { ArrowLeftIcon, ArrowRightIcon, SearchIcon, SidebarIcon } from './Icons'
+import { ArrowLeftIcon, ArrowRightIcon, SidebarIcon } from './Icons'
 import styles from './WindowControls.module.css'
 
 /**
@@ -18,12 +17,12 @@ import styles from './WindowControls.module.css'
  * Below the frame's window threshold, history arrows move out of the lead;
  * the floating sidebar's own row retains both arrows.
  */
-export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean }) => {
+export const WindowControls = (_props: { sidebarRow?: boolean } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const settings = snapshot.workbench.navigation.current.kind === 'settings'
   const shown = sidebarPlacement(snapshot) !== 'away'
-  const navigation = !settings && (sidebarRow || snapshot.windowWidth >= FRAME.fold.sidebarFloats)
+  const navigation = !settings
   return (
     <span className={styles.group}>
       <Button
@@ -34,15 +33,6 @@ export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean })
       >
         <SidebarIcon size={14} />
       </Button>
-      {!settings && !shown && <Button
-        variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
-        onClick={() => window.dispatchEvent(new CustomEvent('harnessdesk:search'))}
-        title="Search everything (⌘K)"
-        aria-label="Search everything"
-        aria-keyshortcuts="Meta+K"
-      >
-        <SearchIcon size={14} />
-      </Button>}
       {navigation && <span>
         <Button
           variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}

@@ -10,8 +10,9 @@ for (const theme of WALL_THEMES) {
       await page.emulateMedia({ colorScheme: theme })
       const destination = state === 'armed' ? 'draft' : 'conversation'
       await page.goto(`/preview.html?frame-wall=${destination}&frame-details-case=${state}&theme=${theme}`)
-      await page.getByRole('button', { name: 'Details', exact: true }).click()
-      const body = page.locator('[data-slot="tool-body"]:visible')
+      const toggle = page.getByRole('button', { name: 'Toggle rail', exact: true })
+      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
+      const body = page.locator('[data-frame-region="rail"] [data-slot="tool-body"]:visible')
       await expect(body).toBeVisible()
       if (state === 'armed') {
         await expect(body).toContainText('Source folder; the worktree is made when the message goes')
@@ -40,15 +41,17 @@ for (const theme of WALL_THEMES) {
       await page.screenshot({ path: `output/frame-wall/B3-details-${state}-1440-${theme}.png` })
       await page.setViewportSize({ width: 720, height: 900 })
       // Wait for the preview store's resize frame before reading its geometry.
-      // Task 8 replaced the modal overlay with a nonmodal float. Main
-      // remains available and the panel occupies its reserved clear width.
+      // D1 floats the card rail under the bar, eight from the window edge;
+      // its own toggle leaves the conversation available beside the sheet.
       const main = page.locator('[data-slot="workbench-main"]')
       await expect(main).not.toHaveAttribute('inert')
-      const clear = await main.evaluate(node => {
-        const panel = document.querySelector('[data-slot="work-tools"]')!.getBoundingClientRect()
-        return node.getBoundingClientRect().right <= panel.left + 1 && document.documentElement.scrollWidth <= innerWidth
-      })
-      expect(clear).toBe(true)
+      const rail = page.locator('[data-frame-region="rail"]:visible')
+      await expect.poll(async () => (await rail.boundingBox())!.y).toBe(FRAME.bar.height + FRAME.rail.inset)
+      const box = (await rail.boundingBox())!
+      expect(box.x + box.width).toBe(720 - FRAME.rail.inset)
+      expect(box.y + box.height).toBe(900 - FRAME.rail.inset)
+      expect(box.width).toBe(FRAME.infoCard.width)
+      expect(await main.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await expect(body).toBeVisible()
       await page.screenshot({ path: `output/frame-wall/B3-details-${state}-720-${theme}.png` })
       if (state === 'active') {

@@ -4,7 +4,7 @@ import { act, StrictMode, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { expect, test } from 'vitest'
 import { Chip, MenuItem, type TopBarProps } from '../design'
-import { TopBarProvider, TopBarOutlet, useTopBar, useTopBarMore, useTopBarView, type ViewSlots } from './top-bar'
+import { TopBarProvider, TopBarOutlet, WorkViewControlsOutlet, useTopBar, useTopBarMore, useTopBarView, type ViewSlots } from './top-bar'
 import { installTopBarTestLayout } from '../test/top-bar-layout'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -23,7 +23,7 @@ const View = ({ enabled }: { enabled: boolean }) => {
 test('focused owner wins, view changes cannot replace the subject, cleanup clears its verb', () => {
   const App = ({ view }: { view: boolean }) => <StrictMode><TopBarProvider>
     <Base name="Checkout retry" /><View enabled={view} />
-    <TopBarOutlet owner="main" fallback={{ place: 'New session', more: emptyMore }} />
+    <WorkViewControlsOutlet owner="main" /><TopBarOutlet owner="main" fallback={{ place: 'New session', more: emptyMore }} />
   </TopBarProvider></StrictMode>
   const container = document.createElement('div')
   document.body.append(container)
@@ -31,9 +31,9 @@ test('focused owner wins, view changes cannot replace the subject, cleanup clear
   try {
     act(() => root.render(<App view />))
     expect(container.querySelector('[data-topbar-title] [data-slot="text"]')?.textContent).toBe('Checkout retry')
-    expect(container.querySelector('button[aria-label="New job"]')).not.toBeNull()
+    expect([...container.querySelectorAll('button')].find(one => one.textContent === 'New job') ?? null).not.toBeNull()
     act(() => root.render(<App view={false} />))
-    expect(container.querySelector('button[aria-label="New job"]')).toBeNull()
+    expect([...container.querySelectorAll('button')].find(one => one.textContent === 'New job') ?? null).toBeNull()
     expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout retry')
   } finally {
     act(() => root.unmount())
@@ -80,17 +80,17 @@ test('different owners keep their own subject and view slots when focus changes'
   const App = ({ owner }: { owner: string }) => <StrictMode><TopBarProvider>
     <PublishedBase owner="main" slots={main} /><PublishedView owner="main" slots={mainView} />
     <PublishedBase owner="side" slots={side} /><PublishedView owner="side" slots={sideView} />
-    <TopBarOutlet owner={owner} fallback={{ place: 'New session', more: emptyMore }} />
+    <WorkViewControlsOutlet owner={owner} /><TopBarOutlet owner={owner} fallback={{ place: 'New session', more: emptyMore }} />
   </TopBarProvider></StrictMode>
   mounted((root, container) => {
     act(() => root.render(<App owner="main" />))
     expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout retry')
-    expect(container.querySelector('button[aria-label="New job"]')).not.toBeNull()
-    expect(container.querySelector('button[aria-label="Review changes"]')).toBeNull()
+    expect([...container.querySelectorAll('button')].find(one => one.textContent === 'New job') ?? null).not.toBeNull()
+    expect([...container.querySelectorAll('button')].find(one => one.textContent === 'Review changes') ?? null).toBeNull()
     act(() => root.render(<App owner="side" />))
     expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Release review')
-    expect(container.querySelector('button[aria-label="Review changes"]')).not.toBeNull()
-    expect(container.querySelector('button[aria-label="New job"]')).toBeNull()
+    expect([...container.querySelectorAll('button')].find(one => one.textContent === 'Review changes') ?? null).not.toBeNull()
+    expect([...container.querySelectorAll('button')].find(one => one.textContent === 'New job') ?? null).toBeNull()
   })
 })
 
@@ -102,15 +102,15 @@ test('cleanup of a replaced publisher preserves the replacement until its own cl
     <PublishedBase owner="main" slots={base} />
     {old && <PublishedView key="old" owner="main" slots={original} />}
     {current && <PublishedView key="current" owner="main" slots={replacement} />}
-    <TopBarOutlet owner="main" fallback={{ place: 'New session', more: emptyMore }} />
+    <WorkViewControlsOutlet owner="main" /><TopBarOutlet owner="main" fallback={{ place: 'New session', more: emptyMore }} />
   </TopBarProvider></StrictMode>
   mounted((root, container) => {
     act(() => root.render(<App old current />))
-    expect(container.querySelector('button[aria-label="Review changes"]')).not.toBeNull()
+    expect([...container.querySelectorAll('button')].find(one => one.textContent === 'Review changes') ?? null).not.toBeNull()
     act(() => root.render(<App old={false} current />))
-    expect(container.querySelector('button[aria-label="Review changes"]')).not.toBeNull()
+    expect([...container.querySelectorAll('button')].find(one => one.textContent === 'Review changes') ?? null).not.toBeNull()
     act(() => root.render(<App old={false} current={false} />))
-    expect(container.querySelector('button[aria-label="Review changes"]')).toBeNull()
+    expect([...container.querySelectorAll('button')].find(one => one.textContent === 'Review changes') ?? null).toBeNull()
     expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout retry')
   })
 })
@@ -149,12 +149,12 @@ test('registry publication rerenders the outlet without subscribing its producer
   mounted((root, container) => {
     act(() => root.render(<StrictMode><TopBarProvider>
       <Subject /><UpdatingView />
-      <TopBarOutlet owner="main" fallback={{ place: 'New session', more: emptyMore }} />
+      <WorkViewControlsOutlet owner="main" /><TopBarOutlet owner="main" fallback={{ place: 'New session', more: emptyMore }} />
     </TopBarProvider></StrictMode>))
     const before = { subject: subjectRenders, view: viewRenders }
-    expect(container.querySelector('button[aria-label="New job"]')).not.toBeNull()
+    expect([...container.querySelectorAll('button')].find(one => one.textContent === 'New job') ?? null).not.toBeNull()
     act(() => container.querySelector<HTMLButtonElement>('button')!.click())
-    expect(container.querySelector('button[aria-label="Review changes"]')).not.toBeNull()
+    expect([...container.querySelectorAll('button')].find(one => one.textContent === 'Review changes') ?? null).not.toBeNull()
     expect(subjectRenders).toBe(before.subject)
     // StrictMode renders the local state update twice; publication adds none.
     expect(viewRenders).toBe(before.view + 2)
@@ -179,11 +179,11 @@ test('view actions preserve the parent subject slots and share one More Menu wit
   try {
     act(() => root.render(<StoreProvider store={previewStore()}><TopBarProvider><PublishedBase owner="main" slots={parent} />
       <PublishedView owner="main" slots={view} /><ConversationRows />
-      <TopBarOutlet owner="main" fallback={{ place: 'Fallback', more: emptyMore }} />
+      <WorkViewControlsOutlet owner="main" /><TopBarOutlet owner="main" fallback={{ place: 'Fallback', more: emptyMore }} />
     </TopBarProvider></StoreProvider>))
     expect(container.querySelector('[data-topbar-title] [data-slot="text"]')?.textContent).toBe('Checkout retry')
     expect(container.querySelector('[data-topbar="state"]')?.textContent).toBe('Working')
-    expect(container.querySelector('[data-team-page="board"]')?.textContent).toBe('Board3')
+    expect(container.querySelector('[role="tablist"]')).toBeNull()
     expect(container.querySelector('[data-testid="parent-tools"]')?.textContent).toBe('Four tools')
     await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
     expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
@@ -198,7 +198,7 @@ test('More offers Terminal once on a folder surface and omits it on a page with 
   const App = ({ owner }: { owner: 'conversation' | 'settings' }) => <StoreProvider store={previewStore()}><TopBarProvider>
     <PublishedBase owner="conversation" slots={{ place: 'Conversation', terminal: true, more: emptyMore }} />
     <PublishedBase owner="settings" slots={{ place: 'Settings', more: close => <MenuItem icon={<span />} label="Open settings" onSelect={close} /> }} />
-    <TopBarOutlet owner={owner} fallback={{ place: 'New session', more: emptyMore }} />
+    <WorkViewControlsOutlet owner={owner} /><TopBarOutlet owner={owner} fallback={{ place: 'New session', more: emptyMore }} />
   </TopBarProvider></StoreProvider>
   const container = document.createElement('div')
   document.body.append(container)

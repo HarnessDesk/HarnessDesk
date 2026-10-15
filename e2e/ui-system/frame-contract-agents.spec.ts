@@ -17,13 +17,14 @@ test('E4 Agents named history', async ({ page }) => {
   const bar = page.locator('[data-slot="top-bar"]:visible')
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
   await page.getByRole('button', { name: /Code reviewer/ }).first().click()
-  await expect(bar.getByRole('button', { name: 'Agents ›', exact: true })).toBeVisible()
+  const body = page.locator('[data-page-destination="agents"]:visible')
+  await expect(body.getByRole('button', { name: 'Back to Agents', exact: true })).toBeVisible()
   await page.keyboard.press('Meta+[')
-  await expect(bar.getByRole('button', { name: 'New Agent…', exact: true })).toBeVisible()
+  await expect(body.getByRole('button', { name: 'New Agent…', exact: true })).toBeVisible()
   await page.keyboard.press('Meta+]')
   await expect(bar).toContainText('Code reviewer')
-  await bar.getByRole('button', { name: 'Agents ›', exact: true }).click()
-  await expect(bar.getByRole('button', { name: 'New Agent…', exact: true })).toBeVisible()
+  await body.getByRole('button', { name: 'Back to Agents', exact: true }).click()
+  await expect(body.getByRole('button', { name: 'New Agent…', exact: true })).toBeVisible()
 })
 
 // Until Task 9 joins the shared preview assembly, load the lane-owned preview
@@ -36,8 +37,10 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
     await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
     const bar = page.locator('[data-slot="top-bar"]:visible')
     if (detail) {
-      await expect(bar.getByRole('button', { name: 'Agents ›', exact: true })).toBeVisible()
-      await expect(bar.getByRole('button', { name: /^Start a conversation as / })).toBeVisible()
+      const body = page.locator('[data-page-destination="agents"]:visible')
+      await expect(body.getByRole('button', { name: 'Back to Agents', exact: true })).toBeVisible()
+      await expect(body.getByRole('button', { name: /^Start a conversation as / })).toBeVisible()
+      await expect(bar.getByRole('button', { name: /^Start a conversation as / })).toHaveCount(0)
     }
   })
 }
@@ -107,7 +110,7 @@ test('R10 Agents source notes keep middle-truncated paths content-sized', async 
 test('R10 Release checker keeps the roster face and drops the redundant origin line', async ({ page }) => {
   await openFrame(page, 'frame-wall=agents&frame-detail=agent&frame-agent-case=release', 'light', 1440)
   const bar = page.locator('[data-slot="top-bar"]:visible')
-  const face = bar.locator('[data-topbar-mark] [data-slot="icon-tile"]')
+  const face = page.locator('[data-page-destination="agents"]:visible [data-slot="toolbar"] [data-slot="icon-tile"]')
   await expect(bar.locator('[data-topbar="place"]')).toContainText('Release checker')
   await expect(face).toContainText('RC')
   const explanations = page.locator('[data-page-destination="agents"]:visible [data-slot="page"] > p[data-role="prose"]')

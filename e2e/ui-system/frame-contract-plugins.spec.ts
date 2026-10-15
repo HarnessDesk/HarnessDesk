@@ -65,7 +65,7 @@ test('E7 Plugins capabilities and named detail share destination history', async
 test('E7 install flow uses Dialog header body and right ordered footer actions', async ({ page }) => {
 
   await openFrame(page, 'frame-wall=plugins', 'light')
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Add plugin', exact: true }).click()
+  await page.locator('[data-page-destination="plugins"]:visible').getByRole('button', { name: 'Add plugin', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Install a plugin' })
   await expect(dialog.locator('[data-slot="dialog-head"] > span > svg')).toHaveCount(0)
   await expect(dialog.locator('[data-slot="dialog-head"]').getByRole('button', { name: 'Close', exact: true })).toBeVisible()

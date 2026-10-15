@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { WALL_THEMES } from './frame-wall-destinations'
 import { openFrame, expectTrailingChildGaps, expectSubmenuChevrons } from './frame-contract-helpers'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 
 // Contract runs measure the preview; the final wall owns images and recordings.
@@ -106,22 +107,27 @@ for (const theme of WALL_THEMES) {
 
   {
 
-    for (const [item0, width] of ([1100, 720]).entries()) test(`Frame floating Details panel leaves main content and Send clear at 1100 and 720 in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+    for (const [item0, width] of ([1100, 720]).entries()) test(`Frame rail keeps its standing or sheet geometry and leaves main available in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
 
       await openFrame(page, 'frame-wall=conversation', theme, width)
       const top = page.locator('[data-slot="top-bar"]:visible')
-      await top.getByRole('button', { name: 'Details', exact: true }).click()
-      const mainContent = page.locator('[data-frame-region="main"] [data-pane-id]:visible').last()
-      const transcript = page.locator('[data-live-transcript]:visible').last()
-      const composer = page.locator('[data-slot="composer"]:visible').last()
-      const send = composer.locator('[data-slot="composer-send"]')
-      const panel = page.locator('[data-frame-region="right"]:visible')
+      const toggle = top.getByRole('button', { name: 'Toggle rail', exact: true })
+      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
+      const main = page.locator('[data-frame-region="main"]')
+      const panel = page.locator('[data-frame-region="rail"]:visible')
       await expect(panel).toBeVisible()
-      await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-panel-floats', 'true')
-      const panelX = (await panel.boundingBox())!.x
-      for (const content of [mainContent, transcript, composer, send]) {
-        const box = (await content.boundingBox())!
-        expect(box.x + box.width, `${await content.getAttribute('data-slot') ?? 'main content'} must stop before the float`).toBeLessThanOrEqual(panelX + 1)
+      await expect(main).toBeVisible()
+      await expect(main).not.toHaveAttribute('inert')
+      const box = (await panel.boundingBox())!, mainBox = (await main.boundingBox())!
+      expect(box.width).toBe(FRAME.infoCard.width)
+      if (await page.locator('[data-slot="fixed-shell"]').getAttribute('data-rail-floats') === 'true') {
+        expect(box.x + box.width).toBe(width - FRAME.rail.inset)
+        expect(box.y).toBe(FRAME.bar.height + FRAME.rail.inset)
+        expect(box.y + box.height).toBe(900 - FRAME.rail.inset)
+      } else {
+        expect(mainBox.x + mainBox.width).toBe(box.x)
+        expect(box.y).toBe(FRAME.bar.height)
+        expect(box.y + box.height).toBe(900)
       }
 
 
@@ -130,8 +136,9 @@ for (const theme of WALL_THEMES) {
 
   test(`Frame Details caveats use the Run note column and type in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=draft', theme)
-    await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Details', exact: true }).click()
-    const panel = page.locator('[data-slot="tool-body"]:visible')
+    const toggle = page.getByRole('button', { name: 'Toggle rail', exact: true })
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
+    const panel = page.locator('[data-frame-region="rail"] [data-slot="tool-body"]:visible')
     const note = panel.locator('[data-slot="tool-prose"]').filter({ hasText: 'Permission level not reported for this draft.' }).first()
     await expect(note).toBeVisible()
     const geometry = await note.evaluate(node => {

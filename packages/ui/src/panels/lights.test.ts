@@ -104,7 +104,8 @@ describe('the row under the macOS window buttons', () => {
       expect(workbenchCss).toContain(`.shell[data-lights='${area}']`)
     }
     expect(workbenchCss).toMatch(/\.shell\[data-lights='main'\] \[data-frame-region='top'\]/)
-    for (const area of ['right', 'bottom']) expect(workbenchCss).not.toContain(`.shell[data-lights='${area}']`)
+    for (const area of ['bottom']) expect(workbenchCss).not.toContain(`.shell[data-lights='${area}']`)
+    expect(workbenchCss).toContain(".shell[data-lights='right'] [data-work-pane-header]")
     expect(workbenchCss).toMatch(/--titlebar-inset:\s*var\(--hd-titlebar-lights\)/)
   })
 
@@ -116,12 +117,12 @@ describe('the row under the macOS window buttons', () => {
     expect(panesCss).toMatch(/\.pane\[data-strip\][^{]*{\s*--titlebar-inset:\s*0px/)
     // Dock halves and their tab-strip hosts are retired. The corner reserve
     // belongs to the top region only; the three content hosts are its siblings.
-    expect(fixedShellSource).toContain('<div data-frame-region="top" className={styles.top}>{top}</div>')
-    expect(fixedShellSource).toContain('<div data-frame-region="main" className={styles.main}>{main}</div>')
+    expect(fixedShellSource).toContain('<div data-frame-region="top" className={styles.top} inert={panelFloating && rightOpen}>{top}</div>')
+    expect(fixedShellSource).toContain('<div data-frame-region="main" className={styles.main} inert={panelFloating && rightOpen}>{main}</div>')
     for (const area of ['right', 'bottom']) expect(fixedShellSource).toContain(`data-frame-region="${area}"`)
     // Fixed tools have no split halves or tab strips that can own the corner.
     expect(workbenchCss).not.toContain('.half')
-    expect(workbenchCss).not.toContain(".shell[data-lights='right']")
+    expect(workbenchCss).toContain(".shell[data-lights='right'] [data-work-pane-header]")
     expect(workbenchCss).not.toContain(".shell[data-lights='bottom']")
   })
 

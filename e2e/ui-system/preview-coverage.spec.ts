@@ -545,7 +545,7 @@ test.describe('preview coverage', () => {
       await page.goto(`/preview.html${query}`)
       if (query === '?board-list') {
         const board = page.locator('[data-frame-id="board-list-page"]')
-        await board.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
+        await board.getByRole('button', { name: 'View', exact: true }).click()
         await page.getByRole('menuitem', { name: 'List', exact: true }).click()
         await expect(board.locator('[data-slot="board-list"]')).toBeVisible()
       }
@@ -626,7 +626,8 @@ test.describe('preview coverage', () => {
     test(`coverage page 9`, async () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto('/preview.html?frame-wall=conversation&frame-details-case=active')
-      await page.locator('[data-slot="top-bar"]:visible [data-work-tool="details"]').click()
+      const rail = page.locator('[data-slot="top-bar"]:visible [data-work-rail-toggle]')
+      if (await rail.getAttribute('aria-pressed') !== 'true') await rail.click()
       await expect(page.locator('[data-slot="tool-body"]:visible [aria-label="Conversation facts"]')).toBeVisible()
       const conversationDetailsCoverage = await collectCoverage(page)
       expect(conversationDetailsCoverage.covered).toContain('panels/work-details.tsx#ConversationDetails')
@@ -726,7 +727,7 @@ test.describe('preview coverage', () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto('/preview.html?board-list')
       const boardFrame = page.locator('[data-frame-id="board-list-page"]')
-      await boardFrame.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
+      await boardFrame.getByRole('button', { name: 'View', exact: true }).click()
       await page.getByRole('menuitem', { name: 'List', exact: true }).click()
       await expect(boardFrame.getByRole('table', { name: 'Jobs', exact: true })).toBeVisible()
       for (const component of (await collectCoverage(page)).covered) covered.add(component)

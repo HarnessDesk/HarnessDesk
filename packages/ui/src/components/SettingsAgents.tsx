@@ -1125,7 +1125,8 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
 
   return (
     <>
-      <DestinationBar place="Add a runtime" parents={[{ label: 'Runtimes', run: onBack }]} />
+      <DestinationBar place="Add a runtime" />
+      <Toolbar><Button variant="ghost" size="sm" onClick={onBack}>Back to Runtimes</Button></Toolbar>
       <PageExplanation>A runtime keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it.</PageExplanation>
       <Rows>
         {(templates ?? []).map((template) => (
@@ -1322,10 +1323,12 @@ const AccountDetail = ({
   return (
     <>
       {/* Back to the agent it belongs to, which is where its accounts are listed. */}
-<DestinationBar place={accountName(account, prefs, info.presentation.name)} mark={<RuntimeMark runtime={info} size={16} />}
-  parents={[{ label: 'Settings', run: () => store.askSettings('general') },
-    { label: 'Runtimes', run: () => store.askSettings('runtimes') }, { label: info.presentation.name, run: onBack }]}
-  state={<Chip state={state} />} />
+<DestinationBar place={accountName(account, prefs, info.presentation.name)} />
+      <Toolbar>
+        <Button variant="ghost" size="sm" onClick={onBack}>Back to {info.presentation.name}</Button>
+        <RuntimeMark runtime={info} size={16} />
+        <Chip state={state} />
+      </Toolbar>
 <PageExplanation>{accountIdentity(account)}</PageExplanation>
 
       {/* Three ways the desk shows this account, in one card: the name and ring
@@ -1886,8 +1889,11 @@ const AgentDetail = ({
 
   return (
     <>
-<DestinationBar place={info.presentation.name} mark={<RuntimeMark runtime={info} size={16} />}
-  parents={[{ label: 'Settings', run: () => store.askSettings('general') }, { label: 'Runtimes', run: onBack }]} />
+<DestinationBar place={info.presentation.name} />
+      <Toolbar>
+        <Button variant="ghost" size="sm" onClick={onBack}>Back to Runtimes</Button>
+        <RuntimeMark runtime={info} size={16} />
+      </Toolbar>
       <Rows><Row title={info.presentation.name} control={snapshot.activeRuntime === info.id
         ? <Chip state={defaultChipState(info, snapshot)} label="Default" />
         : <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(info.id)}>Use for new sessions</Button>} /></Rows>
@@ -2088,13 +2094,12 @@ export const RuntimesSection = ({
 
   return (
     <>
-      <DestinationBar place="Runtimes" parents={[{ label: 'Settings', run: () => store.askSettings('general') }]}
-  verb={{ label: 'Add a runtime', run: () => setView({ kind: 'add' }) }} />
-      {snapshot.workbench.navigation.current.kind === 'settings' && groups.length > 0 && <Toolbar>
+      <DestinationBar place="Runtimes" />
+      <Toolbar>
         <Button variant="outline" size="sm" onClick={() => setView({ kind: 'add' })}>
           <PlusIcon size={13} />Add a runtime
         </Button>
-      </Toolbar>}
+      </Toolbar>
 <PageExplanation>What your Agents run on: the agent programs HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
 
       {/* Two agents fit on a screen and need no help being found; the filters

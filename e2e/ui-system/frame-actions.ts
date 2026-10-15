@@ -22,25 +22,39 @@ export const settleFrameBar = async (bar: Locator): Promise<void> => {
     }
   })
 }
+export const pageChoiceFor = (value: string): { title: string; label: string } => {
+  const choices: Record<string, { title: string; label: string }> = {
+    skill: { title: 'Library sections', label: 'Skills' },
+    mcp: { title: 'Library sections', label: 'MCP servers' },
+    installed: { title: 'Plugin sections', label: 'Installed' },
+    capabilities: { title: 'Plugin sections', label: 'Capabilities' },
+    working: { title: 'Changes views', label: 'Working tree' },
+    staged: { title: 'Changes views', label: 'Staged' },
+  }
+  const choice = choices[value]
+  if (!choice) throw new Error(`No body choice for ${value}`)
+  return choice
+}
 export const selectFrameTab = async (page: Page, value: string): Promise<void> => {
   const bar = page.locator('[data-slot="top-bar"]:visible').first()
   await expectTitleRoom(bar.locator('[data-topbar-title]'))
   await settleFrameBar(bar)
-  const visibleTab = bar.locator(`[data-team-page="${value}"]:visible`)
-  if (await visibleTab.count()) {
-    await visibleTab.click()
+  const tab = page.locator(`[data-team-page="${value}"]:visible`)
+  if (await tab.count()) {
+    await tab.click()
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
     return
   }
-  await page.getByTitle('Destination views', { exact: true }).click()
-  const item = page.locator(`[role="menu"] [data-team-page="${value}"]:visible`)
-  await expect(item).toHaveCount(1)
-  await item.click()
-  await expect(page.getByRole('menu')).toHaveCount(0)
+  const choice = pageChoiceFor(value)
+  const trigger = page.locator('[data-slot="page-options"]:visible').getByTitle(choice.title, { exact: true })
+  await trigger.click()
+  await page.getByRole('menuitemradio').filter({ has: page.getByText(choice.label, { exact: true }) }).click()
+  await expect(trigger).toContainText(choice.label)
 }
 export const applyFrameActions = async (page: Page, actions: FrameActions): Promise<void> => {
   if (actions.tab) await selectFrameTab(page, actions.tab)
   if (actions.viewChoice) {
-    await page.getByRole('button', { name: 'View', exact: true }).click()
+    await page.locator('[data-slot="page-options"]:visible').getByRole('button', { name: 'View', exact: true }).click()
     const choice = page.getByRole('menuitem', { name: actions.viewChoice, exact: true })
       .or(page.getByRole('menuitemradio', { name: actions.viewChoice, exact: true }))
       .or(page.getByRole('switch').filter({ has: page.getByText(actions.viewChoice, { exact: true }) }))
@@ -51,7 +65,10 @@ export const applyFrameActions = async (page: Page, actions: FrameActions): Prom
     await expect(page.getByRole('menu')).toHaveCount(0)
   }
   if (actions.inspectFirst) await page.locator('[data-slot="workbench-main"] [data-row][data-kind="card"]').first().click()
-  if (actions.tool) await page.locator(`[data-work-tool="${actions.tool}"]`).click()
+  if (actions.tool === 'details' || actions.tool === 'activity') {
+    const rail = page.locator('[data-work-rail-toggle]')
+    if (await rail.getAttribute('aria-pressed') !== 'true') await rail.click()
+  } else if (actions.tool) await page.locator(`[data-work-tool="${actions.tool}"]`).click()
   if (actions.holdMessages) {
     await page.getByRole('button', { name: 'Send to', exact: true }).click()
     await page.getByRole('switch', { name: 'Board-only', exact: true }).click()

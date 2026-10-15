@@ -192,7 +192,8 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     await page.evaluate(() => document.fonts.ready)
     // Run facts live in Details; the Team's default Overview keeps it closed.
     const team = page.locator('#team-overview-team')
-    await team.locator('[data-work-tool="details"]').click()
+    const rail = team.locator('[data-work-rail-toggle]')
+    if (await rail.getAttribute('aria-pressed') !== 'true') await rail.click()
     await expect(team.locator('[data-slot="summary-card"][data-surface="panel"]').first()).toBeVisible()
     await expect(page.locator('[data-frame-id="goal-roster"] [data-slot="composer-tail"]')).toBeAttached()
     await expect(page.locator('[data-slot=approval-dialog-scope] [role=dialog]')).toBeVisible()
@@ -347,6 +348,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     await expect(emptyOverview).toBeVisible()
     const emptyEdges = await emptyOverview.evaluate(element => {
       const section = element.querySelector('section[aria-label="Seats"]')!
+      const page = element.querySelector('[data-slot="page"]')!
       const head = section.querySelector('[data-slot="section-head"]')!
       const label = head.querySelector('[data-slot="group-label"]')!
       const empty = section.querySelector('[data-slot="empty-state"]')!
@@ -357,10 +359,13 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       return {
         label: label.getBoundingClientRect().left, text: text.left - parseFloat(bodyStyle.paddingLeft),
         right: headBounds.right - parseFloat(style.paddingRight), bodyRight: bounds.right + parseFloat(bodyStyle.paddingRight),
-        gutter: section.getBoundingClientRect().left - element.getBoundingClientRect().left
+        gutter: section.getBoundingClientRect().left - element.getBoundingClientRect().left,
+        pageEdge: page.getBoundingClientRect().left - element.getBoundingClientRect().left + parseFloat(getComputedStyle(page).paddingLeft)
       }
     })
-    expect(emptyEdges.gutter).toBe(24)
+    // Overview now follows the centred reading Page; its page edge includes
+    // that measure's centring margin as well as its shared reading inset.
+    expect(emptyEdges.gutter).toBe(emptyEdges.pageEdge)
     expect(Math.abs(emptyEdges.text - emptyEdges.label)).toBeLessThanOrEqual(1)
     expect(Math.abs(emptyEdges.bodyRight - emptyEdges.right)).toBeLessThanOrEqual(1)
   })
@@ -407,3 +412,82 @@ test('an invisible button hit target does not replace its visible glyph in the u
   const reading = (await page.evaluate(readInsets, [{ selector: '#surface', tier: 'row' }]))[0]!
   expect(reading.boxes[0]!.insets![3]).toBeGreaterThanOrEqual(reading.minimum - 2)
 })
+
+/** The destination's data kind chooses its measure; every route uses the same
+ * Page contract at both a full desk and a narrow window. */
+for (const theme of ['light', 'dark'] as const) for (const width of [2000, 720]) {
+  test(`every destination keeps its Page measure in ${theme} at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.route('**/src/preview/main.tsx*', async route => {
+      const response = await route.fetch(), source = await response.text()
+      const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
+      if (!reactUrl) throw new Error('preview React import missing')
+      await route.fulfill({ response, body: `${source}
+        import measureReact from ${JSON.stringify(reactUrl)};
+        import { PagePreview as MeasurePage } from '/src/preview/page-preview.tsx';
+        import { previewStore as measureStore, PREVIEW_SESSION_KEY as measureSession } from '/src/preview/harness.tsx';
+        import { StoreProvider as MeasureProvider } from '/src/state/context.tsx';
+        import { TeamFramePreview as MeasureTeam } from '/src/preview/TeamFramePreview.tsx';
+        import { overviewTeamStore as measureTeamStore } from '/src/preview/team-overview-fixture.ts';
+        for (const [host, root] of window.__hdPageMeasureRoots ?? []) { root.unmount(); host.remove(); }
+        window.__hdPageMeasureRoots = [];
+        const destinations = [
+          ['chat', {kind:'work',view:{kind:'conversation',session:measureSession}}],
+          ['library', {kind:'library',section:'skill'}],
+          ['agents', {kind:'agents',id:null}],
+          ['agent', {kind:'agents',id:'code-reviewer'}],
+          ['dashboard', {kind:'dashboard',view:'overview',scope:null}],
+          ['plugins', {kind:'plugins',section:'installed',id:null}],
+          ['plugin', {kind:'plugins',section:'installed',id:'plugin-0'}],
+          ['settings', {kind:'settings',route:{kind:'section',section:'general',focus:null}}],
+          ['teams', {kind:'teams',filter:'active'}],
+          ['changes', {kind:'changes-review',root:'/work/storefront',returnTo:{kind:'conversation',session:null}}],
+        ];
+        for (const [name, destination] of destinations) {
+          const host = document.createElement('section'); host.dataset.pageMeasureProbe = name;
+          host.style.cssText = 'height:640px;position:relative;transform:translateZ(0)'; document.body.append(host);
+          const root = createRoot(host); window.__hdPageMeasureRoots.push([host, root]);
+          root.render(measureReact.createElement(MeasurePage, {fixture:measureStore(),page:destination}));
+        }
+        for (const [name, fixture, room, framePage] of [
+          ['overview', measureTeamStore(), 'overview-team', 'overview'],
+          ['findings', measureTeamStore(), 'overview-team', 'findings'],
+          ['receipt', measureStore(), 'goal-wrapped', 'receipt'],
+        ]) {
+          const host = document.createElement('section'); host.dataset.pageMeasureProbe = name;
+          host.style.cssText = 'height:640px;position:relative;transform:translateZ(0)'; document.body.append(host);
+          const root = createRoot(host); window.__hdPageMeasureRoots.push([host, root]);
+          root.render(measureReact.createElement(MeasureProvider, {store:fixture},
+            measureReact.createElement(MeasureTeam, {room,view:{kind:'room',room,framePage}})));
+        }
+      ` })
+    })
+    await page.goto(`/preview.html?frame-wall=conversation&theme=${theme}`)
+    await page.evaluate(() => document.fonts.ready)
+    const expected = {
+      chat: 'reading', library: 'wide', agents: 'wide', agent: 'reading', dashboard: 'wide', plugins: 'wide', plugin: 'reading',
+      settings: 'reading', teams: 'wide', changes: 'canvas', overview: 'reading', findings: 'reading', receipt: 'reading',
+    } as const
+    for (const [name, measure] of Object.entries(expected)) {
+      const frame = page.locator(`[data-page-measure-probe="${name}"]`)
+      const column = frame.locator(name === 'chat' ? '[data-transcript-content] > [data-slot="page"]'
+        : name === 'overview' ? '[data-slot="team-overview"] > [data-slot="page"]'
+        : name === 'findings' ? '[aria-label="Findings"] [data-slot="page"]'
+        : name === 'receipt' ? '[data-slot="page"]:has([data-slot="goal-receipt"])'
+        : '[data-slot="destination-scroll"]:not([hidden]) > [data-slot="page"]')
+      await expect(column, name).toBeVisible()
+      await expect(column, name).toHaveAttribute('data-width', measure)
+      await expect.poll(() => column.evaluate(element => getComputedStyle(element).getPropertyValue('--hd-column').trim()), { message: `${name} foundation ready` }).toBe('736px')
+      const geometry = await column.evaluate(element => {
+        const box = element.getBoundingClientRect(), parent = element.parentElement!.getBoundingClientRect(), css = getComputedStyle(element)
+        const padding = parseFloat(css.paddingLeft) + parseFloat(css.paddingRight)
+        const limit = css.getPropertyValue(element.getAttribute('data-width') === 'reading' ? '--hd-column' : '--hd-page-wide')
+        return { width: box.width, available: parent.width, padding, cap: parseFloat(limit), left: box.left - parent.left, right: parent.right - box.right }
+      })
+      const target = measure === 'canvas' ? geometry.available : Math.min(geometry.available, geometry.cap + geometry.padding)
+      expect(Math.abs(geometry.width - target), `${name} measure`).toBeLessThanOrEqual(1)
+      expect(Math.abs(geometry.left - geometry.right), `${name} centred`).toBeLessThanOrEqual(1)
+      expect(geometry.cap, `${name} foundation measure`).toBe(measure === 'reading' ? 736 : 1320)
+    }
+  })
+}

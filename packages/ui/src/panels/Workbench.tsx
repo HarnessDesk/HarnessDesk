@@ -2,7 +2,7 @@ import { effectiveWindowMode } from '../editor'
 import { tileBrowserWorkbench } from '../lib/browser-tiles'
 import { WorkDetailsOutlet, useRegisteredOwner } from './top-bar'
 import { useShellHosts } from './shell-hosts'
-import { RunDockProvider } from './run-dock'
+import { RunDockProvider, RunDetailsView } from './run-dock'
 import {
   createContext,
   useContext,
@@ -15,8 +15,9 @@ import {
   type RefObject,
 } from 'react'
 
-import { MainDestination, FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, TerminalShellTabs, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim, useEscapeSurface } from '../design'
-import { DockPanelBody, PanelSeam } from '../design'
+import { MainDestination, FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, TerminalShellTabs, Button, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim, useEscapeSurface } from '../design'
+import { CrossIcon, ExpandIcon, SwapIcon } from '../components/Icons'
+import { DockPanel, DockPanelBody, PanelSeam } from '../design'
 import { dismissOverlays } from '../design'
 import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
@@ -40,6 +41,9 @@ import {
   rightPanelDrawn,
   fixedSubject,
   sidebarPlacement,
+  workRailOpen,
+  workRailFloats,
+  workPaneExpanded,
   type DockId,
   type Mounted,
 } from '../state/workbench'
@@ -47,6 +51,7 @@ import { hasTrafficLights } from '../lib/desktop'
 import { supportsFixedTool, toolOf } from '../state/frame-tools'
 import { MountProvider } from './mount'
 import { ViewHost } from './views'
+import { FilesPane } from './FilesPane'
 import styles from './Workbench.module.css'
 
 import './builtins'
@@ -140,7 +145,14 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
   const showSidebar = placement !== 'away'
   const floating = placement === 'floating'
   const column = placement === 'column'
+  const subject = fixedSubject(workbench.main)
+  const intent = subject ? workbench.frameTools[subject] : undefined
+  const pageTerminal = pageActive && intent?.open === true && intent.tool === 'terminal' && Boolean(terminalCwdForSnapshot(snapshot))
+  const paneActive = !pageActive || pageTerminal
   const rightPanelOverlay = rightPanelOverlays(workbench, snapshot.windowWidth)
+  const expanded = workPaneExpanded(workbench) && paneActive
+  const pageKind = workbench.navigation.current.kind
+  const mainTitle = pageActive ? pageKind[0]!.toUpperCase() + pageKind.slice(1).replaceAll('-', ' ') : 'Chat'
 
   useLayoutEffect(() => {
     if (suspended || pageActive) return
@@ -206,25 +218,28 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
    * whenever there are buttons at all, while the area named here keeps it for
    * the row underneath.
    */
-  const corner = hasTrafficLights() ? cornerArea(workbench, column, snapshot.windowWidth) : null
+  const corner = hasTrafficLights() ? paneActive ? cornerArea(workbench, column, snapshot.windowWidth) : column ? 'sidebar' : 'main' : null
 
   const sidebarBox = useRef<HTMLDivElement>(null)
   useFloatingSidebar(floating && !suspended, sidebarBox, main)
   const standingSidebar = column ? workbench.sidebar.size : 0
-  const rightWidth = pageActive ? 0 : effectiveRightWidth(workbench, snapshot.windowWidth, standingSidebar)
-  const bottomHeight = terminalCwdForSnapshot(snapshot) ? effectiveBottomHeight(workbench, snapshot.windowHeight) : 0
+  const rightWidth = paneActive ? effectiveRightWidth(workbench, snapshot.windowWidth, standingSidebar) : 0
+  const bottomHeight = 0
+  const railOpen = !suspended && !pageActive && workRailOpen(workbench)
+  const railFloating = workRailFloats(workbench, snapshot.windowWidth, standingSidebar)
   const retainedRight = Math.min(workbench.right.size, Math.max(0, snapshot.windowWidth - FRAME.page.canvasGutter))
   const frameStyle = {
     '--frame-left-size': `${standingSidebar}px`, '--frame-left': 'var(--frame-left-drag, var(--frame-left-size))',
     '--frame-left-open': `${workbench.sidebar.size}px`,
-    '--frame-right-size': pageActive || !rightPanelDrawn(workbench) ? '0px' : `${workbench.right.size}px`, '--frame-right': 'var(--frame-right-effective)',
-    '--frame-right-open': pageActive ? '0px' : `${rightWidth || retainedRight}px`, '--frame-right-retained': `${retainedRight}px`,
+    '--frame-right-size': !paneActive || !rightPanelDrawn(workbench) ? '0px' : `${workbench.right.size}px`, '--frame-right': 'var(--frame-right-effective)',
+    '--frame-right-open': paneActive ? `${rightWidth || retainedRight}px` : '0px', '--frame-right-retained': `${retainedRight}px`,
     '--frame-bottom-size': `${bottomHeight}px`, '--frame-bottom': 'var(--frame-bottom-drag, var(--frame-bottom-size))',
     '--frame-bottom-retained': `${Math.max(FRAME.bottomPanel.min, Math.min(workbench.bottom.size, Math.floor(snapshot.windowHeight / 2)))}px`,
   } as CSSProperties
   return <WorkActive.Provider value={!suspended}><KeyboardHereContext.Provider value={suspended ? false : null}><RunDockProvider><ComposerMountsProvider><ShellContext.Provider value={shell}>
     <FixedShell ref={shell} viewportWidth={snapshot.windowWidth} style={frameStyle} className={styles.shell}
-      leftFloating={narrow} panelFloating={!pageActive && rightPanelOverlay} leftOpen={showSidebar} rightOpen={!suspended && !pageActive && rightPanelDrawn(workbench)} bottomOpen={!suspended && bottomHeight > 0} inert={suspended}
+      leftFloating={narrow} panelFloating={paneActive && rightPanelOverlay} leftOpen={showSidebar} rightOpen={!suspended && paneActive && rightPanelDrawn(workbench)} bottomOpen={false} inert={suspended}
+      railOpen={railOpen} railFloating={railFloating} paneExpanded={expanded}
       {...(corner ? { 'data-lights': corner } : {})} {...(narrow ? { 'data-narrow': '' } : {})}
       onFocusCapture={event => { rightPanelFocus.current = event.target instanceof HTMLElement && event.target.closest('[data-fixed-tool-frame]') ? event.target : null }}
       left={<><WorkbenchRail ref={sidebarBox} className={styles.sidebar}
@@ -239,13 +254,29 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
           const paneId = event.target.closest<HTMLElement>('[data-pane-id]')?.dataset.paneId
           const pane = paneId ? findPane(snapshot.layout, paneId) : undefined
           if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
-        }}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><MainDestination page={pageActive} work={<KeyboardHereContext.Provider value={pageActive ? false : null}><Panes /></KeyboardHereContext.Provider>} pages={pages} /></div>}
-      right={<RightWorkActive.Provider value={!pageActive}><RightPanel /></RightWorkActive.Provider>} bottom={<BottomPanel />}>
+        }}><FixedPanelBody heading={expanded ? mainTitle : undefined} actions={expanded ? <>
+          <Button variant="ghost" size="icon-sm" aria-label="Swap back" title="Swap back" onClick={() => store.swapWorkPane()}><SwapIcon size={16} /></Button>
+          <Button variant="ghost" size="icon-sm" aria-label="Close pane" title="Close pane" onClick={() => store.toggleWorkPanel()}><CrossIcon size={16} /></Button>
+        </> : undefined}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><MainDestination page={pageActive} work={<KeyboardHereContext.Provider value={pageActive ? false : null}><Panes /></KeyboardHereContext.Provider>} pages={pages} /></FixedPanelBody></div>}
+      rail={<WorkRail drawn={railOpen} />}
+      right={<RightWorkActive.Provider value={paneActive}><RightPanel /></RightWorkActive.Provider>} bottom={null}>
       {narrow && <WorkbenchScrim className={styles.scrim} {...(floating ? { 'data-open': '' } : {})} aria-hidden
         onMouseDown={event => event.preventDefault()} onClick={() => store.closeFloatingSidebar()} />}
     </FixedShell>
   </ShellContext.Provider></ComposerMountsProvider></RunDockProvider></KeyboardHereContext.Provider></WorkActive.Provider>
 
+}
+
+/** Cards stay under the subject's bar, independent of whichever tool is open. */
+const WorkRail = ({ drawn }: { drawn: boolean }) => {
+  const snapshot = useSnapshot(), owner = snapshot.layout.focused
+  const pane = findPane(snapshot.layout, owner)
+  if (!pane) return null
+  return <KeyboardHereContext.Provider value={drawn ? null : false}>
+    <PaneProvider scope={{ paneId: owner, view: pane.view, sessionKey: pane.view.kind === 'conversation' ? pane.view.session : null }}>
+      <ToolFooterProvider><ToolBody><ToolBodySections><WorkDetailsOutlet owner={owner} /></ToolBodySections></ToolBody></ToolFooterProvider>
+    </PaneProvider>
+  </KeyboardHereContext.Provider>
 }
 
 /** A retained cache captures provenance at admission, never from the newly focused work. */
@@ -318,8 +349,7 @@ const WorkToolBodies = ({ drawn }: { drawn: boolean }) => {
         <div className={styles.layer} {...(details ? {} : { 'data-hidden': '', inert: true })}>
           <KeyboardHereContext.Provider value={details ? null : false}>
             <ToolFooterScope id={detailsId}><ToolBody><ToolBodySections>
-              {focused && <PaneProvider scope={{ paneId: owner, view: focused.view,
-                sessionKey: focused.view.kind === 'conversation' ? focused.view.session : null }}><WorkDetailsOutlet owner={owner} /></PaneProvider>}
+              {selected?.mode === 'run-details' && focused?.view.kind === 'room' && <PaneProvider scope={{ paneId: owner, view: focused.view, sessionKey: null }}><RunDetailsView inspectionOnly /></PaneProvider>}
               {entries.filter(entry => entry.view.kind === 'plugin').map(entry => <RetainedTool key={entry.id} entry={entry} shown={entry.id === plugin} section />)}
             </ToolBodySections></ToolBody></ToolFooterScope>
           </KeyboardHereContext.Provider>
@@ -333,6 +363,7 @@ const WorkToolBodies = ({ drawn }: { drawn: boolean }) => {
 }
 
 const RightPanel = () => {
+  const store = useStore()
   const snapshot = useSnapshot()
   const workbench = tileBrowserWorkbench(snapshot)
   const workActive = useContext(WorkActive)
@@ -342,31 +373,48 @@ const RightPanel = () => {
   const sized = !overlay
   const noticeHost = drawn && noticeArea(workbench, snapshot.windowWidth) === 'right'
   const min = dockLimits('right').min
+  const subject = fixedSubject(workbench.main)
+  const intent = subject ? workbench.frameTools[subject] : undefined
+  const terminal = intent?.tool === 'terminal'
+  const files = intent?.tool === 'files'
+  const title = intent?.tool === 'changes' ? 'Changes' : terminal ? 'Terminal' : files ? 'Files' : intent?.tool === 'browser' ? 'Browser' : intent?.tool === 'conversation' ? 'Conversation' : intent?.tool === 'activity' ? 'Trajectory' : 'Details'
   const max = Math.max(min, Math.min(dockLimits('right').max, snapshot.windowWidth -
     (sidebarPlacement(snapshot) === 'column' ? workbench.sidebar.size + SEAM : 0) - SEAM - MIN_READING))
   return <>
     {drawn && sized && <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} max={max} />}
     <FixedPanelFrame edge="right" open={drawn} className={styles.right} data-fixed-tool-frame="" style={{ width: '100%', height: '100%' }}
+      heading={title} actions={<>
+        <Button variant="ghost" size="icon-sm" aria-label={overlay ? 'Return to main' : 'Swap pane into main'} title={overlay ? 'Return to main' : 'Swap pane into main'}
+          onClick={() => overlay ? store.toggleWorkPanel() : store.swapWorkPane()}>{overlay ? <SwapIcon size={16} /> : <ExpandIcon size={16} />}</Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Close pane" title="Close pane" onClick={() => store.toggleWorkPanel()}><CrossIcon size={16} /></Button>
+      </>}
        {...(noticeHost ? { 'data-notice-host': '' } : {})}>
       {noticeHost && <NoticeStripOutlet host area="right" hostId="workbench:right" />}
       {noticeHost && <NoticeStripFallback area="right" />}
-      <WorkToolBodies drawn={drawn} />
+
+      <div data-shell-tool-bodies>
+        <div className={styles.layer} {...(terminal ? { 'data-hidden': '', inert: true } : {})}>
+          {files && <DockPanel edge="bottom" data-shell-files-tree data-file-open={intent?.mode !== 'files'}><FilesPane /></DockPanel>}
+          <div data-shell-file-body {...(files && intent?.mode === 'files' ? { 'data-hidden': '', inert: true } : {})}><WorkToolBodies drawn={drawn && !terminal} /></div>
+        </div>
+        <div className={styles.layer} {...(terminal && drawn ? {} : { 'data-hidden': '', inert: true })}><BottomPanel drawn={drawn && terminal} /></div>
+      </div>
     </FixedPanelFrame>
   </>
 }
 
 /** Only process documents share the bottom frame; closing the region retains every xterm. */
-const BottomPanel = () => {
+const BottomPanel = ({ drawn }: { drawn: boolean }) => {
   const store = useStore(), snapshot = useSnapshot()
   const workbench = tileBrowserWorkbench(snapshot), dock = workbench.bottom
-  const entries = dockViews(dock).filter(
-    (entry): entry is Mounted & { readonly view: TerminalView } => entry.view.kind === 'terminal',
-  )
+  const subject = fixedSubject(workbench.main)
+  const entries = dockViews(dock).filter((entry): entry is Mounted & { readonly view: TerminalView } => entry.view.kind === 'terminal')
+  const owned = entries.filter(entry => !workbench.toolOwners[entry.id] || workbench.toolOwners[entry.id] === subject)
   const current = activeView(dock)
-  const active = entries.find(entry => entry.id === current?.id) ?? entries[0]
+  const active = owned.find(entry => entry.id === current?.id) ?? owned[0]
   const activeTerminal = active?.view.kind === 'terminal' ? active.view : undefined
   const occurrences = new Map<string, number>()
-  const terminalTabs = entries.map(entry => {
+  const terminalTabs = owned.map(entry => {
     const name = terminalName(entry.view)
     const occurrence = (occurrences.get(name) ?? 0) + 1
     occurrences.set(name, occurrence)
@@ -378,11 +426,10 @@ const BottomPanel = () => {
     }
   })
   const workActive = useContext(WorkActive)
-  const shown = workActive && Boolean(terminalCwdForSnapshot(snapshot)) && effectiveBottomHeight(workbench, snapshot.windowHeight) > 0
+  const shown = drawn && workActive && Boolean(terminalCwdForSnapshot(snapshot))
   const noticeHost = shown && noticeArea(workbench, snapshot.windowWidth) === 'bottom'
   return <>
-    {shown && <AreaSeam area="bottom" orientation="horizontal" label="Resize the bottom panel" direction={-1} />}
-    <FixedPanelFrame edge="bottom" open={shown} className={styles.bottom} data-terminal-frame=""
+    <FixedPanelFrame edge="right" open={shown} className={styles.bottom} data-terminal-frame=""
        {...(noticeHost ? { 'data-notice-host': '' } : {})}>
       {noticeHost && <NoticeStripOutlet host area="bottom" hostId="workbench:bottom" />}
       {noticeHost && <NoticeStripFallback area="bottom" />}
@@ -457,7 +504,7 @@ const useFloatingSidebar = (
        * for its own reasons stays so.
        */
       const beside = Array.from(document.querySelectorAll('[data-over-conversation]'))
-      const regions = content.current?.closest('[data-slot="fixed-shell"]')?.querySelectorAll('[data-frame-region="top"], [data-frame-region="right"], [data-frame-region="bottom"]') ?? []
+      const regions = content.current?.closest('[data-slot="fixed-shell"]')?.querySelectorAll('[data-frame-region="top"], [data-frame-region="rail"], [data-frame-region="right"], [data-frame-region="bottom"]') ?? []
       const covered = [content.current, ...regions, ...beside].filter(
         (element): element is HTMLElement => element instanceof HTMLElement && !element.hasAttribute('inert'),
       )

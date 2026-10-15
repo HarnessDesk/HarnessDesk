@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { openFrame } from './frame-contract-helpers'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 const capture = async (page: Page, name: string) => {
   const directory = process.env.FRAME_REPAIR_FRAMES
@@ -11,7 +12,7 @@ const capture = async (page: Page, name: string) => {
 }
 
 for (const theme of ['light', 'dark'] as const) {
-  for (const width of [1100, 720]) test(`floating right panel reserves main reading space at ${width} in ${theme}`, async ({ page }) => {
+  for (const width of [1100, 720]) test(`narrow pane replaces main and restores its reading space at ${width} in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme, width)
     const main = page.locator('[data-frame-region="main"]')
     const before = await main.boundingBox()
@@ -19,20 +20,23 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: 'Changes', exact: true }).first().click()
     const right = page.locator('[data-frame-region="right"]')
     await expect(right).toBeVisible()
-    const after = await main.boundingBox(), panel = await right.boundingBox()
-    expect(after!.width).toBeGreaterThanOrEqual(Math.min(480, before!.width - 320))
-    expect(panel!.width).toBeGreaterThanOrEqual(320)
-    expect(after!.width + panel!.width).toBe(before!.width)
-    expect(after!.x).toBe(before!.x)
-    expect(panel!.x).toBe(after!.x + after!.width)
-    expect(panel!.x + panel!.width).toBe(before!.x + before!.width)
+    const panel = await right.boundingBox()
+    expect(panel!.width).toBeGreaterThanOrEqual(FRAME.rightPanel.min)
+    expect(panel!.x).toBe(before!.x)
+    expect(panel!.x + panel!.width).toBe(width)
+    expect(panel!.y).toBe(0)
+    expect(panel!.height).toBe(900)
+    await expect(main).toBeHidden()
     await capture(page, `conversation-floating-${width}-${theme}`)
+    await right.getByRole('button', { name: 'Close pane', exact: true }).click()
+    await expect(main).toBeVisible()
+    expect(await main.boundingBox()).toEqual(before)
   })
 
   test(`Settings keeps the project terminal and native work sized in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=navigation&frame-terminal=1', theme)
     const work = page.locator('[data-slot="retained-work"]')
-    const terminal = page.locator('[data-frame-region="bottom"] [data-terminal-id]').first()
+    const terminal = page.locator('[data-frame-region="right"] [data-terminal-id]').first()
     await expect(terminal).toBeVisible()
     const id = await terminal.getAttribute('data-terminal-id')
     const before = await work.boundingBox()

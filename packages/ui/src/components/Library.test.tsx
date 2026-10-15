@@ -113,12 +113,10 @@ const LibraryHarness = ({ initialFlow = null }: { readonly initialFlow?: 'import
   </DestinationPageScope><TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}} /></TopBarProvider>
 }
 const chooseKind = async (kind: 'skill' | 'mcp') => {
-  let choice = document.body.querySelector<HTMLElement>(`[role="tab"][data-team-page="${kind}"]`)
-  if (!choice) {
-    await act(async () => document.body.querySelector<HTMLButtonElement>('[title="Destination views"]')?.click())
-    choice = document.body.querySelector<HTMLElement>(`[role="menuitemradio"][data-team-page="${kind}"]`)
-  }
-  expect(choice).not.toBeNull()
+  await act(async () => document.body.querySelector<HTMLButtonElement>('[title="Library sections"]')?.click())
+  const label = kind === 'skill' ? 'Skills' : 'MCP servers'
+  const choice = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(node => node.textContent?.startsWith(label))
+  expect(choice).toBeTruthy()
   await act(async () => choice!.click())
 }
 
@@ -335,6 +333,7 @@ it('uses one menu trigger form for the view, filter and agent choices', async ()
   const triggers = [...options.querySelectorAll<HTMLElement>('[data-slot="popover-trigger"]')]
 
   expect(triggers.map((trigger) => trigger.getAttribute('title'))).toEqual([
+    'Library sections',
     'How to show the library',
     'Filter the library',
     'Declared by',

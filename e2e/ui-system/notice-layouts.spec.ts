@@ -4,13 +4,9 @@ test.use({ colorScheme: process.env.NOTICE_FRAME_THEME === 'dark' ? 'dark' : 'li
 
 const layout = (page: Page, id: string): Locator => page.locator(`[data-frame-id="${id}"]`)
 
-const chooseDestination = async (page: Page, frame: Locator, name: string) => {
+const chooseDestination = async (_page: Page, frame: Locator, name: string) => {
   const tab = frame.getByRole('tab', { name: new RegExp(`^${name}`) })
-  if (await tab.count()) await tab.click()
-  else {
-    await frame.locator('button[title="Destination views"]').click()
-    await page.getByRole('menuitem', { name: new RegExp(`^${name}`) }).click()
-  }
+  await tab.click()
 }
 
 const expectOneNotice = async (frame: Locator, surface: 'composer' | 'strip'): Promise<void> => {
@@ -88,8 +84,9 @@ test('a narrow room keeps its composer notice visible when widened', async ({ pa
     nodes.filter((node) => node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && node.getClientRects().length > 0).length,
   )
 
-  await expect(frame.locator('[data-topbar="tabs"]')).toBeVisible()
-  await expect(frame.locator('[data-topbar="tabs"]')).toContainText('Chat')
+  await expect(frame.locator('[data-team-page="room"]')).toBeVisible()
+  await expect(frame.locator('[data-team-page="room"]')).toHaveAttribute('aria-selected', 'true')
+  await expect(frame.locator('[data-slot="top-bar"] [role="tab"]')).toHaveCount(0)
   await expect(body).toBeVisible()
   await expect.poll(visibleNoticeCount).toBe(1)
   await expect(frame.locator('[data-slot="composer-notices"] :is([data-slot="notice-strip"], [data-slot="composer-notice"])')).toBeVisible()

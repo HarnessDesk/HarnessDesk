@@ -476,7 +476,7 @@ it('names no folder for a roster still read for the workspace open before', () =
 it('the supplied Agent route is authoritative and its parent records the list route', () => {
   const onFocus = vi.fn()
   mount({}, { readAgentAttachments: vi.fn(async () => ({ declarations: [], support: [] })), readAgentNotes: vi.fn(async () => ({ text: null })) }, { focus: ROSTER[0]!.id, onFocus })
-  const parent = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Agents ›')
+  const parent = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Back to Agents')
   expect(parent).toBeTruthy()
   act(() => parent!.click())
   expect(onFocus).toHaveBeenCalledWith(null)

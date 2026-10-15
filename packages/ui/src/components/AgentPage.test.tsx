@@ -291,7 +291,7 @@ it('opens from its roster row, names its file, and opens or reveals it', () => {
   const { store, onLeave } = mount()
   act(() => rowFor('Judge').click())
   expect(container.querySelector('[data-slot="page-title"]')).toBeNull()
-  expect(hasButton('Agents ›')).toBe(true)
+  expect(hasButton('Back to Agents')).toBe(true)
   const text = container.textContent ?? ''
   expect(text).toContain('Judge does the work.')
   expect(text).toContain('HarnessDesk › agents/judge/AGENT.md')
@@ -313,7 +313,7 @@ it('names a project Agent’s File relative to the project, since the header alr
 it('opens on the Agent Settings was asked for, and goes back to the roster', () => {
   mount({ focus: 'scout' })
   expect(container.textContent).toContain('Scout does the work.')
-  act(() => button('Agents ›').click())
+  act(() => button('Back to Agents').click())
   expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Agents')
 })
 

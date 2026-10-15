@@ -2206,9 +2206,9 @@ rules:
     return true
   }
   const openGitMenu = async () => {
-    const shown = await cdp.json(`Boolean(document.querySelector('[data-slot="tool-body"] button[aria-label="Folder actions"]'))`)
-    if (!shown && !(await press({ selector: 'header [data-work-tool="details"]' }))) throw new Error('no Details control in the conversation header')
-    if (!(await press({ selector: '[data-slot="tool-body"] button[aria-label="Folder actions"]' }))) throw new Error('no Folder actions control in conversation Details')
+    const shown = await cdp.json(`Boolean(document.querySelector('[data-frame-region="rail"] [data-slot="tool-body"] button[aria-label="Folder actions"]')?.checkVisibility({ visibilityProperty: true }))`)
+    if (!shown && !(await press({ selector: 'header [data-work-rail-toggle]' }))) throw new Error('no rail control in the conversation header')
+    if (!(await press({ selector: '[data-frame-region="rail"] [data-slot="tool-body"] button[aria-label="Folder actions"]' }))) throw new Error('no Folder actions control in the conversation rail')
   }
   /**
    * What the store holds once the item is chosen, checked beside the frame:

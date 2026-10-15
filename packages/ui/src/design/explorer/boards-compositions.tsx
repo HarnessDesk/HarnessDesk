@@ -3368,7 +3368,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'team-bar',
     title: 'The Team bar',
-    about: 'One title, status, measured segmented page tabs and participant tools, including narrow panes and Side by side.',
+    about: 'One subject title and tools row above Team views in the body, with an independent card rail, narrow panes and Side by side.',
     render: TeamBarBoard,
   },
   {

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 const openFrame = async (page: Page, query: string, width = 1280, theme: 'light' | 'dark' = 'light') => {
@@ -21,8 +22,11 @@ const openFrame = async (page: Page, query: string, width = 1280, theme: 'light'
     await expect(page.locator('textarea:visible')).toHaveCount(0)
     await expect(page.locator('[data-slot="notice-strip"]')).toHaveCount(0)
     await expect(page.locator('[data-slot="composer-dock"]').filter({ hasText: 'Choose a working installation in Settings.' }).last()).toContainText('Choose a working installation in Settings.')
-    await expect(page.locator('[data-work-tool="activity"]')).toBeDisabled()
-    await expect(page.locator('[data-work-tool="activity"]')).toHaveAttribute('title', /failed its version check/)
+    await expect(page.locator('[data-work-tool="activity"]')).toHaveCount(0)
+    await page.locator('[data-topbar-title]').getByRole('button').click()
+    const fork = page.getByRole('menuitem', { name: /^Fork/ })
+    await expect(fork).toHaveAttribute('aria-disabled', 'true')
+    await expect(fork).toHaveAttribute('title', /failed its version check/)
 
 
   })
@@ -53,22 +57,25 @@ test('column filter keeps a matching conversation across repository worktrees', 
 
 {
 
-  for (const [item0, width] of ([1100, 720]).entries()) for (const [item1, tool] of (['Changes', 'Details', 'Browser']).entries()) test(`right tools reserve a clear main column below the wide breakpoint [item ${[item0, item1].join('-')}]`, async ({ page }) => {
+  for (const [item0, width] of ([1100, 720]).entries()) for (const [item1, tool] of (['Changes', 'Browser']).entries()) test(`a narrow pane replaces main and returns to its exact geometry [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=conversation', width)
-    const main = page.locator('[data-frame-region="main"]:visible')
+    const main = page.locator('[data-frame-region="main"]')
     const before = await main.boundingBox()
     await page.getByRole('button', { name: tool, exact: true }).first().click()
     const right = page.locator('[data-frame-region="right"]:visible')
     await expect(right).toBeVisible()
-    const after = await main.boundingBox(), panel = await right.boundingBox()
+    const panel = await right.boundingBox()
     expect(before).not.toBeNull()
-    expect(after!.width).toBeGreaterThanOrEqual(Math.min(480, before!.width - 320))
-    expect(panel!.width).toBeGreaterThanOrEqual(320)
-    expect(after!.width + panel!.width).toBe(before!.width)
-    expect(after!.x).toBe(before!.x)
-    expect(panel!.x).toBe(after!.x + after!.width)
-    expect(panel!.x + panel!.width).toBe(before!.x + before!.width)
+    expect(panel!.x).toBe(before!.x)
+    expect(panel!.x + panel!.width).toBe(width)
+    expect(panel!.y).toBe(0)
+    expect(panel!.height).toBe(900)
+    expect(panel!.width).toBeGreaterThanOrEqual(FRAME.rightPanel.min)
+    await expect(main).toBeHidden()
+    await page.getByRole('button', { name: 'Close pane', exact: true }).click()
+    await expect(main).toBeVisible()
+    expect(await main.boundingBox()).toEqual(before)
 
 
   })

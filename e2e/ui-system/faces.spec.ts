@@ -60,7 +60,7 @@ const PAGES: readonly { readonly name: string; readonly url: string; readonly re
       { what: 'the Team rail’s members and the chat’s senders', frame: 'goal-roster', selector: '[data-slot="icon-tile"][data-shape="face"]' },
       { what: 'a notice carrying an agent’s face', frame: 'conversation-composer', selector: ':not([data-slot])[data-tone][data-shape="face"]' },
       { what: 'a board card’s holder', frame: 'board-populated', selector: '[data-slot="icon-tile"][data-shape="face"]' },
-      { what: 'the Activity panel’s rows', frame: 'panel-activity', selector: '[data-slot="icon-tile"][data-shape="face"]' },
+      { what: 'Trajectory’s Events-filter rows', frame: 'panel-activity', selector: '[data-slot="icon-tile"][data-shape="face"]' },
       { what: 'a channel’s senders', frame: 'room-channel-grouping', selector: '[data-slot="icon-tile"][data-shape="face"]' },
       { what: 'a person’s face in a channel', frame: 'room-channel-grouping', selector: 'span[data-shape="face"]:not([data-slot])' },
       { what: 'the seat’s face', frame: 'sidebar-column', selector: 'span[data-shape="face"]' },
@@ -323,7 +323,7 @@ for (const theme of ['light','dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`Agent bar faces follow Faces while provider marks retain their own geometry in ${theme}`, async ({ page }) => {
+  test(`Agent body faces follow Faces while provider marks retain their own geometry in ${theme}`, async ({ page }) => {
     await open(page, '/preview.html', PREVIEW_READY)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('runtimes')
@@ -343,7 +343,8 @@ for (const theme of ['light', 'dark'] as const) {
       const drawing = await provider.innerHTML()
       if (providerDrawing === null) providerDrawing = drawing
       else expect(drawing).toBe(providerDrawing)
-      const mark = page.locator('[data-frame-id="agents-roster"] [data-topbar-mark] [data-shape="face"]')
+      await expect(page.locator('[data-frame-id="agents-roster"] [data-topbar-mark]')).toHaveCount(0)
+      const mark = page.locator('[data-frame-id="agents-roster"] [data-slot="toolbar"] [data-shape="face"]')
       await expect(mark).toHaveCount(1)
       corners[faces]!.push(await mark.evaluate(el => getComputedStyle(el).borderTopLeftRadius))
       expect((await faceReport(page, [])).findings).toEqual([])

@@ -1,3 +1,4 @@
+import { Toolbar } from '../design'
 import type { SettingsRoute, SettingsSection } from '../state/destinations'
 import { DestinationBar, useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { handOverToComposer } from '../lib/compose'
@@ -1133,11 +1134,10 @@ const SkillPage = ({
 }) => {
   const runtime = useRuntime()
   const scope = skillScopeLabel(skill.scope)
-  const store=useStore()
   return (
     <>
-      <DestinationBar place={skillTitle(skill)} mark={<SkillMark skill={skill} tile="sm" glyphSize={16}/>}
-        parents={[{label:'Settings',run:()=>store.askSettings('general')},{label:listLabel,run:onBack}]}/>
+      <DestinationBar place={skillTitle(skill)} />
+      <Toolbar><Button variant="ghost" size="sm" onClick={onBack}>Back to {listLabel}</Button><SkillMark skill={skill} tile="sm" glyphSize={16}/></Toolbar>
       <PageExplanation>{`${runtime.presentation.name}${scope?` · ${scope}`:''}`}</PageExplanation>
       {skill.shortDescription && <PageExplanation>{skill.shortDescription}</PageExplanation>}
       <Rows><Row title={skillTitle(skill)} control={<><SkillToggle skill={skill}/><Button variant="outline" size="sm" onClick={() => { onUse(); void handOverToComposer({text:`@${skill.name} `}) }}>Use in composer</Button></>}/></Rows>
@@ -1165,7 +1165,6 @@ const SkillPage = ({
 }
 
 export const SkillsSection = ({name,onSkill,onUse}: {readonly name:string|null;readonly onSkill:(name:string|null)=>void;readonly onUse:()=>void}) => {
-  const store=useStore()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
   const [query, setQuery] = useState('')
@@ -1201,7 +1200,7 @@ export const SkillsSection = ({name,onSkill,onUse}: {readonly name:string|null;r
 
   return (
     <>
-      <DestinationBar place={label} parents={[{label:"Settings",run:()=>store.askSettings("general")}]}/>
+      <DestinationBar place={label} />
 <PageExplanation>{
           declared
             ? `What ${runtime.presentation.name} can be asked to run: its skills and its own commands.`

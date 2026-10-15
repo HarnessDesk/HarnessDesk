@@ -42,9 +42,9 @@ for (const theme of ['light', 'dark'] as const) {
           await editor.fill(`Synthetic document draft ${width} · 長い記録`)
           const save = panel.getByRole('button', { name: 'Unsaved · Save ⌘S', exact: true })
           await expect(save).toBeEnabled()
-          await page.locator('[data-work-panel-toggle]').click()
+          await page.locator('[data-work-tool="files"]').click()
           await expect(editor).toBeHidden()
-          await page.locator('[data-work-panel-toggle]').click()
+          await page.locator('[data-work-tool="files"]').click()
           await expect(editor).toBeVisible()
           await expect(editor).toContainText(`Synthetic document draft ${width}`)
           await save.click()
@@ -102,18 +102,14 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 1440, height: 900 })
       await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?frame-wall=conversation&theme=${theme}`)
-    await page.locator('[data-work-tool="details"]').click()
-    const panel = page.locator('[data-slot="work-tools"]')
-    for (const width of [320, 400, 640]) {
-      await resizePanel(page, width)
-      const edges = await panel.evaluate(element => {
-        const label = element.querySelector('[data-slot="tool-section"] [data-slot="group-label"] [data-slot="text"]')!
-        const fact = element.querySelector('[data-slot="summary-item"] dt')!
-        return [label, fact].map(node => node.getBoundingClientRect().left - element.getBoundingClientRect().left)
-      })
-      // The rail inset and the card's border precede its own row inset.
-      expect(edges).toEqual(Array(2).fill(FRAME.panel.pad + 1 + FRAME.panel.cardPadX))
-    }
+    const panel = page.locator('[data-frame-region="rail"]')
+    await expect(panel).toBeVisible()
+    const edges = await panel.evaluate(element => {
+      const label=element.querySelector('[data-slot="tool-section"] [data-slot="group-label"] [data-slot="text"]')!
+      const fact=element.querySelector('[data-slot="summary-item"] dt')!
+      return [label,fact].map(node=>node.getBoundingClientRect().left-element.getBoundingClientRect().left)
+    })
+    expect(edges).toEqual(Array(2).fill(FRAME.panel.pad+1+FRAME.panel.cardPadX))
   })
   test(`B7a terminal carries its actual resource id and synthetic scrollback in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })

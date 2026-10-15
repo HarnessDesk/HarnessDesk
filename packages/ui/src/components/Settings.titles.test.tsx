@@ -33,7 +33,7 @@ it.each([
     expect(headings[0]?.classList.contains('sr-only')).toBe(false)
     expect(headings[0]?.getAttribute('data-role')).toBe('page')
     expect(page.firstElementChild).toBe(headings[0])
-    expect(box.querySelector('[data-topbar-title]')?.textContent).toBe('')
+    expect(box.querySelector('[data-topbar-title]')?.textContent).toBe('Settings')
   } finally {
     act(() => root.unmount())
     box.remove()

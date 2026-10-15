@@ -36,14 +36,14 @@ for (const theme of ['light', 'dark'] as const) {
     await expectTitleRoom(header.locator('[data-topbar-title]'))
     await captureFrame(page, `after-frame-running-1440-${theme}`)
     await selectTeamPage(team, 'room')
-    await header.getByRole('button', { name: 'View', exact: true }).click()
+    await team.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'View', exact: true }).click()
     await page.getByRole('menuitemradio', { name: 'Side by side', exact: true }).click()
     await expect(team.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
-    await header.getByRole('button', { name: 'View', exact: true }).click()
+    await team.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'View', exact: true }).click()
     await expect(page.getByRole('menuitemradio', { name: 'Side by side', exact: true })).toHaveAttribute('aria-checked', 'true')
     await page.getByRole('menuitemradio', { name: 'Thread', exact: true }).click()
     await expect(team.locator('[data-slot="side-by-side-tile"]')).toHaveCount(0)
-    await expect(header.locator('[data-team-page="room"]')).toHaveAttribute('data-active', '')
+    await expect(team.locator('[data-team-page="room"]')).toHaveAttribute('data-active', '')
     await header.getByRole('button', { name: 'More', exact: true }).click()
     await expect(page.getByRole('menuitem', { name: 'Fill the window', exact: true })).toBeVisible()
   })
@@ -56,11 +56,11 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(header.getByRole('button', { name: 'Side by side', exact: true })).toBeHidden()
     await page.evaluate(async () => { await document.fonts.ready })
     await captureFrame(page, `after-frame-720-${theme}`)
-    await header.getByRole('button', { name: 'More', exact: true }).click()
+    await header.locator('[data-topbar-title]').getByRole('button').click()
     await expect(page.getByRole('switch', { name: 'Hold messages at the board', exact: true })).toHaveCount(0)
     await expect(page.getByRole('menuitem', { name: 'Open pull request', exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(header.getByRole('button', { name: 'More', exact: true })).toBeFocused()
+    await expect(header.locator('[data-topbar-title]').getByRole('button')).toBeFocused()
     await selectTeamPage(team, 'room')
     // This fixture is waiting for approval: its existing permission boundary
     // suspends the composer. The frame contract proves Send to at this width
@@ -82,25 +82,25 @@ for (const theme of ['light', 'dark'] as const) {
     const team = page.locator('[data-frame-id="team-frame"]')
     const header = teamBar(team)
     await selectTeamPage(team, 'room')
-    await header.getByRole('button', { name: 'View', exact: true }).click()
+    await team.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'View', exact: true }).click()
     const toggle = page.getByRole('menuitemradio', { name: 'Side by side', exact: true })
     await expect(toggle).toHaveAttribute('aria-checked', 'false')
     await toggle.click()
     await expect(team.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
-    await header.getByRole('button', { name: 'View', exact: true }).click()
+    await team.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'View', exact: true }).click()
     await expect(toggle).toHaveAttribute('aria-checked', 'true')
     await page.getByRole('menuitemradio', { name: 'Thread', exact: true }).click()
     await expect(team.locator('[data-slot="side-by-side-tile"]')).toHaveCount(0)
 
   })
-  test(`Team frame: More menu labels share one left edge in ${theme}`, async ({ page }) => {
+  test(`Team frame: subject menu labels share one left edge in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 720, height: 760 })
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
     if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
     else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
     const team = page.locator('[data-frame-id="team-frame"]')
-    await teamBar(team).getByRole('button', { name: 'More', exact: true }).click()
+    await teamBar(team).locator('[data-topbar-title]').getByRole('button').click()
     const labelLeft = (role: 'switch' | 'menuitem' | 'menuitemradio', label: string) =>
       page.getByRole(role, { name: label, exact: true }).evaluate((row, label) => {
         const text = [...row.querySelectorAll('span')].find(span => span.textContent?.trim() === label)
@@ -109,7 +109,7 @@ for (const theme of ['light', 'dark'] as const) {
     const edges = await Promise.all([
       labelLeft('menuitem', 'Open pull request'),
       labelLeft('menuitem', 'Wrap…'),
-      labelLeft('menuitem', 'Fill the window'),
+      labelLeft('menuitem', 'Rename'),
     ])
     expect(Math.max(...edges) - Math.min(...edges)).toBeLessThanOrEqual(1)
     await captureFrame(page, `after-controls-${theme}`)
@@ -138,27 +138,16 @@ for (const theme of ['light', 'dark'] as const) {
 for (const theme of ['light', 'dark'] as const) {
   {
 
-    for (const [item0, width] of ([1440, 720]).entries()) test(`Team frame: keyboard focus stays visible in tabs and the folded destination menu in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+    for (const [item0, width] of ([1440, 720]).entries()) test(`Team frame: keyboard focus stays visible in body tabs in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' })
       await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
       await page.setViewportSize({ width, height: 900 })
       const frame = page.locator('[data-frame-id="team-frame"]')
       await selectTeamPage(frame, 'overview')
-      const bar = teamBar(frame)
-      const tab = bar.locator('[data-team-page="overview"]:visible')
-      let focused: import('@playwright/test').Locator
-      if (await tab.count()) {
-        await tab.focus()
-        await page.keyboard.press('ArrowRight')
-        focused = bar.locator('[data-team-page="run"]:visible')
-      } else {
-        const views = bar.getByTitle('Destination views', { exact: true })
-        await views.focus()
-        await page.keyboard.press('Enter')
-        await page.keyboard.press('ArrowDown')
-        await page.keyboard.press('Home')
-        focused = page.locator('[role="menu"] [data-team-page="overview"]:visible')
-      }
+      const tab = frame.locator('[data-team-page="overview"]:visible')
+      await tab.focus()
+      await page.keyboard.press('ArrowRight')
+      const focused = frame.locator('[data-team-page="run"]:visible')
       await expect(focused).toBeFocused()
       const ring = await focused.evaluate(node => ({ width: parseFloat(getComputedStyle(node).outlineWidth), box: node.getBoundingClientRect().toJSON() }))
       expect(ring.width).toBeGreaterThan(0)
@@ -202,17 +191,16 @@ test('the Team title uses the fixed shell width and stays inside the bar', async
 for (const theme of ['light', 'dark'] as const) {
   {
 
-    for (const [item0, name] of (['overview', 'run', 'board', 'room', 'findings']).entries()) test(`Team frame: header and page tabs share one row on every page in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+    for (const [item0, name] of (['overview', 'run', 'board', 'room', 'findings']).entries()) test(`Team frame: page tabs stay in the first body row under every bar in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })
       await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
       const team = page.locator('[data-frame-id="team-frame"]')
       await selectTeamPage(team, name)
       const header = teamBar(team)
-      const title = (await header.locator('[data-topbar-title]').boundingBox())!
-      const tab = header.locator('[data-team-page="overview"]:visible')
-      const destination = await tab.count() ? tab : header.getByTitle('Destination views', { exact: true })
-      const box = (await destination.boundingBox())!
-      expect(Math.abs(title.y + title.height / 2 - box.y - box.height / 2), name).toBeLessThanOrEqual(1)
+      const bar = (await header.locator('..').boundingBox())!
+      const box = (await team.locator('[data-team-page="overview"]:visible').boundingBox())!
+      expect(box.y - bar.y - bar.height, name).toBe(FRAME.page.gutter)
+      await expect(header.getByRole('tab')).toHaveCount(0)
 
 
     })
@@ -227,7 +215,7 @@ for (const theme of ['light', 'dark'] as const) {
       const members = await teamSeats(page.locator('[data-frame-id="team-frame"]'))
       await expect(members).toBeVisible()
       const box = (await members.boundingBox())!
-      if (width === 1440) expect((await members.locator('xpath=ancestor::*[@data-slot="tool-body"]').boundingBox())!.width).toBe(FRAME.rightPanel.width)
+      if (width === 1440) expect((await members.locator('xpath=ancestor::*[@data-frame-region="rail"]').boundingBox())!.width).toBe(FRAME.infoCard.width)
       expect(box.x).toBeGreaterThanOrEqual(0)
       expect(box.x + box.width).toBeLessThanOrEqual(width)
       expect(await members.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
@@ -276,8 +264,10 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' })
     await page.goto(`/preview.html?team-frame=controls&theme=${theme}`)
     await expect(page.getByRole('switch', { name: 'Hold messages at the board', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('menuitem', { name: 'Open pull request', exact: true })).toBeVisible()
     await expect(page.getByRole('menuitem', { name: 'Fill the window', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await teamBar(page.locator('[data-frame-id="team-frame"]')).locator('[data-topbar-title]').getByRole('button').click()
+    await expect(page.getByRole('menuitem', { name: 'Open pull request', exact: true })).toBeVisible()
     await captureFrame(page, `after-controls-720-${theme}`)
   })
 }

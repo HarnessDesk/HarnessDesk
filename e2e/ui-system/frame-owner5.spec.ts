@@ -20,11 +20,10 @@ const rect = async (page: Page, selector: string) => page.locator(selector).eval
 })
 
 for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720]) {
-  test(`Owner 5 Settings has no page title or duplicate top controls at ${width} in ${theme}`, async ({ page }) => {
+  test(`Owner 5 Settings has its title and no duplicate top controls at ${width} in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=settings&frame-section=general', theme, width)
     const topbar = page.locator('[data-slot="top-bar"]:visible')
-    const titleTexts = await topbar.locator('[data-topbar-title]').allTextContents()
-    expect(titleTexts.every(title => title.trim() === '')).toBe(true)
+    await expect(topbar.locator('[data-topbar-title]')).toHaveText('Settings')
     await expect(page.getByRole('heading', { name: 'General', level: 1, exact: true })).toHaveCount(1)
 
     const visibleControls = await page.locator('[data-left-top]:visible button:visible, [data-topbar="lead"] button:visible')
@@ -139,17 +138,17 @@ test('Owner 5 terminal stays available on project pages and retains its shells a
   const shellIds = await page.locator('[data-terminal-mount]').evaluateAll(nodes =>
     nodes.map(node => node.getAttribute('data-terminal-mount')))
   await page.locator('[data-terminal-mount]').first().evaluate(node => node.setAttribute('data-owner5-witness', 'retained'))
-  const bottomRegion = page.locator('[data-frame-region="bottom"]')
-  const height = await bottomRegion.evaluate(element => element.getBoundingClientRect().height)
+  const terminalRegion = page.locator('[data-frame-region="right"]')
+  const height = await terminalRegion.evaluate(element => element.getBoundingClientRect().height)
 
   const expectProjectPage = async (destination: string): Promise<void> => {
     await expect(page.locator(`[data-page-destination="${destination}"]:visible`)).toHaveCount(1)
-    await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-bottom-open', 'true')
+    await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-right-open', 'true')
     await expect(page.locator('[data-terminal-shell-tabs]')).toBeVisible()
     await expect(page.locator('[data-terminal-mount][data-owner5-witness="retained"]')).toHaveCount(1)
     expect(await page.locator('[data-terminal-mount]').evaluateAll(nodes =>
       nodes.map(node => node.getAttribute('data-terminal-mount')))).toEqual(shellIds)
-    expect(await bottomRegion.evaluate(element => element.getBoundingClientRect().height)).toBe(height)
+    expect(await terminalRegion.evaluate(element => element.getBoundingClientRect().height)).toBe(height)
 
     const more = page.locator('[data-topbar="more"] button:visible')
     if (await more.count()) {
@@ -167,7 +166,7 @@ test('Owner 5 terminal stays available on project pages and retains its shells a
     const selectedAfter = await tablist.getByRole('tab').evaluateAll(nodes =>
       nodes.find(node => node.getAttribute('aria-selected') === 'true')?.textContent?.trim() ?? null)
     expect(selectedAfter).toBe(selectedLabel)
-    expect(await page.locator('[data-frame-region="bottom"]').evaluate(element => element.getBoundingClientRect().height)).toBe(height)
+    expect(await terminalRegion.evaluate(element => element.getBoundingClientRect().height)).toBe(height)
   }
 
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
@@ -186,18 +185,30 @@ test('Owner 5 terminal stays available on project pages and retains its shells a
   await page.keyboard.press('Meta+n')
   await expect(page.locator('[data-terminal-shell-tabs]')).toBeVisible()
   await expect(page.locator('[data-terminal-mount][data-owner5-witness="retained"]')).toHaveCount(1)
-  expect(await page.locator('[data-frame-region="bottom"]').evaluate(element => element.getBoundingClientRect().height)).toBe(height)
+  expect(await terminalRegion.evaluate(element => element.getBoundingClientRect().height)).toBe(height)
 })
 
-test('Owner 5 terminal keyboard toggle closes and opens a shell on a project page', async ({ page }) => {
+test('Owner 5 terminal keyboard toggle hides and restores the retained shell on a project page', async ({ page }) => {
   await openFrame(page, 'frame-wall=conversation&frame-terminal=1', 'light', 1280)
-  await expect(page.locator('[data-terminal-mount]')).toHaveCount(1)
+  const terminal = page.locator('[data-terminal-mount]')
+  await expect(terminal).toHaveCount(1)
+  const id = await terminal.getAttribute('data-terminal-mount')
+  await terminal.evaluate(node => node.setAttribute('data-owner5-witness', 'keyboard-retained'))
+  const selectedShell = page.getByRole('tablist', { name: 'Terminal shells', exact: true }).getByRole('tab', { selected: true })
+  const selectedLabel = await selectedShell.textContent()
   await page.getByRole('navigation', { name: 'Workspace actions' }).getByRole('button', { name: 'Dashboard', exact: true }).click()
   await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
   await page.keyboard.press('Control+Backquote')
-  await expect(page.locator('[data-terminal-mount]')).toHaveCount(0)
+  await expect(terminal).toHaveCount(1)
+  await expect(terminal).toBeHidden()
+  await expect(terminal).toHaveAttribute('data-terminal-mount', id!)
+  await expect(terminal).toHaveAttribute('data-owner5-witness', 'keyboard-retained')
   await page.keyboard.press('Control+Backquote')
-  await expect(page.locator('[data-terminal-mount]')).toHaveCount(1)
+  await expect(terminal).toHaveCount(1)
+  await expect(terminal).toBeVisible()
+  await expect(terminal).toHaveAttribute('data-terminal-mount', id!)
+  await expect(terminal).toHaveAttribute('data-owner5-witness', 'keyboard-retained')
+  await expect(selectedShell).toHaveText(selectedLabel!)
   await expect(page.locator('[data-terminal-shell-tabs]')).toBeVisible()
   await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
 })
@@ -205,6 +216,9 @@ test('Owner 5 terminal keyboard toggle closes and opens a shell on a project pag
 for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720]) {
   test(`Owner 5 terminal tab row follows panel bar anatomy at ${width} in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme, width)
+    const railToggle = page.getByRole('button', { name: 'Toggle rail', exact: true })
+    if (await railToggle.getAttribute('aria-expanded') === 'true') await railToggle.click()
+    await expect(page.locator('[data-frame-region="rail"]')).toBeHidden()
     await page.locator('[data-slot="top-bar"]:visible button[aria-label="More"]').click()
     await page.getByRole('menuitemradio', { name: /Terminal/ }).click()
     const row = page.locator('[data-terminal-shell-tabs]')

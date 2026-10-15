@@ -4,46 +4,27 @@ import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES, WALL_WIDTHS } from './frame-wall-destinations'
 import { openFrame } from './frame-contract-helpers'
 
-
 // Contract runs measure the preview; the final wall owns images and recordings.
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
-
-{
-
-  for (const [item0, width] of ([1440, 1100]).entries()) test(`R10.30 terminal occupies main while the right panel keeps its frame height [item ${[item0].join('-')}]`, async ({ page }) => {
-
+for (const width of [1440, 1100]) {
+  test(`R10.30 terminal pane owns a full-height region beside main at ${width}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation&frame-terminal=1', 'light', width)
-    await page.locator('[data-work-tool="details"]').click()
-    const main = page.locator('[data-frame-region="main"]')
     const right = page.locator('[data-frame-region="right"]')
-    const bottom = page.locator('[data-frame-region="bottom"]')
-    await expect(bottom.locator('[data-terminal-id]')).toBeVisible()
-    await expect(right).toBeVisible()
-    const geometry = await page.evaluate(() => {
-      const box = (selector: string) => {
-        const rect = document.querySelector<HTMLElement>(selector)!.getBoundingClientRect()
-        return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom }
-      }
-      return {
-        shell: box('[data-slot="fixed-shell"]'),
-        main: box('[data-frame-region="main"]'),
-        right: box('[data-frame-region="right"]'),
-        bottom: box('[data-frame-region="bottom"]'),
-        floating: document.querySelector('[data-slot="fixed-shell"]')!.getAttribute('data-panel-floats') === 'true',
-      }
-    })
-    expect(Math.abs(geometry.bottom.x - geometry.main.x), 'terminal starts with main').toBeLessThanOrEqual(1)
-    expect(Math.abs(geometry.bottom.right - geometry.main.right), 'terminal ends with main').toBeLessThanOrEqual(1)
-    if (width >= FRAME.fold.panelFloats) {
-      expect(Math.abs(geometry.right.x - geometry.main.right), 'standing panel follows main').toBeLessThanOrEqual(1)
-      expect(Math.abs(geometry.right.bottom - geometry.shell.bottom), 'standing panel reaches the shell bottom').toBeLessThanOrEqual(1)
-    } else {
-      expect(geometry.floating).toBe(true)
-      expect(Math.abs(geometry.right.bottom - geometry.bottom.y), 'floating panel stops above terminal').toBeLessThanOrEqual(1)
-    }
-
-
+    const main = page.locator('[data-frame-region="main"]')
+    const terminal = right.locator('[data-terminal-id]')
+    await expect(terminal).toBeVisible()
+    await expect(page.locator('[data-frame-region="bottom"]')).toBeHidden()
+    await expect(right.locator('[data-work-pane-header]')).toHaveCount(1)
+    await expect(page.locator('[data-frame-region="rail"]')).toBeVisible()
+    const panel = (await right.boundingBox())!
+    const reading = (await main.boundingBox())!
+    const top = (await page.locator('[data-frame-region="top"]').boundingBox())!
+    expect(panel.y).toBe(0)
+    expect(panel.height).toBe(900)
+    expect(panel.x + panel.width).toBe(width)
+    expect(reading.x + reading.width).toBeLessThanOrEqual(panel.x)
+    expect(top.x + top.width).toBe(panel.x)
   })
 }
 
@@ -123,8 +104,8 @@ for (const theme of WALL_THEMES) {
     await expect(menu).toHaveCount(0)
     await expect(page.locator('[data-left-seat] [data-slot="popover-trigger"]:has([data-slot="inbox-button"])')).toBeFocused()
   })
-  test(`Owner fix 2 modal tools preserve work intent and preserve File and terminal nodes in ${theme}`, async ({ page }) => {
-    await openFrame(page, 'frame-wall=conversation&frame-tool=file&frame-tool-path=%2Frepo%2FREADME.md&frame-terminal=1&frame-status=tasks', theme)
+  test(`Owner fix 2 page navigation preserves File and terminal nodes, menus and focus in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-explorer=plain&frame-tool=file&frame-tool-path=%2Fwork%2Fstorefront-branch%2Fsrc%2FREADME.md&frame-status=tasks', theme)
     const tools = page.locator('[data-slot="work-tools"]')
     const editor = tools.locator('.cm-content')
     await expect(tools.getByRole('heading', { name: 'Storefront', exact: true })).toBeVisible()
@@ -134,6 +115,8 @@ for (const theme of WALL_THEMES) {
     await expect(editor).toHaveAttribute('contenteditable', 'true')
     await editor.fill('Keep this dirty checkout note')
     await editor.evaluate(node => { node.dataset.b10Retained = 'file' })
+
+    await page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Terminal', exact: true }).click()
     const terminal = page.locator('[data-terminal-id]')
     await expect(terminal).toBeVisible()
     const terminalId = await terminal.getAttribute('data-terminal-id')
@@ -144,11 +127,11 @@ for (const theme of WALL_THEMES) {
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(editor).toBeHidden()
     await expect(terminal).toBeVisible()
-    await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-bottom-open', 'true')
+    await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-right-open', 'true')
     await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
     const bar = page.locator('[data-slot="top-bar"]:visible')
     await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
-    await expect(page.locator('[data-slot="work-tools"]')).toBeHidden()
+    await expect(tools).toBeHidden()
     await expect(bar.getByRole('button', { name: 'More', exact: true })).toHaveCount(1)
     await destinationPage.getByRole('button', { name: /Code reviewer / }).click()
     const more = bar.getByRole('button', { name: 'More', exact: true })
@@ -163,16 +146,28 @@ for (const theme of WALL_THEMES) {
     await expect(more).toBeFocused()
     await page.keyboard.press('Meta+w')
     await expect(destinationPage).toHaveCount(0)
-    await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
+    await bar.getByRole('button', { name: 'More', exact: true }).click()
     await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
     await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveAttribute('aria-checked', 'true')
     await page.keyboard.press('Escape')
-    await expect(page.locator('[data-slot="work-tools"]')).toBeVisible()
-    await expect(page.locator('[data-b10-retained="file"]')).toHaveCount(1)
-    await expect(editor).toContainText('Keep this dirty checkout note')
+    await expect(terminal).toBeVisible()
     await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
     await expect(terminal).toHaveAttribute('data-b10-retained', 'terminal')
+
+    await bar.getByRole('button', { name: 'Files', exact: true }).click()
+    const files = page.locator('[data-shell-files-tree]')
+    await expect(files).toBeVisible()
+    await files.getByRole('button', { name: 'README.md', exact: true }).click()
+    await expect(tools).toBeVisible()
+    await expect(editor).toBeVisible()
+    await expect(page.locator('[data-b10-retained="file"]')).toHaveCount(1)
+    await expect(editor).toContainText('Keep this dirty checkout note')
+    await expect(terminal).toBeHidden()
+    await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
+    await expect(terminal).toHaveAttribute('data-b10-retained', 'terminal')
+    await bar.getByRole('button', { name: 'Terminal', exact: true }).click()
     await expect(terminal).toBeVisible()
+    await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
   })
 }
 
@@ -208,98 +203,114 @@ for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
 }
 
 for (const theme of WALL_THEMES) {
-  test(`B8 Agents layout measures allocated rows and keeps names inside their column in ${theme}`, async ({ page }) => {
+  test(`B8 Team reading column caps allocated rows and contains names in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
-    await page.locator('[data-work-tool="details"]').click()
-    await expect(page.locator('[data-frame-region="right"]:visible')).toBeVisible()
     const overview = page.locator('[data-slot="team-overview"]')
     const seats = overview.locator('[aria-label="Seats"]')
-    const allocated = (await seats.boundingBox())!.width
-    expect(allocated).toBeLessThan(800)
-    await expect(overview).toHaveAttribute('data-layout', 'narrow')
-    // Keep the existing 800 breakpoint, and exercise both sides on the real
-    // row allocation after the canonical reading inset.
-    const atThreshold = 1440 + 800 - allocated
-    await page.setViewportSize({ width: atThreshold - 1, height: 900 })
-    await expect.poll(async () => (await seats.boundingBox())!.width).toBe(799)
-    await expect(overview).toHaveAttribute('data-layout', 'narrow')
-    await page.setViewportSize({ width: atThreshold, height: 900 })
-    await expect.poll(async () => (await seats.boundingBox())!.width).toBe(800)
-    await expect(overview).toHaveAttribute('data-layout', 'table')
-    for (const name of ['Alpha', 'Beta']) {
-      const action = seats.getByRole('button', { name: `Open ${name}`, exact: true })
-      await expect(action).toBeVisible()
-      const cell = action.locator('xpath=ancestor::td')
-      const bounds = (await cell.boundingBox())!, label = (await action.boundingBox())!
-      expect(label.x).toBeGreaterThanOrEqual(bounds.x)
-      expect(label.x + label.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+    const column = overview.locator('[data-slot="page"]')
+    // The reading cap stays below the 800px table threshold at every viewport.
+    for (const width of [1440, 1800]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect.poll(async () => (await column.boundingBox())!.width).toBe(FRAME.page.reading + 2 * FRAME.page.gutter)
+      await expect.poll(async () => (await seats.boundingBox())!.width).toBe(FRAME.page.reading)
+      await expect(overview).toHaveAttribute('data-layout', 'narrow')
+      for (const name of ['Alpha', 'Beta']) {
+        const action = seats.getByRole('button', { name: `Open ${name}`, exact: true })
+        await expect(action).toBeVisible()
+        const cell = action.locator('xpath=ancestor::*[@data-slot="list-row-title"]')
+        const bounds = (await cell.boundingBox())!
+        const label = (await action.boundingBox())!
+        expect(label.x).toBeGreaterThanOrEqual(bounds.x)
+        expect(label.x + label.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+      }
     }
   })
   for (const width of [1280, 1279, 1000, 999, 720]) {
-    test(`B8 fixed folds at ${width} in ${theme}`, async ({ page }) => {
+    test(`B8 tool pane replaces main below the narrow fold at ${width} in ${theme}`, async ({ page }) => {
       await openFrame(page, 'frame-wall=conversation', theme, width)
-      await page.locator('[data-work-tool="details"]').click()
+      await page.getByRole('button', { name: 'Browser', exact: true }).click()
       const shell = page.locator('[data-slot="fixed-shell"]')
-      await expect(shell).toHaveAttribute('data-panel-floats', String(width < FRAME.fold.panelFloats))
+      const narrow = width < FRAME.fold.panelFloats
+      await expect(shell).toHaveAttribute('data-panel-floats', String(narrow))
       await expect(shell).toHaveAttribute('data-left-floats', String(width < FRAME.fold.sidebarFloats))
       const main = page.locator('[data-frame-region="main"]')
-      expect(await main.evaluate(node => node.closest('[inert]') !== null)).toBe(false)
-      await expect(page.locator('[data-slot="workbench-main"]')).not.toHaveAttribute('inert', '')
-      if (width >= FRAME.fold.panelFloats) expect((await main.boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.main.min)
+      expect(await main.evaluate(node => node.closest('[inert]') !== null)).toBe(narrow)
       await expect(page.locator('[data-region="sidebar"] [data-slot="dock-panel"]')).toHaveCount(0)
-      const bar = (await page.locator('[data-frame-region="top"]').boundingBox())!
       const panel = (await page.locator('[data-frame-region="right"]').boundingBox())!
-      expect(Math.abs(panel.y - bar.y - FRAME.bar.height)).toBeLessThanOrEqual(1)
+      expect(panel.y).toBe(0)
+      expect(panel.height).toBe(900)
       expect(panel.x).toBeGreaterThanOrEqual(0)
-      expect(panel.x + panel.width).toBeLessThanOrEqual(width)
-      if (width < FRAME.fold.panelFloats) {
-        const sidebar = width < FRAME.fold.sidebarFloats ? 0 : FRAME.sidebar.width
-        expect(panel.width).toBe(Math.min(FRAME.rightPanel.width, Math.max(FRAME.rightPanel.min, width - sidebar - FRAME.main.min - 2)))
-        expect(panel.width).toBeGreaterThanOrEqual(FRAME.rightPanel.min)
-        expect((await main.boundingBox())!.x + (await main.boundingBox())!.width).toBeLessThanOrEqual(panel.x)
+      expect(panel.x + panel.width).toBe(width)
+      if (narrow) {
+        await expect(main).toBeHidden()
+        expect(panel.width).toBe(width)
+        await expect(page.getByRole('button', { name: 'Return to main', exact: true }).first()).toBeVisible()
+      } else {
+        await expect(main).toBeVisible()
+        const reading = (await main.boundingBox())!
+        const floor = Math.min(FRAME.main.min, width - FRAME.sidebar.width - FRAME.rightPanel.min - 2)
+        expect(reading.width).toBeGreaterThanOrEqual(floor)
+        expect(reading.x + reading.width).toBeLessThanOrEqual(panel.x)
       }
     })
   }
-  test(`B8 terminal height and seam default are measured in ${theme}`, async ({ page }) => {
+  test(`B8 terminal pane resizes on the right and retains its resource across closing and short windows in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation&frame-terminal=1', theme)
+    const panel = page.locator('[data-frame-region="right"]')
     const terminal = page.locator('[data-terminal-id]')
     const id = await terminal.getAttribute('data-terminal-id')
-    const seam = page.getByRole('separator', { name: 'Resize the bottom panel' })
+    await expect(terminal).toBeVisible()
+    await expect(page.getByRole('separator', { name: 'Resize the bottom panel' })).toHaveCount(0)
+    const seam = page.getByRole('separator', { name: 'Resize the right panel', exact: true })
     await seam.focus()
-    for (let i = 0; i < 40; i++) await seam.press('ArrowUp')
-    expect((await page.locator('[data-frame-region="bottom"]').boundingBox())!.height).toBeLessThanOrEqual(450)
+    await seam.press('ArrowLeft')
+    const nudge = Math.round((FRAME.rightPanel.max - FRAME.rightPanel.min) * 0.02)
+    await expect.poll(async () => (await panel.boundingBox())!.width).toBe(FRAME.rightPanel.width + nudge)
+    await expect(seam).toBeFocused()
+    await seam.press('ArrowRight')
+    await expect.poll(async () => (await panel.boundingBox())!.width).toBe(FRAME.rightPanel.width)
+    await seam.press('End')
+    await expect.poll(async () => (await panel.boundingBox())!.width).toBe(FRAME.rightPanel.max)
+    await expect(seam).toBeFocused()
+    await seam.press('Home')
+    await expect.poll(async () => (await panel.boundingBox())!.width).toBe(FRAME.rightPanel.min)
+    await expect(seam).toBeFocused()
     await seam.dblclick()
-    expect(Math.round((await page.locator('[data-frame-region="bottom"]').boundingBox())!.height)).toBe(FRAME.bottomPanel.height)
-    await page.setViewportSize({ width: 1440, height: 240 })
-    await expect.poll(async () => (await page.locator('[data-frame-region="bottom"]').boundingBox())!.height).toBe(FRAME.bottomPanel.min)
-    await page.setViewportSize({ width: 1440, height: 239 })
+    expect((await panel.boundingBox())!.width).toBe(FRAME.rightPanel.width)
+    for (const height of [240, 239, 900]) {
+      await page.setViewportSize({ width: 1440, height })
+      await expect.poll(async () => (await panel.boundingBox())!.height).toBe(height)
+      await expect(terminal).toBeVisible()
+      await expect(terminal).toHaveAttribute('data-terminal-id', id!)
+    }
+    await page.getByRole('button', { name: 'Close pane', exact: true }).click()
     await expect(terminal).toBeHidden()
     await expect(terminal).toHaveAttribute('data-terminal-id', id!)
-    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click()
     await expect(terminal).toBeVisible()
     await expect(terminal).toHaveAttribute('data-terminal-id', id!)
-    await expect.poll(async () => (await page.locator('[data-frame-region="bottom"]').boundingBox())!.height).toBe(FRAME.bottomPanel.height)
   })
 }
 
-for (const theme of WALL_THEMES) for (const tool of ['details', 'changes', 'activity', 'browser']) {
-  test(`B7a ${tool} is a flat body without furniture in ${theme}`, async ({ page }) => {
+for (const theme of WALL_THEMES) for (const tool of ['terminal', 'changes', 'browser', 'files']) {
+  test(`B7a ${tool} has one pane header and a flat body in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
     await page.locator(`[data-work-tool="${tool}"]`).click()
-    const panel = page.locator('[data-slot="work-tools"]')
-    await expect(panel).toBeVisible()
+    const panel = page.locator('[data-frame-region="right"]')
+    const body = panel.locator(tool === 'terminal' ? '[data-terminal-id]' : tool === 'files' ? '[data-shell-files-tree]' : '[data-slot="work-tools"]')
+    await expect(body).toBeVisible()
+    await expect(panel.locator('[data-work-pane-header]')).toHaveCount(1)
     for (const slot of ['dock-panel-tabs', 'dock-panel-bar', 'inspector-tools', 'tool-pane-header', 'card-header']) {
-      expect(await panel.locator(`[data-slot="${slot}"]`).count(), `${tool}: ${slot} retired`).toBe(0)
+      expect(await body.locator(`[data-slot="${slot}"]`).count(), `${tool}: ${slot} retired from the body`).toBe(0)
     }
-    const panelBox = (await panel.boundingBox())!
-    const topBox = (await page.locator('[data-slot="top-bar"]').locator('..').boundingBox())!
-    expect(Math.abs(panelBox.y - topBox.y - topBox.height)).toBeLessThanOrEqual(1)
-    if (tool === 'activity') await expect(panel.getByText('Events', { exact: true })).toBeVisible()
+    const bounds = (await panel.boundingBox())!
+    expect(bounds.y).toBe(0)
+    expect(bounds.height).toBe(900)
   })
 }
 
 for (const theme of WALL_THEMES) {
-  test(`B7 shell owns the retained tool frame in ${theme}`, async ({ page }) => {
+  test(`B7 shell owns the retained tool pane independently of the rail in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
     await page.locator('[data-work-tool="changes"]').click()
     await expect(page.locator('[data-slot="dock-panel-tabs"]')).toHaveCount(0)
@@ -308,9 +319,10 @@ for (const theme of WALL_THEMES) {
     await expect(tool).toBeVisible()
     expect(Math.round((await page.locator('[data-slot="top-bar"]').locator('..').boundingBox())!.height)).toBe(FRAME.bar.height)
     const mounts = await page.locator('[data-tool-mount]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-tool-mount')))
-    await page.locator('[data-work-panel-toggle]').click()
+    await page.getByRole('button', { name: 'Close pane', exact: true }).click()
     await expect(tool).toBeHidden()
-    await page.locator('[data-work-panel-toggle]').click()
+    await expect(page.locator('[data-frame-region="rail"]')).toBeVisible()
+    await page.locator('[data-work-tool="changes"]').click()
     await expect(tool).toBeVisible()
     expect(await page.locator('[data-tool-mount]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-tool-mount')))).toEqual(mounts)
   })
@@ -330,11 +342,12 @@ for (const theme of WALL_THEMES) {
   test(`B4 embedded member retains scoped actions in the canonical Team bar in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team&frame-member-actions=1', theme)
     const bar = page.locator('[data-slot="top-bar"]')
-    await bar.getByRole('button', { name: 'Details', exact: true }).click()
+    const railToggle = bar.getByRole('button', { name: 'Toggle rail', exact: true })
+    if (await railToggle.getAttribute('aria-pressed') !== 'true') await railToggle.click()
     await page.getByRole('button', { name: 'Actions for Alpha', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Open conversation', exact: true }).click()
     await expect(bar).toHaveCount(1)
-    expect(await bar.locator('[data-work-tool]').evaluateAll(nodes => nodes.map(node => (node as HTMLElement).dataset.workTool))).toEqual(['details', 'changes', 'activity', 'browser'])
+    expect(await bar.locator('[data-work-tool]').evaluateAll(nodes => nodes.map(node => (node as HTMLElement).dataset.workTool))).toEqual(['terminal', 'changes', 'browser', 'files'])
     await expect(bar.locator('[data-topbar-title]')).toContainText('Retry the checkout call')
     await bar.getByRole('button', { name: 'More', exact: true }).click()
     await expect(page.getByRole('menuitem', { name: 'Compact now', exact: true })).toBeVisible()
@@ -347,21 +360,22 @@ for (const theme of WALL_THEMES) {
     await expect(composer).toBeFocused()
     await page.screenshot({ path: `output/frame-wall/B4-member-actions-${theme}.png` })
   })
-  test(`B3 Details Commit reaches its conversation after Browser focus in ${theme}`, async ({ page }) => {
+  test(`B3 rail Commit reaches its conversation after Browser focus in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
     const bar = page.locator('[data-slot="top-bar"]')
     await bar.getByRole('button', { name: 'Browser', exact: true }).click()
     const address = page.getByRole('textbox', { name: 'Address', exact: true })
     await address.click()
     await expect(address).toBeFocused()
-    await bar.getByRole('button', { name: 'Details', exact: true }).click()
+    const railToggle = bar.getByRole('button', { name: 'Toggle rail', exact: true })
+    if (await railToggle.getAttribute('aria-pressed') !== 'true') await railToggle.click()
     await page.getByRole('button', { name: 'Folder actions', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Commit the changes', exact: true }).click()
     const composer = page.locator('[data-slot="workbench-main"] textarea')
     await expect(composer).toHaveValue('Commit the changes from this conversation with a clear message, then tell me the commit hash.')
     await expect(composer).toBeFocused()
     await expect(page.locator('input[aria-label="Address"]')).toHaveCount(1)
-    await expect(page.locator('input[aria-label="Address"]')).toBeHidden()
+    await expect(page.locator('input[aria-label="Address"]')).toBeVisible()
   })
   for (const destination of ['conversation', 'draft']) {
     test(`B3 ${destination} has one shell row and four tool anchors in ${theme}`, async ({ page }) => {
@@ -372,18 +386,18 @@ for (const theme of WALL_THEMES) {
       await expect(top.locator('[data-slot="bar-divider"]')).toHaveCount(0)
       await expect(page.locator('[data-slot="workbench-main"] header[data-slot="bar"]')).toHaveCount(0)
       expect(await top.locator('[data-work-tool]').evaluateAll(nodes => nodes.map(node => (node as HTMLElement).dataset.workTool)))
-        .toEqual(['details', 'changes', 'activity', 'browser'])
+        .toEqual(['terminal', 'changes', 'browser', 'files'])
       if (destination === 'draft') {
         await expect(top.getByRole('button', { name: 'Changes', exact: true })).toBeDisabled()
-        await expect(top.getByRole('button', { name: 'Activity', exact: true })).toBeDisabled()
+        await expect(top.getByRole('button', { name: 'Files', exact: true })).toBeEnabled()
       }
-      await top.getByRole('button', { name: 'Details', exact: true }).click()
+      const railToggle = top.getByRole('button', { name: 'Toggle rail', exact: true })
+      if (await railToggle.getAttribute('aria-pressed') !== 'true') await railToggle.click()
       const details = page.locator('[data-slot="tool-body"]:visible')
       await expect(details.getByText('Plan', { exact: true })).toBeVisible()
       await expect(details.locator('[data-slot="summary-card"]').first()).toHaveAttribute('data-surface', 'panel')
-      const firstTool = (await top.locator('[data-work-tool="details"]').boundingBox())!
-      const panel = (await details.boundingBox())!
-      expect(firstTool.x - panel.x).toBe(FRAME.bar.pad)
+      const firstTool = (await top.locator('[data-work-rail-toggle]').boundingBox())!
+      expect(firstTool.width).toBe(FRAME.bar.iconButton)
       const more = (await top.getByRole('button', { name: 'More', exact: true }).boundingBox())!
       expect(more.x + more.width + FRAME.bar.pad).toBe(1440)
       const keys = details.locator('[data-slot="summary-item"] dt')
@@ -394,43 +408,50 @@ for (const theme of WALL_THEMES) {
 }
 
 for (const theme of WALL_THEMES) {
-  test(`B3 standing tools follow the painted panel seam in ${theme}`, async ({ page }) => {
+  test(`B3 subject bar follows the live pane seam in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
-    const top = page.locator('[data-slot="top-bar"]')
-    await top.getByRole('button', { name: 'Details', exact: true }).click()
-    const details = page.locator('[data-slot="tool-body"]:visible')
-    const first = top.locator('[data-work-tool="details"]')
-    const more = top.getByRole('button', { name: 'More', exact: true })
-    const panelBefore = (await details.boundingBox())!
+    const bar = page.locator('[data-slot="top-bar"]')
+    await bar.getByRole('button', { name: 'Browser', exact: true }).click()
+    const pane = page.locator('[data-frame-region="right"]')
+    const more = bar.getByRole('button', { name: 'More', exact: true })
+    const panelBefore = (await pane.boundingBox())!
     const moreBefore = (await more.boundingBox())!
     const seam = (await page.getByRole('separator', { name: 'Resize the right panel', exact: true }).boundingBox())!
     const start = seam.x + seam.width / 2
     await page.mouse.move(start, 400)
     await page.mouse.down()
     await page.mouse.move(start - 40, 400, { steps: 6 })
-    await expect.poll(async () => Math.round((await details.boundingBox())!.width)).toBe(Math.round(panelBefore.width) + 40)
-    const painted = (await details.boundingBox())!
-    expect((await first.boundingBox())!.x - painted.x).toBe(FRAME.bar.pad)
-    expect((await more.boundingBox())!.x).toBe(moreBefore.x)
+    await expect.poll(async () => Math.round((await pane.boundingBox())!.width)).toBe(Math.round(panelBefore.width) + 40)
+    const painted = (await pane.boundingBox())!
+    const liveMore = (await more.boundingBox())!
+    expect(liveMore.x).toBe(moreBefore.x - 40)
+    expect(liveMore.x + liveMore.width + FRAME.bar.pad).toBe(painted.x)
     await page.mouse.up()
-    expect((await first.boundingBox())!.x - (await details.boundingBox())!.x).toBe(FRAME.bar.pad)
+    const committedMore = (await more.boundingBox())!
+    expect(committedMore.x + committedMore.width + FRAME.bar.pad).toBe((await pane.boundingBox())!.x)
   })
 }
 
 for (const theme of WALL_THEMES) {
-  test(`B11 fixed tools retain work and refuse free docking in ${theme}`, async ({ page }) => {
+  test(`B11 rail and one tool pane retain work independently and refuse free docking in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation&frame-terminal=1', theme)
-    const tools = page.locator('[data-slot="top-bar"] [data-work-tool]')
-    await expect(tools).toHaveCount(4)
-    await page.locator('[data-work-tool="details"]').click()
-    await page.locator('[data-work-tool="activity"]').click()
-    await page.locator('[data-work-tool="details"]').click()
-    await expect(page.locator('[data-slot="tool-body"]:visible').getByText('Plan', { exact: true })).toBeVisible()
-    await page.locator('[data-work-tool="details"]').click()
-    await expect(page.locator('[data-slot="work-tools"]')).toBeHidden()
-    await page.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    await expect(page.locator('[data-slot="top-bar"] [data-work-tool]')).toHaveCount(4)
+    const rail = page.locator('[data-frame-region="rail"]')
+    const terminal = page.locator('[data-terminal-id]')
+    const terminalId = await terminal.getAttribute('data-terminal-id')
+    await expect(terminal).toBeVisible()
+    await expect(rail.getByText('Plan', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Changes', exact: true }).click()
+    await expect(rail).toBeVisible()
+    await expect(terminal).toBeHidden()
+    await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
+    await page.getByRole('button', { name: 'Toggle rail', exact: true }).click()
+    await expect(rail).toBeHidden()
     await expect(page.locator('[data-slot="work-tools"]')).toBeVisible()
-    await expect(page.locator('[data-frame-region="bottom"] [data-terminal-id]')).toBeVisible()
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await expect(terminal).toBeVisible()
+    await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
+    await expect(rail).toBeHidden()
     await expect(page.locator('[draggable="true"][data-tool-mount]')).toHaveCount(0)
     await expect(page.locator('[data-slot="dock-panel-tabs"]')).toHaveCount(0)
   })
@@ -456,7 +477,7 @@ for (const theme of WALL_THEMES) {
     await drag('Resize the sidebar', -500)
     await expect.poll(async () => (await left.boundingBox())!.width).toBe(FRAME.sidebar.min)
     measurements.leftMin = (await left.boundingBox())!.width
-    await page.locator('[data-work-tool="details"]').click()
+    await page.getByRole('button', { name: 'Browser', exact: true }).click()
     await drag('Resize the right panel', -800)
     await expect.poll(async () => (await panel.boundingBox())!.width).toBe(FRAME.rightPanel.max)
     measurements.rightMax = (await panel.boundingBox())!.width
