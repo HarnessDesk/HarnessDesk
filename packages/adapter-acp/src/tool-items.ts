@@ -42,7 +42,19 @@ const inputChangesOf = (call: ToolCallItem, cwd: string): readonly FileChange[] 
   }
   if (diff === undefined) {
     const content = stringOf(input.content, input.file_text, input.file_content, input.streamContent, input.code_edit, input.diff, input.patch, input.new_source)
-    if (content !== undefined) diff = marked('+', content)
+    if (content !== undefined) {
+      const hunk = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(?:[ \r]|$)/m
+      if (hunk.test(content)) {
+        // Keep patch marks for the preview, but not input-only line positions
+        // that would let Undo treat the agent's intention as an applied edit.
+        let inHunk = false
+        diff = (content.match(/[^\n]*\n|[^\n]+$/g) ?? []).filter(line => {
+          if (hunk.test(line)) { inHunk = true; return false }
+          if (line.startsWith('diff ')) inHunk = false
+          return inHunk && /^[ +\-]/.test(line)
+        }).join('')
+      } else diff = marked('+', content)
+    }
   }
   return diff === undefined ? undefined : [{ path: resolve(cwd, path), kind: { type: 'update' }, diff }]
 }

@@ -158,6 +158,9 @@ for (const [input, after] of [
   [{ content: '' }, ''],
   [{ old_string: '', new_string: 'written\n' }, 'written\n'],
   [{ old_string: 'a - b', new_string: 'a + b' }, 'return a + b\n'],
+  [{ diff: '--- a/app.js\n+++ b/app.js\n@@ -1 +1 @@\n-return a - b\n+return a + b\n' }, 'return a + b\n'],
+  [{ patch: '--- a/app.js\n+++ b/app.js\n@@ -1 +1 @@\n-return a - b\n+return a + b\n' }, 'return a + b\n'],
+  [{ content: '--- a/app.js\n+++ b/app.js\n@@ -1 +1 @@\n-return a - b\n+return a + b\n' }, 'return a + b\n'],
 ] as const) {
   test(`input-only ${JSON.stringify(input)} preserves content without inventing an undo patch`, async t => {
     const { items } = await run(t, [start({ rawInput: { file_path: 'app.js', ...input } }), finish()])
