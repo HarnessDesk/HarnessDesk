@@ -38,6 +38,7 @@ import { captureForRoot } from '../lib/provenance'
 import { teamSeats, hasConversation } from '../lib/team-seats'
 import { goalRunOf } from '../lib/goal-run'
 import { goalName } from '../lib/goals'
+import { selectedProjectRowIndex } from '../lib/sidebar-project-selection'
 import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
 import { panes } from '../state/layout'
 
@@ -1397,10 +1398,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
       }
       return b.updatedAt - a.updatedAt
     })
-    const selectedIndex = allRows.findIndex(
-      (row) => row.kind === 'room' ? row.room.id === activeTeam?.id || panes(snapshot.layout.root).some(pane => pane.view.kind === 'room' && pane.view.room === row.room.id)
-        : String(sessionKey(row.summary.runtime, row.summary.id)) === activeKey,
-    )
+    const selectedIndex = selectedProjectRowIndex(allRows, activeKey, activeTeam?.id ?? null, snapshot.layout.root)
     const expanded = expandedProjects.has(group.root)
     const rows = expanded ? allRows : allRows.slice(0, COLLAPSED_LIMIT)
     if (!expanded && selectedIndex >= COLLAPSED_LIMIT) rows[COLLAPSED_LIMIT - 1] = allRows[selectedIndex]!

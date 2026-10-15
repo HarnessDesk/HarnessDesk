@@ -2538,3 +2538,37 @@ it('replaces only the fifth slot when the selected conversation changes outside 
     expect(rows[3]!.textContent).toContain('select-calm-3')
   }
 })
+
+for (const owned of [false, true]) it(`keeps the focused docked conversation${owned ? "'s Team" : ''} in the fifth slot ahead of the main Team`, () => {
+  const sessions = Array.from({ length: 8 }, (_, index) => summary({ id: `docked-${index}`, updatedAt: 20 - index }))
+  const active = sessions[7]!
+  const key = sessionKey(active.runtime, active.id)
+  const main = room({ id: 'main-team', name: 'Main Team', updatedAt: 30 })
+  const owner = room({ id: 'owner-team', name: 'Docked Team', updatedAt: 1, members: [String(key)] })
+  const view = treeWith(owned ? [main, owner] : [main], sessions)
+  view.update({ activeSessionKey: key, layout: {
+    root: { kind: 'pane', id: 'main', view: { kind: 'room', room: main.id } }, focused: 'main', expanded: null,
+  } })
+  const rows = () => [...view.container.querySelectorAll('[data-project-root="/repo"] [data-virtual-index]')]
+  expect(rows()).toHaveLength(5)
+  expect(rows()[4]!.textContent).toContain(owned ? 'Docked Team' : active.id)
+  expect(rows()[0]!.textContent).toContain('Main Team')
+  const toggle = (label: string) => [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === label)!
+  act(() => toggle('Show more').click())
+  expect(rows()).toHaveLength(9)
+  act(() => toggle('Show less').click())
+  expect(rows()).toHaveLength(5)
+  expect(rows()[4]!.textContent).toContain(owned ? 'Docked Team' : active.id)
+})
+
+it('keeps the main Team in the fifth slot when no conversation is active', () => {
+  const sessions = Array.from({ length: 8 }, (_, index) => summary({ id: `main-${index}`, updatedAt: 20 - index }))
+  const main = room({ id: 'main-team', name: 'Main Team', updatedAt: 1 })
+  const view = treeWith([main], sessions)
+  view.update({ layout: {
+    root: { kind: 'pane', id: 'main', view: { kind: 'room', room: main.id } }, focused: 'main', expanded: null,
+  } })
+  const rows = view.container.querySelectorAll('[data-project-root="/repo"] [data-virtual-index]')
+  expect(rows).toHaveLength(5)
+  expect(rows[4]!.textContent).toContain('Main Team')
+})
