@@ -89,7 +89,7 @@ for (const scene of ['person-merged', 'stopped'] as const) it(`keeps the ${scene
   const { store } = await mount(scene)
   const request = vi.spyOn(store.transport, 'request')
   const decision = box.querySelector('[data-slot="comparison-decision"]')!
-  expect(decision.textContent).toContain('The judge picked A')
+  expect(decision.textContent).toContain(scene === 'person-merged' ? 'You picked A' : 'The judge picked A')
   expect([...decision.querySelectorAll('button')].map(one => one.textContent?.trim())).toEqual(['Compare changes'])
   const bars = [...box.querySelectorAll('[data-slot="side-by-side-tile"] header')]
   expect(bars[0]?.textContent).toContain('Picked')
