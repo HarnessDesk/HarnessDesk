@@ -1251,6 +1251,11 @@ dismissal, mute and a mark. `Notice` owns the card; `NoticeStatus` owns quiet
 status; `NoticeList` and `NoticeRow` own a compact panel and its rows.
 Existing Banner and message-host APIs remain compatible while screens migrate.
 
+The standing goal above a conversation's composer follows the same single-line
+centre: its goal glyph, objective, budget, status chip and clear control are
+centred in the bar. Flex alignment owns that centre, including the icon
+wrapper; text roles keep their own token line heights without offsets.
+
 | Part | Contract |
 | --- | --- |
 | Tile | `IconTile`, 24px, `--hd-radius-md`; tone glyph or the supplied mark. |
