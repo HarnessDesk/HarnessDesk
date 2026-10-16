@@ -220,6 +220,12 @@ const libraryIntentValidator: Validator<LibraryIntent> = taggedUnion('kind', {
     sourcePath: isString,
     targetRuntime: isRuntimeId,
   }) as Validator<LibraryIntent>,
+  updateSkill: shape({
+    kind: literalUnion('updateSkill'),
+    name: atMost(200),
+    targetRuntime: isRuntimeId,
+    origin: libraryOriginValidator,
+  }) as Validator<LibraryIntent>,
   authorSkill: shape({
     kind: literalUnion('authorSkill'),
     name: isString,
@@ -260,14 +266,21 @@ const nullableString: Validator<string | null> = (value, path = '') =>
   value === null ? null : isString(value, path)
 
 const libraryFileList: Validator<NonNullable<LibraryPlannedOp['files']>> = (value, path = '') => {
-  if (!Array.isArray(value) || value.length > 200) throw new ValidationError(path, 'expected at most 200 files')
+  // An update can drop an old 200-file bundle while adding its replacement.
+  if (!Array.isArray(value) || value.length > 400) throw new ValidationError(path, 'expected at most 400 file changes')
+  if (value.length > 200 && value.some(file => file?.change === undefined)) throw new ValidationError(path, 'expected at most 200 files')
   return arrayOf(shape({
     path: atMost(4096),
     bytes: nonNegativeSafeInteger,
     runnable: isBoolean,
     binary: isBoolean,
+    change: (value, path) => value === undefined ? undefined : literalUnion('added', 'changed', 'removed')(value, path),
     reason: (value, path) => value === null ? null : atMost(256)(value, path),
-  }))(value, path)
+  }))(value, path).map(file => {
+    if (file.change !== undefined) return file
+    const { change: _change, ...incoming } = file
+    return incoming
+  })
 }
 
 const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
@@ -280,6 +293,7 @@ const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
   preview: optional(isString),
   extraFiles: optional(arrayOf(isString)),
   files: (value, path) => value === undefined ? undefined : libraryFileList(value, path),
+  replaceBundle: optional(isBoolean),
   acknowledged: (value, path) => value === undefined ? undefined : isBoolean(value, path),
   reason: optional(isString),
   content: optional(isString),
@@ -1015,6 +1029,13 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/skills': shape({ runtime: isString, cwd: optional(isString) }),
   'runtime/skills/setEnabled': shape({ runtime: isString, name: isString, path: optional(isString), enabled: isBoolean }),
   'runtime/hooks': shape({ runtime: isString, cwd: optional(isString) }),
+  'library/sources/check': shape({
+    names: (value, path = '') => {
+      if (value === undefined) return undefined
+      if (!Array.isArray(value) || value.length > 200) throw new ValidationError(path, 'expected at most 200 names')
+      return arrayOf(atMost(200))(value, path)
+    },
+  }),
   'library/source/file': shape({ sourcePath: atMost(4096), path: atMost(4096) }),
   'library/source/fetch': shape({
     url: isString,

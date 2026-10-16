@@ -63,3 +63,21 @@ test('library/source/file validates bounded source and relative path strings', (
     assert.throws(() => read(bad), ValidationError)
   }
 })
+
+test('library/sources/check bounds names and update intents and per-file changes survive the wire', () => {
+  const check = (params: unknown) => parseClientMessage({ id: 1, method: 'library/sources/check', params })
+  assert.equal((check({}).params as HostParams<'library/sources/check'>).names, undefined)
+  assert.deepEqual(check({ names: ['demo'] }).params, { names: ['demo'] })
+  assert.doesNotThrow(() => check({ names: Array(200).fill('demo') }))
+  for (const params of [{ names: null }, { names: 'demo' }, { names: [1] }, { names: ['x'.repeat(201)] }, { names: Array(201).fill('demo') }]) assert.throws(() => check(params), ValidationError)
+  const origin = { url: 'https://github.com/acme-dev/skills', ref: 'main', commit: 'a'.repeat(40), path: 'demo', bundle: 'b'.repeat(64) }
+  const intent = { kind: 'updateSkill', name: 'demo', targetRuntime: 'codex', origin }
+  assert.deepEqual((parseClientMessage({ id: 2, method: 'library/plan', params: { intents: [intent] } }).params as HostParams<'library/plan'>).intents, [intent])
+  assert.throws(() => parseClientMessage({ id: 2, method: 'library/plan', params: { intents: [{ ...intent, origin: undefined }] } }), ValidationError)
+  const op = { id: 'op-1', kind: 'skill', name: 'demo', action: 'update', targetPath: '/work/.codex/skills/demo', guardDigest: null, backup: false, replaceBundle: true, files: [{ path: 'old.md', bytes: 3, runnable: false, binary: false, reason: null, change: 'removed' }] }
+  assert.deepEqual(JSON.parse(JSON.stringify((parseClientMessage({ id: 3, method: 'library/apply', params: { ops: [op] } }).params as HostParams<'library/apply'>).ops[0])), op)
+  assert.doesNotThrow(() => parseClientMessage({ id: 3, method: 'library/apply', params: { ops: [{ ...op, files: Array(400).fill(op.files[0]) }] } }))
+  assert.throws(() => parseClientMessage({ id: 3, method: 'library/apply', params: { ops: [{ ...op, files: Array(401).fill(op.files[0]) }] } }), ValidationError)
+  assert.throws(() => parseClientMessage({ id: 3, method: 'library/apply', params: { ops: [{ ...op, files: [{ ...op.files[0], change: 'other' }] }] } }), ValidationError)
+  assert.throws(() => parseClientMessage({ id: 3, method: 'library/apply', params: { ops: [{ ...op, files: Array(201).fill({ ...op.files[0], change: null }) }] } }), ValidationError)
+})

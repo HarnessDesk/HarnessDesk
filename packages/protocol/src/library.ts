@@ -212,6 +212,8 @@ export interface LibraryEntry {
    * server, whose per-turn price is its tool schemas and not measurable here.
    */
   readonly catalogTokens?: number | null
+  /** Last explicit source checks in this host, one per installed runtime copy. */
+  readonly update?: readonly LibrarySkillUpdate[]
 }
 
 /** A directory the library looked in, and what it is to the runtime that owns it. */
@@ -353,6 +355,16 @@ export interface LibrarySkillOrigin {
   readonly path: string
 }
 
+/** An explicit check of an installed skill's pinned source ref. */
+export interface LibrarySkillUpdate {
+  readonly name: string
+  readonly runtime: RuntimeId
+  readonly origin: LibrarySkillOrigin
+  readonly latest: string | null
+  readonly status: 'current' | 'behind' | 'unreachable' | 'gone'
+  readonly reason: string | null
+}
+
 export interface LibrarySourceResult extends LibrarySkillOrigin {
   readonly repo: string
   readonly skills: readonly {
@@ -378,6 +390,13 @@ export type LibraryIntent =
       /** The copy to install from — a bundle directory or a flat `.md` file. */
       readonly sourcePath: string
       readonly targetRuntime: RuntimeId
+    }
+  /** Review a freshly fetched revision of an installed repository skill. */
+  | {
+      readonly kind: 'updateSkill'
+      readonly name: string
+      readonly targetRuntime: RuntimeId
+      readonly origin: LibrarySkillOrigin & { readonly bundle: string }
     }
   /** A skill written in the app: full `SKILL.md` text, straight to agents. */
   | {
@@ -445,14 +464,17 @@ export interface LibraryPlannedOp {
   readonly preview?: string
   /** Bundle files beyond `SKILL.md` carried along, relative to the bundle. */
   readonly extraFiles?: readonly string[]
-  /** Every incoming file, with the byte count and what can run or is binary. */
+  /** Incoming files, or added/changed/removed files for a repository update. */
   readonly files?: readonly {
     readonly path: string
     readonly bytes: number
     readonly runnable: boolean
     readonly binary: boolean
     readonly reason: string | null
+    readonly change?: 'added' | 'changed' | 'removed'
   }[]
+  /** A repository update writes the whole reviewed bundle, dropping removed files. */
+  readonly replaceBundle?: boolean
   readonly acknowledged?: boolean
   /** Why a `skip` or `refuse` will not run; advisory notes on runnable ops. */
   readonly reason?: string
