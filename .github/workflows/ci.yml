@@ -1,23 +1,20 @@
 name: CI
 
-# Branches are covered by `pull_request`. Listing them under `push` as well
-# ran the whole macOS job twice for one change — once for the push and once
-# for the pull request — and on a private repository macOS minutes bill at ten
-# times the standard rate, so the duplicate was the larger half of the bill.
-# A branch with no pull request open now gets no run, which is the trade and
-# the usual one: nothing here reaches main except through a pull request.
+# Feature branches are covered by pull_request without duplicating push runs.
+# Development gets core checks on every push; its release PR and main run full CI.
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
     # Not on labels: `full-ci` starts its own full run (full-ci-label.yml).
     types: [opened, synchronize, reopened]
   # Runs started by hand always prove the full suite.
   workflow_dispatch:
 
-# A superseded run has nothing to tell us; cancel it rather than queue behind it.
+# Supersede runs of the same event and ref. A development core push must not
+# cancel the nightly full dispatch on that branch.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   # A pull request's newer push supersedes its older run. Main never cancels:
   # on a busy main every push cancelled the run before it, so for over an hour
   # no combined state of main was checked in full, and "main is green" could
@@ -67,6 +64,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           UI_IMPACT_MAP: ui-impact-map.json
           CI_HEAD_BRANCH: ${{ github.head_ref }}
+          CI_REF_NAME: ${{ github.ref_name }}
           CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           list="$RUNNER_TEMP/ci-changed-paths"

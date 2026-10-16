@@ -135,8 +135,10 @@ const oneLine = text => String(text).replace(/[\u0000-\u001f\u007f]+/g, ' ')
 // mandatory even if they alone exceed the time budget; they still use four runners.
 export const PR_MAX_SHARDS = 4
 export const PR_SHARD_SECONDS = 1000
-export const ciTier = ({ event, headBranch = '', labels = [] }) =>
-  event !== 'pull_request' || headBranch.startsWith('batch/') || labels.includes('full-ci') ? 'full' : 'bounded'
+export const ciTier = ({ event, headBranch = '', refName = '', labels = [] }) => {
+  if (event === 'push' && refName === 'development') return 'bounded'
+  return event !== 'pull_request' || headBranch === 'development' || headBranch.startsWith('batch/') || labels.includes('full-ci') ? 'full' : 'bounded'
+}
 
 function boundedSpecs(root, candidates, inputs, impact) {
   const all = new Set(specFiles(root).map(spec => `e2e/ui-system/${spec}`))
@@ -205,8 +207,8 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, tier =
 
 // CI's merge commit names its base as HEAD^1. A local caller can name its merge
 // base instead, so theme and impact-map freshness answer for the same change.
-export function planChange(root, { event, paths, headBranch = '', labels = [], map = null, baseRevision = 'HEAD^1' }) {
-  const tier = ciTier({ event, headBranch, labels })
+export function planChange(root, { event, paths, headBranch = '', refName = '', labels = [], map = null, baseRevision = 'HEAD^1' }) {
+  const tier = ciTier({ event, headBranch, refName, labels })
   const inputs = uiPackages(root)
   const specs = serverSpecs(root, inputs)
   let decision = { browser: 'all', native: true }
@@ -254,7 +256,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const mapFile = process.env.UI_IMPACT_MAP
   const plan = planChange(root, {
     event: process.env.GITHUB_EVENT_NAME, paths,
-    headBranch: process.env.CI_HEAD_BRANCH ?? '', labels: JSON.parse(process.env.CI_LABELS || '[]'),
+    headBranch: process.env.CI_HEAD_BRANCH ?? '', refName: process.env.CI_REF_NAME ?? '', labels: JSON.parse(process.env.CI_LABELS || '[]'),
     map: mapFile ? readMap(mapFile) : null,
   })
   // CI alone defers integration to the full tier. check-push imports planChange

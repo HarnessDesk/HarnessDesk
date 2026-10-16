@@ -121,6 +121,7 @@ const checksGreen = () => REQUIRED_CHECKS.map((name, index) => good(name, { id: 
 const harness = ({
   checks = [...checksGreen(), good('CI tier: full', { id: 40 }), good('UI integration inputs', { id: 39 })],
   heads = ['head-sha', 'head-sha', 'head-sha'],
+  headBranches = ['feature/topic', 'feature/topic', 'feature/topic'],
   baseTips = ['base-sha', 'base-sha'],
   prStates = ['OPEN', 'OPEN', 'MERGED'],
   drafts = [false, false, false],
@@ -138,7 +139,7 @@ const harness = ({
       const state = prStates[Math.min(prViews, prStates.length - 1)]
       const isDraft = drafts[Math.min(prViews, drafts.length - 1)]
       prViews += 1
-      return JSON.stringify({ headRefOid, baseRefName: 'main', state, isDraft, mergeCommit: { oid: mergeCommit } })
+      return JSON.stringify({ headRefOid, headRefName: headBranches[Math.min(prViews - 1, headBranches.length - 1)], baseRefName: 'main', state, isDraft, mergeCommit: { oid: mergeCommit } })
     }
     if (args[0] === 'api' && args[1].includes('/branches/')) {
       const tip = baseTips[Math.min(baseReads, baseTips.length - 1)]
@@ -241,8 +242,8 @@ test('--any-head lands the current head and says it is unreviewed', async () => 
 
 test('the arguments: --head must be a full commit, --head and --any-head are opposites, one is required', () => {
   const full = 'b'.repeat(40)
-  assert.deepEqual(parseArgs(['7', '--head', full]), { pr: '7', repo: undefined, dryRun: false, head: full, anyHead: false })
-  assert.deepEqual(parseArgs(['7', '--any-head', '--dry-run']), { pr: '7', repo: undefined, dryRun: true, head: undefined, anyHead: true })
+  assert.deepEqual(parseArgs(['7', '--head', full]), { pr: '7', repo: undefined, dryRun: false, head: full, anyHead: false, method: 'squash' })
+  assert.deepEqual(parseArgs(['7', '--any-head', '--dry-run']), { pr: '7', repo: undefined, dryRun: true, head: undefined, anyHead: true, method: 'squash' })
   assert.throws(() => parseArgs(['7']), /name the reviewed head with --head/)
   assert.throws(() => parseArgs(['7', '--head', full, '--any-head']), /opposites/)
   assert.throws(() => parseArgs(['7', '--head', 'abc1234']), /Usage/)
@@ -468,3 +469,70 @@ for (const status of ['queued', 'in_progress', 'completed']) {
     assert.ok(!h.calls.some(args => args[0] === 'pr' && args[1] === 'merge'))
   })
 }
+
+test('landing defaults to squash and accepts an explicit squash method', async () => {
+  for (const method of [undefined, 'squash']) {
+    const h = harness()
+    assert.equal(await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha', method }, h.runner, h.io), 0)
+    const merge = h.calls.find(args => args[0] === 'pr' && args[1] === 'merge')
+    assert.ok(merge.includes('--squash'))
+    assert.ok(!merge.includes('--merge'))
+  }
+})
+
+test('a development release PR can preserve its commits with a merge commit', async () => {
+  const h = harness({ headBranches: ['development'] })
+  assert.equal(await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha', method: 'merge' }, h.runner, h.io), 0)
+  const merge = h.calls.find(args => args[0] === 'pr' && args[1] === 'merge')
+  assert.deepEqual(merge, ['pr', 'merge', '42', '--repo', 'owner/repo', '--merge', '--match-head-commit', 'head-sha'])
+  const view = h.calls.find(args => args[0] === 'pr' && args[1] === 'view')
+  assert.ok(view[view.indexOf('--json') + 1].split(',').includes('headRefName'))
+})
+
+for (const branch of ['feature/topic', 'batch/reviewed', 'development/topic', '', undefined]) {
+  test(`merge commits are refused outside the development head: ${branch}`, async () => {
+    const h = harness({ headBranches: [branch] })
+    assert.equal(await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha', method: 'merge' }, h.runner, h.io), 1)
+    assert.match(h.output().stderr, /--method merge.*development/)
+    assert.ok(!h.calls.some(args => args[0] === 'pr' && args[1] === 'merge'))
+  })
+}
+
+test('the CLI accepts only one squash or merge method', () => {
+  for (const method of ['squash', 'merge']) {
+    assert.equal(parseArgs(['42', '--head', CLI_HEAD, '--method', method]).method, method)
+  }
+  for (const args of [['--method'], ['--method', 'rebase'], ['--method', ''], ['--method', 'squash', '--method', 'merge']]) {
+    assert.throws(() => parseArgs(['42', '--head', CLI_HEAD, ...args]), /Usage/)
+  }
+})
+
+test('the function refuses invalid methods before reading or merging anything', async () => {
+  for (const method of ['rebase', '', null, true]) {
+    const h = harness()
+    assert.equal(await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha', method }, h.runner, h.io), 1)
+    assert.deepEqual(h.calls, [])
+    assert.match(h.output().stderr, /method must be squash or merge/)
+  }
+})
+
+for (const [name, options, expected] of [
+  ['reviewed head moved', { heads: ['other-sha'] }, 2],
+  ['checks pending', { checks: checksGreen().map(check => ({ ...check, status: 'in_progress' })) }, 2],
+  ['bounded tier', { checks: [...checksGreen(), good('CI tier: bounded'), good('UI integration inputs')] }, 2],
+  ['head moved during checks', { heads: ['head-sha', 'other-sha'] }, 3],
+  ['base moved during checks', { baseTips: ['base-sha', 'new-base-sha'] }, 3],
+  ['head branch changed during checks', { headBranches: ['development', 'feature/topic'] }, 3],
+]) {
+  test(`merge method retains landing guard: ${name}`, async () => {
+    const h = harness({ headBranches: ['development'], ...options })
+    assert.equal(await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha', method: 'merge' }, h.runner, h.io), expected)
+    assert.ok(!h.calls.some(args => args[0] === 'pr' && args[1] === 'merge'))
+  })
+}
+
+test('the merge method honors dry runs', async () => {
+  const h = harness({ headBranches: ['development'] })
+  assert.equal(await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha', method: 'merge', dryRun: true }, h.runner, h.io), 0)
+  assert.ok(!h.calls.some(args => args[0] === 'pr' && args[1] === 'merge'))
+})

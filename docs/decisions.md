@@ -3607,6 +3607,24 @@ with no colour file stays in ink. Codex's colour file loses its white app-icon
 square and Kimi's white K takes `currentColor`; tests require each fix to still
 find what it removes, so an upstream redraw fails a test instead of shipping.
 
+## Reviewed changes collect on development; every merge to main is a release — 2026-10-16
+
+CI and the account's job cap became the bottleneck: approved changes waited
+hours for a batch. From the next release, reviewed changes land offline on a
+long-lived `development` branch, one commit per change. Each push runs the core
+checks, without browser or native jobs. A nightly dispatch at 11:00 UTC runs
+full CI on development; failures are fixed the same day. Until the branch
+exists, that nightly workflow quietly does nothing.
+
+The release pull request from `development` into `main` always runs full CI.
+It lands with a merge commit, preserving each change's commit on main; the
+version bump happens on development before that PR. Every merge into main is
+a release. Core checks on every push, nightly full coverage and the release
+PR's full run keep the guardrails while removing per-change integration queues.
+Main pushes, batch heads, the full-ci label and manual dispatches remain full.
+`land-safe` defaults to squash and permits `--method merge` only for a
+`development` head, retaining its reviewed-head, full-tier and stable-base checks.
+
 
 ## Navigation and choices stay usable while runtime reads settle — 2026-10-16
 
