@@ -61,6 +61,30 @@ test('CI keeps the tier selection, label trigger and visible landing proof wired
   }
 })
 
+test('development core pushes cannot cancel full dispatches; same-event runs still supersede', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+  const concurrency = workflow.match(/^concurrency:\n([\s\S]*?)(?=^\S)/m)?.[1]
+  assert.ok(concurrency, 'workflow concurrency policy')
+  const template = concurrency.match(/^  group: (.+)$/m)?.[1]
+  assert.ok(template, 'workflow concurrency group')
+  const group = (event_name, ref, run_id = '1', sha = 'a'.repeat(40)) => {
+    const context = { workflow: 'CI', event_name, ref, run_id, sha }
+    const value = template.replace(/\$\{\{\s*github\.(\w+)\s*\}\}/g, (_, key) => {
+      assert.ok(Object.hasOwn(context, key), key)
+      return context[key]
+    })
+    assert.ok(!value.includes('${{'), 'every group expression was evaluated')
+    return value
+  }
+  const development = 'refs/heads/development'
+  assert.notEqual(group('push', development), group('workflow_dispatch', development), 'a core push must not supersede a nightly full run')
+  for (const [event, ref] of [['push', development], ['workflow_dispatch', development], ['pull_request', 'refs/pull/1/merge']]) {
+    assert.equal(group(event, ref), group(event, ref, '2', 'b'.repeat(40)), 'a newer run/commit of the same event/ref still supersedes')
+  }
+  assert.notEqual(group('pull_request', 'refs/pull/1/merge'), group('pull_request', 'refs/pull/2/merge'))
+  assert.ok(concurrency.includes("  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}"), 'main runs remain protected from cancellation')
+})
+
 test('nightly development dispatches full CI only when the branch exists', () => {
   const workflow = readFileSync(new URL('../.github/workflows/nightly-development.yml', import.meta.url), 'utf8')
   assert.match(workflow, /cron: ['"]0 11 \* \* \*['"]/)

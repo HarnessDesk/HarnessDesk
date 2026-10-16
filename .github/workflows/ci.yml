@@ -11,9 +11,10 @@ on:
   # Runs started by hand always prove the full suite.
   workflow_dispatch:
 
-# A superseded run has nothing to tell us; cancel it rather than queue behind it.
+# Supersede runs of the same event and ref. A development core push must not
+# cancel the nightly full dispatch on that branch.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   # A pull request's newer push supersedes its older run. Main never cancels:
   # on a busy main every push cancelled the run before it, so for over an hour
   # no combined state of main was checked in full, and "main is green" could
