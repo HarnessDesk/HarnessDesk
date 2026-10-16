@@ -126,7 +126,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'menus', title: 'Menus and cards', scenes: [
       { id: 'menu-model', title: 'Model picker', query: 'frame-wall=conversation', steps: [{ click: 'button[title="Model and reasoning"]' }] },
-      { id: 'menu-permissions', title: 'Permissions', query: 'frame-wall=conversation', steps: [{ click: 'button[title="Permissions — what the agent may do"]' }] },
+      { id: 'menu-permissions', title: 'Permissions', query: 'frame-wall=conversation', steps: [{ click: 'button[title="Permissions — what the runtime may do"]' }] },
       { id: 'menu-icons', title: 'Menu with icons', query: 'frame-wall=conversation&popup=menu-icons', steps: [open('Frame menu')] },
       { id: 'menu-disabled', title: 'Refused rows', query: 'frame-wall=conversation&popup=disabled-rows', steps: [open('Frame disabled menu')] },
       { id: 'menu-wide', title: 'Wide menu', query: 'frame-wall=conversation&popup=wide', steps: [open('Frame wide menu')] },
