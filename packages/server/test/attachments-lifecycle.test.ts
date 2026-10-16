@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AttachmentReview, FlowPreview, Session } from '@harnessdesk/protocol'
+import type { AttachmentReview, ConversationLoadouts, FlowPreview, Session } from '@harnessdesk/protocol'
 
 import { attachmentGateway } from '../src/attachments/wiring.js'
 import { ToolGateway } from '../src/tool-gateway.js'
@@ -503,4 +503,22 @@ test('a conversation seated as an Agent whose file is gone, with no record of it
   )
   assert.doesNotMatch(read, /can no longer be read/)
   assert.ok(read === String(session.id) || /has no record of conversation/.test(read), read)
+})
+
+test('a kept Seat records its conversation loadout with the Seat id, even without a reporting method', async t => {
+  const desk = await deskWithMergeAgent(t)
+  await reviewAndApprove(desk)
+  const session = await desk.client.call('agent/seat', { id: 'reviewer', cwd: desk.work, project: desk.work, permission: 'merge' }) as Session
+  const seat = desk.harness.host.registry.attachmentSeatOf(session.runtime, session.id)
+  assert.ok(seat)
+  let loadout!: ConversationLoadouts
+  const deadline = Date.now() + 5000
+  do {
+    loadout = await desk.client.call('session/loadout', { runtime: session.runtime, session: session.id }) as ConversationLoadouts
+    if (loadout.epochs.length) break
+    await new Promise(resolve => setTimeout(resolve, 10))
+  } while (Date.now() < deadline)
+  assert.equal(loadout.epochs.length, 1)
+  assert.equal(loadout.epochs[0]!.seat, seat)
+  assert.deepEqual(loadout.epochs[0]!.skills, { reported: false, reason: 'This agent does not report its skills.' })
 })

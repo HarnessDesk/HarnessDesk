@@ -41,3 +41,17 @@ test('library reads are on the read tier while plan and apply stay off the clien
     assert.equal(Object.hasOwn(CLIENT_METHODS, method), false, method)
   }
 })
+
+test('session loadout is a read with a required session and optional runtime', () => {
+  assert.equal(clientTierFor('session/loadout'), 'read')
+  assert.doesNotThrow(() => request('session/loadout', { session: 'demo' }))
+  assert.doesNotThrow(() => request('session/loadout', { session: 'demo', runtime: 'fake' }))
+  for (const params of [{}, { session: 1 }, { session: 'demo', runtime: false }]) {
+    assert.throws(() => request('session/loadout', params), ValidationError)
+  }
+})
+
+test('historical Seat evidence is available at the client read tier', () => {
+  assert.equal(clientTierFor('evidence/seat'), 'read')
+  assert.doesNotThrow(() => request('evidence/seat', { runtime: 'fake', sessionId: 'demo' }))
+})

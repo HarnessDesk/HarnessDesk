@@ -4634,3 +4634,8 @@ test('Phase E has retired destination windows, heads and title rules', () => {
     assert.deepEqual(pageLayoutFindings(family), [], family)
   }
 })
+
+test('the loadout brief home is a placeholder while undeclared home names remain refused', () => {
+  assert.deepEqual(offendersIn('loadout-fixture.ts', "const cwd = '/home/jane/project'"), [])
+  assert.equal(offendersIn('loadout-fixture.ts', "const cwd = '/home/private-person/project'").length, 1) // hd-secrets-ok
+})

@@ -1,3 +1,4 @@
+import type { ConversationLoadouts, ConversationLoadout } from '@harnessdesk/protocol'
 import { connect, WireCallError, type Client, type ClientEvent, type ClientTransport } from '@harnessdesk/client'
 import { teamOverviewOf, runTimelineOf } from '@harnessdesk/client/views'
 import { readTextFile, repositoryRoot, readConfirmation, canonicalProject, findDesks, localTransport, resolveDesk, type DeskPointer } from '@harnessdesk/client/node'
@@ -31,6 +32,8 @@ interface Arguments {
   outcome?: string
   contextFile?: string
   watch?: boolean
+  runtime?: string
+  epochs?: boolean
 }
 interface Command {
   readonly name: string
@@ -176,6 +179,19 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'session show', tier: 'read', methods: ['session/loadout', 'evidence/seat', 'flow/executions', 'flow/execution'], flags: ['target', 'runtime', 'epochs', 'all'], execute: showSession,
+    usage: 'session show <session> [--runtime NAME] [--epochs] [--all]',
+    description: "Shows the skills, servers, memory files and agents this conversation's agent reported. Sizes appear only where the agent supplied them. Reads the desk's recorded observation without starting an agent. A missing report is distinct from an agent reporting an empty list.",
+    arguments: [{ name: 'session', description: 'The conversation id whose recorded loadout to read.' }],
+    options: [
+      { flag: '--runtime', value: 'NAME', description: 'The runtime id from the desk roster; required when more than one runtime holds this conversation id.' },
+      { flag: '--epochs', description: 'List every retained epoch, its observation time and which parts changed since the previous retained epoch.' },
+      { flag: '--all', description: 'Print every retained item in each part instead of the first twenty. Items beyond the recording cap remain counted as more.' },
+    ],
+    json: 'A single object, `{ "session", "runtime", "seat", "epochs": [...] }`. Each version-1 epoch includes its build, observation time, source, approximation flag and skills, mcp, memory and agents parts. All retained epochs and items are returned regardless of --epochs or --all.',
+    exits: { 0: 'Done; a known conversation without a loadout says not recorded.', 1: 'No conversation with that id is recorded (`notFound`).', 2: 'More than one runtime holds that id; choose --runtime (`ambiguous`).' },
+  },
+  {
     name: 'run show', tier: 'read', methods: ['flow/execution', 'client/subscribe', 'evidence/board', 'finding/list', 'finding/run'], flags: ['target'], execute: showRun,
     usage: 'run show <run>',
     description: 'Shows the shared Run timeline: its header, brief, rounds, cards, check results, findings and ending. It keeps attendance and seat overrides. Round lines show answered counts; review rows show recorded publication state. JSON keeps the execution unchanged.',
@@ -295,14 +311,14 @@ export const COMMANDS = [
 
 class UsageError extends Error {}
 /** The second line of every usage message: the command line's own, and the same each time. */
-const USAGE_LINE = 'harnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|run show|run stop|run wait|library list|library show|card show|card handoff|card answer|card abandon|waiting> [--home DIR] [--json] [--trace-wire]'
+const USAGE_LINE = 'harnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|session show|run show|run stop|run wait|library list|library show|card show|card handoff|card answer|card abandon|waiting> [--home DIR] [--json] [--trace-wire]'
 // The reason is one line, whatever it was made of: it can carry a name the person typed, or one a flow file declared.
 function usage(reason: string): never { throw new UsageError(`Usage: ${sanitizeHuman(reason)}`) }
 /** The flags every command takes, as the keys the parser stores them under. */
 export const GLOBAL_FLAG_KEYS: readonly string[] = ['home', 'json', 'traceWire']
-const switches = new Set(['json', 'all', 'raw', 'traceWire', 'unattended', 'yes', 'watch', 'issues', 'text'])
+const switches = new Set(['json', 'all', 'raw', 'traceWire', 'unattended', 'yes', 'watch', 'issues', 'text', 'epochs'])
 /** Every flag's spelling, and the key the parser stores it under. */
-export const FLAG_KEYS: Readonly<Record<string, keyof Arguments>> = { '--home': 'home', '--json': 'json', '--trace-wire': 'traceWire', '--project': 'project', '--kind': 'kind', '--issues': 'issues', '--text': 'text', '--team': 'team', '--run': 'run', '--all': 'all', '--raw': 'raw', '--until': 'until', '--title': 'title', '--brief-file': 'briefFile', '--input': 'input', '--seat': 'seat', '--unattended': 'unattended', '--yes': 'yes', '--timeout': 'timeout', '--reason': 'reason', '--context-file': 'contextFile', '--watch': 'watch' }
+export const FLAG_KEYS: Readonly<Record<string, keyof Arguments>> = { '--runtime': 'runtime', '--epochs': 'epochs', '--home': 'home', '--json': 'json', '--trace-wire': 'traceWire', '--project': 'project', '--kind': 'kind', '--issues': 'issues', '--text': 'text', '--team': 'team', '--run': 'run', '--all': 'all', '--raw': 'raw', '--until': 'until', '--title': 'title', '--brief-file': 'briefFile', '--input': 'input', '--seat': 'seat', '--unattended': 'unattended', '--yes': 'yes', '--timeout': 'timeout', '--reason': 'reason', '--context-file': 'contextFile', '--watch': 'watch' }
 
 export function parseArgs(argv: readonly string[]): Arguments {
   const result: Record<string, string | boolean | string[]> = {}
@@ -310,8 +326,8 @@ export function parseArgs(argv: readonly string[]): Arguments {
     const arg = argv[i]!
     if (!arg.startsWith('-')) {
       if (!result['command']) result['command'] = arg
-      else if (result['command'] === 'flow' || result['command'] === 'run' || result['command'] === 'card' || result['command'] === 'library') result['command'] += ` ${arg}`
-      else if (['open', 'flow preview', 'flow start', 'run show', 'run wait', 'run stop', 'library show'].includes(String(result['command'])) && !result['target']) result['target'] = arg
+      else if (result['command'] === 'flow' || result['command'] === 'run' || result['command'] === 'card' || result['command'] === 'library' || result['command'] === 'session') result['command'] += ` ${arg}`
+      else if (['open', 'flow preview', 'flow start', 'session show', 'run show', 'run wait', 'run stop', 'library show'].includes(String(result['command'])) && !result['target']) result['target'] = arg
       else if (String(result['command']).startsWith('card ') && !result['team']) result['team'] = arg
       else if (String(result['command']).startsWith('card ') && !result['card']) result['card'] = arg
       else if (result['command'] === 'card answer' && !result['outcome']) result['outcome'] = arg
@@ -381,6 +397,7 @@ export function errorText(error: unknown): string {
 export function errorExit(error: unknown): number {
   if (error instanceof UsageError) return 2
   if (!(error instanceof WireCallError)) return 1
+  if (error.code === 'ambiguous') return 2
   if (error.code === 'noDesk') return 3
   if (['incompatible', 'deskTooOld'].includes(error.code)) return 6
   if (['unsafeDirectory', 'unsafeSocket', 'unsafePointer', 'tierNotGranted', 'notOnClientSurface', 'helloFirst', 'badRequest', 'refused', 'alreadyAnswered', 'cardMissing', 'clientDoorOnly'].includes(error.code)) return 4
@@ -814,6 +831,61 @@ async function startFlow(args: Arguments): Promise<number> {
     }
     const run = await client.call('flow/start-goal', { ...request, token: preview.token, sentence: args.title ?? preview.compiled.document.flow.name })
     output(args, { run: run.id, team: run.goal }, () => line([run.id, run.goal]))
+    return 0
+  } finally { client.close() }
+}
+
+const LOADOUT_PARTS = ['skills', 'mcp', 'memory', 'agents'] as const
+
+export function printLoadout(records: ConversationLoadouts, name: string, args: { all?: boolean; epochs?: boolean }, seat: { role: string | null; run: string | null } | null = null, stream: NodeJS.WritableStream = process.stdout): void {
+  const write = (parts: readonly (string | null | undefined)[]) => stream.write(parts.filter(part => part !== undefined && part !== null).map(part => sanitizeHuman(part!)).join('  ') + '\n')
+  const latest = records.epochs.at(-1)
+  write([name, records.session, records.seat ? `Seat ${records.seat}` : null, seat?.role ? `role ${seat.role}` : null, seat?.run ? `run ${seat.run}` : null])
+  if (!latest) { write(['not recorded']); return }
+  write([`epoch ${latest.epoch}`, new Date(latest.observedAt).toISOString()])
+  const tokens = (value: number): string => value >= 1000 ? `${(value / 1000).toFixed(1).replace(/\.0$/, '')}K` : String(value)
+  for (const name of LOADOUT_PARTS) {
+    const part = latest[name]
+    if (!part.reported) { write([name, `not reported — ${part.reason}`]); continue }
+    const sizes = part.items.flatMap(item => item.tokens === null ? [] : [item.tokens])
+    const size = sizes.length ? `${latest.approximate ? '~' : ''}${tokens(sizes.reduce((sum, one) => sum + one, 0))} tokens${sizes.length < part.items.length || part.more > 0 ? ' reported' : ''}` : null
+    write([name, `${part.items.length + part.more} reported${size ? ` · ${size}` : ''}`])
+    const shown = args.all ? part.items : part.items.slice(0, 20)
+    for (const item of shown) write([`  ${item.name}`, item.origin, item.digest?.slice(0, 8) ?? 'no digest',
+      item.tokens === null ? null : `${latest.approximate ? '~' : ''}${tokens(item.tokens)} tokens`, item.pathLabel,
+      item.count === null ? null : `${item.count} tools`])
+    const more = part.items.length - shown.length + part.more
+    if (more) write([`  and ${more} more`])
+  }
+  if (args.epochs) {
+    let previous: ConversationLoadout | undefined
+    for (const epoch of records.epochs) {
+      const changed = previous ? LOADOUT_PARTS.filter(part => JSON.stringify(previous![part]) !== JSON.stringify(epoch[part])).join(', ') || 'unchanged' : 'initial'
+      write([`epoch ${epoch.epoch}`, new Date(epoch.observedAt).toISOString(), changed])
+      previous = epoch
+    }
+  }
+}
+
+async function showSession(args: Arguments): Promise<number> {
+  const client = await open(args)
+  try {
+    const records = await client.call('session/loadout', { session: args.target!, ...(args.runtime ? { runtime: args.runtime as HostParams<'session/loadout'>['runtime'] } : {}) })
+    if (args.json) { jsonLine(records); return 0 }
+    let seat: { role: string | null; run: string | null } | null = null
+    if (records.seat) {
+      const recorded = await client.call('evidence/seat', { runtime: records.runtime, sessionId: records.session })
+      if (recorded?.id === records.seat) {
+        seat = { role: recorded.role, run: null }
+        if (recorded.board) {
+          for (const summary of await client.call('flow/executions', { team: recorded.board, active: false })) {
+            const run = await client.call('flow/execution', { run: summary.id })
+            if (run.operations.some(operation => operation.kind === 'seat' && operation.seat === records.seat)) { seat.run = run.id; break }
+          }
+        }
+      }
+    }
+    printLoadout(records, client.hello.runtimes.find(runtime => runtime.id === records.runtime)?.name ?? 'Unknown agent', args, seat)
     return 0
   } finally { client.close() }
 }
