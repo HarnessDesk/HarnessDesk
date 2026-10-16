@@ -1453,7 +1453,7 @@ const BrowserPaneContent = () => {
                     )}
                     <Button
                       type="button"
-                      variant="reveal" size="icon-sm" edge="end" edgeGlyph={11}
+                      variant="reveal" size="icon-sm"
                       onClick={(event) => {
                         event.stopPropagation()
                         store.closeBrowserTab(paneId, entry.id)
