@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   Button, Card, Chip, DisclosureChevron, EmptyState, Section, SectionBody,
-  IconTile, MiddleTruncate, ListRow, ListRows, PaneColumn, Table, TableBody, TableCell,
+  IconTile, MiddleTruncate, ListRow, ListRows, Page, Table, TableBody, TableCell,
   TableHead, TableHeader, TableRow, Text,
 } from '../design'
 import { useNarrowLayout } from '../lib/use-narrow-layout'
@@ -116,7 +116,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const reasonInWait = findingsWait || (publicationWait && reason === publicationReason)
   return (
     <div data-slot="team-overview" data-layout={narrow === null ? 'unmeasured' : narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
-      <PaneColumn inset="reading" className="flex flex-col gap-4">
+      <Page width="wide">
         {onWrap && <div data-slot="overview-header" className="flex justify-end"><Button variant="outline" onClick={onWrap}>Wrap</Button></div>}
         {run && (
           <Card spacing="compact">
@@ -210,7 +210,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
             </Table>
           )}
         </Section>
-      </PaneColumn>
+      </Page>
     </div>
   )
 }

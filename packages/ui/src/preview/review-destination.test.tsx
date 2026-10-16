@@ -51,8 +51,9 @@ it('working, staged and filtered reviews retain their exact file counts and path
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, '')
     field.dispatchEvent(new Event('input', {bubbles:true}))
   })
-  await click('[title="Destination views"]')
-  await click('[data-team-page="staged"]')
+  await click('[title="Changes views"]')
+  const staged = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(node => node.textContent === 'Staged')!
+  await act(async () => staged.click())
   expect(container.textContent).toContain('1 file · +1 −0')
   expect(container.querySelector('[data-review-file="ready.txt"]')).not.toBeNull()
   expect(container.querySelector('[data-review-file="src/a.ts"]')).toBeNull()

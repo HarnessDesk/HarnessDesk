@@ -708,7 +708,7 @@ it('a confirmed removal invalidates a cold hidden subject without relabelling it
     right: { views: [{ id: 'cold-file', view: file }], active: 'cold-file', size: 400 },
     toolOwners: { 'cold-file': owner },
     frameSubjects: { [owner]: { paneId: 'cold-main', view: { kind: 'conversation', session: key } } },
-    frameTools: { [owner]: { tool: 'changes', mode: 'file', open: true } },
+    frameTools: { [owner]: { tool: 'files', mode: 'file', open: true } },
   } } }
   await store.loadPreferences()
   expect(store.getSnapshot().sessions.has(key)).toBe(false)
@@ -737,7 +737,7 @@ describe('explicit reveal of a cold restored resource owner', () => {
       right: { views: [{ id: 'cold-resource', view: { kind: 'file', path: '/repo/a.ts', runtime: AGENT } }], active: 'cold-resource', size: 400 },
       toolOwners: { 'cold-resource': owner },
       frameSubjects: { [owner]: { paneId: 'owner-pane', view: { kind: 'conversation', session: key } } },
-      frameTools: { [owner]: { tool: 'changes', mode: 'file', open: true } },
+      frameTools: { [owner]: { tool: 'files', mode: 'file', open: true } },
     } } }
     await store.loadPreferences()
     expect(store.getSnapshot().sessions.has(key)).toBe(false)
@@ -762,7 +762,7 @@ describe('explicit reveal of a cold restored resource owner', () => {
     expect(store.getSnapshot().activeSessionKey).toBe(key)
     expect(dockViews(store.getSnapshot().workbench.right)[0]).toEqual(file)
     expect(store.getSnapshot().workbench.focus).toBe(file.id)
-    expect(store.getSnapshot().workbench.frameTools[owner]).toEqual({ tool: 'changes', mode: 'file', open: true })
+    expect(store.getSnapshot().workbench.frameTools[owner]).toEqual({ tool: 'files', mode: 'file', open: true })
     store.revealView(file.id)
     expect(calls('session/read')).toHaveLength(1)
     expect(calls('session/resume')).toHaveLength(1)
@@ -839,7 +839,7 @@ it('a current manifest revision refuses the saved right plugin at admission, rev
 
 it.each(['settings','review'] as const)('restores per-project %s and history without changing remembered work or docks', async kind => {
   const seed = emptyWorkbench(), b = emptyWorkbench()
-  const a = { ...seed, frameTools:{[`draft:${seed.main.focused}`]:{tool:'changes' as const,mode:'file' as const,open:true}}, right:{...seed.right,root:{kind:'stack' as const,id:'fixture-right',active:'fixture-file',views:[{id:'fixture-file',view:{kind:'file' as const,path:'/repo/README.md',runtime:AGENT}}]}}, bottom: { ...seed.bottom, root: { kind: 'stack' as const, id: 'fixture-bottom',
+  const a = { ...seed, frameTools:{[`draft:${seed.main.focused}`]:{tool:'files' as const,mode:'file' as const,open:true}}, right:{...seed.right,root:{kind:'stack' as const,id:'fixture-right',active:'fixture-file',views:[{id:'fixture-file',view:{kind:'file' as const,path:'/repo/README.md',runtime:AGENT}}]}}, bottom: { ...seed.bottom, root: { kind: 'stack' as const, id: 'fixture-bottom',
     active: 'fixture-terminal', views: [{ id: 'fixture-terminal', view: { kind: 'terminal' as const,
       terminalId: 'fixture-pty', runtime: AGENT, cwd: REPO.path } }] } } }
   const aWork = navigationFor(a.main).current, bWork = navigationFor(b.main).current

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { selectTeamPage, teamBar } from './team-frame-actions'
+import { selectTeamPage } from './team-frame-actions'
 
 /**
  * The findings ledger, in the Goal Team page.
@@ -16,12 +16,13 @@ test('keyboard reaches the findings filters, a row’s detail, and back', async 
 
   const goal = page.locator('[data-frame-id="goal-roster"]')
   await selectTeamPage(goal, 'findings')
-  await teamBar(goal).getByRole('button', { name: 'View', exact: true }).click()
+  const view = goal.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'View', exact: true })
+  await view.click()
   const openFilter = page.getByRole('switch', { name: 'Open', exact: true })
   await openFilter.focus()
   await page.keyboard.press('Space')
-  await expect(teamBar(goal).locator('[data-topbar="view"] [data-filtered="true"]')).toBeVisible()
-  await teamBar(goal).getByRole('button', { name: 'View', exact: true }).click()
+  await expect(view).toBeVisible()
+  await view.click()
   await expect(openFilter).toHaveAttribute('aria-checked', 'true')
   await page.getByRole('switch', { name: 'All', exact: true }).click()
 

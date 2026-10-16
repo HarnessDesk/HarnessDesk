@@ -138,11 +138,11 @@ test('Settings group labels and destinations use the named frame type pairs', as
   await expect(label).toHaveCSS('font-weight','400')
 })
 
-test('a destination title computes the frame bar type', async ({ page }) => {
+test('a destination title computes the page type in the content column', async ({ page }) => {
   await page.goto('/preview.html?frame-wall=library')
   const settings = page.locator('[data-frame-id="frame-wall"]')
 
-  const title = settings.locator('[data-slot="top-bar"] [data-topbar-title] > [data-role="subject"]')
+  const title = settings.locator('[data-page-destination="library"]:visible h1[data-role="page"]')
   await expect(title).toBeVisible()
 
   const type = (node: Element) => {
@@ -155,7 +155,7 @@ test('a destination title computes the frame bar type', async ({ page }) => {
   }
   const expected = await title.evaluate((node) => {
     const probe = document.createElement('span')
-    probe.style.cssText = 'font-size:var(--hd-text-base);line-height:var(--hd-line);font-weight:var(--hd-weight-medium)'
+    probe.style.cssText = 'font-size:var(--hd-heading);line-height:var(--hd-line-heading);font-weight:var(--hd-weight-semibold)'
     node.parentElement!.append(probe)
     const style = getComputedStyle(probe)
     const result = { size: style.fontSize, line: style.lineHeight, weight: style.fontWeight }

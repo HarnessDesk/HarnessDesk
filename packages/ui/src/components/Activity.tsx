@@ -84,7 +84,7 @@ const describe = (row: AuditRow): string => {
   }
 }
 
-export const Activity = ({ query, onFoot, sessionKeys }: { query: string; onFoot: ReportFoot; sessionKeys?: readonly SessionKey[] }) => {
+export const Activity = ({ query, onFoot, sessionKeys, hideEmpty = false }: { query: string; onFoot: ReportFoot; sessionKeys?: readonly SessionKey[]; hideEmpty?: boolean }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [rows, setRows] = useState<readonly AuditRow[] | null>(null)
@@ -145,6 +145,7 @@ export const Activity = ({ query, onFoot, sessionKeys }: { query: string; onFoot
   }, [shown.length, sessions, snapshot.workspace?.name, onFoot])
 
   if (rows === null) return <PanelEmpty>Loading…</PanelEmpty>
+  if (hideEmpty && shown.length === 0) return null
   if (rows.length === 0) {
     return <PanelEmpty>Nothing recorded yet. Activity appears here as agents work.</PanelEmpty>
   }

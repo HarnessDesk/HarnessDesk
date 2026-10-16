@@ -1,7 +1,8 @@
+import { Toolbar } from '../design'
 import type { SettingsRoute, SettingsSection } from '../state/destinations'
 import { DestinationBar, useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { handOverToComposer } from '../lib/compose'
-import { Page, PageExplanation, PreservedText, PageControls } from '../design'
+import { Page, PageExplanation, PreservedText, PageControls, PageOptions } from '../design'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -1133,11 +1134,10 @@ const SkillPage = ({
 }) => {
   const runtime = useRuntime()
   const scope = skillScopeLabel(skill.scope)
-  const store=useStore()
   return (
     <>
-      <DestinationBar place={skillTitle(skill)} mark={<SkillMark skill={skill} tile="sm" glyphSize={16}/>}
-        parents={[{label:'Settings',run:()=>store.askSettings('general')},{label:listLabel,run:onBack}]}/>
+      <DestinationBar place={skillTitle(skill)} />
+      <Toolbar><Button variant="ghost" size="sm" onClick={onBack}>Back to {listLabel}</Button><SkillMark skill={skill} tile="sm" glyphSize={16}/></Toolbar>
       <PageExplanation>{`${runtime.presentation.name}${scope?` · ${scope}`:''}`}</PageExplanation>
       {skill.shortDescription && <PageExplanation>{skill.shortDescription}</PageExplanation>}
       <Rows><Row title={skillTitle(skill)} control={<><SkillToggle skill={skill}/><Button variant="outline" size="sm" onClick={() => { onUse(); void handOverToComposer({text:`@${skill.name} `}) }}>Use in composer</Button></>}/></Rows>
@@ -1165,7 +1165,6 @@ const SkillPage = ({
 }
 
 export const SkillsSection = ({name,onSkill,onUse}: {readonly name:string|null;readonly onSkill:(name:string|null)=>void;readonly onUse:()=>void}) => {
-  const store=useStore()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
   const [query, setQuery] = useState('')
@@ -1201,7 +1200,7 @@ export const SkillsSection = ({name,onSkill,onUse}: {readonly name:string|null;r
 
   return (
     <>
-      <DestinationBar place={label} parents={[{label:"Settings",run:()=>store.askSettings("general")}]}/>
+      <DestinationBar place={label} />
 <PageExplanation>{
           declared
             ? `What ${runtime.presentation.name} can be asked to run: its skills and its own commands.`
@@ -1699,7 +1698,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     : route.kind === 'account' ? { kind: 'account', runtime: route.runtime, key: route.key }
     : route.kind === 'add-runtime' ? { kind: 'add' } : { kind: 'list' }
   const settingsTitle = route.kind === 'project' ? SETTINGS_LABELS.workspaces
-    : route.kind === 'skill' ? SETTINGS_LABELS.skills : SETTINGS_LABELS[section]
+    : route.kind === 'skill' || section === 'skills' ? runtime.presentation.skillsLabel ?? SETTINGS_LABELS.skills : SETTINGS_LABELS[section]
   const setRuntimeView = (view: RuntimeSettingsView): void => {
     if (view.kind === 'list') sectionRoute('runtimes')
     else if (view.kind === 'add') onRoute({ kind: 'add-runtime' })
@@ -1707,7 +1706,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     else onRoute({ kind: 'account', runtime: view.runtime, key: view.key })
   }
   return <Page width="reading">
-    <Text as="h1" role="page" ink="primary">{settingsTitle}</Text>
+    <PageOptions title={settingsTitle} />
     {route.kind === 'section' && section !== 'runtimes' && section !== 'skills' && <DestinationBar place={SETTINGS_LABELS[section]}
       more={() => null} />}
     {section === 'profile' && <ProfileSection />}

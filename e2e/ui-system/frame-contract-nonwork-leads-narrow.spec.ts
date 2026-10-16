@@ -3,26 +3,27 @@ import { expect, test } from '@playwright/test'
 import { WALL_THEMES } from './frame-wall-destinations'
 import { openFrame } from './frame-contract-helpers'
 import { useFrameContractEvidence } from './frame-contract-split-setup'
-import { windowBar, expectLead, expectQuietSettings, nonworkGroups } from './frame-contract-window-leads-helpers'
+import { windowBar, expectLead, expectQuietSettings, expectContentTitle, nonworkGroups } from './frame-contract-window-leads-helpers'
 
 useFrameContractEvidence()
 
 for (const theme of WALL_THEMES) for (const width of [720]) for (const [group, destinations] of nonworkGroups.entries()) {
   {
 
-    for (const [item0, destination] of (destinations).entries()) test(`B10 nonwork place hierarchy and lead follow window state at ${width} in ${theme}${group === 0 ? '' : ` group ${group + 1}`} [item ${[item0].join('-')}]`, async ({ page }) => {
+    for (const [item0, destination] of (destinations).entries()) test(`B10 page titles follow their content column and fixed leads follow window state at ${width} in ${theme}${group === 0 ? '' : ` group ${group + 1}`} [item ${[item0].join('-')}]`, async ({ page }) => {
       const hidden = width === 1440 ? '&frame-sidebar-hidden=1' : ''
       await openFrame(page, `frame-wall=conversation${hidden}`, theme, width)
       const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
       const measured: { destination: string; origin: number; childX: number; titleWidth: number }[] = []
       await openFrame(page, `${destination.query}${hidden}`, theme, width)
       const bar = windowBar(page)
-      if (destination.id === 'e4-agent-detail') await expect(bar.locator('[data-topbar-title] > [data-slot="text"]')).toHaveText('Code reviewer')
+      if (destination.id === 'e4-agent-detail') await expect(page.locator('[data-page-destination]:visible h1')).toHaveText('Code reviewer')
       const settings = await page.locator('[data-page-destination="settings"]:visible').count() === 1
       await expectLead(bar, width, settings, true)
       await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
       if (settings) await expectQuietSettings(page, bar)
-      else {
+      const bodyTitle = await expectContentTitle(page, bar)
+      if (!bodyTitle) {
         await expectTitleRoom(bar.locator('[data-topbar-title]'))
         const title = (await bar.locator('[data-topbar-title]').boundingBox())!
         const origin = (await bar.locator('[data-topbar="place"]').boundingBox())!.x

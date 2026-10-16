@@ -30,7 +30,7 @@ import { toStored, type SideBySideState, type StoredSideBySide } from '../lib/si
 import { StoreProvider, PaneProvider, usePane } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TeamRoomPane } from './TeamRoomPane'
-import { RunDockProvider } from '../panels/run-dock'
+import { RunDetailsView, RunDockProvider } from '../panels/run-dock'
 import { TopBarProvider, TopBarOutlet, useTopBarMore, WorkDetailsOutlet, useTopBar } from '../panels/top-bar'
 import styles from './TeamRoomPane.module.css'
 import { triggerPreferences, triggerProjectView, triggerView } from '../preview/intake-fixture'
@@ -75,7 +75,7 @@ const TeamTest = (props: ComponentProps<typeof TeamRoomPane>) => {
   return <TopBarProvider><RunDockProvider><MountProvider scope={scope}><PaneProvider scope={{ paneId: scope.id, view: scope.view, sessionKey: null }}>
     <TopBarOutlet owner={scope.id} fallback={{ place: '', more: () => null }} />
     <TeamRoomPane {...props} />
-    <WorkDetailsOutlet owner={scope.id} />
+    <WorkDetailsOutlet owner={scope.id} /><RunDetailsView inspectionOnly />
   </PaneProvider></MountProvider></RunDockProvider></TopBarProvider>
 }
 
@@ -411,6 +411,15 @@ const render = async (store: AppStore, at = ROOM): Promise<void> => {
   await act(async () => {})
 }
 
+it('the Team bar shares work doors and keeps view choices in its body', async () => {
+  await render(rig().store)
+  const bar = container.querySelector('[data-slot="top-bar"]')!
+  expect(bar.querySelector('[role="tablist"]')).toBeNull()
+  expect(container.querySelector('[role="tablist"][aria-label="Team views"]')).not.toBeNull()
+  expect([...bar.querySelectorAll('[data-work-tool]')].map(node => node.getAttribute('aria-label'))).toEqual(['Terminal', 'Changes', 'Browser', 'Files'])
+  expect(bar.querySelector('[data-topbar-title] button')).not.toBeNull()
+})
+
 /* React tracks the value setter, so assigning `.value` and firing `input` is
    a change React never hears. Both helpers go through the prototype's setter,
    which is what a keystroke does. */
@@ -694,8 +703,7 @@ it.each(['Overview', 'Run'])('stops the %s Run with only its open Seats, from ca
   await render(store)
   if (door === 'Run') { act(() => row('Run').click()); await act(async () => {}) }
   if (door === 'Overview') { act(() => row('Run').click()); await act(async () => {}) }
-  const frame = container.querySelector('[data-slot="top-bar"]')!
-  act(() => [...frame.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run…')!.click())
+  act(() => [...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-options"] button')].find(one => one.textContent === 'Stop run…')!.click())
   const question = document.body.querySelector('[role="alertdialog"]')!
   expect([...question.querySelectorAll('[data-stop-seat]')].map(one => one.textContent)).toEqual([
     'Alphastops when its current turn ends', 'Betastops now',
@@ -858,7 +866,7 @@ it('a reused Goal with an earlier stopped run prefers the reservation’s own ru
 
   await render(store)
 
-  expect(container.textContent).toContain('Running')
+  expect(container.querySelector('header [data-slot="dot"]')?.getAttribute('aria-label')).toBe('Running')
   expect(container.textContent).not.toContain('Stopped')
 })
 
@@ -874,7 +882,7 @@ it('a flow-opened Goal whose run was dropped and a new one reserved reads the re
 
   await render(store)
 
-  expect(container.textContent).toContain('Running')
+  expect(container.querySelector('header [data-slot="dot"]')?.getAttribute('aria-label')).toBe('Running')
   expect(container.textContent).not.toContain('Stopped')
 })
 
@@ -1958,7 +1966,7 @@ it('renders exactly one header, naming the Goal once, with the project’s short
   const bar = headers[0]!
   expect(container.textContent?.split('Checkout rewrite').length ?? 1, 'named once').toBe(2)
   // The state, on the header's own line, as a chip.
-  expect(bar.textContent).toContain('Running')
+  expect(bar.querySelector('[data-slot="dot"]')?.getAttribute('aria-label')).toBe('Running')
   // The project's short name is visible; its absolute path is not, anywhere.
   expect(bar.querySelector('[data-topbar-title] [data-slot="text"]')?.textContent).toBe('Checkout rewrite')
   expect(container.textContent).not.toContain('/work/widgets')
@@ -1997,9 +2005,9 @@ it('the header\'s one state chip reads "Needs you" and pulses while a member\'s 
   await render(store)
 
   const bar = container.querySelector('header')!
-  const chip = [...bar.querySelectorAll('[data-slot="chip"]')].find((one) => one.textContent?.includes('Needs you'))
+  const chip = bar.querySelector('[data-slot="dot"][aria-label="Needs you"]')
   expect(chip, 'the one state chip reads Needs you').toBeTruthy()
-  expect(chip?.querySelector('[data-pulse]'), 'and it pulses').toBeTruthy()
+  expect(chip?.hasAttribute('data-pulse'), 'and it pulses').toBe(true)
 })
 
 /**
@@ -2318,7 +2326,7 @@ it('agrees with the header rather than naming a stop reason when a stopped run s
   await act(async () => {})
   await act(async () => {})
 
-  expect(container.querySelector('header')!.textContent).toContain('Needs you')
+  expect(container.querySelector('header [data-slot="dot"]')?.getAttribute('aria-label')).toBe('Needs you')
   const line = container.querySelector('[data-slot="room-live-line"]')!
   expect(line.getAttribute('data-kind')).toBe('wait')
   expect(line.textContent).toContain('A Seat asked a question and nobody answered in time.')
@@ -2811,7 +2819,7 @@ it.each([
   expect(container.querySelector('[data-slot="top-bar"]')?.getAttribute('data-fold')).toBe('0')
   expect(container.querySelector('[data-topbar-title]')!.getBoundingClientRect().width).toBe(FRAME.bar.titleMin)
 
-  const chip = [...container.querySelector('header')!.querySelectorAll('[data-slot="chip"]')].find((c) => c.textContent?.includes('Needs you'))
+  const chip = container.querySelector('header [data-slot="dot"][aria-label="Needs you"]')
   expect(chip).toBeTruthy()
   const line = container.querySelector('[data-slot="room-live-line"]')!
   expect(line.textContent).toBe(sentence)
@@ -2863,7 +2871,7 @@ it('a budget stop shows the person-kind wait a real host pairs with it, and read
   await render(store)
   await act(async () => {})
 
-  expect(container.querySelector('header')!.textContent).toContain('Needs you')
+  expect(container.querySelector('header [data-slot="dot"]')?.getAttribute('aria-label')).toBe('Needs you')
   const line = container.querySelector('[data-slot="room-live-line"]')!
   // The label appears exactly once, inside the host's own sentence — never a
   // second time from intakeStopWords's own fallback label (#917). The
@@ -2958,7 +2966,7 @@ it('says nothing extra on the hover when the Goal works at its own root, unchang
  */
 it('keeps Wrap in More, hides it after wrapping, and refuses it while wrapping or when a problem remains', async () => {
   const wrapItem = (): HTMLElement | undefined => {
-    const more = container.querySelector<HTMLButtonElement>('header button[title="More"]')!
+    const more = container.querySelector<HTMLButtonElement>('[data-topbar-title] button')!
     if (more.getAttribute('aria-expanded') !== 'true') act(() => more.click())
     return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === 'Wrap…')
   }
@@ -2983,7 +2991,7 @@ it('keeps Wrap reachable through More and Hold only through Chat Send to', async
   const bar = container.querySelector('header')!
   expect([...bar.querySelectorAll('button')].some(one => one.textContent === 'Wrap')).toBe(false)
   expect(bar.querySelector('[aria-label="Hold messages at the board"]')).toBeNull()
-  topMore()
+  act(()=>container.querySelector<HTMLButtonElement>('[data-topbar-title] button')!.click())
   expect(menuRows().some(one => one.textContent?.includes('Hold messages'))).toBe(false)
   const wrapItem = menuRow('Wrap…')
   act(() => wrapItem.click())
@@ -3686,7 +3694,7 @@ it('an unrouted settled Run says Needs you once and keeps its Overview reason', 
   const execution = { version: 2, id: 'unrouted-run', goal: ROOM, state: 'settled', end: { kind: 'unrouted', card: 1, outcome: 'no-pr' }, reason: 'No rule follows no-pr.', operations: [], rounds: [], document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
   const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
   await render(store)
-  expect(container.querySelector('[data-slot="room-head"]')?.textContent ?? container.textContent).toContain('Needs you')
+  expect(container.querySelector('header [data-slot="dot"]')?.getAttribute('aria-label')).toBe('Needs you')
   expect(container.querySelector('[aria-label="Run"]')?.textContent).toContain('No rule follows no-pr.')
   expect(container.querySelector('[aria-label="Run"] [data-slot="chip"]')).toBeNull()
 })
@@ -3755,7 +3763,7 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
 })
 
 const chooseRunsFilter = async (label: string): Promise<void> => {
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="view"] button')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-slot="page-options"] button[title="View"]')!.click())
   const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find(one => one.textContent?.startsWith(label))!
   expect(choice).toBeDefined()
   await act(async () => choice.click())
@@ -3836,7 +3844,7 @@ it('B6 moves Runs controls into View and More while keeping content facts', asyn
   expect(page.querySelector('input')).toBeNull()
   expect(page.querySelector('[aria-label="Runs summary"]')).not.toBeNull()
   expect(container.querySelector('[data-topbar="verb"] button')).toBeNull()
-  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="View"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('button[title="View"]')!.click())
   expect(document.querySelector('input[placeholder="Filter Runs"]')).not.toBeNull()
   expect([...document.querySelectorAll('[role="switch"]')].map(one => one.textContent)).toEqual(['All0', 'Running0', 'Needs you0', 'Settled0', 'Stopped0'])
 })
@@ -3881,7 +3889,7 @@ it.each([
   await render(store)
   const header = container.querySelector('header')!
   expect(teamFact('Trigger')?.textContent).toContain('Armed')
-  expect([...header.querySelectorAll('[data-slot="chip"]')].filter(one => one.textContent === label)).toHaveLength(1)
+  expect(header.querySelector('[data-slot="dot"]')?.getAttribute('aria-label')).toBe(label)
 })
 
 it.each(['message', 'approval', 'question', 'budget'] as const)('keeps Needs you beside an Off trigger for a %s wait', async kind => {
@@ -3893,7 +3901,7 @@ it.each(['message', 'approval', 'question', 'budget'] as const)('keeps Needs you
   await render(store)
   const header = container.querySelector('header')!
   expect(teamFact('Trigger')?.textContent).toContain('Off')
-  expect(header.textContent).toContain('Needs you')
+  expect(header.querySelector('[data-slot="dot"]')?.getAttribute('aria-label')).toBe('Needs you')
 })
 
 it('opens the current trigger Run directly from Overview even after choosing another timeline', async () => {
@@ -4100,7 +4108,7 @@ const personRun = (rules: readonly unknown[] = [], extraRoles: readonly unknown[
   } },
 } as unknown as FlowExecution)
 const personCard = { ...state.intents[1]!, id: 5, title: 'Decide whether to ship', state: 'open', role: 'decide', claim: null } as Intent
-const needsYouRow = (): HTMLElement => container.querySelector('[aria-label="Needs you"]') as HTMLElement
+const needsYouRow = (): HTMLElement => container.querySelector('section[aria-label="Needs you"]') as HTMLElement
 const inNeedsYou = (label: string): HTMLButtonElement =>
   [...needsYouRow().querySelectorAll('button')].find((one) => one.textContent === label) as HTMLButtonElement
 
@@ -4377,8 +4385,9 @@ it('the Team frame puts worded page tabs and four standing tools in its canonica
  const {store}=rig(undefined,undefined,{},GOAL)
  await render(store)
  const bar=container.querySelector('[data-slot="top-bar"]')!
- expect([...bar.querySelectorAll('[role="tab"]')].map(one=>one.getAttribute('data-team-page'))).toEqual(['overview','run','board','room','findings'])
- expect([...bar.querySelectorAll('[data-work-tool]')].map(one=>one.getAttribute('data-work-tool'))).toEqual(['details','changes','activity','browser'])
+ expect(bar.querySelectorAll('[role="tab"]')).toHaveLength(0)
+ expect([...container.querySelectorAll('[role="tab"][data-team-page]')].map(one=>one.getAttribute('data-team-page'))).toEqual(['overview','run','board','room','findings'])
+ expect([...bar.querySelectorAll('[data-work-tool]')].map(one=>one.getAttribute('data-work-tool'))).toEqual(['terminal','changes','browser','files'])
  expect(bar.querySelector('[data-slot="avatar-stack"]')).toBeNull()
  act(()=>row('Overview').click()); await act(async()=>{})
  expect(container.querySelector('[data-slot="team-overview"]')).not.toBeNull()
@@ -4417,7 +4426,7 @@ it('a ready Team puts Wrap on Overview and preserves Wrap in More', async () => 
  await render(store)
  expect([...container.querySelectorAll('header button')].some(one=>one.textContent==='Wrap')).toBe(false)
  expect([...container.querySelectorAll('[data-slot="team-overview"] button')].some(one=>one.textContent==='Wrap')).toBe(true)
- topMore(); expect(menuRow('Wrap…').getAttribute('aria-disabled')).not.toBe('true')
+ act(()=>container.querySelector<HTMLButtonElement>('[data-topbar-title] button')!.click()); expect(menuRow('Wrap…').getAttribute('aria-disabled')).not.toBe('true')
 })
 
 it('a member page normalizes its destination to Chat', async () => {

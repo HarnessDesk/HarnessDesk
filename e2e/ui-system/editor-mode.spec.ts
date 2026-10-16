@@ -3,8 +3,18 @@ import { openFrame } from './frame-contract-helpers'
 
 const showEditorAtNarrowWidth = async (page: Page, width: number) => {
   if (width >= 1000) return
+  const pane = page.locator('[data-frame-region="right"]:visible')
+  const closePane = pane.getByRole('button', { name: 'Close pane', exact: true })
+  if (await closePane.isVisible()) await closePane.click()
   const drawer = page.getByRole('dialog', { name: 'Sidebar', exact: true })
   if (await drawer.isVisible()) await drawer.getByRole('button', { name: 'Hide sidebar', exact: true }).click()
+  await expect(page.locator('[data-slot="editor-main"]')).toBeVisible()
+  const rail = page.locator('[data-frame-region="rail"]')
+  const railToggle = page.getByRole('button', { name: 'Toggle rail', exact: true })
+  await expect(railToggle).toBeVisible()
+  if (await railToggle.getAttribute('aria-expanded') === 'true') await railToggle.click()
+  await expect(railToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(rail).toBeHidden()
 }
 
 for (const theme of ['light', 'dark'] as const) {
@@ -19,7 +29,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(main.locator('.cm-content')).toContainText('retryPayment')
     const tools = page.locator('[data-work-tool]')
     await expect(page.locator('[data-work-tool="conversation"]')).toHaveAttribute('aria-pressed', 'true')
-    expect(await tools.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-work-tool')))).toEqual(['conversation', 'details', 'changes', 'activity', 'browser'])
+    expect(await tools.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-work-tool')))).toEqual(['conversation', 'terminal', 'changes', 'browser', 'files'])
     await page.keyboard.press('Meta+g')
     await expect(main).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Conversation mode', exact: true })).toHaveAttribute('aria-pressed', 'true')
@@ -190,6 +200,7 @@ for (const theme of ['light', 'dark'] as const) {
     test(`an admitted alias retains Changed letters and editable HEAD comparison at ${width} in ${theme}`, async ({ page }, testInfo) => {
       await openFrame(page, 'frame-wall=conversation&frame-editor-mode=alias', theme, width)
       const main = page.locator('[data-slot="editor-main"]')
+      await showEditorAtNarrowWidth(page, width)
       if (width < 1000) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
       await expect(page.getByRole('radio', { name: 'Changed 4', exact: true })).toBeChecked()
       await expect(page.locator('[aria-label="auth.ts: modified"]')).toBeVisible()

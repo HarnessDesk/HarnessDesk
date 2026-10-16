@@ -12,8 +12,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(cases).toHaveCount(3)
     const labels = [
       ['Hide sidebar', 'Back', 'Forward'],
-      ['Show sidebar', 'Search everything', 'Back', 'Forward'],
-      ['Show sidebar', 'Search everything', 'Back', 'Forward'],
+      ['Show sidebar', 'Back', 'Forward'],
+      ['Show sidebar', 'Back', 'Forward'],
     ]
     for (const [index, names] of labels.entries()) {
       const specimen = cases.nth(index)

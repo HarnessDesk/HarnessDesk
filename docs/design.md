@@ -172,6 +172,9 @@ bottom hairline is additional to its content inset.
 | Pane's reading column | reading · 24px | `PaneColumn inset="reading"` | The pane owns the gutter before the reading measure; scrollbar reservation is additional layout space. A floating composer's bottom reserve is clearance, not a surface inset. |
 | Bar and navigation rail | bar · 8px | `--hd-bar-pad`, `--hd-rail-inset` | The bar owns the control-box edge; `--hd-bar-ink` includes the control's own inset for labels. Native window controls may add clearance. |
 
+Floating composer clearance follows the dock's full border-box height,
+including padding and borders, so a spacing change keeps the last message clear.
+
 An approval's outer edge uses the dialog tier in an overlay and the card
 tier when docked beside a composer. Its warning mark hangs before the text
 column; title and body keep that same column in both placements.
@@ -1691,7 +1694,9 @@ has never been tested.
 ## The Team overview
 
 Overview is the first page tab in a Team. A Team with a Run or ready to wrap opens
-there; one with neither opens on Chat. The Run's current round and recorded
+there; one with neither opens on Chat. Its Seat table uses the wide `Page`
+measure; narrow panes keep that same page contract and switch to list rows.
+The Run's current round and recorded
 usage lead, followed by what needs the person and the Seats in attention order:
 Needs you, Unread, Working, then Idle. Each Seat carries its face, role, card,
 round, doing line, time in state and cost in the unit its account meters.

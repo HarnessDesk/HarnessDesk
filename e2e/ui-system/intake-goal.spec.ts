@@ -22,7 +22,7 @@ const scene = async (page: Page, name: string): Promise<void> => {
 const showChat = async (frame: Locator): Promise<void> => {
  await selectTeamPage(frame, 'room')
 }
-const stateChip = (frame: Locator): Locator => frame.locator('header [data-slot="chip"]').first()
+const stateChip = (frame: Locator): Locator => frame.locator('[data-topbar="state"] [data-slot="dot"]')
 const liveLine = (frame: Locator): Locator => frame.locator('[data-slot="room-live-line"]')
 const budget = (frame: Locator): Locator => frame.locator('[data-slot="room-budget"]')
 
@@ -57,9 +57,9 @@ test('a front-door start pins its revision in Details, names a diff or working t
   await showChat(frame)
   await flowScene(page, 'pinned')
   await showChat(frame)
-  await expect(stateChip(frame)).toHaveText('Running')
+  await expect(stateChip(frame)).toHaveAttribute('aria-label', 'Running')
   await expectAt(frame, 'a1b2c3d4e5f678901234567890abcdef12345678 on branch feature')
-  await expect(frame.locator('header')).not.toContainText('a1b2c3d')
+  await expect(frame.locator('[data-slot="top-bar"]')).not.toContainText('a1b2c3d')
 
   await flowScene(page, 'diff')
   // A diff's own label already carries both ends of the range, so no head is
@@ -73,7 +73,7 @@ test('a front-door start pins its revision in Details, names a diff or working t
 
   await flowScene(page, 'stopped')
   await showChat(frame)
-  await expect(stateChip(frame)).toHaveText('Stopped')
+  await expect(stateChip(frame)).toHaveAttribute('aria-label', 'Stopped')
   await expect(liveLine(frame)).toContainText('The person stopped this flow')
   // The pinned revision from the same target still names what was reviewed.
   await expectAt(frame, 'a1b2c3d4e5f678901234567890abcdef12345678 on branch feature')
@@ -104,12 +104,12 @@ test('a Goal a trigger opened names its source in Details, with no Intake data f
   await expect(origin).toContainText(/started this Goal/i)
   await expect(origin.getByRole('button', { name: 'Open', exact: true })).toBeVisible()
   // The title never repeats the trigger's own id or source facts.
-  await expect(frame.locator('header')).not.toContainText('from trigger')
-  await expect(frame.locator('header')).not.toContainText('#12')
+  await expect(frame.locator('[data-slot="top-bar"]')).not.toContainText('from trigger')
+  await expect(frame.locator('[data-slot="top-bar"]')).not.toContainText('#12')
   await closeTeamDetails(frame)
 
   const plain = plainFrame(page)
-  await expect(plain.locator('header [data-slot="hover-card-trigger"]')).toHaveCount(0)
+  await expect(plain.locator('[data-slot="top-bar"] [data-slot="hover-card-trigger"]')).toHaveCount(0)
   await expect(runFact(await teamDetails(plain), 'Trigger')).toHaveCount(0)
   await expect(budget(plain)).toHaveCount(0)
 })
@@ -119,11 +119,11 @@ test('a held message and a held action each read Needs you, and the live line na
   const frame = triggerFrame(page)
   await scene(page, 'held-message')
   await showChat(frame)
-  await expect(stateChip(frame)).toHaveText('Needs you')
+  await expect(stateChip(frame)).toHaveAttribute('aria-label', 'Needs you')
   await expect(liveLine(frame)).toContainText('held for your review')
 
   await scene(page, 'held-action')
-  await expect(stateChip(frame)).toHaveText('Needs you')
+  await expect(stateChip(frame)).toHaveAttribute('aria-label', 'Needs you')
   await expect(liveLine(frame)).toContainText('An action is held for your approval.')
 })
 
@@ -134,7 +134,7 @@ test('a member’s approval takes the composer’s slot in flow, answers only fr
   await showChat(frame)
   const card = frame.locator('[data-slot="approval-card"]')
   await expect(card).toBeVisible()
-  await expect(stateChip(frame)).toHaveText('Needs you')
+  await expect(stateChip(frame)).toHaveAttribute('aria-label', 'Needs you')
   await expect(liveLine(frame)).toContainText('is waiting for your approval')
   // Not a dialog, no scrim, and the composer is only hidden under it.
   await expect(frame.locator('[role="dialog"], [data-slot="dialog-overlay"]')).toHaveCount(0)
@@ -143,7 +143,7 @@ test('a member’s approval takes the composer’s slot in flow, answers only fr
   await expect(budget(frame)).toContainText('left')
 
   // A 1 typed in another field is that field's.
-  const filter = page.locator('input[aria-label="Filter sessions"]').first()
+  const filter = page.getByRole('searchbox', { name: 'Filter this list', exact: true }).first()
   await filter.focus()
   await page.keyboard.press('1')
   await expect(filter).toHaveValue('1')
@@ -161,7 +161,7 @@ test('a question that timed out and a budget stop each name their exact reason, 
   const frame = triggerFrame(page)
   await scene(page, 'question')
   await showChat(frame)
-  await expect(stateChip(frame)).toHaveText('Needs you')
+  await expect(stateChip(frame)).toHaveAttribute('aria-label', 'Needs you')
   await expect(liveLine(frame)).toContainText('nobody answered in time')
 
   await scene(page, 'stopped')
@@ -169,7 +169,7 @@ test('a question that timed out and a budget stop each name their exact reason, 
   // so the header reads Needs you and the live line shows that wait's
   // sentence — the stop's own detail appears exactly once inside it, never
   // a second time behind a generic "Out of budget." fallback label (#917).
-  await expect(stateChip(frame)).toHaveText('Needs you')
+  await expect(stateChip(frame)).toHaveAttribute('aria-label', 'Needs you')
   await expect(liveLine(frame)).toContainText('Out of budget: the daily cap was reached before this round closed.')
   const lineText = await liveLine(frame).innerText()
   expect(lineText.match(/Out of budget/g)).toHaveLength(1)
@@ -214,7 +214,7 @@ for (const width of [1280, 640]) {
       for (const name of ['stopped', 'approval']) {
         await scene(page, name)
         await showChat(frame)
-        const header = frame.locator('header')
+        const header = frame.locator('[data-slot="top-bar"]')
         await expect(header).toBeVisible()
         expect(await overflow(header), `header at ${width}px, ${colorScheme}, ${name}`).toBeLessThanOrEqual(1)
         await expect(liveLine(frame)).toBeVisible()

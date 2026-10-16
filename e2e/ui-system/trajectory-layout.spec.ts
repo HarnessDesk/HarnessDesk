@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openFrame } from './frame-contract-helpers'
 
 type Harness = typeof import('../../packages/ui/src/preview/harness')
 
@@ -156,3 +157,24 @@ test('trajectory rows wrap, fold reasoning, avoid text collisions, and reconcile
     expect(layout.fullText, state.name).toBe(longThinking)
   }
 })
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`session rail folds its time summary and puts Events behind a filter in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const railToggle = page.getByRole('button', { name: 'Toggle rail', exact: true })
+    if (await railToggle.getAttribute('aria-expanded') !== 'true') await railToggle.click()
+    const rail = page.locator('[data-frame-region="rail"]:visible')
+    const trajectory = rail.getByRole('region', { name: 'Trajectory', exact: true })
+    const fold = trajectory.locator('[data-slot="tool-section-fold"]')
+    await expect(fold).toHaveAttribute('aria-expanded', 'false')
+    await expect(trajectory.locator('[data-slot="tool-section-value"]')).not.toBeEmpty()
+    await expect(rail.getByRole('region', { name: 'Events', exact: true })).toHaveCount(0)
+    await fold.click()
+    await trajectory.getByRole('tab', { name: 'Events', exact: true }).click()
+    await expect(trajectory.getByRole('tab', { name: 'Events', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await trajectory.getByRole('searchbox', { name: 'Filter events', exact: true }).fill('no event could match this search')
+    await expect(trajectory.locator('[data-slot="inspector-row"]')).toHaveCount(0)
+    await expect(trajectory).not.toContainText('Nothing matches that filter')
+    await expect(trajectory.locator('[data-slot="inspector-empty"]')).toHaveCount(0)
+  })
+}

@@ -68,7 +68,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(rig.locator('[data-slot="run-need"]')).toContainText('Ended without a next step')
   })
 
-  test(`Team tab names and counts survive folding and growth in ${theme}`, async ({ page }) => {
+  test(`Team body tab names and counts survive narrow and wide windows in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?run-view&theme=${theme}`)
     const frame=page.locator('#run-view-team')
@@ -79,14 +79,12 @@ for (const theme of ['light', 'dark'] as const) {
     for (const width of [1440, 720, 1440]) {
       await page.setViewportSize({ width, height: 900 })
       await expectTitleRoom(header.locator('[data-topbar-title]'))
-      const folded=await header.getAttribute('data-fold')==='2'
-      if(folded) await header.getByTitle('Destination views',{exact:true}).click()
+      await expect(header.getByRole('tab')).toHaveCount(0)
       for (const [value,label,count] of tabs) {
-        const tab = folded ? page.locator(`[role="menu"] [data-team-page="${value}"]:visible`) : header.locator(`[data-team-page="${value}"]`)
+        const tab = frame.locator(`[data-team-page="${value}"]`)
         await expect(tab).toHaveAccessibleName(new RegExp(`^${label}${count===null?'':`\\s*${count}`}$`))
         await expect(tab).toHaveAttribute('data-team-page',value)
       }
-      if(folded) await page.keyboard.press('Escape')
       await expect(header.getByRole('tab',{name:'Side by side',exact:true})).toHaveCount(0)
     }
     await selectTeamPage(frame,'run')
@@ -185,7 +183,7 @@ for (const theme of ['light', 'dark'] as const) {
     const workspace = page.locator('#run-view-flow')
     await selectRunView(workspace, 'Timeline')
     const header = runBar(workspace)
-    const actions = header.getByRole('button', { name: 'Stop run…', exact: true })
+    const actions = workspace.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'Stop run…', exact: true })
     const before = { header: await header.boundingBox(), actions: await actions.boundingBox() }
     await selectRunView(workspace, 'Flow')
     expect(await header.boundingBox()).toEqual(before.header)

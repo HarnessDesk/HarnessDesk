@@ -379,9 +379,8 @@ registerView({
 })
 
 registerView({
+  // Kept for saved workbenches; Activity no longer has a public door.
   kind: 'activity',
-  command: 'activity',
-  menu: true,
   label: 'Activity',
   hint: 'What every agent did in this repository this week.',
   icon: HistoryIcon,

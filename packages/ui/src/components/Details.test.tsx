@@ -26,6 +26,7 @@ import '../panels/builtins'
 
 const INSPECTORS = ['changes', 'trajectory', 'agents', 'activity', 'tasks'] as const
 const RUN_SCOPED = ['run-details'] as const
+const RETIRED = ['activity'] as const
 
 it('every inspector is a view the panel system mounts on the right', () => {
   for (const kind of INSPECTORS) {
@@ -38,7 +39,7 @@ it('every inspector is a view the panel system mounts on the right', () => {
   }
 })
 
-it('and every panel the app ships has a way in', () => {
+it('every public panel has a way in and retired Activity remains replay-only', () => {
   const panels = views
     .all()
     .filter((definition) => definition.mounts.includes('sidebar') || definition.mounts.includes('right'))
@@ -50,9 +51,15 @@ it('and every panel the app ships has a way in', () => {
     .filter((definition) => definition.kind !== 'plugin')
   const offered = new Set(summonable().map((definition) => definition.kind))
   for (const definition of panels) {
+    if (RETIRED.includes(definition.kind as typeof RETIRED[number])) {
+      expect(offered.has(definition.kind)).toBe(false)
+      expect(definition.command).toBeUndefined()
+      expect(definition.menu ?? false).toBe(false)
+      continue
+    }
     expect(offered.has(definition.kind) || RUN_SCOPED.includes(definition.kind as typeof RUN_SCOPED[number]),
       `${definition.kind} is a panel nothing offers`).toBe(true)
   }
-  // These views are reachable only from their Run, not from the global palette.
+  // Keep the complete registry census, including replay and Run-scoped entries.
   expect(panels.map((definition) => definition.kind).sort()).toEqual([...INSPECTORS, ...RUN_SCOPED].sort())
 })

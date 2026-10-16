@@ -76,10 +76,14 @@ const mountTeam = async (memberActions = false, windowWidth = 1440) => {
   return { store }
 }
 const selectMember = async (name: string) => {
-  if (button('Details')?.getAttribute('aria-pressed') !== 'true') await act(async () => button('Details')!.click())
+  if (button('Toggle rail')?.getAttribute('aria-pressed') !== 'true') await act(async () => openRail())
   await act(async () => container.querySelector<HTMLButtonElement>(`button[title="Actions for ${name}"]`)!.click())
   const opener = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent === 'Open conversation')!
   await act(async () => opener.click())
+}
+const openRail = (within: ParentNode = container) => {
+  const toggle = within.querySelector<HTMLButtonElement>('[data-work-rail-toggle]')!
+  if (toggle.getAttribute('aria-expanded') !== 'true') toggle.click()
 }
 const button = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
 
@@ -100,22 +104,21 @@ const chooseTeamPage = async (page: string, within: ParentNode = container): Pro
 
 it('a draft has four tool doors and no second body header', () => {
   mountDraft()
-  for (const label of ['Details', 'Changes', 'Activity', 'Browser']) expect(button(label)).not.toBeNull()
+  for (const label of ['Terminal', 'Changes', 'Browser', 'Files']) expect(button(label)).not.toBeNull()
   expect(button('Changes')?.disabled).toBe(true)
-  expect(button('Activity')?.disabled).toBe(true)
   expect(container.querySelectorAll('[data-slot="top-bar"]')).toHaveLength(1)
   expect(container.querySelector('[data-slot="workbench-main"] header')).toBeNull()
 })
 it('draft Details opens without a legacy payload and the panel toggle closes it', () => {
   const store = mountDraft()
-  act(() => button('Details')?.click())
+  act(() => openRail())
   expect(container.querySelector('[data-slot="tool-body"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="summary-card"]')?.getAttribute('data-surface')).toBe('panel')
   expect(container.querySelector('[data-slot="tool-body"]')?.textContent).toContain('Plan')
   expect(dockViews(store.getSnapshot().workbench.right)).toHaveLength(0)
-  expect(button('Details')?.getAttribute('aria-pressed')).toBe('true')
-  act(() => button('Toggle right panel')?.click())
-  expect(button('Details')?.getAttribute('aria-pressed')).toBe('false')
+  expect(button('Toggle rail')?.getAttribute('aria-pressed')).toBe('true')
+  act(() => button('Toggle rail')?.click())
+  expect(button('Toggle rail')?.getAttribute('aria-pressed')).toBe('false')
 })
 
 it('selecting Details keeps the real Browser body and its resource mounted', async () => {
@@ -124,7 +127,7 @@ it('selecting Details keeps the real Browser body and its resource mounted', asy
   const resource = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
   const browser = container.querySelector('[data-slot="tool-pane"]')
   expect(browser).not.toBeNull()
-  act(() => button('Details')?.click())
+  act(() => openRail())
   expect(container.querySelector('[data-slot="tool-pane"]')).toBe(browser)
   expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === resource.id)?.view).toBe(resource.view)
   act(() => button('Browser')?.click())
@@ -132,13 +135,16 @@ it('selecting Details keeps the real Browser body and its resource mounted', asy
 })
 
 
-it('lit Changes closes an artifact once, then unlit Changes opens its default body', async () => {
+it('lit Files closes an artifact once, then unlit Changes opens its default body', async () => {
   const store = mountWork(true)
   await act(async () => { await store.openFile('/work/storefront/src/login.ts') })
   const subject = store.workSubject()!
   expect(store.getSnapshot().workbench.frameTools[subject]?.mode).toBe('file')
-  act(() => button('Changes')!.click())
+  act(() => button('Files')!.click())
   expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+  act(() => button('Files')!.click())
+  expect(store.getSnapshot().workbench.frameTools[subject]).toMatchObject({ tool: 'files', mode: 'file', open: true })
+  act(() => button('Files')!.click())
   act(() => button('Changes')!.click())
   expect(store.getSnapshot().workbench.frameTools[subject]?.mode).toBe('changes')
   expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(true)
@@ -148,18 +154,18 @@ it('an unlit Details door returns to canonical facts after a plugin mode was clo
   const store = mountWork(true)
   act(() => store.chooseWorkTool('details', 'plugin'))
   act(() => store.toggleWorkPanel())
-  act(() => button('Details')!.click())
-  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.mode).toBe('details')
-  expect(container.querySelector('[data-slot="tool-body"]')).not.toBeNull()
+  act(() => openRail())
+  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.mode).toBe('plugin')
+  expect(container.querySelector('[data-frame-region="rail"] [data-slot="tool-body"]')).not.toBeNull()
 })
 
 
-it('standing tools use the same live width as the right column', () => {
+it('tool doors stay in the subject bar instead of projecting a pane width', () => {
   mountDraft()
-  act(() => button('Details')!.click())
+  act(() => openRail())
   const slot = container.querySelector<HTMLElement>('[data-topbar="tools"]')!
-  expect(slot.hasAttribute('data-standing')).toBe(true)
-  expect(slot.style.getPropertyValue('--topbar-right-column')).toBe('var(--frame-right)')
+  expect(slot.hasAttribute('data-standing')).toBe(false)
+  expect(slot.style.getPropertyValue('--topbar-right-column')).toBe('')
 })
 
 it('Details Commit returns from Browser focus to its owning conversation composer', async () => {
@@ -167,7 +173,7 @@ it('Details Commit returns from Browser focus to its owning conversation compose
   await act(async () => { await store.openBrowser() })
   const resource = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
   act(() => store.focusView(resource.id))
-  act(() => button('Details')!.click())
+  act(() => openRail())
   act(() => button('Folder actions')!.click())
   const commit = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === 'Commit the changes')!
   expect(commit).not.toBeUndefined()
@@ -181,7 +187,7 @@ it('Details Commit returns from Browser focus to its owning conversation compose
   expect(composer.value).toBe('Commit the changes from this conversation with a clear message, then tell me the commit hash.')
   expect(document.activeElement).toBe(composer)
   expect(store.getSnapshot().workbench.focus).toBeNull()
-  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.mode).toBe('details')
+  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.mode).toBe('browser')
   expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === resource.id)?.view).toBe(resource.view)
 })
 
@@ -190,7 +196,7 @@ it('the canonical Team bar closes and reopens its remembered Browser without rep
   await act(async () => { await store.openBrowser() })
   const subject = store.workSubject()!
   const resource = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
-  const toggle = button('Toggle right panel')!
+  const toggle = button('Browser')!
   expect(toggle).not.toBeNull()
   expect(toggle.closest('[data-slot="top-bar"]')).not.toBeNull()
   act(() => toggle.click())
@@ -219,7 +225,7 @@ it('a narrow Team Run publishes without opening an empty overlay, and Details op
   expect(container.querySelector('[data-slot="run-workspace"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="workbench-main"] [data-slot="run-steps"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="workbench-main"]')?.closest('[inert]')).toBeNull()
-  act(() => button('Toggle right panel')!.click())
+  act(() => button('Browser')!.click())
   expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(true)
   expect(container.querySelector('[aria-label="Team Run facts"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="run-inspector"]')).toBeNull()
@@ -234,9 +240,9 @@ it('the canonical Team toggle restores its remembered Browser while layout chang
   await chooseRunLayout('Flow')
   expect(store.getSnapshot().workbench.right).toEqual(before.right)
   const subject = store.workSubject()!
-  act(() => button('Toggle right panel')!.click())
+  act(() => button('Browser')!.click())
   expect(store.getSnapshot().workbench.frameTools[subject]).toMatchObject({ tool: 'browser', mode: 'browser', open: false })
-  act(() => button('Toggle right panel')!.click())
+  act(() => button('Browser')!.click())
   expect(store.getSnapshot().workbench.frameTools[subject]).toMatchObject({ tool: 'browser', mode: 'browser', open: true })
   expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === resource.id)?.view).toBe(resource.view)
   expect(dockViews(store.getSnapshot().workbench.right).some(one => one.view.kind === 'run-steps')).toBe(false)
@@ -244,19 +250,20 @@ it('the canonical Team toggle restores its remembered Browser while layout chang
   expect(container.querySelector('[data-slot="workbench-main"] [data-slot="run-steps"]')).not.toBeNull()
 })
 
-it('a narrow Team Flow opens persistent Details with one unpressed canonical toggle click', async () => {
+it('a narrow Team Flow keeps persistent cards independent of the tool pane', async () => {
   const { store } = await mountTeam(false, 720)
   await chooseTeamPage('run')
   await chooseRunLayout('Flow')
-  const subject = store.workSubject()!
-  const before = store.getSnapshot().workbench.right
-  const toggle = button('Toggle right panel')!
+  const subject = store.workSubject()!, before = store.getSnapshot().workbench.right
+  const toggle = button('Toggle rail')!
+  expect(toggle.getAttribute('aria-pressed')).toBe('true')
+  act(() => toggle.click())
   expect(toggle.getAttribute('aria-pressed')).toBe('false')
   act(() => toggle.click())
-  expect(store.getSnapshot().workbench.frameTools[subject]).toMatchObject({ tool: 'details', open: true })
-  expect(dockViews(store.getSnapshot().workbench.right)).toEqual(dockViews(before))
   expect(toggle.getAttribute('aria-pressed')).toBe('true')
-  expect(container.querySelector('[aria-label="Team Run facts"]')).not.toBeNull()
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+  expect(store.getSnapshot().workbench.right).toBe(before)
+  expect(container.querySelector('[data-frame-region="rail"] [aria-label="Team Run facts"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="work-tools"] [data-slot="run-steps"]')).toBeNull()
 })
 
@@ -311,8 +318,8 @@ it('Team publishes one shell row, four tools and persistent Run then Seats on Ov
   await mountTeam()
   expect(container.querySelectorAll('[data-slot="top-bar"]')).toHaveLength(1)
   expect(container.querySelector('button[title="Team members"]')).toBeNull()
-  expect([...container.querySelectorAll('[data-work-tool]')].map(one => one.getAttribute('data-work-tool'))).toEqual(['details', 'changes', 'activity', 'browser'])
-  await act(async () => button('Details')!.click())
+  expect([...container.querySelectorAll('[data-work-tool]')].map(one => one.getAttribute('data-work-tool'))).toEqual(['terminal', 'changes', 'browser', 'files'])
+  await act(async () => openRail())
   const sections = container.querySelectorAll('[data-slot="tool-body"] [data-slot="tool-section"]')
   expect([...sections].map(one => one.querySelector('[data-slot="tool-section-label"]')?.textContent ?? one.firstElementChild?.textContent)).toEqual(['Run', 'Seats'])
   expect(container.querySelector('[aria-label="Team Run facts"]')).not.toBeNull()
@@ -330,7 +337,7 @@ it('a real selected Run inspection augments persistent Team Run and Seats in can
   expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]).toMatchObject({tool:'details',mode:'run-details',open:true})
   expect(body.querySelector('[aria-label="Team Run facts"]')).not.toBeNull()
   expect(body.querySelector('[aria-label="Seats"]')).not.toBeNull()
-  expect(body.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
+  expect(container.querySelector('[data-frame-region="right"] [data-slot="run-inspector"]')).not.toBeNull()
   expect(body.querySelector('[data-slot="summary-card"][data-surface="card"]')).toBeNull()
   const groups = [...body.querySelectorAll('[data-slot="tool-section"]')]
   expect(groups[0]?.textContent).toContain('Run')
@@ -339,7 +346,7 @@ it('a real selected Run inspection augments persistent Team Run and Seats in can
 
 it('the Preview store refreshes only remembered matching Team subjects and does not revive removed owners', async () => {
   const {store} = await mountTeam()
-  act(() => button('Details')!.click())
+  act(() => store.chooseWorkTool('details'))
   const subject=store.workSubject()!, remembered=store.getSnapshot().workbench.frameSubjects[subject]!
   const unrelated={paneId:'unrelated',view:{kind:'room' as const,room:'another-team',framePage:'overview' as const}}
   const before=store.getSnapshot()
@@ -362,34 +369,32 @@ it('standalone Team previews own their bar and Details registries through select
   const one=container.querySelector('[data-fixture="first"]')!,two=container.querySelector('[data-fixture="second"]')!
   expect(one.querySelectorAll('[data-slot="top-bar"]')).toHaveLength(1)
   expect(two.querySelectorAll('[data-slot="top-bar"]')).toHaveLength(1)
-  await act(async()=>one.querySelector<HTMLButtonElement>('button[aria-label="Details"]')!.click())
+  await act(async()=>openRail(one))
   expect(one.querySelector('[aria-label="Team Run facts"]')).not.toBeNull()
-  expect(two.querySelector('[data-slot="tool-body"]')).toBeNull()
+  expect(two.querySelector('[data-frame-region="rail"] [data-slot="tool-body"]')).not.toBeNull()
   await chooseTeamPage('run', one)
   await act(async()=>one.querySelector<HTMLElement>('[data-row][data-kind="card"]')!.click())
   expect(one.querySelector('[data-slot="tool-body"] [data-slot="run-inspector"]')).not.toBeNull()
   await act(async()=>root.render(scenes(false)))
   expect(container.querySelector('[data-fixture="first"]')).toBeNull()
-  await act(async()=>two.querySelector<HTMLButtonElement>('button[aria-label="Details"]')!.click())
+  await act(async()=>openRail(two))
   expect(two.querySelector('[data-slot="tool-body"]')?.textContent).toContain('settled')
   expect(two.querySelector('[data-slot="run-inspector"]')).toBeNull()
 })
 
 
-it.each([720,1440])('standalone Team Details uses the measured frame placement at %ipx', async width => {
+it.each([720,1440])('standalone Team cards use the measured rail placement at %ipx', async width => {
+  vi.stubGlobal('innerWidth', width)
   vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue(new DOMRect(0,0,width,600))
   const store=overviewTeamStore('running')
+  store.setWindowSize(width, 600)
   await act(async()=>root.render(<StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider>))
-  await act(async()=>button('Details')!.click())
-  const panel=container.querySelector<HTMLElement>('[data-preview-tool-placement]')!
-  expect(panel.dataset.previewToolPlacement).toBe(width < FRAME.fold.panelFloats ? 'floating' : 'column')
-  expect(panel.style.width).toBe(`${FRAME.rightPanel.width}px`)
-  const tools=container.querySelector<HTMLElement>('[data-topbar="tools"]')!
-  expect(tools.hasAttribute('data-standing')).toBe(width >= FRAME.fold.panelFloats)
+  await act(async()=>openRail())
+  const shell=container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  expect(shell.dataset.railFloats).toBe(String(width < FRAME.main.min + FRAME.infoCard.width))
+  expect(container.querySelector('[data-frame-region="rail"] [aria-label="Team Run facts"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="workbench-main"]')?.closest('[inert]')).toBeNull()
-  expect(container.querySelector('[aria-label="Team Run facts"]')).not.toBeNull()
 })
-
 
 it('Preview Browser reveal restores fresh remembered Team navigation and tiles without relabeling its resource', async () => {
   const {store}=await mountTeam()
@@ -412,7 +417,7 @@ it('Preview Browser reveal restores fresh remembered Team navigation and tiles w
 it('live-polish standalone Team uses one store for tool admission, Run selection and its inspector', async () => {
   const store=runTeamStore('live-polish')
   await act(async()=>root.render(<StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider>))
-  await act(async()=>button('Details')!.click())
+  await act(async()=>openRail())
   expect(container.querySelector('[aria-label="Team Run facts"]')).not.toBeNull()
   await chooseTeamPage('run')
   await act(async()=>container.querySelector<HTMLElement>('[data-row][data-kind="card"]')!.click())
@@ -441,7 +446,7 @@ it.each(['thread','side-by-side'] as const)('Preview Browser reveal preserves th
 it('preserves both recorded live-polish Seat ceilings when its sessions have no settings yet', async () => {
   const store=runTeamStore('live-polish')
   await act(async()=>root.render(<StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider>))
-  await act(async()=>button('Details')!.click())
+  await act(async()=>openRail())
   const rows=[...container.querySelectorAll('[data-slot="list-row"]')]
   const row=(name:string)=>rows.find(one=>one.querySelector('[data-slot="list-row-title"]')?.textContent===name)!
   expect(row('Alpha').textContent).toContain('Edit · asked, not enforced')
@@ -456,7 +461,7 @@ it('keeps a selected Not reached step when returning from Flow without reopening
   const future = container.querySelector<HTMLButtonElement>('[data-slot="run-steps"] [data-step-row="person"]')!
   await act(async () => future.click())
   expect(container.querySelector('[data-step-row="person"]')?.getAttribute('data-selected')).toBe('true')
-  await act(async () => button('Toggle right panel')!.click())
+  await act(async () => store.toggleWorkPanel())
   const before = store.getSnapshot().workbench.right
   const subject = store.workSubject()!
   await chooseRunLayout('Flow')
@@ -491,8 +496,8 @@ it('Run again retains both original Runs and continuation in the real parent Det
   await act(async () => { await vi.waitFor(() => expect(start()?.disabled).toBe(false)) })
   await act(async () => start().click())
   expect(store.getSnapshot().flowExecutions.size).toBe(2)
-  expect(container.querySelector('[aria-label="Choose a Run"]')).toBeNull()
-  await act(async () => button('Details')!.click())
+  expect(container.querySelector('[aria-label="Choose a Run"]')).not.toBeNull()
+  await act(async () => openRail())
   expect([...container.querySelectorAll('[aria-label="Choose a Run"] button')].map(one => one.textContent)).toEqual(['Run 1', 'Run 2'])
   expect([...container.querySelectorAll('[data-slot="summary-item"]')].find(one => one.textContent?.startsWith('Continues'))?.textContent).toContain('Run 1')
 })
@@ -578,6 +583,53 @@ it('B7 actual session removal retains the admitted Browser node, original owner 
   expect(container.querySelector('[data-slot="tool-pane"]')).toBeNull()
 })
 
+it('the terminal shell close action leaves another subject’s hidden terminal retained', async () => {
+  const store = mountWork(true), runtime = splitSessionKey(PREVIEW_SESSION_KEY).runtime
+  act(() => store.showViewIn('bottom', { kind: 'terminal', terminalId: 'subject-a-pty', runtime, cwd: '/repo/a' }))
+  const original = dockViews(store.getSnapshot().workbench.bottom)[0]!
+  await act(async () => store.openTeamRoom('terminal-b'))
+  act(() => store.showViewIn('bottom', { kind: 'terminal', terminalId: 'subject-b-pty', runtime, cwd: '/repo/b' }))
+  const subject = store.workSubject()!
+  await act(async () => button('Close terminal')!.click())
+  expect(dockViews(store.getSnapshot().workbench.bottom)).toEqual([original])
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+})
+
+it('explicit Agents selection shows its retained body beside the independent rail', async () => {
+  const store = mountWork(true)
+  await act(async () => store.showView('agents'))
+  const snapshot = store.getSnapshot(), subject = store.workSubject()!
+  const resource = dockViews(snapshot.workbench.right).find(one => one.view.kind === 'agents')!
+  expect(resource).toBeDefined()
+  expect(snapshot.workbench.frameTools[subject]).toMatchObject({ tool: 'details', mode: 'agents', open: true })
+  const layer = container.querySelector<HTMLElement>(`[data-tool-mount="${resource.id}"]`)!
+  expect(layer.querySelector('input[placeholder="Filter sub-agents"]')).not.toBeNull()
+  expect(layer.closest('[hidden], [data-hidden], [inert]')).toBeNull()
+  expect(container.querySelector('[data-frame-region="rail"]')?.getAttribute('inert')).toBeNull()
+  expect(snapshot.workbench.frameSubjects[subject]?.view).toMatchObject({ kind: 'conversation', session: PREVIEW_SESSION_KEY })
+  act(() => store.toggleWorkPanel())
+  expect(layer.closest('[hidden], [data-hidden], [inert]')).not.toBeNull()
+  await act(async () => store.showView('agents'))
+  expect(container.querySelector(`[data-tool-mount="${resource.id}"]`)).toBe(layer)
+  expect(layer.closest('[hidden], [data-hidden], [inert]')).toBeNull()
+})
+
+it('Repository history opens the Changes pane and keeps its retained resource', async () => {
+  const store = mountWork(true)
+  await act(async () => store.showView('git'))
+  const snapshot = store.getSnapshot(), subject = store.workSubject()!
+  expect(snapshot.workbench.frameTools[subject]).toMatchObject({ tool: 'changes', mode: 'git', open: true })
+  expect(button('Changes')?.getAttribute('aria-pressed')).toBe('true')
+  expect(container.querySelector('[data-work-pane-header]')?.textContent).toContain('Changes')
+  const resource = dockViews(snapshot.workbench.right).find(one => one.view.kind === 'git')!
+  const layer = container.querySelector<HTMLElement>(`[data-tool-mount="${resource.id}"]`)!
+  expect(layer.closest('[hidden], [data-hidden], [inert]')).toBeNull()
+  act(() => store.toggleWorkPanel())
+  await act(async () => store.showView('git'))
+  expect(container.querySelector(`[data-tool-mount="${resource.id}"]`)).toBe(layer)
+  expect(layer.closest('[hidden], [data-hidden], [inert]')).toBeNull()
+})
+
 it('B7 admitted plugin facts join the actual parent Details scroll and keep their original session', async () => {
   const store = mountWork(true)
   const probe = () => <ToolBody><ToolSection label="Fixture facts"><span data-testid="plugin-scope">{useSessionKey()}</span><span data-testid="plugin-focused">{String(useIsFocusedPane())}</span></ToolSection></ToolBody>
@@ -585,8 +637,8 @@ it('B7 admitted plugin facts join the actual parent Details scroll and keep thei
   const contribution = { kind: 'ui', id: 'fixture-b7', owner: 'fixture-extension', slot: 'sidebar.panel', label: 'Fixture facts', component: 'fixture.b7-facts', mounts: ['right'], order: 1 } as unknown as CapabilityContribution
   act(() => store.patch({ contributions: [contribution] }))
   act(() => store.showViewIn('right', { kind: 'plugin', contribution: String(contribution.id), label: 'Fixture facts', mounts: ['right'] }))
-  expect(container.querySelectorAll('[data-slot="tool-body"]')).toHaveLength(1)
-  expect(container.querySelectorAll('[data-slot="tool-scroll"]')).toHaveLength(1)
+  expect(container.querySelectorAll('[data-frame-region="right"] [data-slot="tool-body"]')).toHaveLength(1)
+  expect(container.querySelectorAll('[data-frame-region="right"] [data-slot="tool-scroll"]')).toHaveLength(1)
   expect(container.querySelector('[aria-label="Conversation"]')).not.toBeNull()
   expect(container.querySelector('[aria-label="Fixture facts"]')).not.toBeNull()
   const node = container.querySelector('[data-testid="plugin-scope"]')
@@ -616,7 +668,7 @@ it.each(['details', 'close'] as const)('B7 hidden fixed Browser cannot consume s
   expect(visible.defaultPrevented).toBe(true)
   const before = dockViews(store.getSnapshot().workbench.right).find(one => one.id === entry.id)!
   expect(before.view.kind === 'browser' ? before.view.tabs.length : null).toBe(2)
-  const door = destination === 'details' ? button('Details')! : button('Toggle right panel')!
+  const door = destination === 'details' ? button('Changes')! : button('Browser')!
   act(() => { door.focus(); door.click() })
   const hidden = container.querySelector(`[data-tool-mount="${entry.id}"]`)!
   expect(hidden.hasAttribute('inert')).toBe(true)
@@ -665,10 +717,10 @@ it('suspending work retains its real Browser and denies hidden shortcuts while P
 
 
 it('default Changes and Activity provide actual subject bodies through canonical doors', async () => {
-  mountWork(true)
+  const store = mountWork(true)
   await act(async () => button('Changes')!.click())
   expect(container.querySelector('[data-slot="work-tools"][data-tool="changes"] [data-slot="tool-body"]')).not.toBeNull()
-  await act(async () => button('Activity')!.click())
+  await act(async () => store.chooseWorkTool('activity'))
   expect(container.querySelector('[data-slot="work-tools"]')?.textContent).toContain('Events')
 })
 
@@ -677,7 +729,7 @@ it('the five region nodes and the Browser body survive closing and both exact fo
   const store = mountWork(true)
   await act(async () => { await store.openBrowser() })
   const regions = [...container.querySelectorAll('[data-frame-region]')]
-  expect(regions.map(node => node.getAttribute('data-frame-region'))).toEqual(['left', 'top', 'main', 'right', 'bottom'])
+  expect(regions.map(node => node.getAttribute('data-frame-region'))).toEqual(['left', 'top', 'main', 'rail', 'right', 'bottom'])
   const browser = container.querySelector('[data-slot="tool-pane"]')!
   const resource = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
   for (const width of [1280, 1279, 1000, 999, 720, 1440]) {
@@ -688,7 +740,7 @@ it('the five region nodes and the Browser body survive closing and both exact fo
   }
   act(() => store.toggleWorkPanel())
   expect(container.querySelector('[data-slot="tool-pane"]')).toBe(browser)
-  expect(regions[3]!.hasAttribute('inert')).toBe(true)
+  expect(regions[4]!.hasAttribute('inert')).toBe(true)
   act(() => store.toggleWorkPanel())
   expect([...container.querySelectorAll('[data-frame-region]')]).toEqual(regions)
 })
@@ -729,9 +781,9 @@ it('a deferred Activity Escape returns to the current same-subject tool instead 
   expect(frames.length).toBeGreaterThan(0)
   act(() => store.chooseWorkTool('details'))
   expect(store.workSubject()).toBe(subject)
-  act(() => button('Details')!.focus())
+  act(() => button('Toggle rail')!.focus())
   act(() => { for (const callback of [...frames]) callback(0) })
-  expect(document.activeElement).toBe(button('Details'))
+  expect(document.activeElement).toBe(button('Toggle rail'))
   expect(store.getSnapshot().workbench.frameTools[subject]).toMatchObject({ tool: 'details', open: true })
 })
 
@@ -741,7 +793,7 @@ it('a page keeps remembered work, Browser, terminal and the shared notice host m
   const before = store.getSnapshot().workbench
   const workPane = container.querySelector('[data-slot="workbench-main"] [data-pane-id]')!
   const browser = container.querySelector('[data-slot="tool-pane"]')!
-  const terminal = container.querySelector('[data-frame-region="bottom"] [data-terminal-id]')!
+  const terminal = container.querySelector('[data-frame-region="right"] [data-terminal-id]')!
   expect(workPane).not.toBeNull(); expect(browser).not.toBeNull(); expect(terminal).not.toBeNull()
   const draw = (pageActive: boolean) => act(() => root.render(<StoreProvider store={store}>
     <Workbench sidebar={<div />} pageActive={pageActive} pageOwner={pageActive ? 'destination:library' : undefined}
@@ -753,14 +805,14 @@ it('a page keeps remembered work, Browser, terminal and the shared notice host m
   expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('data-hidden')).toBe(true)
   expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('inert')).toBe(true)
   const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
-  expect(shell.getAttribute('data-right-open')).toBe('false')
+  expect(shell.getAttribute('data-right-open')).toBe('true')
   expect(shell.getAttribute('data-panel-floats')).toBe('false')
-  expect(shell.style.getPropertyValue('--frame-right-size')).toBe('0px')
-  expect(shell.style.getPropertyValue('--frame-right-open')).toBe('0px')
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Library')
+  expect(shell.style.getPropertyValue('--frame-right-size')).toBe(`${FRAME.rightPanel.width}px`)
+  expect(shell.style.getPropertyValue('--frame-right-open')).toBe(`${FRAME.rightPanel.width}px`)
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
   expect(container.querySelectorAll('[data-shell-host="main-notice"]')).toHaveLength(1)
   expect(container.querySelector('[data-shell-host="main-notice"]')?.closest('[data-slot="retained-work"]')).toBeNull()
-  expect(container.querySelector('[data-frame-region="bottom"] [data-terminal-id]')).toBe(terminal)
+  expect(container.querySelector('[data-frame-region="right"] [data-terminal-id]')).toBe(terminal)
   expect(container.querySelector('[data-slot="tool-pane"]')).toBe(browser)
   expect(store.getSnapshot().workbench.frameTools).toBe(before.frameTools)
   expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
@@ -768,7 +820,7 @@ it('a page keeps remembered work, Browser, terminal and the shared notice host m
   expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('data-hidden')).toBe(false)
   expect(container.querySelector('[data-slot="workbench-main"] [data-pane-id]')).toBe(workPane)
   expect(container.querySelector('[data-slot="tool-pane"]')).toBe(browser)
-  expect(container.querySelector('[data-frame-region="bottom"] [data-terminal-id]')).toBe(terminal)
+  expect(container.querySelector('[data-frame-region="right"] [data-terminal-id]')).toBe(terminal)
   expect(shell.getAttribute('data-right-open')).toBe('true')
   expect(store.getSnapshot().activeSessionKey).toBe(PREVIEW_SESSION_KEY)
 })
@@ -788,7 +840,7 @@ it('folderless pages hide the terminal without changing its shells or saved heig
   expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
   Object.assign(before, { navigation: { current: { kind: 'work', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } }, back: [], forward: [] } })
   act(() => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} /></StoreProvider>))
-  expect(shell.dataset.bottomOpen).toBe('true')
+  expect(shell.dataset.rightOpen).toBe('true')
   expect(container.querySelector('[data-terminal-id]')).toBe(terminal)
   expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
 })
@@ -801,7 +853,7 @@ it('Editor has one scoped right Conversation composer and retains main chrome wi
   store.chooseWorkTool('activity'); store.toggleWorkPanel()
   await act(async () => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} /></StoreProvider>))
   await act(async () => store.setWindowMode('editor'))
-  expect([...container.querySelectorAll('[data-work-tool]')].map(one => one.getAttribute('data-work-tool'))).toEqual(['conversation', 'details', 'changes', 'activity', 'browser'])
+  expect([...container.querySelectorAll('[data-work-tool]')].map(one => one.getAttribute('data-work-tool'))).toEqual(['conversation', 'terminal', 'changes', 'browser', 'files'])
   expect(container.querySelector('[data-work-tool="conversation"]')?.getAttribute('aria-pressed')).toBe('true')
   const main = container.querySelector('[data-frame-region="main"]')!, right = container.querySelector('[data-frame-region="right"]')!
   expect(main.querySelector('[data-slot="composer"]')).toBeNull()
@@ -903,7 +955,7 @@ it('pages keep the terminal visible when the project is still chosen', async () 
   const before = store.getSnapshot().workbench
   Object.assign(before, { navigation: { current: { kind: 'agents' }, back: [], forward: [] } })
   act(() => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} pageActive /></StoreProvider>))
-  expect(container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!.dataset.bottomOpen).toBe('true')
+  expect(container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!.dataset.rightOpen).toBe('true')
   expect(container.querySelector('[data-terminal-id]')).toBe(terminal)
   expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
 })

@@ -60,7 +60,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
     for (const width of [1440, 320]) {
       await page.setViewportSize({ width, height: 900 })
-      const details = page.getByRole('button', { name: 'Details', exact: true })
+      const details = page.getByRole('button', { name: 'Toggle rail', exact: true })
       if (await details.getAttribute('aria-pressed') !== 'true') await details.click()
       const seats = page.locator('[data-slot="tool-section"][aria-label="Seats"]')
       const trigger = seats.locator('[data-slot="list-row"] button[title^="Actions for"]').first()

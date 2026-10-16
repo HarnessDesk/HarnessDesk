@@ -85,7 +85,7 @@ for (const theme of themes) for (const width of widths) {
     if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
     await page.evaluate(async () => { await document.fonts.ready })
 
-    await page.getByRole('button', { name: 'Search everything' }).click()
+    await page.keyboard.press('Meta+k')
     const palette = page.getByRole('dialog', { name: 'Command palette' })
     const search = palette.getByRole('searchbox')
     await expect(search).toHaveAttribute('placeholder', 'Search sessions, files, teams, agents, commands…')

@@ -43,7 +43,7 @@ it('Activity starts with tasks across the app and retains completed output and s
   const store = previewStore({ tasks: new Map([[PREVIEW_SESSION_KEY, [task('Local running'), task('Local finished', 'completed')]], [foreign, [task('Foreign running')]]]) })
   const stop = vi.fn(), clear = vi.fn(); Object.assign(store, { stopTask: stop, clearTasks: clear })
   await act(async () => root.render(<StoreProvider store={store}><PaneProvider scope={{ paneId: 'owner', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: PREVIEW_SESSION_KEY }}><WorkActivityView /></PaneProvider></StoreProvider>))
-  expect(host.querySelector('[data-slot="tool-section"]')?.getAttribute('aria-label')).toBe('Background work')
+  expect(host.querySelector('[data-slot="tool-section"]')?.getAttribute('aria-label')).toBe('Background tasks')
   expect(host.textContent).toContain('Foreign running')
   expect(host.textContent).toContain('Local finished')
   expect(host.textContent).toContain('Recorded output')
@@ -51,13 +51,15 @@ it('Activity starts with tasks across the app and retains completed output and s
   expect(stop).toHaveBeenCalledWith('Local running', PREVIEW_SESSION_KEY)
   act(() => button('Clear').click()); expect(clear).toHaveBeenCalledWith(PREVIEW_SESSION_KEY)
 })
-it('Activity button dot follows any running task and leaves when all are finished', () => {
-  const store = previewStore({ tasks: new Map([[PREVIEW_SESSION_KEY, [task('Running')]]]) })
-  act(() => root.render(<StoreProvider store={store}><WorkTools /></StoreProvider>))
-  expect(host.querySelector('[data-work-tool="activity"] [data-slot="tool-dot"]')).not.toBeNull()
-  act(() => store.patch({ tasks: new Map([[PREVIEW_SESSION_KEY, [task('Running', 'completed')]]]) }))
-  expect(host.querySelector('[data-slot="tool-dot"]')).toBeNull()
+it('background tasks leave the bar to the rail while its toggle stays independent', () => {
+  const store=previewStore({tasks:new Map([[PREVIEW_SESSION_KEY,[task('Running')]]])})
+  act(()=>root.render(<StoreProvider store={store}><WorkTools /></StoreProvider>))
+  expect(host.querySelector('[data-work-tool="activity"]')).toBeNull()
+  expect(host.querySelector('[data-work-rail-toggle]')?.getAttribute('aria-pressed')).toBe('true')
+  act(()=>store.patch({tasks:new Map([[PREVIEW_SESSION_KEY,[task('Running','completed')]]])}))
+  expect(host.querySelector('[data-work-rail-toggle]')?.getAttribute('aria-pressed')).toBe('true')
 })
+
 const NoticeHost = () => {
   const refs = useShellHosts('work')
   return <><div ref={refs.topRef} /><div data-testid="main-notice" ref={refs.mainRef} /></>

@@ -1,5 +1,5 @@
 import { InfoCard, SubjectActionsMenu } from '../design'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useId, type ReactNode, type RefObject } from 'react'
 
 import {
   flowStepOf,
@@ -51,8 +51,7 @@ import { useNeedsYouAnswers } from '../state/needs-you'
 import type { AppSnapshot } from '../state/snapshot'
 import { sidebarPlacement } from '../state/workbench'
 import { useMount } from '../panels/mount'
-import { useTopBar, useTopBarView, useWorkDetails } from '../panels/top-bar'
-import { RunDetailsView } from '../panels/run-dock'
+import { useTopBar, useTopBarView, useWorkDetails, WorkViewControlsOutlet } from '../panels/top-bar'
 import { TEAM_FRAME_PAGES, type TeamFramePage } from '../state/layout'
 import { TeamRunFacts } from './TeamRunFacts'
 import { RunFlowFile } from './RunFlow'
@@ -73,6 +72,7 @@ import {
   MoreIcon,
   PlusIcon,
   PullRequestIcon,
+  PencilIcon, RetryIcon, StopIcon,
   ShieldOffIcon,
 } from './Icons'
 import { AddMember } from './AddMember'
@@ -111,6 +111,7 @@ import {
   type SeatListRow,
   type TopBarTab,
   ActionError,
+  Dialog, Field, FormStack, Input, Page, Tabs, TabsList, TabsTrigger, Tooltip, TooltipTrigger, TooltipContent,
   Bar,
   Button,
   Chip,
@@ -162,6 +163,14 @@ const AT_THE_FLOOR = { rows: 0, onlyMessages: true } as const
  */
 
 /** Every Team destination shares one measured title, tabs and tools row. */
+const TeamViewTab = ({tab}:{tab:TopBarTab}) => {
+  const reason=useId()
+  const trigger=<TabsTrigger value={tab.value} data-team-page={tab.value} count={tab.count} disabled={Boolean(tab.disabled)}
+    title={tab.disabled || undefined} aria-describedby={tab.disabled ? reason : undefined}
+    className={tab.disabled ? 'aria-disabled:pointer-events-auto' : undefined} onClick={()=>{if(!tab.disabled)tab.run()}}>{tab.label}</TabsTrigger>
+  return tab.disabled ? <><Tooltip><TooltipTrigger render={trigger}/><TooltipContent>{tab.label} — {tab.disabled}</TooltipContent></Tooltip><span id={reason} className="sr-only">{tab.disabled}</span></> : trigger
+}
+
 export const TeamRoomPane = ({
   room,
   onChooseProject = () => undefined,
@@ -972,7 +981,16 @@ export const TeamRoomPane = ({
      answers for), then the room's. Never the placeholder word "Room" for the
      beat before the board answers — a name that reads as real and then
      changes is worse than none. */
-  const title = goal ? goalName(goal.goal) : team?.name ?? ''
+  const fullTitle = goal ? goalName(goal.goal) : team?.name ?? ''
+  const title = fullTitle.match(/^.*?[.!?](?:\s|$)/)?.[0].trim() ?? fullTitle
+  const [renaming, setRenaming] = useState(false)
+  const [rename, setRename] = useState('')
+  const [renameError, setRenameError] = useState<string | null>(null)
+  const renameSubject = async () => {
+    if (!rename.trim() || !goal) return
+    try { await store.updateGoal(goal.goal.id, goal.goal.revision, { sentence: rename.trim() }); setRenaming(false) }
+    catch (cause) { setRenameError(cause instanceof Error ? cause.message : String(cause)) }
+  }
   /**
    * The one member (if any) a runtime is waiting on a person for, in room
    * order — the header's own state chip pulses for this, the room's chat
@@ -1065,14 +1083,17 @@ export const TeamRoomPane = ({
   ]
   useTopBar(mainOwner, {
     lead: <WindowControls />,
-    place: title, state: runState ? <Chip tone={runState.tone}>{runState.pulse && <Dot state="limit" pulse />}{runState.label}</Chip> : undefined,
-    tabs: teamTabs, tab: open === 'side-by-side' || singleMember ? 'room' : open,
-    view: { disabled: 'This view has no layout or filter choices', content: () => null },
+    place: sanitizeText(title), placeTitle: sanitizeText(fullTitle), state: runState ? <Dot tone={runState.tone} pulse={runState.pulse} title={runState.label} aria-label={runState.label} /> : undefined,
+    placeMenu: close => <>
+      {goal && <MenuItem icon={<PencilIcon />} label="Rename" disabled={record ? RECORD_REASON : false} onSelect={() => { setRename(goal.goal.sentence); setRenameError(null); setRenaming(true); close() }} />}
+      {pullRequest && <MenuItem icon={<PullRequestIcon />} label="Open pull request" onSelect={() => { void openExternal(pullRequest.url); close() }} />}
+      {flowExecution && <MenuItem icon={<RetryIcon />} label="Run again…" disabled={record ? RECORD_REASON : goal?.goal.state !== 'open' ? 'This Team is not open' : false} onSelect={() => { setAgain(flowExecution); close() }} />}
+      {goal?.goal.state !== 'wrapped' && <MenuItem icon={<CommentIcon />} label="Wrap…" disabled={record ? RECORD_REASON : wrapDisabled} onSelect={() => { setWrapping(true); close() }} />}
+      {flowExecution && <MenuItem icon={<StopIcon />} label="Stop run…" disabled={record ? RECORD_REASON : flowExecution.state !== 'running' ? 'This Run is not running' : false} onSelect={() => { setStoppingRun(flowExecution.id); close() }} />}
+    </>,
     tools: <WorkTools changesRefusal={teamChangesRefusal} />,
     terminal: true,
     more: close => <>
-      {pullRequest && <MenuItem icon={<PullRequestIcon size={16} />} label="Open pull request" onSelect={() => { void openExternal(pullRequest.url); close() }} />}
-      <MenuItem icon={<CommentIcon size={16} />} label="Wrap…" disabled={record ? RECORD_REASON : wrapDisabled} onSelect={() => { setWrapping(true); close() }} />
       <MenuItem icon={<ExpandIcon size={16} />} label="Fill the window" onSelect={() => { store.zoomPanel('main', 'window'); close() }} />
     </>, corner: sidebarPlacement(snapshot) !== 'column',
   }, Boolean(mainOwner))
@@ -1132,7 +1153,6 @@ export const TeamRoomPane = ({
         originAction={originStatus?.url ? <Button variant="link" size="inline-link" onClick={() => void openExternal(originStatus.url!)}>Open</Button> : undefined}
         originNote={originStatus ? originHoverWords(originStatus, triggerSourceTitle ?? 'Trigger') : undefined}
         pullRequest={detailsPullRequest} cost={detailsCosts} trigger={triggerKind ? <>{teamTriggerLabel(originStatus, triggerControl.view)}{originStatus && <Text as="span" role="meta" ink="secondary"> · {originHoverWords(originStatus, triggerSourceTitle ?? 'Trigger')}</Text>}{triggerControl.view && <Text as="span" role="meta" title={triggerControl.view.reason ?? undefined}> · {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}</Text>}{triggerControl.view?.reason && <Text as="span" role="meta"> · {triggerControl.view.reason}</Text>}{!detailsInput && originStatus?.url && <Button variant="link" size="inline-link" onClick={() => void openExternal(originStatus.url!)}>Open</Button>}</> : undefined} />
-      <RunDetailsView inspectionOnly />
     </ToolSection>
     <ToolSection label="Seats" action={<Button variant="ghost" size="icon-sm" aria-label="Seat an Agent in this Team"
       disabled={record || !goal} title={record ? RECORD_REASON : !goal ? 'This compatibility room is read-only' : undefined}
@@ -1165,6 +1185,16 @@ export const TeamRoomPane = ({
 
   return (
     <PaneSurface className={`${styles.pane} h-full`} data-slot="team-room">
+      {renaming && <Dialog title="Rename Team" onClose={() => setRenaming(false)} footer={<>
+        <Button disabled={!rename.trim()} onClick={() => void renameSubject()}>Rename</Button><Button variant="quiet" onClick={() => setRenaming(false)}>Cancel</Button>
+      </>}><FormStack><Field label="Brief">{control => <Input {...control} value={rename} onChange={event => setRename(event.target.value)} autoFocus
+        onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void renameSubject() } }} />}</Field></FormStack>{renameError && <ActionError>{renameError}</ActionError>}</Dialog>}
+      <PaneColumn inset="reading" page>
+        <Tabs value={open === 'side-by-side' || singleMember ? 'room' : open}>
+          <TabsList aria-label="Team views" data-look="quiet" className="max-w-full justify-start overflow-x-auto">{teamTabs.map(tab => <TeamViewTab key={tab.value} tab={tab}/>)}</TabsList>
+        </Tabs>
+        <WorkViewControlsOutlet owner={mainOwner} />
+      </PaneColumn>
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
       {stoppingRun && stoppingExecution?.goal === room ? <StopRunDialog key={stoppingRun} seats={stopSeats}
@@ -1199,8 +1229,7 @@ export const TeamRoomPane = ({
               onRunVisibility={onRunReviewVisibility} active={open === 'runs'} />
           </div>}
           {open === 'receipt' ? (
-            <PaneColumn inset="reading" page className="min-h-0 flex-1 overflow-y-auto">
-              <div className="w-full max-w-(--hd-column)">
+            <Page width="reading" fill>
               {goal?.receipt ? (
                 <>
                   <GoalReceiptCost receipt={goal.receipt}>
@@ -1210,8 +1239,7 @@ export const TeamRoomPane = ({
                   {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
                 </>
               ) : null}
-              </div>
-            </PaneColumn>
+            </Page>
           ) : open === 'overview' ? (
             <TeamOverview model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} answers={needsYouAnswers} onWrap={!record && goal?.activity === 'ready-to-wrap' && !wrapDisabled ? () => setWrapping(true) : undefined} onRun={() => { if (triggerKind && flowExecution) setChosenRun(flowExecution.id); show('run') }}
               faces={new Map(seats.map(seat => {

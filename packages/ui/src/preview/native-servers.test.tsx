@@ -20,15 +20,16 @@ it('the real native-server Agent preview retains its registered Start handler an
     await act(async () => root.render(<StoreProvider store={outer}><NativeServersPreview /></StoreProvider>))
     const entry = harness.PREVIEW_AGENTS[0]!
     const label = `Start a conversation as ${entry.definition!.name}`
-    const button = host.querySelector<HTMLButtonElement>(`[data-slot="top-bar"] button[aria-label="${label}"]`)
-    expect(button).not.toBeNull()
+    const button = [...host.querySelectorAll<HTMLButtonElement>('[data-slot="toolbar"] button')].find(button => button.textContent === label)
+    expect(button).toBeTruthy()
     expect(button?.textContent).toBe(label)
     expect([...host.querySelectorAll('[data-slot="summary-item"]')].find(one => one.textContent?.startsWith('Native servers'))?.textContent).toBe('Native serversNone')
     expect(host.textContent).toContain(entry.definition!.description)
     await act(async () => button!.click())
     expect(start).toHaveBeenCalledWith(entry.id)
     expect(host.querySelectorAll('[data-slot="top-bar"]')).toHaveLength(1)
-    expect(host.querySelector('[data-topbar-title] [data-slot="text"]')?.textContent).toBe(entry.definition!.name)
+    expect(host.querySelector('[data-topbar-title]')).toBeNull()
+    expect(host.querySelector('h1[data-role="page"]')?.textContent).toBe(entry.definition!.name)
     expect(host.querySelectorAll('[data-slot="detail-title"]')).toHaveLength(0)
   } finally {
     act(() => root.unmount()); host.remove(); start.mockRestore()

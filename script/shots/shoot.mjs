@@ -1536,24 +1536,10 @@ rules:
       await stageRoom()
       await cdp.eval(`${STORE}.openTeamRoom(${q(roomId)}); true`)
       // Opening a Team restores its selected page; explicitly choose Chat
-      // through the current tab or folded destination menu for this scene.
-      // Measurement can replace expanded tabs with their folded menu. Choose
-      // the reachable control, rather than a transient DOM-presence snapshot.
-      if (!await press({ selector: '[role="tab"][data-team-page="room"]' }, { stable: true })) {
-        if (!await press({ selector: 'button[title="Destination views"]' }, { stable: true })) throw new Error('room: Destination views is not reachable')
-        await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[role="menuitemradio"][data-team-page="room"]'))`), Boolean).catch(async (error) => {
-          const controls = await cdp.json(`(() => ({
-            bars: [...document.querySelectorAll('[data-slot="top-bar"]')].map(bar => ({ text: bar.innerText, height: bar.getBoundingClientRect().height, hidden: Boolean(bar.closest('[inert], [aria-hidden="true"]')) })),
-            menus: [...document.querySelectorAll('[role="menu"]')].map(menu => ({ text: menu.innerText, height: menu.getBoundingClientRect().height })),
-          }))()`)
-          const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
-          writeFileSync(`${OUT}/room-controls-unready.png`, Buffer.from(shot.data, 'base64'))
-          throw new Error(`${error.message}; room controls: ${JSON.stringify(controls)}`)
-        })
-        if (!await press({ selector: '[role="menuitemradio"][data-team-page="room"]' }, { stable: true })) throw new Error('room: folded Chat is not reachable')
-      }
-      await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[data-topbar="view"] button'))`), Boolean)
-      if (!await press({ selector: '[data-topbar="view"] button' }, { stable: true })) throw new Error('room: View is not reachable')
+      // through its body tab and Chat's body layout choice for this scene.
+      if (!await press({ selector: '[data-slot="workbench-main"] [role="tab"][data-team-page="room"]' }, { stable: true })) throw new Error('room: Chat is not reachable')
+      await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[data-slot="workbench-main"] [data-slot="page-options"] button[aria-label="View"]'))`), Boolean)
+      if (!await press({ selector: '[data-slot="workbench-main"] [data-slot="page-options"] button[aria-label="View"]' }, { stable: true })) throw new Error('room: Chat view choice is not reachable')
       await waitForSnapshot(() => cdp.eval(`[...document.querySelectorAll('[role="menuitemradio"]')].some(one => one.textContent.trim() === 'Side by side')`), Boolean).catch(async (error) => {
           const controls = await cdp.json(`(() => ({
             bars: [...document.querySelectorAll('[data-slot="top-bar"]')].map(bar => ({ text: bar.innerText, height: bar.getBoundingClientRect().height, hidden: Boolean(bar.closest('[inert], [aria-hidden="true"]')) })),
@@ -2216,9 +2202,9 @@ rules:
     return true
   }
   const openGitMenu = async () => {
-    const shown = await cdp.json(`Boolean(document.querySelector('[data-slot="tool-body"] button[aria-label="Folder actions"]'))`)
-    if (!shown && !(await press({ selector: 'header [data-work-tool="details"]' }))) throw new Error('no Details control in the conversation header')
-    if (!(await press({ selector: '[data-slot="tool-body"] button[aria-label="Folder actions"]' }))) throw new Error('no Folder actions control in conversation Details')
+    const shown = await cdp.json(`Boolean(document.querySelector('[data-frame-region="rail"] [data-slot="tool-body"] button[aria-label="Folder actions"]')?.checkVisibility({ visibilityProperty: true }))`)
+    if (!shown && !(await press({ selector: 'header [data-work-rail-toggle]' }))) throw new Error('no rail control in the conversation header')
+    if (!(await press({ selector: '[data-frame-region="rail"] [data-slot="tool-body"] button[aria-label="Folder actions"]' }))) throw new Error('no Folder actions control in the conversation rail')
   }
   /**
    * What the store holds once the item is chosen, checked beside the frame:
