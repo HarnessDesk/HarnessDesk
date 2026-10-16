@@ -96,8 +96,7 @@ it('draws the agent that acted as a face, which follows the shape chosen for fac
   await mountWith([{ id: 'codex', presentation: { name: 'Agent runtime' }, capabilities: {} }])
   const tile = container.querySelector('[data-slot="icon-tile"]')
   expect(tile?.className).toContain('rounded-(--hd-face-radius)')
-  const snapshot = emptySnapshot()
-  expect(tile?.getAttribute('data-tint')).toBe(runtimeTint(runtimeId('codex'), snapshot.accountsByRuntime, snapshot.accountPrefs))
+  expect(tile?.getAttribute('data-tint')).toBe(runtimeTint({ id: 'codex', presentation: { name: 'Agent runtime' } }))
 })
 
 it('keeps the event glyph a plain square when the agent cannot be named, so it is never taken for someone', async () => {
@@ -125,5 +124,5 @@ it('filters the mounted session, sorts newest first and sanitizes agent text', a
   expect(text.indexOf('Newest')).toBeLessThan(text.indexOf('Older'))
   expect(text).not.toContain('\u001b')
   expect(text).not.toContain('fixture-agent')
-  expect(text).toContain('Agent')
+  expect(text).toContain('Runtime')
 })

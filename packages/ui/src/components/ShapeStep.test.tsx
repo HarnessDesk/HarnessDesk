@@ -122,14 +122,14 @@ it('searches six seats by presentation name and keeps existing model and effort 
   act(() => root.render(<ShapeStep role={role} agents={[]} runtimes={runtimes} onChange={onChange} />))
   act(() => menuButton('Add a seat').click())
   await settle()
-  const input = document.querySelector<HTMLInputElement>('input[aria-label="Search Agents"]')!
+  const input = document.querySelector<HTMLInputElement>('input[aria-label="Search runtimes"]')!
   expect(input).not.toBeNull()
   const filter = (value: string) => act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
   filter('missing')
-  expect(document.body.textContent).toContain('No Agents match.')
+  expect(document.body.textContent).toContain('No runtimes match.')
   filter('发布')
   expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(1)
   act(() => menuItem('发布前检查').click())

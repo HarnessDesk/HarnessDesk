@@ -73,6 +73,7 @@ for (const destination of layoutDestinations) {
     await applyFrameActions(page, destination)
     if (destination.id === 'settings-runtimes-add') {
       await page.getByRole('button', { name: 'Add a runtime', exact: true }).click()
+      await page.getByRole('button', { name: 'Browse more…', exact: true }).click()
       await expect(page.getByRole('searchbox', { name: 'Search the ACP registry' })).toBeVisible()
     }
     const issues = await page.evaluate(minimum => {
@@ -138,6 +139,7 @@ test('shared heading and page or panel stacks: registry search gap', async ({ pa
   await openFrame(page, 'frame-wall=settings-runtimes&layout-registry=1', 'light', 1440)
   const stackGap = await resolvedPx(page, '--hd-card-gap')
   await page.getByRole('button', { name: 'Add a runtime', exact: true }).click()
+  await page.getByRole('button', { name: 'Browse more…', exact: true }).click()
   const search = page.locator('[data-slot="search"]').filter({ has: page.getByRole('searchbox', { name: 'Search the ACP registry' }) })
   await expect(search).toBeVisible()
   const searchBottom = (await search.boundingBox())!.y + (await search.boundingBox())!.height

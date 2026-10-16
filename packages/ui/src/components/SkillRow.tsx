@@ -7,7 +7,6 @@ import { Button, Chip, CodeText, AvatarStack, ListRow, ListRows, Table, TableBod
 import { useNarrowLayout } from '../lib/use-narrow-layout'
 import { runtimeTint } from '../lib/accounts'
 import { libraryUpdateFor } from '../lib/library-updates'
-import { useSnapshot } from '../state/context'
 import { ChevronIcon } from './Icons'
 import type { LibraryColumn } from './LibraryActions'
 import styles from './SkillRow.module.css'
@@ -58,15 +57,15 @@ export const findingFor = (
     const only = refused[0]
     const label =
       refused.length === 1
-        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one agent')
-        : `${refused.length} agents`
+        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one runtime')
+        : `${refused.length} runtimes`
     return { text: `Refused by ${label}`, tone: 'warn' }
   }
   const digests = new Set(entry.copies.filter((one) => !one.hollow).map((one) => one.digest))
   if (digests.size > 1) return { text: `${digests.size} copies differ`, tone: 'warn' }
 
   if (entry.reach.length > 0 && entry.reach.every(one => one.state !== 'reaches' && one.state !== 'off' && one.state !== 'stale')) {
-    return { text: entry.copies.some(copy => copy.readBy.length === 0) ? 'Where no agent looks' : 'Loaded by nobody', tone: 'warn' }
+    return { text: entry.copies.some(copy => copy.readBy.length === 0) ? 'Where no runtime looks' : 'Loaded by nobody', tone: 'warn' }
   }
   const update = libraryUpdateFor(entry)
   if (update?.status === 'behind') return { text: 'Update available', tone: 'quiet' }
@@ -79,8 +78,8 @@ export const findingFor = (
     const only = offColumns[0]
     const label =
       offColumns.length === 1
-        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one agent')
-        : `${offColumns.length} agents`
+        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one runtime')
+        : `${offColumns.length} runtimes`
     return { text: `Off in ${label}`, tone: 'quiet' }
   }
 
@@ -93,8 +92,8 @@ export const findingFor = (
     const only = staleColumns[0]
     const label =
       staleColumns.length === 1
-        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one agent')
-        : `${staleColumns.length} agents`
+        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one runtime')
+        : `${staleColumns.length} runtimes`
     return { text: `Not read yet by ${label}`, tone: 'quiet' }
   }
 
@@ -107,7 +106,6 @@ export const SkillRow = ({ entry, columns, onOpen }: {
   columns: readonly LibraryColumn[]
   onOpen: () => void
 }) => {
-  const snapshot = useSnapshot()
   const narrow = useContext(NarrowList)
   const finding = useMemo(() => findingFor(entry, columns), [entry, columns])
   const loaded = entry.reach.filter(reach => reach.state === 'reaches')
@@ -125,12 +123,13 @@ export const SkillRow = ({ entry, columns, onOpen }: {
     return column ? [{
       id: reach.runtime,
       name: column.label,
-      tint: runtimeTint(reach.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs),
+      tint: runtimeTint(column.info ?? { id: column.id, presentation: { name: column.label } }),
       mark: column.info ? <RuntimeMark runtime={column.info} size={12} /> : undefined,
     }] : []
   })
   const faces = members.length ? <AvatarStack
     size="stack"
+    overlap={false}
     aria-label={`Loaded by ${members.map(member => member.name).join(', ')}`}
     members={members}
   /> : <span>{narrow && <span className="sr-only">Loaded by </span>}<Text role="muted" ink="muted" title={narrow ? 'Loaded by none' : undefined}>None</Text></span>
@@ -185,7 +184,7 @@ export const SkillList = ({ children, kind = 'skill' }: { children: React.ReactN
     <NarrowList.Provider value={narrow ?? false}>
     {narrow === null ? null : narrow ? <ListRows>{children}</ListRows> : <Table variant="framed">
     <TableCaption variant="sr-only">
-      Each row is one entry; its state and the agents that load it appear in separate columns.
+      Each row is one entry; its state and the runtimes that load it appear in separate columns.
     </TableCaption>
     <TableHeader>
       <TableRow>

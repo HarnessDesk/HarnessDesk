@@ -665,7 +665,7 @@ export const annotationContext = (
   lines.push(
     options.withImage
       ? 'The attached image is a screenshot of that page with these marks drawn on it, each numbered to match the comments below.'
-      : 'The marks are described below; this agent takes no images, so the screenshot was not attached.',
+      : 'The marks are described below; this runtime takes no images, so the screenshot was not attached.',
   )
 
   for (const annotation of annotations) {

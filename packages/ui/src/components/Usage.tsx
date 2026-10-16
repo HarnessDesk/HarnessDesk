@@ -267,17 +267,17 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
   const blurb = scoped
     ? borrowed?.unverified
       ? overview
-        ? `One agent's plans, spend and history, read on this machine. Its plan figures are the ${borrowed.unverified.whose}'s, which may not be the account ${scoped.presentation.name} runs as.`
+        ? `One runtime's plans, spend and history, read on this machine. Its plan figures are the ${borrowed.unverified.whose}'s, which may not be the account ${scoped.presentation.name} runs as.`
         : `Its plan figures are the ${borrowed.unverified.whose}'s, which may not be the account ${scoped.presentation.name} runs as.`
       : overview
-        ? `One agent's plans, spend and history, read from ${scoped.presentation.name}'s own numbers on this machine.`
+        ? `One runtime's plans, spend and history, read from ${scoped.presentation.name}'s own numbers on this machine.`
         : undefined
     : borrowed
       ? overview
-        ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine. A card headed by another sign-in shows that sign-in’s.`
+        ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each runtime’s own numbers on this machine. A card headed by another sign-in shows that sign-in’s.`
         : `A card headed by another sign-in shows that sign-in’s.`
       : overview
-        ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine.`
+        ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each runtime’s own numbers on this machine.`
         : undefined
 
   const scopeItems = [{ value: '', label: 'All accounts' }, ...[...new Set(everyReport.map(report => report.runtime))].map(id => ({

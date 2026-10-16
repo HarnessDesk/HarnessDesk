@@ -148,7 +148,7 @@ it('switches from the Year grid to one row per agent, and back', async () => {
   // fixture — it only appears once the grid draws one row per agent.
   expect(container.textContent).not.toContain('Codex')
 
-  await act(async () => choose('By agent'))
+  await act(async () => choose('By runtime'))
   expect(container.textContent).toContain('Claude Code')
   expect(container.textContent).toContain('Codex')
 
@@ -169,7 +169,7 @@ it('switches the measure from tokens to cost, changing what the facts read', asy
 it('counts hour coverage from daily runtime attribution on a runtime-grouped report', async () => {
   await renderSuppliedReport(groupedLedgerReport([{ runtime: CLAUDE, weekday: 1, hour: 10, requests: 2, tokens: 100 }]))
   await act(async () => choose('By hour'))
-  expect(container.textContent).toContain('known for 1 of 2 agents')
+  expect(container.textContent).toContain('known for 1 of 2 runtimes')
 })
 
 it('keeps hourly figures unknown when hourly is absent, but shows a quiet year for an empty hourly array', async () => {
@@ -311,7 +311,7 @@ it('levels By agent rows off each agent\'s own cells, not the combined daily tot
   })
   await renderBand(vi.fn(async () => ledgerReportSkewed()))
 
-  await act(async () => choose('By agent'))
+  await act(async () => choose('By runtime'))
 
   // Rows are sorted most-total-first (Claude, then Codex) and drawn as one
   // Fragment per row, so the flat cell list — including the not-scanned

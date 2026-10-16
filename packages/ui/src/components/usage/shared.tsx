@@ -4,7 +4,7 @@ import type { AccountStatus, LedgerReport, LedgerRow, RuntimeId, RuntimeInfo, Us
 
 import { burnWord } from '../../lib/burn'
 import { dashboardReadLabel } from '../../lib/dashboard-read'
-import { prefsForUsage, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
+import { prefsForUsage, runtimeTint, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
 import { formatTokens } from '../../lib/context-usage'
 import { agentCoverage, ledgerRuntimeIds } from '../../lib/overview-strip'
 import {
@@ -98,7 +98,7 @@ import { Menu, MenuItem, MenuSeparator, Popover } from '../../design'
  */
 
 export const PIVOTS = [
-  { value: 'runtime', label: 'By agent' },
+  { value: 'runtime', label: 'By runtime' },
   { value: 'model', label: 'By model' },
   { value: 'project', label: 'By project' },
 ] as const
@@ -120,7 +120,22 @@ export type TintOf = (runtime: string) => Tint
 export const tintsForRoster = (runtimes: readonly RuntimeInfo[]): TintOf => {
   const ids = runtimes.map((info) => String(info.id))
   const tints = tintsFor(ids)
-  const map = new Map(ids.map((id, index) => [id, tints[index] as Tint]))
+  const map = new Map<string, Tint>()
+  const taken = new Set<Tint>()
+  // Reserve every brand first, so an earlier duplicate cannot take a later
+  // runtime's own colour. Only duplicates borrow from the roster palette.
+  for (const info of runtimes) {
+    const tint = runtimeTint(info)
+    if (taken.has(tint)) continue
+    map.set(String(info.id), tint)
+    taken.add(tint)
+  }
+  for (const [index, id] of ids.entries()) {
+    if (map.has(id)) continue
+    const tint = tints.find((candidate) => !taken.has(candidate)) ?? tints[index] as Tint
+    map.set(id, tint)
+    taken.add(tint)
+  }
   return (runtime: string): Tint => map.get(runtime) ?? tintFor(runtime)
 }
 
@@ -217,7 +232,7 @@ export const Card = ({
   const state = stateOf(report, borrowed ? describeReport(report, { now, maxLanes: 0 }) : view)
   const hero = view.hero
   const headlineReset = hero ? resetOf(hero, view.all.length > 1) : null
-  const agent = info?.presentation.name ?? 'Agent'
+  const agent = info?.presentation.name ?? 'Runtime'
 
   // The headline. It is not a second number: it is whichever row of the table
   // below has least left, promoted — which is why the word beside it is only
@@ -616,7 +631,7 @@ export const noteOf = (
     return {
       text: hasSpend
         ? 'Pay as you go — nothing to run out of. What it cost is below.'
-        : 'This agent reports no plan usage here.',
+        : 'This runtime reports no plan usage here.',
     }
   }
   return null
@@ -854,7 +869,7 @@ const coverageSentence = (ledger: LedgerReport | null, metric: ChartMetric): str
   }
   if (metric === 'turns') {
     const coverage = agentCoverage(ledger.coverage, ledgerRuntimeIds(ledger))
-    const parts: string[] = [`turns known for ${coverage.known} of ${coverage.total} agents`]
+    const parts: string[] = [`turns known for ${coverage.known} of ${coverage.total} runtimes`]
     return parts.join(' · ')
   }
   const parts: string[] = [provenanceLabel(ledger)]
@@ -938,13 +953,13 @@ export const Ranked = ({
           {!compact && <><TableHead numeric>Tokens</TableHead><TableHead numeric>Cost</TableHead></>}
         </TableRow></TableHeader>
         <TableBody>{rows.map((row, index) => {
-          const info = row.runtime ? byId.get(row.runtime) : null
+          const info = (row.runtime ? byId.get(row.runtime) : null) ?? byId.get(row.key as RuntimeId) ?? fallbackInfo(row.key)
           const label = nameOf(row)
           const share = shareOf(row.cost, total)
           const change = row.key === OTHER_KEY ? null : rankedChange(row.cost, previous?.complete ? (previous.totals.get(row.key as RuntimeId) ?? null) : null)
           // A runtime breakdown totals all its accounts, so its face has no account initial.
           return <TableRow key={row.key}>
-            <TableCell lead={pivot === 'runtime' && row.key !== OTHER_KEY ? <IconTile shape="face" size={compact ? 'sm' : 'default'} tint={tintAt(index, row)}><RuntimeMark runtime={info ?? byId.get(row.key as RuntimeId) ?? fallbackInfo(row.key)} /></IconTile> : <SeriesDot tint={tintAt(index, row)} />}>
+            <TableCell lead={pivot === 'runtime' && row.key !== OTHER_KEY ? <IconTile shape="face" size={compact ? 'sm' : 'default'} tint={tintAt(index, row)}><RuntimeMark runtime={info} /></IconTile> : <SeriesDot tint={tintAt(index, row)} />}>
               <Text role="subject" truncate title={label}>{label}</Text>
             </TableCell>
             {!compact && pivot === 'runtime' && <TableCell numeric>{change === null ? <Text role="meta">—</Text> : <Delta value={Math.round(change)} better="down" />}</TableCell>}

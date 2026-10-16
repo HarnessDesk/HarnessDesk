@@ -244,7 +244,7 @@ it('lists every in-force Agent under "Run as", and starting one runs the session
 
   const select = runAsSelect()
   const optionLabels = [...select.options].map((one) => one.textContent)
-  expect(optionLabels).toContain('Default agent')
+  expect(optionLabels).toContain('Default runtime')
   expect(optionLabels).toContain('Code reviewer')
 
   act(() => {
@@ -322,7 +322,7 @@ it('opens focused on Session without scrolling, and leaves focus where a person 
   expect(document.activeElement).toBe(select)
 })
 
-it('Enter with Agents listed still starts a plain session while Default agent is chosen', () => {
+it('Enter with Agents listed still starts a plain session while Default runtime is chosen', () => {
   const { store } = rig({}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
   render(store)
   act(() => {

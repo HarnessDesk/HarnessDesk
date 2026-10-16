@@ -866,7 +866,7 @@ const IntentCard = ({
   /* The holder's own ring, so the face on a card and the row in the rail are
      visibly the same account — see lib/accounts.ts on what the ring is for. */
   const holderTint = assignee
-    ? runtimeTint(assignee.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs)
+    ? runtimeTint(snapshot.runtimes.find(info => info.id === assignee.runtime))
     : 'blue'
   const holderCeiling = intent.claim
     ? seatCeilingOf(session?.settings, snapshot.flowRuns.get(room) ?? [], intent.claim.runtime, intent.claim.sessionId)

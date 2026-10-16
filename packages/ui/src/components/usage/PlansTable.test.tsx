@@ -10,6 +10,7 @@ import { emptySnapshot } from '../../state/store'
 import { entriesFromReports, entriesFromSilent, NotReportingList } from './NotReporting'
 import { PlansTable, ShapeFilters } from './PlansTable'
 import { planRows, primaryShapeOf, shapeCountsOf } from '../../lib/plans-table'
+import { runtimeTint } from '../../lib/accounts'
 
 const NOW = new Date('2026-09-26T12:00:00').getTime()
 const DAY = 86_400_000
@@ -712,7 +713,7 @@ describe('PlansTable', () => {
       />,
     )
     act(() => rowFor('nothing@example.com').click())
-    expect(host.textContent ?? '').toContain('This agent reports no plan usage here.')
+    expect(host.textContent ?? '').toContain('This runtime reports no plan usage here.')
   })
 })
 
@@ -739,7 +740,7 @@ describe('NotReportingList', () => {
     const onRefresh = vi.fn()
     const entries = entriesFromReports([report({ runtime: codex.id, account: 'x@example.com' })], byIdOf(codex), onRefresh)
     mount(<NotReportingList entries={entries} />)
-    expect(host.textContent ?? '').toContain('This agent reports no plan usage here.')
+    expect(host.textContent ?? '').toContain('This runtime reports no plan usage here.')
     const button = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Refresh')
     expect(button).toBeDefined()
     act(() => button?.click())
@@ -797,7 +798,7 @@ it('uses one neutral tone for a Ready chip and its remaining bar', () => {
   expect(row.querySelector('[data-slot="progress"]')?.getAttribute('data-tone')).toBe('neutral')
 })
 
-it('qualifies each Plans account with its own initial while keeping free and metered faces neutral', () => {
+it('qualifies each Plans account with its own initial while keeping free and metered faces in the brand tint', () => {
   const agent = info('alpha', 'Alpha')
   const accounts = [{ kind: 'oauth' as const, label: 'alice@example.com' }, { kind: 'oauth' as const, label: 'amy@example.com' }]
   const snapshot = { ...emptySnapshot(), runtimes: [agent], accountsByRuntime: { [agent.id]: { accounts, signInMethods: [] } } }
@@ -806,7 +807,7 @@ it('qualifies each Plans account with its own initial while keeping free and met
     onRefreshAccount={() => {}} onStopTracking={() => {}} onOpenPlanSettings={() => {}} />)
   const faces = accounts.map(account => rowFor(account.label).closest('tr')!.querySelector('[data-slot="icon-tile"]')!)
   expect(faces.map(face => face.querySelector('[data-slot="face-badge"]')?.textContent)).toEqual(['AL', 'AM'])
-  expect(faces.map(face => face.getAttribute('data-tone'))).toEqual(['neutral', 'neutral'])
+  expect(faces.map(face => face.getAttribute('data-tint'))).toEqual([runtimeTint(agent), runtimeTint(agent)])
 })
 
 it('leaves a single signed-in Plans account without an initial', () => {

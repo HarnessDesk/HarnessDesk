@@ -33,7 +33,7 @@ for (const theme of ['light', 'dark'] as const) {
   test(`Permissions folds unused ceiling rows with a keyboard disclosure in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=settings&frame-section=permissions&frame-settings-round4=1', theme)
     const ceilings = page.getByRole('region', { name: 'Ceilings', exact: true })
-    const disclosure = ceilings.getByRole('button', { name: /^Other agents · / })
+    const disclosure = ceilings.getByRole('button', { name: /^Other runtimes · / })
     await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
     const count = Number((await disclosure.innerText()).match(/· (\d+)/)![1])
     const visible = await ceilings.locator('[data-slot="row"]').count()

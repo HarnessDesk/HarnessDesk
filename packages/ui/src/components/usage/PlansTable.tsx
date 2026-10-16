@@ -32,7 +32,7 @@ import {
 } from '../../design'
 import { formatTokens } from '../../lib/context-usage'
 import { accountActivitySummary, type AccountActivitySummary } from '../../lib/usage'
-import { accountForUsage, defaultTint, runtimeAccountBadge } from '../../lib/accounts'
+import { accountForUsage, runtimeAccountBadge, runtimeTint } from '../../lib/accounts'
 import type { AppSnapshot } from '../../state/store'
 import { CaretIcon } from '../Icons'
 import { RuntimeMark } from '../BrandIcons'
@@ -95,7 +95,6 @@ export const PlansTable = ({
   initialExpanded = null,
   onSignIn,
   signInRuntimes,
-  tintFor = defaultTint,
   snapshot = { accountsByRuntime: {}, accountPrefs: {} },
 }: {
   /** Every row, already described and sorted — `planRows(...)`, computed once by the caller (review of #1069, B3) and never recomputed here. */
@@ -111,7 +110,6 @@ export const PlansTable = ({
   initialExpanded?: string | null
   onSignIn?: (runtime: RuntimeId) => void
   signInRuntimes?: ReadonlySet<RuntimeId>
-  tintFor?: (runtime: RuntimeId, accountLabel: string | null) => import('../../design').Tint
   snapshot?: Pick<AppSnapshot, 'accountsByRuntime' | 'accountPrefs'>
 }) => {
   const [expanded, setExpanded] = useState<string | null>(initialExpanded)
@@ -154,7 +152,6 @@ export const PlansTable = ({
                 info={info}
                 name={name}
                 badge={badge}
-                tint={tintFor(row.report.runtime, row.report.account)}
                 onSignIn={onSignIn && signInRuntimes?.has(row.report.runtime) ? () => onSignIn(row.report.runtime) : undefined}
                 bodyId={bodyId}
                 isOpen={isOpen}
@@ -195,7 +192,6 @@ const TableRowGroup = ({
   row,
   info,
   name,
-  tint,
   badge,
   onSignIn,
   bodyId,
@@ -212,7 +208,6 @@ const TableRowGroup = ({
   row: PlanRow
   info: RuntimeInfo | null
   name: string
-  tint: import('../../design').Tint
   badge?: string
   onSignIn?: () => void
   bodyId: string
@@ -228,7 +223,7 @@ const TableRowGroup = ({
 }) => (
   <>
     <TableRow data-state={isOpen ? 'selected' : undefined}>
-      <TableCell lead={info && <IconTile shape="face" badge={badge} {...(row.shape === 'metered' || row.shape === 'free' ? { tone: 'neutral' as const } : { tint })}><RuntimeMark runtime={info} /></IconTile>}>
+      <TableCell lead={info && <IconTile shape="face" badge={badge} tint={runtimeTint(info)}><RuntimeMark runtime={info} /></IconTile>}>
         <DashboardPlanName name={row.report.account ?? name} meta={[row.report.account && name, shapeWords(row)].filter(Boolean).join(' · ')} />
       </TableCell>
       <TableCell>

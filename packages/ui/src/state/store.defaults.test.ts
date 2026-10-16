@@ -265,7 +265,7 @@ it('flags an offered pick when the agent answers with another value', async () =
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => method === 'runtime/sessionDefaults' ? declared : {}) as never)
   await store.setNewSessionDefault(runtime, 'model', 'current')
-  expect(store.getSnapshot().staleDraftDefaults[runtime]).toMatchObject([{ id: 'model', value: 'current', reason: 'The agent returned a different value.' }])
+  expect(store.getSnapshot().staleDraftDefaults[runtime]).toMatchObject([{ id: 'model', value: 'current', reason: 'The runtime returned a different value.' }])
 })
 
 it('treats a known list replaced by no controls as stale, while first discovery stays unknown', async () => {

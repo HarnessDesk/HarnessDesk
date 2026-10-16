@@ -385,6 +385,6 @@ it('steps Down by the row the grid is drawn with', () => {
 it('General scopes local storage to HarnessDesk and acknowledges agent services', () => {
   act(() => root.render(<GeneralSection rows={null} />))
   expect(container.textContent).toContain('HarnessDesk keeps its preferences, conversations and work records in ~/.harnessdesk.')
-  expect(container.textContent).toContain('Agents connect to their own services.')
+  expect(container.textContent).toContain('Runtimes connect to their own services.')
   expect(container.textContent).not.toContain('nothing syncs or uploads')
 })

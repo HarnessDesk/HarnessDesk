@@ -78,7 +78,7 @@ it('keeps an unavailable agent and its consequence visible while ordinary taglin
   })
 
   const trigger = document.querySelector<HTMLButtonElement>(
-    'button[title="Which agent starts this conversation"]',
+    'button[title="Which runtime starts this conversation"]',
   )
   expect(trigger).not.toBeNull()
   click(trigger!)
@@ -88,7 +88,7 @@ it('keeps an unavailable agent and its consequence visible while ordinary taglin
   const ready = rows.find((row) => row.textContent?.includes('Ready'))
 
   expect(down?.textContent).toContain('Down — unavailable')
-  expect(down?.textContent).toContain('This agent cannot start right now. Selecting it shows what to fix.')
+  expect(down?.textContent).toContain('This runtime cannot start right now. Selecting it shows what to fix.')
   expect(down?.title).toBe('')
   expect(ready?.textContent).not.toContain('The available agent.')
   expect(ready?.title).toBe('The available agent.')

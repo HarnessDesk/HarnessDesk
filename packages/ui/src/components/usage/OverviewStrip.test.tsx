@@ -84,3 +84,13 @@ it('keeps the Turns tile for partial coverage even when the total is unknown', (
   act(() => root.render(<OverviewStrip reports={[]} ledger={report} wideLedger={null} range={30} now={0} metric="value" onMetricChange={() => {}} onOpenPlan={() => {}} />))
   expect(host.querySelector('button[title^="Turns"]')?.textContent).toContain('—')
 })
+
+it('counts runtimes in both partial-coverage captions', () => {
+  const alpha = runtimeId('alpha'), beta = runtimeId('beta')
+  const report = { ...ledger('listPrice'), coverage: { ...ledger('listPrice').coverage, turnsKnownFor: [alpha] }, rows: [
+    { key: 'alpha', label: 'Alpha', runtime: alpha, cost: 12, tokens: 100, hasUnpriced: false },
+    { key: 'beta', label: 'Beta', runtime: beta, cost: null, tokens: null, hasUnpriced: true },
+  ] }
+  act(() => root.render(<OverviewStrip reports={[]} ledger={report} wideLedger={null} range={30} now={0} metric="value" onMetricChange={() => {}} onOpenPlan={() => {}} />))
+  for (const label of ['Turns', 'Tokens']) expect(host.querySelector(`button[title^="${label}"]`)?.textContent).toContain('known for 1 of 2 runtimes')
+})

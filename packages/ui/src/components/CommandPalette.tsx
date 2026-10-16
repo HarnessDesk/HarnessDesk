@@ -476,7 +476,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       label: `Start with ${runtimeLabel(runtime, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)}`,
       hint: runtime.id === snapshot.activeRuntime ? 'current' : runtime.presentation.tagline,
       icon: <RuntimeMark runtime={runtime} />,
-      keywords: `switch agent ${brandOf(runtime.presentation.name)}`,
+      keywords: `switch runtime ${brandOf(runtime.presentation.name)}`,
       // "Start with" promises a conversation. Choosing the agent is a
       // preference that leaves the screen alone, so the draft is opened
       // here, on purpose, after the pick. The pick goes through even for the

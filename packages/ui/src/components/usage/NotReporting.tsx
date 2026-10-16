@@ -45,7 +45,7 @@ export const entriesFromReports = (
         key: `${report.runtime}:${report.account ?? ''}`,
         info,
         title: report.account ?? info.presentation.name,
-        reason: 'This agent reports no plan usage here.',
+        reason: 'This runtime reports no plan usage here.',
         fix: { label: 'Refresh', onClick: () => onRefreshAccount(report.runtime) },
       },
     ]

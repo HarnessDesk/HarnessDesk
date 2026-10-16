@@ -317,3 +317,14 @@ it('keeps a recorded lookalike in the person’s trajectory label', async () => 
   })] } as unknown as Turn])
   expect(rows()[0]?.getAttribute('title')).toBe(raw)
 })
+
+
+it('names the runtime in an ordinary conversation with no steps yet', async () => {
+  await render([])
+  expect(container.textContent).toContain('runtime took, and where the time went.')
+})
+
+it('attributes an ordinary conversation’s answer to its runtime', async () => {
+  await render([{ ...TURN, items: [item('answer', { type: 'assistantMessage', text: 'Ready to review.' })] }])
+  expect(leads()).toEqual(['Runtime'])
+})

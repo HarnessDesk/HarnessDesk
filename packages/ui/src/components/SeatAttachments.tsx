@@ -79,7 +79,7 @@ export const SeatAttachments = ({
 
   // Rule 8: a runtime is named by its presentation, never its id — and one
   // this desk no longer has is named as such, not by the id it once had.
-  const runtimeName = snapshot.runtimes.find((one) => String(one.id) === record.runtime)?.presentation.name ?? 'an agent no longer on this desk'
+  const runtimeName = snapshot.runtimes.find((one) => String(one.id) === record.runtime)?.presentation.name ?? 'a runtime no longer on this desk'
   const status = record.restored ? 'Restored' : historical ? `Loaded on ${runtimeName}` : `Currently on ${runtimeName}`
 
   return (

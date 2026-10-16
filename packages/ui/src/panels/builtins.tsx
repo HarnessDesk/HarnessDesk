@@ -250,7 +250,7 @@ registerView({
   menu: true,
   ownsChrome: true,
   label: 'Browser',
-  hint: 'A page beside the conversation, and the one agents drive.',
+  hint: 'A page beside the conversation, and the one runtimes drive.',
   icon: GlobeIcon,
   /* Right, and only right. A page is something the work is done *from*, so it
      belongs beside the conversation rather than in place of it — and the bottom
@@ -382,7 +382,7 @@ registerView({
   // Kept for saved workbenches; Activity no longer has a public door.
   kind: 'activity',
   label: 'Activity',
-  hint: 'What every agent did in this repository this week.',
+  hint: 'What every runtime did in this repository this week.',
   icon: HistoryIcon,
   mounts: ['right', 'bottom', 'sidebar'],
   defaultMount: 'right',

@@ -1,3 +1,6 @@
+import { tintForRuntimeBrand } from '../design/identity'
+import { brandForRuntime } from './brands'
+
 import type { Account, AccountStatus, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
 
 /**
@@ -118,23 +121,9 @@ export const credentialHome = (info: RuntimeInfo): string | null => {
   return home === null ? null : home.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~')
 }
 
-/**
- * The ring one runtime wears, wherever it is drawn.
- *
- * The account's own tint where there is an account, so a member row, its name
- * card, the sidebar seat and the composer all light the same colour — which is
- * what the ring is *for*. Where there is no account yet, a hash of the runtime
- * id: a rail of five members all in one fixed colour tells the reader nothing,
- * and telling them apart is the entire job.
- */
-export const runtimeTint = (
-  runtime: RuntimeId,
-  accounts: Readonly<Partial<Record<RuntimeId, { readonly accounts: readonly Account[] }>>>,
-  prefs: AccountPrefsMap,
-): Tint => {
-  const account = accounts[runtime]?.accounts[0]
-  return account ? tintOf(accountKey(runtime, account), prefs) : defaultTint(runtime)
-}
+/** Brand faces keep their colour; account rings still use tintOf and preferences. */
+export const runtimeTint = (runtime: Parameters<typeof brandForRuntime>[0] | undefined) =>
+  tintForRuntimeBrand(runtime ? brandForRuntime(runtime) ?? runtime.presentation.name : '')
 
 /**
  * What to call a runtime in a list that may hold several of one agent.

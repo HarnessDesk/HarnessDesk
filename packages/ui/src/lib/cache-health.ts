@@ -93,7 +93,7 @@ export const cacheHealthOf = (usage: TokenUsage | null | undefined): CacheHealth
       label: `${share}% cached`,
       title: [
         `${formatTokens(read)} of ${formatTokens(usage.inputTokens)} input tokens came from cache.`,
-        'This agent does not report how much was written into cache, so whether the cache was warm or cold cannot be said from here.',
+        'This runtime does not report how much was written into cache, so whether the cache was warm or cold cannot be said from here.',
       ].join('\n'),
     }
   }

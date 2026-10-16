@@ -122,7 +122,7 @@ export const OverviewView = ({
           </Button>
           {summary.metered > 0 && scopedSilent.length > 0 && (
             <Text role="meta">
-              {scopedSilent.length} {scopedSilent.length === 1 ? 'agent doesn’t' : 'agents don’t'} report usage
+              {scopedSilent.length} {scopedSilent.length === 1 ? 'runtime doesn’t' : 'runtimes don’t'} report usage
             </Text>
           )}
         </>
