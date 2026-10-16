@@ -101,7 +101,7 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'popup-context-info-focused', query: 'frame-wall=conversation', infoFocus: 'context' },
   { id: 'popup-member-info-focused', query: 'frame-wall=conversation&popup=member-info', focus: 'Frame member facts' },
   { id: 'popup-budget-info-focused', query: 'frame-wall=conversation&popup=budget-info', focus: 'Run budget' },
-  { id: 'popup-account-info', query: 'frame-wall=conversation', leftOpen: true, infoTarget: '[data-info-source="account"]' },
+  { id: 'popup-account-info', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'usage' },
   { id: 'popup-header-info', query: 'frame-wall=conversation&popup=header-info', infoTarget: '[data-info-source="header"]' },
   { id: 'popup-publication-info', query: 'frame-wall=conversation&popup=publication-info', infoTarget: '[data-kind="pullRequest"] a[href]' },
   { id: 'popup-publication-actions', query: 'frame-wall=conversation&popup=publication-info', popup: 'acme/storefront #12 actions' },

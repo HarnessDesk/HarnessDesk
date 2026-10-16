@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { selectFrameTab } from './frame-actions'
 import { openFrame } from './frame-contract-helpers'
+import { revealPreviewConversation } from './sidebar-preview-actions'
 
 
 // Contract runs measure the preview; the final wall owns images and recordings.
@@ -40,7 +41,7 @@ for (const width of [1440, 720]) test(`E6 Library column sessions and New sessio
   await column.getByRole('button', { name: 'Back', exact: true }).click()
   await expect(page.locator('[data-page-destination="library"]:visible')).toHaveCount(1)
   await reveal()
-  await column.getByRole('button', { name: 'Worktree Management', exact: true }).click()
+  await (await revealPreviewConversation(column, 'Worktree Management')).click()
   await expect(page.locator('[data-page-destination="library"]:visible')).toHaveCount(0)
   await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
 })

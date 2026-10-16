@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { level, modelControl, reasoningRow } from './reasoning-menu'
+import { revealPreviewConversation } from './sidebar-preview-actions'
 
 /*
   Tab and Shift+Tab leave a menu and close every level of it (WAI-ARIA APG,
@@ -167,14 +168,14 @@ test.describe('a context menu', () => {
   // A context menu opens at a point, not from a place in the tab order, so
   // leaving it goes back to where the focus was. Before, Tab stopped on the
   // guard after it; Shift+Tab and Escape dropped the focus on the page.
-  const sessionRow = (page: Page) =>
-    page.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]')
-      .filter({ hasText: 'Pin the flaky inventory test after reconciling every retry branch' })
-      .first()
+  const sessionRow = (page: Page) => revealPreviewConversation(
+    page.locator('[data-frame-id="sidebar-column"]'),
+    'Pin the flaky inventory test after reconciling every retry branch',
+  )
 
   test('Tab, Shift+Tab and Escape each close it and give the focus back to its row', async ({ page }) => {
     await page.goto('/preview.html')
-    const session = sessionRow(page)
+    const session = await sessionRow(page)
     await session.scrollIntoViewIfNeeded()
     for (const key of ['Tab', 'Shift+Tab', 'Escape']) {
       await session.focus()
@@ -191,7 +192,7 @@ test.describe('a context menu', () => {
   test('opened with the pointer, it gives the focus back the same way', async ({ page }) => {
     // The press that opens it has already put the focus on the row.
     await page.goto('/preview.html')
-    const session = sessionRow(page)
+    const session = await sessionRow(page)
     await session.scrollIntoViewIfNeeded()
     for (const key of ['Tab', 'Shift+Tab', 'Escape']) {
       await session.click({ button: 'right' })

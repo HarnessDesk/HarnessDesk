@@ -11,13 +11,13 @@
  */
 export const FRAME = {
   bar: { height: 40, pad: 12, gap: 6, iconButton: 28, toolGap: 4, titleMin: 180, titleMax: 320, dividerHeight: 14, stateDot: 8, tabsAfterTitle: 16, tabHeight: 26, tabPad: 8, tabRadius: 6 },
-  sidebar: { width: 256, min: 200, max: 360 },
+  sidebar: { width: 256, min: 200, max: 360, footerHeight: 48 },
   rightPanel: { width: 400, min: 320, max: 640 },
   bottomPanel: { height: 240, min: 120 },
   main: { min: 480 },
   fold: { panelFloats: 1280, sidebarFloats: 1000 },
   page: { reading: 736, wide: 1320, gutter: 24, canvasGutter: 8 },
-  rail: { rowHeight: 32, settingsRowHeight: 32, inset: 8, icon: 16, gap: 8, label: 13, settingsLabel: 14, line: 20, groupWeight: 400 },
+  rail: { rowHeight: 32, rowPitch: 34, settingsRowHeight: 32, inset: 8, icon: 16, gap: 8, label: 13, settingsLabel: 14, line: 20, groupWeight: 400 },
   menu: { min: 200, max: 340, padding: 6, radius: 10, rowHeight: 30, rowRadius: 4 },
   infoCard: { width: 288, padding: 12 },
   panel: { pad: 8, cardGap: 8, cardPadY: 10, cardPadX: 12, cardRadius: 10, headHeight: 20, rowHeight: 28, foldedCard: 42, chevronGap: 4, rowIcon: 16, rowGap: 8 },
@@ -48,7 +48,9 @@ export const FRAME_TOKENS: Readonly<Record<string, number>> = {
   '--hd-menu-row-radius': FRAME.menu.rowRadius,
   '--hd-popover-width-wide': FRAME.menu.max,
   '--hd-info-card-width': FRAME.infoCard.width,
-  '--hd-left-row-h': FRAME.rail.rowHeight,
+  '--hd-left-row-h': FRAME.rail.rowPitch,
+  '--hd-sidebar-highlight-h': FRAME.rail.rowHeight,
+  '--hd-bar-h-lg': FRAME.sidebar.footerHeight,
   '--hd-frame-icon-button': FRAME.bar.iconButton,
 }
 

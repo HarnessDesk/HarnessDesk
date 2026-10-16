@@ -145,7 +145,7 @@ for (const theme of WALL_THEMES) {
       const seatBox = (await column.locator('[data-left-seat]').locator('..').boundingBox())!
       await expect(modal.locator('[data-slot="status-bar"], [data-shell-host="status"]')).toHaveCount(0)
       const windowBox = (await modal.boundingBox())!
-      expect(seatBox.height).toBe(FRAME.bar.height)
+      expect(seatBox.height).toBe(FRAME.sidebar.footerHeight)
       expect(Math.abs(seatBox.y + seatBox.height - windowBox.y - windowBox.height)).toBeLessThanOrEqual(1)
       await expect(column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }))
         .toHaveAttribute('aria-pressed', 'true')

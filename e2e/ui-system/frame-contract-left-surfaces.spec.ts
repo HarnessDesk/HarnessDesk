@@ -19,6 +19,7 @@ for (const theme of WALL_THEMES) {
           const column = page.locator('[data-left-column]:visible')
           if (!await column.count()) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
           const token = await resolvedPx(page, '--hd-space-4')
+          const sidebarSpace = await resolvedPx(page, '--hd-sidebar-group-space')
           const sessions = await column.evaluate(column => {
             const inkX = (element: Element) => {
               const range = document.createRange()
@@ -76,7 +77,7 @@ for (const theme of WALL_THEMES) {
             expect(name.size).toBe(FRAME.rail.label)
             expect(name.weight).toBe(FRAME.rail.groupWeight)
           }
-          for (const group of sessions.gaps) expect(group.gap, `Sessions: ${group.label}`).toBe(token)
+          for (const group of sessions.gaps) expect(group.gap, `Sessions: ${group.label}`).toBe(sidebarSpace)
           for (const disclosure of sessions.disclosures) expect(disclosure.arrowX - disclosure.nameRight, 'disclosure follows the name by the spacing token').toBe(6)
           for (const row of sessions.rows) {
             expect(row.height).toBe(FRAME.rail.rowHeight)
@@ -157,7 +158,7 @@ for (const theme of WALL_THEMES) {
       })
       expect(fill[0]).toBe(fill[1])
       expect((await page.locator('[data-left-top]').boundingBox())!.height).toBe(FRAME.bar.height)
-      expect((await page.locator('[data-left-seat]').locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+      expect((await page.locator('[data-left-seat]').locator('..').boundingBox())!.height).toBe(FRAME.sidebar.footerHeight)
       const seatTextX = await page.locator('[data-left-seat]').evaluate(seat => {
         const walker = document.createTreeWalker(seat, NodeFilter.SHOW_TEXT)
         let node: Node | null
