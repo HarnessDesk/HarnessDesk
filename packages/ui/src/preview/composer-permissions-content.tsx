@@ -28,11 +28,11 @@ const AgentComposer = ({ variant }: { variant: typeof variants[number] }) => {
     } }) as AppStore
   }, [variant])
   return <StoreProvider store={store}>
-    <section data-permissions-agent={variant.name} className="grid gap-2">
+    <section data-permissions-agent={variant.name} className="grid min-w-0 grid-cols-1 gap-2">
       <h3 className="text-sm font-medium">{variant.name}</h3>
       <ComposerShell>
         <ComposerText aria-label="Message" placeholder="Describe the next change…" />
-        <ComposerTools data-composer-layout="draft">
+        <ComposerTools className="w-full min-w-0" data-composer-layout="draft">
           <ComposerTrack name="add"><Button variant="ghost" size="sm" aria-label="Add"><PlusIcon size={15} /></Button></ComposerTrack>
           <PlaceControl /><AgentControl /><PermissionControl /><ModeControl /><ComposerTrack name="extension" /><ComposerGap /><MoreControl /><ContextUsage /><ModelControl />
           <ComposerTrack name="send"><ComposerSend aria-label="Send"><SendIcon size={15} /></ComposerSend></ComposerTrack>
@@ -41,6 +41,6 @@ const AgentComposer = ({ variant }: { variant: typeof variants[number] }) => {
     </section>
   </StoreProvider>
 }
-export const ComposerPermissionsContent = () => <div data-composer-permissions className="grid gap-4 p-4 w-(--hd-column)">
+export const ComposerPermissionsContent = () => <div data-composer-permissions className="grid min-w-0 max-w-full gap-4 p-4 w-(--hd-column)">
   {variants.map(variant => <AgentComposer key={variant.name} variant={variant} />)}
 </div>

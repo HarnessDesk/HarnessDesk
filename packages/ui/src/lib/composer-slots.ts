@@ -40,7 +40,11 @@ export const optionsBySlot = (options: readonly ConfigOption[] | undefined): Com
       const plan = option.choices.find(choice => choice.value === planValue)
       const act = option.choices.find(choice => choice.value === actValue)
       if (plan && act) {
-        slots.permissions.push({ ...option, choices: option.choices.filter(choice => choice.value !== planValue) })
+        slots.permissions.push({ ...option,
+          // While planning, show the permission level Act will return to.
+          currentValue: option.currentValue === planValue ? actValue : option.currentValue,
+          choices: option.choices.filter(choice => choice.value !== planValue),
+        })
         slots.mode.push({ ...option, category: 'mode', label: 'Collaboration mode',
           currentValue: option.currentValue === planValue ? planValue : actValue,
           choices: [{ ...act, label: 'Act' }, { ...plan, label: 'Plan' }],

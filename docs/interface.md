@@ -789,7 +789,8 @@ in [extending.md](extending.md).
   levels. **Collaboration mode** is separate: plan first or act directly. When
   an agent mixes planning into its permission list, adapter metadata splits the
   list into those two controls; both still send the agent's existing option id
-  and values. Choosing Act returns to the adapter-declared acting value. An
+  and values. Choosing Act returns to the adapter-declared acting value;
+  Permissions displays that acting level while Plan is selected. An
   agent without collaboration modes has no collaboration control. Draft picks
   retain their selected label while the toolbar has room. A missing-permissions
   placeholder appears only when no permission option is declared.

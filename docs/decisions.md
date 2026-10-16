@@ -3335,6 +3335,11 @@ leaves planning, and choosing Act uses the adapter's acting value (the ordinary
 manual mode when the agent is currently planning). There is no second stored
 permission policy to reconcile with the agent.
 
+While planning, Permissions displays the declared acting value that Act will
+return to; Plan remains selected only in Collaboration mode. This display
+projection does not change the agent's current value. The runtime cache keeps
+both collaboration values so the same split is available before the agent starts.
+
 The Permissions trigger names the slot and the selected level, including in a
 draft. Only a genuinely absent permission option earns the missing-setting
 placeholder. Model and effort take their natural width while space remains;

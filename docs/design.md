@@ -2080,6 +2080,8 @@ that may shrink, up to its cap, and its full name stays in the title. A folded
 Permissions is one named slot across agents. Collaboration mode has its own
 control and is absent when the adapter declares none. Mixed permission and
 planning lists are split from adapter metadata, preserving their wire values.
+While planning, Permissions shows the declared acting level and Collaboration
+mode shows Plan; the permission picker never calls the active plan unavailable.
 Selected model and effort labels take their natural width while space remains.
 The Mode fact never leaves a lone initial on screen: a new-session composer uses
 the mode mark with the value available to assistive technology, or hides it at
