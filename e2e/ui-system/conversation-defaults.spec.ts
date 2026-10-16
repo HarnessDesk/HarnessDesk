@@ -2,6 +2,25 @@ import { expect, test } from '@playwright/test'
 import { openFrame } from './frame-contract-helpers'
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`General keeps default choices after a refused recommendation in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'conversation-defaults=1&defaults-refused=1', theme)
+    await page.setViewportSize({ width: 1440, height: 1100 })
+    const permission = page.getByTitle('Default permission level', { exact: true })
+    const warning = page.getByText('The runtime did not accept its recommended Permissions. Choose a default in Settings and try again.', { exact: true })
+    await expect(warning).toBeVisible()
+    await expect(permission).toHaveText('Recommended')
+    await expect(page.getByTitle('Default model', { exact: true })).toBeVisible()
+    await page.screenshot({ path: `/tmp/hdv-defaults-d2/general-refused-${theme}.png` })
+    await permission.click()
+    await page.getByRole('menuitemradio', { name: 'Workspace write', exact: true }).click()
+    await expect(warning).toBeVisible()
+    await permission.click()
+    await page.getByRole('menuitemradio', { name: 'Full access', exact: true }).click()
+    await expect(permission).toHaveText('Full access')
+    await expect(warning).toHaveCount(0)
+    await expect(page.getByText('Your data', { exact: true })).toBeVisible()
+  })
+
   test(`General new-conversation defaults in ${theme}`, async ({ page }) => {
     await openFrame(page, 'conversation-defaults=1', theme)
     await page.setViewportSize({ width: 1440, height: 1100 })

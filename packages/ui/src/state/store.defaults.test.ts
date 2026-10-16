@@ -459,3 +459,37 @@ it('reports a refused recommendation during composer refresh without rejecting t
   await expect(store.loadDraftOptions()).resolves.toBeUndefined()
   expect(notice).toHaveBeenCalledWith('warning', 'The runtime refused its recommendation.')
 })
+
+
+it.each(['accepts', 'ignores', 'fails again'] as const)('resolves recommendations after discovery retries and the runtime %s them', async (reply) => {
+  const store = new AppStore('ws://localhost:0/')
+  let reads = 0
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown> }) => {
+    if (method === 'runtime/sessionDefaults') {
+      if (++reads === 1 || reply === 'fails again') throw new Error('Discovery interrupted.')
+      return [{ id: 'access', label: 'Access', type: 'select', category: '_permissions',
+        currentValue: reply === 'accepts' ? params.values?.access ?? 'full' : 'full', recommendedValue: 'workspace',
+        choices: [{ value: 'workspace', label: 'Workspace' }, { value: 'full', label: 'Full' }] }]
+    }
+    if (method === 'session/create') return { runtime, id: sessionId('retried'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return {}
+  }) as never)
+  await store.newSession({ runtime, cwd: '/workspace' })
+  const create = request.mock.calls.find(([method]) => method === 'session/create')
+  if (reply === 'accepts') expect(create?.[1]).toMatchObject({ options: { options: { access: 'workspace' } } })
+  else expect(create).toBeUndefined()
+})
+
+it.each([['_permissions', 'gone'], ['model', 'gone'], ['thought_level', 'gone'], ['_permissions', 'careful']])('checks a replacement recommendation for a rejected saved %s pick %s', async (category, saved) => {
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'app/state/get') return { draftValues: { [runtime]: { pick: saved } } }
+    if (method === 'runtime/sessionDefaults') return [{ id: 'pick', label: 'Pick', type: 'select', category,
+      currentValue: 'expensive', recommendedValue: 'careful', choices: [{ value: 'careful', label: 'Careful' }, { value: 'expensive', label: 'Expensive' }] }]
+    return {}
+  }) as never)
+  await store.loadPreferences()
+  await expect(store.newSessionDefaultsFor(runtime)).rejects.toThrow('did not accept its recommended Pick')
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.some(([method]) => method === 'session/create')).toBe(false)
+})

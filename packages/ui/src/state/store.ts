@@ -6278,58 +6278,57 @@ export class AppStore {
     const revision = this.#nextDraftRevision(runtime)
     const asked = this.#draftsByRuntime[runtime] ?? {}
     const params = { runtime, ...(cwd ? { cwd } : {}) }
-    let recommended = false
-    try {
-      // Discover first: an obsolete saved value never rides the next request.
-      let declared = await this.transport.request('runtime/sessionDefaults', params)
+    // Retry discovery through the same resolver; an unread or rejected list
+    // is never an accepted set of start values.
+    let declared: readonly ConfigOption[]
+    try { declared = await this.transport.request('runtime/sessionDefaults', params) }
+    catch { declared = await this.transport.request('runtime/sessionDefaults', params) }
+    if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+    // Reasoning and other controls can depend on the selected model. Resolve
+    // a valid saved model (or profile that chooses one) before judging its
+    // dependent saved values against the agent's default declarations.
+    const selectors = Object.fromEntries(Object.entries({ ...draftRecommendations(declared, asked), ...asked }).filter(([id]) =>
+      declared.some((one) => one.id === id && (one.category === 'model' || one.category === '_profile'))))
+    const invalidSelectors = new Set(staleDefaults(selectors, declared)
+      .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+    const validSelectors = Object.fromEntries(Object.entries(selectors).filter(([id]) => !invalidSelectors.has(id)))
+    const fallbackSelectors = Object.fromEntries(Object.entries(draftRecommendations(declared,
+      Object.fromEntries(Object.entries(asked).filter(([id]) => !invalidSelectors.has(id)))))
+      .filter(([id]) => declared.some(one => one.id === id && (one.category === 'model' || one.category === '_profile'))))
+    const selectorValues = modelFirstValues({ ...fallbackSelectors, ...validSelectors }, declared)
+    if (Object.keys(selectorValues).length > 0 && Object.keys({ ...draftRecommendations(declared, asked), ...asked }).some((id) => !(id in selectors))) {
+      declared = await this.transport.request('runtime/sessionDefaults', { ...params, values: selectorValues })
       if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
-      recommended = Object.keys(draftRecommendations(declared, asked)).length > 0
-      // Reasoning and other controls can depend on the selected model. Resolve
-      // a valid saved model (or profile that chooses one) before judging its
-      // dependent saved values against the agent's default declarations.
-      const selectors = Object.fromEntries(Object.entries({ ...draftRecommendations(declared, asked), ...asked }).filter(([id]) =>
-        declared.some((one) => one.id === id && (one.category === 'model' || one.category === '_profile'))))
-      const invalidSelectors = new Set(staleDefaults(selectors, declared)
-        .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
-      const validSelectors = Object.fromEntries(Object.entries(selectors).filter(([id]) => !invalidSelectors.has(id)))
-      const fallbackSelectors = Object.fromEntries(Object.entries(draftRecommendations(declared,
-        Object.fromEntries(Object.entries(asked).filter(([id]) => !invalidSelectors.has(id)))))
-        .filter(([id]) => declared.some(one => one.id === id && (one.category === 'model' || one.category === '_profile'))))
-      const selectorValues = modelFirstValues({ ...fallbackSelectors, ...validSelectors }, declared)
-      if (Object.keys(selectorValues).length > 0 && Object.keys({ ...draftRecommendations(declared, asked), ...asked }).some((id) => !(id in selectors))) {
-        declared = await this.transport.request('runtime/sessionDefaults', { ...params, values: selectorValues })
-        if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
-      }
-      const invalid = new Set(staleDefaults(asked, declared, this.#draftOptionsByRuntime[runtime])
-        .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
-      const applicable = modelFirstValues({ ...draftRecommendations(declared, asked), ...Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id))) }, declared)
-      let options = Object.keys(applicable).length > 0
-        ? await this.transport.request('runtime/sessionDefaults', { ...params, values: applicable }) : declared
-      // A model's recommendation can reveal its own effort. Read it from the
-      // answer, without carrying the previous model's recommended effort.
-      const resolved = modelFirstValues({ ...draftRecommendations(options, asked), ...Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id))) }, options)
-      if (JSON.stringify(resolved) !== JSON.stringify(applicable)) {
-        options = await this.transport.request('runtime/sessionDefaults', { ...params, values: resolved })
-      }
-      if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
-      for (const [id, value] of Object.entries(draftRecommendations(options, asked))) {
-        if (!(id in asked) && findOption(options, id)?.currentValue !== value) {
-          throw new Error(`The runtime did not accept its recommended ${findOption(options, id)?.label ?? id}. Choose a default in Settings and try again.`)
-        }
-      }
-      await this.#rememberDraftDefaults(runtime, asked, options)
-      return options
-    } catch (error) {
-      if (recommended) throw error
-      try {
-        const options = await this.transport.request('runtime/sessionDefaults', params)
-        if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
-        await this.#rememberDraftDefaults(runtime, asked, options)
-        return options
-      } catch {
-        return []
+    }
+    const invalid = new Set(staleDefaults(asked, declared, this.#draftOptionsByRuntime[runtime])
+      .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+    const saved = Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id)))
+    const applicable = modelFirstValues({ ...draftRecommendations(declared, saved), ...saved }, declared)
+    let options = Object.keys(applicable).length > 0
+      ? await this.transport.request('runtime/sessionDefaults', { ...params, values: applicable }) : declared
+    // A model's recommendation can reveal its own effort. Read it from the
+    // answer, without carrying the previous model's recommended effort.
+    const resolved = modelFirstValues({ ...draftRecommendations(options, saved), ...saved }, options)
+    if (JSON.stringify(resolved) !== JSON.stringify(applicable)) {
+      options = await this.transport.request('runtime/sessionDefaults', { ...params, values: resolved })
+    }
+    if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+    const accepted = kept(saved, options, this.#draftOptionsByRuntime[runtime])
+    for (const [id, value] of Object.entries(draftRecommendations(options, accepted))) {
+      if (!(id in accepted) && findOption(options, id)?.currentValue !== value) {
+        throw new Error(`The runtime did not accept its recommended ${findOption(options, id)?.label ?? id}. Choose a default in Settings and try again.`)
       }
     }
+    await this.#rememberDraftDefaults(runtime, asked, options)
+    return options
+  }
+
+  /** Recovery menus may show declarations even when applying recommendations fails.
+   * This read never caches or accepts values for session creation.
+   */
+  async newSessionDefaultChoicesFor(runtime: RuntimeId): Promise<readonly ConfigOption[]> {
+    const cwd = this.#snapshot.workspace?.path
+    return this.transport.request('runtime/sessionDefaults', { runtime, ...(cwd ? { cwd } : {}) })
   }
 
   /** Keeps the rejected fact and the accepted start values as separate records. */

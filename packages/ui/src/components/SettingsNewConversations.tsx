@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { runtimeId, type ConfigOption, type OptionValue } from '@harnessdesk/protocol'
-import { PageOptions, Row, Rows, RowValue, SectionHead } from '../design'
+import { Banner, PageOptions, Row, Rows, RowValue, SectionHead } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 
 const RECOMMENDED = '\u0000recommended'
@@ -11,12 +11,19 @@ export default function SettingsNewConversations() {
   const snapshot = useSnapshot()
   const runtime = snapshot.activeRuntime
   const [options, setOptions] = useState<readonly ConfigOption[]>([])
+  const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let current = true
     setOptions([])
+    setError(null)
     if (runtime) void Promise.resolve(store.newSessionDefaultsFor(runtime)).then(answer => {
       if (current) setOptions(answer ?? [])
-    }).catch(() => { if (current) setOptions([]) })
+    }).catch(async error => {
+      if (!current) return
+      setError(error instanceof Error ? error.message : 'The runtime could not read its new-conversation defaults. Try again.')
+      const choices = await store.newSessionDefaultChoicesFor(runtime).catch(() => [])
+      if (current) setOptions(choices)
+    })
     return () => { current = false }
   }, [store, runtime])
   const permission = options.find(option => option.category === '_permissions')
@@ -36,12 +43,22 @@ export default function SettingsNewConversations() {
       if (!runtime) return
       const next = value === RECOMMENDED ? store.clearNewSessionDefault(runtime, option.id)
         : store.setNewSessionDefault(runtime, option.id, option.type === 'boolean' ? value === 'true' : value as OptionValue)
-      void next.then(answer => { if (store.getSnapshot().activeRuntime === runtime) setOptions(answer) })
-        .catch(() => store.resultNotice('warning', 'The runtime could not read its new-conversation defaults. Try again.'))
+      void next.then(async answer => {
+        if (store.getSnapshot().activeRuntime !== runtime) return
+        setOptions(answer)
+        // A refused recommendation stays visible until an explicit pick
+        // makes the complete set of start values acceptable.
+        if (error) await store.newSessionDefaultsFor(runtime)
+        if (store.getSnapshot().activeRuntime === runtime) setError(null)
+      }).catch(failure => {
+        if (store.getSnapshot().activeRuntime === runtime) setError(failure instanceof Error
+          ? failure.message : 'The runtime could not read its new-conversation defaults. Try again.')
+      })
     },
   }]} />
   return <>
     <SectionHead name="New conversations" />
+    {error && <Banner tone="warning">{error}</Banner>}
     <Rows>
       <Row title="Default runtime" control={snapshot.runtimes.length === 0 ? <RowValue>No runtime added</RowValue> : <PageOptions choices={[{
         id: 'runtime', label: 'Default runtime', mode: 'menu', value: runtime ?? '',
