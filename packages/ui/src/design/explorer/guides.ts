@@ -902,12 +902,12 @@ export const useGuides = (roots: () => Element[]) => {
   }, [])
 }
 
-/** `page-section › row › row-title`: where an element sits, in the system's own names. */
+/** `page-section / row / row-title`: where an element sits, in the system's own names. */
 const slotPath = (el: Element) => {
   const names: string[] = []
   for (let up: Element | null = el; up && names.length < 5; up = up.parentElement) {
     const slot = up.getAttribute('data-slot')
     if (slot) names.unshift(slot)
   }
-  return names.join(' › ')
+  return names.join(' / ')
 }
