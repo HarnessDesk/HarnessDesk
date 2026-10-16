@@ -1,9 +1,9 @@
 import { useDestinationActive } from '../panels/destination-page'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { FlowEntry, TriggerFiring, TriggerHistoryPage, TriggerView } from '@harnessdesk/protocol'
 
-import { Button, Chip, Dialog, EmptyState, Field, ListRow, ListRows, NativeSelect, Note, Row, Rows, Section, Switch } from '../design'
+import { Button, Chip, Dialog, EmptyState, Field, ListRow, ListRows, NativeSelect, Note, Row, Rows, Section, Switch, ToolBodyControls } from '../design'
 import { triggerProblemPlace, triggerRowWords, triggerSkipWords } from '../lib/intake'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
@@ -13,6 +13,8 @@ import { TriggerCreate } from './TriggerCreate'
 
 export interface ProjectTriggersProps {
   readonly root: string
+  readonly flow?: string
+  readonly embedded?: boolean
 }
 
 const switchId = (id: string): string => `trigger-arm-${id}`
@@ -25,7 +27,7 @@ const switchId = (id: string): string => `trigger-arm-${id}`
  * as it is, matching `ProjectChecks` and `ProjectFlows` beside it. Only the
  * explicit arm review in `TriggerArm` ever consents to unattended work.
  */
-export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
+export const ProjectTriggers = ({ root, flow, embedded = false }: ProjectTriggersProps) => {
   const destinationActive = useDestinationActive()
 
   const store = useStore()
@@ -117,6 +119,10 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
   }
 
   const openChooser = (): void => {
+    if (flow) {
+      setCreating({ flow })
+      return
+    }
     setChoosingFlow(true)
     if (flows === null) {
       void store.flowCatalog(root).then(
@@ -133,11 +139,11 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
 
   if ('problem' in read) {
     return (
-      <Section title="Triggers">
+      <TriggerSection embedded={embedded}>
         <Rows>
           <Row title="Its triggers could not be read" desc={read.problem} />
         </Rows>
-      </Section>
+      </TriggerSection>
     )
   }
 
@@ -147,7 +153,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
 
   if (!view.exists) {
     return (
-      <Section title="Triggers" action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>}>
+      <TriggerSection embedded={embedded} action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>}>
         <Rows>
           <EmptyState
             variant="row"
@@ -177,12 +183,12 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
             }}
           />
         )}
-      </Section>
+      </TriggerSection>
     )
   }
 
   return (
-    <Section title="Triggers" action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>}>
+    <TriggerSection embedded={embedded} action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>}>
       <Note>
         {`Read from ${shortPath(view.path, snapshot.home)}, as committed. Nothing here runs until you arm it on this machine.`}
       </Note>
@@ -202,7 +208,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
             trail={<Chip tone="danger">Will not run</Chip>}
           />
         ))}
-        {view.triggers.map((trigger) => (
+        {view.triggers.filter(trigger => !flow || (trigger.definition && 'flow' in trigger.definition.opens && trigger.definition.opens.flow === flow)).map((trigger) => (
           <TriggerRowGroup
             key={trigger.id}
             trigger={trigger}
@@ -267,9 +273,13 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
           }}
         />
       )}
-    </Section>
+    </TriggerSection>
   )
 }
+
+const TriggerSection = ({ embedded, action, children }: { readonly embedded: boolean; readonly action?: ReactNode; readonly children: ReactNode }) => embedded
+  ? <>{action && <ToolBodyControls>{action}</ToolBodyControls>}{children}</>
+  : <Section title="Triggers">{action}{children}</Section>
 
 /** Which shape a new trigger opens — the same catalogue the front door lists, never a hardcoded set. */
 const FlowChooser = ({

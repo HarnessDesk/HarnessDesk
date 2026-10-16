@@ -35,6 +35,22 @@ const previewOf = (token: string): FrontDoorPreview => ({
   goal: null,
 })
 
+it('a page-local preview neither clears the dialog preview nor retires its in-flight generation', async () => {
+  store.openFrontDoor(CONTEXT)
+  let finishDialog!: (value: FrontDoorPreview) => void
+  const request = vi.fn().mockImplementationOnce(() => new Promise<FrontDoorPreview>(resolve => { finishDialog = resolve })).mockResolvedValueOnce(previewOf('page'))
+  store.transport.request = request as typeof store.transport.request
+  const dialog = store.previewFrontDoor({ context: CONTEXT, source: 'dialog', vars: {} })
+  await store.previewFrontDoor({ context: CONTEXT, source: 'page', vars: {} }, { publish: false })
+  expect(store.getSnapshot().frontDoor?.preview).toBeNull()
+  finishDialog(previewOf('dialog'))
+  await dialog
+  expect(store.getSnapshot().frontDoor?.preview?.flow.token).toBe('dialog')
+  request.mockResolvedValueOnce(previewOf('another-page'))
+  await store.previewFrontDoor({ context: CONTEXT, source: 'another-page', vars: {} }, { publish: false })
+  expect(store.getSnapshot().frontDoor?.preview?.flow.token).toBe('dialog')
+})
+
 it('openFrontDoor sets the one open request; closeFrontDoor clears it', () => {
   expect(store.getSnapshot().frontDoor).toBeNull()
   store.openFrontDoor(CONTEXT)

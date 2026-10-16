@@ -385,6 +385,8 @@ export interface FlowEntry {
   readonly summary?: string | null
   readonly format: 'legacy' | 'agents' | null
   readonly problem: string | null
+  /** The policy already parsed by the catalogue, for miniature graphs; absent on older hosts. */
+  readonly policy?: FlowPolicy | null
   readonly shadows: readonly { readonly origin: FlowOrigin; readonly path: string }[]
   /**
    * What this entry's own `layout.frontDoor` says, read once when the

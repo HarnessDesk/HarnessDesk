@@ -36,7 +36,7 @@ afterEach(() => {
 const ROOT = '/home/dev/code/storefront'
 const settle = () => act(async () => {})
 
-const mount = (overrides: Partial<AppStore> = {}, snapshotOverrides: Partial<AppSnapshot> = {}) => {
+const mount = (overrides: Partial<AppStore> = {}, snapshotOverrides: Partial<AppSnapshot> = {}, flow?: string) => {
   const snapshot = { ...emptySnapshot(), status: 'open', home: '/home/dev', ...snapshotOverrides } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -54,7 +54,7 @@ const mount = (overrides: Partial<AppStore> = {}, snapshotOverrides: Partial<App
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <ProjectTriggers root={ROOT} />
+        <ProjectTriggers root={ROOT} flow={flow} />
       </StoreProvider>,
     )
   })
@@ -66,6 +66,20 @@ const button = (label: string): HTMLButtonElement => {
   if (!found) throw new Error(`no button reading “${label}”`)
   return found
 }
+
+it('a Flow rail shows only triggers opening that Flow and creates directly for it', async () => {
+  const store = mount({ readAuthoring: vi.fn(async () => { throw new Error('Unread fixture') }), draftTrigger: vi.fn(async () => { throw new Error('Unread fixture') }), projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [
+    triggerView({ id: 'review-pr', definition: prDefinition() }),
+    triggerView({ id: 'nightly', definition: scheduleDefinition() }),
+  ] })) }, {}, 'review-pr')
+  await settle()
+  expect(container.textContent).toContain('When a pull request opens or is pushed, review it')
+  expect(container.textContent).not.toContain('Every 24 hours')
+  act(() => button('New trigger').click())
+  await settle()
+  expect(document.querySelector('[role="dialog"][aria-label="Every time — choose a shape"]')).toBeNull()
+  expect(store.draftTrigger).toHaveBeenCalledWith(expect.objectContaining({ opens: { flow: 'review-pr' } }))
+})
 
 it('describes every source, its arm state, and the last thing that happened, including a skip reason', async () => {
   const view: TriggerProjectView = triggerProjectView({

@@ -6,7 +6,7 @@ import type { AgentEntry, FlowEntry, FlowExecution, FlowPreview, SeatPlan } from
 
 import { ShellProvider, type ShellActions } from '../panels/views'
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { NewSessionChoice } from './NewSessionChoice'
 
 /**
@@ -48,22 +48,20 @@ const rig = (
     agents,
     agentPlans: plans,
   } as unknown as AppSnapshot
-  const store = {
-    subscribe: () => () => {},
-    getSnapshot: () => snapshot,
-    newDraft: vi.fn(),
-    createGoal: vi.fn().mockResolvedValue({ goal: { id: 'g1' } }),
-    openGoal: vi.fn(),
-    loadAgents: vi.fn(async () => {}),
-    startAsAgent: vi.fn(async () => null),
-    showView: vi.fn(),
-    flowGeneration: vi.fn(() => 0),
-    flowCatalog: vi.fn(async () => []),
-    agentsIn: vi.fn(async () => []),
-    flowSource: vi.fn(async () => ''),
-    previewFlow: vi.fn(async () => null),
-    startFlowGoal: vi.fn(),
-  } as unknown as AppStore
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), snapshot)
+  vi.spyOn(store.transport, 'request').mockImplementation((async () => []) as never)
+  vi.spyOn(store, 'newDraft').mockImplementation(() => {})
+  vi.spyOn(store, 'createGoal').mockResolvedValue({ goal: { id: 'g1' } } as never)
+  vi.spyOn(store, 'openGoal').mockImplementation(() => {})
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  vi.spyOn(store, 'startAsAgent').mockResolvedValue(null)
+  vi.spyOn(store, 'showView').mockImplementation(() => {})
+  vi.spyOn(store, 'flowCatalog').mockResolvedValue([])
+  vi.spyOn(store, 'agentsIn').mockResolvedValue([])
+  vi.spyOn(store, 'flowSource').mockResolvedValue('')
+  vi.spyOn(store, 'previewFlow').mockResolvedValue(null as never)
+  vi.spyOn(store, 'startFlowGoal').mockResolvedValue(null as never)
   return { store }
 }
 
@@ -112,6 +110,16 @@ const button = (label: string): HTMLButtonElement => {
 }
 
 const runAsSelect = (): HTMLSelectElement => document.querySelector('select')!
+
+it.each(['goal', 'flow', 'team'] as const)('%s opens the same New Team dialog', async kind => {
+  const { store } = rig()
+  render(store, vi.fn(), kind)
+  act(() => button('Continue').click())
+  await act(async () => {})
+  expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('New Team')
+  expect(document.querySelector('[aria-label="Search Flows"]')).not.toBeNull()
+  expect(document.querySelector('textarea[aria-label="What should they do?"]')).not.toBeNull()
+})
 
 const reviewer = (id: string, name: string): AgentEntry => ({
   id,
@@ -188,12 +196,12 @@ it('the primary label follows the chosen kind, and Goal opens Goal creation unde
   expect(button('Continue')).toBeTruthy()
   act(() => button('Continue').click())
 
-  const field = document.querySelector<HTMLInputElement>('[aria-label="What should they do?"]')!
+  const field = document.querySelector<HTMLTextAreaElement>('[aria-label="What should they do?"]')!
   act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the release')
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(field, 'Ship the release')
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  act(() => button('Start').click())
+  act(() => button('Start Team').click())
   await act(async () => {})
 
   expect(store.createGoal).toHaveBeenCalledWith({ root: '/repo', sentence: 'Ship the release', checkout: 'shared' })
@@ -371,136 +379,90 @@ const FLOW_EXECUTION: FlowExecution = {
   version: 2, id: 'run-1', goal: 'goal-1', document: FLOW_PREVIEW.compiled.document, state: 'running', rounds: [], operations: [], legacyRun: null, reason: null,
 }
 
-it('flow starts exactly one Goal through its host operation', async () => {
-  const { store } = rig()
-  vi.mocked(store.flowCatalog).mockResolvedValue([FLOW])
-  vi.mocked(store.flowSource).mockResolvedValue('version: 2\nname: Fix\n')
-  if (FLOW_PREVIEW.compiled.document.format !== 'agents') throw new Error('Expected an Agent flow fixture')
-  vi.mocked(store.previewFlow).mockResolvedValue({
-    ...FLOW_PREVIEW, compiled: { ...FLOW_PREVIEW.compiled, document: {
-      format: 'agents', flow: { ...FLOW_PREVIEW.compiled.document.flow, inputs: [{ id: 'brief', label: 'Brief' }] },
-    } },
-  })
+const installFlow = (store: AppStore, preview: FlowPreview = FLOW_PREVIEW, entry: FlowEntry = FLOW) => {
+  vi.mocked(store.flowCatalog).mockResolvedValue([entry])
+  const source = 'version: 2\nname: Fix\n'
+  vi.mocked(store.flowSource).mockResolvedValue(source)
+  let current = preview
+  vi.mocked(store.transport.request).mockImplementation((async (method: string, input: { vars?: Record<string, string>; source?: string }) => {
+    if (method === 'authoring/start/preview') return { flow: current, source: input.source, vars: input.vars, sentence: 'Fix this project', goal: null, target: { label: 'this project', base: null, head: null, dirty: false, independence: 'unknown' } }
+    return []
+  }) as never)
   vi.mocked(store.startFlowGoal).mockResolvedValue(FLOW_EXECUTION)
-  const onClose = render(store)
+  return { source, setPreview: (next: FlowPreview) => { current = next } }
+}
 
-  act(() => kindRow('Flow').click())
-  act(() => button('Continue').click())
-  await act(async () => {})
-  const flowSelect = document.querySelector('select') as HTMLSelectElement
+const typeTask = async (value: string) => {
+  const area = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="What should they do?"]')!
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(flowSelect, 'fix')
-    flowSelect.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-  await act(async () => {})
-
-  const field = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
-  act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the fix')
-    field.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-  const brief = 'Fix the ticket.\n\nKeep the interface.\n\nVerify the result.'
-  const area = document.querySelector('textarea')!
-  expect(area).not.toBeNull()
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(area, brief)
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(area, value)
     area.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  act(() => button('Start').click())
-  await act(async () => {})
+}
 
-  expect(store.startFlowGoal).toHaveBeenCalledWith({ root: '/repo', source: 'version: 2\nname: Fix\n', token: 'tok-1', sentence: 'Ship the fix', vars: { brief } })
-  expect(store.createGoal).not.toHaveBeenCalled()
-  expect(store.openGoal).toHaveBeenCalledWith('goal-1')
-  expect(onClose).toHaveBeenCalled()
-})
-
-it('Start waits for an imported brief and its preview, then submits the file text', async () => {
+it('Flow uses the shared strict preview and starts exactly one Team', async () => {
   const { store } = rig()
-  vi.mocked(store.flowCatalog).mockResolvedValue([FLOW])
-  vi.mocked(store.flowSource).mockResolvedValue('version: 2\nname: Fix\n')
-  if (FLOW_PREVIEW.compiled.document.format !== 'agents') throw new Error('Expected an Agent flow fixture')
-  const preview: FlowPreview = {
-    ...FLOW_PREVIEW, compiled: { ...FLOW_PREVIEW.compiled, document: {
-      format: 'agents', flow: { ...FLOW_PREVIEW.compiled.document.flow, inputs: [{ id: 'brief', label: 'Brief', default: 'Previous brief' }] },
-    } },
-  }
-  vi.mocked(store.previewFlow).mockResolvedValue(preview)
-  vi.mocked(store.startFlowGoal).mockResolvedValue(FLOW_EXECUTION)
-  const onClose = render(store)
-  act(() => kindRow('Flow').click())
+  if (FLOW_PREVIEW.compiled.document.format !== 'agents') throw new Error('Expected Agent flow')
+  const preview = { ...FLOW_PREVIEW, compiled: { ...FLOW_PREVIEW.compiled, document: { format: 'agents' as const, flow: { ...FLOW_PREVIEW.compiled.document.flow, inputs: [{ id: 'task', label: 'Task' }] } } } }
+  const { source } = installFlow(store, preview)
+  const onClose = render(store, vi.fn(), 'flow')
   act(() => button('Continue').click())
   await act(async () => {})
-  await act(async () => choose(document.querySelector('select')!, 'fix'))
-  const title = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Fix"]')!.click())
+  await typeTask('Fix the ticket')
+  const done = document.querySelector<HTMLInputElement>('[aria-label="Done when · optional"]')!
   act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(title, 'Ship the fix')
-    title.dispatchEvent(new Event('input', { bubbles: true }))
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(done, 'Ship the fix')
+    done.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  expect(button('Start').disabled).toBe(false)
+  await act(async () => button('Start Team').click())
+  expect(store.startFlowGoal).toHaveBeenCalledExactlyOnceWith({ root: '/repo', source, token: 'tok-1', sentence: 'Ship the fix', vars: { task: 'Fix the ticket' } })
+  expect(store.createGoal).not.toHaveBeenCalled()
+  expect(store.openGoal).toHaveBeenCalledWith('goal-1')
+  expect(onClose).toHaveBeenCalledOnce()
+})
 
+it('Start Team waits for an imported brief and its strict preview', async () => {
+  const { store } = rig()
+  if (FLOW_PREVIEW.compiled.document.format !== 'agents') throw new Error('Expected Agent flow')
+  const preview: FlowPreview = { ...FLOW_PREVIEW, compiled: { ...FLOW_PREVIEW.compiled, document: { format: 'agents', flow: { ...FLOW_PREVIEW.compiled.document.flow, inputs: [{ id: 'task', label: 'Task', default: 'Fix the ticket' }, { id: 'brief', label: 'Brief', default: 'Previous brief' }] } } } }
+  const { source } = installFlow(store, preview)
+  const onClose = render(store, vi.fn(), 'flow')
+  act(() => button('Continue').click())
+  await act(async () => {})
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Fix"]')!.click())
+  act(() => button('Details').click())
+  expect(button('Start Team').disabled).toBe(false)
   let resolveFile!: (text: string) => void
   const file = new File(['New file brief'], 'brief.txt', { type: 'text/plain' })
-  Object.defineProperty(file, 'text', { value: () => new Promise<string>((resolve) => { resolveFile = resolve }) })
+  Object.defineProperty(file, 'text', { value: () => new Promise<string>(resolve => { resolveFile = resolve }) })
   const picker = document.querySelector<HTMLInputElement>('input[type="file"]')!
   await act(async () => {
     Object.defineProperty(picker, 'files', { configurable: true, value: [file] })
     picker.dispatchEvent(new Event('change', { bubbles: true }))
   })
-  expect(button('Reading…').disabled).toBe(true)
-  expect(button('Start').disabled).toBe(true)
-  act(() => button('Start').click())
-  expect(store.startFlowGoal).not.toHaveBeenCalled()
-
-  let resolvePreview!: (value: FlowPreview) => void
-  vi.mocked(store.previewFlow).mockImplementationOnce(() => new Promise((resolve) => { resolvePreview = resolve }))
+  expect(button('Start Team').disabled).toBe(true)
+  let resolvePreview!: (value: unknown) => void
+  const original = vi.mocked(store.transport.request).getMockImplementation()!
+  vi.mocked(store.transport.request).mockImplementationOnce((async () => new Promise(resolve => { resolvePreview = resolve })) as never)
   await act(async () => resolveFile('New file brief'))
-  expect(document.querySelector('textarea')?.value).toBe('New file brief')
-  expect(button('Start').disabled).toBe(true)
-  await act(async () => resolvePreview({ ...preview, token: 'file-token' }))
-  expect(button('Start').disabled).toBe(false)
-  await act(async () => button('Start').click())
-  expect(store.startFlowGoal).toHaveBeenCalledExactlyOnceWith({ root: '/repo', source: 'version: 2\nname: Fix\n', token: 'file-token', sentence: 'Ship the fix', vars: { brief: 'New file brief' } })
-  expect(onClose).toHaveBeenCalled()
+  expect(button('Start Team').disabled).toBe(true)
+  await act(async () => resolvePreview({ flow: { ...preview, token: 'file-token' }, source, vars: { task: 'Fix the ticket', brief: 'New file brief' }, sentence: 'Fix this project', goal: null, target: { label: 'this project', base: null, head: null, dirty: false, independence: 'unknown' } }))
+  vi.mocked(store.transport.request).mockImplementation(original)
+  await act(async () => button('Start Team').click())
+  expect(store.startFlowGoal).toHaveBeenCalledExactlyOnceWith({ root: '/repo', source, token: 'file-token', sentence: 'Fix the ticket', vars: { task: 'Fix the ticket', brief: 'New file brief' } })
+  expect(onClose).toHaveBeenCalledOnce()
 })
 
-/*
- * An old-format flow cannot start a new Goal — only an Agent-format flow
- * can — so its Start stays greyed with the reason beside it, never a Start
- * that fails after it is pressed. Even a host that still hands the old
- * format a preview token does not light it.
- */
-it('an old-format flow greys Start and says to update it, rather than a Start that fails', async () => {
+it('an old-format Flow cannot start a Team from the shared dialog', async () => {
   const { store } = rig()
-  const LEGACY: FlowEntry = { ...FLOW, id: 'old', name: 'Old', format: 'legacy' }
-  vi.mocked(store.flowCatalog).mockResolvedValue([LEGACY])
-  vi.mocked(store.flowSource).mockResolvedValue('name: Old\nroles:\n  w: { kind: agent, seat: fake, order: Work }\nseed: { role: w, title: W }\n')
-  vi.mocked(store.previewFlow).mockResolvedValue({
-    ...FLOW_PREVIEW,
-    token: 'tok-legacy',
-    compiled: { document: { format: 'legacy', flow: { name: 'Old', roles: [], rules: [], inputs: [], seed: { role: 'w', title: 'W' }, wait: 240 } }, bindings: [], problems: [] },
-  } as unknown as FlowPreview)
-  render(store)
-
-  act(() => kindRow('Flow').click())
+  const legacy: FlowPreview = { ...FLOW_PREVIEW, compiled: { document: { format: 'legacy', flow: { name: 'Old', roles: [], rules: [], inputs: [], seed: { role: 'w', title: 'W' }, wait: 240 } }, bindings: [], problems: [] } }
+  installFlow(store, legacy, { ...FLOW, id: 'old', name: 'Old', format: 'legacy' })
+  render(store, vi.fn(), 'flow')
   act(() => button('Continue').click())
   await act(async () => {})
-  const flowSelect = document.querySelector('select') as HTMLSelectElement
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(flowSelect, 'old')
-    flowSelect.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-  await act(async () => {})
-  const field = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
-  act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the fix')
-    field.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-
-  const start = button('Start')
-  expect(start.disabled).toBe(true)
-  expect(document.body.textContent).toContain('Update it from the project’s Flows list before it can start a Team here')
-  act(() => start.click())
-  await act(async () => {})
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Old"]')!.click())
+  expect(button('Start Team').disabled).toBe(true)
+  expect(document.body.textContent).toContain('Update this Flow from its Flows page')
   expect(store.startFlowGoal).not.toHaveBeenCalled()
 })
