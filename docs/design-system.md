@@ -279,6 +279,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-composer-max` | `320px` |
 | `--hd-composer-line` | `20px` |
 | `--hd-composer-radius` | `28px` |
+| `--hd-notice-bar` | `3px` |
 | `--hd-composer-shell-shadow` | `0 4px 20px rgba(0, 0, 0, 0.035)` |
 | `--hd-composer-shell-shadow-focus` | `0 4px 20px rgba(0, 0, 0, 0.035)` |
 | `--hd-composer-track-add` | `32px` |
@@ -820,6 +821,14 @@ having written the judgement down.
 
 **Why** — A hover card that wore a dialog's shadow would claim the window's attention for something the pointer merely passed over.
 
+### `success`
+
+**Use** — A result the person asked for has completed: moved to the Trash, a Library write, or a choice applied.
+
+**Not** — For a default state or a limit working as designed. Those stay neutral.
+
+**Why** — Completion deserves confirmation; colouring ordinary conditions green would hide that result.
+
 ### `warning`
 
 **Use** — The person must act now — sign in, approve, free a limit — and the thing cannot go on without them. Chip, Badge, Note and Banner all read it this way.
@@ -1043,6 +1052,12 @@ rather than passed. The rest of this page is judgement; this part is enforced.
 
 ## Primitives
 
+### `NoticeHost`
+
+`packages/ui/src/design/primitives/Banner.tsx`
+
+Placement owners set the size once for all notices in their slot.
+
 ### `BannerAction`
 
 `packages/ui/src/design/primitives/Banner.tsx`
@@ -1051,6 +1066,32 @@ A button in a banner's action row.
 
 One filled button per card. A banner that offers two equal-looking choices
 makes the user read both before they can ignore it.
+
+### `Notice`
+
+`packages/ui/src/design/primitives/Notice.tsx`
+
+A fact, optional earned detail, and the actions it calls for.
+Hosts choose standard padding (12px, 16px left) or compact (8px, 12px left).
+Labelled actions keep text-button width, including the ghost `icon` kind.
+
+### `NoticeStatus`
+
+`packages/ui/src/design/primitives/Notice.tsx`
+
+Quiet status in the same tile, copy and control layout.
+
+### `NoticeRow`
+
+`packages/ui/src/design/primitives/Notice.tsx`
+
+A row in a compact notice panel.
+
+### `NoticeList`
+
+`packages/ui/src/design/primitives/Notice.tsx`
+
+The shared plate for Inbox or queued-message rows; placement stays with its host.
 
 ## Patterns
 

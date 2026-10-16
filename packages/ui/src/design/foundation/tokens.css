@@ -560,6 +560,8 @@ body {
   --hd-composer-max: 320px;
   --hd-composer-line: 20px; /* The interface line. */
   --hd-composer-radius: 28px;
+  /* A danger notice marks its neutral composer plate with one narrow bar. */
+  --hd-notice-bar: 3px;
   /* The box's edge is carried by its ring; the shadow is only a soft lift, the same at rest and in focus. */
   --hd-composer-shell-shadow: 0 4px 20px rgba(0, 0, 0, 0.035);
   --hd-composer-shell-shadow-focus: var(--hd-composer-shell-shadow);

@@ -1091,8 +1091,16 @@ Only the result of a person's action opens a toast: success leaves on its
 own; failure stays until closed. Conditions needing attention keep their
 existing composer, strip or sidebar card, with their action and Inbox option.
 Toasts appear at the upper-right of the window, above the composer, leaving
-Send and the model picker clear. Composer notices keep their action below
-the copy in a narrow container, returning it to the right when widened.
+Send and the model picker clear. The shared notice card centres its tile on
+the complete copy block, with title above optional earned detail. Actions sit
+beside the copy, dropping below at three or more actions or below about 400px;
+a wrapped card keeps its dismiss at the top-right. Its plate matches the
+composer, and danger adds a left bar and tinted tile. A requested action that
+completed may use the success tone; ordinary conditions stay neutral. The
+standard shell has 12px padding and a 16px left inset; compact and floating
+shells use 8px padding and a 12px left inset. Labelled actions keep enough
+width for their text. The Notice board shows all three hosts; the existing composer,
+sidebar, strip and Inbox hosts retain their presentation until their migration.
 
 Runtime information belongs quietly in the Inbox. The bell shows an unread
 dot. One row per kind and content keeps a count and the latest time; reading
