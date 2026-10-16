@@ -797,8 +797,15 @@ in [extending.md](extending.md).
   a chip beside the model name in its menu. This status comes only from the
   agent’s report; an effort level or model name never supplies it. Reports
   are observations and are left out of saved preset preferences.
-  When the agent declares that its mode controls permissions, that mode stands
-  on its own: no missing-permissions placeholder takes room beside it.
+  **Permissions** has one slot for every agent, filled with its own permission
+  levels. **Collaboration mode** is separate: plan first or act directly. When
+  an agent mixes planning into its permission list, adapter metadata splits the
+  list into those two controls; both still send the agent's existing option id
+  and values. Choosing Act returns to the adapter-declared acting value;
+  Permissions displays that acting level while Plan is selected. An
+  agent without collaboration modes has no collaboration control. Draft picks
+  retain their selected label while the toolbar has room. A missing-permissions
+  placeholder appears only when no permission option is declared.
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
 - **A conversation that cannot be read returns its pane to a fresh draft.**

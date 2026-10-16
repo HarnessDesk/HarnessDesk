@@ -275,24 +275,21 @@ it('recomputes fold steps when one toolbar switches between draft and live at a 
   expect(model().textContent?.trim()).toBe('')
 })
 
-it('keeps a chosen permission mode label in a draft when the redundant permission slot is absent', async () => {
+it('keeps a chosen permission label in the draft at a width with no collaboration track', async () => {
   const mode: ConfigOption = {
-    id: 'mode', label: 'Mode', description: 'Session permission mode', category: 'mode', type: 'select',
+    id: 'mode', label: 'Mode', category: '_permissions', type: 'select',
     currentValue: 'default', choices: [{ value: 'default', label: 'Manual' }, { value: 'acceptEdits', label: 'Accept edits' }],
   }
-  // A draft has one more control than a live conversation. The permission
-  // mode must not pay for a second permission control that has nothing to say.
-  draw(foldThreshold('mode') - 1, 'draft', false, [...options.filter((option) => option.category !== '_permissions' && option.category !== 'mode'), mode])
-  const track = () => container.querySelector<HTMLElement>('[data-composer-track="mode"]')!
+  draw(1000, 'draft', false, [...options.filter((option) => option.category !== '_permissions' && option.category !== 'mode'), mode])
+  const track = () => container.querySelector<HTMLElement>('[data-composer-track="permissions"]')!
   click(track().querySelector('button')!)
   const acceptEdits = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((row) => row.textContent?.includes('Accept edits'))!
   await act(async () => { acceptEdits.click() })
   expect(testStore.setOption).toHaveBeenCalledWith('mode', 'acceptEdits')
   expect(track().querySelector('button')?.textContent).toContain('Accept edits')
   expect(track().hasAttribute('data-folded')).toBe(false)
-
-  // Folding past the absent Permissions slot must not count it again.
-  const modelAt = foldThreshold('model') - tokenValue('--hd-composer-track-permissions-folded') - toolbarGap
+  expect(container.querySelector('[data-composer-track="mode"]')).toBeNull()
+  const modelAt = foldThreshold('model') - tokenValue('--hd-composer-track-mode-folded') - toolbarGap
   resize(modelAt)
   expect(model().textContent).toContain('Small')
   resize(modelAt - 1)
@@ -316,7 +313,7 @@ it('uses the Mode mark instead of a clipped initial after the fact folds', () =>
   const chip = track?.querySelector<HTMLElement>('[data-slot="chip"]')
   expect(track?.hasAttribute('data-folded')).toBe(true)
   if (chip) {
-    expect(chip.title).toBe('Default')
+    expect(chip.title).toBe('Collaboration mode — Default')
     expect(chip.querySelector('svg')).not.toBeNull()
     expect(chip.querySelector('.sr-only')?.textContent).toBe('Default')
   }
@@ -401,4 +398,13 @@ it('declares selected-value aliases where their target token is defined', () => 
     const selector = block[1]!.replace(/\/\*[\s\S]*?\*\//g, '').trim()
     expect(selector).toBe('body')
   }
+})
+
+it('uses the measured width of a content-sized model before folding draft labels', () => {
+  draw(1000)
+  const modelTrack = container.querySelector<HTMLElement>('[data-composer-track="model"]')!
+  modelTrack.getBoundingClientRect = () => ({ width: 80 } as DOMRect)
+  resize(1000)
+  resize(foldThreshold('mode') - 1)
+  expect(container.querySelector('[data-composer-track="mode"]')?.hasAttribute('data-folded')).toBe(false)
 })

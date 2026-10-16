@@ -53,12 +53,15 @@ for (const theme of WALL_THEMES) {
       const track = tools.locator(`[data-composer-track="${trackName}"]`)
       const trigger = track.getByRole('button')
       if (trackName === 'mode') {
-        // Composer selected values: a folded draft Mode is a mark, never a lone initial.
-        await expect(track).toHaveAttribute('data-folded', 'true')
-        await expect(trigger).toHaveAccessibleName('Default — Mode')
-        await expect(trigger).toHaveAttribute('title', 'Default — Mode')
+        // A chosen draft Mode keeps its whole label while the toolbar has room.
+        await expect(track).not.toHaveAttribute('data-folded')
+        await expect(trigger).toHaveAccessibleName('Collaboration mode — Default')
+        await expect(trigger).toHaveAttribute('title', 'Collaboration mode — Default')
         await expect(trigger.locator('svg').first()).toBeVisible()
-        await expect(trigger.locator('[data-slot="text"][data-role="row"]')).toHaveCount(0)
+        const label = trigger.locator('[data-slot="text"][data-role="row"]')
+        await expect(label).toHaveText(value)
+        const dimensions = await label.evaluate(node => ({ width: node.clientWidth, scroll: node.scrollWidth }))
+        expect(dimensions.scroll, 'mode label should fit without ellipsis').toBeLessThanOrEqual(dimensions.width)
       } else {
         await expect(trigger).toContainText(value)
         const label = trigger.locator('[data-slot="text"][data-role="row"]')

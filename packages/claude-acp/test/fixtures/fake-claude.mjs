@@ -47,6 +47,7 @@ let autocompact = flag('--autocompact') ?? 'default'
 const resumed = flag('--resume')
 let sessionId = flag('--session-id') ?? resumed ?? 'fake-session'
 let model = flag('--model') ?? 'default'
+let permissionMode = flag('--permission-mode') ?? 'default'
 let lastUserUuid = null
 // Output styles have no flag of their own; the real CLI reads them from the
 // `--settings` JSON, so the fake does too.
@@ -591,6 +592,10 @@ rl.on('line', (line) => {
       case 'mcp_status':
         respond({ mcpServers: JSON.parse(process.env.FAKE_CLAUDE_MCP_STATUS ?? '[]') })
         return
+      case 'set_permission_mode':
+        permissionMode = request.mode ?? permissionMode
+        respond({})
+        return
       case 'set_model':
         model = request.model ?? model
         respond({})
@@ -776,7 +781,7 @@ rl.on('line', (line) => {
     }
     log(`replying ${text}`)
     reply(
-      `[effort=${effort}; autocompact=${autocompact}; style=${outputStyle}; resumed=${resumed ?? 'none'}; session=${sessionId}; model=${model}] ${text}`,
+      `[mode=${permissionMode}; effort=${effort}; autocompact=${autocompact}; style=${outputStyle}; resumed=${resumed ?? 'none'}; session=${sessionId}; model=${model}] ${text}`,
     )
   }
 })

@@ -608,12 +608,18 @@ const optionStyles = async (agent: ClaudeAcpAgent, sessionId: string): Promise<r
   }
 }
 
-const decorateModelOptions = <T extends { configOptions?: SessionConfigOption[] | null }>(response: T, modelInfos: readonly ModelInfo[]): T => {
+const decorateSessionOptions = <T extends { configOptions?: SessionConfigOption[] | null }>(response: T, modelInfos: readonly ModelInfo[]): T => {
   const levelsFor = (value: string): readonly { id: string; label: string }[] => {
     const model = modelInfos.find((entry) => entry.value === value)
     return (model?.supportedEffortLevels ?? []).map((level) => ({ id: level, label: LABELS[level] ?? level }))
   }
   const configOptions = response.configOptions?.map((option) => {
+    if (option.id === 'mode' && option.type === 'select') {
+      return { ...option, category: '_permissions', _meta: { ...option._meta,
+        harnessdesk: { ...option._meta?.['harnessdesk'] as Record<string, unknown>,
+          collaboration: { planValue: 'plan', actValue: option.currentValue === 'plan' ? 'default' : option.currentValue } },
+      } }
+    }
     if (option.id !== 'model' || option.type !== 'select' || !Array.isArray(option.options)) return option
     const decorateChoice = (choice: (typeof option.options)[number]): (typeof option.options)[number] => {
       if ('value' in choice) {
@@ -719,7 +725,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       }
       if (next.update.sessionUpdate === 'config_option_update') {
         const stored = this.#controls.get(next.sessionId)
-        const base = decorateModelOptions({ configOptions: next.update.configOptions }, (this.sessions[next.sessionId]?.modelInfos ?? []) as readonly ModelInfo[]).configOptions ?? []
+        const base = decorateSessionOptions({ configOptions: next.update.configOptions }, (this.sessions[next.sessionId]?.modelInfos ?? []) as readonly ModelInfo[]).configOptions ?? []
         const custom = stored ? customOptions(stored) : []
         return notify({ ...next, update: { ...next.update, configOptions: [...base, ...custom] } })
       }
@@ -791,7 +797,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     this.#releaseAttachments(response.sessionId, input?.key)
     if (input && staged) this.#attachments.set(response.sessionId, { input, staged })
     const session = this.sessions[response.sessionId]
-    const decorated = decorateModelOptions(response, (session?.modelInfos ?? []) as readonly ModelInfo[])
+    const decorated = decorateSessionOptions(response, (session?.modelInfos ?? []) as readonly ModelInfo[])
     const stored: StoredControlsWithRuntime = { values: { ...values }, spawned: { ...values }, prompted: false, styles: await optionStyles(this, response.sessionId), meta: params._meta, cwd: params.cwd }
     this.#controls.set(response.sessionId, stored)
     this.#tasks.set(response.sessionId, new TaskRegistry())
@@ -813,7 +819,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     this.#releaseAttachments(request.sessionId, input?.key)
     if (input && staged) this.#attachments.set(request.sessionId, { input, staged })
     const session = this.sessions[request.sessionId]
-    const decorated = decorateModelOptions(response, (session?.modelInfos ?? []) as readonly ModelInfo[])
+    const decorated = decorateSessionOptions(response, (session?.modelInfos ?? []) as readonly ModelInfo[])
     const stored: StoredControlsWithRuntime = { values: remembered, spawned: { ...remembered }, prompted: true, styles: await optionStyles(this, request.sessionId), meta: params._meta, cwd: params.cwd }
     this.#controls.set(request.sessionId, stored)
     this.#tasks.set(request.sessionId, new TaskRegistry())
@@ -861,7 +867,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     if (!CONTROL_IDS.includes(params.configId as typeof CONTROL_IDS[number])) {
       const response = await super.setSessionConfigOption(params)
       const stored = this.#controls.get(params.sessionId)
-      const base = decorateModelOptions({ configOptions: response.configOptions }, (this.sessions[params.sessionId]?.modelInfos ?? []) as readonly ModelInfo[]).configOptions ?? []
+      const base = decorateSessionOptions({ configOptions: response.configOptions }, (this.sessions[params.sessionId]?.modelInfos ?? []) as readonly ModelInfo[]).configOptions ?? []
       const configOptions = [...base, ...(stored ? customOptions(stored) : [])]
       if (params.configId === 'model') await this.client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'config_option_update', configOptions } })
       return { ...response, configOptions }

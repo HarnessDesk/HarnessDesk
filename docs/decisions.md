@@ -3393,3 +3393,28 @@ and folding controls. Occupied columns retain their width; the all-empty board
 retains one empty state. Below 600px of content width the compact list remains
 the readable form. A horizontal Board keeps its token-backed scrollbar visible
 at rest, so overflow announces itself before a gesture.
+## One Permissions slot; plan vs act is its own control
+
+Decided 2026-10-15 in #1672, option A. Permissions always occupies the same
+composer slot and keeps the agent's own levels. Collaboration mode is a
+separate control; an agent that offers no collaboration mode has none.
+
+The adapter declares permission options with `_permissions`. A mixed list
+also supplies `SelectOption.collaboration`: the existing `planValue` and
+`actValue` that the collaboration control writes. The bridge supplies those
+values on every declaration, including updates. No renderer match on a name,
+a description or an agent id decides the split. Both controls write the same
+underlying option id and its existing values; choosing a permission level
+leaves planning, and choosing Act uses the adapter's acting value (the ordinary
+manual mode when the agent is currently planning). There is no second stored
+permission policy to reconcile with the agent.
+
+While planning, Permissions displays the declared acting value that Act will
+return to; Plan remains selected only in Collaboration mode. This display
+projection does not change the agent's current value. The runtime cache keeps
+both collaboration values so the same split is available before the agent starts.
+
+The Permissions trigger names the slot and the selected level, including in a
+draft. Only a genuinely absent permission option earns the missing-setting
+placeholder. Model and effort take their natural width while space remains;
+they fold with the toolbar when it runs out.
