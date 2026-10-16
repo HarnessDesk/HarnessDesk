@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   Breadcrumb,
@@ -51,6 +51,17 @@ export const FolderPicker = ({ onClose }: { onClose: (chosen?: boolean) => void 
   const store = useStore()
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
+  // A pending open must not answer the next picker after this one is dismissed.
+  const active = useRef(true)
+  useEffect(() => {
+    active.current = true
+    return () => { active.current = false }
+  }, [])
+  const close = (chosen?: boolean) => {
+    if (!active.current) return
+    active.current = false
+    onClose(chosen)
+  }
 
   // The runtime's own directory listing where it has one, so the folders on
   // offer are the ones the agent can actually reach.
@@ -110,7 +121,7 @@ export const FolderPicker = ({ onClose }: { onClose: (chosen?: boolean) => void 
       size="lg"
       tall
       flush
-      onClose={() => onClose()}
+      onClose={() => close()}
       bodyPrelude={location}
       footer={
         <>
@@ -118,13 +129,13 @@ export const FolderPicker = ({ onClose }: { onClose: (chosen?: boolean) => void 
             variant="default"
             disabled={!listing}
             onClick={async () => {
-              if (!listing) return
-              if (await store.openWorkspace(listing.path)) onClose(true)
+              if (!listing || !active.current) return
+              if (await store.openWorkspace(listing.path)) close(true)
             }}
           >
             Open {listing ? `“${crumbsOf(listing.path).at(-1)?.name ?? listing.path}”` : 'folder'}
           </Button>
-          <Button variant="secondary" onClick={() => onClose()}>Cancel</Button>
+          <Button variant="secondary" onClick={() => close()}>Cancel</Button>
         </>
       }
     >
