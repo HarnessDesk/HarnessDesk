@@ -1,3 +1,4 @@
+import { LibraryGithubFrames } from './frames-library-github'
 import { ProjectPolishFrame } from './frames-project-polish'
 import { FlowsDestinationFixture } from './flows-destination-fixture'
 import { RepositoryStatesPreview } from './repository-states'
@@ -1266,6 +1267,8 @@ createRoot(container).render(
           ? <LeftColumnProbe />
           : new URLSearchParams(window.location.search).get('frame-wall') === 'settings-middle'
           ? <SettingsNavigationProbe />
+          : new URLSearchParams(window.location.search).has('library-github')
+          ? <LibraryGithubFrames />
           : new URLSearchParams(window.location.search).has('frame-wall')
           ? <FrameWall />
           : new URLSearchParams(window.location.search).has('team-frame')

@@ -1,0 +1,52 @@
+import { mkdir } from 'node:fs/promises'
+import { expect, test } from '@playwright/test'
+import { openFrame } from './frame-contract-helpers'
+
+for (const theme of ['light', 'dark'] as const) test(`GitHub selection and file review ${theme}`, async ({ page }) => {
+  await openFrame(page, 'library-github', theme)
+  await page.setViewportSize({ width: 1440, height: 1100 })
+  const dialog = page.getByRole('dialog', { name: 'Add from GitHub', exact: true })
+  await dialog.getByLabel('Repository or folder', { exact: true }).fill('https://github.com/acme-dev/skills/tree/main/review')
+  await dialog.getByLabel('Branch, tag or commit', { exact: true }).fill('main')
+  await dialog.getByRole('button', { name: 'Find skills', exact: true }).click()
+  await expect(dialog.getByText('Found 3 skills · acme-dev/skills @ 1a2b3c4')).toBeVisible()
+  await expect(dialog.getByRole('checkbox', { name: 'code-review', exact: true })).not.toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: 'changelog', exact: true })).toBeChecked()
+  await expect(dialog.getByText('acme-dev/skills', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('1 binary', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('legacy-tools was not fetched: It contains a link at bin/run; links are not carried.')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Review 1 skills…', exact: true })).toBeDisabled()
+  await dialog.getByRole('checkbox', { name: 'code-review', exact: true }).check()
+  await dialog.getByRole('checkbox', { name: 'Alpha', exact: true }).check()
+  const resultBounds = await dialog.getByRole('checkbox', { name: 'changelog', exact: true }).evaluate(el => ({ row: el.closest('[data-slot="row"]')!.getBoundingClientRect().bottom, card: el.closest('[data-slot="rows"]')!.getBoundingClientRect().bottom }))
+  expect(resultBounds.row).toBeLessThanOrEqual(resultBounds.card)
+  if (process.env.HD_LIBRARY_FRAMES) {
+    await mkdir(process.env.HD_LIBRARY_FRAMES, { recursive: true })
+    await page.screenshot({ path: `${process.env.HD_LIBRARY_FRAMES}/github-${theme}.png` })
+  }
+  await dialog.getByRole('checkbox', { name: 'changelog', exact: true }).uncheck()
+  await dialog.getByRole('button', { name: 'Review 1 skills…', exact: true }).click()
+  const plan = page.getByRole('dialog', { name: 'Install code-review', exact: true })
+  await expect(plan.getByText('3 files · 1 can run', { exact: true })).toBeVisible()
+  await expect(plan.getByText('references/checklist.md', { exact: true })).toBeVisible()
+  await expect(plan.getByText('starts with #!', { exact: true })).toBeVisible()
+  await expect(plan.getByRole('button', { name: 'Apply 1 change', exact: true })).toBeDisabled()
+  await plan.getByRole('button', { name: 'Read', exact: true }).click()
+  await expect(plan.locator('[data-slot="code-block-body"]')).toContainText('#!/bin/sh')
+  await plan.getByRole('checkbox', { name: 'I read the file that can run', exact: true }).check()
+  await expect(plan.getByRole('button', { name: 'Apply 1 change', exact: true })).toBeEnabled()
+  if (process.env.HD_LIBRARY_FRAMES) await page.screenshot({ path: `${process.env.HD_LIBRARY_FRAMES}/plan-${theme}.png` })
+  expect(await plan.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await plan.getByRole('button', { name: 'Apply 1 change', exact: true }).click()
+  await expect(plan.getByTestId('apply-summary')).toHaveText('1 change made.')
+})
+
+test('Library More opens Add from GitHub after Import', async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings&frame-section=library&frame-no-folder=1', 'light')
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
+  const items = page.getByRole('menuitem')
+  const labels = await items.allTextContents()
+  expect(labels.indexOf('Add from GitHub…')).toBe(labels.indexOf('Import') + 1)
+  await page.getByRole('menuitem', { name: 'Add from GitHub…', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Add from GitHub', exact: true })).toBeVisible()
+})

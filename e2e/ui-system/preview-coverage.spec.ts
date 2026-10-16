@@ -585,6 +585,21 @@ test.describe('preview coverage', () => {
       for (const file of result.covered) covered.add(file)
     })
 
+    for (const [query, title, component] of [
+      ['library-github', 'Add from GitHub', 'LibraryGithub'],
+      ['library-github=plan', 'Install code-review', 'LibraryFiles'],
+    ] as const) test(`coverage Library dialog: ${title}`, async () => {
+      const page = getPage()
+      await page.goto(`/preview.html?${query}`)
+      // Dialog-only previews mount in a portal, leaving #root empty.
+      const dialog = page.getByRole('dialog', { name: title, exact: true })
+      await expect(dialog).toBeVisible()
+      if (component === 'LibraryFiles') await expect(dialog.getByText('3 files · 1 can run', { exact: true })).toBeVisible()
+      const result = await collectCoverage(page)
+      expect(result.covered).toContain(`components/${component}.tsx#${component}`)
+      for (const file of result.covered) covered.add(file)
+    })
+
     test(`coverage page 2`, async () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto('/preview.html')
