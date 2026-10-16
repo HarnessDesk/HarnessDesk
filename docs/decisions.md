@@ -3345,3 +3345,15 @@ for every agent it opens, in later rounds and after recovery too. An explicit
 runtime choice that cannot enforce that access remains refused beside its row,
 with a way to choose a compatible agent. Automatic uses the same strict plan,
 so an earlier incompatible preference cannot block a later compatible one.
+
+
+## 2026-10-16 — Project entry and finished Teams (#1675 D4, D5, D11)
+
+The owner chose D4 A+B: **Open a folder…** in an empty composer and
+**Open folder…** in the New session menu call the same folder picker as
+Projects. D5 A keeps a finished Team under its project, with the attention
+dot labelled **Ready to wrap**, until it is wrapped; the gone-folder rule
+still applies. D11 A removes Agents and Plugins counts from sidebar rows
+and keeps those totals on their pages. Part 2 item 8 earns **Most used**
+only from recorded shape starts; fresh desks list unused shapes under
+**More shapes**. These entries compose the existing controls and state marks.
