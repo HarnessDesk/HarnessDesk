@@ -38,7 +38,7 @@ test('the plan reaches the shards and metadata selects the tier, with manual dis
     assert.ok(changes.includes(`      ${output}: \${{ steps.paths.outputs.${output} }}`), output)
   }
   assert.match(workflow, /^  workflow_dispatch:$/m)
-  assert.match(workflow, /types: \[opened, synchronize, reopened, labeled, unlabeled\]/)
+  assert.match(workflow, /types: \[opened, synchronize, reopened\]/)
   assert.ok(changes.includes('CI_HEAD_BRANCH: ${{ github.head_ref }}'))
   assert.ok(changes.includes('CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}'))
   assert.match(changes, /UI_THEME_TOUCHED="\$theme" node script\/ci-changes\.mjs/)
