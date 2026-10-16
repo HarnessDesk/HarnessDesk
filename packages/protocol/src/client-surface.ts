@@ -10,6 +10,7 @@ export const CLIENT_METHODS = {
   'client/hello': 'read',
   'client/subscribe': 'read',
   'session/loadout': 'read',
+  'attachment/seat': 'read',
   'goal/list': 'read',
   'goal/read': 'read',
   'team/intent': 'answer',

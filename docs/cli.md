@@ -360,7 +360,7 @@ A single object, `{ "session", "runtime", "seat", "epochs": [...] }`. Each versi
 harnessdesk run show <run>
 ```
 
-Shows the shared Run timeline: its header, brief, rounds, cards, check results, findings and ending. It keeps attendance and seat overrides. Round lines show answered counts; review rows show recorded publication state. JSON keeps the execution unchanged.
+Shows the shared Run timeline: its header, brief, rounds, cards, check results, findings and ending. It keeps attendance and seat overrides. Round lines show answered counts; review rows show recorded publication state. After the timeline, each Seat shows its latest reported loadout and any allowlist attachment readback, including names not loaded and their reasons. JSON keeps the execution unchanged.
 
 Needs the **read** tier.
 

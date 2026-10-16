@@ -557,6 +557,12 @@ rl.on('line', (line) => {
       send({ type: 'control_response', response: { subtype: 'success', request_id, response } })
     const refuse = (error) => send({ type: 'control_response', response: { subtype: 'error', request_id, error } })
     switch (request.subtype) {
+      case 'get_context_usage':
+        log(`context-detail ${request.detail}`)
+        if (request.detail !== 'summary') return refuse('Only summary detail is permitted in this fixture.')
+        if (process.env.FAKE_CLAUDE_CONTEXT_ERROR) return refuse(process.env.FAKE_CLAUDE_CONTEXT_ERROR)
+        respond(JSON.parse(process.env.FAKE_CLAUDE_CONTEXT ?? '{}'))
+        return
       case 'initialize':
         preToolHooks = (request.hooks?.PreToolUse ?? []).flatMap(hook => hook.hookCallbackIds)
         respond({

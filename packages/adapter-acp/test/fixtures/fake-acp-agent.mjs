@@ -1031,10 +1031,11 @@ const handlers = {
         : [
             { id: 'device', name: 'Sign in on the agent side', description: 'Run the agent login.' },
           ],
-      ...(TASKS || DELETES || ATTACHMENTS || process.env.FAKE_ACP_READ_CEILING === '1'
+      ...(TASKS || DELETES || ATTACHMENTS || process.env.FAKE_ACP_LOADOUT_FILE || process.env.FAKE_ACP_READ_CEILING === '1'
         ? {
             _meta: {
               harnessdesk: {
+                ...(process.env.FAKE_ACP_LOADOUT_FILE ? { sessionLoadout: true } : {}),
                 // Handshake only; the bundled bridge tests native enforcement.
                 ...(process.env.FAKE_ACP_READ_CEILING === '1' ? { readCeiling: true } : {}),
                 ...(TASKS ? { backgroundTasks: true } : {}),
@@ -1218,7 +1219,7 @@ const handlers = {
     })
     // What this agent can be asked to run, declared the ACP way: after the
     // session exists, as an update rather than in the reply.
-    update(state.id, {
+    if (!process.env.FAKE_ACP_NO_COMMANDS) update(state.id, {
       sessionUpdate: 'available_commands_update',
       availableCommands: [
         { name: 'rehearse', description: 'Practises the answer first.' },
@@ -1406,6 +1407,10 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     pendingOutgoing.delete(message.id)
     if (message.error) pending.reject(new Error(message.error.message))
     else pending.resolve(message.result)
+    return
+  }
+  if (process.env.FAKE_ACP_LOADOUT_FILE && typeof message.id === 'number' && message.method === '_harnessdesk/session/loadout') {
+    reply(message.id, JSON.parse(readFileSync(process.env.FAKE_ACP_LOADOUT_FILE, 'utf8')))
     return
   }
   if (TASKS && typeof message.id === 'number' && message.method?.startsWith('_harnessdesk/tasks/')) {

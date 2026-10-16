@@ -802,7 +802,7 @@ const groupAlive = (pid: number): boolean => {
 }
 
 /**
- * Wait for the leader itself, for the platforms that have nothing else.
+ * Wait for the leader itself, including when its group has already gone.
  *
  * Windows has no process groups to poll, so the leader is all `endGroup`
  * reached and all there is to wait on. `exit` is a fact rather than a report
@@ -878,7 +878,12 @@ const reapGroup = (
   let killedAt: number | null = null
   return new Promise<boolean>((resolve) => {
     const tick = (): void => {
-      if (!groupAlive(pid)) return resolve(true)
+      if (!groupAlive(pid)) {
+        // The group can disappear before Node observes/reaps its leader.
+        // Keep stop's barrier until that exit is a fact too.
+        void leaderGone(child, ceiling).then(resolve)
+        return
+      }
       if (killedAt === null && performance.now() >= graceUntil) {
         try {
           process.kill(-pid, 'SIGKILL')
@@ -1251,3 +1256,6 @@ export class AcpConnection {
 /** Source-file metadata extension; copied in the bridge's session-source-wire.ts. */
 export const ACP_SESSION_SOURCE = '_harnessdesk/session/source'
 export const ACP_SESSION_SOURCE_CAPABILITY = 'sourceTranscript'
+/** Summary-only loadout extension; copied in the bridge's loadout-wire.ts. */
+export const ACP_SESSION_LOADOUT = '_harnessdesk/session/loadout'
+export const ACP_SESSION_LOADOUT_CAPABILITY = 'sessionLoadout'
