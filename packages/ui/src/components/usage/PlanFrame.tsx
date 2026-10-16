@@ -48,13 +48,13 @@ export const PlanFrame = ({
   children: ReactNode
 }) => {
   const agent = info?.presentation.name ?? 'Agent'
-  const plan = planLabel(report.plan)
+  const plan = report.planLabel ?? planLabel(report.plan)
   return (
     <SurfaceCard as="article" data-shape={shape}>
       {/* The canonical card inset holds the recorded heading and its state. */}
       <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
         name={report.account ?? agent} agent={report.account ? agent : undefined}
-        states={<>{shapeChip}{plan && <Chip label={plan} tone="neutral" />}<Chip tone={statusPresentation(status).tone} label={statusPresentation(status).label} /></>} />
+        states={<>{shapeChip}{plan && <Chip label={plan} title={report.plan ?? undefined} tone="neutral" />}<Chip tone={statusPresentation(status).tone} label={statusPresentation(status).label} /></>} />
 
       <MoneyRowView money={money} onOpenPlanSettings={onOpenPlanSettings} />
 

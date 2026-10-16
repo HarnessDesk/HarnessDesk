@@ -3482,3 +3482,22 @@ Run plus conversation and card or approval identify the row; repeated snapshots 
 state. Answering or moving past a step clears it, as does ending or wrapping
 the Run. Its destination opens the Team's existing view. Needs you itself keeps
 its current presentation.
+
+## Dashboard figures name their measure and their observation
+
+On 2026-10-15 the owner chose all of issue #1675 D10. Overview calls the
+ledger's total **Usage cost**, keeping its pricing basis in the title and its
+chart selection in `aria-pressed`. Pace badges use the magnitude of remaining
+allowance above or below an even burn, so the arrow and over/under word agree;
+zero is on pace. Reports older than this window are labelled **From a cached
+read**, rather than suggesting this desk read them hours before it opened.
+The read note follows account scope and retains the oldest observation.
+
+The adapter supplies a readable plan label beside the raw identifier; the
+host carries both and the raw value remains available in the label's title.
+Unknown plan types fall back to title-cased words without Self Serve.
+**What is left** includes healthy accounts with reported limits. Its former
+attention-only filter caused the missing account; there was no runtime-id
+gate. Host reads already use runtime capabilities, and file-backed meters may
+report limits even when a runtime cannot meter directly, so those reports
+remain eligible too. The attention count still counts only plans needing it.
