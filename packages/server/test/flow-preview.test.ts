@@ -423,7 +423,7 @@ rules:
   assert.equal(reviewer.candidates[1]?.reason?.kind, 'unheld')
   const refusal = preview.problems.find((problem) => problem.at === 'roles.reviewer.seat[0]' && problem.level === 'error')
   assert.ok(refusal)
-  assert.match(refusal.text, /claude-code cannot hold read/)
+  assert.match(refusal.text, /claude-code cannot enforce read-only access\. Choose another agent that supports this access\./)
 })
 
 test('independence follows the final fallback winner through a chain of roles', async () => {
@@ -781,5 +781,5 @@ test('a read role with no held ceiling names the missing ceiling in its dry-run 
   assert.equal(preview.token, null)
   const problem = preview.problems.find(one => one.level === 'error')!
   assert.equal(problem.at, 'roles.author.seat[0]')
-  assert.match(problem.text, /Alpha cannot hold read/)
+  assert.match(problem.text, /Alpha cannot enforce read-only access\. Choose another agent that supports this access\./)
 })

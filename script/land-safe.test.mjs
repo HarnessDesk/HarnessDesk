@@ -30,7 +30,7 @@ if (args[0] === 'pr' && args[1] === 'view') {
 } else if (args[0] === 'api' && args[1].includes('/branches/')) {
   process.stdout.write('base-sha')
 } else if (args[0] === 'api' && args[1].includes('/check-runs')) {
-  const checks = ${JSON.stringify(REQUIRED_CHECKS)}.map((name, index) => ({ id: index + 1, name, started_at: '2026-09-30T12:00:00Z', head_sha: '${CLI_HEAD}', app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success' }))
+  const checks = [...${JSON.stringify(REQUIRED_CHECKS)}, 'CI tier: full', 'UI integration inputs'].map((name, index) => ({ id: index + 1, name, started_at: '2026-09-30T12:00:00Z', check_suite: { id: 10 }, head_sha: '${CLI_HEAD}', app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success' }))
   if (process.env.LAND_SAFE_FAKE_RED === '1') checks[0].status = 'in_progress'
   process.stdout.write(checks.map(JSON.stringify).join('\\n'))
 }
@@ -108,6 +108,7 @@ const good = (name, overrides = {}) => ({
   id: 1,
   name,
   started_at: '2026-09-30T12:00:00Z',
+  check_suite: { id: 10 },
   head_sha: 'head-sha',
   app: { slug: 'github-actions' },
   status: 'completed',
@@ -118,7 +119,7 @@ const good = (name, overrides = {}) => ({
 const checksGreen = () => REQUIRED_CHECKS.map((name, index) => good(name, { id: index + 1 }))
 
 const harness = ({
-  checks = checksGreen(),
+  checks = [...checksGreen(), good('CI tier: full', { id: 40 }), good('UI integration inputs', { id: 39 })],
   heads = ['head-sha', 'head-sha', 'head-sha'],
   baseTips = ['base-sha', 'base-sha'],
   prStates = ['OPEN', 'OPEN', 'MERGED'],
@@ -229,7 +230,7 @@ test('the function reads --any-head and --head strictly: an empty head or a trut
 test('--any-head lands the current head and says it is unreviewed', async () => {
   const h = harness({
     heads: ['whatever-is-green', 'whatever-is-green', 'whatever-is-green'],
-    checks: checksGreen().map((check) => ({ ...check, head_sha: 'whatever-is-green' })),
+    checks: [...checksGreen(), good('CI tier: full'), good('UI integration inputs')].map((check) => ({ ...check, head_sha: 'whatever-is-green' })),
   })
   const code = await landSafe({ pr: '42', repo: 'owner/repo', anyHead: true }, h.runner, h.io)
   assert.equal(code, 0)
@@ -421,3 +422,49 @@ test('an unconfirmed merge never says the PR was not merged', async () => {
   assert.doesNotMatch(stdout, /was not merged/)
   assert.match(stderr, /merge was not confirmed for PR 42/)
 })
+
+for (const branch of ['feature/topic', 'batch/reviewed']) {
+  test(`land-safe refuses a green bounded run on ${branch}`, async () => {
+    const checks = [...checksGreen(), good('CI tier: bounded', { id: 50, check_suite: { id: 10 } })]
+    const h = harness({ checks })
+    const code = await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha' }, h.runner, h.io)
+    assert.equal(code, 2)
+    assert.match(h.output().stdout, /full CI tier/)
+    assert.ok(!h.calls.some(args => args[0] === 'pr' && args[1] === 'merge'))
+  })
+}
+
+test('a newer bounded marker supersedes an older full marker, including within a rerun suite', async () => {
+  const h = harness({ checks: [...checksGreen(),
+    good('CI tier: full', { id: 40, check_suite: { id: 10 } }),
+    good('CI tier: bounded', { id: 50, check_suite: { id: 10 } }),
+  ] })
+  assert.equal(await landSafe({ pr: '42', head: 'head-sha', repo: 'owner/repo' }, h.runner, h.io), 2)
+})
+
+test('full-tier proof from a different workflow run cannot bless the required checks', async () => {
+  const h = harness({ checks: [...checksGreen().map(check => ({ ...check, check_suite: { id: 20 } })),
+    good('CI tier: full', { id: 50, check_suite: { id: 10 } }),
+  ] })
+  assert.equal(await landSafe({ pr: '42', head: 'head-sha', repo: 'owner/repo' }, h.runner, h.io), 2)
+})
+
+for (const proof of [null, { status: 'queued', started_at: null }, { conclusion: 'failure' }, { app: { slug: 'other' } }, { head_sha: 'other-sha' }]) {
+  test(`landing fails closed without completed full-tier proof: ${JSON.stringify(proof)}`, async () => {
+    const h = harness({ checks: [...checksGreen(), ...(proof ? [good('CI tier: full', { check_suite: { id: 10 }, ...proof })] : [])] })
+    assert.equal(await landSafe({ pr: '42', head: 'head-sha', repo: 'owner/repo' }, h.runner, h.io), 2)
+  })
+}
+
+for (const status of ['queued', 'in_progress', 'completed']) {
+  test(`a newer selection job (${status}) blocks old full-tier results before aggregates exist`, async () => {
+    const h = harness({ checks: [
+      ...checksGreen(), good('CI tier: full', { id: 40 }),
+      good('UI integration inputs', { id: 39 }),
+      good('UI integration inputs', { id: 50, check_suite: { id: 20 }, status,
+        started_at: status === 'queued' ? null : '2026-09-30T13:00:00Z' }),
+    ] })
+    assert.equal(await landSafe({ pr: '42', head: 'head-sha', repo: 'owner/repo' }, h.runner, h.io), 2)
+    assert.ok(!h.calls.some(args => args[0] === 'pr' && args[1] === 'merge'))
+  })
+}

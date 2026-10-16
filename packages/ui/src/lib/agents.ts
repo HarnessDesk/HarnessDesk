@@ -242,19 +242,10 @@ export const reasonWords = (reason: SeatReason, runtime: string, modelLabel?: Mo
     case 'openedOtherwise':
       return `${runtime} opened it ${reason.differences.map((one) => differenceWords(one, modelLabel)).join(', and ')}`
     case 'unheld': {
-      // `isCeilingLevel` first: a level this file does not recognize is
-      // shown as written rather than thrown on indexing `LEVEL_WORD`.
-      const level = isCeilingLevel(reason.level) ? LEVEL_WORD[reason.level].toLowerCase() : reason.level
-      const detail = reason.detail ? `: ${reason.detail}` : ''
       if (reason.required && reason.level === 'read') return `${runtime} can be asked to stay read-only here but cannot be held to it.${reason.detail ? ` ${reason.detail.replace(/[.!?]$/, '')}.` : ''} Choose another agent, or start from /race.`
-      // `required` is a front-door start's own need — every Seat holds its
-      // ceiling, whatever this Mac's setting says. The runtime is running;
-      // it simply does not hold this level, or read back holding a different
-      // one — never "this Mac refuses…", the setting's own words, which is
-      // not what is happening here.
-      return reason.required
-        ? `${runtime} cannot hold ${level}${detail}, and a start from here needs every Seat to hold its ceiling`
-        : `${runtime} cannot hold ${level}${detail}, and this Mac refuses a seat whose ceiling is only asked`
+      const access = { read: 'read-only access', edit: 'editing and local commits without publishing', publish: 'publishing changes', merge: 'merging changes' }[reason.level] ?? reason.level
+      const detail = reason.detail ? `: ${reason.detail.replace(/[.!?]$/, '')}` : ''
+      return `${runtime} cannot enforce ${access}${detail}. Choose another agent that supports this access.`
     }
     case 'sameProvider':
       return 'Same provider as the writer'

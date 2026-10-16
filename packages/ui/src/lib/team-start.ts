@@ -101,3 +101,24 @@ export const pickerSections = (entries: readonly FlowEntry[], starts: Readonly<R
   const matches = (one: FlowEntry): boolean => !needle || `${one.name} ${shapeSummary(one)}`.toLocaleLowerCase().includes(needle)
   return { project: project.filter(matches), most: most.filter(matches), more: other.filter(one => !most.includes(one)).filter(matches) }
 }
+
+/** Keep the edit-first publication handoff when the review option is toggled. */
+export const withReviewHandoff = (flow: FlowPolicy, value: string): FlowPolicy => {
+  const editFirst = flow.roles.some(role => role.id === flow.seed.role && role.kind === 'agent' && role.grant === 'edit')
+  const publish = value !== 'merge' && editFirst
+  return { ...flow,
+    roles: flow.roles.map(one => one.id !== 'referee' ? one : value === 'merge'
+      ? { id: 'referee', kind: 'agent', uses: ['merger'], seats: [], isolate: false, grant: 'merge', independentOf: [] }
+      : { id: 'referee', kind: 'person', outcomes: ['merged', 'dropped'] }),
+    rules: flow.rules.map(rule => rule.then.role !== 'referee' ? rule : {
+      ...rule,
+      when: value === 'merge' ? { evidence: [{ review: 'approve' }, { pr: 'open' }] } : { every: ['approve'], evidence: [{ review: 'approve' }] },
+      then: { ...rule.then,
+        title: value === 'merge' ? 'Merge the reviewed pull request' : publish ? 'Approve publishing the reviewed change' : 'Merge it — the reviewer approved',
+        detail: value === 'merge' ? 'Merge only the approved revision after its required checks pass.' : publish
+          ? 'Review and approve publishing revision {{evidence.review.at}} from the branch named in the writer’s context package. You decide whether to push that branch and open a pull request, then merge after its checks pass, or drop the change. No agent in this Team may push or merge.'
+          : 'Merging is yours; no agent in this Team may do it.',
+      },
+    }),
+  }
+}
