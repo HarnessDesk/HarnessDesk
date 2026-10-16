@@ -4,6 +4,7 @@ import {
   isReachProblem,
   type LibraryDefinition,
   type LibraryEntry,
+  type LibraryIntent,
   type LibraryUsage,
   type RuntimeId,
 } from '@harnessdesk/protocol'
@@ -22,6 +23,7 @@ import {
 import { Markdown } from './Markdown'
 import {
   Badge,
+  Banner,
   Button,
   CodeBlock,
   CodeText,
@@ -45,6 +47,7 @@ import { installSource, type LibraryColumn, type LibraryFlow } from './LibraryAc
 import { handOverToComposer } from '../lib/compose'
 import { shortPath } from '../lib/paths'
 import { REACH_SENTENCE } from '../lib/reach-states'
+import { libraryRepository, libraryUpdateFor } from '../lib/library-updates'
 
 /**
  * One skill, opened.
@@ -201,6 +204,48 @@ export const SkillSheet = ({
    */
   const [declined, setDeclined] = useState<readonly { runtime: RuntimeId; reason: string }[]>([])
   const [rereadDone, setRereadDone] = useState<ReadonlySet<RuntimeId>>(new Set())
+  const [fetching, setFetching] = useState(false)
+  const [fetchFailed, setFetchFailed] = useState<string | null>(null)
+  const fetchGeneration = useRef(0)
+  useEffect(() => {
+    setFetching(false)
+    setFetchFailed(null)
+    return () => { fetchGeneration.current++ }
+  }, [entry])
+  const update = libraryUpdateFor(entry)
+  const origins = [...new Map(entry.copies.flatMap(copy => copy.origin ? [[JSON.stringify(copy.origin), copy.origin] as const] : [])).values()]
+  const reviewUpdate = async () => {
+    if (fetching) return
+    const ticket = fetchGeneration.current
+    const current = () => ticket === fetchGeneration.current
+    setFetching(true)
+    setFetchFailed(null)
+    try {
+      const fetched = new Map<string, Extract<LibraryIntent, { kind: 'updateSkill' }>['origin']>()
+      const intents: LibraryIntent[] = []
+      for (const one of entry.update ?? []) {
+        if (one.status !== 'behind') continue
+        const { url, ref, path } = one.origin
+        const key = JSON.stringify([url, ref, path])
+        let origin = fetched.get(key)
+        if (!origin) {
+          const answer = await store.transport.request('library/source/fetch', { url, ref, path })
+          if (!current()) return
+          const refused = answer.refused.find(folder => folder.dir === path)
+          const skill = answer.skills.find(skill => skill.dir === path)
+          if (refused || !skill) throw new Error(refused?.reason ?? `No skill was found at ${path || 'the repository root'}.`)
+          origin = { url, ref, commit: answer.commit, path: skill.dir, bundle: skill.bundle }
+          fetched.set(key, origin)
+        }
+        intents.push({ kind: 'updateSkill', name: entry.name, targetRuntime: one.runtime, origin })
+      }
+      if (current() && intents.length) onFlow({ type: 'plan', title: `Update ${entry.name}`, intents })
+    } catch (error) {
+      if (current()) setFetchFailed(error instanceof Error ? error.message : String(error))
+    } finally {
+      if (current()) setFetching(false)
+    }
+  }
 
   /**
    * The agents holding a copy they have not read back yet — the state of the
@@ -547,6 +592,20 @@ export const SkillSheet = ({
 
           {/* The evidence. Everything the matrix knew, about this one thing. */}
           <DialogBody layout="reading" className="flex min-w-0 flex-col gap-4">
+            {update?.status === 'behind' && <Banner tone="info" title="Update available"
+              actions={<Button variant="outline" size="sm" disabled={fetching} onClick={() => void reviewUpdate()}>{fetching ? 'Fetching…' : 'Review update…'}</Button>}>
+              {fetchFailed ?? `${update.origin.commit.slice(0, 7)} → ${update.latest?.slice(0, 7) ?? ''}`}
+            </Banner>}
+            {update?.status === 'gone' && <Banner tone="warning" title="Source branch is gone">
+              The branch {update.origin.ref} no longer exists in {libraryRepository(update.origin)}.
+            </Banner>}
+            {update?.status === 'unreachable' && <Text role="meta">Could not check: {update.reason}</Text>}
+            {origins.length > 0 && <Fact label="Where it came from">
+              {origins.map(origin => <div key={JSON.stringify(origin)}>
+                <CodeText as="code">{libraryRepository(origin)}</CodeText>
+                <div><Text role="meta">{origin.path || 'Repository root'} · {origin.ref}, pinned at {origin.commit.slice(0, 7)}</Text></div>
+              </div>)}
+            </Fact>}
             <Fact label="Which runtimes load it">
               <FormStack>
                 <div role="list" className="flex flex-col gap-1.5">

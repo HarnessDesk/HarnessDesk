@@ -208,7 +208,11 @@ type Trigger =
   | { readonly kind: 'file'; readonly query: string }
   | { readonly kind: 'choose'; readonly command: CommandDefinition }
 
-export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) => {
+// Folder selection can replace the composer before its send has settled.
+// Every incarnation of the new-session draft shares one submission hold.
+const draftSubmissions = new WeakMap<ReturnType<typeof useStore>, object>()
+
+export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Promise<boolean> }) => {
   const store = useStore()
   const messagesHeld = useContext(RoomMessagesHeld)
   const snapshot = useSnapshot()
@@ -278,9 +282,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const queue = useQueue()
   const waiting = queue?.messages.length ?? 0
   // No session yet is not a locked composer: typing is how a session starts.
-  // Only a missing workspace or a runtime that is not ready blocks input.
+  // A folder is chosen when sending; it never blocks typing.
   const ready = snapshot.health?.state === 'ready' || snapshot.health?.state === 'idle'
-  const canType = !record && (Boolean(session) || (ready && Boolean(snapshot.workspace)))
+  const canType = !record
   // A revealed key is not a conversation until its read succeeds. Keep the
   // draft editable, but never clear and submit it to a handle not yet open.
   const awaitingConversation = key !== null && !session
@@ -394,6 +398,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   )
   const canSend =
     canType &&
+    (Boolean(session) || ready) &&
     !awaitingConversation &&
     (text.trim().length > 0 || attachments.length > 0 || handoff !== null || pendingPlanNote !== null)
   const root = snapshot.workspace?.path ?? session?.cwd
@@ -666,6 +671,10 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     }
 
     if (!canSend) return
+    if (!key && !store.getSnapshot().workspace) {
+      const chosen = await onChooseProject()
+      if (!chosen || !store.getSnapshot().workspace) return
+    }
     if (images.length > 0 && !acceptsImages) {
       store.notice(
         'warning',
@@ -785,9 +794,18 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (text.trim().length > 0) content.push({ type: 'text', text: text.trim() })
 
     const draft = { text, attachments }
-    setText('')
-    setAttachments([])
-    setTrigger({ kind: 'none' })
+    // Opening a folder can replace this composer. Consume its stored draft
+    // as well as its state, but leave any newer words in that slot alone.
+    const live = drafts.live(draftKey)
+    if (live?.text === text && live.attachments.length === attachments.length
+      && live.attachments.every((one, index) => one === attachments[index])) {
+      drafts.setLive(draftKey, { text: '', attachments: [] })
+      if (mounted.current && draftOf.current === key) {
+        setText('')
+        setAttachments([])
+        setTrigger({ kind: 'none' })
+      }
+    }
     // The message has left the box, and what is typed now is another one — to
     // a conversation that exists. A draft's first send is still making one (a
     // worktree, an agent), and a second send would make a second, so a draft
@@ -811,6 +829,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     attachments,
     busy,
     drafts,
+    draftKey,
     canSend,
     canSteer,
     commands,
@@ -818,6 +837,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     images.length,
     key,
     recoverDraft,
+    onChooseProject,
     scope,
     store,
     text,
@@ -833,11 +853,13 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const sending = useRef<object | null>(null)
   const submit = useCallback(
     async (mode: 'auto' | 'now' = 'auto') => {
-      if (sending.current) return
+      if (sending.current || (key === null && draftSubmissions.has(store))) return
       const mine = {}
       sending.current = mine
+      if (key === null) draftSubmissions.set(store, mine)
       const release = (): void => {
         if (sending.current === mine) sending.current = null
+        if (draftSubmissions.get(store) === mine) draftSubmissions.delete(store)
       }
       try {
         await deliver(mode, release)
@@ -845,7 +867,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         release()
       }
     },
-    [deliver],
+    [deliver, key, store],
   )
 
   /**
@@ -1042,11 +1064,6 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
 
   const placeholder = useMemo(() => {
     if (record) return RECORD_REASON
-    if (!session && !canType) {
-      if (!snapshot.workspace) return 'Choose a project folder to begin'
-      if (snapshot.health?.state === 'unavailable') return [snapshot.health.message, snapshot.health.remediation ?? 'Choose a working installation in Settings.'].join(' ')
-      return 'Waiting for the runtime…'
-    }
     if (awaitingConversation) return 'Opening the conversation — you can keep typing'
     if (!session) return 'Describe a task to start a session — / for commands, @ for files'
     if (busy) {
@@ -1058,7 +1075,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       return `Adds to the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
     }
     return 'Type a reply — / for commands, @ for files'
-  }, [record, busy, canSteer, canType, awaitingConversation, session, snapshot.workspace, snapshot.health, waiting])
+  }, [record, busy, canSteer, awaitingConversation, session, waiting])
 
   // Whether pressing send delivers now or hands the message to the queue.
   // A running turn is the usual reason; a queue held behind a stopped turn
@@ -1235,7 +1252,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
 
         {messagesHeld && <ComposerChips><HoldingMessagesChip /></ComposerChips>}
 
-        {!session && !snapshot.workspace ? <ComposerTools><Button variant="secondary" onClick={onChooseProject}><FolderOpenIcon size={16} />Open a folder…</Button></ComposerTools> : <ComposerText
+        <ComposerText
           ref={textarea}
           value={text}
           rows={1}
@@ -1255,8 +1272,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
             }
             if (chipForPaste(event.clipboardData.getData('text/plain'))) event.preventDefault()
           }}
+          autoFocus={!session && focused}
           spellCheck
-        />}
+        />
 
         <ComposerTools data-composer-layout={session ? 'live' : 'draft'}>
           <Input
@@ -1287,7 +1305,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           </ComposerTrack>
           {/* Where it runs, first: the one decision here that cannot be
               changed once the message has gone. Drafts only. */}
-          <PlaceControl />
+          <PlaceControl onChooseProject={onChooseProject} />
           <AgentControl />
           <PermissionControl />
           <ModeControl />

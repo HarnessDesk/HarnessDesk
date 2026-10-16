@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { editorConversation } from '../editor'
 import { sanitizeText } from '../lib/sanitize'
 import { sessionUnavailable } from '../lib/session-unavailable'
-import { historySources, useInstalledAgents } from '../lib/first-run'
+import { useInstalledAgents } from '../lib/first-run'
 import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
 import {
@@ -170,16 +170,15 @@ const ConversationEmpty = ({
   const folder = folderPath ? folderPath.split('/').filter(Boolean).pop() ?? null : null
   const [startingTeam, setStartingTeam] = useState(false)
   const installed = useInstalledAgents(store, snapshot.runtimes)
-  const history = historySources(snapshot.runtimes)
   const installedOffer = installed.offers.length > 0 ? (
     <InlineParts role="group" aria-label="Installed on this Mac">
-      <Text as="span" role="meta">Installed on this Mac:</Text>
+      <Text as="span" role="meta">Installed on this Mac</Text>
       {installed.offers.map(template => (
-        <Button key={template.key} type="button" variant="outline" size="sm"
+        <InlineParts key={template.key}><Text as="span" role="row">{template.name}</Text><Button type="button" variant="secondary" size="sm"
           aria-label={`Add ${template.name}`} disabled={installed.busy !== null}
           onClick={() => void installed.add(template.key)}>
-          {template.name} — {installed.busy === template.key ? 'Adding…' : 'Add'}
-        </Button>
+          {installed.busy === template.key ? 'Adding…' : 'Add'}
+        </Button></InlineParts>
       ))}
     </InlineParts>
   ) : null
@@ -262,12 +261,7 @@ const ConversationEmpty = ({
     <ConversationEmptyState height={height}>
       <EmptyTitle>What should we build?</EmptyTitle>
       <EmptyBody>
-        {folder
-          ? `Describe what you want done in ${folder}.`
-          : 'Pick a project folder and describe what you want done.'}
-        {history
-          ? ` Sessions you start in ${history} appear in the sidebar too.`
-          : ''}
+        {session ? `Describe what you want done in ${folder}.` : 'Describe a task, then choose the folder it runs in.'}
       </EmptyBody>
       {/* This pane already knows its folder — the front door reads the same
           root. With none chosen yet there is no catalogue to read, so the
@@ -281,7 +275,7 @@ const ConversationEmpty = ({
           to choose a shape this project ships instead.
         </EmptyBody>
       )}
-      {snapshot.runtimes.length === 1 && (
+      {session && snapshot.runtimes.length === 1 && (
         /* The one-agent desk is the first-run desk. Said here rather than
            left for settings to reveal: the other agents on this machine can
            join without anyone hand-editing a file. */
@@ -373,7 +367,7 @@ export const Conversation = ({
   teamMenuOwner,
   mainContent,
 }: {
-  onChooseProject: () => void
+  onChooseProject: () => void | Promise<boolean>
   onSignIn: (runtime?: RuntimeId) => void
   onOpenUsage: (runtime: RuntimeId) => void
   onOpenRuntimes: () => void

@@ -5,7 +5,8 @@ import type { MainPageInput } from '../app/main-page-entries'
 import type { InsightReport, LedgerReport, RuntimeId, UsageReport } from '@harnessdesk/protocol'
 
 import { prefsForUsage } from '../lib/accounts'
-import { byUrgency, costClause, formatAge, runway } from '../lib/usage'
+import { byUrgency, costClause, runway } from '../lib/usage'
+import { dashboardReadLabel } from '../lib/dashboard-read'
 import { useSnapshot, useStore } from '../state/context'
 import { Page, PageOptions, PageExplanation } from '../design'
 import { DashboardBar } from '../panels/dashboard-bar'
@@ -246,7 +247,7 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
     setRefreshing(false)
   }
 
-  const oldest = snapshot.usage.reduce<number | null>(
+  const oldest = snapshot.usage.filter(report => !off.has(report.runtime) && (scope === null || report.runtime === scope)).reduce<number | null>(
     (at, report) => (at === null ? report.fetchedAt : Math.min(at, report.fetchedAt)),
     null,
   )
@@ -287,14 +288,13 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
   return <Page width="wide">
     <PageOptions title="Dashboard" choices={[{ id: 'scope', label: 'Scope the dashboard to one account', mode: 'menu',
       value: scope ?? '', items: scopeItems, change: value => onScope(value ? value as RuntimeId : null) }]}
-      read={oldest === null ? null : `Read ${formatAge(oldest, now)}`}
+      read={oldest === null ? null : dashboardReadLabel(oldest, now, performance.timeOrigin)}
       action={{ label: refreshing ? 'Refreshing…' : 'Refresh', disabled: refreshing, run: () => void refresh() }} />
     <DashboardBar view={view} attention={attention.length} changeView={onView} />
     {blurb && <PageExplanation>{blurb}</PageExplanation>}
           {view === 'overview' && (
             <OverviewView
               reports={reports}
-              attention={attention}
               byId={byId}
               agentTints={agentTints}
               snapshot={snapshot}

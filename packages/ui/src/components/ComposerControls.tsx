@@ -23,6 +23,7 @@ import {
   ChevronIcon,
   DiffIcon,
   HandoffIcon,
+  FolderOpenIcon,
   LocalIcon,
   EffortHighIcon,
   EffortLowIcon,
@@ -231,7 +232,7 @@ const StaleDefaultRows = ({ stale }: { stale: readonly StaleDefault[] }) => {
   const runtime = useRuntime()?.id
   return <>{stale.map((one) => <MenuItem key={one.id} icon={<AlertIcon size={14} />}
     label="Use the runtime’s current value" hint={`Saved ${one.label}: ${one.valueLabel}. ${one.reason}`}
-    onSelect={() => { if (runtime) void store.clearNewSessionDefault(runtime, one.id) }} />)}
+    onSelect={() => { if (runtime) void Promise.resolve(store.clearNewSessionDefault(runtime, one.id)).catch(error => store.resultNotice('warning', error instanceof Error ? error.message : String(error))) }} />)}
     {stale.length > 0 && <MenuSeparator />}
   </>
 }
@@ -1226,7 +1227,7 @@ export const HandoffSheet = ({
  * worktrees below: those are checkouts HarnessDesk cut, and this one was
  * here first.
  */
-export const PlaceControl = () => {
+export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
@@ -1235,8 +1236,8 @@ export const PlaceControl = () => {
   if (session) return null
   if (!workspace) {
     return (
-      <ComposerTrack name="work-in">
-        <InToolbar refer={ref}>{null}</InToolbar>
+      <ComposerTrack name="work-in" contentSized shrinkable>
+        <InToolbar refer={ref}><Button variant="ghost" size="content-min" onClick={onChooseProject}><FolderOpenIcon size={13} /><Text role="row">Choose folder</Text></Button></InToolbar>
       </ComposerTrack>
     )
   }
@@ -1323,8 +1324,12 @@ export const PlaceControl = () => {
   return (
     <ComposerTrack name="work-in" contentSized shrinkable>
       <InToolbar refer={ref}>
+        {onChooseProject && <Button variant="ghost" size="content-min" title={workspace.path} onClick={onChooseProject}>
+          <FolderOpenIcon size={13} /><Text role="row" truncate className={sheet.word}>{folder}</Text>
+        </Button>}
         <Popover
-          fullWidth
+          fullWidth={!onChooseProject}
+          triggerVariant={onChooseProject && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
           title={title}
           drop="up"
           align="left"
@@ -1338,17 +1343,18 @@ export const PlaceControl = () => {
             ) : (
               <LocalIcon size={13} />
             )}
-            {armed
+            {onChooseProject && !armed && !chosen ? null : armed
               ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
               : <Text role="row" truncate title={workspace.path} className={sheet.word}>{word}</Text>}
             {tagged && <Badge variant="secondary">worktree</Badge>}
-            <Chevron size={12} />
+            {(!onChooseProject || armed || chosen) && <Chevron size={12} />}
           </>
         }
          panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               <MenuLabel>Work in</MenuLabel>
+              {onChooseProject && <MenuItem icon={<FolderOpenIcon size={14} />} label="Choose folder…" onSelect={onChooseProject} />}
               <MenuItem
                 icon={linked ? <BranchIcon size={14} /> : <LocalIcon size={14} />}
                 label={linked ? 'This worktree' : 'Local'}

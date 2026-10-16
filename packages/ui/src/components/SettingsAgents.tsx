@@ -1,4 +1,5 @@
 import { slotForCategory } from '../lib/composer-slots'
+import { useNewSessionDefaults } from '../lib/use-new-session-defaults'
 import { CheckIcon } from './Icons'
 import { DestinationBar, useDestinationActive } from '../panels/destination-page'
 import { PageExplanation, PageControls, PageOptions, MenuItem, Toolbar } from '../design'
@@ -69,6 +70,7 @@ import {
   InlineParts,
   SettingsRowMenu,
   Button,
+  Banner,
   Card,
   CardViewport,
   Chip,
@@ -1564,28 +1566,11 @@ export const NewSessionDefaults = ({
 }) => {
   const destinationActive = useDestinationActive()
 
-  const store = useStore()
   const snapshot = useSnapshot()
-  const [options, setOptions] = useState<readonly ConfigOption[] | null>(null)
+  const { options, error, pick, clear } = useNewSessionDefaults(info.id, destinationActive)
   const stale = snapshot.staleDraftDefaults[info.id] ?? []
 
-  useEffect(() => {
-    if (!destinationActive) return
-
-    let cancelled = false
-    void store.newSessionDefaultsFor(info.id).then((loaded) => {
-      if (!cancelled) setOptions(loaded)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [destinationActive, store, info.id, snapshot.healthByRuntime[info.id]?.state])
-
-  const pick = (id: string, value: OptionValue): void => {
-    void store.setNewSessionDefault(info.id, id, value).then(setOptions)
-  }
-
-  const current = snapshot.activeRuntime === info.id ? snapshot.draftOptions ?? options : options
+  const current = !error && snapshot.activeRuntime === info.id ? snapshot.draftOptions ?? options : options
   if (!Array.isArray(current)) return null
   const listed = only ? current.filter(only) : current
   const staleListed = only ? stale.filter((one) => only({ id: one.id, label: one.label, category: one.category } as ConfigOption)) : stale
@@ -1603,14 +1588,15 @@ export const NewSessionDefaults = ({
           )
         }
       />
+      {error && <Banner tone="warning">{error}</Banner>}
       {staleListed.length > 0 && <Rows>{staleListed.map((one) => (
         <Row key={one.id} title={<>{`Saved ${one.label}: ${one.valueLabel}`} <Chip tone="warning">Stale</Chip></>}
           desc={one.reason} data-composer-option-slot={slotForCategory(one.category)}
-          control={<Button variant="secondary" size="sm" onClick={() => void store.clearNewSessionDefault(info.id, one.id).then(setOptions)}>
+          control={<Button variant="secondary" size="sm" onClick={() => clear(one.id)}>
             Use the runtime’s current value
           </Button>} />
       ))}</Rows>}
-      {listed.length === 0 ? (
+      {listed.length === 0 ? !error && (
         <Rows>
           <Row
             title={empty}

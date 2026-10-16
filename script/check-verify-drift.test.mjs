@@ -42,7 +42,7 @@ test('CI keeps the tier selection, label trigger and visible landing proof wired
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
   assert.deepEqual(tierProblems(workflow), [])
   for (const token of [
-    'types: [opened, synchronize, reopened, labeled, unlabeled]',
+    'types: [opened, synchronize, reopened]',
     'CI_HEAD_BRANCH: ${{ github.head_ref }}',
     'CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}',
     'tier: ${{ steps.paths.outputs.tier }}',

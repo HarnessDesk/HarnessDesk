@@ -315,13 +315,13 @@ it('with no session at all, offers the opening pitch rather than a failure', () 
   expect(container.textContent).not.toContain('restore')
 })
 
-it('names the chosen project in the empty draft pitch', () => {
+it('keeps one short draft pitch with a chosen project', () => {
   const { store } = rig(null, new Map(), {
     workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 },
   })
   render(store, null)
 
-  expect(container.textContent).toContain('Describe what you want done in storefront.')
+  expect(container.textContent).toContain('Describe a task, then choose the folder it runs in.')
   expect(container.textContent).not.toContain('Pick a project folder')
 })
 
@@ -400,8 +400,8 @@ it('draft and conversation keep the fixed browser door and More in the shell', (
 it('folder facts remain readable in Details when the shell title folds', () => {
   render(rig(session()).store)
   const facts = container.querySelector('[aria-label="Conversation facts"]')!
-  expect(facts.textContent).toContain('Folder/repo')
-  expect(facts.querySelector('[data-slot="middle-truncate"]')).not.toBeNull()
+  expect(facts.textContent).toContain('Folderrepo')
+  expect(facts.querySelector('[title="/repo"]')?.textContent).toBe('repo')
   expect(container.querySelector('header [aria-label="Conversation status"]')).toBeNull()
 })
 
@@ -864,8 +864,10 @@ it('leaves no ceiling wrapper on the plain conversation path', () => {
 
 it('a draft with no folder has a truthful Details fact and no folder action', () => {
   render(rig(null, new Map(), { workspace: null }).store, null)
-  expect(container.querySelector('[aria-label="Conversation facts"]')?.textContent).toContain('Choose a project folder')
+  expect(container.querySelector('[aria-label="Conversation facts"]')?.textContent).toContain('Not chosen')
   expect(container.querySelector('button[aria-label="Folder actions"]')).toBeNull()
+  expect(container.textContent).not.toContain('reported for this draft')
+  expect(container.querySelector('[aria-label="Plan"]')).toBeNull()
 })
 
 it('shows one quiet copy notice using the agent presentation name', () => {
@@ -1084,14 +1086,15 @@ it.each(['nothing installed', 'already added', 'bridge only'])('offers nothing w
   expect(container.querySelector('[aria-label="Installed on this Mac"]')).toBeNull()
 })
 
-it('names the present history sources rather than only the pane runtime', () => {
+it('keeps other clients out of the draft pitch even with legacy history metadata', () => {
   const runtimes = ['Alpha', 'Beta', 'Gamma'].map((name) => ({
     ...harness.runtime(runtimeId(name.toLowerCase()), name),
     presentation: { name, ...(name === 'Gamma' ? {} : { historySource: `${name} CLI` }) },
   }))
   render(rig(null, new Map(), { runtimes, activeRuntime: runtimes[0]!.id }).store, null)
   const text = container.querySelector('[data-slot="conversation-empty-state"]')!.textContent
-  expect(text).toContain('Sessions you start in Alpha CLI and Beta CLI appear in the sidebar too.')
+  expect(text).toContain('Describe a task, then choose the folder it runs in.')
+  expect(text).not.toContain('Sessions you start in')
   expect(text).not.toContain('Gamma CLI')
   expect(text).not.toContain('Codex')
   expect(text).not.toContain('only runtime')
@@ -1163,9 +1166,19 @@ it('offers installed alternatives even while the selected runtime needs sign-in'
   expect(container.querySelector('button[aria-label="Add Beta"]')).not.toBeNull()
 })
 
-it('lists a shared history source once for multiple accounts', () => {
+it('omits legacy history-source copy for multiple accounts', () => {
   const runtimes = ['one', 'two'].map(id => ({ ...harness.runtime(id, 'Alpha'), presentation: { name: 'Alpha', historySource: 'Alpha CLI' } }))
   render(rig(null, new Map(), { runtimes, activeRuntime: runtimes[0]!.id }).store, null)
   expect(container.querySelector('[data-slot="conversation-empty-state"]')!.textContent)
-    .toContain('Sessions you start in Alpha CLI appear in the sidebar too.')
+    .not.toContain('Sessions you start in')
+})
+
+it('draft Details names the folder with its full path on hover (#1720)', () => {
+  render(rig(null, new Map(), { workspace: { path: '/work/long/project/first-run-1720', name: 'first-run-1720' } as AppSnapshot['workspace'] }).store, null)
+  const facts = container.querySelector('[aria-label="Conversation facts"]')!
+  expect(facts.textContent).toContain('first-run-1720')
+  expect(facts.textContent).not.toContain('/work/')
+  expect(facts.querySelector('[title="/work/long/project/first-run-1720"]')?.textContent).toBe('first-run-1720')
+  expect(container.textContent).not.toContain('reported for this draft')
+  expect(container.querySelector('[aria-label="Plan"]')).toBeNull()
 })

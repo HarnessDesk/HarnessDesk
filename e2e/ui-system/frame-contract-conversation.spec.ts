@@ -34,7 +34,7 @@ for (const theme of WALL_THEMES) {
   test(`Frame fix 2 Work in separates a selected value from its check in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=draft&frame-work-in=linked', theme, 1280)
     const track = page.locator('[data-composer-track="work-in"]')
-    await track.getByRole('button').click()
+    await track.getByRole('button').and(page.getByTitle(/^Starts in/)).click()
     const menu = page.locator('[data-popup-kind]:visible').last()
     const main = menu.locator('[data-menu-row]').filter({ hasText: 'Main checkout' })
     await expect(main.locator('[data-menu-trailing]')).toContainText('main')
@@ -143,33 +143,16 @@ for (const theme of WALL_THEMES) {
     })
   }
 
-  test(`Frame Details caveats use the Run note column and type in ${theme}`, async ({ page }) => {
+  test(`Frame draft Details show only recorded facts in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=draft', theme)
     const toggle = page.getByRole('button', { name: 'Toggle rail', exact: true })
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
     const panel = page.locator('[data-frame-region="rail"] [data-slot="tool-body"]:visible')
-    const note = panel.locator('[data-slot="tool-prose"]').filter({ hasText: 'Permission level not reported for this draft.' }).first()
-    await expect(note).toBeVisible()
-    const geometry = await note.evaluate(node => {
-      const text = node.querySelector<HTMLElement>('[data-slot="text"]')!, style = getComputedStyle(text)
-      const key = node.parentElement!.querySelector('dt')!
-      const probe = document.createElement('span'); probe.style.color = 'var(--hd-secondary-foreground)'; node.append(probe)
-      const secondaryColor = getComputedStyle(probe).color; probe.remove()
-      return { x: text.getBoundingClientRect().x, keyX: key.getBoundingClientRect().x, size: parseFloat(style.fontSize), color: style.color, secondaryColor }
-    })
-    expect(geometry.size).toBe(12)
-    expect(geometry.x).toBe(geometry.keyX)
-    expect(geometry.color).toBe(geometry.secondaryColor)
-    const planNote = panel.locator('[data-slot="tool-prose"]').filter({ hasText: 'No plan yet.' })
-    await expect(planNote).toBeVisible()
-    const planStyle = await planNote.locator('[data-slot="text"]').evaluate(node => {
-      const probe = document.createElement('span'); probe.style.color = 'var(--hd-secondary-foreground)'; node.append(probe)
-      const secondaryColor = getComputedStyle(probe).color; probe.remove()
-      const style = getComputedStyle(node)
-      return { size: parseFloat(style.fontSize), color: style.color, secondaryColor }
-    })
-    expect(planStyle.size).toBe(12)
-    expect(planStyle.color).toBe(planStyle.secondaryColor)
+    await expect(panel.locator('[aria-label="Conversation facts"]')).toBeVisible()
+    await expect(panel).not.toContainText('reported for this draft')
+    await expect(panel.getByText('No plan yet.', { exact: true })).toHaveCount(0)
+    await expect(panel.locator('[aria-label="Plan"]')).toHaveCount(0)
+    await expect(panel.getByText('No usage yet', { exact: true })).toBeVisible()
   })
 
   {

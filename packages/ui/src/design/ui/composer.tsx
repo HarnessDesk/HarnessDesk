@@ -51,6 +51,11 @@ ComposerDock.displayName = 'ComposerDock'
  * `composer.parity.test.ts` reads that file and fails if it moves without this
  * one. Two files, one shape, and the drift is caught rather than noticed.
  *
+ * First-run drafts keep the text well mounted and enabled. The folder is a
+ * toolbar control on the same centre line, not another row above the text;
+ * choosing it cannot change the shell's height. Sending without a folder
+ * waits for the shared picker, and cancellation preserves the draft.
+ *
  * Presentation only, deliberately. It holds no draft, no queue, no attachments.
  * The app's Composer is the thing that knows about those and belongs inside
  * this; a screen that only needs somewhere to type — a mock, a preview, a room

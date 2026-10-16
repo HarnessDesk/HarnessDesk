@@ -399,7 +399,9 @@ for (const theme of WALL_THEMES) {
       const railToggle = top.getByRole('button', { name: 'Toggle rail', exact: true })
       if (await railToggle.getAttribute('aria-pressed') !== 'true') await railToggle.click()
       const details = page.locator('[data-slot="tool-body"]:visible')
-      await expect(details.getByText('Plan', { exact: true })).toBeVisible()
+      // A draft has no session and no plan yet, so its Plan section is not drawn.
+      if (destination === 'draft') await expect(details.getByText('Plan', { exact: true })).toHaveCount(0)
+      else await expect(details.getByText('Plan', { exact: true })).toBeVisible()
       await expect(details.locator('[data-slot="summary-card"]').first()).toHaveAttribute('data-surface', 'panel')
       const firstTool = (await top.locator('[data-work-rail-toggle]').boundingBox())!
       expect(firstTool.width).toBe(FRAME.bar.iconButton)

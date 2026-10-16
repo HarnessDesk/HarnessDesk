@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 
-import type { HostMethodName, PersonNotice } from '@harnessdesk/protocol'
+import { runtimeId, type HostMethodName, type PersonNotice } from '@harnessdesk/protocol'
 
 import { withSurface } from '../lib/notice-policy'
 import { AppStore } from './store'
@@ -19,6 +19,7 @@ beforeEach(async () => {
   requests = []
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
     requests.push({ method, params })
+    if (method === 'runtime/sessionDefaults') return []
     if (method === 'workspace/open') return { path: '/repo', name: 'repo', lastOpenedAt: 1 }
     if (method === 'workspace/recent') return []
     if (method === 'session/create') return { id: 'new-1', runtime: 'codex', cwd: '/repo', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }
@@ -83,8 +84,11 @@ it('"Inbox only" keeps even a decision in the inbox, and Off drops it', () => {
 
 it('a suggested task starts a conversation on the sender’s runtime whose first message is the task, and reads the message', async () => {
   await store.openWorkspace('/repo')
+  await store.selectRuntime(runtimeId('other'))
   push(notice({ task: 'Review PR 971' }))
   await store.startSuggestedTask('codex/s1:1')
+  expect(requests.filter((request) => request.method === 'runtime/sessionDefaults').at(-1)?.params)
+    .toMatchObject({ runtime: 'codex', cwd: '/repo' })
   const started = requests.find((request) => request.method === 'session/create')
   expect(started?.params).toMatchObject({ runtime: 'codex' })
   const sent = requests.find((request) => request.method === 'turn/send')

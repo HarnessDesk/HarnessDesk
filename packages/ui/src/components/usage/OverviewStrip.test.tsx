@@ -35,13 +35,13 @@ const ledger = (provenance: SpendProvenance): LedgerReport =>
     scannedAt: null,
   }) as LedgerReport
 
-describe('OverviewStrip Value cell', () => {
+describe('OverviewStrip usage cost cell', () => {
   it.each([
     ['listPrice', 'list-price equivalent'],
     ['vendorMetered', 'plan metered'],
     ['mixed', 'metered and list-price'],
     ['unknown', 'spend unavailable'],
-  ] as const)('labels %s as Value and keeps its pricing detail in the title', (provenance, phrase) => {
+  ] as const)('names the %s figure and keeps its pricing detail in the title', (provenance, phrase) => {
     act(() =>
       root.render(
         <OverviewStrip
@@ -58,8 +58,9 @@ describe('OverviewStrip Value cell', () => {
     )
 
     const valueButton = host.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
-    expect(valueButton?.textContent?.startsWith('Value')).toBe(true)
-    expect(valueButton?.getAttribute('title')).toBe(`Value (${phrase}). Switch the chart below to cost per day`)
+    expect(valueButton?.textContent?.startsWith('Usage cost')).toBe(true)
+    expect(valueButton?.textContent).not.toContain('Selected')
+    expect(valueButton?.getAttribute('title')).toBe(`Usage cost (${phrase}). Switch the chart below to cost per day`)
     if (provenance === 'unknown') expect(valueButton?.textContent).toContain('—')
   })
 })

@@ -34,24 +34,24 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
           ? `${shown.ceiling.hold === 'held' ? 'Held' : 'Asked, not held'}: ${shown.note}` : ceilingMeaning(shown.ceiling.level) : undefined}>
           {shown ? seatCeilingWords(shown.ceiling) : 'Not recorded'}
         </SummaryItem>}
-        <SummaryItem label="Folder" kind="path" action={placeAction} note={armed ? 'Source folder; the worktree is made when the message goes' : undefined}>
-          {cwd ?? 'Choose a project folder'}
+        <SummaryItem label="Folder" action={placeAction} note={armed ? 'Source folder; the worktree is made when the message goes' : undefined}>
+          {cwd ? <span title={cwd}>{cwd.split('/').filter(Boolean).at(-1) ?? cwd}</span> : 'Not chosen'}
         </SummaryItem>
         {branch && <SummaryItem label="Branch" kind="path">{branch}</SummaryItem>}
         <SummaryItem label="Context">{context?.title ?? 'No usage yet'}</SummaryItem>
       </SummaryList>
-      {(!shown || !branch) && <ToolProse variant="note">
+      {session && (!shown || !branch) && <ToolProse variant="note">
         {!shown && <>Permission level not reported for this {session ? 'conversation' : 'draft'}.</>}
         {!shown && !branch && ' '}
         {!branch && <>Branch not reported for this {session ? 'conversation' : 'draft'}.</>}
       </ToolProse>}
       <Slot name="session.header" />
     </ToolSection>
-    <ToolSection label="Plan">
+    {(session || todos.length > 0) && <ToolSection label="Plan">
       {todos.length ? <Checklist surface="panel">{todos.map((todo, index) => <ChecklistItem key={index} state={todoState(todo)}>{sanitizeText(todo.label)}</ChecklistItem>)}</Checklist>
         : <ToolProse variant="note">No plan yet.</ToolProse>}
       {session && <AgentsView />}
-    </ToolSection>
+    </ToolSection>}
     {session && <><BackgroundTasksView card /><TrajectoryCard /></>}
   </ToolFooterSuppressed></ToolBodySections></ToolBody>
 }

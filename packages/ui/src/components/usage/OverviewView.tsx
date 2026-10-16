@@ -3,7 +3,7 @@ import type { LedgerReport, RuntimeId, RuntimeInfo, UsageReport } from '@harness
 
 import { prefsForUsage } from '../../lib/accounts'
 import type { HeatMetric, HourMetric } from '../../lib/heat'
-import type { RunwaySummary } from '../../lib/usage'
+import { drawnReport, reportNeedsAttention, type RunwaySummary } from '../../lib/usage'
 import { Button, PageOptions, Text, Section, DashboardColumns, DashboardAccounts } from '../../design'
 import { UsageActivity, type HeatView } from '../UsageActivity'
 import { Card, PIVOTS, Ranked, Spend, type Pivot, type SilentAgent, type TintOf } from './shared'
@@ -12,15 +12,11 @@ import { OverviewStrip, stripChartMetric, type StripMetric } from './OverviewStr
 /**
  * Overview: the whole story on one screen.
  *
- * An accounts summary limited to what needs looking at, a bento of what it
- * cost beside where it went, and when it ran. Everything else — every
- * account's own card, the burn-downs, the full account rail this page used
- * to be — is a click away on the view that is about it, never duplicated
- * here: Overview triages, it does not replace.
+ * Every reporting account's remaining limits, what it cost beside where it
+ * went, and when it ran. Plans keeps the full table and expanded details.
  */
 export const OverviewView = ({
   reports,
-  attention,
   byId,
   agentTints,
   snapshot,
@@ -51,7 +47,6 @@ export const OverviewView = ({
   onOpenPlan,
 }: {
   reports: readonly UsageReport[]
-  attention: readonly UsageReport[]
   byId: ReadonlyMap<RuntimeId, RuntimeInfo>
   agentTints: TintOf
   snapshot: Pick<AppSnapshot, 'accountsByRuntime' | 'accountPrefs' | 'scan'>
@@ -86,6 +81,14 @@ export const OverviewView = ({
   onOpenPlan: (runtime: RuntimeId) => void
 }) => {
   const scopedSilent = silent.filter((agent) => scope === null || scope === agent.info.id)
+  // Limits can also arrive from a host meter for a runtime whose own
+  // capabilities.metered is false. The report is the normalized answer;
+  // neither a backend id nor the attention threshold decides membership.
+  const remaining = reports.filter(report => {
+    const drawn = drawnReport(report)
+    return drawn.lanes.some(lane => !lane.placeholder) || drawn.credits != null || reportNeedsAttention(report, now,
+      prefsForUsage(report.runtime, report.account, snapshot.accountsByRuntime, snapshot.accountPrefs))
+  })
   return (
     <>
       <OverviewStrip
@@ -100,8 +103,8 @@ export const OverviewView = ({
       />
 
       <Section title="What is left" description={summary.headline ?? undefined}>
-        {attention.length > 0 ? (
-          <DashboardAccounts accounts={attention.map((report) => (
+        {remaining.length > 0 ? (
+          <DashboardAccounts accounts={remaining.map((report) => (
               <Card
                 key={`${report.runtime}:${report.account ?? ''}`}
                 report={report}
@@ -112,9 +115,7 @@ export const OverviewView = ({
                 onStopTracking={() => onStopTracking(report.runtime)}
               />
             ))} />
-        ) : summary.metered > 0 ? (
-          <Text role="muted">Nothing is spent or low right now.</Text>
-        ) : null}
+        ) : <Text role="muted">No limits reported yet.</Text>}
         <>
           <Button variant="link" size="content" onClick={onGoToPlans}>
             See all in Plans

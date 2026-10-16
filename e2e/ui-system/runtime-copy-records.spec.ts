@@ -15,8 +15,11 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByRole('button', { name: /Turns/ }).first()).toBeVisible()
     await page.evaluate(async () => { await document.fonts.ready })
     await capture(page, 'usage-overview', theme)
-    // Overview shows the accounts needing attention; the unit fixture check covers both cached reports.
-    await expect(page.getByText('from its own cache', { exact: false })).toBeVisible()
+    // Overview includes both accounts, including the healthy cached report.
+    const sources = page.getByText('from its own cache', { exact: true })
+    await expect(sources).toHaveCount(2)
+    await expect(sources.nth(0)).toBeVisible()
+    await expect(sources.nth(1)).toBeVisible()
     await expect(page.getByText("from the agent's own cache", { exact: false })).toHaveCount(0)
   })
 
