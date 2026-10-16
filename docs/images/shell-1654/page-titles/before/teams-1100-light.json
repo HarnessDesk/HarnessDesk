@@ -1,0 +1,11 @@
+{
+  "height": 40,
+  "text": "Teams",
+  "controls": [
+    {
+      "name": "More",
+      "x": 1060,
+      "width": 28
+    }
+  ]
+}

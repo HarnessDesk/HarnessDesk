@@ -1,0 +1,41 @@
+{
+  "height": 40,
+  "text": "Code reviewer · Worktree Management",
+  "controls": [
+    {
+      "name": "Code reviewer · Worktree Management",
+      "x": 274,
+      "width": 290.015625
+    },
+    {
+      "name": "Toggle rail",
+      "x": 887,
+      "width": 28
+    },
+    {
+      "name": "Terminal",
+      "x": 932,
+      "width": 28
+    },
+    {
+      "name": "Changes",
+      "x": 964,
+      "width": 28
+    },
+    {
+      "name": "Browser",
+      "x": 996,
+      "width": 28
+    },
+    {
+      "name": "Files",
+      "x": 1028,
+      "width": 28
+    },
+    {
+      "name": "More",
+      "x": 1060,
+      "width": 28
+    }
+  ]
+}
