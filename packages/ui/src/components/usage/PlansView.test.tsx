@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { NO_CAPABILITIES, runtimeId, type Account, type AccountStatus, type RuntimeInfo, type UsageReport } from '@harnessdesk/protocol'
 import { emptySnapshot } from '../../state/store'
-import { accountKey } from '../../lib/accounts'
+import { accountKey, runtimeTint } from '../../lib/accounts'
 import { PlansView } from './PlansView'
 
 it('counts a signed-out runtime with ledger history once and keeps sign-in in its detail', () => {
@@ -38,7 +38,7 @@ it('falls back to All when a selected shape no longer has any accounts', () => {
  } finally { act(() => root.unmount()); container.remove() }
 })
 
-it('uses each report account’s own tint when one runtime has multiple accounts', () => {
+it('keeps the brand tint and distinct account initials when one runtime has multiple accounts', () => {
  const info = { id: runtimeId('alpha'), capabilities: NO_CAPABILITIES, presentation: { name: 'Alpha' } } as RuntimeInfo
  const first: Account = { kind: 'oauth', label: 'first@example.com' }
  const second: Account = { kind: 'oauth', label: 'second@example.com' }
@@ -59,6 +59,7 @@ it('uses each report account’s own tint when one runtime has multiple accounts
  const container = document.createElement('div'); document.body.append(container); const root = createRoot(container)
  try {
   act(() => root.render(<PlansView reports={reports} byId={new Map([[info.id, info]])} snapshot={snapshot} now={1} summary={{} as never} scoped={null} silent={[]} untracked={[]} onRefreshAccount={() => {}} onStopTracking={() => {}} onTrack={() => {}} onOpenPlanSettings={() => {}} />))
-  expect([...container.querySelectorAll('[data-tint]')].map(node => node.getAttribute('data-tint'))).toEqual(['rose', 'violet'])
+  expect([...container.querySelectorAll('[data-slot="icon-tile"]')].map(node => node.getAttribute('data-tint'))).toEqual([runtimeTint(info), runtimeTint(info)])
+  expect([...container.querySelectorAll('[data-slot="face-badge"]')].map(node => node.textContent)).toEqual(['F', 'S'])
  } finally { act(() => root.unmount()); container.remove() }
 })

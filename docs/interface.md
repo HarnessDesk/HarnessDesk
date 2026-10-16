@@ -506,7 +506,7 @@ at the bottom-right, and its title names the parent conversation. Runtimes
 has a server glyph; runtime rows keep their own brand faces. When two or more
 accounts of the same runtime are signed in, their faces carry unique account
 initials from 24px up (two letters when initials collide). Smaller faces keep
-the account tint and a title naming the account. Top-right is reserved for
+the runtime's brand tint and a title naming the account. Top-right is reserved for
 attention counts. A face that totals several accounts carries no initial.
 
 ### Archive, Remove and Delete everywhere
@@ -1087,7 +1087,17 @@ or unmeasured start in the background; the page can show the last learned models
 options and account while it waits. Shared recycling refusals are stated once below the table.
 
 It has a page per runtime (health, update, the runtime's own options) or per account;
-*Add a runtime* is where a registry entry or a custom one is added. Extensions
+*Add a runtime* lists the runtimes this machine can register. **Browse more…**
+reveals ACP registry entries with one group note: “Third-party entries from the
+ACP registry. HarnessDesk has not reviewed them.” Adding or downloading an entry
+works as before; a custom command remains under **Something else**.
+Runtime brand tiles keep the same colour here, in Runtimes, in Library's
+**Loaded by** column and wherever that runtime is drawn. Account ring colours
+remain a separate preference. In Usage, runtime rows, legend dots, share segments
+and bars share that tint. The first runtime of each tint keeps it; later
+duplicates take unused roster tints, including their ranked faces, so the table
+continues to identify the series. Library's loading tiles are spaced so each mark
+stays whole. Extensions
 appears only for a runtime with a store or MCP servers to show, which today
 means Codex alone. A runtime whose sign-in the desk cannot ask about — an ACP
 agent with no status command and no stored key — is described by what its own

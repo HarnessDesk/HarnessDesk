@@ -7,7 +7,6 @@ import { Button, Chip, CodeText, AvatarStack, ListRow, ListRows, Table, TableBod
 import { useNarrowLayout } from '../lib/use-narrow-layout'
 import { runtimeTint } from '../lib/accounts'
 import { libraryUpdateFor } from '../lib/library-updates'
-import { useSnapshot } from '../state/context'
 import { ChevronIcon } from './Icons'
 import type { LibraryColumn } from './LibraryActions'
 import styles from './SkillRow.module.css'
@@ -107,7 +106,6 @@ export const SkillRow = ({ entry, columns, onOpen }: {
   columns: readonly LibraryColumn[]
   onOpen: () => void
 }) => {
-  const snapshot = useSnapshot()
   const narrow = useContext(NarrowList)
   const finding = useMemo(() => findingFor(entry, columns), [entry, columns])
   const loaded = entry.reach.filter(reach => reach.state === 'reaches')
@@ -125,12 +123,13 @@ export const SkillRow = ({ entry, columns, onOpen }: {
     return column ? [{
       id: reach.runtime,
       name: column.label,
-      tint: runtimeTint(reach.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs),
+      tint: runtimeTint(column.info ?? { id: column.id, presentation: { name: column.label } }),
       mark: column.info ? <RuntimeMark runtime={column.info} size={12} /> : undefined,
     }] : []
   })
   const faces = members.length ? <AvatarStack
     size="stack"
+    overlap={false}
     aria-label={`Loaded by ${members.map(member => member.name).join(', ')}`}
     members={members}
   /> : <span>{narrow && <span className="sr-only">Loaded by </span>}<Text role="muted" ink="muted" title={narrow ? 'Loaded by none' : undefined}>None</Text></span>

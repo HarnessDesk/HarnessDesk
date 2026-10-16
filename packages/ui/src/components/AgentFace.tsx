@@ -1,5 +1,6 @@
 import type { AgentEntry } from '@harnessdesk/protocol'
 
+import { runtimeTint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { markFor, seatTaken } from '../lib/agents'
 import { useSnapshot } from '../state/context'
@@ -15,7 +16,7 @@ export const AgentFace = ({ entry }: { readonly entry: AgentEntry }) => {
   const candidate = seatTaken(snapshot.agentPlans.get(entry.id))
   const runtime = candidate ? markFor(candidate, snapshot.runtimes) : null
   return (
-    <IconTile shape="face" {...(candidate ? { title: candidate.runtimeName } : {})}>
+    <IconTile shape="face" {...(runtime ? { tint: runtimeTint(runtime) } : { tone: 'neutral' as const })} {...(candidate ? { title: candidate.runtimeName } : {})}>
       {runtime && brandForRuntime(runtime)
         ? <RuntimeMark runtime={runtime} size={16} />
         : <Monogram>{initials(entry.definition?.name ?? entry.id)}</Monogram>}

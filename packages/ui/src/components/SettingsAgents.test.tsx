@@ -282,8 +282,19 @@ const REGISTRY: AcpRegistryAgentInfo[] = [
   },
 ]
 
+it('keeps third-party entries behind Browse more and explains the group once', async () => {
+  await mount(CATALOG, REGISTRY)
+  expect(document.body.textContent).not.toContain('From the ACP registry')
+  expect(document.body.textContent).not.toContain('A local, extensible agent.')
+  expect(button('Browse more…')).toBeDefined()
+  await act(async () => button('Browse more…')!.click())
+  expect(document.body.textContent).toContain('A local, extensible agent.')
+  expect(document.body.textContent?.split('Third-party entries from the ACP registry. HarnessDesk has not reviewed them.')).toHaveLength(2)
+})
+
 it('renders the registry with the same honesty per row', async () => {
   await mount(CATALOG, REGISTRY)
+  await act(async () => button('Browse more…')!.click())
 
   expect(document.body.textContent).toContain('From the ACP registry')
   // Addable: the registry's own words under the name.
@@ -307,6 +318,7 @@ it('renders the registry with the same honesty per row', async () => {
 
 it('adds a registry entry by its id and re-reads the registry', async () => {
   const { addAgent, acpRegistry } = await mount([], REGISTRY)
+  await act(async () => button('Browse more…')!.click())
 
   // goose ships as a binary, so its button discloses the download before the
   // click — the label is the consent, not a surprise after it.
@@ -332,6 +344,7 @@ it('search appears with the long list and narrows it to the words a person knows
     })),
   ]
   await mount(CATALOG, many)
+  await act(async () => button('Browse more…')!.click())
 
   type('input[aria-label="Search the ACP registry"]', 'extensible')
   expect(document.body.textContent).toContain('goose')
@@ -1286,7 +1299,7 @@ it.each(['template','registry'] as const)('a submitted %s add finishes without c
   const render=(active:boolean)=>act(async()=>root.render(<StoreProvider store={store}><SettingsTestScope active={active}><ControlledAddAgents onBack={()=>{}} onDone={()=>{}}/></SettingsTestScope></StoreProvider>))
   await render(true);const beforeCatalog=agentCatalog.mock.calls.length,beforeRegistry=acpRegistry.mock.calls.length
   if(kind==='template')act(()=>button('Add')!.click())
-  else act(()=>button('Download')!.click())
+  else { act(()=>button('Browse more…')!.click()); act(()=>button('Download')!.click()) }
   await render(false);await act(async()=>resolve('synthetic-added'))
   expect(addAgent).toHaveBeenCalledTimes(1);expect(agentCatalog).toHaveBeenCalledTimes(beforeCatalog);expect(acpRegistry).toHaveBeenCalledTimes(beforeRegistry)
 })
@@ -1353,5 +1366,6 @@ it('keeps Add a runtime reachable in a populated Settings body with a quiet bar'
   expect(add, 'a populated runtime list still has its entry action outside the quiet bar').toBeDefined()
   expect(add!.closest('[data-slot="top-bar"]')).toBeNull()
   await act(async () => add!.click())
-  expect(container.textContent).toContain('From the ACP registry')
+  expect(container.textContent).toContain('Browse more…')
+  expect(container.textContent).not.toContain('From the ACP registry')
 })
