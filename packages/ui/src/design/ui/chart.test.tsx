@@ -486,10 +486,13 @@ describe('PaceBadge', () => {
   const badge = (): HTMLElement =>
     container.querySelector('[data-slot="pace-badge"]') as HTMLElement
 
-  it('signs the margin and says the word beside it', () => {
-    mount(<PaceBadge status="overPace" margin={-33} word="over pace" tone="warning" />)
-    expect(badge().textContent).toContain('−33%')
-    expect(badge().textContent).toContain('over pace')
+  it.each([
+    [-39, 'overPace', '▼39%under pace'],
+    [39, 'conserving', '▲39%over pace'],
+    [0, 'onPace', '●0%on pace'],
+  ])('keeps arrow, magnitude and position consistent for margin %s', (margin, status, text) => {
+    mount(<PaceBadge status={status} margin={margin} word="over pace" tone="warning" />)
+    expect(badge().textContent).toBe(text)
   })
 
   it('drops the number on a window that is full or spent', () => {

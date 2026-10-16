@@ -454,6 +454,18 @@ fold has Open usage, scoped to that agent; an agent needing an account has Sign
 in. Then come Settings and signing out of the default agent. Dashboard in the
 sidebar opens on everything.
 
+Dashboard's Overview names the ledger total **Usage cost**; its title explains
+whether that cost was metered or priced at public rates. The pressed chart
+measure keeps the shared quiet button's visible fill after the pointer leaves,
+without a Selected chip. **What is left** includes
+every account reporting limits, including healthy accounts and limits supplied
+by a host meter. Plan labels come from adapter presentation, with the raw plan
+type in the title. Pace badges describe remaining allowance against an even
+burn: **▼ 39% under pace**, **▲ 39% over pace**, or **● 0% on pace**, with no
+signed percentage. A read observed before this window opened says **From a
+cached read**; a reading made in this window says **Read … ago**. The page's
+read note follows the selected accounts and uses their oldest observation.
+
 The quota forecast, "&lt;agent&gt; will run out before it refills", stays on the
 Dashboard. Above a visible composer it appears only after a desk conversation
 has a turn (a history preview does not count) and the binding plan window has

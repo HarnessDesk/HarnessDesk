@@ -10,6 +10,7 @@ import {
 import type { CodexProtocol } from '@harnessdesk/codex'
 
 import { mapTurnError } from './errors.js'
+import { mapPlanLabel } from './account.js'
 import { mapItem, mapFileChange } from './items.js'
 import { CODEX_RUNTIME_ID, mapGoal, mapPlanSteps, mapStatus, mapTurn, mapUsage } from './session.js'
 
@@ -66,6 +67,7 @@ export const mapRateLimits = (
   unlimited: snapshot.credits?.unlimited,
   balance: balanceOf(snapshot.credits?.balance),
   planType: snapshot.planType,
+  planLabel: mapPlanLabel(snapshot.planType),
   windows: [mapWindow(snapshot.primary), mapWindow(snapshot.secondary)].filter(
     (window): window is UsageWindow => window !== null,
   ),

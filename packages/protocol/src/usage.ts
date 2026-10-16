@@ -265,6 +265,8 @@ export interface UsageReport {
   /** Which account this is, when the agent has more than one. */
   readonly account: string | null
   readonly plan: string | null
+  /** Adapter-authored label, with `plan` retained for the source detail title. */
+  readonly planLabel?: string | null
   readonly lanes: readonly UsageLane[]
   readonly credits: UsageCredits | null
   /**

@@ -1461,7 +1461,7 @@ A borrowed reading's activity summary belongs to that account, in one band.
 
 `packages/ui/src/design/patterns/DashboardBands.tsx`
 
-Paid plus the three chart measures, using the shared stat and button contracts.
+Paid plus named chart measures such as Usage cost; the shared quiet button's pressed fill shows selection without a repeated chip.
 
 ### `DialogFormScope`
 
