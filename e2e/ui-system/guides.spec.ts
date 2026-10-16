@@ -66,13 +66,16 @@ test('an edge nudged two pixels off its rail is reported', async ({ page }) => {
 })
 
 test('the fix preview corrects what the guides can, and the guides measure the result', async ({ page }) => {
-  // The Details panel of an agent that keeps no background list: its empty state touches its card.
+  // The Details panel of an agent that keeps no background list. Its empty
+  // state touched its card until #1738 gave it the card's edge; the test puts
+  // the flaw back, so it goes on proving the guides find it and fix it.
   const scene = SCENES.find(one => one.id === 'conversation-details-no-background')!
   await page.setViewportSize({ width: WINDOW.width, height: WINDOW.height })
   await installFramePreviewFixture(page)
   const overflow = async (url: string) => {
     await page.goto(url)
     await expect(page.locator('html')).toHaveAttribute('data-scene-steps', 'done', { timeout: 15_000 })
+    await page.addStyleTag({ content: '[data-slot="empty-state"] { padding-inline: 0 }' })
     await page.waitForTimeout(800)
     await page.evaluate(() => window.dispatchEvent(new Event('resize')))
     await page.waitForTimeout(300)
