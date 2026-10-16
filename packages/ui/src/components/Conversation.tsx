@@ -544,7 +544,7 @@ export const Conversation = ({
   const filePlace = activeFile && session?.cwd && activeFile.startsWith(`${session.cwd}/`)
     ? activeFile.slice(session.cwd.length + 1) : activeFile
   useTopBar(pane?.paneId ?? '', {
-    lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
+    lead: <WindowControls />,
     place: filePlace ? sanitizeText(filePlace) : <HeaderTitle session={session} />,
     parent: filePlace ? { label: titleOf(session), run: () => store.setWindowMode('conversation') } : undefined,
     state: session ? <Dot tone={STATUS_PILL_TONE[status]} pulse={status === 'running'} title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} /> : undefined,

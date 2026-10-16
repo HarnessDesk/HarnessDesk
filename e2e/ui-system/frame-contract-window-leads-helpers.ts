@@ -28,8 +28,8 @@ export const expectLead = async (bar: Locator, _width: number, settings: boolean
     await expect(returnToMain).toBeVisible()
     await returnToMain.click()
   }
-  const page = await bar.page().locator('[data-page-destination]:visible').count() > 0
-  const names = !away ? [] : settings || page ? ['Show sidebar'] : ['Show sidebar', 'Back', 'Forward']
+  // Every non-Settings destination carries history while the sidebar is away.
+  const names = !away ? [] : settings ? ['Show sidebar'] : ['Show sidebar', 'Back', 'Forward']
   await expect(bar.locator('[data-topbar="lead"]').getByRole('button')).toHaveCount(names.length)
   expect(await bar.locator('[data-topbar="lead"]').getByRole('button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')))).toEqual(names)
 }

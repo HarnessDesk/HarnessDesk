@@ -83,8 +83,8 @@ for (const theme of ['light', 'dark'] as const) for (const windowWidth of [1440,
       expect.soft(targets.slice(1).filter((target, index) => target.x < targets[index]!.right), `overlaps at ${width}px`).toEqual([])
       for (const target of targets.filter(target => !target.disabled)) expect.soft(target.centerHit, `${target.label} owns its centre at ${width}px`).toBe(target.label)
       const forward = top.getByRole('button', { name: 'Forward', exact: true })
-      expect.soft(await forward.isVisible(), `history folds before the mode track at ${width}px`).toBe(width >= 268)
-      if (width >= 268) {
+      expect.soft(await forward.isVisible(), `history fits the native default before the mode track at ${width}px`).toBe(width >= 256)
+      if (width >= 256) {
         await expect(forward).toBeEnabled()
         const box = (await forward.boundingBox())!
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
