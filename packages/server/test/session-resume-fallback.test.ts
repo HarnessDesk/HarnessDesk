@@ -75,6 +75,7 @@ const contextFor = (options: {
   const indexed = options.indexed ?? []
 
   return {
+    loadouts: { observe: () => {} },
     sessionIndex: { reopen: () => {}, record: (session: Session) => indexed.push(session) },
     sessionWorktrees: { prepare: async () => ({}) },
     runtimes: { resolve: () => runtime, ensureStarted: async () => {} },

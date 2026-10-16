@@ -51,6 +51,7 @@ const laneContext = (supported: boolean) => {
     id, runtime: runtime.info.id, cwd: lane.cwd, status: { type: 'idle' }, createdAt: 1, updatedAt: 1, turns: [], itemsLoaded: true,
   }
   const ctx = {
+    loadouts: { observe: () => {} },
     runtimes: { resolve: () => runtime, ensureStarted },
     laneEnvironment: {
       forCheckout: (cwd: string) => environmentForCheckout(cwd, [lane]),
