@@ -578,7 +578,7 @@ These only exist because no vendor owns the desk:
   and records every change in `audit.ndjson`. Skill writes compare and guard the
   whole bundle, including scripts and references; apply writes the source bytes
   it checked, and an edited supporting file requires a backup to replace.
-  Updates check the retained-plus-incoming bundle limits at preview and before
+  Local copy updates check retained-plus-incoming bundle limits at preview and before
   writing; apply also checks that the source file list matches the preview.
   The host-only `library/source/fetch` accepts a public GitHub repository URL
   and resolves its branch or tag to a full commit before fetching objects into
@@ -593,6 +593,13 @@ These only exist because no vendor owns the desk:
   that carries either kind of file. Local copies need no acknowledgement.
   The host-only `library/source/file` reads a regular file inside a fetched
   copy, returning at most 256 KB of text, or no text for binary files.
+  The host-only `library/sources/check` resolves installed origins' refs without
+  fetching objects. It reports current, behind, gone or unreachable; the last
+  explicit check appears on `library/read` only for this host's lifetime.
+  Reading the library never checks a source. `updateSkill` uses a freshly
+  fetched origin in the same plan/apply pair, listing added, changed and removed
+  files before replacing the bundle. An edited copy takes the backup path;
+  added or changed runnable or binary files require acknowledgement again.
   There is no client command or screen for these methods yet.
 - **One history, one search** across every backend, grouped by repository so
   a project is one row whichever agent worked in it.

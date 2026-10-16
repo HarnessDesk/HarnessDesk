@@ -161,6 +161,7 @@ import { samePath, shellCheckoutIdentity, Worktrees, createDetached, managedWork
 import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibrarySources, type LibrarySourcesOptions } from './library-sources.js'
+import { LibraryUpdates } from './library-updates.js'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
 import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
@@ -733,6 +734,7 @@ export class Host {
   readonly #loadouts: LoadoutRecorder
   /** The transcript as the host watched it, for reads the backend returns thin. */
   readonly #transcripts: TranscriptStore
+  #libraryUpdates: LibraryUpdates | null = null
   #librarySources: LibrarySources | null = null
   #libraryUsage: LibraryUsageReader | null = null
   /** The archive for runtimes with none of their own. See `SessionArchive`. */
@@ -4546,6 +4548,11 @@ export class Host {
       },
       insight: this.#insight,
       intake: this.#intake,
+      libraryUpdates: () => this.#libraryUpdates ??= new LibraryUpdates(
+        join(this.#state.directory, 'library'),
+        this.#librarySources ??= new LibrarySources(join(this.#state.directory, 'library'), this.options.librarySources),
+        this.options.libraryHome,
+      ),
       librarySources: () => this.#librarySources ??= new LibrarySources(join(this.#state.directory, 'library'), this.options.librarySources),
       libraryUsage: () => {
         // Lazy: the reader is only built when the page first asks, and the

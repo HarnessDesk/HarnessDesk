@@ -977,3 +977,12 @@ test('library/source/file delegates only to the host source reader', async () =>
   assert.equal(await dispatch(ctx, 'library/source/file' as never, params as never), result)
   assert.deepEqual(calls, [params])
 })
+
+test('library/sources/check delegates the optional names to host update checks', async () => {
+  const calls: unknown[] = []
+  const agents: unknown[] = []
+  const result: unknown[] = []
+  const ctx = { runtimes: { inventory: () => agents }, libraryUpdates: () => ({ check: async (...args: unknown[]) => { calls.push(args); return result } }) } as unknown as HostContext
+  assert.equal(await dispatch(ctx, 'library/sources/check' as never, { names: ['demo'] } as never), result)
+  assert.deepEqual(calls, [[agents, ['demo']]])
+})
