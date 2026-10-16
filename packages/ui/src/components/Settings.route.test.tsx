@@ -408,12 +408,13 @@ it('a profile name never becomes a preference search result', async () => {
 })
 
 // The former window rail is now the shared left column; the page keeps its label.
-it('cuts a label the runtime chose rather than wrapping its row', async () => {
+it('keeps a stable nav label while the skills page uses the runtime name', async () => {
   const label = 'Skills and commands with a long agent supplied name'
   const info = runtime({ skills: true })
   await mount([{ ...info, presentation: { ...info.presentation, skillsLabel: label } }])
-  const row = container.querySelector<HTMLButtonElement>(`[aria-label="Settings navigation"] button[aria-label="${label}"]`)!
+  const row = container.querySelector<HTMLButtonElement>(`[aria-label="Settings navigation"] button[aria-label="Skills"]`)!
   expect(row).not.toBeNull()
+  expect(row.title).toContain(label)
   const text = row.querySelector<HTMLElement>('[data-slot="sidebar-menu-label"]')!
   expect(text.className).toContain('min-w-0')
   expect(text.className).toContain('truncate')

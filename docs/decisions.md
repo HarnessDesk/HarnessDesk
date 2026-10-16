@@ -3482,3 +3482,15 @@ Run plus conversation and card or approval identify the row; repeated snapshots 
 state. Answering or moving past a step clears it, as does ending or wrapping
 the Run. Its destination opens the Team's existing view. Needs you itself keeps
 its current presentation.
+
+
+## Navigation and choices stay usable while runtime reads settle — 2026-10-16
+
+Settings always lists Skills and Extensions. A runtime may call its skills
+commands and may have no extensions, but those facts describe its page and
+hover text; they do not rename or remove the route while a window is open.
+This keeps the navigation identical before and after the runtime read (#1675).
+The old recorded claims about a runtime naming the rail row, and the page
+repeating that word, are retired: the rail now names a stable route while
+its page keeps the runtime's vocabulary. The one-line row claim stays pinned
+to the updated route test.

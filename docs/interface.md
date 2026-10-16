@@ -924,7 +924,10 @@ Account slots stay with their agent; the count is agents, not accounts.
 The order is the order a new window is read in: this app, how it looks, what
 it says; the work you have opened and put away; the agents and what each one
 brings; what is shared across them; what any of them may do. Skills and
-Extensions are the active agent's own and carry its name on their nav rows.
+Extensions are the active agent's own; their hover text names that agent.
+The nav always offers Skills and Extensions with the same labels and order,
+including before the runtime catalogue arrives. Capabilities govern the page's
+contents, never the presence or name of its navigation row.
 There is no Account page, because there is no account — the profile is
 yours, not an account's; presets are edited
 where they are created rather than on a page of their own; and workspaces,
