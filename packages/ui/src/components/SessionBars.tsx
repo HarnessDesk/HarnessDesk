@@ -60,16 +60,15 @@ export const GoalBar = () => {
         <Chip tone={GOAL_TONE[goal.status] ?? 'neutral'}>
           {STATUS_LABEL[goal.status] ?? goal.status}
         </Chip>
-        <Button
+        <InlineParts className={styles.goalClear}><Button
           type="button"
           variant="ghost" size="icon-xs" edge="end" edgeGlyph={11}
           aria-label="Clear goal"
           title="Clear this goal"
-          className={styles.goalClear}
           onClick={() => void store.setGoal(null)}
         >
           <CrossIcon size={11} />
-        </Button>
+        </Button></InlineParts>
       </InlineParts>
     </Alert>
   )
