@@ -87,3 +87,77 @@ it('draws a separator between crumbs as the item’s own sibling, not its child'
   const crumbs = [...document.querySelectorAll('[data-slot="breadcrumb-page"], [data-slot="breadcrumb-item"] button')]
   expect(crumbs.some((el) => el.textContent === 'harness-desk')).toBe(true)
 })
+
+it('reports a chosen folder only after it has opened successfully (#1720)', async () => {
+  const { store } = rig()
+  let finish!: (opened: boolean) => void
+  store.openWorkspace = vi.fn(() => new Promise<boolean>(resolve => { finish = resolve }))
+  const close = vi.fn()
+  await act(async () => root.render(<StoreProvider store={store}><FolderPicker onClose={close} /></StoreProvider>))
+  const open = [...document.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('Open “'))!
+  expect(open).toBeDefined()
+  act(() => open.click())
+  expect(close).not.toHaveBeenCalled()
+  await act(async () => finish(true))
+  expect(close).toHaveBeenCalledWith(true)
+})
+
+it('invalidates a cancelled open before the parent unmounts the picker (#1720)', async () => {
+  const { store } = rig()
+  let finish!: (opened: boolean) => void
+  store.openWorkspace = vi.fn(() => new Promise<boolean>(resolve => { finish = resolve }))
+  const close = vi.fn()
+  await act(async () => root.render(<StoreProvider store={store}><FolderPicker onClose={close} /></StoreProvider>))
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>('button')]
+  act(() => buttons.find(one => one.textContent?.startsWith('Open “'))!.click())
+  act(() => buttons.find(one => one.textContent === 'Cancel')!.click())
+  expect(close).toHaveBeenCalledTimes(1)
+  expect(close).toHaveBeenCalledWith(undefined)
+  await act(async () => finish(true))
+  expect(close).toHaveBeenCalledTimes(1)
+})
+
+it.each(['Cancel', 'Escape', 'unmount'])('ignores an old folder open after %s without settling a new choice (#1720)', async dismissal => {
+  const { store } = rig()
+  const pending: ((opened: boolean) => void)[] = []
+  store.openWorkspace = vi.fn(() => new Promise<boolean>(resolve => { pending.push(resolve) }))
+  let resolveChoice: ((chosen: boolean) => void) | null = null
+  const close = (chosen = false) => {
+    root.render(<StoreProvider store={store}>{null}</StoreProvider>)
+    resolveChoice?.(chosen)
+    resolveChoice = null
+  }
+  // App keeps one resolver, replacing it whenever a new picker is requested.
+  const choose = () => new Promise<boolean>(resolve => {
+    resolveChoice?.(false)
+    resolveChoice = resolve
+    root.render(<StoreProvider store={store}><FolderPicker onClose={close} /></StoreProvider>)
+  })
+  const button = (prefix: string) => [...document.querySelectorAll<HTMLButtonElement>('button')]
+    .find(one => one.textContent?.startsWith(prefix))!
+  let first!: Promise<boolean>
+  await act(async () => { first = choose() })
+  act(() => button('Open “').click())
+  await act(async () => {
+    if (dismissal === 'Cancel') button('Cancel').click()
+    else if (dismissal === 'Escape') document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    else root.render(<StoreProvider store={store}>{null}</StoreProvider>)
+  })
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  if (dismissal !== 'unmount') await expect(first).resolves.toBe(false)
+
+  const send = vi.fn()
+  let second!: Promise<boolean>
+  await act(async () => {
+    second = choose()
+    void second.then(chosen => { if (chosen) send() })
+  })
+  await act(async () => pending[0]!(true))
+  expect(send).not.toHaveBeenCalled()
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  act(() => button('Open “').click())
+  await act(async () => pending[1]!(true))
+  await expect(second).resolves.toBe(true)
+  expect(send).toHaveBeenCalledTimes(1)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})

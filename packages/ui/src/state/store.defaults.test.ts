@@ -382,6 +382,20 @@ it('keeps an option-only live update local when no saved picks need validation',
   expect(request.mock.calls).toEqual([])
 })
 
+it('reports a defaults resolver rejection from a live option update', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const id = sessionId('live-defaults')
+  const session = { runtime, id, cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0, options: declared }
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) =>
+    method === 'runtime/sessionDefaults' ? declared : method === 'session/read' || method === 'session/resume' ? session : {}) as never)
+  await store.setNewSessionDefault(runtime, 'model', 'old')
+  await store.openSession(id, { runtime })
+  vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error('Recommendation unavailable.'))
+  const notice = vi.spyOn(store, 'resultNotice')
+  ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/options', sessionId: id, options: declared })
+  await vi.waitFor(() => expect(notice).toHaveBeenCalledWith('warning', 'Recommendation unavailable.'))
+})
+
 it('validates saved picks again at session creation before sending any start options', async () => {
   const store = new AppStore('ws://localhost:0/')
   let options = declared
@@ -397,4 +411,99 @@ it('validates saved picks again at session creation before sending any start opt
   expect(create?.[1]).toEqual({ runtime, options: { cwd: '/workspace' } })
   expect(request.mock.calls.filter(([method]) => method === 'runtime/sessionDefaults').at(-1)?.[1]).toEqual({ runtime, cwd: '/workspace' })
   expect(store.getSnapshot().staleDraftDefaults[runtime]).toMatchObject([{ id: 'model', value: 'old' }])
+})
+
+
+it('starts an unsaved conversation with adapter recommendations and preserves explicit picks', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const options = [
+    { id: 'model', type: 'select', category: 'model', label: 'Model', currentValue: 'large', recommendedValue: 'small', choices: [{ value: 'small', label: 'Small' }, { value: 'large', label: 'Large' }] },
+    { id: 'effort', type: 'select', category: 'thought_level', label: 'Effort', currentValue: 'high', recommendedValue: 'medium', choices: [{ value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }] },
+    { id: 'access', type: 'select', category: '_permissions', label: 'Access', currentValue: 'full', recommendedValue: 'workspace', choices: [{ value: 'workspace', label: 'Workspace' }, { value: 'full', label: 'Full' }] },
+  ]
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown> }) => {
+    if (method === 'runtime/sessionDefaults') return options.map(option => ({ ...option, currentValue: params.values?.[option.id] ?? option.currentValue }))
+    if (method === 'session/create') return { runtime, id: sessionId('careful'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return {}
+  }) as never)
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1]).toMatchObject({ options: { options: { model: 'small', effort: 'medium', access: 'workspace' } } })
+  await store.setNewSessionDefault(runtime, 'model', 'large')
+  await store.setNewSessionDefault(runtime, 'access', 'full')
+  request.mockClear()
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1]).toMatchObject({ options: { options: { model: 'large', effort: 'medium', access: 'full' } } })
+})
+
+it.each([false, true])('resolves recommended model and effort with an obsolete saved model: %s', async (obsolete) => {
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown> }) => {
+    if (method === 'runtime/sessionDefaults') {
+      const selected = params.values?.model ?? 'large'
+      if (params.values?.effort === 'high' && selected === 'small') throw new Error('Small has no high effort')
+      return [
+        { id: 'model', label: 'Model', category: 'model', type: 'select', currentValue: selected, recommendedValue: 'small', choices: [{ value: 'small', label: 'Small' }, { value: 'large', label: 'Large' }] },
+        { id: 'effort', label: 'Effort', category: 'thought_level', type: 'select', currentValue: selected === 'small' ? 'low' : 'high', recommendedValue: selected === 'small' ? 'low' : 'high', choices: [{ value: selected === 'small' ? 'low' : 'high', label: 'Effort' }] },
+      ]
+    }
+    if (method === 'app/state/get') return obsolete ? { draftValues: { [runtime]: { model: 'gone' } } } : {}
+    if (method === 'session/create') return { runtime, id: sessionId('dependent'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return {}
+  }) as never)
+  await store.loadPreferences()
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1]).toMatchObject({ options: { options: { model: 'small', effort: 'low' } } })
+})
+
+it('does not start when a runtime ignores the recommended access value', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'runtime/sessionDefaults') return [{ id: 'access', label: 'Access', type: 'select', category: '_permissions', currentValue: 'full', recommendedValue: 'workspace', choices: [{ value: 'workspace', label: 'Workspace' }, { value: 'full', label: 'Full' }] }]
+    return {}
+  }) as never)
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.some(([method]) => method === 'session/create')).toBe(false)
+})
+
+it('reports a refused recommendation during composer refresh without rejecting the refresh task', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { activeRuntime: runtime })
+  vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error('The runtime refused its recommendation.'))
+  const notice = vi.spyOn(store, 'resultNotice')
+  await expect(store.loadDraftOptions()).resolves.toBeUndefined()
+  expect(notice).toHaveBeenCalledWith('warning', 'The runtime refused its recommendation.')
+})
+
+
+it.each(['accepts', 'ignores', 'fails again'] as const)('resolves recommendations after discovery retries and the runtime %s them', async (reply) => {
+  const store = new AppStore('ws://localhost:0/')
+  let reads = 0
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown> }) => {
+    if (method === 'runtime/sessionDefaults') {
+      if (++reads === 1 || reply === 'fails again') throw new Error('Discovery interrupted.')
+      return [{ id: 'access', label: 'Access', type: 'select', category: '_permissions',
+        currentValue: reply === 'accepts' ? params.values?.access ?? 'full' : 'full', recommendedValue: 'workspace',
+        choices: [{ value: 'workspace', label: 'Workspace' }, { value: 'full', label: 'Full' }] }]
+    }
+    if (method === 'session/create') return { runtime, id: sessionId('retried'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return {}
+  }) as never)
+  await store.newSession({ runtime, cwd: '/workspace' })
+  const create = request.mock.calls.find(([method]) => method === 'session/create')
+  if (reply === 'accepts') expect(create?.[1]).toMatchObject({ options: { options: { access: 'workspace' } } })
+  else expect(create).toBeUndefined()
+})
+
+it.each([['_permissions', 'gone'], ['model', 'gone'], ['thought_level', 'gone'], ['_permissions', 'careful']])('checks a replacement recommendation for a rejected saved %s pick %s', async (category, saved) => {
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'app/state/get') return { draftValues: { [runtime]: { pick: saved } } }
+    if (method === 'runtime/sessionDefaults') return [{ id: 'pick', label: 'Pick', type: 'select', category,
+      currentValue: 'expensive', recommendedValue: 'careful', choices: [{ value: 'careful', label: 'Careful' }, { value: 'expensive', label: 'Expensive' }] }]
+    return {}
+  }) as never)
+  await store.loadPreferences()
+  await expect(store.newSessionDefaultsFor(runtime)).rejects.toThrow('did not accept its recommended Pick')
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.some(([method]) => method === 'session/create')).toBe(false)
 })

@@ -2,12 +2,12 @@ import { useId, type ReactNode } from 'react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Dot, Text } from './Settings'
-import { Card } from '../ui/card'
+import { BoardCard } from './BoardCard'
 import { SegmentMeter } from '../ui/chart'
 import { Menu, MenuItem } from './Menu'
 import { Popover } from './Popover'
 import { PageOptions } from './PageOptions'
-import { CaretIcon, FlagIcon, PlusIcon } from '../../components/Icons'
+import { CaretIcon, PlusIcon } from '../../components/Icons'
 import styles from './TeamsBoard.module.css'
 
 /** The Teams page's body controls: creation, project scope and search. */
@@ -43,13 +43,12 @@ export const TeamsBoardCard = ({id,title,brief,summary,attention=false,unread=fa
  readonly faces?:ReactNode; readonly project:string; readonly age:ReactNode; readonly open:()=>void
 }) => {
  const description=useId(),facts=useId()
- return <Button variant="ghost" size="pattern" render={<Card as="button" spacing="compact"/>} data-team-row={id} className={styles.card} aria-label={`Open ${title}`} aria-describedby={`${description} ${facts}`} onClick={open}>
- <span data-slot="team-title" title={brief} className={styles.identity}><Text role="member" truncate>{title}</Text>{unread && <Dot tone="info" aria-label="Unread changes"/>}</span>
- <span id={description} data-slot="team-detail" title={summary}><Text role="muted" ink="muted" tone={attention?'warning':undefined} className={styles.summary}>{attention && <FlagIcon/>}{summary}</Text></span>
- {path.length>0 && <SegmentMeter className={styles.path} steps={path.map(step=>({...step,key:step.id}))}
-  label={path.map(step=>`${step.label}: ${step.state==='future'?'not reached':step.state}`).join(', ')}/>}
- <span className={styles.footer}>{faces}<Text id={facts} role="meta" className={styles.facts}><span className={styles.project} title={project}>{project}</span><span>·</span><span data-slot="team-age">{age}</span></Text></span>
-</Button>
+ return <BoardCard data-team-row={id} label={`Open ${title}`} title={title} onOpen={open} aria-describedby={`${description} ${facts}`}
+  titleProps={{'data-slot':'team-title',title:brief}} titleAside={unread && <Dot tone="info" aria-label="Unread changes"/>}
+  detail={summary} detailProps={{id:description,'data-slot':'team-detail',title:summary}} attention={attention}
+  middle={path.length>0 && <SegmentMeter className={styles.path} steps={path.map(step=>({...step,key:step.id}))}
+   label={path.map(step=>`${step.label}: ${step.state==='future'?'not reached':step.state}`).join(', ')}/>}
+  footer={<>{faces}<Text id={facts} role="meta" className={styles.facts}><span className={styles.project} title={project}>{project}</span><span>·</span><span data-slot="team-age">{age}</span></Text></>}/>
 }
 
 /** Wrapped receipts cost no card height until their group is opened. */
