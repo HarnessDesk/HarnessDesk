@@ -4,7 +4,7 @@ import type { PageDestination } from '../state/destinations'
 import { toggleTerminal } from '../components/TerminalToggle'
 import { TopBarProvider } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
@@ -73,6 +73,7 @@ export const App = () => {
   if (libraryImport.project !== projectKey) setLibraryImport({ project: projectKey, intent: 0 })
   const libraryImportIntent = libraryImport.project === projectKey ? libraryImport.intent : 0
   const [foldersOpen, setFoldersOpen] = useState(false)
+  const folderChoice = useRef<((chosen: boolean) => void) | null>(null)
   // The front door, opened on one project at a time — from the palette today,
   // and from any other place-scoped entry point that hands over its own
   // resolved `root` rather than opening a chooser of its own. `null` is
@@ -107,12 +108,15 @@ export const App = () => {
   // dialog, as Claude Code and Codex do; the browser build, which has none,
   // gets the in-app picker. The picker is also the fallback should the
   // native dialog be unavailable, so no entry point can dead-end.
-  const chooseFolder = useCallback(() => {
-    if (!isDesktop()) {
-      setFoldersOpen(true)
-      return
+  const chooseFolder = useCallback(async (): Promise<boolean> => {
+    if (isDesktop()) {
+      try { return await store.pickWorkspace() } catch { /* Use the in-app picker below. */ }
     }
-    void store.pickWorkspace().catch(() => setFoldersOpen(true))
+    return new Promise<boolean>(resolve => {
+      folderChoice.current?.(false)
+      folderChoice.current = resolve
+      setFoldersOpen(true)
+    })
   }, [store])
 
   // Menu commands and in-page shortcuts run the same handlers, so there is one
@@ -417,7 +421,11 @@ export const App = () => {
           above the panes, the sidebar's foot — never floated over a pane. */}
       <Notices />
       <Toaster theme={theme} />
-      {foldersOpen && <FolderPicker onClose={() => setFoldersOpen(false)} />}
+      {foldersOpen && <FolderPicker onClose={(chosen = false) => {
+        setFoldersOpen(false)
+        folderChoice.current?.(chosen)
+        folderChoice.current = null
+      }} />}
       {/* One mount for a dialog three places raise: the sidebar's worktree
           menu, a project's context menu, and ⌘K. */}
       {snapshot.commitFor && <CommitDialog root={snapshot.commitFor} onDone={(done) => {

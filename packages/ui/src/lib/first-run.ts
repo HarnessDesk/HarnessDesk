@@ -58,9 +58,3 @@ export const useInstalledAgents = (store: AppStore, runtimes: readonly RuntimeIn
     add,
   }
 }
-
-/** historySource is the adapter's declaration that history is read through. */
-export const historySources = (runtimes: readonly RuntimeInfo[]): string => {
-  const sources = [...new Set(runtimes.flatMap(runtime => runtime.presentation.historySource ? [runtime.presentation.historySource] : []))]
-  return new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format(sources)
-}
