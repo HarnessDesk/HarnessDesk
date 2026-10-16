@@ -108,8 +108,10 @@ export interface LeftColumnTopProps {
  * The column's top controls share the window's edge row and keep the drag
  * region around every control. The row has no separator hairline beneath it;
  * the column's own spacing marks the transition to its brand row. The mode
- * switch takes the reserved right edge, stays when history folds, and is
- * absent in Settings. Its compact cells use the shared switcher appearance.
+ * switch takes the reserved right edge and is absent in Settings. Gapless
+ * controls preserve full targets beside the native corner at the default
+ * width; when history no longer fits, the main bar carries both arrows.
+ * Its compact cells use the shared switcher appearance.
  */
 export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top className={styles.top}>
   <Bar inset="rail" corner className="hd-drag">

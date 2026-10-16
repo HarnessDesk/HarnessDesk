@@ -23,6 +23,6 @@ export const DestinationBar = ({ more = () => null, ...slots }: Omit<TopBarProps
   const settings = snapshot.workbench.navigation.current.kind === 'settings'
   useTopBar(scope.owner, settings
     ? { place: '', more: () => null, terminal: false, lead: away ? <WindowControls /> : undefined, corner: away }
-    : { ...slots, terminal: Boolean(terminalCwdForSnapshot(snapshot)), lead: away ? <WindowControls /> : undefined, corner: away, more }, scope.active)
+    : { ...slots, terminal: Boolean(terminalCwdForSnapshot(snapshot)), lead: <WindowControls />, corner: away, more }, scope.active)
   return null
 }

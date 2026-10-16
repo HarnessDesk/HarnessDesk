@@ -2,6 +2,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
 import { Button } from '../design'
 import { FRAME } from '../design/frame'
+import { useSidebarHistory } from '../lib/use-sidebar-history'
 import { ArrowLeftIcon, ArrowRightIcon, SearchIcon, SidebarIcon } from './Icons'
 import styles from './WindowControls.module.css'
 
@@ -15,25 +16,28 @@ import styles from './WindowControls.module.css'
  * never leave the row the eye expects them on.
  *
  * When the column is away, Search stays beside the toggle in the title row.
- * Below the frame's window threshold, history arrows move out of the lead;
- * the floating sidebar's own row retains both arrows.
+ * When the standing sidebar's own history folds, main carries the arrows alone.
  */
 export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const settings = snapshot.workbench.navigation.current.kind === 'settings'
-  const shown = sidebarPlacement(snapshot) !== 'away'
-  const navigation = !settings && (sidebarRow || snapshot.windowWidth >= FRAME.fold.sidebarFloats)
+  const placement = sidebarPlacement(snapshot)
+  const shown = placement !== 'away'
+  const historyInMain = useSidebarHistory(placement === 'column', settings)
+  if (!sidebarRow && placement === 'column' && !historyInMain) return null
+  const historyOnly = !sidebarRow && placement === 'column'
+  const navigation = !settings && (sidebarRow || historyInMain || snapshot.windowWidth >= FRAME.fold.sidebarFloats)
   return (
     <span className={styles.group}>
-      <Button
+      {!historyOnly && <Button
         variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
         onClick={() => store.toggleSidebar()}
         title={shown ? 'Hide the sidebar' : 'Show the sidebar'}
         aria-label={shown ? 'Hide sidebar' : 'Show sidebar'}
       >
         <SidebarIcon size={14} />
-      </Button>
+      </Button>}
       {!settings && !shown && <Button
         variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
         onClick={() => window.dispatchEvent(new CustomEvent('harnessdesk:search'))}

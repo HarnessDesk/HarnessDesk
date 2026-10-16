@@ -1064,7 +1064,7 @@ export const TeamRoomPane = ({
     ...(goal?.receipt ? [{ value: 'receipt', label: 'Receipt', run: () => show('receipt') }] : []),
   ]
   useTopBar(mainOwner, {
-    lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
+    lead: <WindowControls />,
     place: title, state: runState ? <Chip tone={runState.tone}>{runState.pulse && <Dot state="limit" pulse />}{runState.label}</Chip> : undefined,
     tabs: teamTabs, tab: open === 'side-by-side' || singleMember ? 'room' : open,
     view: { disabled: 'This view has no layout or filter choices', content: () => null },
