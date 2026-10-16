@@ -38,7 +38,7 @@ export const Page = ({ width, measure, gutter = 'page', fill = false, scroll = f
   readonly gutter?: 'page' | 'none'
   /** Fill the destination body's height so a page empty state can centre in its remaining space. */
   readonly fill?: boolean
-  /** The page is its own scroll box, for a pane body that clips: a Team's receipt is one tab among several. */
+  /** The page is its own scroll box, for when it sits in a body that clips rather than scrolls. */
   readonly scroll?: boolean
   /** A canvas can keep the page inset; a compact board starts on the 16px stack. */
   readonly topInset?: 'page' | 'compact'
