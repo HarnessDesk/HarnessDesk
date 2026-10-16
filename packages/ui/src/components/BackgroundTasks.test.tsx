@@ -63,7 +63,7 @@ const calls = {
   notice: vi.fn(),
 }
 
-const mount = (tasks: readonly BackgroundTask[], { capable = true, open = true } = {}): void => {
+const mount = (tasks: readonly BackgroundTask[], { capable = true, open = true, card = false } = {}): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     runtimes: [runtime(capable)],
@@ -80,7 +80,7 @@ const mount = (tasks: readonly BackgroundTask[], { capable = true, open = true }
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <BackgroundTasksView />
+        <BackgroundTasksView card={card} />
       </StoreProvider>,
     )
   })
@@ -180,6 +180,19 @@ describe('BackgroundTasksView', () => {
     mount([done('t1', 'Run the test suite', { command: 'node --test test/', output: 'ℹ tests 1\nℹ pass 1\n' })])
     expect(container.textContent).toContain('node --test test/')
     expect(container.querySelector('[data-slot="task-card"] [data-slot="code-block-body"]')?.textContent).toContain('ℹ pass 1')
+  })
+
+  it('gives the plate the card’s row edge in a Details card, and nothing extra on its own', () => {
+    // In a card the rows stand 12px in from the border, and a plate flush with
+    // the border read as spilling out of it. Standing alone, the panel owns
+    // its gutter, so the plate takes no edge of its own there.
+    const task = done('t1', 'Run the test suite', { command: 'node --test test/', output: 'ok\n' })
+    const plateEdge = () => container.querySelector('[data-slot="task-card"] [data-slot="code-block"]')?.parentElement
+    mount([task])
+    expect(plateEdge()?.dataset['slot']).toBe('task-card')
+    mount([task], { card: true })
+    expect(plateEdge()?.dataset['slot']).toBe('section-body')
+    expect(plateEdge()?.dataset['spacing']).toBe('inline')
   })
 
   it('says the kind and the state in words, with the duration', () => {

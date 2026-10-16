@@ -167,6 +167,31 @@ const TaskCard = ({
   const meta = [taskKindWord(task), taskStateWord(task), elapsed].filter(Boolean).join(' · ')
   const hasBlock = Boolean(task.command) || task.output !== undefined || !done
 
+  const plate = hasBlock ? (
+    <CodeBlock
+      {...(task.command ? { command: task.command, copyLabel: `Copy the command for ${task.label}` } : {})}
+      {...(task.output !== undefined ? { output: task.output.length > 0 ? task.output : '(no output)' } : {})}
+    >
+      {task.output === undefined && (
+        /* Three things "no output" can mean, and the plate says which:
+           still running, so nothing yet; over, and the runtime is still
+           fetching what it printed; over, and the runtime looked and the
+           file was never there. The middle one used to read like the
+           last, which left a person unable to tell a race from a loss. */
+        <Text role="meta">
+          {!done
+            ? 'Nothing printed yet.'
+            : task.outputMissing
+              ? 'Its output was never found.'
+              : 'Fetching what it printed…'}
+        </Text>
+      )}
+      {task.outputTruncated && (
+        <Text role="meta" className="mt-2 block">Showing the end of a longer log.</Text>
+      )}
+    </CodeBlock>
+  ) : null
+
   return (
     <article data-slot="task-card" data-state={task.state} className="flex flex-col gap-1">
       <PanelRow
@@ -188,33 +213,7 @@ const TaskCard = ({
           ) : undefined
         }
       />
-      {hasBlock && (() => {
-        const plate = (
-        <CodeBlock
-          {...(task.command ? { command: task.command, copyLabel: `Copy the command for ${task.label}` } : {})}
-          {...(task.output !== undefined ? { output: task.output.length > 0 ? task.output : '(no output)' } : {})}
-        >
-          {task.output === undefined && (
-            /* Three things "no output" can mean, and the plate says which:
-               still running, so nothing yet; over, and the runtime is still
-               fetching what it printed; over, and the runtime looked and the
-               file was never there. The middle one used to read like the
-               last, which left a person unable to tell a race from a loss. */
-            <Text role="meta">
-              {!done
-                ? 'Nothing printed yet.'
-                : task.outputMissing
-                  ? 'Its output was never found.'
-                  : 'Fetching what it printed…'}
-            </Text>
-          )}
-          {task.outputTruncated && (
-            <Text role="meta" className="mt-2 block">Showing the end of a longer log.</Text>
-          )}
-        </CodeBlock>
-        )
-        return card ? <SectionBody spacing="inline">{plate}</SectionBody> : plate
-      })()}
+      {plate && (card ? <SectionBody spacing="inline">{plate}</SectionBody> : plate)}
     </article>
   )
 }
