@@ -8,6 +8,18 @@ import { createTemplateRig, TEMPLATE_TASK, TEMPLATE_PUBLISH_BRANCH } from './sho
 import { GhFindingForge } from '../packages/server/dist/src/findings/forge.js'
 import { markerOf, publicationKey, sha256 } from '../packages/server/dist/src/findings/publication.js'
 
+test('template journeys assert the persistent New Team and its explicit dry run before a real start', () => {
+  const source = readFileSync(new URL('./shots/templates.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf("      await page.getByRole('menuitem', { name: /^New Team/ }).click()")
+  const journey = source.slice(start, source.indexOf('      const run =', start))
+  assert.match(journey, /const newTeam = page\.getByRole\('dialog', \{ name: 'New Team', exact: true \}\)/)
+  assert.match(journey, /newTeam\.getByRole\('button', \{ name: 'Dry run', exact: true \}\)\.click\(\)/)
+  assert.match(journey, /getByRole\('region', \{ name: 'Dry run', exact: true \}\)/)
+  assert.match(journey, /newTeam\.getByRole\('button', \{ name: 'Start Team', exact: true \}\)\.click\(\)/)
+  assert.match(journey, /expect\(newTeam\)\.toHaveCount\(0, \{ timeout: 30000 \}\)/)
+  assert.doesNotMatch(journey, /name: 'Start', exact: true|name, exact: true \}\)\)\.toHaveCount/)
+})
+
 test('the template rig restores only a legacy project record and keeps all transport local', { timeout: 60000 }, async t => {
   const directory = mkdtempSync(join(tmpdir(), 'hd-template-test-'))
   const rig = await createTemplateRig({ home: join(directory, 'home'), work: join(directory, 'work'), template: 'fix-and-review' })

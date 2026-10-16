@@ -31,7 +31,7 @@ test('New Team starts an edit-only writer automatically and asks the person to p
     const writer = page.getByRole('combobox', { name: 'Agent for Writes', exact: true })
     await expect(writer).toBeEnabled()
     await expect(writer.locator('option:checked')).toHaveText('Automatic · Scripted writer')
-    await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
+    await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled()
     const frameDir = process.env.HD_1669_FRAMES
     if (frameDir) await mkdir(frameDir, { recursive: true })
     const photograph = async (name: string) => {
@@ -47,8 +47,8 @@ test('New Team starts an edit-only writer automatically and asks the person to p
     // next to the row, rather than silently substituting the automatic winner.
     await writer.selectOption('claude-code')
     await expect(dialog).toContainText('Scripted reviewer cannot enforce editing and local commits without publishing. Choose another agent that supports this access.')
-    await expect(dialog).toContainText('See the problem below.')
-    await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
+    await expect(dialog).toContainText('Resolve the dry-run errors above.')
+    await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeDisabled()
     await photograph('refused-edit')
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
     await page.getByRole('button', { name: 'More ways to start', exact: true }).click()
@@ -56,8 +56,8 @@ test('New Team starts an edit-only writer automatically and asks the person to p
     await dialog.getByRole('button', { name: /^Write and review/ }).click()
     await page.getByRole('textbox', { name: 'What should they do?', exact: true }).fill('Repair checkout retry for review')
     await expect(writer.locator('option:checked')).toHaveText('Automatic · Scripted writer')
-    await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
-    await dialog.getByRole('button', { name: 'Start', exact: true }).click()
+    await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled()
+    await dialog.getByRole('button', { name: 'Start Team', exact: true }).click()
     await expect(dialog).toHaveCount(0)
     await expect.poll(async () => (await rig.host.call('goal/list', {})).length).toBeGreaterThan(0)
     const goals = await rig.host.call('goal/list', {})
@@ -92,8 +92,8 @@ test('the edit-first preview records the former blocked grant and the runnable f
     for (const theme of ['light', 'dark']) {
       await page.goto(`/front-door-edit.html?theme=${theme}${before ? '&before' : ''}`)
       const dialog = page.getByRole('dialog')
-      if (before) await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
-      else await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
+      if (before) await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeDisabled()
+      else await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled()
       if (before) await expect(dialog).toContainText('Runtime Alpha cannot enforce publishing changes.')
       else await expect(page.getByRole('combobox', { name: 'Agent for Writes' }).locator('option:checked')).toHaveText('Automatic · Runtime Alpha')
       if (frameDir) {

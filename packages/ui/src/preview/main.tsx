@@ -1,4 +1,5 @@
 import { ProjectPolishFrame } from './frames-project-polish'
+import { FlowsDestinationFixture } from './flows-destination-fixture'
 import { RepositoryStatesPreview } from './repository-states'
 import { RepositoryMenuRepairsPreview } from './repository-menu-repairs'
 import { WorkspaceRecoveryPreview } from './workspace-recovery'
@@ -46,6 +47,7 @@ import { ObservedDialog } from '../components/EvidenceChips'
 import { RunCheck } from '../components/RunCheck'
 import { ProjectChecks } from '../components/ProjectChecks'
 import { ProjectFlows } from '../components/ProjectFlows'
+import { TriggerSettings } from '../components/TriggerSettings'
 import { ProjectTriggers } from '../components/ProjectTriggers'
 import { TriggerArm } from '../components/TriggerArm'
 import { FlowUpdate } from '../components/FlowUpdate'
@@ -823,9 +825,9 @@ const Preview = () => {
           <WorkspacesSection focus={PREVIEW_ROOT} />
         </div>
       </Frame>
-      <Frame id="workspace-triggers" title="Settings › Workspaces — Triggers on this Mac">
+      <Frame id="workspace-triggers" title="Flows — Triggers on this Mac">
         <div className="p-4">
-          <WorkspacesSection />
+          <TriggerSettings />
         </div>
       </Frame>
       {/* The Dashboard, at the width the window really opens it at. Its rail
@@ -1233,6 +1235,8 @@ createRoot(container).render(
       <SignInMode.Provider value="embedded">
         {siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
+          : new URLSearchParams(window.location.search).has('flows-page')
+            ? <FlowsDestinationFixture />
           : new URLSearchParams(window.location.search).has('race-entry')
             ? <RaceEntryFrames />
           : new URLSearchParams(window.location.search).has('repository-states')

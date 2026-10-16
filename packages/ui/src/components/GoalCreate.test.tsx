@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentEntry, GoalView } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AppStore } from '../state/store'
 import { GoalCreate, type GoalCreateProps } from './GoalCreate'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -29,24 +29,48 @@ const agents = [
 ] as unknown as AgentEntry[]
 
 const mount = (seatGoal: AppStore['seatGoal'], props: Partial<GoalCreateProps> = {}) => {
-  const snapshot = { ...emptySnapshot(), agents } as unknown as AppSnapshot
-  const store = {
-    subscribe: () => () => {}, getSnapshot: () => snapshot,
-    loadAgents: vi.fn(), createGoal: vi.fn(async () => goal), seatGoal, teamAdd: vi.fn(async () => {}),
-    openGoal: vi.fn(),
-  } as unknown as AppStore
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { agents })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  vi.spyOn(store, 'flowCatalog').mockResolvedValue([])
+  vi.spyOn(store, 'agentsIn').mockResolvedValue(agents)
+  vi.spyOn(store, 'createGoal').mockResolvedValue(goal)
+  vi.spyOn(store, 'seatGoal').mockImplementation(seatGoal)
+  vi.spyOn(store, 'teamAdd').mockResolvedValue(undefined)
+  vi.spyOn(store, 'openGoal').mockImplementation(() => {})
   const onClose = vi.fn()
   act(() => root.render(<StoreProvider store={store}><GoalCreate root="/repo" onClose={onClose} {...props} /></StoreProvider>))
   return { store, onClose }
 }
 
 const typeSentence = (value: string): void => {
-  const input = document.querySelector<HTMLInputElement>('input[aria-label="What should they do?"]')!
+  const input = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="What should they do?"]')!
   act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value)
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, value)
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
+
+it('uses the shared New Team dialog with Just a Team selected', async () => {
+  mount(vi.fn())
+  await act(async () => {})
+  expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('New Team')
+  expect(document.querySelector('[data-slot="flow-card"][aria-pressed="true"]')?.textContent).toContain('Just a Team')
+  expect(document.querySelector('[aria-label="Search Flows"]')).not.toBeNull()
+})
+
+it('keeps a caller-known project refusal and reports successful reopening', async () => {
+  const refusal = '/repo is outside every folder and repository opened here. Open it first.'
+  const onProjectOpened = vi.fn()
+  const { store } = mount(vi.fn(), { task: 'Investigate the cart', projectProblem: refusal, onProjectOpened })
+  vi.spyOn(store, 'openWorkspace').mockResolvedValue(true)
+  await act(async () => {})
+  expect(document.body.textContent).toContain(refusal)
+  await act(async () => press('Open repo'))
+  expect(onProjectOpened).toHaveBeenCalledOnce()
+  expect(document.body.textContent).not.toContain(refusal)
+  expect(document.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('Investigate the cart')
+})
 
 const press = (words: string): void => {
   const button = [...document.querySelectorAll('button')].find(one => one.textContent?.includes(words))

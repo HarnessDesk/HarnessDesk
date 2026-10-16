@@ -36,6 +36,7 @@ it.each(['composer', 'sidebar', 'project', 'palette'] as const)('%s re-reads an 
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
     if (method === 'git/status') return { root: PATH, branch: 'main', headSha: committed ? 'beef123456' : null, files: [], ahead: 0, behind: 0 }
     if (method === 'worktree/list') return []
+    if (method === 'flow/catalog') return []
     return null
   }) as never)
   const show = async () => {

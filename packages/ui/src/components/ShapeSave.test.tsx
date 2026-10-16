@@ -120,7 +120,7 @@ it('saving applies the exact previewed token and reports the applied result', as
   act(() => button('Save').click())
   await settle()
 
-  expect(onSaved).toHaveBeenCalledWith({ state: 'applied', written: ['.harnessdesk/flows/my-shape.yml'], message: 'Saved.' })
+  expect(onSaved).toHaveBeenCalledWith({ state: 'applied', written: ['.harnessdesk/flows/my-shape.yml'], message: 'Saved.' }, { kind: 'flow', origin: 'project', id: 'my-shape', root: '/repo' })
   const applies = spy.mock.calls.filter((call) => call[0] === 'authoring/save/apply')
   expect(applies).toHaveLength(1)
 })

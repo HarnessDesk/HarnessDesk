@@ -2068,6 +2068,11 @@ export interface HostMethods {
   // journaled transaction; nothing here writes on selection or on a start.
   /** A file exactly as it is on disk, with what is in the way of using it. */
   'authoring/read': { params: { readonly target: AuthoringTarget }; result: AuthoringDocument }
+  /** Moves one writable Flow file to the Trash, only at the digest the person confirmed. */
+  'authoring/flow/remove': {
+    params: { readonly target: Extract<WritableAuthoringTarget, { readonly kind: 'flow' }>; readonly expected: string }
+    result: null
+  }
   /** One field of an Agent, changed in place and previewed; the host encodes the value. */
   'authoring/agent/patch': {
     params: { readonly target: Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>; readonly expected: string; readonly edit: AgentFieldEdit }

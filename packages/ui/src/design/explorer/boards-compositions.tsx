@@ -22,6 +22,7 @@ import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
 import { MainDestination, DestinationBody, Page, TopBar, TopBarToolButton } from '..'
+import { FlowCard, FlowCardGrid, FlowCanvas, FlowCanvasToolbar, FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent } from '..'
 import { GlobeIcon, SquareMenuIcon, FilePlusIcon, PencilIcon, StopIcon, ExpandIcon, ResetIcon } from '../../components/Icons'
 
 const MAINDESTINATION_CATALOG_VARIANTS = ['light', 'dark'] as const
@@ -40,6 +41,7 @@ import {
   isBusy,
   runtimeId,
   type FindingRunView,
+  type FlowPolicy,
   type LedgerDay,
   type LedgerReport,
   type LedgerRow,
@@ -3121,7 +3123,83 @@ export const SeatListBoard = () => {
   </div>
 }
 
+const FLOWCARDS_CATALOG_VARIANTS = ['default'] as const
+const FLOWCARDS_CATALOG_SIZES = ['default'] as const
+const FLOWCARDS_CATALOG_STATES = ['default', 'selected', 'disabled', 'empty', 'long-title', 'unknown'] as const
+const FLOWCANVASTOOLBAR_CATALOG_VARIANTS = ['default'] as const
+const FLOWCANVASTOOLBAR_CATALOG_SIZES = ['default'] as const
+const FLOWCANVASTOOLBAR_CATALOG_STATES = ['default', 'disabled'] as const
+const FLOW_CARD_EXAMPLE_POLICY: FlowPolicy = {
+  version: 2, name: 'Review and fix', inputs: [], messaging: 'board-only', wait: 240,
+  roles: [
+    { id: 'review', kind: 'agent', uses: ['reviewer'], seats: [], grant: 'read', isolate: false, independentOf: [] },
+    { id: 'fix', kind: 'agent', uses: ['builder'], seats: [], grant: 'edit', isolate: false, independentOf: [] },
+    { id: 'report', kind: 'person', outcomes: ['done'] },
+  ],
+  seed: { role: 'review', title: 'Review the change' },
+  rules: [
+    { id: 'fix', on: 'review', when: { every: ['changes'] }, then: { role: 'fix', title: 'Fix the change' } },
+    { id: 'retry', on: 'fix', then: { role: 'review', title: 'Review again' } },
+    { id: 'report', on: 'review', when: { every: ['approve'] }, then: { role: 'report', title: 'Report the result' } },
+  ],
+}
+const FlowCardsBoard = () => {
+  const [selected, setSelected] = useState('review')
+  return <div data-catalog-variants={FLOWCARDS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={FLOWCARDS_CATALOG_SIZES.join(' ')} data-catalog-states={FLOWCARDS_CATALOG_STATES.join(' ')}>
+    <Specimen measure="wide" caption="Destination and picker: actual rules, a loop, a long name and no fixed steps">
+      <FlowCardGrid>
+        <FlowCard name="Review and fix" origin="Built in" policy={FLOW_CARD_EXAMPLE_POLICY} summary="Review and Fix repeat up to three rounds." runs={4} selected={selected === 'review'} onClick={() => setSelected('review')} />
+        <FlowCard name="Just a Team" origin="Built in" empty summary="Agents take jobs from the shared board." runs={0} selected={selected === 'plain'} onClick={() => setSelected('plain')} />
+        <FlowCard name="Review the storefront accessibility and keyboard navigation changes" origin="Storefront documentation and accessibility" policy={FLOW_CARD_EXAMPLE_POLICY} summary="Runs after a new issue is accepted, then asks the person to confirm the result before closing." disabled onClick={() => {}} />
+        <FlowCard name="Earlier format" origin="Yours" summary="Open the source to inspect its steps." runs={null} onClick={() => {}} />
+      </FlowCardGrid>
+    </Specimen>
+    <Rule>A thumbnail reads the policy's roles and rules. A Team with no policy has no steps; its card never invents a path.</Rule>
+  </div>
+}
+const FlowCanvasToolbarBoard = () => {
+  const [view, setView] = useState('Graph')
+  const [notice, setNotice] = useState('Ready to edit')
+  return <div data-catalog-variants={FLOWCANVASTOOLBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={FLOWCANVASTOOLBAR_CATALOG_SIZES.join(' ')} data-catalog-states={FLOWCANVASTOOLBAR_CATALOG_STATES.join(' ')}>
+    <Specimen measure="wide" caption="Tools at left and Run actions at right, above the shared canvas">
+      <div className="relative h-80 w-full">
+        <FlowCanvas nodes={[
+          { id: 'review', position: { x: 32, y: 104 }, data: { name: 'Review', kind: 'agent', roleLine: 'Read' } },
+          { id: 'fix', position: { x: 328, y: 104 }, data: { name: 'Fix', kind: 'agent', roleLine: 'Edit' } },
+        ]} edges={[{ id: 'changes', source: 'review', target: 'fix', label: 'changes' }, { id: 'retry', source: 'fix', target: 'review', loop: true }]} readOnly showControls={false} />
+        <FlowCanvasToolbar actions={<><Button variant="ghost" size="sm" onClick={() => setNotice('Dry run requested')}>Dry run</Button><Button size="sm" onClick={() => setNotice('Team start requested')}>Start a Team</Button></>}>
+          <Button variant="ghost" size="sm" onClick={() => setNotice('Step requested')}><PlusIcon />Step</Button>
+          <Button variant="ghost" size="sm" onClick={() => setNotice('Rule requested')}><PlusIcon />Rule</Button>
+          <Button variant="ghost" size="sm" disabled>Undo</Button>
+          {['Graph', 'Steps', 'File'].map(choice => <Button key={choice} variant="ghost" size="sm" aria-pressed={view === choice} onClick={() => setView(choice)}>{choice}</Button>)}
+        </FlowCanvasToolbar>
+      </div>
+    </Specimen>
+    <Text role="meta" aria-live="polite">{view} · {notice}</Text>
+    <Rule>The gap between plates passes pointer input to the canvas. At narrow widths the plates wrap and actions stay at the right edge.</Rule>
+  </div>
+}
+
+const FLOWCANVASWORKSPACE_CATALOG_VARIANTS = ['default'] as const
+const FLOWCANVASWORKSPACE_CATALOG_SIZES = ['default'] as const
+const FLOWCANVASWORKSPACE_CATALOG_STATES = ['default', 'disabled'] as const
+const FlowCanvasWorkspaceBoard = () => {
+  const [rail, setRail] = useState(true)
+  return <div data-catalog-variants={FLOWCANVASWORKSPACE_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={FLOWCANVASWORKSPACE_CATALOG_SIZES.join(' ')} data-catalog-states={FLOWCANVASWORKSPACE_CATALOG_STATES.join(' ')}>
+    <Specimen measure="wide" caption="The card rail stands beside the canvas and floats when the pane narrows">
+      <div className="h-96 w-full">
+        <FlowCanvasWorkspace onCloseRail={() => setRail(false)} toolbar={<FlowCanvasToolbar><Button variant="outline" size="sm" onClick={() => setRail(value => !value)}>Details</Button></FlowCanvasToolbar>}
+          main={<FlowCanvasSurface><FlowCanvas nodes={[{ id: 'review', position: { x: 40, y: 100 }, data: { name: 'Review', kind: 'person' } }]} edges={[]} readOnly /></FlowCanvasSurface>}
+          rail={rail ? <ToolBody><ToolSection label="Selected step"><FlowCanvasContent><ToolProse>Review the result and choose what happens next.</ToolProse></FlowCanvasContent></ToolSection></ToolBody> : undefined} />
+      </div>
+    </Specimen>
+  </div>
+}
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'flow-canvas-workspace', title: 'Flow canvas workspace', about: 'The shared canvas and its responsive card rail, below the shell bar.', render: () => <FlowCanvasWorkspaceBoard /> },
+  { id: 'flow-cards', title: 'Flow cards', about: 'Policy thumbnails, source chips, complete summaries and selection in the destination and picker.', render: () => <FlowCardsBoard /> },
+  { id: 'flow-canvas-toolbar', title: 'Flow canvas toolbar', about: 'Two floating groups leave the canvas available between controls.', render: () => <FlowCanvasToolbarBoard /> },
   {id:'sign-in-rail',title:'Sign-in rail',about:'The first-run navigation boundary.',render:() => <SignInRailBoard />},
   {id:'dashboard-bands',title:'Dashboard bands',about:'Long labels, unavailable values and empty source bands in both themes.',render:DashboardBandsBoard},
   {id:'page-records',title:'Page records',about:'Content-width table and list rows, complete reasons and isolated actions.',render:() => <PageRecordsBoard />},

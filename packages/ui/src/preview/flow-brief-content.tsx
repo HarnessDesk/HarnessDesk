@@ -1,13 +1,13 @@
 /** Real Flow inputs and the real start dialog, on synthetic catalogue data. */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FlowPreview } from '@harnessdesk/protocol'
+import type { FlowPolicy, FlowPreview, FrontDoorPreviewInput } from '@harnessdesk/protocol'
 
 import { FlowStart } from '../components/FlowStart'
-import { NewSessionChoice } from '../components/NewSessionChoice'
+import { FrontDoor } from '../components/FrontDoor'
 import { Button } from '../design'
 import { StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
-import type { AppStore } from '../state/store'
+import type { AppSnapshot, AppStore } from '../state/store'
 import { previewStore } from './harness'
 import { PREVIEW_ROOT } from './sidebar-fixture'
 
@@ -16,21 +16,32 @@ export const BRIEF_SCENES = ['empty', 'filled', 'long', 'refused', 'pending'] as
 export type BriefScene = (typeof BRIEF_SCENES)[number]
 
 const briefStore = (scene: BriefScene): AppStore => {
+  const policy: FlowPolicy = {
+    version: 2, name: 'Work from a brief',
+    inputs: [{ id: 'brief', label: 'Brief', default: scene === 'filled' ? BRIEF_PARAGRAPHS : scene === 'long' ? Array.from({ length: 80 }, (_, i) => `Paragraph ${i + 1}: ${BRIEF_PARAGRAPHS}`).join('\n\n') : '' }],
+    roles: [], rules: [], seed: { role: 'implementer', title: 'Improve the settings' }, wait: 240, messaging: 'board-only',
+  }
   const preview: FlowPreview = {
     token: 'preview-brief', messaging: 'board-only', seats: [], guards: [], commands: [], problems: [],
-    compiled: { bindings: [], problems: [], document: { format: 'agents', flow: {
-      version: 2, name: 'Work from a brief',
-      inputs: [{ id: 'brief', label: 'Brief', default: scene === 'filled' ? BRIEF_PARAGRAPHS : scene === 'long' ? Array.from({ length: 80 }, (_, i) => `Paragraph ${i + 1}: ${BRIEF_PARAGRAPHS}`).join('\n\n') : '' }],
-      roles: [], rules: [], seed: { role: 'implementer', title: 'Improve the settings' }, wait: 240, messaging: 'board-only',
-    } } },
+    compiled: { bindings: [], problems: [], document: { format: 'agents', flow: policy } },
   }
   const base = previewStore({ theme: 'system' })
   return new Proxy(base, {
     get(target, property, receiver) {
       if (property === 'loadAgents') return async () => {}
-      if (property === 'flowCatalog') return async () => [{ id: 'brief', name: 'Work from a brief', origin: 'project', path: '.harnessdesk/flows/brief.yml', description: null, format: 'agents', problem: null, shadows: [] }]
-      if (property === 'flowSource') return async () => 'version: 2\nname: Work from a brief\n'
+      if (property === 'flowCatalog') return async () => [{ id: 'brief', name: 'Work from a brief', origin: 'project', path: '.harnessdesk/flows/brief.yml', description: null, format: 'agents', problem: null, shadows: [], policy }]
+      if (property === 'flowSource') return async () => JSON.stringify(policy)
       if (property === 'previewFlow') return async () => preview
+      if (property === 'renderShape') return async (next: FlowPolicy) => ({ source: JSON.stringify(next), issues: [] })
+      if (property === 'previewFrontDoor') return async (input: FrontDoorPreviewInput, options: { readonly publish?: boolean } = {}) => {
+        const next = JSON.parse(input.source) as FlowPolicy
+        const response = { source: input.source, vars: input.vars, sentence: 'Improve the settings', goal: input.goal ?? null,
+          target: { label: 'this project', head: null, base: null, dirty: false, independence: 'unknown' as const },
+          flow: { ...preview, compiled: { ...preview.compiled, document: { format: 'agents' as const, flow: next } } } }
+        const front = target.getSnapshot().frontDoor
+        if (front && options.publish !== false) (target as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ frontDoor: { ...front, preview: response } })
+        return response
+      }
       const value = Reflect.get(target, property, receiver)
       return typeof value === 'function' ? value.bind(target) : value
     },
@@ -45,27 +56,26 @@ const useBriefScene = (scene: BriefScene, host: () => ParentNode | null, dialog:
       const container = host()
       if (!container) return
       if (dialog) {
-        const next = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Continue')
-        if (next) { next.click(); return }
+        const details = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Details')
+        if (!details) return
+        if (details.getAttribute('aria-expanded') === 'false') { details.click(); return }
+      } else {
+        const select = container.querySelector<HTMLSelectElement>('select')
+        if (!chosen) {
+          if (!select || select.disabled) return
+          select.value = 'brief'
+          select.dispatchEvent(new Event('change', { bubbles: true }))
+          chosen = true
+        }
       }
-      const select = container.querySelector<HTMLSelectElement>('select')
-      if (!chosen) {
-        if (!select || select.disabled) return
-        select.value = 'brief'
-        select.dispatchEvent(new Event('change', { bubbles: true }))
-        chosen = true
-      }
-      const area = container.querySelector('textarea')
+      const area = container.querySelector<HTMLTextAreaElement>(dialog ? '[data-flow-details] textarea' : 'textarea')
       if (!area) return
-      const title = container.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')
-      if (title) {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(title, 'Improve the settings')
-        title.dispatchEvent(new Event('input', { bubbles: true }))
-      }
       if (scene === 'refused' || scene === 'pending') {
         const input = container.querySelector<HTMLInputElement>('input[type="file"]')!
         const file = new File([scene === 'refused' ? 'A'.repeat(64 * 1024 + 1) : 'A brief'], 'brief.txt', { type: 'text/plain' })
-        if (scene === 'pending') Object.defineProperty(file, 'text', { value: () => new Promise<string>(() => {}) })
+        if (scene === 'pending') Object.defineProperty(file, 'text', { value: () => new Promise<string>(resolve => {
+          window.addEventListener('finish-dialog-brief-read', () => resolve('Imported brief'), { once: true })
+        }) })
         const files = new DataTransfer()
         files.items.add(file)
         input.files = files.files
@@ -95,7 +105,8 @@ const BriefDialogBody = ({ scene }: { readonly scene: BriefScene }) => {
   useTheme()
   const [open, setOpen] = useState(true)
   useBriefScene(scene, () => document, true)
-  return open && <NewSessionChoice initialKind="flow" onClose={() => setOpen(false)} />
+  return open && <FrontDoor context={{ kind: 'project', root: PREVIEW_ROOT }} initial={{ id: 'brief', origin: 'project' }}
+    initialTask="Improve the settings" initialDone="Improve the settings" onClose={() => setOpen(false)} onStarted={() => setOpen(false)} />
 }
 
 export const FlowBriefDialog = ({ scene }: { readonly scene: BriefScene }) => {

@@ -7,6 +7,25 @@ the rule is the last line of its section.
 
 ---
 
+## First launch offers installed runtimes — 2026-10-16
+
+The first empty conversation uses the Add a runtime page's machine catalogue
+to offer installed agents that have not been registered. Each is one compact
+name and Add button. Detection runs once per window, after the pane draws,
+with an eight-second limit on the offer's wait. Nothing found means no offer.
+A runtime available only through a bundled bridge is not an installed CLI.
+
+The owner chose an offer over automatic registration in [#1673](https://github.com/HarnessDesk/HarnessDesk/issues/1673).
+Add uses the existing template registration; it neither installs nor signs in
+nor changes the agent's own files. The registered runtime arrives through the
+host's existing event and becomes selectable in the composer. History copy
+comes from every present runtime's `presentation.historySource`, deduplicated
+for accounts of the same agent, and is absent when no runtime declares one.
+Unregistered agents take their names from the same host catalogue as Settings;
+registered runtime names come from `RuntimeInfo.presentation`.
+
+**The rule:** offer what is installed, and let the person choose what to add.
+
 ## History arrows move to the main bar when the sidebar runs out of room — 2026-10-15
 
 The native corner consumes 78px of the sidebar's top row. The default 256px
@@ -3345,3 +3364,20 @@ for every agent it opens, in later rounds and after recovery too. An explicit
 runtime choice that cannot enforce that access remains refused beside its row,
 with a way to choose a compatible agent. Automatic uses the same strict plan,
 so an earlier incompatible preference cannot block a later compatible one.
+
+
+## The Library read carries where a skill came from, and the network is only asked when a person asks — 2026-10-16
+
+An installed repository skill already has its public repository, ref, commit
+and skill path in the Library manifest. `library/read` carries that recorded
+origin on each non-hollow skill copy, so copies installed for different agents
+can report different pinned commits before anyone checks for an update. Local
+skills, MCP entries and copies without a valid recorded origin omit it.
+
+Every read loads the local manifest again. An applied update therefore changes
+the origin on the next read, while the existing comparison drops a check for an
+older origin. Update results still belong only to the host lifetime in which a
+person requested the check; a new host reads the origin without inventing a
+check result.
+
+**Rule:** the recorded origin is read from the manifest on every read; a check is only ever an explicit request.

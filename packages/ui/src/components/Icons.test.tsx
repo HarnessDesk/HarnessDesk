@@ -81,7 +81,8 @@ describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', (
   // token-driven render can produce inside a window wearing the other face —
   // and is an illustration on the same terms. FlowGraph draws a Flow's rules
   // as curves with arrowheads computed from the document, the same drawing
-  // ShapeGraph is excluded for.
+  // ShapeGraph is excluded for. FlowCards draws its mini graphs from those same
+  // policies; its nodes and edges are data geometry, not a glyph.
   // glyphs/ is the vendored animated drawings behind Icons.tsx: `glyph.tsx` is
   // their one frame, and a component never imports from the folder.
   const others = Object.entries(sources).filter(
@@ -90,6 +91,7 @@ describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', (
       !/\/GitGraph\.tsx$/.test(path) &&
       !/\/ShapeGraph\.tsx$/.test(path) &&
       !/\/design\/patterns\/FlowGraph\.tsx$/.test(path) &&
+      !/\/design\/patterns\/FlowCards\.tsx$/.test(path) &&
       !/\/AppearancePreview\.tsx$/.test(path) &&
       !/\/design\/ui\/(spark|chart)\.tsx$/.test(path) &&
       !/(^|\/)glyphs\//.test(path) &&
