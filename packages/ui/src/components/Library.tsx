@@ -311,9 +311,9 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
       const unavailable = updates.filter(one => one.status === 'gone' || one.status === 'unreachable')
       const behind = updates.filter(one => one.status === 'behind')
       showToast({ id: 'library-updates', ...(unavailable.length > 0
-        ? { tone: 'warning', title: `${unavailable.length} sources could not be checked`, ...(unavailable[0]?.reason ? { body: unavailable[0].reason } : {}) }
+        ? { tone: 'warning', title: unavailable.length === 1 ? '1 source could not be checked' : `${unavailable.length} sources could not be checked`, ...(unavailable[0]?.reason ? { body: unavailable[0].reason } : {}) }
         : behind.length > 0
-          ? { tone: 'neutral', title: `${behind.length} updates available` }
+          ? { tone: 'neutral', title: behind.length === 1 ? '1 update available' : `${behind.length} updates available` }
           : updates.length > 0
             ? { tone: 'success', title: 'Everything from a repository is up to date' }
             : { tone: 'neutral', title: 'No skill here came from a repository' }) })

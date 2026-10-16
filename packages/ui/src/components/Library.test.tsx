@@ -2107,7 +2107,7 @@ const pressUpdateCheck = async () => {
 }
 
 it.each([
-  { statuses: ['behind', 'current'], title: '1 updates available', tone: 'neutral' },
+  { statuses: ['behind', 'current'], title: '1 update available', tone: 'neutral' },
   { statuses: ['current'], title: 'Everything from a repository is up to date', tone: 'success' },
   { statuses: [], title: 'No skill here came from a repository', tone: 'neutral' },
   { statuses: ['behind', 'unreachable', 'gone'], title: '2 sources could not be checked', tone: 'warning' },
@@ -2279,7 +2279,7 @@ it('Rescan during a pending check still refreshes the checked library and report
   await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(n => n.textContent === 'Rescan')!.click())
   await act(async () => finish([skillUpdate('behind')]))
   expect(request.mock.calls.filter(([m]) => m === 'library/read')).toHaveLength(3)
-  expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: '1 updates available' }))
+  expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: '1 update available' }))
 })
 
 it('Rescan cannot suppress a pending check failure', async () => {
