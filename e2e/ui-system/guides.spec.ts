@@ -1,8 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { SCENES, WINDOW, sceneUrl } from '../../packages/ui/src/review/scenes'
+import { installFramePreviewFixture } from './frame-preview-fixture'
+
 /**
  * Guides (`design/explorer/guides.ts`): the lines drawn over a preview frame
- * to show what lines up, what nearly does, and what spills.
+ * to show what lines up, what nearly does, and what spills — and the fix
+ * preview that corrects what it can and measures again.
  *
  * The drawing is a canvas, so these read the report it keeps beside it —
  * `window.__hdGuides` — and prove three things the canvas cannot be seen to
@@ -59,4 +63,24 @@ test('an edge nudged two pixels off its rail is reported', async ({ page }) => {
     .evaluate(el => { el.setAttribute('data-guides-nudge', ''); window.dispatchEvent(new Event('resize')) })
   await expect.poll(async () => (await reportFor(page, 'settings-sheet'))!.offLine.find(one => one.includes('Notifications')) ?? '')
     .toContain('Δ2')
+})
+
+test('the fix preview corrects what the guides can, and the guides measure the result', async ({ page }) => {
+  // The Details panel of an agent that keeps no background list: its empty state touches its card.
+  const scene = SCENES.find(one => one.id === 'conversation-details-no-background')!
+  await page.setViewportSize({ width: WINDOW.width, height: WINDOW.height })
+  await installFramePreviewFixture(page)
+  const overflow = async (url: string) => {
+    await page.goto(url)
+    await expect(page.locator('html')).toHaveAttribute('data-scene-steps', 'done', { timeout: 15_000 })
+    await page.waitForTimeout(800)
+    await page.evaluate(() => window.dispatchEvent(new Event('resize')))
+    await page.waitForTimeout(300)
+    return page.evaluate(() => (window as unknown as { __hdGuides: { current: Report } }).__hdGuides.current.flatMap(one => one.overflow))
+  }
+  expect(await overflow(sceneUrl(scene, 'light', 'lines'))).toContain('h3[text] "Nothing to list" touches frame')
+
+  const after = await overflow(`${sceneUrl(scene, 'light', 'lines')}&fix=1`)
+  expect(after.filter(one => one.includes('touches frame'))).toEqual([])
+  expect(await page.locator('[data-slot="empty-state"]').first().evaluate(el => (el as HTMLElement).style.paddingLeft)).toBe('var(--hd-space-3)')
 })

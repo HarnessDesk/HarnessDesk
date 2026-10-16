@@ -15,7 +15,8 @@
 //
 //   UI_SYSTEM_MATRIX=pr          a pull request's theme matrix (see playwright.ui-system.config.ts),
 //                                dealt by `durations.pr.json`, with missing times scaled from the full table
-//   UI_SYSTEM_SPECS='[...]'      only these spec files (a JSON list of `e2e/ui-system/…` paths)
+//   UI_SYSTEM_SPECS='[...]'      only these spec files (a JSON list of `e2e/ui-system/…` paths); an entry
+//                                `…spec.ts#a,b` is that spec narrowed to its impact units (script/ui-impact.mjs)
 //
 // Both tables record test seconds per spec from the `list` reporter:
 // `e2e/ui-system/durations.json` measures the dev server with coverage in both
@@ -51,6 +52,9 @@ export function plannedWallSeconds(load, setupSeconds = 120) {
   return load / 2 + setupSeconds
 }
 
+// A spec narrowed to some of its units is weighed as the whole spec: the table has no finer time.
+const timeOf = (seconds, spec) => seconds[spec.replace(/#.*$/, '')]
+
 const median = values => {
   const sorted = [...values].sort((a, b) => a - b)
   return sorted[Math.floor(sorted.length / 2)]
@@ -79,7 +83,7 @@ export function recordedSeconds(root, matrix = 'full') {
 // SHARD_SECONDS, at least one, at most MAX_SHARDS.
 export function shardCount(specs, seconds, { target = SHARD_SECONDS, max = MAX_SHARDS } = {}) {
   const typical = median(Object.values(seconds)) ?? 1
-  const total = specs.reduce((sum, spec) => sum + (seconds[spec] ?? typical), 0)
+  const total = specs.reduce((sum, spec) => sum + (timeOf(seconds, spec) ?? typical), 0)
   // Never more shards than specs: a shard with nothing to run fails the workflow's guard against an empty deal.
   return Math.min(max, Math.max(1, specs.length), Math.max(1, Math.ceil(total / target)))
 }
@@ -92,9 +96,9 @@ export function selectedSpecs(root, selection = process.env.UI_SYSTEM_SPECS) {
   if (!selection || selection === 'all') return all
   const prefix = `${SUITE}/`
   const named = JSON.parse(selection).map(path => (path.startsWith(prefix) ? path.slice(prefix.length) : path))
-  const unknown = named.filter(spec => !all.includes(spec))
+  const unknown = named.filter(spec => !all.includes(spec.replace(/#.*$/, '')) || /#(?:,|$)|,,|,$/.test(spec))
   if (unknown.length > 0) throw new Error(`not specs of ${SUITE}: ${unknown.join(', ')}`)
-  return all.filter(spec => named.includes(spec))
+  return named.filter((spec, at) => named.indexOf(spec) === at).sort()
 }
 
 // Longest first, each onto the shard with the least so far (the first of equals
@@ -102,7 +106,7 @@ export function selectedSpecs(root, selection = process.env.UI_SYSTEM_SPECS) {
 // lightest. Deterministic, so the shards of one run never disagree.
 export function plan(specs, seconds, total) {
   const typical = median(Object.values(seconds)) ?? 1
-  const weight = spec => seconds[spec] ?? typical
+  const weight = spec => timeOf(seconds, spec) ?? typical
   const shards = Array.from({ length: total }, () => ({ load: 0, specs: [] }))
   for (const spec of [...specs].sort((a, b) => weight(b) - weight(a) || (a < b ? -1 : 1))) {
     const lightest = shards.reduce((best, shard) => shard.load < best.load ? shard : best)

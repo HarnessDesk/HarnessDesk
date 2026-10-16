@@ -6,6 +6,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { SCENES, WINDOW, sceneUrl } from '../../packages/ui/src/review/scenes'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { WALL_TIME } from './frame-wall-destinations'
+import { impactUnit, unitsToRun } from './impact-units'
 import { writeOnceEveryTestPasses } from './write-once'
 
 /**
@@ -17,7 +18,8 @@ import { writeOnceEveryTestPasses } from './write-once'
  * but may not rise, and a signature not on the record fails: a new edge off
  * its rail, a new overflow, a new value no token names. Fixing one is free;
  * adding one is a review. `UPDATE_GUIDES=1` re-records, and is a choice to
- * accept what the board shows.
+ * accept what the board shows; `pnpm design:doc` then carries the new counts
+ * into docs/design-system.md, whose check fails until it does.
  */
 
 type Kind = 'offLine' | 'overflow' | 'offScale'
@@ -45,7 +47,12 @@ const measure = async (page: Page, url: string, hasSteps: boolean) => {
   await page.clock.setFixedTime(WALL_TIME)
   await page.goto(url)
   await page.evaluate(async () => { await document.fonts.ready })
-  if (hasSteps) await expect(page.locator('html')).toHaveAttribute('data-scene-steps', 'done', { timeout: 15_000 })
+  if (hasSteps) {
+    const html = page.locator('html')
+    await expect(html).toHaveAttribute('data-scene-steps', /^(done|failed)$/, { timeout: 15_000 })
+    // A step that found nothing is a scene that no longer reaches its state: measuring it would hold the wrong page to the standard.
+    expect(await html.getAttribute('data-scene-steps-missed'), `${url}: scene steps found nothing to act on`).toBeNull()
+  }
   // Two reports a beat apart that agree: the page has stopped moving.
   let previous = ''
   for (let i = 0; i < 40; i++) {
@@ -62,8 +69,11 @@ const measure = async (page: Page, url: string, hasSteps: boolean) => {
 test.use({ viewport: { width: WINDOW.width, height: WINDOW.height }, screenshot: 'off', trace: 'off', video: 'off' })
 if (UPDATE) writeOnceEveryTestPasses(test, () => writeFileSync(TABLE, `${JSON.stringify(observed, null, 2)}\n`))
 
-for (const scene of SCENES) {
-  test(`guides standard: ${scene.id}`, async ({ page }) => {
+// One unit per scene: a change that reaches three scenes measures those three (`impact-units.ts`).
+const units = UPDATE ? null : unitsToRun('guides-standard.spec.ts')
+
+for (const scene of SCENES.filter((one) => !units || units.has(one.id))) {
+  test(`guides standard: ${scene.id}`, impactUnit(scene.id), async ({ page }) => {
     if (scene.width || scene.height) await page.setViewportSize({ width: scene.width ?? WINDOW.width, height: scene.height ?? WINDOW.height })
     await page.emulateMedia({ colorScheme: 'light' })
     const report = await measure(page, sceneUrl(scene, 'light', 'lines'), !!scene.steps?.length)

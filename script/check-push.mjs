@@ -231,7 +231,7 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
   const reached = change.browser === 'server' ? JSON.parse(change.server_specs)
     : change.browser === 'all' && change.browser_specs !== 'all' ? JSON.parse(change.browser_specs) : []
   const seconds = recordedSeconds(root, change.matrix)
-  const duration = reached.reduce((sum, path) => sum + (seconds[path.slice('e2e/ui-system/'.length)] ?? Infinity), 0)
+  const duration = reached.reduce((sum, path) => sum + (seconds[path.slice('e2e/ui-system/'.length).replace(/#.*$/, '')] ?? Infinity), 0)
   const small = reached.length <= 6 && duration <= 600
   const browserFiles = [...new Set([...direct, ...(small ? reached : [])])].sort()
   const browserReason = fast ? '--fast leaves browser specs to CI.'

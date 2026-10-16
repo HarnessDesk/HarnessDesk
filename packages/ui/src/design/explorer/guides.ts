@@ -15,8 +15,10 @@ import { colorName, lengthName, offScaleOf, readTokens, type TokenTable } from '
  *             a line through the page) and which edges *nearly* do — an edge
  *             0.5–3px off a rail is the signature of a value typed by hand;
  *   gaps      what space separates neighbours, as a number on the gap;
- *   overflow  what spills past its box, is clipped without an ellipsis, or
- *             leaves its page;
+ *   overflow  what spills past its box, is clipped without an ellipsis,
+ *             leaves its page, or sets text flush against the edge of the
+ *             card or fill around it (no padding anywhere between, so the
+ *             words reach the border whenever they wrap that way);
  *   scale     which values no token names — a padding, gap, radius, type
  *             size or colour the system never decided.
  *
@@ -174,6 +176,8 @@ const sticksOut = (el: Element, r: DOMRect) => {
   let checked = 0
   for (const kid of el.querySelectorAll('*')) {
     if (++checked > 200) break
+    // A nudge the fix preview made is a correction shown, not a spill.
+    if (fixed.has(kid as HTMLElement)) continue
     const k = kid.getBoundingClientRect()
     if (!visible(k)) continue
     if (k.right > r.right + 1 || k.left < r.left - 1 || k.bottom > r.bottom + 1) {
@@ -183,12 +187,48 @@ const sticksOut = (el: Element, r: DOMRect) => {
   return false
 }
 
-type Spill = { el: Element; r: DOMRect; how: 'spills' | 'clipped' | 'ellipsis' | 'leaves page' }
-const spillsOf = (boxes: Box[], page: DOMRect): Spill[] => {
+type Spill = { el: Element; r: DOMRect; how: 'spills' | 'clipped' | 'ellipsis' | 'leaves page' | 'touches frame' }
+
+/** The nearest box around `el` that draws an edge: a border, or a fill of its own. */
+const frameOf = (el: Element, root: Element): Element | null => {
+  for (let at = el.parentElement; at && at !== root; at = at.parentElement) {
+    const style = getComputedStyle(at)
+    if (parseFloat(style.borderLeftWidth) > 0 && style.borderLeftStyle !== 'none') return at
+    const fill = style.backgroundColor
+    if (fill !== 'rgba(0, 0, 0, 0)' && at.parentElement && getComputedStyle(at.parentElement).backgroundColor !== fill) return at
+  }
+  return null
+}
+
+const ownsText = (el: Element) => [...el.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim())
+
+/**
+ * Text whose content box meets the inside of its frame on a side: nothing
+ * between them keeps the words off the border. A control's own fill is its
+ * hover state, not a frame, and is left out.
+ */
+const frameSides = (el: Element, r: DOMRect, root: Element) => {
+  const none = { left: false, right: false }
+  if (!ownsText(el)) return none
+  const frame = frameOf(el, root)
+  if (!frame || frame.matches(CONTROL)) return none
+  const f = frame.getBoundingClientRect()
+  const fs = getComputedStyle(frame)
+  const es = getComputedStyle(el)
+  const left = r.left + parseFloat(es.paddingLeft) - (f.left + parseFloat(fs.borderLeftWidth))
+  const right = f.right - parseFloat(fs.borderRightWidth) - (r.right - parseFloat(es.paddingRight))
+  return { left: Math.abs(left) <= 1, right: Math.abs(right) <= 1 }
+}
+const touchesFrame = (el: Element, r: DOMRect, root: Element) => {
+  const sides = frameSides(el, r, root)
+  return sides.left || sides.right
+}
+const spillsOf = (boxes: Box[], page: DOMRect, root: Element): Spill[] => {
   const out: Spill[] = []
   for (const { el, r } of boxes) {
     if (!(el instanceof HTMLElement)) continue
     if (r.left < page.left - 0.5 || r.right > page.right + 0.5) { out.push({ el, r, how: 'leaves page' }); continue }
+    if (touchesFrame(el, r, root)) out.push({ el, r, how: 'touches frame' })
     const wide = el.scrollWidth > el.clientWidth + 1
     const tall = el.scrollHeight > el.clientHeight + 1
     if (!wide && !tall) continue
@@ -229,6 +269,141 @@ const gapsOf = (boxes: Box[]): Gap[] => {
     }
   }
   return out
+}
+
+/**
+ * The fix preview: every finding the guides can correct, corrected in place,
+ * so a reviewer sees the screen as it would be once the source is fixed —
+ * and the guides, measuring again, show what is left.
+ *
+ *   off-line       moved onto the line it missed (a `translate`);
+ *   touches frame  given the card's side edge (`--hd-space-3`), as a card's rows have;
+ *   off-scale      set to the nearest token of its kind: a spacing to the
+ *                  spacing scale, a radius to a radius, a type size to a size,
+ *                  a colour to the nearest colour token.
+ *
+ * Overflow is not guessed at: whether a line should wrap, truncate or the box
+ * grow is a decision, so it stays a finding. Everything is an inline style
+ * kept with what it replaced, so switching back restores the page exactly.
+ */
+type Fix = { el: HTMLElement; what: string }
+const fixed = new Map<HTMLElement, string | null>()
+const fixedLabels = new Map<HTMLElement, string>()
+
+const rgbOf = (value: string) => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number)
+const nearestNamed = (px: number, entries: [number, string[]][], fits: RegExp) => {
+  let best: { px: number; name: string } | null = null
+  for (const [value, names] of entries) {
+    const name = names.find((one) => fits.test(one))
+    if (!name) continue
+    if (!best || Math.abs(value - px) < Math.abs(best.px - px)) best = { px: value, name }
+  }
+  return best
+}
+const nearestColour = (value: string, table: TokenTable, role: RegExp) => {
+  const [r, g, b] = rgbOf(value)
+  let best: { d: number; name: string } | null = null
+  for (const [rgb, names] of table.colors) {
+    const name = names.find((one) => role.test(one)) ?? names[0]!
+    const [r2, g2, b2] = rgbOf(rgb)
+    const d = (r! - r2!) ** 2 + (g! - g2!) ** 2 + (b! - b2!) ** 2
+    if (!best || d < best.d) best = { d, name }
+  }
+  return best?.name ?? null
+}
+
+const PROPERTY: Record<string, string> = { radius: 'border-radius', background: 'background-color' }
+
+type Planned = { el: HTMLElement; set: Record<string, string>; what: string }
+const viewport = () => new DOMRect(0, 0, window.innerWidth, window.innerHeight)
+
+/** Values: every off-scale value to its token, every text off its frame to the card's edge. */
+const valueFixes = (roots: Element[], table: TokenTable): Planned[] => {
+  const out: Planned[] = []
+  const lengths = [...table.lengths]
+  const sizes = [...table.sizes]
+  for (const root of roots) {
+    const boxes = collect(root, viewport())
+    for (const { el, r, kind } of boxes) {
+      if (!(el instanceof HTMLElement) || kind === 'glyph') continue
+      const sides = frameSides(el, r, root)
+      const inset: Record<string, string> = {}
+      if (sides.left) inset['padding-left'] = 'var(--hd-space-3)'
+      if (sides.right) inset['padding-right'] = 'var(--hd-space-3)'
+      // The inset belongs to the component the text is part of — an empty state's title and its
+      // line move in together — so the nearest named box that is flush with it takes it.
+      if (Object.keys(inset).length) {
+        const frame = frameOf(el, root)
+        let target: HTMLElement = el
+        for (let up = el.parentElement; up && up !== frame; up = up.parentElement) {
+          if (!up.hasAttribute('data-slot') || !(up instanceof HTMLElement)) continue
+          const u = up.getBoundingClientRect()
+          if ((sides.left && Math.abs(u.left - r.left) <= 1) || (sides.right && Math.abs(u.right - r.right) <= 1)) target = up
+          break
+        }
+        if (!out.some((one) => one.el === target && 'padding-left' in one.set)) out.push({ el: target, set: inset, what: `${describe(target)} off its frame (space-3)` })
+      }
+      for (const { what, value } of offScaleOf(el, getComputedStyle(el), table)) {
+        const property = PROPERTY[what] ?? what
+        let name: string | null = null
+        if (what === 'background' || what === 'color') name = nearestColour(value, table, what === 'color' ? /foreground|ink|text/ : /background|card|muted|fill|surface/)
+        else {
+          const px = parseFloat(value)
+          const pick = what === 'font-size' ? nearestNamed(px, sizes, /^--hd-text/) : what === 'radius' ? nearestNamed(px, lengths, /^--hd-radius/) : nearestNamed(px, lengths, /^--hd-space-/)
+          name = pick?.name ?? null
+        }
+        if (name) out.push({ el, set: { [property]: `var(${name})` }, what: `${describe(el)} ${what} ${value} → ${name.replace(/^--hd-/, '')}` })
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Lines, measured after the values are fixed — a padding put on the scale
+ * moves what is inside it, so a nudge measured before would overshoot. A box
+ * that misses with its start moves by its start; a control that misses only
+ * with its end moves by its end.
+ */
+const lineFixes = (roots: Element[]): Planned[] => {
+  const out: Planned[] = []
+  for (const root of roots) {
+    const boxes = collect(root, viewport())
+    const seen = new Set<Element>()
+    const misses = missesOf(boxes, railsOf(boxes)).sort((a, b) => Number(b.at === b.box.r.left) - Number(a.at === a.box.r.left))
+    for (const { box, at, rail } of misses) {
+      if (!(box.el instanceof HTMLElement) || seen.has(box.el)) continue
+      seen.add(box.el)
+      out.push({ el: box.el, set: { translate: `${fmt(rail - at)}px 0` }, what: `${describe(box.el)} onto the line (${rail > at ? '+' : ''}${fmt(rail - at)}px)` })
+    }
+  }
+  return out
+}
+
+/** Apply every correction the guides can make, measured before any is made. */
+export const previewFixes = (roots: Element[]): Fix[] => {
+  clearFixes()
+  const apply = (planned: Planned[]) => {
+    for (const { el, set, what } of planned) {
+      if (!fixed.has(el)) fixed.set(el, el.getAttribute('style'))
+      for (const [property, value] of Object.entries(set)) el.style.setProperty(property, value)
+      fixedLabels.set(el, fixedLabels.has(el) ? `${fixedLabels.get(el)}; ${what}` : what)
+    }
+    return planned
+  }
+  const values = apply(valueFixes(roots, readTokens()))
+  const lines = apply(lineFixes(roots))
+  return [...values, ...lines].map(({ el, what }) => ({ el, what }))
+}
+
+/** Put every corrected element back as it was. */
+export const clearFixes = () => {
+  for (const [el, style] of fixed) {
+    if (style === null) el.removeAttribute('style')
+    else el.setAttribute('style', style)
+  }
+  fixed.clear()
+  fixedLabels.clear()
 }
 
 /** What a page's guides found, read by specs and by anyone at the console. */
@@ -417,7 +592,7 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
 
       let spillCount = 0
       if (layers.has('overflow')) {
-        const spills = spillsOf(boxes, page)
+        const spills = spillsOf(boxes, page, root)
         spillCount = spills.filter((one) => one.how !== 'ellipsis').length
         entry.overflow = spills.filter((one) => one.how !== 'ellipsis').map(({ el, how }) => `${describe(el)} ${how}`)
         ctx.lineWidth = 2
@@ -457,6 +632,18 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
         layers.has('scale') ? `${scaleCount} off-scale` : null,
       ].filter(Boolean).join(' · ')
       if (tally) label(ctx, tally, page.right - 240, page.top + 4, missCount + spillCount ? palette.danger : scaleCount ? palette.warn : palette.accent, palette.ink)
+    }
+
+    // What the fix preview changed: a green outline, so "after" says where it differs.
+    if (fixed.size) {
+      ctx.strokeStyle = palette.pad
+      ctx.lineWidth = 2
+      ctx.setLineDash([4, 2])
+      for (const el of fixed.keys()) {
+        const r = el.getBoundingClientRect()
+        if (visible(r) && meets(r, view)) ctx.strokeRect(r.left + 1, r.top + 1, r.width - 2, r.height - 2)
+      }
+      ctx.setLineDash([])
     }
 
     guidesReport.current = report
@@ -621,6 +808,21 @@ const setGuidesMode = (next: GuidesMode) => {
 }
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }
 
+/**
+ * Turn the fix preview on or off, once the page has reached its state (a
+ * scene's steps run first), and redraw the guides over the result. Returns
+ * what was corrected.
+ */
+const settleFor = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+export const setFixPreview = async (on: boolean, roots: () => Element[]): Promise<string[]> => {
+  if (!on) { clearFixes(); window.dispatchEvent(new Event('resize')); return [] }
+  for (let i = 0; i < 100 && document.documentElement.dataset.sceneSteps === 'running'; i++) await settleFor(100)
+  await settleFor(300)
+  const fixes = previewFixes(roots()).map(({ what }) => what)
+  window.dispatchEvent(new Event('resize'))
+  return fixes
+}
+
 /** The page's guides mode and its setter, shared by every caller on the page. */
 export const useGuidesMode = () => [useSyncExternalStore(subscribe, modeNow), setGuidesMode] as const
 
@@ -634,6 +836,13 @@ export const useGuides = (roots: () => Element[]) => {
   // `roots` is read per frame; a new closure each render must not remount.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => mountGuides(roots, mode), [mode])
+  // `?fix=1` opens the page with the fix preview on.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('fix') !== '1') return
+    void setFixPreview(true, roots).then((fixes) => { if (window.parent !== window) window.parent.postMessage({ type: 'hd-fixes', fixes }, window.location.origin) })
+    return () => clearFixes()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!event.altKey || event.code !== 'KeyG' || event.metaKey || event.ctrlKey) return
@@ -649,8 +858,10 @@ export const useGuides = (roots: () => Element[]) => {
     if (window.parent === window) return
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.source !== window.parent) return
-      const data = event.data as { type?: string; mode?: GuidesMode; x?: number; y?: number; id?: string; key?: string }
+      const data = event.data as { type?: string; mode?: GuidesMode; x?: number; y?: number; id?: string; key?: string; on?: boolean }
       if (data.type === 'hd-guides' && data.mode && (GUIDES_MODES as readonly string[]).includes(data.mode)) setGuidesMode(data.mode)
+      // The board's "Fixed" switch: show this window as it would be once its findings are fixed.
+      if (data.type === 'hd-fix') void setFixPreview(!!data.on, roots).then((fixes) => window.parent.postMessage({ type: 'hd-fixes', fixes }, window.location.origin))
       // Shift and Escape, pressed while the board has focus.
       if (data.type === 'hd-key' && (data.key === 'Shift' || data.key === 'Escape')) window.dispatchEvent(new KeyboardEvent('keydown', { key: data.key }))
       if (data.type === 'hd-pick' && typeof data.x === 'number' && typeof data.y === 'number') {

@@ -13,7 +13,23 @@ import { splitServerSpecs } from './ci-server-split.mjs'
 const recordingConfig = 'script/ui-impact/tsconfig.json'
 export const hasE2EBuild = root => E2E_PAGES.every(page => existsSync(join(root, 'packages/ui/dist-e2e', page)))
 
-export function planRun(root, { specs, args = [], devOnly = false, env = process.env, hasBuild = hasE2EBuild(root) }) {
+// `…/guides-standard.spec.ts#a,b` runs that spec's units `a` and `b` only (script/ui-impact.mjs): the
+// spec file is what Playwright is given, and the units travel to the spec as `UI_SYSTEM_UNITS`.
+export function narrowedSpecs(entries) {
+  const files = [], units = {}
+  for (const entry of entries) {
+    const at = entry.indexOf('#')
+    const file = at === -1 ? entry : entry.slice(0, at)
+    if (!files.includes(file)) files.push(file)
+    if (at !== -1) units[file.replace(/^e2e\/ui-system\//, '')] = entry.slice(at + 1).split(',').filter(Boolean)
+  }
+  // A spec also named whole runs whole.
+  for (const entry of entries) if (!entry.includes('#')) delete units[entry.replace(/^e2e\/ui-system\//, '')]
+  return { files, units }
+}
+
+export function planRun(root, { specs: entries, args = [], devOnly = false, env = process.env, hasBuild = hasE2EBuild(root) }) {
+  const { files: specs, units } = narrowedSpecs(entries)
   const recording = env.RECORD === 'true' || Boolean(env.UI_IMPACT_DIR) || args.some(arg => arg.includes(recordingConfig))
   // The runner owns empty-group handling. A single group must retain the
   // usual failure on an empty deal, even if this flag was supplied by hand.
@@ -40,7 +56,7 @@ export function planRun(root, { specs, args = [], devOnly = false, env = process
     groups: Object.entries(split).filter(([, files]) => files.length).map(([server, files]) => ({
       server, args: ['test:ui-system', ...files, ...(allowEmpty ? ['--pass-with-no-tests'] : []), ...forwarded],
       ...(allowEmpty || filtered ? { listArgs: ['--silent', 'test:ui-system', ...files, ...forwarded, '--pass-with-no-tests', '--list', '--reporter=list'] } : {}),
-      env: { UI_SYSTEM_SERVER: server, UI_SYSTEM_REPORT_GROUP: server },
+      env: { UI_SYSTEM_SERVER: server, UI_SYSTEM_REPORT_GROUP: server, ...(Object.keys(units).length ? { UI_SYSTEM_UNITS: JSON.stringify(units) } : {}) },
     })),
   }
 }
@@ -118,7 +134,7 @@ async function main() {
       if (argv[index + 1] == null) throw new Error(`${arg} requires a value`)
       args.push(arg, argv[++index])
     }
-    else if (/\.spec\.[cm]?[jt]sx?$/.test(arg) && !arg.startsWith('-')) specs.push(arg)
+    else if (/\.spec\.[cm]?[jt]sx?(?:#[\w,-]+)?$/.test(arg) && !arg.startsWith('-')) specs.push(arg)
     else args.push(arg)
   }
   if (!specs.length) throw new Error('usage: node script/ui-system-run.mjs [--list] [--dev-only] <spec paths…> [Playwright arguments…]')

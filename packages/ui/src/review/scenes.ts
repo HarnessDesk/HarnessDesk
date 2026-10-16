@@ -23,7 +23,7 @@ export type Scene = {
 export type Section = { readonly id: string; readonly title: string; readonly scenes: readonly Scene[] }
 
 const tab = (value: string): SceneStep => ({ click: `[data-team-page="${value}"]` })
-const rail: SceneStep = { click: '[data-work-rail-toggle][aria-pressed="false"]' }
+const rail: SceneStep = { click: '[data-work-rail-toggle][aria-pressed="false"]', unless: '[data-work-rail-toggle][aria-pressed="true"]' }
 const tool = (value: string): SceneStep => ({ click: `[data-work-tool="${value}"]` })
 const left: SceneStep = { click: 'button[aria-label="Show sidebar"]', unless: '[data-left-column]' }
 const view = (choice: string): SceneStep[] => [
@@ -39,6 +39,7 @@ export const SECTIONS: readonly Section[] = [
       { id: 'conversation-left-open', title: 'With the sidebar', query: 'frame-wall=conversation', steps: [left] },
       { id: 'draft', title: 'A new draft', query: 'frame-wall=draft' },
       { id: 'conversation-details', title: 'Details panel', query: 'frame-wall=conversation', steps: [rail] },
+      { id: 'conversation-details-no-background', title: 'Details, no background list', query: 'frame-wall=conversation&frame-no-background=1', steps: [rail, { scroll: '[data-slot="empty-state"]' }] },
       { id: 'conversation-changes', title: 'Changes panel', query: 'frame-wall=conversation', steps: [tool('changes')] },
       { id: 'conversation-browser', title: 'Browser panel', query: 'frame-wall=conversation', steps: [tool('browser')] },
       { id: 'conversation-git', title: 'Git panel', query: 'frame-wall=conversation&frame-tool=git' },
@@ -65,6 +66,8 @@ export const SECTIONS: readonly Section[] = [
       { id: 'team-run', title: 'Run', query: 'frame-wall=team', steps: [tab('run')] },
       { id: 'team-run-flow', title: 'Run as a flow', query: 'frame-wall=team-run-recorded', steps: [tab('run'), ...view('Flow')] },
       { id: 'team-run-not-reached', title: 'Run, a step not reached', query: 'frame-wall=team-run-not-reached', steps: [tab('run')] },
+      { id: 'team-run-repeated', title: 'Run, many times', query: 'frame-wall=team-run-repeated', steps: [tab('run')] },
+      { id: 'team-run-equivalent', title: 'Run, an equivalent', query: 'frame-wall=team-run-equivalent', steps: [tab('run')] },
       { id: 'team-board', title: 'Board', query: 'frame-wall=team', steps: [tab('board')] },
       { id: 'team-board-list', title: 'Board as a list', query: 'frame-wall=team', steps: [tab('board'), ...view('List')] },
       { id: 'team-chat', title: 'Chat', query: 'frame-wall=team', steps: [tab('room')] },
@@ -113,6 +116,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'left', title: 'Sidebar', scenes: [
       { id: 'left-work', title: 'Projects and sessions', query: 'frame-wall=left-work', steps: [left] },
+      { id: 'navigation', title: 'Navigation', query: 'frame-wall=navigation', steps: [left] },
       { id: 'left-start', title: 'Start menu', query: 'frame-wall=conversation', steps: [left, { click: '[data-left-column] button[aria-label="More ways to start"]' }] },
       { id: 'left-account', title: 'Account menu', query: 'frame-wall=conversation', steps: [left, { click: '[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))' }] },
       { id: 'left-inbox', title: 'Inbox', query: 'frame-wall=conversation', steps: [left, { click: '[data-left-column] :has(> [data-slot="inbox-button"])' }] },

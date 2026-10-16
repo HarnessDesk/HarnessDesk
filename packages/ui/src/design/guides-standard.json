@@ -81,6 +81,25 @@
       "div[navigation-group-header] \"Projects\" padding-top 17px": 1
     }
   },
+  "conversation-details-no-background": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "h3[text] \"Nothing to list\" touches frame": 1,
+      "span[inline-parts] \"Fix the worktree list dropp…\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
   "conversation-changes": {
     "offLine": {
       "button[button] Δ1": 1,
@@ -106,19 +125,16 @@
     "offLine": {
       "button[button] Δ1": 1,
       "button[button] Δ2": 2,
-      "button[hover-card-trigger] Δ3": 1,
       "button[popover-trigger] \"Inbox\" Δ2": 1,
       "button[popover-trigger] Δ3": 1,
       "section[tool-section] \"Conversation Agent Code rev…\" Δ1": 1,
       "section[tool-section] \"Plan No plan yet. Seat reco…\" Δ1": 1,
-      "span[text] \"Code reviewer · Worktree Ma…\" Δ3": 1,
       "span[text] \"HarnessDesk\" Δ2": 1
     },
     "overflow": {
       "span[inline-parts] \"Fix the worktree list dropp…\" spills": 1,
       "span[inline-parts] spills": 1,
-      "span[search] spills": 1,
-      "span[tool-pane-document-tab] \"New tab\" spills": 1
+      "span[search] spills": 1
     },
     "offScale": {
       "button[button] row-gap 5px, column-gap 5px": 2,
@@ -146,7 +162,8 @@
     "overflow": {
       "span[inline-parts] \"Fix the worktree list dropp…\" spills": 1,
       "span[inline-parts] spills": 1,
-      "span[search] spills": 1
+      "span[search] spills": 1,
+      "span[text] \"Graph\" touches frame": 1
     },
     "offScale": {
       "button[button] row-gap 5px, column-gap 5px": 2,
@@ -520,6 +537,72 @@
     "offScale": {
       "button[button] row-gap 5px, column-gap 5px": 2,
       "button[tabs-trigger] \"Board 4\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings 0\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "span[chip] \"Agent\" radius 5px": 2,
+      "span[chip] \"Check\" radius 5px": 1,
+      "span[chip] \"Person\" radius 5px": 1
+    }
+  },
+  "team-run-repeated": {
+    "offLine": {
+      "button[button] \"Writer Agent\" Δ1": 1,
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "button[tabs-trigger] \"Run 1\" Δ2.5": 1,
+      "section[tool-section] \"Run Run Run 1 State running…\" Δ1": 1,
+      "section[tool-section] \"Seats Alpha Alpha · #20 Ans…\" Δ1": 1,
+      "span[chip-words] \"Check\" Δ2.5": 1,
+      "span[chip] \"Check\" Δ2.5": 1,
+      "span[chip] \"Person\" Δ0.5": 1,
+      "span[run-time] \"2m\" Δ1.5": 1,
+      "span[run-time] \"3m\" Δ3": 1,
+      "span[switcher-count] \"20\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board 20\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings 0\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "span[chip] \"Agent\" radius 5px": 4,
+      "span[chip] \"Check\" radius 5px": 1,
+      "span[chip] \"Person\" radius 5px": 1
+    }
+  },
+  "team-run-equivalent": {
+    "offLine": {
+      "button[button] \"Writer Agent\" Δ2.5": 1,
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "button[tabs-trigger] \"Run 1\" Δ2.5": 1,
+      "section[tool-section] \"Run Run Run 1 State settled…\" Δ1": 1,
+      "section[tool-section] \"Seats Alpha Alpha · Writer…\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
       "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
       "button[tabs-trigger] \"Findings 0\" row-gap 5px, column-gap 5px": 1,
       "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
@@ -1384,7 +1467,8 @@
       "span[text] \"HarnessDesk\" Δ2": 1
     },
     "overflow": {
-      "span[search] spills": 1
+      "span[search] spills": 1,
+      "span[text] \"No Run recorded.\" touches frame": 1
     },
     "offScale": {
       "button[button] row-gap 5px, column-gap 5px": 2,
@@ -1393,6 +1477,30 @@
       "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
       "button[tooltip-trigger] \"Findings\" row-gap 5px, column-gap 5px": 1,
       "button[tooltip-trigger] \"Run\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "navigation": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"GPT-5.5 High\" Δ2.5": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"Conversation Agent Code rev…\" Δ1": 1,
+      "section[tool-section] \"Plan No plan yet. Seat reco…\" Δ1": 1,
+      "span[text] \"Code reviewer · Worktree Ma…\" Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "div[retained-work] \"The worktree list is showin…\" clipped": 1,
+      "span[inline-parts] \"Fix the worktree list dropp…\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
       "div[bar] \"HarnessDesk\" padding-left 17px": 1,
       "div[navigation-group-header] \"Projects\" padding-top 17px": 1
     }
@@ -1472,7 +1580,8 @@
       "span[text] \"HarnessDesk\" Δ2": 1
     },
     "overflow": {
-      "span[search] spills": 1
+      "span[search] spills": 1,
+      "span[text] \"No Run recorded.\" touches frame": 1
     },
     "offScale": {
       "button[button] row-gap 5px, column-gap 5px": 2,

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import { plan as deal, recordedSeconds, shardCount, specFiles } from './ci-browser-shards.mjs'
 import { IMPORT, SOURCE, SPEC, resolveHelper, specsReaching, suiteGraph, uiPackages } from './ci-imports.mjs'
-import { environmentAt, filesAtBase, impactPlan, readMap, uiExternalImports, uiSource } from './ui-impact.mjs'
+import { environmentAt, filesAtBase, foldUnits, impactPlan, readMap, uiExternalImports, uiSource } from './ui-impact.mjs'
 
 export { uiPackages }
 
@@ -180,7 +180,7 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, tier =
     const touched = uiInputs.length > 0 ? impactPlan(root, uiInputs, impact) : { specs: [] }
     if (uiInputs.length > 0 && touched.specs === null) basis = oneLine(touched.reason)
     if (reached && touched.specs) {
-      selected = [...new Set([...reached, ...touched.specs.map(spec => `e2e/ui-system/${spec}`), ...(serverInputs ? serverSpecs(root, uiPackages(root)) : [])])].sort()
+      selected = foldUnits([...reached, ...touched.specs.map(spec => `e2e/ui-system/${spec}`), ...(serverInputs ? serverSpecs(root, uiPackages(root)) : [])])
       if (uiInputs.length > 0) basis = `the specs that ran the changed UI source (map of ${(impact.map.commit || 'main').slice(0, 9)})`
     }
   }

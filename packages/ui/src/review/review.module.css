@@ -171,6 +171,17 @@
   color: var(--hd-success-ink);
 }
 
+/* How many findings the fix preview corrected in this window. */
+.frameFixed {
+  color: var(--hd-success-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The scene no longer reaches its state: what the window shows is not the scene. */
+.frameMissed {
+  color: var(--hd-danger-ink);
+}
+
 .window {
   display: block;
   border: 0;
@@ -208,31 +219,10 @@
   pointer-events: none;
 }
 
+/* A note's pin: the design system's round button, placed on the board. Its
+   colour is its variant — accent open, danger when active, muted when done. */
 .pin {
   position: absolute;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--hd-target-min);
-  height: var(--hd-target-min);
-  padding: 0 var(--hd-space-1-5);
-  border: 0;
-  border-radius: var(--hd-radius-full) var(--hd-radius-full) var(--hd-radius-full) 0;
-  transform-origin: 50% 100%;
-  background: var(--hd-accent);
-  color: var(--hd-accent-foreground);
-  font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-semibold);
-  box-shadow: var(--hd-shadow);
-  cursor: pointer;
-}
-
-.pin[data-active] {
-  background: var(--hd-danger);
-}
-
-.pin[data-done] {
-  background: var(--hd-disabled-foreground);
 }
 
 [data-review-tool] [data-slot='flow-canvas-toolbar'] [aria-pressed='true'] {
@@ -298,16 +288,9 @@
   text-decoration: line-through;
 }
 
+/* A Button, so the note's whole head is one target. */
 .noteHead {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
+  justify-content: flex-start;
 }
 
 .noteNumber {

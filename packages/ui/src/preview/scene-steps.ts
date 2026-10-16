@@ -20,6 +20,8 @@ export type SceneStep =
   | { readonly focus: string; readonly key: string }
   /** Move the pointer onto the first visible match. */
   | { readonly hover: string }
+  /** Scroll the first visible match to the middle of its scroller, so a state below the fold is measured. */
+  | { readonly scroll: string }
 
 const shown = (el: Element) => {
   const r = el.getBoundingClientRect()
@@ -77,31 +79,52 @@ const quiet = async () => {
   }
 }
 
+/**
+ * Play the steps. A step whose target never shows is a scene that no longer
+ * reaches its state — the page moved on under it — so the page says so:
+ * `data-scene-steps="failed"`, with the selector in `data-scene-steps-missed`,
+ * which the guides standard turns into a red test rather than a measurement of
+ * the wrong state.
+ */
 export const runSceneSteps = async (steps: readonly SceneStep[]) => {
-  document.documentElement.dataset.sceneSteps = 'running'
+  const root = document.documentElement
+  root.dataset.sceneSteps = 'running'
+  const missed: string[] = []
   await quiet()
   for (const step of steps) {
     await settle()
     if ('focus' in step) {
       const el = await find(step.focus)
-      if (!el) continue
+      if (!el) { missed.push(step.focus); continue }
       el.focus()
       el.dispatchEvent(new KeyboardEvent('keydown', { key: step.key, code: step.key, bubbles: true, cancelable: true, shiftKey: step.key === 'F10' }))
+    } else if ('scroll' in step) {
+      const el = await find(step.scroll)
+      if (!el) { missed.push(step.scroll); continue }
+      el.scrollIntoView({ block: 'center' })
     } else if ('hover' in step) {
       const el = await find(step.hover)
-      if (!el) continue
+      if (!el) { missed.push(step.hover); continue }
       for (const type of ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove']) el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse' }))
     } else if ('text' in step) {
       const el = await find(step.within, step.text)
       if (el) await press(el)
+      else missed.push(`${step.within} "${step.text}"`)
     } else {
       if ('unless' in step && document.querySelector(step.unless)) continue
       const el = await find(step.click)
       if (el) await press(el)
+      else missed.push(step.click)
     }
   }
   await settle()
-  document.documentElement.dataset.sceneSteps = 'done'
+  if (missed.length) {
+    root.dataset.sceneStepsMissed = missed.join(' · ')
+    console.warn(`[scene] steps found nothing to act on: ${missed.join(' · ')}`)
+  }
+  root.dataset.sceneSteps = missed.length ? 'failed' : 'done'
+  // The review board marks the window, so a stale scene shows where it is reviewed.
+  if (missed.length && window.parent !== window) window.parent.postMessage({ type: 'hd-scene-missed', missed }, window.location.origin)
 }
 
 /** The steps a page was opened with, if any. */

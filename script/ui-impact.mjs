@@ -13,6 +13,10 @@
 // The map is evidence and not a promise, so every doubt runs more: a file that
 // has moved on since the map, a spec the map has not seen run in its present
 // form, a map that does not read, all run the whole suite or the spec.
+//
+// A spec whose tests name impact units (one per review scene, `e2e/ui-system/impact-units.ts`)
+// is also recorded test by test, as `<spec>#<unit>`. A change that reaches only some of its units
+// selects `<spec>#<unit>,<unit>`, and the runner hands those to the spec (`UI_SYSTEM_UNITS`).
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve } from 'node:path'
@@ -30,6 +34,23 @@ const TEST_FILE = /\.test\.[cm]?[jt]sx?$/
 const ROOT_SETUP = /^(?:package\.json|pnpm-[\w.-]+|tsconfig[\w.-]*\.json|[\w-]+\.config\.[cm]?[jt]s|\.npmrc|\.node-version|\.nvmrc)$/
 
 export const uiSource = path => UI_ROOTS.some(prefix => path.startsWith(`${prefix}/`))
+
+// `guides.spec.ts#a,b` → the spec and its units; a plain spec has none.
+export const splitUnits = name => {
+  const at = name.indexOf('#')
+  return at === -1 ? { spec: name, units: [] } : { spec: name.slice(0, at), units: name.slice(at + 1).split(',').filter(Boolean) }
+}
+
+// One entry per spec: a spec selected whole drops its units, and a spec's units join into one entry.
+export function foldUnits(names) {
+  const whole = new Set(), units = new Map()
+  for (const name of names) {
+    const { spec, units: some } = splitUnits(name)
+    if (some.length === 0) whole.add(spec)
+    else units.set(spec, new Set([...(units.get(spec) ?? []), ...some]))
+  }
+  return [...whole, ...[...units].filter(([spec]) => !whole.has(spec)).map(([spec, some]) => `${spec}#${[...some].sort().join(',')}`)].sort()
+}
 const isScript = path => SOURCE.includes(extname(path))
 
 // The file in the repository a module of the preview came from, or null for
@@ -196,7 +217,12 @@ export function mergeRecords(root, records, { commit = '', expected = null, envi
   const hashes = specHashes(root)
   const complete = (name, total) => total.tests > 0 && total.unclean === 0 && name in hashes && !unobserved.includes(name)
     && (expected === null || expected[name] === total.tests)
-  const specs = [...seen].filter(([name, total]) => complete(name, total)).map(([name]) => name).sort()
+  // A unit stands for one test of its spec: it is planned from only when the whole spec was recorded clean.
+  const usable = (name, total) => {
+    const { spec, units } = splitUnits(name)
+    return units.length === 0 ? complete(name, total) : total.tests > 0 && total.unclean === 0 && seen.has(spec) && complete(spec, seen.get(spec))
+  }
+  const specs = [...seen].filter(([name, total]) => usable(name, total)).map(([name]) => name).sort()
   const files = Object.fromEntries(Object.entries(uiFiles(root)).map(([path, blob]) => [path, { blob, loaded: [], ran: [] }]))
   specs.forEach((name, index) => {
     const total = seen.get(name)
@@ -211,7 +237,7 @@ export function mergeRecords(root, records, { commit = '', expected = null, envi
     entry.loaded = compress(entry.loaded, specs.length)
     entry.ran = compress(entry.ran, specs.length)
   }
-  return { version: MAP_VERSION, commit, environment, specs, hashes: specs.map(name => hashes[name]), files }
+  return { version: MAP_VERSION, commit, environment, specs, hashes: specs.map(name => hashes[splitUnits(name).spec]), files }
 }
 
 // The modules that pick up other files by a pattern (`import.meta.glob`): adding or
@@ -266,10 +292,12 @@ export function readMap(file) {
 export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseEnvironment = () => map.environment, importers, nodeSpecs = () => [], exists = () => true, globbers = () => [], dataExports = () => false, globalSheet = () => false }) {
   const total = map.specs.length
   const selected = new Set()
+  // Specs that run whole whatever their units say: new or edited since the map, or named by a changed file.
+  const whole = new Set()
   const index = new Map(map.specs.map((name, position) => [name, position]))
   for (const name of allSpecs) {
     const position = index.get(name)
-    if (position === undefined || map.hashes[position] !== specHash(name)) selected.add(name)
+    if (position === undefined || map.hashes[position] !== specHash(name)) whole.add(name)
   }
   const reaching = (path, visiting) => {
     const entry = map.files[path]
@@ -298,7 +326,7 @@ export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseE
   }
   const reach = path => {
     for (const position of reaching(path, new Set())) selected.add(map.specs[position])
-    for (const name of nodeSpecs(path)) selected.add(name)
+    for (const name of nodeSpecs(path)) whole.add(name)
   }
   const environment = baseEnvironment()
   if (!environment) return { specs: null, reason: 'the setup of the base branch cannot be read' }
@@ -333,7 +361,21 @@ export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseE
       for (const position of reaching(globber, new Set())) selected.add(map.specs[position])
     }
   }
-  return { specs: [...selected].sort(), reason: null }
+  // A spec recorded unit by unit runs only the units reached, unless something reached it that no unit
+  // accounts for (code its hooks ran outside any test): then it runs whole.
+  const unitsOf = new Map()
+  for (const name of map.specs) {
+    const { spec, units } = splitUnits(name)
+    if (units.length > 0) unitsOf.set(spec, [...(unitsOf.get(spec) ?? []), name])
+  }
+  const narrowed = []
+  for (const name of selected) {
+    const { spec, units } = splitUnits(name)
+    if (units.length > 0) continue
+    const reached = (unitsOf.get(spec) ?? []).filter(unit => selected.has(unit))
+    narrowed.push(...(reached.length > 0 ? reached : [spec]))
+  }
+  return { specs: foldUnits([...whole, ...narrowed]), reason: null }
 }
 
 // The UI's files on the branch a pull request is made against, with the version of each.
@@ -428,12 +470,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const unobserved = unobservedSpecs(root, graph)
     const map = mergeRecords(root, records, { commit, expected: listings.length > 0 ? expectedCounts(listings) : {}, environment: environmentAt(root), unobserved })
     const all = Object.keys(specHashes(root, graph)).length
-    if (records.length === 0 || listings.length === 0 || map.specs.length < (all - unobserved.length) * minimum) {
-      process.stderr.write(`ui-impact: ${map.specs.length} of ${all} specs recorded completely from ${records.length} records and ${listings.length} listings; not writing a map\n`)
+    const recordedSpecs = map.specs.filter(name => splitUnits(name).units.length === 0).length
+    if (records.length === 0 || listings.length === 0 || recordedSpecs < (all - unobserved.length) * minimum) {
+      process.stderr.write(`ui-impact: ${recordedSpecs} of ${all} specs recorded completely from ${records.length} records and ${listings.length} listings; not writing a map\n`)
       process.exit(2)
     }
     if (out) writeFileSync(out, `${JSON.stringify(map)}\n`)
-    process.stderr.write(`ui-impact: ${map.specs.length} of ${all} specs (${unobserved.length} open pages of their own and always run), ${Object.keys(map.files).length} files\n`)
+    process.stderr.write(`ui-impact: ${recordedSpecs} of ${all} specs, ${map.specs.length - recordedSpecs} units (${unobserved.length} open pages of their own and always run), ${Object.keys(map.files).length} files\n`)
   } else if (command === 'select') {
     const mapFile = option('--map')
     const fresh = flag('--fresh')

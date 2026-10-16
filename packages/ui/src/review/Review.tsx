@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
 import { CanvasFitIcon, CanvasHandIcon, CanvasSelectIcon, CheckIcon, CommentIcon, CopyIcon, DownloadIcon, TrashIcon, ZoomInIcon, ZoomOutIcon } from '../components/Icons'
-import { Button, Chip, GroupLabel, Segmented, Textarea } from '../design'
-import { FlowCanvasToolbar } from '../design/patterns/FlowCanvasToolbar'
+import { Button, Chip, FlowCanvasToolbar, GroupLabel, Segmented, Textarea } from '../design'
 import { GUIDES_MODES, useGuidesMode, type GuidesMode, type GuidesReport } from '../design/explorer/guides'
 import { fit, intersects, pan, visibleRect, wheelFactor, zoomAt, type Camera, type Rect } from './camera'
 import { addNote, notesMarkdown, removeNote, updateNote, useNotes, type Note } from './notes'
@@ -88,6 +87,13 @@ export const Review = () => {
   const [activeNote, setActiveNote] = useState<string | null>(null)
   const [live, setLive] = useState<string[]>([])
   const [tallies, setTallies] = useState<Record<string, Tally>>({})
+  // Windows whose scene steps found nothing to act on: they show the wrong state.
+  const [missed, setMissed] = useState<Record<string, string[]>>({})
+  // As is, or as it would be once every finding the guides can correct is corrected.
+  const [view, setView] = useState<'as-is' | 'fixed'>(() => new URLSearchParams(location.search).get('fix') === '1' ? 'fixed' : 'as-is')
+  const viewNow = useRef(view)
+  viewNow.current = view
+  const [fixes, setFixes] = useState<Record<string, string[]>>({})
   const [copied, setCopied] = useState(false)
   const viewport = useRef<HTMLDivElement>(null)
   const frames = useRef(new Map<string, HTMLIFrameElement>())
@@ -164,6 +170,14 @@ export const Review = () => {
     return () => clearTimeout(timer)
   }, [camera, board])
 
+  // The view follows the board's switch into every live window.
+  const firstView = useRef(true)
+  useEffect(() => {
+    if (firstView.current) { firstView.current = false; return }
+    for (const frame of frames.current.values()) frame.contentWindow?.postMessage({ type: 'hd-fix', on: view === 'fixed' }, location.origin)
+    if (view === 'as-is') setFixes({})
+  }, [view])
+
   // Guides follow the board's dial into every live window.
   useEffect(() => {
     for (const frame of frames.current.values()) frame.contentWindow?.postMessage({ type: 'hd-guides', mode: guides }, location.origin)
@@ -176,17 +190,20 @@ export const Review = () => {
       if (event.origin !== location.origin) return
       const key = [...frames.current].find(([, frame]) => frame.contentWindow === event.source)?.[0]
       if (!key) return
-      const data = event.data as { type?: string; report?: GuidesReport; id?: string; element?: string | null; path?: string | null; deltaY?: number; x?: number; y?: number }
+      const data = event.data as { type?: string; report?: GuidesReport; id?: string; element?: string | null; path?: string | null; deltaY?: number; x?: number; y?: number; missed?: string[]; fixes?: string[] }
       if (data.type === 'hd-guides-report' && data.report) {
         if (event.source && !ready.current.has(event.source as Window)) {
           ready.current.add(event.source as Window)
           // A window kept from earlier may have opened under another mode.
           ;(event.source as Window).postMessage({ type: 'hd-guides', mode: guidesNow.current }, location.origin)
+          if (viewNow.current === 'fixed') (event.source as Window).postMessage({ type: 'hd-fix', on: true }, location.origin)
         }
         for (const pick of pending.current.get(key) ?? []) (event.source as Window).postMessage({ type: 'hd-pick', ...pick }, location.origin)
         pending.current.delete(key)
         if (guidesNow.current !== 'off') setTallies((prior) => ({ ...prior, [key]: sum(data.report!) }))
       }
+      if (data.type === 'hd-fixes' && data.fixes) setFixes((prior) => ({ ...prior, [key]: data.fixes! }))
+      if (data.type === 'hd-scene-missed' && data.missed) setMissed((prior) => ({ ...prior, [key]: data.missed! }))
       if (data.type === 'hd-picked' && data.id) updateNote(data.id, { element: data.element ?? null, path: data.path ?? null })
       // A zoom gesture over a running window, in that window's own pixels.
       if (data.type === 'hd-zoom' && typeof data.deltaY === 'number' && typeof data.x === 'number' && typeof data.y === 'number') {
@@ -358,6 +375,11 @@ export const Review = () => {
             <Segmented label="Guides" value={guides} onChange={(next: GuidesMode) => setGuides(next)} options={GUIDES_MODES.map((one) => ({ value: one, label: one }))} />
           </div>
           <div className={styles.dial}>
+            <span className={styles.dialLabel}>View</span>
+            <Segmented label="View" value={view} onChange={(next: 'as-is' | 'fixed') => setView(next)}
+              options={[{ value: 'as-is', label: 'as is' }, { value: 'fixed', label: 'fixed' }]} />
+          </div>
+          <div className={styles.dial}>
             <span className={styles.dialLabel}>Theme</span>
             <Segmented label="Theme" value={themes} onChange={setThemes} options={[{ value: 'light', label: 'light' }, { value: 'dark', label: 'dark' }, { value: 'both', label: 'both' }]} />
           </div>
@@ -398,6 +420,8 @@ export const Review = () => {
                     onClick={() => focusScene(placed.key)}>
                     <span>{placed.scene.title}</span>
                     {themes === 'both' && <span className={styles.frameTheme}>{placed.theme}</span>}
+                    {view === 'fixed' && fixes[placed.key] && <span className={styles.frameFixed} title={fixes[placed.key]!.join('\n')}>{fixes[placed.key]!.length} fixed</span>}
+                    {missed[placed.key] && <span className={styles.frameMissed} title={missed[placed.key]!.join('\n')}>steps missed</span>}
                     {tally && guides !== 'off' && (
                       <span className={styles.frameTally} data-clean={tally.offLine + tally.overflow + tally.offScale === 0 || undefined}>
                         {tally.offLine} off-line · {tally.overflow} overflow · {tally.offScale} off-scale
@@ -419,13 +443,13 @@ export const Review = () => {
                   {/* Over the window: catches the comment tool's click, and the hand's. */}
                   <div className={styles.catcher} onPointerDown={(event) => onComment(placed, event)} />
                   {pins.map((note) => (
-                    <button key={note.id} type="button" className={styles.pin} data-active={activeNote === note.id || undefined} data-done={note.done || undefined}
+                    <Button key={note.id} size="icon-circle" variant={activeNote === note.id ? 'danger' : note.done ? 'muted' : 'primary'} className={styles.pin} data-active={activeNote === note.id || undefined} data-done={note.done || undefined}
                       style={{ left: note.x, top: note.y, transform: `translate(-50%, -100%) scale(${1 / camera.scale})` }}
                       aria-label={`Note ${numbered.get(note.id)}`}
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={() => goToNote(note)}>
                       {numbered.get(note.id)}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               )
@@ -454,10 +478,10 @@ export const Review = () => {
         <ol className={styles.noteList}>
           {notes.map((note) => (
             <li key={note.id} className={styles.note} data-active={activeNote === note.id || undefined} data-done={note.done || undefined}>
-              <button type="button" className={styles.noteHead} onClick={() => goToNote(note)}>
+              <Button variant="row" size="row" className={styles.noteHead} onClick={() => goToNote(note)}>
                 <span className={styles.noteNumber}>{numbered.get(note.id)}</span>
                 <span className={styles.noteScene}>{titleOf(note.scene)}{themes === 'both' ? ` · ${note.theme}` : ''}</span>
-              </button>
+              </Button>
               {note.element && <code className={styles.noteElement} title={note.path ?? undefined}>{note.element}</code>}
               <Textarea
                 aria-label={`Note ${numbered.get(note.id)}`}

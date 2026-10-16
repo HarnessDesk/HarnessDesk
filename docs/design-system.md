@@ -2699,3 +2699,108 @@ list only goes down, except when the audit learns to see something it was blind 
 | `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 19 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
 | `screenLayout` | 2068 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+
+## Screens against the standard
+
+The rest of this page is the system as written. This is the app as drawn: every
+scene of the review board (`pnpm design`, then `/review.html`), measured by its
+own guides and recorded in
+`packages/ui/src/design/guides-standard.json`. *Off-line* is an edge 0.5–3px off a
+line three others share; *overflow* is content that spills, is clipped without an
+ellipsis, leaves its window, or touches the edge of its card; *off-scale* is a
+value no token names. The guides standard spec fails a count that rises, so these
+numbers only go down until someone re-records them on purpose
+(`UPDATE_GUIDES=1`, then `pnpm design:doc`). The board's *View: fixed* switch (or
+`?fix=1`) shows each screen with every finding it can correct corrected — an
+off-line edge moved onto its line, text given its card's edge, an off-scale value
+set to the nearest token — and measures again, so a reviewer sees the target
+before anyone edits the source.
+
+| scene | off-line | overflow | off-scale |
+| --- | --- | --- | --- |
+| `conversation` | 8 | 3 | 4 |
+| `conversation-left-open` | 8 | 3 | 4 |
+| `draft` | 8 | 1 | 4 |
+| `conversation-details` | 8 | 3 | 4 |
+| `conversation-details-no-background` | 5 | 4 | 4 |
+| `conversation-changes` | 8 | 3 | 4 |
+| `conversation-browser` | 8 | 3 | 4 |
+| `conversation-git` | 17 | 4 | 12 |
+| `conversation-file` | 10 | 3 | 9 |
+| `conversation-terminal` | 10 | 3 | 4 |
+| `conversation-tasks` | 10 | 3 | 4 |
+| `changes-review` | 5 | 1 | 5 |
+| `conversation-update` | 8 | 3 | 4 |
+| `conversation-disconnected` | 8 | 3 | 4 |
+| `conversation-status-tasks` | 8 | 3 | 4 |
+| `team-reconnecting` | 14 | 1 | 9 |
+| `plugin-unavailable` | 9 | 3 | 4 |
+| `width-1100` | 9 | 3 | 4 |
+| `width-720` | 10 | 2 | 0 |
+| `team-overview` | 14 | 1 | 9 |
+| `team-run` | 11 | 1 | 13 |
+| `team-run-flow` | 11 | 7 | 16 |
+| `team-run-not-reached` | 12 | 1 | 13 |
+| `team-run-repeated` | 19 | 1 | 15 |
+| `team-run-equivalent` | 13 | 1 | 13 |
+| `team-board` | 11 | 1 | 11 |
+| `team-board-list` | 10 | 1 | 15 |
+| `team-chat` | 11 | 1 | 9 |
+| `team-chat-side` | 13 | 1 | 11 |
+| `team-findings` | 11 | 1 | 9 |
+| `team-runs` | 10 | 1 | 10 |
+| `team-receipt` | 14 | 6 | 13 |
+| `team-details` | 14 | 1 | 9 |
+| `teams` | 6 | 1 | 4 |
+| `agents-roster` | 4 | 3 | 4 |
+| `agent-detail` | 5 | 3 | 4 |
+| `agent-parse` | 5 | 3 | 4 |
+| `agent-refused` | 8 | 3 | 4 |
+| `agent-missing` | 4 | 3 | 4 |
+| `library` | 10 | 1 | 7 |
+| `plugins-installed` | 4 | 1 | 4 |
+| `plugins-capabilities` | 6 | 1 | 4 |
+| `plugins-detail` | 5 | 1 | 4 |
+| `plugins-failed` | 4 | 1 | 4 |
+| `dashboard-overview` | 10 | 2 | 11 |
+| `dashboard-plans` | 8 | 5 | 9 |
+| `dashboard-spend` | 6 | 2 | 10 |
+| `dashboard-activity` | 8 | 4 | 10 |
+| `dashboard-projects` | 5 | 2 | 9 |
+| `dashboard-empty` | 7 | 4 | 12 |
+| `settings-general` | 3 | 0 | 1 |
+| `settings-appearance` | 4 | 0 | 6 |
+| `settings-notifications` | 3 | 0 | 1 |
+| `settings-shortcuts` | 7 | 0 | 1 |
+| `settings-workspaces` | 5 | 0 | 2 |
+| `settings-archive` | 3 | 3 | 2 |
+| `settings-history` | 3 | 0 | 1 |
+| `settings-storage` | 3 | 0 | 1 |
+| `settings-runtimes` | 3 | 2 | 2 |
+| `settings-models` | 4 | 3 | 4 |
+| `settings-skills` | 4 | 0 | 1 |
+| `settings-extensions` | 3 | 2 | 2 |
+| `settings-permissions` | 3 | 0 | 16 |
+| `settings-browser` | 3 | 0 | 1 |
+| `settings-profile` | 5 | 1 | 1 |
+| `settings-runtime` | 5 | 0 | 1 |
+| `settings-account` | 4 | 0 | 1 |
+| `settings-project` | 3 | 0 | 1 |
+| `settings-skill` | 3 | 0 | 1 |
+| `left-work` | 9 | 2 | 9 |
+| `navigation` | 10 | 4 | 4 |
+| `left-start` | 8 | 3 | 4 |
+| `left-account` | 8 | 3 | 4 |
+| `left-inbox` | 8 | 3 | 4 |
+| `left-session-menu` | 9 | 2 | 9 |
+| `menu-model` | 8 | 3 | 4 |
+| `menu-permissions` | 8 | 3 | 4 |
+| `menu-icons` | 12 | 3 | 4 |
+| `menu-disabled` | 8 | 3 | 4 |
+| `menu-wide` | 8 | 3 | 4 |
+| `menu-metered` | 8 | 3 | 4 |
+| `menu-select` | 8 | 3 | 4 |
+| `menu-suggestions` | 8 | 3 | 4 |
+| `menu-inbox` | 8 | 3 | 4 |
+| `menu-palette` | 8 | 3 | 4 |
+| **total** | 657 | 175 | 485 |
