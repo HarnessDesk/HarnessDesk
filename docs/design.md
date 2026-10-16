@@ -1244,6 +1244,31 @@ state, a low budget is warning, and a spent budget is danger. The AgentCard
 catalogue shows all three states, and the rule spec checks that a plenty-left
 meter remains neutral and does not compute the success colour.
 
+## One notice, one layout
+
+The notice family accepts content: tone, title, optional body, actions,
+dismissal, mute and a mark. `Notice` owns the card; `NoticeStatus` owns quiet
+status; `NoticeList` and `NoticeRow` own a compact panel and its rows.
+Existing Banner and message-host APIs remain compatible while screens migrate.
+
+| Part | Contract |
+| --- | --- |
+| Tile | `IconTile`, 24px, `--hd-radius-md`; tone glyph or the supplied mark. |
+| Copy | Title above body, always stacked; a second line is earned, never a default explanation. |
+| Actions | Beside the text, centred; below at three or more actions or under about 400px. At most one primary. Label-only actions keep text-button width, including the ghost `icon` kind. |
+| Dismiss | Centred for one line; top-right for wrapped copy. Mute uses the existing dismiss menu. |
+| Shell | Composer plate: `--hd-card`, `--hd-radius-lg`, inset `--hd-border-emphasis` and `--hd-composer-shell-shadow`. |
+| Padding | Standard: 12px top/right/bottom, 16px left (`--hd-space-3` / `--hd-space-4`). Compact and floating: 8px top/right/bottom, 12px left (`--hd-space-2` / `--hd-space-3`). |
+
+Standard notices read at 14px; compact notices at 13px. The placement host sets
+the size, never the content's caller. Composer stacks, sidebar, Inbox and toast
+hosts use compact. Only floating toast shells use `--hd-shadow-notice`.
+Danger adds a 3px `--hd-danger` bar on the neutral plate and a tinted danger
+tile. Other tones colour the tile only. Success uses `--hd-success-dim` and
+`--hd-success-ink`: a requested action has completed, such as a Library write
+or moving something to the Trash. A default state or a limit working as
+designed stays neutral. Empty content draws no shell.
+
 ## Adding to the app
 
 When adding a control, row or surface to HarnessDesk:
@@ -1264,14 +1289,14 @@ When adding a control, row or surface to HarnessDesk:
 - Table, list and settings faces centre on the whole row. Other icon leads
   belong on the first text line, not centred against
   the title *and* its description.
-- A single line is centred in its container. In a notice row, text, lead, action
-  and dismiss share one centre; when copy wraps, the lead moves to its first
-  line while the action stays centred on the row. A banner's dismiss follows
-  the lead onto the first line, the layout rule for every trailing control
-  (`edge-alignment.spec.ts` holds it). Measure text by its
-  cap-height glyph box. The font's own ascent/descent asymmetry (about 1px at
-  13px) is a separate, pending correction. Trailing notice buttons use
-  `edge="end"` so the glyph, not the hit target, lands on the surface edge.
+- A single line is centred in its container. In a notice, tile, text, actions
+  and dismiss share one vertical centre. When copy wraps, the tile stays centred
+  on the whole text block, actions sit beside it, and the dismiss follows the
+  card's top inset. Three or more actions, or a container below about 400px,
+  move the actions below the copy, at the right. This is rule C, replacing
+  the first-line rule from #1222. Measure text by its cap-height glyph box;
+  the font's ascent/descent asymmetry is a separate correction.
+  Trailing notice buttons use `edge="end"` so the glyph lands on the surface edge.
   Above a composer that edge is the toolbar's trailing inset, shared with Send.
   A window-corner header is measured from its ordinary inset edge after
   subtracting only the extra padding spent on native window controls; an

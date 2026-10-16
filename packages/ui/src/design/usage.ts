@@ -229,6 +229,13 @@ export const ELEMENTS: readonly UsageRule[] = [
   },
   {
     family: 'tone',
+    variant: 'success',
+    when: 'A result the person asked for has completed: moved to the Trash, a Library write, or a choice applied.',
+    never: 'For a default state or a limit working as designed. Those stay neutral.',
+    because: 'Completion deserves confirmation; colouring ordinary conditions green would hide that result.',
+  },
+  {
+    family: 'tone',
     variant: 'warning',
     when: 'The person must act now — sign in, approve, free a limit — and the thing cannot go on without them. Chip, Badge, Note and Banner all read it this way.',
     never: 'For a default or a normal state: a permission that is "asked" by default, an open finding, a shadowed copy, a limit working as designed. Those are neutral or carry no chip.',

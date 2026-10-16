@@ -521,3 +521,8 @@ button.inboxTitle:focus-visible {
 .bell[data-size='icon-xs'] .bellCount {
   right: calc(-1 * var(--hd-space-2));
 }
+
+.tile[data-tone='success'] {
+  background: var(--hd-success-dim);
+  color: var(--hd-success-ink);
+}

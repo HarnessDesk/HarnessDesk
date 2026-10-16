@@ -42,12 +42,12 @@ for (const theme of ['light', 'dark'] as const) {
       }[state]
       if (waitingReason) {
         await expect(ending).toHaveCount(0)
-        await expect(frame.locator('[data-slot="run-need"] [data-tone="warning"]')).toHaveCount(1)
+        await expect(frame.locator('[data-slot="run-need"] [data-slot="alert"][data-tone="warning"]')).toHaveCount(1)
         await expect(frame.locator('[data-slot="run-need"]')).toContainText(waitingReason)
         await expect(frame.locator('[data-slot="run-need"]')).not.toContainText('Nothing waits.')
       } else {
         await expect(ending).not.toContainText('Settled')
-        await expect(ending.locator('[data-tone="warning"]')).toHaveCount(0)
+        await expect(ending.locator('[data-slot="alert"][data-tone="warning"]')).toHaveCount(0)
         await expect(ending).toContainText('Nothing waits.')
       }
       const inspector = frame.locator('[data-slot="run-inspector"]')

@@ -3243,3 +3243,25 @@ drops "restart a conversation to pick up a change", which is false of a key
 nobody reads; the account page's note says the key stored here comes after it.
 The field stays open, because a key saved now is the one used the day the
 store's is removed. Where the flag is not set, the sentences are unchanged.
+
+
+## One notice, one layout (supersedes #1222's first-line rule)
+
+Decided 2026-10-15. First-line pinning left a tile floating above wrapped copy;
+the owner found it awkward, and eleven notice treatments disagreed on six
+axes. Rule C puts tile, copy and controls on one centre for a single line.
+With wrapped copy the tile centres on the complete text block, actions stay
+beside it and the dismiss stays at the top-right. Three or more actions, or
+a container under about 400px, put actions below at the right.
+
+The shared notice uses the composer's neutral plate, edge, radius and soft
+shadow. Danger adds a 3px left bar and red tile; success confirms a completed
+requested action through a green tile only. Title and earned detail stack.
+Hosts own standard (14px) or compact (13px) size; floating toasts alone take
+the notice shadow. Content callers supply no presentation overrides.
+
+Part 1 supplies the primitive, family API, success contract and one Notice
+board. Existing host wrappers keep their signatures and presentation until
+part 2 moves screens and enforces the new caller boundary. JobsBar narration,
+Approvals, dialogs and field validation remain separate. The #1211 decision,
+one notice, one outlet, still holds; this changes anatomy, never routing.
