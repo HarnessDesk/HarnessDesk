@@ -373,7 +373,12 @@ try {
       }
       await observe((cards, execution) => execution.state === 'settled' && cards.every(one => one.state === 'done'), 'template completed')
       await tab('Overview')
-      await expect(page.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
+      const overview = page.locator('[data-slot="team-overview"]')
+      const done = overview.getByRole('button', { name: /^\d+ done$/, exact: true })
+      // Completed Seats stay folded until the person asks to see them.
+      if (await done.getAttribute('aria-expanded') !== 'true') await done.click()
+      await expect(done).toHaveAttribute('aria-expanded', 'true')
+      await expect(overview.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
       await expect(page.getByRole('status').filter({ hasText: 'this run is complete.' })).toBeVisible()
       await expect(page.getByText('Needs you', { exact: true })).toHaveCount(0)
       await expect(page.getByText('Not confirmed', { exact: true })).toHaveCount(0)

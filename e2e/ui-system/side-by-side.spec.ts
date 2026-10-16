@@ -38,17 +38,39 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/preview.html?side-by-side')
     await page.getByRole('combobox', {name:'theme', exact:true}).selectOption(theme)
     const frame = page.locator('[data-frame-id="comparison-picked"]')
-    const scrollers = frame.locator('[data-live-transcript]')
-    const atLatest = () => scrollers.evaluateAll(nodes => nodes.length === 2 && nodes.every(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) <= 1))
-    await expect.poll(atLatest).toBe(true)
+    // Leave transcript space after the shell's body controls and the enlarged dock.
+    await frame.locator('[data-side-by-side-container]').evaluate(node => {node.style.height = '700px'})
+    await frame.locator('[data-side-by-side-container]').scrollIntoViewIfNeeded()
+    await page.evaluate(() => document.fonts.ready)
+    const grid = frame.locator('[data-slot="side-by-side-grid"]')
+    const scrollers = grid.locator('[data-slot="side-by-side-tile"]:not([data-hidden]) [data-live-transcript]')
+    await expect(scrollers).toHaveCount(2)
+    const atLatest = () => scrollers.evaluateAll(nodes => nodes.map(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) <= 1))
+    await expect.poll(atLatest).toEqual([true, true])
     await expect(frame.getByRole('button', {name:'Jump to latest'})).toHaveCount(0)
     // The measured dock covers the decision, delivery row and wait hint alike.
     const dock = frame.locator('[data-shared-composer]')
+    const height = () => dock.evaluate(node => (node as HTMLElement).offsetHeight)
+    const initialHeight = await height()
+    const dockMeasured = () => grid.evaluate(node => Math.abs(parseFloat((node as HTMLElement).style.getPropertyValue('--composer-h'))
+      - node.querySelector<HTMLElement>('[data-shared-composer]')!.offsetHeight))
     await dock.evaluate(node => {node.style.paddingTop = '100px'})
-    await expect.poll(atLatest).toBe(true)
+    // Wait for the reserve to change before checking follow, so a stale
+    // pre-resize bottom cannot satisfy the assertion.
+    await expect.poll(height).toBeGreaterThan(initialHeight)
+    await expect.poll(dockMeasured).toBe(0)
+    await expect.poll(atLatest).toEqual([true, true])
+    const dockTop = (await dock.boundingBox())!.y
+    for (const scroller of await scrollers.all()) {
+      const answer = (await scroller.locator('[data-part="answer"]').last().boundingBox())!
+      expect(answer.y).toBeGreaterThanOrEqual((await scroller.boundingBox())!.y)
+      expect(answer.y + answer.height).toBeLessThanOrEqual(dockTop)
+    }
     await expect(frame.getByRole('button', {name:'Jump to latest'})).toHaveCount(0)
     await dock.evaluate(node => {node.style.paddingTop = ''})
-    await expect.poll(atLatest).toBe(true)
+    await expect.poll(height).toBe(initialHeight)
+    await expect.poll(dockMeasured).toBe(0)
+    await expect.poll(atLatest).toEqual([true, true])
   })
 
   test(`text scrolls under the floating composer while the other tile stays at latest in ${theme}`, async ({ page }) => {

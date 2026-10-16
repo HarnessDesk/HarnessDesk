@@ -21,6 +21,15 @@ Multi-file patches keep paths, counts and line numbers and offer collapse /
 expand plus a hideable file list that can group paths by folder. Unified rows
 remain the patch layout; a side-by-side layout is a separate extension.
 
+## Composer clearance observes the box it measures
+
+The floating dock's clearance is its `offsetHeight`, including padding and
+borders. Its shared observer watches the border box so spacing changes also
+refresh that value. A content-box observer missed an 84px padding increase
+without updating the transcript reserve. The Side by side browser contract
+waits for the measured reserve, then checks both scroll position and the final
+answer's visible bounds as the dock grows and shrinks.
+
 ## Round is someone, square is a thing
 
 Faces are round and filled by default: an agent, a runtime, a Team's member, a

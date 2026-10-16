@@ -2026,7 +2026,8 @@ is a CSS custom property, visible to descendants of whichever element
 carries it, not to a sibling), and `dock` is the element to measure —
 typically the strip holding the bars and the composer together. A screen
 wires the two refs to its own markup; the observing and the `setProperty`
-call are this hook's alone.
+call are this hook's alone. Observe the border box so padding and border
+changes update the same full height that offsetHeight measures.
 
 ### `ReadingMeasure`
 

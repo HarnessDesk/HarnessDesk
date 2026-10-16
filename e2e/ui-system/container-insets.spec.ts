@@ -473,7 +473,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2000, 720])
     await page.evaluate(() => document.fonts.ready)
     const expected = {
       chat: 'reading', library: 'wide', agents: 'wide', agent: 'reading', dashboard: 'wide', plugins: 'wide', plugin: 'reading',
-      settings: 'reading', teams: 'wide', changes: 'canvas', overview: 'reading', findings: 'reading', receipt: 'reading',
+      settings: 'reading', teams: 'wide', changes: 'canvas', overview: 'wide', findings: 'reading', receipt: 'reading',
     } as const
     for (const [name, measure] of Object.entries(expected)) {
       const frame = page.locator(`[data-page-measure-probe="${name}"]`)

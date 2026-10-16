@@ -1248,7 +1248,8 @@ chooses one. `@A` and `@B`, or member names, update that same audience. The quie
 the message once, and the room's words and audience wait across Chat and the
 grid. A lone, expanded or narrow single tile uses its own composer. Panels
 extend to the bottom behind the floating box; transcript padding, approval
-viewports and Browser surfaces clear the dock's measured height. Settings keep
+viewports and Browser surfaces clear the dock's measured height, including
+padding and borders as it resizes. Settings keep
 the ordinary four slots; differing choices read **Mixed** and their menus name
 each recipient. Unavailable recipients show their reason, delivery outcomes
 name each copy, queued copies mark their recipient tile, and **Stop** stops the
@@ -1459,6 +1460,8 @@ Overview, Board and Chat offer **Review stopped Run** to reach it. The header ke
 reviews. It shows that Run's round and recorded
 usage, what needs you, and every Seat in attention order. Finished Seats stay in the Agents list;
 the Overview folds them into a disclosure such as **3 done**, above the rows.
+Its Seat table uses the wide page measure; a narrow pane keeps that measure
+and presents the Seats as list rows.
 Agent names stretch, while the numeric columns align to the end. Card titles
 are names: they truncate within their column and keep their full title on hover. Now disappears
 when no Seat has work or a reason to show, and Cost disappears when every amount is unknown. A done
