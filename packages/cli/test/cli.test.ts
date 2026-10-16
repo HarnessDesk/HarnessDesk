@@ -290,10 +290,11 @@ const libraryDesk = async (t: any, entries: readonly object[], definitions: Read
       calls.push({ method: request.method, params: request.params })
       const response = responses[request.method]
       const result = typeof response === 'function' ? response(request.params) : Object.hasOwn(responses, request.method) ? response : request.method === 'client/hello' ? hello
-        : request.method === 'library/read' ? library
-          : request.method === 'library/usage' ? usage
-            : request.method === 'library/definition' ? definitions[String(request.params['path'])] ?? null
-              : null
+        : request.method === 'client/subscribe' ? { baseline: 0 }
+          : request.method === 'library/read' ? library
+            : request.method === 'library/usage' ? usage
+              : request.method === 'library/definition' ? definitions[String(request.params['path'])] ?? null
+                : new WireCallError('methodFailed', `Unexpected stub method: ${request.method}`)
       if (result instanceof WireCallError) ws.send(JSON.stringify({ id: request.id, ok: false, error: { code: result.code, message: result.message } }))
       else ws.send(JSON.stringify({ id: request.id, ok: true, result }))
       if (request.method === 'client/subscribe') for (const notification of (responses['baseline'] as object[] ?? [])) ws.send(JSON.stringify(notification))
@@ -612,4 +613,12 @@ test('run show labels empty epochs not recorded and retains attachment readback 
   assert.equal(result.code, 0, result.stderr)
   assert.match(result.stdout, /writer  Seat seat-demo  Agent 1\nnot recorded\n1 loaded · 0 not loaded/)
   assert.match(result.stdout, /Seat seat-missing\nnot recorded\n1 loaded · 0 not loaded/)
+})
+
+test('the library stub names an unexpected method in a CLI failure', async t => {
+  const rig = await libraryDesk(t, [])
+  const result = await runCli(t, ['session', 'show', 'demo'])
+  assert.equal(result.code, 1)
+  assert.match(result.stderr, /methodFailed: Unexpected stub method: session\/loadout/)
+  assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'session/loadout'])
 })
