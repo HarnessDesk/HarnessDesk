@@ -853,7 +853,7 @@ const coverageSentence = (ledger: LedgerReport | null, metric: ChartMetric): str
   }
   if (metric === 'turns') {
     const coverage = agentCoverage(ledger.coverage, ledgerRuntimeIds(ledger))
-    const parts: string[] = [`turns known for ${coverage.known} of ${coverage.total} agents`]
+    const parts: string[] = [`turns known for ${coverage.known} of ${coverage.total} runtimes`]
     return parts.join(' · ')
   }
   const parts: string[] = [provenanceLabel(ledger)]

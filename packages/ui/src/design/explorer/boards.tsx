@@ -582,7 +582,7 @@ const ControlBoard = () => {
       <p className={styles.rule}>
         A toggle is a <code>&lt;button role=&quot;switch&quot;&gt;</code> rather than a checkbox
         because every one of these takes effect the moment it is pressed — there is no form to
-        submit. Passing no <code>onChange</code> is how a control says the agent owns this setting;
+        submit. Passing no <code>onChange</code> is how a control says the runtime owns this setting;
         it disables itself rather than lying about being editable.
       </p>
     </>
@@ -700,7 +700,7 @@ const RowBoard = () => {
           <AccountMark size="sm" data-off=""><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
         </div>
 
-        <SectionHead name="When an agent asks to run something" />
+        <SectionHead name="When a runtime asks to run something" />
         <Rows>
           {[
             { id: 'ask', title: 'Ask every time', desc: 'Nothing runs until you say so.' },
@@ -790,8 +790,8 @@ const NOTICE_STRIP: NoticeMessage[] = [
   { id: 'signin', tone: 'danger', title: 'Cursor is not signed in.', action: { label: 'Sign in', onSelect: () => {} } },
 ]
 const NOTICE_STRIP_MANY: NoticeMessage[] = [
-  { id: 'strip-limit', tone: 'warning', title: 'Agent B has reached its weekly limit.' },
-  { id: 'strip-signin', tone: 'danger', title: 'Agent C is not signed in.' },
+  { id: 'strip-limit', tone: 'warning', title: 'Runtime B has reached its weekly limit.' },
+  { id: 'strip-signin', tone: 'danger', title: 'Runtime C is not signed in.' },
 ]
 const NOTICE_INBOX: InboxMessage[] = [
   { id: 'i0', tone: 'info', from: 'Reviewer', title: 'Keep the old retry count, or raise it to five?', body: 'Five covers the documented flaps; three matches the other clients.', action: { label: 'Start as a task', onSelect: () => {} }, at: NOTICE_NOW - 60_000 },
@@ -1301,7 +1301,7 @@ const catalogueTurnFilesStore = {
   openFile: () => {},
   dismissNotice: () => {},
 } as unknown as AppStore
-const catalogueRefusedMessage = 'Cannot put back /workspace/src/empty.ts: the agent recorded no content for it. Nothing was changed.'
+const catalogueRefusedMessage = 'Cannot put back /workspace/src/empty.ts: the runtime recorded no content for it. Nothing was changed.'
 const catalogueRefusedSnapshot = {
   ...catalogueTurnFilesSnapshot,
   notices: [{ id: 'catalogue-undo-refused', class: 'result', level: 'error', message: catalogueRefusedMessage, at: 0 }],
@@ -1969,7 +1969,7 @@ export const DialogBoard = () => {
           onConfirm={() => setOpen(null)}
           onCancel={() => setOpen(null)}
         >
-          This removes <strong>Review the sprint notes</strong> from the agent, and the transcript
+          This removes <strong>Review the sprint notes</strong> from the runtime, and the transcript
           HarnessDesk kept of it. It will not be in either window afterwards.
         </ConfirmDialog>
       )}
@@ -2288,7 +2288,7 @@ export const BOARDS: Board[] = [
   {
     id: 'checklist',
     title: 'Checklist',
-    about: 'An agent\u2019s plan, in the Tasks panel and the transcript: the mark says the state, centred on the step\u2019s first line.',
+    about: 'A runtime\u2019s plan, in the Tasks panel and the transcript: the mark says the state, centred on the step\u2019s first line.',
     render: ChecklistBoard,
   },
   {

@@ -562,3 +562,8 @@ it('opens an agent whose only way in is a key on its field, with the label on th
   expect(document.activeElement).toBe(input)
   expect(detail().querySelector(`label[for="${input?.id}"]`)?.textContent).toBe('Codex API key')
 })
+
+it('keeps an added credential separate from the runtime’s own sessions', async () => {
+  await mount({ accountsByRuntime: { [SECOND.id]: status([{ kind: 'chatgpt', label: 'dev@example.com' }], ['browser']) } } as never, SECOND.id)
+  expect(detail().textContent).toContain('Only the credential lives there — the sessions are the runtime’s own.')
+})

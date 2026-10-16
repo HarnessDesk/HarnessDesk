@@ -864,7 +864,7 @@ export const SkillSheet = ({
                   type: 'plan',
                   title: `${entry.kind === 'skill' ? 'Install' : 'Add'} ${entry.name} for ${
                     installable.length
-                  } agents`,
+                  } runtimes`,
                   intents: installable.map((column) =>
                     entry.kind === 'skill'
                       ? {

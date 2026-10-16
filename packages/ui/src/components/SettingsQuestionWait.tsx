@@ -65,10 +65,10 @@ export const QuestionWaitSection = () => {
   const disabled = wait === null || busy
   return (
     <Section
-      title="When nobody is here, an agent’s question waits"
+      title="When nobody is here, a runtime’s question waits"
       description="In a Goal a trigger opened. When the wait ends, its run stops for you, and answering later still carries the work on."
     >
-      <Rows role="radiogroup" aria-label="How long an agent’s question waits when nobody is here">
+      <Rows role="radiogroup" aria-label="How long a runtime’s question waits when nobody is here">
         {QUESTION_WAIT_CHOICES.map((choice) => (
           <RowChoice
             key={choice.value}

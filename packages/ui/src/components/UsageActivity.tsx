@@ -291,7 +291,7 @@ export const UsageActivity = ({
             showNotScanned={view !== 'hour' && inView.some(cell => !cell.scanned)}
           />
           {view === 'hour' && hoursCoverage.partial && hoursCoverage.known > 0 && (
-            <Text role="meta">known for {hoursCoverage.known} of {hoursCoverage.total} agents</Text>
+            <Text role="meta">known for {hoursCoverage.known} of {hoursCoverage.total} runtimes</Text>
           )}
         </ChartFoot>
       </ChartFrame>

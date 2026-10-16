@@ -841,13 +841,13 @@ it('never offers to install a server into an agent with no config file for one',
   expect(offers()).toHaveLength(1)
 })
 
-it('ten agents collapse the drawer offers into one previewed plan', async () => {
+it.each([['skill', 'list'], ['skill', 'matrix'], ['mcp', 'list'], ['mcp', 'matrix']] as const)('many runtimes collapse the %s %s offers into one previewed plan', async (kind, layout) => {
   // One button per agent is fine at four and a keyboard row at ten. Past
   // three targets, one button previews a plan with an op per agent — every
   // target still named, apply still per-op.
   const ids = ['one', 'two', 'three', 'four', 'five', 'six']
   const wide: LibraryEntry = {
-    kind: 'skill',
+    kind,
     name: 'alpha',
     title: null,
     description: null,
@@ -871,14 +871,15 @@ it('ten agents collapse the drawer offers into one previewed plan', async () => 
     generatedAt: 1,
     home: HOME,
     runtimes: ids.map((id) => runtimeId(id)),
-    locations: ids.map((id) => skillLocation(id)),
+    locations: ids.map((id) => ({ ...skillLocation(id), kind })),
     entries: [wide],
     gaps: [],
   }
   const request = await mount(value, undefined, {
     runtimes: ids.map((id, index) => runtime(id, `Agent ${index + 1}`)),
   })
-  await showMatrix()
+  if (kind === 'mcp') await chooseKind('mcp')
+  if (layout === 'matrix') await showMatrix()
   await act(async () => {
     ;[...document.body.querySelectorAll('button')]
       .find((one) => one.textContent?.includes('alpha'))
@@ -887,10 +888,11 @@ it('ten agents collapse the drawer offers into one previewed plan', async () => 
   const labels = [...document.body.querySelectorAll('button')].map((one) => one.textContent ?? '')
   expect(labels.some((label) => label === 'Install to Agent 2')).toBe(false)
   const all = [...document.body.querySelectorAll('button')].find((one) =>
-    one.textContent?.includes('Install to all 5 missing'),
+    one.textContent?.includes(`${kind === 'skill' ? 'Install' : 'Add'} to all 5 missing`),
   )
   expect(all).toBeTruthy()
   await act(async () => all?.click())
+  expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain(kind === 'skill' ? 'Install alpha for 5 runtimes' : `Add alpha ${layout === 'matrix' ? 'to' : 'for'} 5 runtimes`)
   const planned = request.mock.calls.find((one) => one[0] === 'library/plan')
   const intents = (planned?.[1] as { intents: readonly { targetRuntime: string }[] }).intents
   expect(intents).toHaveLength(5)

@@ -1022,7 +1022,7 @@ const EntryDetail = ({
                       onClick={() =>
                         onFlow({
                           type: 'plan',
-                          title: `Install ${entry.name} for ${installable.length} agents`,
+                          title: `Install ${entry.name} for ${installable.length} runtimes`,
                           intents: installable.map((column) => ({
                             kind: 'installSkill' as const,
                             name: entry.name,
@@ -1041,7 +1041,7 @@ const EntryDetail = ({
                       onClick={() =>
                         onFlow({
                           type: 'plan',
-                          title: `Add ${entry.name} to ${installable.length} agents`,
+                          title: `Add ${entry.name} to ${installable.length} runtimes`,
                           intents: installable.map((column) => ({
                             kind: 'installMcp' as const,
                             name: entry.name,

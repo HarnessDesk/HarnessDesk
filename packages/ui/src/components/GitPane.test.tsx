@@ -644,6 +644,8 @@ it('the commit menu offers the git verbs, and cherry-pick refuses a merge', asyn
   expect(menu.textContent).toContain('Tag this commit…')
   expect(menu.textContent).toContain('Reset main to this commit…')
   expect(menu.textContent).toContain('Copy as a patch')
+  expect(menu.textContent).toContain('Ask the runtime to revert this commit')
+  expect(menu.textContent).toContain('Ask the runtime to cherry-pick it')
 
   await act(async () => button('Revert this commit').click())
   expect(request).toHaveBeenCalledWith('git/revert', { root: '/repo/app', sha: 'aaaa1111111' })

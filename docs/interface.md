@@ -573,6 +573,10 @@ the host limits completed rescans to once a minute.
 
 ## The conversation
 
+Ordinary conversation actions, file approvals, task tooltips and system notification
+descriptions call the process a runtime, whether or not a saved Agent role was seated.
+Library batch-install previews count runtime targets for both skills and MCP servers.
+
 Opening a conversation from the sidebar, command palette or a conversation
 link opens its folder as the workspace, including a worktree whose repository
 is closed. Workspace-scoped Agents, Plugins and New Team follow that folder.

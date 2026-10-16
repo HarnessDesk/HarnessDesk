@@ -591,7 +591,7 @@ const SectionBoard = () => (
       <Section>
         <SectionHeader>
           <SectionTitle>Approvals</SectionTitle>
-          <SectionDescription>What an agent may do without asking you first.</SectionDescription>
+          <SectionDescription>What a runtime may do without asking you first.</SectionDescription>
           <SectionAction>
             <Button variant="outline" size="sm">
               Edit
@@ -1201,7 +1201,7 @@ const EmptyBoard = () => (
         <SectionBody>
           <EmptyState
             icon={<AgentIcon />}
-            title="No agent on this workspace"
+            title="No runtime on this workspace"
             description="Pick where the first session should run. You can add the rest later."
             footer="Nothing is written to the repo until you approve it."
           >
@@ -1221,7 +1221,7 @@ const EmptyBoard = () => (
                 </IconTile>
               }
               title="Add from the registry"
-              description="Eleven agents speak ACP"
+              description="Eleven runtimes speak ACP"
             />
           </EmptyState>
         </SectionBody>
@@ -1698,8 +1698,8 @@ const ChartKitBoard = () => {
       </Case>
     </div>
     <div className={styles.matrix}>
-      <Case label="by agent — one row each, sorted by total">
-        <HeatGrid label="By agent" rows={heatByAgent.rows} columns={heatByAgent.columns} minCellPx={7} />
+      <Case label="by runtime — one row each, sorted by total">
+        <HeatGrid label="By runtime" rows={heatByAgent.rows} columns={heatByAgent.columns} minCellPx={7} />
       </Case>
       <Case label="cost, with a day the ledger can't price">
         <HeatGrid label="Cost, unpriced day included" rows={heatCostUnpriced.rows} columns={heatCostUnpriced.columns} minCellPx={5} />
@@ -1728,7 +1728,7 @@ const ChartKitBoard = () => {
       plotting area rather than on one continuous surface. Every mark takes plain numbers — the
       arithmetic lives in <code>lib/</code> and is tested without a browser. A meter takes a{' '}
       <em>tone</em> because &ldquo;12% left&rdquo; is a claim about condition; a series takes a{' '}
-      <em>tint</em> because &ldquo;which agent&rdquo; identifies and does not judge. Two rules the
+      <em>tint</em> because &ldquo;which runtime&rdquo; identifies and does not judge. Two rules the
       marks hold that no token can: a meter fills with what is <em>left</em>, and a figure nobody
       reported is drawn hollow rather than as zero.
     </Rule>
@@ -1939,7 +1939,7 @@ const OverviewStripBoard = () => (
           ledger={stripLedger({ range: 30 })}
         />
       </Case>
-      <Case label="turns known for only one of two agents">
+      <Case label="turns known for only one of two runtimes">
         <StripCase
           reports={[
             stripReport(STRIP_CLAUDE, 'work', MONTHLY_FEE(20)),
@@ -2284,7 +2284,7 @@ const AdoptedBoard = () => {
                       Session
                     </DataTableColumnHeader>
                   </TableHead>
-                  <TableHead>Agent</TableHead>
+                  <TableHead>Runtime</TableHead>
                   <TableHead numeric>
                     <DataTableColumnHeader
                       direction={sort?.key === 'spend' ? sort.direction : null}
@@ -2316,7 +2316,7 @@ const AdoptedBoard = () => {
               <TableHeader>
                 <TableRow variant="matrix">
                   <TableHead variant="matrix" pinned>Name</TableHead>
-                  <TableHead variant="matrix" align="center">Agent</TableHead>
+                  <TableHead variant="matrix" align="center">Runtime</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2929,7 +2929,7 @@ const HeaderStatusBoard = () => (
       <HeaderStatusReading label="Ceiling" detail="Read only · Held by the runtime"><Text role="meta">Read only</Text></HeaderStatusReading>
       <HeaderStatusReading label="Branch" detail="main"><Button variant="ghost" size="chip"><BranchIcon size={13} />main</Button></HeaderStatusReading>
       <HeaderStatusReading label="Plan usage" detail="Weekly allowance · 78% left"><Text role="meta" numeric>78%</Text></HeaderStatusReading>
-      <HeaderStatusReading label="Other agents" detail="1 other agent · out of quota for 6h"><Text role="meta">1 out</Text></HeaderStatusReading>
+      <HeaderStatusReading label="Other runtimes" detail="1 other runtime · out of quota for 6h"><Text role="meta">1 out</Text></HeaderStatusReading>
     </HeaderStatusGroup>
     <Text role="subject">Needs you</Text>
     <HeaderStatusGroup>
@@ -3113,7 +3113,7 @@ const SEATLIST_CATALOG_SIZES = ['default'] as const
 const SEATLIST_CATALOG_STATES = ['default', 'populated', 'disabled', 'long-title'] as const
 export const SeatListBoard = () => {
   const [inbound, setInbound] = useState<'accept' | 'hold' | 'refuse'>('accept')
-  const base = { detail: 'Agent · Review model · Read only', state: 'Idle', inbound, setInbound,
+  const base = { detail: 'Runtime · Review model · Read only', state: 'Idle', inbound, setInbound,
     open: () => {}, watch: () => {}, message: () => {}, remove: () => {} }
   return <div data-catalog-variants={SEATLIST_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SEATLIST_CATALOG_SIZES.join(' ')} data-catalog-states={SEATLIST_CATALOG_STATES.join(' ')}>
     <SeatList rows={[{ ...base, id: 'review', name: 'Checkout review · 長い席の名前' },
@@ -3537,8 +3537,8 @@ export const PageControlsBoard = () => {
   const [scope, setScope] = useState('all'), [query, setQuery] = useState('')
   return <div data-catalog-variants={PAGECONTROLS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={PAGECONTROLS_CATALOG_SIZES.join(' ')} data-catalog-states={PAGECONTROLS_CATALOG_STATES.join(' ')}>
     <Page width="reading"><PageControls search={{label:'Search records',placeholder:'Search records…',value:query,change:setQuery}}
-      choices={[{id:'scope',title:'Agent scope',description:'The selected scope applies to the records below. 長い説明もすべて表示します。',value:scope,
-        options:[{value:'all',label:'All agents · チェックアウトのレビュー'},{value:'pending',label:'Pending agent read',disabled:true}],change:setScope}]} />
+      choices={[{id:'scope',title:'Runtime scope',description:'The selected scope applies to the records below. 長い説明もすべて表示します。',value:scope,
+        options:[{value:'all',label:'All runtimes · チェックアウトのレビュー'},{value:'pending',label:'Pending runtime read',disabled:true}],change:setScope}]} />
       <PageExplanation>A complete explanation keeps its lines within the page.</PageExplanation>
       <PreservedText value={'First line\nSecond line · チェックアウト'} />
       <Text>Read just now<InlineQualifier value="local" /></Text>
@@ -3554,11 +3554,11 @@ const PAGEOPTIONS_CATALOG_SIZES = ['default'] as const
 const PAGEOPTIONS_CATALOG_STATES = ['default', 'loading', 'folded-state'] as const
 export const PageOptionsBoard = () => {
   const [scope,setScope] = useState('all'), [query,setQuery] = useState('')
-  const items = [{value:'all',label:'All agents · long reusable checkout review · チェックアウトのレビュー'},
-    {value:'local',label:'Local',count:3},{value:'pending',label:'Pending agent read',disabled:'Reading the current scope…'}]
+  const items = [{value:'all',label:'All runtimes · long reusable checkout review · チェックアウトのレビュー'},
+    {value:'local',label:'Local',count:3},{value:'pending',label:'Pending runtime read',disabled:'Reading the current scope…'}]
   return <div data-catalog-variants={PAGEOPTIONS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={PAGEOPTIONS_CATALOG_SIZES.join(' ')} data-catalog-states={PAGEOPTIONS_CATALOG_STATES.join(' ')}>
     {[736,320].map(width => <div key={width} style={{width,maxWidth:'100%'}}>
-      <Page width="reading"><PageOptions choices={[{id:'scope',label:'Agent scope',value:scope,items,change:setScope,mode:'menu'},
+      <Page width="reading"><PageOptions choices={[{id:'scope',label:'Runtime scope',value:scope,items,change:setScope,mode:'menu'},
         {id:'layout',label:'Library layout',value:'list',items:[{value:'list',label:'List · 長いチェックアウトのレビュー'},{value:'matrix',label:'Matrix'}],change:()=>{}}]}
         search={{label:'Search records',value:query,change:setQuery}} read="Read just now" action={{label:'Refresh',run:()=>{}}} />
         <PageOptions choices={[{id:'pending',label:'Pending scope',value:'pending',items,change:()=>{}}]}
@@ -3627,4 +3627,4 @@ import { SignInRail, RailSection } from '..'
 const SIGNINRAIL_CATALOG_VARIANTS = ['default'] as const
 const SIGNINRAIL_CATALOG_SIZES = ['default'] as const
 const SIGNINRAIL_CATALOG_STATES = ['default'] as const
-export const SignInRailBoard = () => <div data-catalog-variants={SIGNINRAIL_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIGNINRAIL_CATALOG_SIZES.join(' ')} data-catalog-states={SIGNINRAIL_CATALOG_STATES.join(' ')}><SignInRail aria-label="Sign in"><RailSection stretch="list" density="comfortable">Choose an agent</RailSection></SignInRail></div>
+export const SignInRailBoard = () => <div data-catalog-variants={SIGNINRAIL_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIGNINRAIL_CATALOG_SIZES.join(' ')} data-catalog-states={SIGNINRAIL_CATALOG_STATES.join(' ')}><SignInRail aria-label="Sign in"><RailSection stretch="list" density="comfortable">Choose a runtime</RailSection></SignInRail></div>

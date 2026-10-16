@@ -1169,7 +1169,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             <MenuSeparator />
             <MenuItem
               icon={<CommitIcon size={14} />}
-              label="Ask the agent to revert this commit"
+              label="Ask the runtime to revert this commit"
               hint="Puts the request in the composer; you send it."
               disabled={session ? false : 'Open a conversation first.'}
               onSelect={() =>
@@ -1180,7 +1180,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             />
             <MenuItem
               icon={<CommitIcon size={14} />}
-              label="Ask the agent to cherry-pick it"
+              label="Ask the runtime to cherry-pick it"
               hint="Onto the current branch, in the composer."
               disabled={session ? false : 'Open a conversation first.'}
               onSelect={() =>

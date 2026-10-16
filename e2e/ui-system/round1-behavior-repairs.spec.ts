@@ -54,7 +54,7 @@ for (const theme of ['light','dark'] as const) {
     await openFrame(page,'frame-wall=conversation&frame-fix8-kept=1',theme)
     await page.getByRole('button',{name:'Kept conversation',exact:true}).click()
     await expect(page.locator('[data-live-transcript]')).toContainText('First kept message')
-    await expect(page.getByRole('button',{name:'Ask the agent to try again',exact:true})).toBeDisabled()
+    await expect(page.getByRole('button',{name:'Ask the runtime to try again',exact:true})).toBeDisabled()
     await capture(page,`conversation-kept-history-${theme}`)
   })
 }

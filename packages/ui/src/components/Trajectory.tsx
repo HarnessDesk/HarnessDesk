@@ -127,7 +127,7 @@ const labelOf = (item: AgentItem): string => {
  */
 const ROLE: Record<string, string> = {
   userMessage: 'You',
-  assistantMessage: 'Agent',
+  assistantMessage: 'Runtime',
   reasoning: 'Thinking',
   command: 'Shell',
   fileChange: 'Edit',
@@ -329,7 +329,7 @@ export const Trajectory = ({
     return (
       <PanelEmpty>
         Nothing has happened in this session yet. The trajectory shows every step the
-        agent took, and where the time went.
+        runtime took, and where the time went.
       </PanelEmpty>
     )
   }

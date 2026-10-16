@@ -957,7 +957,7 @@ it('failed-runtime history refuses live agent verbs and keeps copy without edit 
   const {store}=rig(one,new Map(),{healthByRuntime:{codex:{state:'unavailable',reason:'unreadable',message:reason}},
     runtimes:[{id:'codex',name:'Fixture',presentation:{name:'Fixture'},capabilities:{memory:true,undo:true,compaction:true,review:true}}] as unknown as AppSnapshot['runtimes']})
   render(store)
-  expect(container.querySelector<HTMLButtonElement>('[aria-label="Ask the agent to try again"]')?.disabled).toBe(true)
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Ask the runtime to try again"]')?.disabled).toBe(true)
   expect(container.querySelector('[aria-label="Edit this message"]')).toBeNull()
   await act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
   for(const label of ['Compact now','Undo the last turn','Remember this conversation']) {

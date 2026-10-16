@@ -493,7 +493,7 @@ const CredentialHome = ({ info, label }: { info: RuntimeInfo; label: string }) =
         label={label}
         kind="path"
         note={info.slot?.removable
-          ? `It belongs to ${info.presentation.name}. Only the credential lives there — the sessions are the agent’s own.`
+          ? `It belongs to ${info.presentation.name}. Only the credential lives there — the sessions are the runtime’s own.`
           : `It belongs to ${info.presentation.name}. Signing out here signs that CLI out too.`}
       >
         {home}

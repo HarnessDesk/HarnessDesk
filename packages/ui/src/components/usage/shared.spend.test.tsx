@@ -75,3 +75,11 @@ it('agrees to the cent across ranges for a partly read week beside a quiet day',
   render(7, { ...ledger(7), daily: [], totalCost: 0, coverage: { ...ledger(7).coverage, daysCovered: 0, coveredDays: [] } }, day(1) + 12 * 3600000)
   expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today$0')
 })
+
+it('counts runtimes in the turns chart’s coverage footnote', () => {
+  const runtime = runtimeId('fixture')
+  const ledger = { ...emptyLedger(30), totalCost: 1, daily: [{ day: new Date().setHours(0, 0, 0, 0), runtime, cost: 1, tokens: 10, turns: 1 }], rows: [{ key: 'fixture', label: 'Fixture', runtime, cost: 1, tokens: 10, hasUnpriced: false }],
+    coverage: { ...emptyLedger(30).coverage, turnsKnownFor: [runtime] } }
+  act(() => root.render(<Spend ledger={ledger} wideLedger={null} byId={new Map()} tintOf={() => 'blue'} scan={null} now={Date.now()} range={30} mode="bars" metric="turns" onModeChange={() => {}} onScan={() => {}} />))
+  expect(host.textContent).toContain('turns known for 1 of 1 runtimes')
+})

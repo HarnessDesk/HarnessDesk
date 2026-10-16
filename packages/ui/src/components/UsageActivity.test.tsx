@@ -169,7 +169,7 @@ it('switches the measure from tokens to cost, changing what the facts read', asy
 it('counts hour coverage from daily runtime attribution on a runtime-grouped report', async () => {
   await renderSuppliedReport(groupedLedgerReport([{ runtime: CLAUDE, weekday: 1, hour: 10, requests: 2, tokens: 100 }]))
   await act(async () => choose('By hour'))
-  expect(container.textContent).toContain('known for 1 of 2 agents')
+  expect(container.textContent).toContain('known for 1 of 2 runtimes')
 })
 
 it('keeps hourly figures unknown when hourly is absent, but shows a quiet year for an empty hourly array', async () => {
