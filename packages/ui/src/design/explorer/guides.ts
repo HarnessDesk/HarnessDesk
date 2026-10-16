@@ -744,9 +744,11 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
   const onLeave = () => { pointer = null; hovered = null; schedule() }
   let mutationTimer = 0
   let retheme = false
+  // Match every appearance dial written by state/theme.ts, on either root.
+  const appearanceAttributes = ['class', 'style', 'data-hd-dark-theme', 'data-hd-palette', 'data-hd-accent', 'data-hd-corners', 'data-hd-faces', 'data-hd-interface']
   const observe = () => {
-    mutations.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'data-hd-dark-theme', 'data-state', 'open'] })
-    mutations.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-hd-dark-theme'] })
+    mutations.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: [...appearanceAttributes, 'data-state', 'open'] })
+    mutations.observe(document.documentElement, { attributes: true, attributeFilter: appearanceAttributes })
   }
   const mutations = new MutationObserver((records) => {
     if (records.some((one) => one.type === 'attributes' && (one.target === document.body || one.target === document.documentElement))) retheme = true

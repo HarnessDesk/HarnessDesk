@@ -61,6 +61,51 @@ for (const themeRoot of ['body', 'html']) test(`palette refresh settles after a 
   expect(await page.evaluate(() => (window as any).edges.at(-1))).toBe('#123456')
 })
 
+// Appearance preferences can change without touching class or style. Exercise
+// both roots, including removal back to defaults, without resize/pointer redraws.
+for (const appearanceRoot of ['body', 'html']) {
+  for (const attribute of ['data-hd-dark-theme', 'data-hd-palette', 'data-hd-accent', 'data-hd-corners', 'data-hd-faces', 'data-hd-interface']) {
+    test(`palette and tokens settle after ${appearanceRoot} ${attribute} changes`, async ({ page }) => {
+      await open(page)
+      await page.addStyleTag({ content: `
+        body { --hd-radius: 5px }
+        body[${attribute}], html[${attribute}] body { --hd-accent: #abcdef; --hd-radius: 9px }
+        #child { border-radius: var(--hd-radius) }
+      ` })
+      await page.clock.install()
+      await page.evaluate(async () => {
+        const { mountGuides } = await import('/src/design/explorer/guides.ts' as string)
+        const clear = CanvasRenderingContext2D.prototype.clearRect
+        const stroke = CanvasRenderingContext2D.prototype.strokeRect
+        ;(window as any).draws = 0
+        ;(window as any).edges = []
+        CanvasRenderingContext2D.prototype.clearRect = function (...args) { (window as any).draws++; clear.apply(this, args) }
+        CanvasRenderingContext2D.prototype.strokeRect = function (...args) { (window as any).edges.push(this.strokeStyle); stroke.apply(this, args) }
+        mountGuides(() => [document.querySelector('#root')!], 'lines')
+      })
+      await page.clock.runFor(200)
+      const check = async (color: string) => {
+        expect(await page.evaluate(() => (window as any).edges.at(-1))).toBe(color)
+        const offScale = await page.evaluate(async () => {
+          const { guidesReport } = await import('/src/design/explorer/guides.ts' as string)
+          return guidesReport.current.flatMap((one: { offScale: string[] }) => one.offScale)
+        })
+        expect(offScale.some((one: string) => one.includes('radius'))).toBe(false)
+        const settled = await page.evaluate(() => (window as any).draws)
+        await page.clock.runFor(600)
+        expect(await page.evaluate(() => (window as any).draws)).toBe(settled)
+      }
+      await check('#123456')
+      await page.locator(appearanceRoot).evaluate((el, attr) => el.setAttribute(attr, 'custom'), attribute)
+      await page.clock.runFor(500)
+      await check('#abcdef')
+      await page.locator(appearanceRoot).evaluate((el, attr) => el.removeAttribute(attr), attribute)
+      await page.clock.runFor(500)
+      await check('#123456')
+    })
+  }
+}
+
 for (const waitingForScene of [false, true]) {
   test(`as is cancels a pending fix pass${waitingForScene ? ' waiting for scene steps' : ''}`, async ({ page }) => {
     await open(page)

@@ -38,5 +38,25 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByRole('radio', { name: 'as is', exact: true }).click()
     await expect(scene.getByText(/\d+ fixed/)).toHaveCount(0)
     await expect(frame.locator('[data-slot="empty-state"]').first()).not.toHaveAttribute('style', /padding/)
+    // Appearance changes leave the scene mounted: the guides must follow the
+    // new palette without a pointer move, resize, or remount.
+    await frame.locator('body').evaluate(() => {
+      const stroke = CanvasRenderingContext2D.prototype.strokeRect
+      CanvasRenderingContext2D.prototype.strokeRect = function (...args) {
+        ;(window as any).__guideEdge = this.strokeStyle
+        stroke.apply(this, args)
+      }
+      document.body.dataset.hdPalette = 'shadcn'
+      document.body.dataset.hdAccent = 'violet'
+      document.body.dataset.hdCorners = 'square'
+      document.body.dataset.hdInterface = 'studio'
+    })
+    await expect.poll(async () => frame.locator('body').evaluate(() => {
+      const ctx = document.createElement('canvas').getContext('2d')!
+      ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--hd-accent').trim()
+      return (window as any).__guideEdge === ctx.strokeStyle
+    })).toBe(true)
+    await check()
+    if (process.env.REVIEW_BOARD_FRAMES) await page.screenshot({ path: path.join(process.env.REVIEW_BOARD_FRAMES, `board-${theme}-appearance.png`), animations: 'disabled' })
   })
 }
