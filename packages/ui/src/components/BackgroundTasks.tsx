@@ -82,7 +82,7 @@ export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
               tight
               icon={<BackgroundIcon />}
               title="No conversation"
-              description="Open a conversation to see what its agent is running in the background."
+              description="Open a conversation to see what its runtime is running in the background."
             />
       ) : !runtime.capabilities.backgroundTasks ? (
             // An agent without the concept, said plainly: an empty list would

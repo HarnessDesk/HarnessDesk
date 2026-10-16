@@ -145,7 +145,7 @@ test('the mode switch ends the top row and selects a mode without running histor
   expect(change).toHaveBeenLastCalledWith('conversation')
 })
 
-test('an unavailable mode switch keeps both controls and its whole-track explanation', () => {
+test('an unavailable mode switch explains only Editor and keeps Conversation’s own title', () => {
   const change = vi.fn(), title = "Editor mode opens a conversation's files"
   mount(<LeftColumnTop shown settings={false} back={false} forward={false} toggle={() => {}} goBack={() => {}}
     goForward={() => {}} search={null}
@@ -154,9 +154,9 @@ test('an unavailable mode switch keeps both controls and its whole-track explana
     const control = button(name)
     expect(control).not.toBeNull()
     expect(control.disabled).toBe(true)
-    expect(control.title).toBe(title)
+    expect(control.title).toBe(name === 'Editor mode' ? title : 'Conversation mode (⌘G)')
     act(() => control.click())
   }
-  expect(container.querySelector('[data-mode-switch]')?.getAttribute('title')).toBe(title)
+  expect(container.querySelector('[data-mode-switch]')?.hasAttribute('title')).toBe(false)
   expect(change).not.toHaveBeenCalled()
 })

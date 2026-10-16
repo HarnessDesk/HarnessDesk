@@ -24,7 +24,7 @@ export interface SettingsNavGroup {
 export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): readonly SettingsNavGroup[] => {
   const accountCount = snapshot.runtimes.reduce((n, info) => n + (snapshot.accountsByRuntime[info.id]?.accounts.length ?? 0), 0)
   const worst = worstReadiness(agentGroups(snapshot.runtimes).map(group => agentReadiness(group.siblings, snapshot)))
-  const scoped = (page: string) => `${page} belongs to ${runtime.presentation.name}, the agent the active conversation is with.`
+  const scoped = (page: string) => `${page} belongs to ${runtime.presentation.name}, the runtime the active conversation is with.`
   return [
     { label: 'Preferences', entries: [
       { id: 'general', label: 'General', icon: <SlidersIcon size={16} />, keywords: ['backup', 'restore', 'export', 'diagnostics', 'support', 'data', 'sync', 'account', 'transcripts', 'this mac'] },
@@ -34,11 +34,11 @@ export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): rea
     ] },
     { label: 'Conversations', entries: [
       { id: 'workspaces', label: 'Workspaces', icon: <FolderIcon size={16} />, keywords: ['folders', 'projects', 'worktrees', 'forget', 'open folder', 'checkout', 'branch'] },
-      { id: 'history', label: 'History', icon: <HistoryIcon size={16} />, keywords: ['history', 'import', 'other agents', 'past conversations'] },
+      { id: 'history', label: 'History', icon: <HistoryIcon size={16} />, keywords: ['history', 'import', 'other runtimes', 'past conversations'] },
       { id: 'storage', label: 'Storage', icon: <ResourceIcon size={16} />, keywords: ['storage', 'disk', 'space', 'clean up', 'worktrees', 'cache'] },
       { id: 'archive', label: 'Archive', icon: <ArchiveIcon size={16} />, keywords: ['archived', 'history', 'restore', 'delete', 'trash', 'old sessions'] },
     ] },
-    { label: 'Agents', entries: [
+    { label: 'Runtimes', entries: [
       { id: 'runtimes', label: 'Runtimes', icon: <ServerIcon size={16} />, keywords: ['runtimes', 'installed', 'cli', 'accounts', 'sign in', 'sign out', 'add runtime', 'registry', 'nickname', 'ring', 'usage', 'plan', 'new sessions', 'defaults', 'update', 'remove'],
         ...(accountCount > 0 ? { count: accountCount } : {}), ...(isBlocking(worst) ? { state: worst } : {}) },
       { id: 'models', label: 'Models', icon: <RouteIcon size={16} />, keywords: ['endpoint', 'api', 'provider', 'proxy', 'gateway', 'route', 'presets', 'hide', 'composer', 'effort', 'thinking'] },

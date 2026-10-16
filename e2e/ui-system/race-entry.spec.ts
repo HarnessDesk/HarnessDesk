@@ -6,8 +6,8 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto(`/preview.html?race-entry=form&theme=${theme}`)
     await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
     await expect(page.getByLabel('What should both try?')).toHaveValue('Fix the cart total')
-    await expect(page.getByRole('button', { name: 'Agent for Attempt A', exact: true })).toHaveText('Runtime 1')
-    await expect(page.getByRole('button', { name: 'Agent for Attempt B', exact: true })).toHaveText('Runtime 2')
+    await expect(page.getByRole('button', { name: 'Runtime for Attempt A', exact: true })).toHaveText('Runtime 1')
+    await expect(page.getByRole('button', { name: 'Runtime for Attempt B', exact: true })).toHaveText('Runtime 2')
     for (const attempt of ['A', 'B']) {
       const model = page.getByRole('button', { name: `Model for Attempt ${attempt}`, exact: true })
       await expect(model).toBeEnabled()

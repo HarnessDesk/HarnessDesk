@@ -672,20 +672,20 @@ export const runway = (
     exhausted.length === 1 && only
       ? `${nameFor(only)} is out of ${isBalanceOnly(only) ? 'credits' : 'quota'}.`
       : exhausted.length > 1
-        ? `${exhausted.length} agents are out of ${exhaustedWord(exhausted)}.`
+        ? `${exhausted.length} runtimes are out of ${exhaustedWord(exhausted)}.`
         : low.length === 1
           ? `${nameFor(low[0] as UsageReport)} is running low.`
           : low.length > 1
-            ? `${low.length} agents are running low.`
+            ? `${low.length} runtimes are running low.`
             : metered.length > 0
               ? null
               : borrowed.length > 0
-                ? `No agent here reports its own plan usage — ${
+                ? `No runtime here reports its own plan usage — ${
                     borrowed.length === 1
                       ? `${nameFor(borrowed[0] as UsageReport)} shows`
-                      : `${borrowed.length} agents show`
+                      : `${borrowed.length} runtimes show`
                   } another sign-in's.`
-                : 'No agent here reports plan usage.'
+                : 'No runtime here reports plan usage.'
 
   const parts: string[] = []
   if (nextReturn !== null) {
@@ -694,7 +694,7 @@ export const runway = (
   }
   if (metered.length > 0) {
     parts.push(
-      `${metered.length} of ${reports.length} ${reports.length === 1 ? 'agent reports' : 'agents report'} usage`,
+      `${metered.length} of ${reports.length} ${reports.length === 1 ? 'runtime reports' : 'runtimes report'} usage`,
     )
   }
 
@@ -767,9 +767,9 @@ export const formatMoney = (amount: number | null, currency = 'USD'): string | n
 export const spendHint = (provenance: SpendSummary['provenance'] | undefined): string => {
   switch (provenance) {
     case 'vendorMetered':
-      return 'what the agents recorded these tokens cost.'
+      return 'what the runtimes recorded these tokens cost.'
     case 'mixed':
-      return 'what the agents recorded, where they did, and public API rates for the rest. Not all of it is a bill.'
+      return 'what the runtimes recorded, where they did, and public API rates for the rest. Not all of it is a bill.'
     default:
       return 'what these tokens would have cost at public API rates. Not a bill.'
   }
@@ -784,9 +784,9 @@ export const spendHint = (provenance: SpendSummary['provenance'] | undefined): s
 export const costClause = (provenance: SpendSummary['provenance'] | undefined): string => {
   switch (provenance) {
     case 'vendorMetered':
-      return 'what the work cost as the agents recorded it'
+      return 'what the work cost as the runtimes recorded it'
     case 'mixed':
-      return 'what the work cost as the agents recorded it or at public rates'
+      return 'what the work cost as the runtimes recorded it or at public rates'
     default:
       return 'what the work cost at public rates'
   }
@@ -811,9 +811,9 @@ export const pricedNote = (
   }
   switch (provenance) {
     case 'vendorMetered':
-      return 'Every call in this window carries the cost its agent recorded, so none is left out.'
+      return 'Every call in this window carries the cost its runtime recorded, so none is left out.'
     case 'mixed':
-      return "Every call in this window carries a cost — its agent's record or a public price — so none is left out."
+      return "Every call in this window carries a cost — its runtime's record or a public price — so none is left out."
     default:
       return 'Every call in this window has a public price, so these figures are exact.'
   }

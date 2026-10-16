@@ -137,7 +137,7 @@ export const NewSessionChoice = ({ onClose, initialKind = 'session' }: { readonl
             {
               value: 'session',
               title: 'Session',
-              description: 'One agent working in this folder.',
+              description: 'One runtime working in this folder.',
               icon: <AgentIcon size={16} />,
               trailing: <Text as="span" role="meta">⌘N</Text>,
             },
@@ -180,7 +180,7 @@ export const NewSessionChoice = ({ onClose, initialKind = 'session' }: { readonl
                   value={chosenAgent ? chosenAgent.id : PLAIN}
                   onChange={(event) => setRunAs(event.target.value)}
                 >
-                  <option value={PLAIN}>Default agent</option>
+                  <option value={PLAIN}>Default runtime</option>
                   {agents.map((entry) => {
                     const info = runAsInfo(entry, snapshot.agentPlans)
                     return (

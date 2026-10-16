@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from 'react'
 import type { AppSnapshot } from '../../state/store'
 import type { RuntimeId, RuntimeInfo, UsagePreference, UsageReport } from '@harnessdesk/protocol'
 
-import { accountForUsage, accountKey, defaultTint, prefsForUsage, tintOf } from '../../lib/accounts'
+import { prefsForUsage } from '../../lib/accounts'
 import type { RunwaySummary } from '../../lib/usage'
 import { planRows, shapeCountsOf } from '../../lib/plans-table'
 import { Row, Rows, Button, Section } from '../../design'
@@ -94,10 +94,6 @@ export const PlansView = ({
           snapshot={snapshot}
           onSignIn={onSignIn}
           signInRuntimes={new Set(silent.map(agent => agent.info.id))}
-          tintFor={(runtime, accountLabel) => {
-            const account = accountForUsage(runtime, accountLabel, snapshot.accountsByRuntime)
-            return account ? tintOf(accountKey(runtime, account), snapshot.accountPrefs) : defaultTint(runtime)
-          }}
           byId={byId}
           now={now}
           filter={filter}

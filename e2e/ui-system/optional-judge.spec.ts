@@ -18,7 +18,7 @@ for (const theme of ['light', 'dark'] as const) test(`a completed person choice 
 
 test('Side by side defaults to You and allows either attempt’s provider to judge', async ({ page }) => {
   await page.goto('/preview.html?team-start=comparison')
-  const judge = page.getByRole('button', { name: 'Agent for Judge', exact: true })
+  const judge = page.getByRole('button', { name: 'Runtime for Judge', exact: true })
   await expect(page.getByText('Judge · optional', { exact: true })).toBeVisible()
   await expect(judge).toHaveText('You')
   await expect(page.getByRole('button', { name: 'Model for Judge' })).toHaveCount(0)
@@ -33,7 +33,7 @@ test('Side by side defaults to You and allows either attempt’s provider to jud
 
 test('/race defaults to You and offers both providers as judges', async ({ page }) => {
   await page.goto('/preview.html?optional-judge')
-  const judge = page.getByRole('button', { name: 'Agent for Judge', exact: true })
+  const judge = page.getByRole('button', { name: 'Runtime for Judge', exact: true })
   await expect(judge).toHaveText('You')
   await judge.click()
   await page.getByRole('menuitemradio', { name: 'Runtime 1', exact: true }).click()

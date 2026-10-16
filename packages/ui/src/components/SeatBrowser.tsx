@@ -31,7 +31,7 @@ export const SeatBrowser = ({ paneId, session, onFocus }: { paneId: string; sess
     return <ToolPaneEmptyState title="Shared browser" description="This browser is shown in another tile." />
   }
   if (!browser || !owner) {
-    return <ToolPaneEmptyState title="Nothing open yet" description={problem ?? 'Pages the agent opens appear here.'} />
+    return <ToolPaneEmptyState title="Nothing open yet" description={problem ?? 'Pages the runtime opens appear here.'} />
   }
   return <MountProvider scope={{ ...browser, embedded: true }}><BrowserPane /></MountProvider>
 }

@@ -157,7 +157,7 @@ export function unobservedSpecs(root, graph = suiteGraph(root)) {
 
 // These are the build's entry pages. Query strings vary the fixture, not the
 // route. Source URLs and source-response rewrites still belong to Vite's dev server.
-export const E2E_PAGES = ['preview.html', 'design.html', 'narrow-overlay.html', 'src/preview/tile-page.html']
+export const E2E_PAGES = ['preview.html', 'design.html', 'narrow-overlay.html', 'runtime-copy-repair.html', 'src/preview/tile-page.html']
 
 // The workspace packages the UI is built from, resolved from the manifests, so adding a
 // workspace dependency cannot silently leave it outside full browser coverage.

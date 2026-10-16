@@ -153,7 +153,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
                     variant="quiet" size="sm" className={styles.action}
                     onClick={() => void apply('undo', true)}
                     disabled={busy}
-                    title="Put back everything this turn can. The file just named is left exactly as it is — the agent recorded nothing to put back there."
+                    title="Put back everything this turn can. The file just named is left exactly as it is — the runtime recorded nothing to put back there."
                   >
                     {busy ? 'Undoing…' : 'Undo the rest'}
                     <UndoIcon size={13} />

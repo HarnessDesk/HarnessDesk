@@ -12,7 +12,7 @@ for (const theme of ['light', 'dark']) {
         else await expect(page.locator('[data-slot="page"]:visible, [data-slot="composer-track"]:visible').first()).toBeVisible()
         await page.evaluate(() => document.fonts.ready)
         await expect.poll(() => page.locator('body').evaluate(body => body.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')
-        if (scene === 'team') await page.getByLabel('Agent for Writes', { exact: true }).scrollIntoViewIfNeeded()
+        if (scene === 'team') await page.getByLabel('Runtime for Writes', { exact: true }).scrollIntoViewIfNeeded()
         if (scene.startsWith('library')) await expect(page.getByText('code-review', { exact: true }).first()).toBeVisible()
         if (scene === 'library-matrix') {
           await page.locator('button[title="How to show the library"]').click()
@@ -30,7 +30,7 @@ for (const theme of ['light', 'dark']) {
         if (phase === 'before') return
         if (scene === 'team') {
           const dialog = page.getByRole('dialog')
-          for (const field of ['Agent', 'Model', 'Effort']) {
+          for (const field of ['Runtime', 'Model', 'Effort']) {
             await dialog.getByRole('button', { name: `${field} for Writes`, exact: true }).click()
             await expect(page.getByRole('menu')).toBeVisible()
             if (phase && field === 'Model') await page.screenshot({ path: `/tmp/bugs-1675/frames/team-menu-${theme}-${phase}.png` })

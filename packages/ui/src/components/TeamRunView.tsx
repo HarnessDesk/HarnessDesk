@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
-import { runtimeId, type FlowCheckAttempt, type InsightReport, type SessionKey, type TeamSignal } from '@harnessdesk/protocol'
+import { type FlowCheckAttempt, type InsightReport, type SessionKey, type TeamSignal } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
 import { runtimeTint } from '../lib/accounts'
 import { hasConversation, teamSeats } from '../lib/team-seats'
@@ -81,7 +81,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
   const selected = view.model.rows.find(row => row.id === view.selectedRow)
   const selectedStep = view.selectedRow?.startsWith('step:') ? view.selectedRow.slice(5) : stepForRow(execution, view.model.rows, view.selectedRow)
   const stepRows = rowsForStep(execution, view.model.rows, selectedStep)
-  const faceTints = new Map(seats.filter(hasConversation).map(seat => [seat.record.id, runtimeTint(runtimeId(seat.record.session.runtime), snapshot.accountsByRuntime, snapshot.accountPrefs)]))
+  const faceTints = new Map(seats.filter(hasConversation).map(seat => [seat.record.id, runtimeTint(snapshot.runtimes.find(info => info.id === seat.record.session.runtime))]))
   const flow = drawFlow ? <RunFlow execution={execution} root={goal?.goal.root ?? null} seats={goal?.members ?? []}
     cards={cards} sessions={snapshot.sessions} waitingSeats={waitingSeats} attempts={attempts ? new Map([...attempts].map(([id, history]) => [id, { attempts: history, complete: attemptsRead !== 'failed' && !incompleteAttempts?.has(id) }])) : undefined} selectedStep={selectedStep} onSelectStep={id => {
       const rows = rowsForStep(execution, view.model.rows, id)

@@ -96,7 +96,7 @@ export const StorageSection = () => {
   const selected = candidates.filter(row => row.clean || includeDirty)
   const candidate = (row: StorageCandidate, inventory = false) => <div key={row.path}>
     <Row title={<span title={row.path}>{sessionLabel(row.title, null)}</span>} control={<>
-      <RowValue>{snapshot.runtimes.find(info => info.id === row.runtime)?.presentation.name ?? 'Unavailable agent'}</RowValue>
+      <RowValue>{snapshot.runtimes.find(info => info.id === row.runtime)?.presentation.name ?? 'Unavailable runtime'}</RowValue>
       <RowValue>{bytes(row.bytes)}</RowValue>
     </>} />
     {inventory && <Alert tone="warning"><AlertContent><AlertTitle>
@@ -155,7 +155,7 @@ export const StorageSection = () => {
       {result && <><SectionHead name="Worktrees kept" /><FormStack>{result.refused.map(row => <Note key={row.path} tone="bad"><span title={row.path}><MiddleTruncate>{row.path}</MiddleTruncate></span>: {row.reason}</Note>)}</FormStack></>}
     </Dialog>}
     {destinationActive && clearing && <ConfirmDialog title="Clear cached previews?" confirmLabel="Clear cached previews" busy={busy} onCancel={() => { if (!busy) setClearing(false) }} onConfirm={() => void clear()}>
-      Previews are read again from the agent next time. Conversations opened here and full conversation bodies stay.
+      Previews are read again from the runtime next time. Conversations opened here and full conversation bodies stay.
       {problem && <Note tone="bad">{problem}</Note>}
     </ConfirmDialog>}
     {destinationActive && discarding && <DiscardWorktree summary={{ runtime: discarding.runtime, id: discarding.sessionId, worktree: { path: discarding.path, branch: null, state: 'kept' } }} onClose={() => {

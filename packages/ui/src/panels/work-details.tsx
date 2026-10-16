@@ -29,7 +29,7 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
   return <ToolBody><ToolBodySections><ToolFooterSuppressed>
     <ToolSection label={session ? 'Conversation' : 'Starts in'}>
       <SummaryList surface="panel" aria-label="Conversation facts">
-        <SummaryItem label="Agent">{agentName}</SummaryItem>
+        <SummaryItem label={seated?.name ? 'Agent' : 'Runtime'}>{agentName}</SummaryItem>
         {shown && <SummaryItem label="Ceiling" note={shown ? shown.note
           ? `${shown.ceiling.hold === 'held' ? 'Held' : 'Asked, not held'}: ${shown.note}` : ceilingMeaning(shown.ceiling.level) : undefined}>
           {shown ? seatCeilingWords(shown.ceiling) : 'Not recorded'}

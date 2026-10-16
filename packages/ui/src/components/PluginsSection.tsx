@@ -618,7 +618,7 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
           ]),
         ]} />
       <PageExplanation>{pluginToolsReach
-        ? 'Tools, guardrails, context and panels for every agent in this workspace.'
+        ? 'Tools, guardrails, context and panels for every runtime in this workspace.'
         : `Tools, guardrails, context and panels. ${runtime.presentation.name} does not take them in the session request, so they reach it only through its own configuration.`}</PageExplanation>
 
       {active && installing && <InstallPlugin onClose={() => setInstalling(false)} />}
@@ -657,7 +657,7 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
           )}
           {byKind.map(([kind, entries]) => (
             <Section key={kind} title={kindLabel(kind, entries.length)}
-              description={kind === 'tool' && pluginToolsReach ? 'Reaches agent' : undefined}>
+              description={kind === 'tool' && pluginToolsReach ? 'Reaches runtime' : undefined}>
               <Rows>
                 {entries.map((contribution) => (
                   <RowButton

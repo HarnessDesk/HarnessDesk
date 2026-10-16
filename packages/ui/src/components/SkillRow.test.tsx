@@ -26,6 +26,6 @@ it('keeps every existing warning before update news and news before quiet findin
   expect(findingFor({ ...value, copies: value.copies.map(c => ({ ...c, hollow: true })) }, [])?.text).toBe('Empty on disk')
   expect(findingFor({ ...value, reach: [{ runtime: runtimeId('alpha'), state: 'rejected', basis: 'reported' }] }, [{ id: runtimeId('alpha'), label: 'Alpha' }])?.text).toBe('Refused by Alpha')
   expect(findingFor({ ...value, copies: [...value.copies, { ...value.copies[0]!, path: '/home/jane/.beta/skills/review', digest: 'two' }] }, [])?.text).toBe('2 copies differ')
-  expect(findingFor({ ...value, copies: value.copies.map(c => ({ ...c, readBy: [] })), reach: [{ runtime: runtimeId('alpha'), state: 'absent', basis: 'scanned' }] }, [])?.text).toBe('Where no agent looks')
+  expect(findingFor({ ...value, copies: value.copies.map(c => ({ ...c, readBy: [] })), reach: [{ runtime: runtimeId('alpha'), state: 'absent', basis: 'scanned' }] }, [])?.text).toBe('Where no runtime looks')
   for (const state of ['off', 'stale'] as const) expect(findingFor({ ...value, reach: [{ runtime: runtimeId('alpha'), state, basis: 'scanned' }] }, [])?.text).toBe('Update available')
 })

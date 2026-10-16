@@ -29,8 +29,8 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-start=fix-and-review&theme=${theme}`)
 
-    const writes = page.getByRole('button', { name: 'Agent for Writes' })
-    const reviews = page.getByRole('button', { name: 'Agent for Reviews' })
+    const writes = page.getByRole('button', { name: 'Runtime for Writes' })
+    const reviews = page.getByRole('button', { name: 'Runtime for Reviews' })
     await expect(writes).toHaveAttribute('aria-expanded', 'false')
     await expect(writes).toHaveText('Automatic · Nothing can run')
     await expect(reviews).toHaveAttribute('aria-expanded', 'false')

@@ -662,7 +662,7 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
         const repeatsInReviewLoop = seat.reviews && flow.rules.some(rule => rule.on === seat.role && rule.then.role === flow.seed.role)
         const alternative = alternativeFor(seat)
         return <Row key={`${role.id}-${seat.index}`} title={<span className={styles.roleTitle}>{label}{repeatsInReviewLoop && <Chip tone="neutral" size="sm">Fresh each round</Chip>}</span>} desc={!seatTaken(seat.plan) ? firstReason(seat.plan, snapshot.runtimes) ?? undefined : undefined}
-          mark={picked ? <RuntimeMark runtime={snapshot.runtimes.find(one => one.id === picked.runtime) ?? { id: picked.runtime, presentation: { name: 'Selected agent' } }} size={16} /> : <AgentIcon size={16} />}
+          mark={picked ? <RuntimeMark runtime={snapshot.runtimes.find(one => one.id === picked.runtime) ?? { id: picked.runtime, presentation: { name: 'Selected runtime' } }} size={16} /> : <AgentIcon size={16} />}
           control={<div className={styles.roleControls}>
             <TeamSeatControls label={label} seat={configured} automaticSeat={automatic?.seat} automaticName={automaticName} disabled={disabled} onChange={next => { if (next) chooseSeat(seat, next) }} />
             {alternative && <Button variant="secondary" size="sm" disabled={disabled} onClick={() => chooseSeat(seat, { runtime: alternative.id })}>Use {alternative.presentation.name}</Button>}
@@ -735,11 +735,11 @@ const TeamSeatControls = ({ label, seat, automaticSeat, automaticName, disabled,
   const selectedRuntime = snapshot.runtimes.find(one => one.id === seat?.runtime)
   const agentChoices = [
     ...(optional ? [{ value: '', label: 'You' }] : !seat ? [{ value: '', label: automaticName ? `Automatic · ${automaticName}` : 'Automatic · Nothing can run' }] : []),
-    ...(seat && !snapshot.runtimes.some(one => one.id === seat.runtime) ? [{ value: seat.runtime, label: 'Selected agent' }] : []),
+    ...(seat && !snapshot.runtimes.some(one => one.id === seat.runtime) ? [{ value: seat.runtime, label: 'Selected runtime' }] : []),
     ...snapshot.runtimes.map(one => ({ value: one.id, label: one.presentation.name })),
   ]
   return <>
-    <div className={styles.agentSelect}><TeamSeatPicker label={`Agent for ${label}`} title={selectedRuntime?.presentation.name ?? automaticName ?? undefined} disabled={disabled} value={seat?.runtime ?? ''} choices={agentChoices}
+    <div className={styles.agentSelect}><TeamSeatPicker label={`Runtime for ${label}`} title={selectedRuntime?.presentation.name ?? automaticName ?? undefined} disabled={disabled} value={seat?.runtime ?? ''} choices={agentChoices}
       onChange={value => onChange(value ? { runtime: value } : undefined)} /></div>
     {(!optional || seat) && <><TeamSeatPicker label={`Model for ${label}`} disabled={disabled || !effectiveSeat} value={seat?.model ?? ''}
       choices={[{ value: '', label: 'Default model' },

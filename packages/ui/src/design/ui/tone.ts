@@ -259,3 +259,12 @@ export const tintsFor = (keys: readonly string[]): Tint[] => {
 
 export type ToneProps = VariantProps<typeof softTone>
 export type TintProps = VariantProps<typeof softTint>
+
+/** The shared brand palette; account rings have their own preference. */
+const RUNTIME_BRAND_TINTS = new Map<string, Tint>([
+  ['codex', 'violet'], ['claudecode', 'amber'], ['cursor', 'green'],
+])
+
+/** A runtime brand keeps one identity tint across templates, accounts and lists. */
+export const tintForRuntimeBrand = (brand: string): Tint =>
+  RUNTIME_BRAND_TINTS.get(brand) ?? tintFor(brand)

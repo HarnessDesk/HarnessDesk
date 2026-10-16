@@ -19,7 +19,7 @@ export const SYSTEM_NOTIFICATION_KINDS: readonly SystemNotificationKind[] = [
   {
     kind: 'turns',
     title: 'Finished turns',
-    detail: 'An agent finished while you were elsewhere.',
+    detail: 'A runtime finished while you were elsewhere.',
   },
   {
     kind: 'failures',
@@ -29,12 +29,12 @@ export const SYSTEM_NOTIFICATION_KINDS: readonly SystemNotificationKind[] = [
   {
     kind: 'approvals',
     title: 'Approvals',
-    detail: 'An agent wants to run a command, edit files, or widen its sandbox.',
+    detail: 'A runtime wants to run a command, edit files, or widen its sandbox.',
   },
   {
     kind: 'needsYou',
     title: 'Needs you',
-    detail: 'An agent asked you a question.',
+    detail: 'A runtime asked you a question.',
   },
   {
     kind: 'goalNeedsYou',

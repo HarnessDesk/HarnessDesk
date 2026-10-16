@@ -395,6 +395,7 @@ describe('sidebar destinations', () => {
     expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(6)
     expect(rows.map((one) => one.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim())).toEqual([undefined, undefined, undefined, undefined, undefined, '1'])
     expect(group.querySelectorAll('[data-left-trailing]')).toHaveLength(6)
+    expect(rows[5]?.parentElement?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('1 Runtimes need attention')
   })
 
   it('fills the active row when its destination window is open', () => {

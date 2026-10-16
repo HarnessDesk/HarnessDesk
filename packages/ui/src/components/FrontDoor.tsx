@@ -314,7 +314,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   const startReason = starting ? 'Starting the Team…'
     : openingProject ? 'Opening the project…'
     : problem ? 'Resolve the shape error first.'
-    : readingAccounts ? 'Reading signed-in agents…'
+    : readingAccounts ? 'Reading signed-in runtimes…'
     : !flow ? 'Reading the shape…'
     : !sentenceValid ? task.trim() ? 'Keep Done when to 2,000 characters.' : 'Add a task first.'
     : briefReading ? 'Reading the attached brief…'

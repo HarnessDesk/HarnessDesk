@@ -490,9 +490,9 @@ export const PreferFieldDialog = ({
           )}
         />
         <DropdownMenuContent align="start">
-          {snapshot.runtimes.length >= 6 && <MenuSearch label="Search Agents" value={seatQuery} onChange={setSeatQuery} autoFocus />}
+          {snapshot.runtimes.length >= 6 && <MenuSearch label="Search runtimes" value={seatQuery} onChange={setSeatQuery} autoFocus />}
           {shownSeats.map(one => <DropdownMenuItem key={one.id} label={one.presentation.name} onClick={() => addSeat(one.id)} />)}
-          {shownSeats.length === 0 && <MenuNote>No Agents match.</MenuNote>}
+          {shownSeats.length === 0 && <MenuNote>No runtimes match.</MenuNote>}
         </DropdownMenuContent>
       </DropdownMenu>
       <Note>

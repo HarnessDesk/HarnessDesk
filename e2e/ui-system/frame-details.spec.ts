@@ -34,7 +34,7 @@ for (const theme of WALL_THEMES) {
       if (state === 'armed') {
         // A draft has no reported permission ceiling. Its facts must not
         // invent one merely to match a conversation's row count.
-        await expect(body.locator('[aria-label="Conversation facts"] dt')).toHaveText(['Agent', 'Folder', 'Branch', 'Context'])
+        await expect(body.locator('[aria-label="Conversation facts"] dt')).toHaveText(['Runtime', 'Folder', 'Branch', 'Context'])
       } else expect(keyWidths).toHaveLength(5)
       for (const width of keyWidths) expect(width).toBe(FRAME.summaryKey.panel)
       await page.evaluate(async () => { await document.fonts.ready })

@@ -2241,3 +2241,21 @@ title. General, runtime New sessions and Permissions › Approvals show a
 refused recommendation in the shared warning Banner while leaving
 the choice rows available for recovery. This section adds no control or token
 spelling of its own.
+
+## Runtime brand identity and registry browsing
+
+A runtime brand keeps one tint from the design system's `tintForRuntimeBrand`
+palette. Pure selectors read it through the DOM-free `design/identity` entrypoint.
+`runtimeTint` resolves its presentation brand with the same rule as
+its glyph; account preferences colour account rings, not brand tiles. Templates,
+registered runtimes, Library loading faces and Usage's Plans and ranked faces
+use that same answer, including free and metered plans. Usage runtime series
+share their ranked face's tint. Later runtimes with a duplicate tint take unused
+roster tints for both the series and ranked face; other brand faces retain the
+shared palette. Library
+uses `AvatarStack overlap={false}` with the spacing token so every mark stays
+whole; other membership stacks retain their overlap.
+
+Add a runtime keeps the machine's catalogue first. Browse more… reveals the
+registry, with one MenuNote for its third-party, unreviewed status. It does not
+change an entry's add, download, blocked or registered behaviour.

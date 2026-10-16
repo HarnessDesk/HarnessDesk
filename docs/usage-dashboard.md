@@ -812,7 +812,7 @@ is about to run out, so `sortRows` puts the account about to bite first — any
 `'out'` row leads regardless of its percentage, then by what is left (a tie
 breaks by status severity, then the soonest reset, then the runtime and the
 account, so the order is stable across refreshes), then the shapes with
-nothing measurable, `'none'` last of all. Built on `design/ui/table`, with Account, Status, Left, Resets and a trailing detail button. The plain account cell centres its identity face beside the account and its runtime/window fact; the face uses that report account's own tint, even when one runtime has several accounts. The shape filters show only nonzero counts, as “All · N”, and return to All when the selected shape has no accounts. A runtime already represented by a ledger row is counted once; its sign-in action stays in the expanded detail.
+nothing measurable, `'none'` last of all. Built on `design/ui/table`, with Account, Status, Left, Resets and a trailing detail button. The plain account cell centres its identity face beside the account and its runtime/window fact; the face keeps the runtime's brand tint, with account initials distinguishing multiple signed-in accounts. The shape filters show only nonzero counts, as “All · N”, and return to All when the selected shape has no accounts. A runtime already represented by a ledger row is counted once; its sign-in action stays in the expanded detail.
 
 Left is one reading per shape: a continuous bar and percent for a window or allowance, the prepaid amount and a known approximate turn count for a balance, remaining budget for a metered key, and “No limit” for a free tier or unbudgeted key. The status says Ready, Low, On overage, Out or Not reporting, using the same word and tone in the row and its expanded frame. Below 640px, Account, Status, Left and the detail button remain. Enter, Space or a click on its Details button expands the row, and Escape collapses it and returns focus to the button.
 
@@ -1028,8 +1028,8 @@ than a month.
 names the runtime that spent it, and the band summed that away into one grey
 column — so a $40 Tuesday split three ways looked exactly like a $40 Tuesday
 spent by one agent, and the ranked table underneath had nothing above it to
-explain. The columns are stacked, keyed by the same tints the table below
-uses, with a name-only key under the axis. A day with nothing spent draws no
+explain. The columns are stacked in the roster's chart tints, with a
+name-only key under the axis. A day with nothing spent draws no
 column at all: the old chart gave every empty day a 2px stub, so a fortnight
 of not working read as a fortnight of small spending.
 
@@ -1324,10 +1324,14 @@ way and said `% used`.
 
 Colour follows the rule `design/ui/tone` sets: a series takes a **tint**
 because "which agent" identifies, a meter takes a **tone** because "12% left"
-judges. `tintsFor` assigns a set of series their hues at once — resolved across
-every registered agent in the roster rather than only the active rows, so an
-agent keeps one stable colour whether you view the full month or click into one
-runtime.
+judges. Runtime series resolve the shared brand tint across every registered
+agent rather than only active rows, so the ranked face, legend dot, share
+segment and bar agree across ranges and scopes. The first runtime with a tint
+keeps it; later duplicates take the next unused tint from `tintsFor`'s roster
+palette, with all distinct brand tints reserved first. Past the eight-hue
+palette, tints repeat. Plans faces retain the shared brand palette, including
+free and metered accounts. Other pivots and the folded Other row keep their
+existing palette.
 
 ## Switching an agent off
 

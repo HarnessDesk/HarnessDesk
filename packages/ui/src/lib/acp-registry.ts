@@ -82,8 +82,8 @@ export const registryRunSentence = (agent: AcpRegistryAgentInfo): string => {
   }
   if (agent.run === 'binary') {
     return agent.integrity === 'none'
-      ? `Adding it downloads the agent's own build for this machine into HarnessDesk's data folder; the registry publishes no checksum for this build, so the download cannot be verified. Removing the agent deletes the download too.`
-      : `Adding it downloads the agent's own build for this machine into HarnessDesk's data folder; removing the agent deletes the download too.`
+      ? `Adding it downloads the runtime's own build for this machine into HarnessDesk's data folder; the registry publishes no checksum for this build, so the download cannot be verified. Removing the runtime deletes the download too.`
+      : `Adding it downloads the runtime's own build for this machine into HarnessDesk's data folder; removing the runtime deletes the download too.`
   }
-  return `Runs through ${agent.run}, which fetches the agent on first start — nothing to install now.`
+  return `Runs through ${agent.run}, which fetches the runtime on first start — nothing to install now.`
 }
