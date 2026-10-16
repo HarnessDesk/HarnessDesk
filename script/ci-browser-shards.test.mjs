@@ -32,13 +32,15 @@ test('browser CI sizes its shards to the work, up to sixteen, with time for setu
   assert.match(browser, /^      fail-fast: false$/m)
 })
 
-test('the plan reaches the shards through the change job, and a manual run can name its matrix', () => {
+test('the plan reaches the shards and metadata selects the tier, with manual dispatch always full', () => {
   const changes = job('changes')
   for (const output of ['browser_specs', 'matrix', 'shard_count', 'shards']) {
     assert.ok(changes.includes(`      ${output}: \${{ steps.paths.outputs.${output} }}`), output)
   }
-  assert.match(workflow, /^  workflow_dispatch:\n    inputs:\n      matrix:\n[\s\S]*?options: \[full, pr\]\n        default: full$/m)
-  assert.ok(changes.includes('UI_SYSTEM_MATRIX_REQUEST: ${{ inputs.matrix }}'))
+  assert.match(workflow, /^  workflow_dispatch:$/m)
+  assert.match(workflow, /types: \[opened, synchronize, reopened, labeled, unlabeled\]/)
+  assert.ok(changes.includes('CI_HEAD_BRANCH: ${{ github.head_ref }}'))
+  assert.ok(changes.includes('CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}'))
   assert.match(changes, /UI_THEME_TOUCHED="\$theme" node script\/ci-changes\.mjs/)
   // The diff that decides it is the UI's own, between the base parent and the merge.
   assert.match(changes, /git diff --no-renames -U0 HEAD\^1 HEAD -- packages\/ui /)
