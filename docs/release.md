@@ -116,8 +116,10 @@ script reads check-runs for the PR's head SHA, requires `Build, typecheck, test`
 and `UI system native integration` to have completed successfully. It also
 requires the newest `CI tier: full` check to have succeeded in the same workflow
 check suite as those required checks. An ordinary pull request's bounded run
-cannot land: add `full-ci` (which starts a new full run), or land reviewed work
-through a `batch/` pull request, which always runs full CI. Manual dispatches
+checks core CI only; browser shards, server-facing browser specs and native
+smoke are intentionally skipped. Local `pnpm check:push` still selects reached
+and edited browser specs, listed in the CI summary. Bounded success cannot
+land: add `full-ci` (which starts a new full run), or land reviewed work through a `batch/` pull request, which always runs full CI. Manual dispatches
 and pushes to `main` also run the full suite. The script checks
 that both the head and base branch tip stayed put
 before it asks GitHub to squash-merge that exact head. This avoids the stale
