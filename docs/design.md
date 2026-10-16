@@ -2139,3 +2139,11 @@ across diff readers. Multi-file patches add Collapse all files / Expand all
 files and a file list with Show files (on) and Group files by folder (off).
 File headings and counts stay visible when collapsed or when the list is hidden.
 The code board includes a narrow long-line and multi-file specimen.
+
+New Team access refusals belong beside the affected agent row, in ordinary
+words naming the access and the choice that fixes it. Automatic skips
+incompatible preferences. A disabled Start points to the problem below;
+it does not send someone above the form to find an unexplained dry run.
+The dedicated [New Team access specimen](../packages/ui/front-door-edit.html)
+shows the edit-first form; its `before` query reproduces the former publish
+grant without relaxing the admission policy.

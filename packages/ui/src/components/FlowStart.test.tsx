@@ -1,3 +1,4 @@
+import { EDIT_TEAM_START_POLICY } from '../preview/front-door-edit-fixture'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -431,9 +432,9 @@ it('renders provider warnings, held-ceiling refusals, and additional provider re
   await act(async () => {})
 
   expect(container.textContent).toContain('Same provider as the writer')
-  expect(container.textContent).toContain('cannot hold read')
+  expect(container.textContent).toContain('cannot enforce read-only access')
   // Delta's alsoPassed reason renders beside its primary one; Alpha's alone would not prove it.
-  expect(container.textContent).toMatch(/only asked — Same provider as the writer/)
+  expect(container.textContent).toMatch(/Choose another agent that supports this access\. — Same provider as the writer/)
   expect(container.textContent).not.toContain('Can’t confirm a different provider from the writer')
   expect(container.textContent).toContain('Picked')
   expect(container.textContent).toContain(warning)
@@ -869,4 +870,17 @@ it.each(['judge', 'reviewer'].flatMap(roleId => [{ repeated: false, disabled: fa
   act(() => use.click())
   if (disabled) { expect(onPolicy).not.toHaveBeenCalled(); return }
   expect(onPolicy).toHaveBeenCalledWith({ ...flow, roles: flow.roles.map(role => role.id === roleId ? { ...role, seats: repeated ? [{ runtime: 'read-holder' }, { runtime: 'unheld' }] : [{ runtime: 'read-holder' }] } : role) })
+})
+
+
+it('explains an edit refusal next to Writes and offers a compatible runtime', async () => {
+  const refused = seat('fixer', false)
+  const plan = { ...refused.plan, winner: null, ceiling: null, candidates: [candidate({ seat: { runtime: 'alpha' }, runtimeName: 'Runtime Alpha', state: 'passed', reason: { kind: 'unheld', level: 'edit', detail: null, required: true }, fix: { kind: 'seats' } })] }
+  await renderTeam(EDIT_TEAM_START_POLICY, [{ ...refused, plan }], [
+    { id: 'alpha', presentation: { name: 'Runtime Alpha' }, ceilings: {} } as never,
+    { id: 'beta', presentation: { name: 'Runtime Beta' }, ceilings: { edit: { settings: [], how: 'Workspace guard' } } } as never,
+  ])
+  expect(container.textContent).toContain('Runtime Alpha cannot enforce editing and local commits without publishing. Choose another agent that supports this access.')
+  expect(container.querySelector('select[aria-label="Agent for Writes"]')).not.toBeNull()
+  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Use Runtime Beta')).toBe(true)
 })

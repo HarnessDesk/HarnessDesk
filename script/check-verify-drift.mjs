@@ -281,6 +281,23 @@ export const missingFromCI = (gate, workflow) => {
   return missing
 }
 
+// Command parity alone cannot see whether the browser tier can be requested or
+// proved. Keep the workflow's inputs and visible check tied to the planner.
+export const tierProblems = yaml => {
+  const required = [
+    'types: [opened, synchronize, reopened, labeled, unlabeled]',
+    'CI_HEAD_BRANCH: ${{ github.head_ref }}',
+    'CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}',
+    'tier: ${{ steps.paths.outputs.tier }}',
+    'name: UI integration inputs',
+    'name: "CI tier: ${{ needs.changes.outputs.tier }}"',
+    'UI_SYSTEM_MATRIX: ${{ needs.changes.outputs.matrix }}',
+  ]
+  const executable = yaml.split('\n').filter(line => !line.trimStart().startsWith('#'))
+  return required.filter(line => !executable.some(candidate => candidate.trim() === line))
+    .map(line => `CI tier wiring missing: ${line}`)
+}
+
 if (isMain) {
   let gate
   try {
@@ -290,7 +307,13 @@ if (isMain) {
     process.exit(1)
   }
 
-  const workflow = ciCommands(readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'))
+  const yaml = readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8')
+  const workflow = ciCommands(yaml)
+  const tierErrors = tierProblems(yaml)
+  if (tierErrors.length > 0) {
+    process.stderr.write(`${tierErrors.join('\n')}\n`)
+    process.exit(1)
+  }
 
   if (workflow.length === 0) {
     process.stderr.write('.github/workflows/ci.yml parsed zero run: steps. The check cannot verify parity.\n')

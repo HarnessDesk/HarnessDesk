@@ -200,10 +200,19 @@ CONTRIBUTING.md name every step the gate runs.
 
 CI deliberately excludes the Codex protocol drift check, which needs a real
 `codex` binary the runner lacks. The local gate and CI are held to the same
-commands by `script/check-verify-drift.mjs`: every other command `pnpm verify`
+commands by `script/check-verify-drift.mjs`, which also checks the tier trigger
+and proof wiring: every other command `pnpm verify`
 runs must also be in the workflow, and the one exception is recorded, with its
 reason, in that script's `NOT_IN_CI`. Run it **unpiped**: `pnpm verify | tail`
 reports the exit status of `tail`, which has hidden a red run before now.
+
+Browser CI is bounded on ordinary pull requests: edited specs are mandatory,
+with inferred coverage capped at four shards using the PR geometry matrix.
+The summary lists deferred specs. Pushes to `main`, `batch/` pull requests,
+`full-ci` pull requests and manual dispatches run every spec in both themes.
+Required check names stay fixed; the separate `CI tier: full` check proves the
+full tier to `script/land-safe.mjs`, which refuses bounded evidence. See
+CONTRIBUTING.md for the selection budget and its limits.
 
 ## Writing plugins
 

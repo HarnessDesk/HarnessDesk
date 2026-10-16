@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { recordedSeconds, shardCount, specFiles } from './ci-browser-shards.mjs'
+import { plan as deal, recordedSeconds, shardCount, specFiles } from './ci-browser-shards.mjs'
 import { IMPORT, SOURCE, SPEC, resolveHelper, specsReaching, suiteGraph, uiPackages } from './ci-imports.mjs'
 import { environmentAt, filesAtBase, impactPlan, readMap, uiExternalImports, uiSource } from './ui-impact.mjs'
 
@@ -131,21 +131,51 @@ export const themeDiff = diff => diff.split('\n').some(line => /^[+-]/.test(line
 // in an output is a second output.
 const oneLine = text => String(text).replace(/[\u0000-\u001f\u007f]+/g, ' ')
 
-// What the browser job runs for this change, and how it is sized. A pull request
-// that only touches the suite runs the specs it can reach, all of their tests.
-// One that touches the UI's own source runs the specs in which that source ran,
-// when there is a map of that (`impact`); without one, or when the map cannot
-// speak for a file, it runs every spec. Either way it reads the geometry contracts
-// in the light theme only, unless the diff itself is about themes (`themeTouched`):
-// `main` and a manual run read both everywhere, and run every spec. See
-// `playwright.ui-system.config.ts` for what the pull-request matrix leaves out.
-export function browserPlan(root, { browser, inputs, serverInputs, event, themeTouched, request, baseText = textAtBase, impact = null }) {
+// Ordinary PRs spend at most four shards on inferred coverage. Edited specs are
+// mandatory even if they alone exceed the time budget; they still use four runners.
+export const PR_MAX_SHARDS = 4
+export const PR_SHARD_SECONDS = 1000
+export const ciTier = ({ event, headBranch = '', labels = [] }) =>
+  event !== 'pull_request' || headBranch.startsWith('batch/') || labels.includes('full-ci') ? 'full' : 'bounded'
+
+function boundedSpecs(root, candidates, inputs, impact) {
+  const all = new Set(specFiles(root).map(spec => `e2e/ui-system/${spec}`))
+  const mandatory = inputs.filter(path => SPEC.test(path) && all.has(path))
+  const seconds = recordedSeconds(root, 'pr')
+  const relative = specs => specs.map(spec => spec.slice('e2e/ui-system/'.length))
+  const fits = specs => Math.max(...deal(relative(specs), seconds, PR_MAX_SHARDS).map(shard => shard.load)) <= PR_SHARD_SECONDS
+  // A spec reached by a small group of inputs is more specific than one reached
+  // only by a shared stylesheet. Use the selector itself, including helper imports.
+  const specificity = new Map()
+  for (const path of fits(candidates) ? [] : inputs) {
+    let reached = null
+    if (path.startsWith('e2e/ui-system/')) reached = affectedSpecs(root, [path])
+    else if (impact && uiSource(path)) {
+      const specs = impactPlan(root, [path], impact).specs
+      if (specs) reached = specs.map(spec => `e2e/ui-system/${spec}`)
+    }
+    if (reached) for (const spec of reached) specificity.set(spec, Math.min(specificity.get(spec) ?? Infinity, reached.length))
+  }
+  const selected = [...new Set(mandatory)].sort()
+  const overBudget = !fits(selected)
+  const deferred = []
+  for (const spec of [...candidates].sort((a, b) => (specificity.get(a) ?? Infinity) - (specificity.get(b) ?? Infinity) || a.localeCompare(b))) {
+    if (selected.includes(spec)) continue
+    if (fits([...selected, spec])) selected.push(spec)
+    else deferred.push(spec)
+  }
+  let count = shardCount(relative(selected), seconds, { target: PR_SHARD_SECONDS, max: PR_MAX_SHARDS })
+  while (count < PR_MAX_SHARDS && count < selected.length && Math.max(...deal(relative(selected), seconds, count).map(shard => shard.load)) > PR_SHARD_SECONDS) count++
+  return { selected: selected.sort(), deferred: deferred.sort(), count, overBudget }
+}
+
+export function browserPlan(root, { browser, inputs, serverInputs, event, tier = ciTier({ event }), impact = null }) {
   const all = specFiles(root).map(spec => `e2e/ui-system/${spec}`)
   let selected = null
   let basis = ''
   const suiteInputs = inputs.filter(path => path.startsWith('e2e/ui-system/'))
   const uiInputs = inputs.filter(path => !path.startsWith('e2e/ui-system/'))
-  if (browser === 'all' && event === 'pull_request' && inputs.length > 0 && uiInputs.every(uiSource) && (uiInputs.length === 0 || impact)) {
+  if (browser === 'all' && tier === 'bounded' && inputs.length > 0 && uiInputs.every(uiSource) && (uiInputs.length === 0 || impact)) {
     const reached = suiteInputs.length > 0 ? affectedSpecs(root, suiteInputs) : []
     const touched = uiInputs.length > 0 ? impactPlan(root, uiInputs, impact) : { specs: [] }
     if (uiInputs.length > 0 && touched.specs === null) basis = oneLine(touched.reason)
@@ -155,39 +185,34 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, themeT
     }
   }
   if (browser === 'all' && selected && selected.length === 0) browser = 'none'
-  // Anything that can change how every page renders reads both themes: a shared
-  // build input, the browser configuration that decides the matrix, the CI that
-  // runs it, and any edit to the suite itself (its author wrote a test to see it
-  // run, in the theme it names).
-  const broad = inputs.some(path => SHARED.some(pattern => pattern.test(path)) || UI_BUILD.test(path) || path.startsWith('e2e/ui-system/') || /^playwright\.ui-system\.config\.ts$|^script\/ci-browser-shards\.mjs$/.test(path))
-  const matrix = request === 'pr' || request === 'full'
-    ? request
-    : event === 'pull_request' && inputs.length > 0 && !themeTouched && !broad && !themeInputs(root, inputs, baseText) ? 'pr' : 'full'
-  const specs = selected ?? all
+  const matrix = tier === 'bounded' ? 'pr' : 'full'
+  const bounded = tier === 'bounded' && browser === 'all' ? boundedSpecs(root, selected ?? all, inputs, impact) : null
+  if (bounded && (selected !== null || bounded.deferred.length > 0)) selected = bounded.selected
   const count = browser === 'all'
-    ? shardCount(specs.map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix))
+    ? bounded?.count ?? shardCount(all.map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix))
     : 0
   return {
-    browser, matrix, count,
+    browser, matrix, count, tier, deferred: bounded?.deferred ?? [],
     // A run of the whole suite in both themes records what each spec ran, to plan the pull requests after it.
     record: browser === 'all' && matrix === 'full' && selected === null,
     specs: selected ? JSON.stringify(selected) : 'all',
     shards: JSON.stringify(Array.from({ length: Math.max(1, count) }, (_, index) => index + 1)),
-    summary: browser === 'all'
-      ? `Browser suite: ${selected ? `${selected.length} of ${all.length} specs` : `all ${all.length} specs`}, ${matrix === 'pr' ? 'pull-request' : 'full'} theme matrix, ${count} shard${count === 1 ? '' : 's'}.${basis ? ` ${selected ? 'Selected by' : 'Not narrowed:'} ${basis}.` : ''}`
-      : `Browser suite: ${browser === 'server' ? 'server-facing specs only' : 'not needed for this change'}.`,
+    summary: `CI tier: ${tier}. ` + (browser === 'all'
+      ? `Browser suite: ${selected ? `${selected.length} of ${all.length} specs` : `all ${all.length} specs`}, ${matrix === 'pr' ? 'pull-request' : 'full'} theme matrix, ${count} shard${count === 1 ? '' : 's'}.${basis ? ` ${basis.includes('map of') ? 'Selected by' : 'Not narrowed:'} ${basis}.` : ''}`
+      : `Browser suite: ${browser === 'server' ? 'server-facing specs only' : 'not needed for this change'}.`) + (bounded?.overBudget ? ' Mandatory edited specs exceed the planned time budget; all still run.' : '') + (bounded?.deferred.length ? ` Deferred to full tier (${bounded.deferred.length}): ${bounded.deferred.map(oneLine).join(', ')}.` : ''),
   }
 }
 
 // CI's merge commit names its base as HEAD^1. A local caller can name its merge
 // base instead, so theme and impact-map freshness answer for the same change.
-export function planChange(root, { event, paths, themeTouched = false, request = '', map = null, baseRevision = 'HEAD^1' }) {
+export function planChange(root, { event, paths, headBranch = '', labels = [], map = null, baseRevision = 'HEAD^1' }) {
+  const tier = ciTier({ event, headBranch, labels })
   const inputs = uiPackages(root)
   const specs = serverSpecs(root, inputs)
   let decision = { browser: 'all', native: true }
   let browserInputs = []
   let serverInputs = false
-  if (event === 'pull_request' && paths) {
+  if (tier === 'bounded' && paths) {
     try {
       // A name with a control character in it is not one to plan from: run everything.
       if (paths.length > 0 && paths.every(path => path.length > 0 && !path.startsWith('/') && !path.split('/').includes('..') && !/[\u0000-\u001f\u007f]/.test(path))) {
@@ -205,14 +230,13 @@ export function planChange(root, { event, paths, themeTouched = false, request =
     }
   }
   const plan = browserPlan(root, {
-    browser: decision.browser, inputs: browserInputs, serverInputs, event,
-    themeTouched, request, baseText: (root, path) => textAtBase(root, path, baseRevision),
+    browser: decision.browser, inputs: browserInputs, serverInputs, event, tier,
     impact: map ? { map, baseFiles: () => filesAtBase(root, baseRevision), baseEnvironment: () => environmentAt(root, baseRevision) } : null,
   })
   return {
     browser: plan.browser, native: decision.native, server_specs: JSON.stringify(specs),
     browser_specs: plan.specs, matrix: plan.matrix, shard_count: plan.count, shards: plan.shards,
-    record: plan.record, summary: plan.summary,
+    record: plan.record, tier, summary: plan.summary,
   }
 }
 
@@ -230,12 +254,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const mapFile = process.env.UI_IMPACT_MAP
   const plan = planChange(root, {
     event: process.env.GITHUB_EVENT_NAME, paths,
-    themeTouched: process.env.UI_THEME_TOUCHED === 'true',
-    request: process.env.UI_SYSTEM_MATRIX_REQUEST ?? '', map: mapFile ? readMap(mapFile) : null,
+    headBranch: process.env.CI_HEAD_BRANCH ?? '', labels: JSON.parse(process.env.CI_LABELS || '[]'),
+    map: mapFile ? readMap(mapFile) : null,
   })
   process.stdout.write([
     `browser=${plan.browser}`, `native=${plan.native}`, `server_specs=${plan.server_specs}`,
     `browser_specs=${plan.browser_specs}`, `matrix=${plan.matrix}`, `shard_count=${plan.shard_count}`, `shards=${plan.shards}`, `record=${plan.record}`,
-    `summary=${plan.summary}`, '',
+    `tier=${plan.tier}`, `summary=${plan.summary}`, '',
   ].join('\n'))
 }

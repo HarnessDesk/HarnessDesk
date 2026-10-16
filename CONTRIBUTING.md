@@ -54,76 +54,53 @@ local gate does not replace those CI results.
 
 On pull requests, “Build, typecheck, test” always runs. It stands for the whole
 gate and is green only when each of four jobs that run side by side is: the
-Node tests, the Node end-to-end tests, the UI tests, and the checks. Browser
-integration selects one of three modes: `all` runs the browser shards for changes
-to the UI, its transitive workspace dependencies (read from package manifests),
-browser specs/configuration, or shared root inputs. The shards are dealt by how
-long each spec file takes, not by how many tests it holds
-(`script/ci-browser-shards.mjs`, from `e2e/ui-system/durations.json` and
-`durations.pr.json`), and each runs two browsers at once. A run gets as many
-shards as its work needs, one to sixteen, so a change
-that reaches one spec does not pay for sixteen runners.
+Node tests, the Node end-to-end tests, the UI tests, and the checks.
 
-Two rules keep a pull request from running more than it can learn from:
+Browser integration has two tiers. Ordinary pull requests use the **bounded**
+tier. A push to `main`, a pull request whose head branch starts with `batch/`,
+a pull request labelled `full-ci`, and a manual dispatch use the **full** tier.
+Adding or removing a label starts a new run. The full tier runs every browser
+spec in both themes, with the existing matrix of up to sixteen shards, and
+native smoke. A check named `CI tier: bounded` or `CI tier: full`, the browser
+aggregate's log and the job summary identify what ran. Required check names stay
+the same; bounded success satisfies branch protection, but landing requires full
+CI. Use a batch branch or add `full-ci` before landing an individual pull request.
 
-- **A change to the suite alone runs the specs it can reach.** The selector
-  follows imports, `new URL('./helper', import.meta.url)` loads and any spec that
-  names a helper, so a changed spec runs itself and a changed helper runs the
-  specs that use it, in both themes. A data file a spec reads at run time, a
-  deleted helper, or any change outside the suite cannot be traced and runs
-  every spec. Edits to `durations.json` open no browser: they only change how
-  specs are dealt.
-- **A pull request that touches the UI reads the geometry contracts in the light
-  theme.** The dark theme rewrites colours and nothing else, so a box measured
-  in it is the box measured in the light one. With `UI_SYSTEM_MATRIX=pr`
-  `playwright.ui-system.config.ts` skips the dark cases of the `frame-*` specs
-  that assert geometry; the specs that assert a colour (`COLOUR_SPECS` there, and
-  a gate test finds one that is missing) and every spec that is not a `frame-*`
-  spec read both. Pushes to `main` and runs started by hand read both themes
-  everywhere, so a dark-only regression is found when it lands and not before;
-  a pull request whose UI diff names a theme, that edits a stylesheet which
-  names one anywhere (a declaration added inside the dark block does not say so
-  itself), the foundation, the shared styles or the UI's build configuration, or
-  whose inputs are shared (the lockfile, root configuration, assets, CI, the
-  browser configuration), reads both too. To reproduce either run on a branch, start CI by hand
-  (`gh workflow run ci.yml --ref <branch> -f matrix=full`, or `-f matrix=pr`;
-  GitHub offers a manual run only for a workflow that is on the default branch).
-  Refresh `e2e/ui-system/durations.json` (dev server with coverage, both themes)
-  from the last five push runs of `main` that ran the whole suite, and
-  `durations.pr.json` (PR theme matrix, built pages where supported, dev server
-  elsewhere, no coverage) from one `workflow_dispatch` run of `ci.yml` on a
-  branch with `matrix=pr`: save each log with `gh run view <id> --log > run.log`,
-  then use `node script/ci-browser-shards.mjs --refresh run.log …` and write its
-  output to the corresponding table. A missing PR measurement uses the full
-  time scaled by the median PR/full ratio of shared specs (the full time if
-  none overlap); a stale table shows up as a shard much slower than its plan.
+The bounded tier always keeps added and edited spec files. It follows changed
+suite helpers and uses the impact map of main to find specs that ran changed UI
+source. Missing or stale evidence starts from the whole suite. It then keeps the
+most specific selections first (the smallest group reached by any changed input,
+with filenames breaking ties), within four shards of at most 1,000 recorded test
+seconds each. The deal is longest first onto the lightest shard, using
+`script/ci-browser-shards.mjs` and the duration tables under `e2e/ui-system`.
+Two workers share each shard. Edited specs are never dropped: if they alone
+exceed the estimated time budget, they still run on at most four shards and the
+summary reports the exception. Every deferred spec is listed in the summary.
+Estimates target a run under fifteen minutes on idle runners, not a deadline.
 
-A third rule narrows a change to the UI's own source, once there is a map of what
-the specs ran:
+The bounded tier uses `UI_SYSTEM_MATRIX=pr`: geometry contracts run in light;
+colour contracts and specs outside that geometry group retain both themes.
+The full tier uses `UI_SYSTEM_MATRIX=full` everywhere. An indirect regression or
+a dark geometry regression can escape a bounded run; the full run on the batch
+or labelled pull request catches it before main. Main also runs the full suite.
+`script/land-safe.mjs` refuses a bounded run even if all required checks pass;
+its newest full-tier proof must share the required checks' workflow check suite.
 
-- **A change to the UI's source runs the specs in which that source ran.** Every
-  full run (a push to `main`, a run started by hand, a pull request that has to
-  read everything) records, for each spec, which modules of the UI its page
-  loaded and in which of them a function ran; `script/ui-impact.mjs merge` folds
-  the shards' records into one map, and `main` keeps the newest in the Actions
-  cache. A pull request reads that map: a changed file runs the specs that ran
-  it, a stylesheet or a constant (nothing in it runs) runs the specs that ran
-  whoever imports it, and a file added or deleted also runs the specs that ran
-  the modules that load files by a pattern. A module that hands data to its
-  importers (`export const LABEL = …`) also runs the specs in which they ran, and
-  a stylesheet the bundler took into another (`@import`, `url()`) is followed to
-  whoever imports that. A spec the map has not seen, or whose own code or helpers
-  have changed since, always runs, and so does a spec that opens pages of its own
-  (the recorder sees only the page a test is given) or whose recording was not
-  complete (`playwright test --list` says how many tests it has). Anything the
-  map cannot speak for runs every spec: no map, a file that changed on the base
-  branch since the map was recorded, a change to the setup it was recorded in
-  (the browser configuration, dependencies, the pages, the workspace packages the
-  preview loads), a file outside the UI's source, a change to shared inputs. `main` always runs everything, so a miss is found there and fixed
-  forward. To see what a change would run, with a map downloaded from a run
-  (`ui-impact-map`): `node script/ui-impact.mjs select --map ui-impact-map.json --fresh <paths>`.
-  The recording is `script/ui-impact/test.ts`, a build of `@playwright/test` the
-  specs are pointed at only while recording; it costs under a tenth of a run.
+Every full browser run records the UI modules each spec loaded and ran.
+`script/ui-impact.mjs merge` folds the records into a map, and main caches it.
+A changed module selects the specs in which it ran; stylesheets and constants
+follow their importers, including data exports, bundler imports and glob loads.
+Unseen or changed specs and incomplete recordings join that selection before
+the bounded cap. To inspect the uncapped impact selection with a downloaded
+`ui-impact-map` artifact, run
+`node script/ui-impact.mjs select --map ui-impact-map.json --fresh <paths>`.
+The recording runner is `script/ui-impact/test.ts`.
+
+Refresh `e2e/ui-system/durations.json` from full main-run logs, and
+`durations.pr.json` from bounded PR-run logs without coverage, using
+`node script/ci-browser-shards.mjs --refresh run.log …`. The latter may take
+several runs to cover the suite. A missing PR time uses the full time scaled by
+the median PR/full ratio of shared specs; without overlap, it uses the full time.
 
 Non-recording browser shards share one build of `preview.html`, `design.html`,
 `narrow-overlay.html` and the embedded Seat page,
@@ -174,8 +151,8 @@ Desktop-only changes run native smoke.
 
 Native smoke still runs for every package change, its isolated rig and launch
 helpers. Shared manifests, the lockfile, root tool configuration, assets, CI
-or its selection script, and unreadable changed paths run the full browser
-suite and native smoke. The required browser check accepts only the selected
+or its selection script, and unreadable changed paths select the whole browser
+suite before the bounded cap, and run native smoke. The required browser check accepts only the selected
 job's success and the other job's intentional skip (or both skips for `none`);
 failed selection, failures, cancellations and unexpected skips fail it. The
 native required check also accepts intentional skips. Pushes to `main` always

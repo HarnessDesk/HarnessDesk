@@ -278,8 +278,7 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
     : !sentenceValid ? task.trim() ? 'Keep Done when to 2,000 characters.' : 'Add a task first.'
     : briefReading ? 'Reading the attached brief…'
     : policyPending || !preview ? 'Checking the seats and inputs…'
-    : errors.length ? 'Resolve the dry-run errors above.'
-    : !startable ? 'Resolve the dry-run requirements first.' : null
+    : errors.length || !startable ? 'See the problem below.' : null
   const changeShape = (): void => {
     if (chosen && source) drafts.current.set(`${chosen.origin}:${chosen.id}`, { source, vars, template: templates.current })
     sequence.current += 1

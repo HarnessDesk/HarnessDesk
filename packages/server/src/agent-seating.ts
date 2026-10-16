@@ -306,8 +306,10 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
       return `${runtime} could not open a conversation: ${reason.detail}`
     case 'openedOtherwise':
       return `${runtime} runs it ${reason.differences.map(fragmentOf).join(', and ')}`
-    case 'unheld':
-      return `${runtime} cannot hold ${reason.level}${reason.detail ? ` — ${quoted(reason.detail)}` : ''}, and ${reason.required ? 'a start from the front door needs every Seat to hold its ceiling' : 'this Mac refuses a seat whose ceiling is only asked'}`
+    case 'unheld': {
+      const access = { read: 'read-only access', edit: 'editing and local commits without publishing', publish: 'publishing changes', merge: 'merging changes' }[reason.level] ?? reason.level
+      return `${runtime} cannot enforce ${access}${reason.detail ? `: ${quoted(reason.detail)}` : ''}. Choose another agent that supports this access.`
+    }
     case 'sameProvider':
       return `${runtime} uses the same provider as the writer`
     case 'unknownProvider':

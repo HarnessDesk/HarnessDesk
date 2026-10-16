@@ -1373,7 +1373,10 @@ when empty uses the task as the Team's completion sentence. **Change**
 returns to the picker and preserves the typed task and each shape's edits.
 **Details** holds the remaining inputs, instruction files and dry-run facts.
 Write and review has one fresh independent reviewer and a maximum of one,
-two or three reviews, then either a reviewed merge or a handoff to the person.
+two or three reviews. Its writer may edit and commit locally. After approval,
+**Approve publishing the reviewed change** hands the reviewed revision and
+branch context to you; you decide whether to push the branch, open a pull
+request and merge it after checks, or drop it.
 
 The form shows placeholder rows while it reads the chosen shape and checks
 its seats. When **Start** is disabled, one line by the action explains what is
@@ -1396,7 +1399,11 @@ sentence and checkout choice already entered.
 
 The form reads the identical strict dry run before **Start**: every Seat must
 *hold* its ceiling here, so a runtime that can only be asked shows its exact
-refusal and fix rather than starting under a weaker policy. A read-only refusal
+refusal and fix beside its row rather than starting under a weaker policy.
+Automatic skips preferences that cannot enforce the required access. An edit
+refusal explains that editing and local commits must be enforced without
+publishing, and asks you to choose another agent. **See the problem below**
+points to the full explanation when Start is unavailable. A read-only refusal
 names the agent and explains that it can be asked to stay read-only but cannot
 be held to it, then offers choosing another agent or starting from **/race**.
 When another agent declares a control for the required ceiling, **Use &lt;agent&gt;**

@@ -5,7 +5,7 @@ import { runtimeId, DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowAgentRole, ty
 import { ActionError, Banner, Button, Chip, CodeText, DisclosureChevron, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Segmented, Switch, Text, Textarea } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
 import { boundInputValues } from '../lib/shapes'
-import { supportsAttemptCheck, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from '../lib/team-start'
+import { supportsAttemptCheck, supportsComparisonJudge, withAttemptCheck, withComparisonJudge, withReviewHandoff } from '../lib/team-start'
 import { evidenceGuardsWords, messagingWords } from '../lib/flows'
 import { stepName } from '../lib/flow-model'
 import { useSnapshot, useStore } from '../state/context'
@@ -671,12 +671,7 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
     </section>
     {hasReviewOptions && <div className={styles.options}>
       <Field label="Review rounds, at most">{() => <Segmented label="Review rounds, at most" value={String(Math.max(1, Math.min(3, Math.floor(((flow.budget?.rounds ?? 7) - 1) / 2))))} options={['1', '2', '3'].map(value => ({ value, label: value, disabled }))} onChange={value => onPolicy({ ...flow, budget: { rounds: Number(value) * 2 + 1, withoutProgress: flow.budget?.withoutProgress ?? 2 } })} />}</Field>
-      <Field label="When the review approves">{() => <Segmented label="When the review approves" value={flow.roles.find(one => one.id === 'referee')?.kind === 'agent' ? 'merge' : 'wait'} options={[{ value: 'merge', label: 'Merge it', disabled }, { value: 'wait', label: 'Wait for me', disabled }]} onChange={value => onPolicy({ ...flow,
-        roles: flow.roles.map(one => one.id !== 'referee' ? one : value === 'merge'
-          ? { id: 'referee', kind: 'agent', uses: ['merger'], seats: [], isolate: false, grant: 'merge', independentOf: [] }
-          : { id: 'referee', kind: 'person', outcomes: ['merged', 'dropped'] }),
-        rules: flow.rules.map(rule => rule.then.role !== 'referee' ? rule : { ...rule, when: value === 'merge' ? { evidence: [{ review: 'approve' }, { pr: 'open' }] } : { every: ['approve'], evidence: [{ review: 'approve' }] }, then: { ...rule.then, title: value === 'merge' ? 'Merge the reviewed pull request' : 'Merge it — the reviewer approved', detail: value === 'merge' ? 'Merge only the approved revision after its required checks pass.' : 'Merging is yours; no agent in this Team may do it.' } }),
-      })} />}</Field>
+      <Field label="When the review approves">{() => <Segmented label="When the review approves" value={flow.roles.find(one => one.id === 'referee')?.kind === 'agent' ? 'merge' : 'wait'} options={[{ value: 'merge', label: 'Merge it', disabled }, { value: 'wait', label: 'Wait for me', disabled }]} onChange={value => onPolicy(withReviewHandoff(flow, value))} />}</Field>
     </div>}
     {hasJudge && <Rows><Row title="Judge · optional" desc={judgeOn && judgePreview && !judgeAutomatic ? firstReason(judgePreview.plan, snapshot.runtimes) ?? undefined : undefined} control={<div className={styles.roleControls}>
       <TeamSeatControls label="Judge" optional seat={judgeSeat}

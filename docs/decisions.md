@@ -7,6 +7,29 @@ the rule is the last line of its section.
 
 ---
 
+## Browser CI is bounded on a pull request and complete before landing — 2026-10-15
+
+A measured UI pull request took 79 minutes end to end: sixteen browser shards
+ran for 14–27 minutes and waited 5–29 minutes for runners. Browser work used
+about 340 of 373 runner-minutes. A widely rendered stylesheet can reach nearly
+all 224 specs, so an impact map alone cannot bound that cost.
+
+Ordinary pull requests keep edited specs and the most specific impact selections
+within four shards, using the existing light geometry matrix and duration
+estimates. The summary names every deferred spec. Mandatory edited specs can
+exceed the time estimate, but never the four-runner cap. Other CI jobs keep
+their existing checks and required names.
+
+This trades early coverage of indirect and dark geometry regressions for a
+bounded feedback cycle. A full run on a `batch/` branch or a pull request labelled
+`full-ci` reads every spec in both themes before landing. Main pushes and manual
+dispatches also run everything. No suite is removed; deferred coverage moves to
+that full tier. The visible tier check belongs to the same workflow check suite
+as the required checks, so an old full result cannot stand in for a newer
+bounded run.
+
+**Rule:** bounded green is feedback, and only full green is landing evidence.
+
 ## The sidebar keeps its rhythm quiet and its marks for attention — 2026-10-15
 
 The owner chose five changes so a long conversation list reads calmly and a
@@ -3290,3 +3313,23 @@ root earns no project row, and the gone-folders line counts each root once.
 Forget silences that count without deleting Teams, Goals, receipts, boards or
 history. Search and the Teams page still reach the Team. Measuring in the host
 also works for unopened roots and needs no request per renderer row.
+
+## New Team writes at edit access and hands publishing to the person
+
+The first-time walkthrough in issue #1669 found that Write and review asked
+for `publish`, which none of the shipping runtimes can enforce. On 2026-10-15
+the owner chose B + D: the shipped writer and every repair run at `edit`,
+Automatic passes over preferences without the required control, and an
+independent reviewer reads the committed change. Approval opens a person card
+naming the reviewed revision and the writer's branch context. The person
+approves and performs the push and pull request publication before merging.
+The writer may commit locally but cannot push or open a pull request.
+
+Implementer's declared maximum stays `publish` for Flows that explicitly grant
+it. This changes the shipped shape's grant, not the permission ladder or a
+runtime's controls. Option C, allowing an asked-only limit with confirmation,
+was not chosen: New Team still requires an enforced limit, including read-back,
+for every agent it opens, in later rounds and after recovery too. An explicit
+runtime choice that cannot enforce that access remains refused beside its row,
+with a way to choose a compatible agent. Automatic uses the same strict plan,
+so an earlier incompatible preference cannot block a later compatible one.

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { builtinAgentRoot, builtinFlowRoot } from '../src/host.js'
-import { answer, claimed, cwdOf, desk, E2E, git, person, review, settled, shipped, start, TASK, write } from './fixtures/flow-host-evidence.js'
+import { answer, board, claimed, cwdOf, desk, E2E, git, person, review, settled, shipped, start, TASK, whenChanged, write } from './fixtures/flow-host-evidence.js'
 
 /*
  * The remaining shipped flows — `alignment`, `mechanical-contest` and
@@ -49,18 +49,26 @@ test('the staged relay flow reaches its end', E2E, async (t) => {
 
 test('Write and review reaches its person referee after an independent review', E2E, async (t) => {
   const d = await desk(t)
-  // This Flow routes on published, so use the shipped writer's own ceiling
-  // and answers, pointing only its runtime preference at this synthetic rig.
+  // Keep the shipped writer's answers and maximum; the Flow narrows it to
+  // edit and routes on committed work without a pull request.
   const implementer = await readFile(join(builtinAgentRoot(), 'implementer', 'AGENT.md'), 'utf8')
   await writeFile(join(d.stateDir, 'agents', 'implementer', 'AGENT.md'), implementer.replace(/^prefer:.*$/m, 'prefer: [fake]'))
   const run = await start(d, await shipped(d, 'fix-and-review'), { work: TASK.task })
   const [fixer] = await claimed(d, run.goal, 'fixer', 1)
-  d.forge.open.add(await git(cwdOf(d, fixer!), 'symbolic-ref', '--short', 'HEAD'))
-  await write(d, fixer!, 'written', 'published')
+  const branch = await git(cwdOf(d, fixer!), 'symbolic-ref', '--short', 'HEAD')
+  const head = await write(d, fixer!, 'written', 'committed')
+  assert.equal(d.host.registry.get(fixer!.claim!.runtime as never, fixer!.claim!.sessionId as never)?.seatedAs?.ceiling?.level, 'edit')
   const [reviewer] = await claimed(d, run.goal, 'reviewer', 1)
   assert.notEqual(reviewer!.claim!.runtime, fixer!.claim!.runtime, 'the reviewer is independent of the writer')
   await review(d, reviewer!, 'approve')
-  await person(d, run.goal, 'referee', 'merged')
+  const handoff = await whenChanged(d, async () => (await board(d, run.goal)).find(card => card.role === 'referee' && card.state === 'open') ?? null, 'publication approval')
+  assert.equal(handoff.title, 'Approve publishing the reviewed change')
+  assert.ok(handoff.detail?.includes(head), 'the person sees the revision independently reviewed')
+  assert.match(handoff.detail!, /branch named in the writer/)
+  assert.equal(await git(d.root, 'symbolic-ref', '--short', 'HEAD'), branch)
+  assert.equal(d.forge.open.size, 0, 'no pull request exists before the person approves publishing')
+  assert.equal(d.forge.pullRequests.size, 0)
+  await person(d, run.goal, 'referee', 'dropped')
   const done = await settled(d, run.id)
   assert.deepEqual(done.rounds.map((one) => one.role), ['fixer', 'reviewer', 'referee'])
 })

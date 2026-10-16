@@ -17,13 +17,13 @@ const check = (paths, expected, event = 'pull_request', env = {}) => {
     const list = join(directory, 'paths')
     if (paths !== null) writeFileSync(list, paths.length ? `${paths.join('\0')}\0` : '')
     const result = spawnSync(process.execPath, [script, list], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', UI_IMPACT_MAP: '', ...env },
+      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', UI_IMPACT_MAP: '', CI_HEAD_BRANCH: '', CI_LABELS: '', ...env },
     })
     assert.equal(result.status, 0, result.stderr)
     const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
     assert.equal(output.browser, expected[0])
     assert.equal(output.native, String(expected[1]))
-    assert.deepEqual(JSON.parse(output.server_specs), ['e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/project-composer-terminal.spec.ts', 'e2e/ui-system/run-ending.spec.ts', 'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts'])
+    assert.deepEqual(JSON.parse(output.server_specs), ['e2e/ui-system/front-door-edit.spec.ts', 'e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/project-composer-terminal.spec.ts', 'e2e/ui-system/run-ending.spec.ts', 'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts'])
     return output
   } finally {
     rmSync(directory, { recursive: true, force: true })
@@ -165,7 +165,7 @@ const plan = (paths, env = {}, event = 'pull_request') => {
     const list = join(directory, 'paths')
     writeFileSync(list, paths.length ? `${paths.join('\0')}\0` : '')
     const result = spawnSync(process.execPath, [script, list], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', ...env },
+      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', CI_HEAD_BRANCH: '', CI_LABELS: '', ...env },
     })
     assert.equal(result.status, 0, result.stderr)
     const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
@@ -175,12 +175,12 @@ const plan = (paths, env = {}, event = 'pull_request') => {
   }
 }
 
-test('a pull request that touches the UI runs every spec in the pull-request matrix, on as many shards as the work needs', () => {
+test('a pull request without a map samples the suite in the PR matrix within four shards', () => {
   const run = plan(['packages/ui/src/App.tsx'])
   assert.equal(run.browser, 'all')
-  assert.equal(run.browser_specs, 'all')
+  assert.ok(JSON.parse(run.browser_specs).length < specFiles(real).length)
   assert.equal(run.matrix, 'pr')
-  assert.ok(Number(run.shard_count) >= 2 && Number(run.shard_count) <= 16, run.shard_count)
+  assert.ok(Number(run.shard_count) >= 1 && Number(run.shard_count) <= 4, run.shard_count)
   assert.deepEqual(JSON.parse(run.shards), Array.from({ length: Number(run.shard_count) }, (_, index) => index + 1))
 })
 
@@ -189,16 +189,16 @@ test('the pull-request matrix never needs more shards than the whole of main', (
   assert.ok(Number(plan(['packages/ui/src/App.tsx']).shard_count) <= main)
 })
 
-test('a diff that names a theme reads both themes', () =>
-  assert.equal(plan(['packages/ui/src/App.tsx'], { UI_THEME_TOUCHED: 'true' }).matrix, 'full'))
+test('a theme edit stays bounded until full CI is requested', () =>
+  assert.equal(plan(['packages/ui/src/App.tsx'], { UI_THEME_TOUCHED: 'true' }).matrix, 'pr'))
 
 for (const path of ['pnpm-lock.yaml', 'package.json', '.github/workflows/ci.yml', 'assets/avatars/128/blue.png', 'playwright.ui-system.config.ts', 'script/ci-browser-shards.mjs']) {
-  test(`${path} reads both themes`, () => assert.equal(plan(['packages/ui/src/App.tsx', path]).matrix, 'full'))
+  test(`${path} uses the bounded PR matrix`, () => assert.equal(plan(['packages/ui/src/App.tsx', path]).matrix, 'pr'))
 }
 
 // A declaration added inside an existing `body[data-hd-dark-theme]` block says neither "dark" nor "theme" in its own line.
 for (const path of ['packages/ui/src/design/foundation/tokens.css', 'packages/ui/src/styles/app.css', 'packages/ui/vite.config.ts', 'packages/ui/tsconfig.json', 'packages/ui/package.json']) {
-  test(`${path} reads both themes, whatever the lines of the diff say`, () => assert.equal(plan([path]).matrix, 'full'))
+  test(`${path} stays bounded until a full-tier trigger`, () => assert.equal(plan([path]).matrix, 'pr'))
 }
 
 test('a stylesheet that names a theme before or after the change reads both themes', () => {
@@ -217,19 +217,20 @@ test('main and a run on demand read both themes of every spec', () => {
   }
 })
 
-test('a run on demand can ask for the pull-request matrix, and a pull request for nothing else', () => {
-  assert.equal(plan(['packages/ui/src/App.tsx'], { UI_SYSTEM_MATRIX_REQUEST: 'pr' }, 'workflow_dispatch').matrix, 'pr')
+test('manual dispatch always runs full CI, and PRs cannot change tier with the obsolete matrix input', () => {
+  assert.equal(plan(['packages/ui/src/App.tsx'], { UI_SYSTEM_MATRIX_REQUEST: 'pr' }, 'workflow_dispatch').matrix, 'full')
   assert.equal(plan(['packages/ui/src/App.tsx'], { UI_SYSTEM_MATRIX_REQUEST: 'bogus' }).matrix, 'pr')
 })
 
-test('an unreadable change list reads both themes of every spec', () => {
+test('an unreadable PR change list uses a bounded sample', () => {
   const run = check(null, ['all', true])
-  assert.deepEqual([run.browser_specs, run.matrix], ['all', 'full'])
+  assert.ok(JSON.parse(run.browser_specs).length > 0)
+  assert.equal(run.matrix, 'pr')
 })
 
-test('a pull request that only edits one spec runs that spec, in both themes, on one shard', () => {
+test('a pull request that only edits one spec runs that spec in the PR matrix on one shard', () => {
   const run = plan(['e2e/ui-system/row-box.spec.ts'])
-  assert.deepEqual([run.browser, run.browser_specs, run.matrix, run.shard_count, run.shards], ['all', '["e2e/ui-system/row-box.spec.ts"]', 'full', '1', '[1]'])
+  assert.deepEqual([run.browser, run.browser_specs, run.matrix, run.shard_count, run.shards], ['all', '["e2e/ui-system/row-box.spec.ts"]', 'pr', '1', '[1]'])
 })
 
 test('a changed helper runs every spec that imports it, and only those', () => {
@@ -248,16 +249,23 @@ test('a helper a spec loads by URL or by name, and not by an import, still runs 
 })
 
 test('a changed helper reaches the specs that import it through another helper', () => {
-  const direct = JSON.parse(plan(['e2e/ui-system/frame-contract-helpers.ts']).browser_specs)
-  const wall = JSON.parse(plan(['e2e/ui-system/frame-wall-destinations.ts']).browser_specs)
+  const reached = path => {
+    const run = planWith([path], null)
+    return [...JSON.parse(run.specs), ...run.deferred]
+  }
+  const direct = reached('e2e/ui-system/frame-contract-helpers.ts')
+  const wall = reached('e2e/ui-system/frame-wall-destinations.ts')
   assert.ok(wall.length >= direct.length, 'the destinations are imported by the helpers, so everything the helpers reach is reached')
   for (const spec of direct) assert.ok(wall.includes(spec), spec)
 })
 
-test('data a spec might read at run time, or a deleted helper, cannot be traced and runs every spec', () => {
+test('untraceable suite data and deleted helpers sample the whole suite within the cap', () => {
   for (const path of ['e2e/ui-system/composer-slot-record.json', 'e2e/ui-system/a-helper-that-was-deleted.ts']) {
     const run = plan([path])
-    assert.deepEqual([run.browser, run.browser_specs, run.matrix], ['all', 'all', 'full'], path)
+    assert.equal(run.browser, 'all')
+    assert.equal(run.matrix, 'pr')
+    assert.ok(JSON.parse(run.browser_specs).length > 0)
+    assert.ok(Number(run.shard_count) <= 4)
   }
 })
 
@@ -267,7 +275,7 @@ test('deleting a spec runs nothing', () =>
 test('a spec edit beside a host change also runs the server-facing specs', () => {
   const run = plan(['e2e/ui-system/row-box.spec.ts', 'packages/server/src/host.ts'])
   assert.deepEqual(JSON.parse(run.browser_specs), [
-    'e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/project-composer-terminal.spec.ts', 'e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/run-ending.spec.ts',
+    'e2e/ui-system/front-door-edit.spec.ts', 'e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/project-composer-terminal.spec.ts', 'e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/run-ending.spec.ts',
     'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts',
   ])
 })
@@ -302,12 +310,14 @@ test('a change to the UI runs the specs in which that source ran, in the light t
   assert.match(run.summary, /1 of \d+ specs.*Selected by the specs that ran the changed UI source \(map of abcdef123\)/)
 })
 
-test('a change to something every spec ran, and a change without a map, run every spec', () => {
+test('broad impact selections and a missing map are both capped', () => {
   const map = impactMap()
   const all = JSON.parse(planWith(['packages/ui/src/design/ui/button.tsx'], current(map)).specs)
-  assert.equal(all.length, specFiles(real).length)
+  assert.ok(all.length < specFiles(real).length)
+  assert.ok(all.length > 0)
   const unmapped = planWith(['packages/ui/src/components/BringHome.tsx'], null)
-  assert.deepEqual([unmapped.specs, unmapped.matrix], ['all', 'pr'])
+  assert.ok(unmapped.deferred.length > 0)
+  assert.equal(unmapped.matrix, 'pr')
 })
 
 test('a file that has moved on since the map was recorded runs every spec, and the summary says why', () => {
@@ -315,22 +325,22 @@ test('a file that has moved on since the map was recorded runs every spec, and t
   const base = current(map).baseFiles()
   base['packages/ui/src/components/BringHome.tsx'] = 'f'.repeat(40)
   const run = planWith(['packages/ui/src/components/BringHome.tsx'], { ...current(map), baseFiles: () => base })
-  assert.equal(run.specs, 'all')
+  assert.ok(run.deferred.length > 0)
   assert.match(run.summary, /Not narrowed: .*BringHome\.tsx has changed on the base branch since the map was recorded/)
 })
 
-test('a change to the UI beside something the map cannot speak for runs every spec', () => {
+test('an input the map cannot speak for falls back to a capped suite sample', () => {
   const map = impactMap()
   for (const beside of ['package.json', 'packages/ui/vite.config.ts', 'packages/protocol/src/index.ts']) {
-    assert.equal(planWith(['packages/ui/src/components/BringHome.tsx', beside], current(map)).specs, 'all', beside)
+    assert.ok(planWith(['packages/ui/src/components/BringHome.tsx', beside], current(map)).deferred.length > 0, beside)
   }
 })
 
-test('a change to the UI beside an edit to the suite runs both selections, in both themes', () => {
+test('a change to the UI beside a spec edit runs both selections in the PR matrix', () => {
   const map = impactMap()
   const run = planWith(['packages/ui/src/components/BringHome.tsx', 'e2e/ui-system/rules.spec.ts'], current(map))
   assert.deepEqual(JSON.parse(run.specs), ['e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/rules.spec.ts'])
-  assert.equal(run.matrix, 'full')
+  assert.equal(run.matrix, 'pr')
 })
 
 test('a change that reaches no spec opens no browser', () => {
@@ -354,9 +364,9 @@ test('a spec the map has not seen run runs, whatever else changed', () => {
 test('only a run of the whole suite in both themes records what each spec ran', () => {
   const ui = ['packages/ui/src/App.tsx']
   for (const event of ['push', 'workflow_dispatch']) assert.equal(plan(ui, {}, event).record, 'true', event)
-  assert.equal(plan(ui, { UI_THEME_TOUCHED: 'true' }).record, 'true', 'a pull request that reads both themes of every spec')
+  assert.equal(plan(ui, { UI_THEME_TOUCHED: 'true' }).record, 'false', 'a theme diff is still bounded')
   assert.equal(plan(ui).record, 'false', 'a pull request that reads one theme')
-  assert.equal(plan(ui, { UI_SYSTEM_MATRIX_REQUEST: 'pr' }, 'workflow_dispatch').record, 'false', 'a run on demand for the pull-request matrix')
+  assert.equal(plan(ui, { UI_SYSTEM_MATRIX_REQUEST: 'pr' }, 'workflow_dispatch').record, 'true', 'manual runs always record the full tier')
   assert.equal(plan(['e2e/ui-system/row-box.spec.ts']).record, 'false', 'a part of the suite')
   assert.equal(plan(['docs/architecture.md']).record, 'false', 'no browser at all')
 })
@@ -368,7 +378,10 @@ test('a map that cannot be read changes nothing about what a pull request runs',
       const file = join(directory, `${name}.json`)
       if (text !== null) writeFileSync(file, text)
       const run = plan(['packages/ui/src/components/BringHome.tsx'], { UI_IMPACT_MAP: file })
-      assert.deepEqual([run.browser, run.browser_specs, run.matrix], ['all', 'all', 'pr'], name)
+      assert.equal(run.browser, 'all', name)
+      assert.equal(run.matrix, 'pr', name)
+      assert.ok(JSON.parse(run.browser_specs).length > 0)
+      assert.ok(Number(run.shard_count) <= 4)
     }
   } finally {
     rmSync(directory, { recursive: true, force: true })
@@ -378,7 +391,7 @@ test('a map that cannot be read changes nothing about what a pull request runs',
 test('a summary never carries a newline into the outputs, whatever a path is called', () => {
   const map = impactMap()
   const run = planWith(['packages/ui/src/components/BringHome.tsx'], { ...current(map), baseFiles: () => ({ ...current(map).baseFiles(), 'packages/ui/src/new\nbrowser=none.ts': 'a'.repeat(40) }) })
-  assert.equal(run.specs, 'all')
+  assert.ok(run.deferred.length > 0)
   assert.doesNotMatch(run.summary, /[\n\r]/)
   assert.match(run.summary, /new browser=none\.ts was added to the base branch/)
 })
@@ -429,7 +442,78 @@ test('a pull request that edits only a spec that imports build output plans on a
     put('e2e/ui-system/durations.json', JSON.stringify({ 'row-box.spec.ts': 66, 'other.spec.ts': 10 }))
     put('e2e/ui-system/durations.pr.json', '{}')
     const run = browserPlan(root, { browser: 'all', inputs: ['e2e/ui-system/row-box.spec.ts'], serverInputs: false, event: 'pull_request', themeTouched: false, request: '', baseText: () => null })
-    assert.deepEqual([run.browser, run.specs, run.count, run.matrix], ['all', JSON.stringify(['e2e/ui-system/row-box.spec.ts']), 1, 'full'])
-    assert.match(run.summary, /1 of 3 specs, full theme matrix, 1 shard/) // the fixture's own ui.spec.ts is the third
+    assert.deepEqual([run.browser, run.specs, run.count, run.matrix], ['all', JSON.stringify(['e2e/ui-system/row-box.spec.ts']), 1, 'pr'])
+    assert.match(run.summary, /1 of 3 specs, pull-request theme matrix, 1 shard/) // the fixture's own ui.spec.ts is the third
+  })
+})
+
+// Two-tier policy: bounded work on ordinary PRs, complete evidence before landing.
+test('a widely rendered stylesheet is capped at four PR shards and names deferred specs', () => {
+  const run = planWith(['packages/ui/src/styles/app.css'], null)
+  const specs = JSON.parse(run.specs)
+  assert.equal(run.tier, 'bounded')
+  assert.equal(run.matrix, 'pr')
+  assert.ok(run.count > 0 && run.count <= 4)
+  assert.ok(specs.length > 0 && specs.length < specFiles(real).length)
+  assert.deepEqual([...specs, ...run.deferred].sort(), specFiles(real).map(spec => `e2e/ui-system/${spec}`))
+  assert.match(run.summary, /CI tier: bounded/)
+  for (const spec of run.deferred) assert.ok(run.summary.includes(spec), spec)
+})
+
+test('edited and newly added specs always survive the cap, even when they exceed its time budget', () => {
+  const all = specFiles(real).map(spec => `e2e/ui-system/${spec}`)
+  const run = planWith(['package.json', ...all], null)
+  assert.deepEqual(run.specs === 'all' ? all : JSON.parse(run.specs), all)
+  assert.ok(run.count <= 4)
+  assert.deepEqual(run.deferred, [])
+  assert.match(run.summary, /edited specs exceed/)
+})
+
+test('a narrow source selection wins over a widely rendered input when both change', () => {
+  const map = impactMap()
+  const run = planWith(['packages/ui/src/design/ui/button.tsx', 'packages/ui/src/components/BringHome.tsx'], current(map))
+  assert.ok(JSON.parse(run.specs).includes('e2e/ui-system/row-box.spec.ts'))
+  assert.ok(run.deferred.length > 0)
+})
+
+for (const options of [
+  { event: 'push' }, { event: 'workflow_dispatch', request: 'pr' },
+  { event: 'pull_request', headBranch: 'batch/reviewed' },
+  { event: 'pull_request', labels: ['full-ci'] },
+]) {
+  test(`full tier runs everything for ${JSON.stringify(options)}, even for docs`, () => {
+    const run = planChange(real, { paths: ['docs/architecture.md'], ...options })
+    assert.equal(run.tier, 'full')
+    assert.equal(run.browser, 'all')
+    assert.equal(run.native, true)
+    assert.equal(run.browser_specs, 'all')
+    assert.equal(run.matrix, 'full')
+    assert.equal(run.record, true)
+    assert.match(run.summary, /CI tier: full/)
+  })
+}
+
+test('CLI reads full-tier branch and label metadata without evaluating branch text', () => {
+  for (const env of [{ CI_HEAD_BRANCH: 'batch/reviewed' }, { CI_LABELS: '["full-ci"]' }]) {
+    const run = plan(['docs/architecture.md'], env)
+    assert.deepEqual([run.tier, run.browser, run.matrix, run.browser_specs], ['full', 'all', 'full', 'all'])
+  }
+})
+
+test('an added spec absent from duration tables is mandatory beside a broad change', async () => {
+  await fixture((root, put) => {
+    const times = {}
+    for (let index = 0; index < 12; index++) {
+      const name = `old-${index}.spec.ts`
+      put(`e2e/ui-system/${name}`, 'export {}')
+      times[name] = 900
+    }
+    put('e2e/ui-system/added.spec.ts', 'export {}')
+    put('e2e/ui-system/durations.json', JSON.stringify(times))
+    const run = planChange(root, { event: 'pull_request', paths: ['package.json', 'e2e/ui-system/added.spec.ts'] })
+    const specs = JSON.parse(run.browser_specs)
+    assert.ok(specs.includes('e2e/ui-system/added.spec.ts'))
+    assert.ok(specs.length < 14)
+    assert.ok(run.shard_count <= 4)
   })
 })
