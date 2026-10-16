@@ -1,3 +1,4 @@
+import { LibraryGithubFrames } from './frames-library-github'
 import { ProjectPolishFrame } from './frames-project-polish'
 import { FlowsDestinationFixture } from './flows-destination-fixture'
 import { RepositoryStatesPreview } from './repository-states'
@@ -67,6 +68,7 @@ import { SIGN_IN_SCENES, SIGN_IN_SELECTED, runtimesSeed, signInSeed, type SignIn
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { BoardListFrames } from './frames-board-list'
+import { FinishedBoardFrames } from './frames-finished-board'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamFramePreview } from './TeamFramePreview'
 import { ApprovalDialog, ApprovalReason, NativeSelect, PaneColumn } from '../design'
@@ -1265,6 +1267,8 @@ createRoot(container).render(
           ? <LeftColumnProbe />
           : new URLSearchParams(window.location.search).get('frame-wall') === 'settings-middle'
           ? <SettingsNavigationProbe />
+          : new URLSearchParams(window.location.search).has('library-github')
+          ? <LibraryGithubFrames />
           : new URLSearchParams(window.location.search).has('frame-wall')
           ? <FrameWall />
           : new URLSearchParams(window.location.search).has('team-frame')
@@ -1277,6 +1281,8 @@ createRoot(container).render(
           ? <ReleaseStills />
           : new URLSearchParams(window.location.search).has('site-run')
           ? <SiteRunPreview />
+          : new URLSearchParams(window.location.search).has('finished-board')
+          ? <FinishedBoardFrames />
           : new URLSearchParams(window.location.search).has('board-list')
           ? <BoardListFrames />
           : new URLSearchParams(window.location.search).has('tables')

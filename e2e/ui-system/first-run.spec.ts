@@ -33,13 +33,15 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByText('Sessions you start in Alpha CLI and Beta CLI appear in the sidebar too.', { exact: false })).toBeVisible()
     await offer.getByRole('button', { name: 'Add Gamma', exact: true }).click()
     await expect(offer).toHaveCount(0)
-    const chooser = page.getByRole('button', { name: 'Alpha — Which agent starts this conversation', exact: true })
+    // The runtime chooser carries its question in its title; folded, the title also names the runtime.
+    const chooser = page.getByRole('button').and(page.getByTitle(/Which agent starts this conversation$/))
+    await expect(chooser).toHaveAccessibleName(/^Alpha/)
     await expect(chooser).toBeEnabled()
     await chooser.click()
     await expect(page.getByRole('menuitemradio', { name: /Beta/ })).toBeVisible()
     await expect(page.getByRole('menuitemradio', { name: /Gamma/ })).toBeVisible()
     await page.getByRole('menuitemradio', { name: /Beta/ }).click()
-    await expect(page.getByRole('button', { name: 'Beta — Which agent starts this conversation', exact: true })).toBeVisible()
+    await expect(chooser).toHaveAccessibleName(/^Beta/)
   })
 
   test(`nothing installed leaves no offer in ${theme}`, async ({ page }) => {

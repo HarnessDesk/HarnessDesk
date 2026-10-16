@@ -216,7 +216,7 @@ Two default running sizes: 13px for chrome and 14px for reading. 12px carries me
 
 ### Measure
 
-Controls are one height so a row of them lines up without anyone counting pixels, and rows are one height so a list scans as a list. 26px is the app's own answer, counted: twelve controls across nine files already stand that tall, against three that read this token when it said 28px. The token was wrong, not the app. `--hd-bar-h` is the window's edge rows, top and bottom: the conversation's header, a tool's header, a panel's tab strip, a panel's status line, the account row. One value, because they meet across a column border and the rule between them has to read as one line rather than a step. Measured before it existed: the panel strip was 30px against the conversation's 44, and at the bottom the account row's rule sat 11px above a panel footer's — with the two sharing a vertical border, which is the only place a step that size is unmissable. A group is read from this comment to the next one, so nothing inside it may open a comment of its own: doing that dropped both the token below and `--hd-column` out of the generated table without failing anything.
+Controls are one height so a row of them lines up without anyone counting pixels, and rows are one height so a list scans as a list. 26px is the app's own answer, counted: twelve controls across nine files already stand that tall, against three that read this token when it said 28px. The token was wrong, not the app. `--hd-bar-h` is the window's edge rows, top and bottom: the conversation's header, a tool's header, a panel's tab strip, a panel's status line, the account row. One value, because they meet across a column border and the rule between them has to read as one line rather than a step. Measured before it existed: the panel strip was 30px against the conversation's 44, and at the bottom the account row's rule sat 11px above a panel footer's — with the two sharing a vertical border, which is the only place a step that size is unmissable. Scrollbar width, inset and fill belong to this scale. A horizontal Board keeps that thumb visible at rest, so overflow is apparent before a gesture. A group is read from this comment to the next one, so nothing inside it may open a comment of its own: doing that dropped both the token below and `--hd-column` out of the generated table without failing anything.
 
 | token | value |
 | --- | --- |
@@ -1067,12 +1067,19 @@ A button in a banner's action row.
 One filled button per card. A banner that offers two equal-looking choices
 makes the user read both before they can ignore it.
 
+### `inlineNoticeTitle`
+
+`packages/ui/src/design/primitives/Notice.tsx`
+
+Inline notice hosts give a plain title a sentence stop before earned detail.
+
 ### `Notice`
 
 `packages/ui/src/design/primitives/Notice.tsx`
 
 A fact, optional earned detail, and the actions it calls for.
 Hosts choose standard padding (12px, 16px left) or compact (8px, 12px left).
+Inline hosts use the shared sentence-stop formatter before earned detail.
 Labelled actions keep text-button width, including the ghost `icon` kind.
 
 ### `NoticeStatus`

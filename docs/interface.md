@@ -445,8 +445,11 @@ fold has Open usage, scoped to that agent; an agent needing an account has Sign
 in. Then come Settings and signing out of the default agent. Dashboard in the
 sidebar opens on everything.
 
-The quota forecast, "&lt;agent&gt; will run out before it refills", stays above a
-visible composer and on the Dashboard. Every other page carries the same title
+The quota forecast, "&lt;agent&gt; will run out before it refills", stays on the
+Dashboard. Above a visible composer it appears only after a desk conversation
+has a turn (a history preview does not count) and the binding plan window has
+less than 15% remaining. The shared Notice primitive supplies a sentence stop
+between an inline title and its detail. Every other page carries the same title
 and detail in the account trigger's tooltip. Dismissing or silencing the notice
 also removes that warning from the tooltip for the same occurrence or kind.
 
@@ -797,8 +800,15 @@ in [extending.md](extending.md).
   a chip beside the model name in its menu. This status comes only from the
   agent’s report; an effort level or model name never supplies it. Reports
   are observations and are left out of saved preset preferences.
-  When the agent declares that its mode controls permissions, that mode stands
-  on its own: no missing-permissions placeholder takes room beside it.
+  **Permissions** has one slot for every agent, filled with its own permission
+  levels. **Collaboration mode** is separate: plan first or act directly. When
+  an agent mixes planning into its permission list, adapter metadata splits the
+  list into those two controls; both still send the agent's existing option id
+  and values. Choosing Act returns to the adapter-declared acting value;
+  Permissions displays that acting level while Plan is selected. An
+  agent without collaboration modes has no collaboration control. Draft picks
+  retain their selected label while the toolbar has room. A missing-permissions
+  placeholder appears only when no permission option is declared.
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
 - **A conversation that cannot be read returns its pane to a fresh draft.**
@@ -907,6 +917,22 @@ yours, not an account's; presets are edited
 where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.
+
+Library's More menu offers **Import**, **Add from GitHub…**, and **Rescan**.
+The first two wait until the Library has been read. Add from GitHub accepts a
+public repository or folder URL and an optional branch, tag or commit. Found
+skills show their folder, file count and counts of files that can run or are
+binary; only skills with neither kind start checked. Refused folders keep the
+host's reason. Choose at least one skill and one agent with a skills location
+to review the install.
+
+The install plan lists every file, including local installs, with its size and
+any Can run or Binary mark. A runnable file keeps its reason under its path.
+Fetched files with either mark can be read as plain text; binary content is
+not displayed and a capped read says it shows the first 256 KB. A fetched plan
+with incoming runnable or binary files requires one acknowledgement before
+Apply. It acknowledges only the operations that need it; local installs ask
+for none. Each operation keeps its own result or refusal after Apply.
 
 The Library’s List view compares Skill (or Server), State and Loaded by in
 three labelled columns. Descriptions wrap, a warning names a needed fix, and
@@ -1041,18 +1067,18 @@ that read is pending or unavailable, the board says so rather than claiming
 that nothing was checked. The whole of it is in
 [multi-agent.md](multi-agent.md), under *The Board*.
 
-**As the board narrows.** Open columns keep at least 220px. Ready folds first,
-then To do, into named rails with their counts; each rail opens in place and
-offers a keyboard Fold control only when it can return to a rail. The scroll
-body reserves its gutter so a scrollbar appearing cannot move the fold
-thresholds. When the columns and rails no longer fit,
-or below 760px of content width, Needs you and Working share the first row,
-In review and To do the second; Ready stays a rail. Below 600px of content width
-the pane uses the compact list, grouped by state with Needs you first. Content
-width is the scroll body's client width, after its reserved scrollbar gutter;
-column fit also subtracts its insets. The pane measures itself, including space
-lost to a sidebar or dock, and restores the selected
-view when it widens. Set aside keeps its own lane while it contains work.
+**As the board narrows.** Occupied columns keep their full width and scroll
+horizontally when they do not fit. Empty columns start as narrow rails with
+their names and zero counts; each rail opens in place and offers a keyboard
+Fold control. The Board tab counts every card, including completed work, so a
+finished Team's three Ready cards are visible beside its four empty rails.
+An overflowing board keeps its scrollbar visible before any scrolling gesture.
+When every column is empty, the board shows one “Nothing on the board yet” line.
+Below 600px of content width the pane uses the compact list, grouped by state
+with Needs you first. Content width is the scroll body's client width, after its
+reserved scrollbar gutter. The pane measures itself, including space lost to
+a sidebar or dock, and restores the selected view when it widens. Set aside
+keeps its own lane while it contains work.
 
 **As a list.** Board · List switches the same jobs into a framed table. Filter
 jobs by words or state; All starts pressed, and the default order puts Needs
@@ -1116,6 +1142,14 @@ and Don't show this again. Settings › Notifications offers Inbox only or Off.
 When a standing condition ends and later returns, its Inbox row is unread again;
 an older read or clear from another window affects only the occurrence that
 window saw.
+
+A Team step waiting for the person also appears in the Inbox, with the Team
+name, the step or approval, and **Open the Team**. The row follows the same
+held facts as Needs you: answering, closing its round, or ending the Run removes
+it. Repeated run or board events do not make a read row unread again. Active
+Runs are read when the desk connects, so waiting steps arrive without opening
+their Team. Read state survives preference and Team hydration; clearing the
+Inbox suppresses the same live occurrence, including after reopening the desk.
 
 Conversation warnings, context compaction and model changes stay as quiet
 transcript lines outside the work fold. Errors keep one inline explanation and

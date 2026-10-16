@@ -1299,6 +1299,7 @@ const EmptyBoard = () => (
 const KanbanBoard = () => {
   const [tinted, setTinted] = useState(true)
   const [folded, setFolded] = useState(true)
+  const [emptyFolded, setEmptyFolded] = useState(true)
   return (
     <>
       <Toolbar className="mb-3">
@@ -1337,7 +1338,7 @@ const KanbanBoard = () => {
         ))}
       </Board>
       <Board derived className="mt-3">
-        <BoardColumn title="No result" count={0} onAdd={() => undefined} />
+        <BoardColumn title="No result" count={0} collapsed={emptyFolded} onCollapsedChange={setEmptyFolded} />
         <BoardColumn title="Ready" count={1} collapsed={folded} onCollapsedChange={setFolded}>
           <BoardCard title="Ship the retry coverage" />
         </BoardColumn>

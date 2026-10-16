@@ -98,6 +98,13 @@ interface OptionBase {
 }
 
 export interface SelectOption extends OptionBase {
+  /**
+   * A permission list that also carries planning. The adapter supplies the
+   * two existing values for the separate collaboration control; choosing Act
+   * returns to actValue. Both controls still write this option's own id.
+   */
+  readonly collaboration?: { readonly planValue: string; readonly actValue: string }
+
   readonly type: 'select'
   readonly currentValue: string
   readonly choices: readonly OptionChoice[]
