@@ -580,6 +580,13 @@ These only exist because no vendor owns the desk:
   it checked, and an edited supporting file requires a backup to replace.
   Updates check the retained-plus-incoming bundle limits at preview and before
   writing; apply also checks that the source file list matches the preview.
+  The host-only `library/source/fetch` accepts a public GitHub repository URL
+  and resolves its branch or tag to a full commit before fetching objects into
+  a temporary bare repository. It never checks out files. Bounded skills are
+  copied into `library/sources/`; the ordinary plan/apply pair requires their
+  origin and matching bundle digest, and the manifest remembers the repository,
+  ref, commit and skill path. The source cache expires after seven untouched days.
+  There is no client command or screen for this method yet.
 - **One history, one search** across every backend, grouped by repository so
   a project is one row whichever agent worked in it.
 - **One permission policy and one audit log.**
