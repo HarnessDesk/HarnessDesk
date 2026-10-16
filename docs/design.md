@@ -2011,6 +2011,10 @@ The top controls share the window's edge row and retain their drag region, but
 the left column draws no separator hairline below that row or above the seat
 row. The brand row sits directly after the top controls; whitespace marks each
 transition. A Settings column keeps that brand row above its Back row.
+The top row gives up its gaps before its 28px targets: the native corner,
+toggle, Search, Back, Forward and mode switch fit in the default 256px
+column. If the arrows no longer fit, the main bar carries them until the
+column has room again. The mode switch stays at the right edge.
 
 ## Dialog anatomy
 

@@ -26,6 +26,17 @@ registered runtime names come from `RuntimeInfo.presentation`.
 
 **The rule:** offer what is installed, and let the person choose what to add.
 
+## History arrows move to the main bar when the sidebar runs out of room — 2026-10-15
+
+The native corner consumes 78px of the sidebar's top row. The default 256px
+column fits four full 28px controls and the mode switch when the controls
+give up their gaps. At smaller widths, both history arrows move to the main
+bar's lead, returning when the sidebar has room. Their rendered fold owns
+the handoff, so native corner reservations and live seam drags agree.
+
+**The rule:** the sidebar's history arrows never fold away without a visible
+pair in the main bar. Control targets keep their design-system size.
+
 ## Browser CI is bounded on a pull request and complete before landing — 2026-10-15
 
 A measured UI pull request took 79 minutes end to end: sixteen browser shards
@@ -3316,6 +3327,23 @@ board. Existing host wrappers keep their signatures and presentation until
 part 2 moves screens and enforces the new caller boundary. JobsBar narration,
 Approvals, dialogs and field validation remain separate. The #1211 decision,
 one notice, one outlet, still holds; this changes anatomy, never routing.
+
+## Missing Team folders are measured by the host
+
+A Team can outlive its checkout without leaving conversation history on this
+desk. Session listings therefore cannot be the only evidence that a project
+folder is gone. Room and Goal wire boards carry an optional `folderGone`
+measurement, refreshed on lists and changes; one read shares the measurement
+for every Team with the same root. A missing path or a non-directory proves
+absence; a permission or I/O failure leaves existence unknown. These measurements
+are not saved into boards or Goal documents.
+
+The sidebar merges these facts with missing conversation folders. A missing
+root earns no project row or Team row through a surviving clone's aliases,
+and the gone-folders line counts each root once.
+Forget silences that count without deleting Teams, Goals, receipts, boards or
+history. Search and the Teams page still reach the Team. Measuring in the host
+also works for unopened roots and needs no request per renderer row.
 
 ## New Team writes at edit access and hands publishing to the person
 
