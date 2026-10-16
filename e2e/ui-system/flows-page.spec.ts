@@ -5,6 +5,22 @@ const tools = (page: Page) => page.getByRole('group', { name: 'Flow tools', exac
 const sourceField = (page: Page) => page.getByRole('textbox', { name: 'Source', exact: true })
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`catalogue keeps its title in the body and the Flow subject in the bar · ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.goto(`/preview.html?flows-page=list&theme=${theme}`)
+    const bar = page.locator('[data-slot="top-bar"]:visible')
+    const column = page.locator('[data-page-destination]:visible [data-slot="page"]').first()
+    const heading = column.getByRole('heading', { level: 1, name: 'Flows', exact: true })
+    await expect(heading).toBeVisible()
+    await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
+    const edge = await column.evaluate(node => node.getBoundingClientRect().x + parseFloat(getComputedStyle(node).paddingLeft))
+    expect((await heading.boundingBox())!.x).toBeCloseTo(edge, 1)
+    await column.getByRole('button', { name: 'New Flow', exact: true }).click()
+    await expect(page.getByRole('region', { name: 'Shape graph', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(0)
+    await expect(bar.locator('[data-topbar-title]')).toContainText('Your own shape')
+  })
+
   test(`builds, edits, saves and starts the current Flow entirely from its page · ${theme}`, async ({ page }, testInfo) => {
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))

@@ -126,3 +126,11 @@ it('keeps machine-wide trigger preferences reachable without a project or projec
   expect(pause.getAttribute('aria-checked')).toBe('true')
   expect(projectTriggers).not.toHaveBeenCalled()
 })
+
+it('names the Flows page once in its body and keeps the shell bar for tools', async () => {
+  await mount()
+  const heading = container.querySelector('h1')
+  expect(heading?.textContent).toBe('Flows')
+  expect(heading?.closest('[data-slot="page"]')).not.toBeNull()
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
+})

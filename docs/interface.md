@@ -1296,10 +1296,11 @@ trigger Goal's receipt keeps that same origin and stop reason.
 
 ## Flows
 
-**Flows**, after Teams in the left column, opens a wide page of cards. The
-first row offers **New Flow**, an origin filter (All, Built in, or a project)
-and search. A card names the Flow and its origin, draws its actual steps and
-rules as a mini graph, carries its short summary and counts recorded Runs of
+**Flows**, after Teams in the left column, opens a wide page of cards. Its
+heading, **New Flow** and an origin filter (All, Built in, or a project) share
+the first body row; search follows below and the bar keeps its tools. A card
+names the Flow and its origin, draws its actual steps and rules as a mini
+graph, carries its short summary and counts recorded Runs of
 that policy. Shared user and built-in entries appear once; a project's own
 file keeps its project identity. A broken entry stays visible with its
 parser refusal. **Just a Team** has no steps: it opens the same New Team

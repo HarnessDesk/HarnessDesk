@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FlowOrigin } from '@harnessdesk/protocol'
-import { ActionError, Button, Dialog, EmptyState, Field, FlowCard, FlowCardGrid, MenuItem, NativeSelect, Note, Page, Search } from '../design'
+import { ActionError, Button, Dialog, EmptyState, Field, FlowCard, FlowCardGrid, MenuItem, NativeSelect, Note, Page, PageOptions } from '../design'
 import { DestinationBar, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { runsForPolicy, useFlowCatalogue, useFlowRunCoverage } from '../lib/flow-catalogue'
@@ -32,14 +32,9 @@ export const FlowsWindow = ({ onOpen, onNew }: {
   return <>
     <DestinationBar place="Flows" more={close => <MenuItem label="Manage triggers…" icon={<ClockIcon size={16} />} onSelect={() => { setTriggerRoot(selectedRoot); setTriggersOpen(true); close() }} />} />
     <Page width="wide">
-      <div className="flex flex-wrap items-center gap-(--hd-space-3)">
-        <Button variant="default" disabled={!selectedRoot} title={selectedRoot ? undefined : 'Open a project folder to build a Flow.'} onClick={() => { if (selectedRoot) onNew(selectedRoot) }}>New Flow</Button>
-        <NativeSelect aria-label="Flow origin" value={origin} onChange={event => setOrigin(event.target.value)}>
-          <option value="all">All origins</option><option value="builtin">Built in</option>
-          {roots.map(root => <option key={root} value={root}>{projectName(root)}</option>)}
-        </NativeSelect>
-        <Search aria-label="Search Flows" placeholder="Search Flows" value={query} onChange={setQuery} />
-      </div>
+      <PageOptions title="Flows" action={{ label: 'New Flow', disabled: !selectedRoot && 'Open a project folder to build a Flow.', run: () => { if (selectedRoot) onNew(selectedRoot) } }}
+        choices={[{ id: 'origin', label: 'Flow origin', value: origin, items: [{ value: 'all', label: 'All origins' }, { value: 'builtin', label: 'Built in' }, ...roots.map(root => ({ value: root, label: projectName(root) }))], change: setOrigin }]}
+        search={{ label: 'Search Flows', value: query, change: setQuery }} />
       {problems.map(problem => <ActionError key={problem}>{problem}</ActionError>)}
       {loading && <Note>Reading Flows…</Note>}
       {!roots.length && <Note>Open a project folder to build or start a Flow.</Note>}

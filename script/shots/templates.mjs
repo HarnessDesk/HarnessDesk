@@ -104,7 +104,7 @@ try {
         await command.fill(chosenCheck)
         await expect(command).toHaveValue(chosenCheck)
       }
-      await expect(newTeam.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled({ timeout: 30000 })
+      await expect(newTeam.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled({ timeout: 30000 }).catch(async error => { throw new Error(`${error.message}\n${template}: ${await newTeam.innerText()}`) })
       await expect(newTeam.getByRole('combobox', { name: /^Model for / }).first()).toBeVisible()
       await newTeam.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).scrollIntoViewIfNeeded()
       await photograph('02-task')
