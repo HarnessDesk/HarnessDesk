@@ -17,6 +17,8 @@ import type { MethodsUnder } from './context.js'
  * are held to.
  */
 export const libraryMethods = {
+  'library/source/fetch': (ctx, params) => ctx.librarySources().fetch(params),
+
   'library/read': (ctx, params) => {
     assertAbsoluteCwd(params)
     return readLibrary(ctx.runtimes.inventory(), { cwd: params.cwd })

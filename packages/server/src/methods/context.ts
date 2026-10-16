@@ -62,6 +62,7 @@ import type { EvidencePlane } from '../evidence/plane.js'
 import type { ProvenancePlane } from '../provenance/plane.js'
 import type { ExtensionHost, HostOptions, ModelRouteRecord, OpenedSeat } from '../host.js'
 import type { CorpusSpec, Ledger, RemoteEventsSource } from '../ledger/index.js'
+import type { LibrarySources } from '../library-sources.js'
 import type { LibraryUsageReader } from '../library-usage.js'
 import type { Logger } from '../log.js'
 import type { SessionNames } from '../names.js'
@@ -265,6 +266,7 @@ export interface HostContext {
     set(input: import('@harnessdesk/protocol').PlanSetInput): Promise<import('@harnessdesk/protocol').PlanEntry>
     entryFor(runtime: RuntimeId, account: string): Promise<import('@harnessdesk/protocol').PlanEntry | null>
   }
+  librarySources(): LibrarySources
   libraryUsage(): LibraryUsageReader
   /** Read-only Insight reports plus the explicitly reviewed local seating action. */
   readonly insight: Pick<InsightPlane, 'goal' | 'goals' | 'usage' | 'agent' | 'compare' | 'previewOrder' | 'applyOrder'>
