@@ -1221,7 +1221,9 @@ their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Opening **Wrap** prefills **What finished** from the Run's recorded results.
 Comparison attempts have one line each, identified by card number and title:
 **#1 · … — Merged**, **#2 · … — Not kept**. A referee's pick alone says **Kept**;
-only an observed merge says **Merged**. A Not kept attempt starts with that
+only an observed merge says **Merged**. A verified merge receipt on the Run's
+person card takes precedence over the referee's pick, including when the person
+keeps the other attempt. A Not kept attempt starts with that
 disposition and an editable reason, rather than Finished. Summary, dispositions
 and reasons remain editable before reviewing and confirming the receipt.
 

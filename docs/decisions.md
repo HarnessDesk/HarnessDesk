@@ -3358,8 +3358,9 @@ own “Committed” verdict remains verbatim because it describes what it delive
 
 A comparison counts the attempts actually recorded in its Run and says who
 picked only once the pick is recorded. Wrap uses the same Run timeline's picks
-and observed merge to prefill an editable line for each attempt, with its card
-number distinguishing identical titles. A picked revision is Kept until a merge
-is observed; the other attempt defaults to Not kept with an editable reason.
+and verified person-card merge receipt to prefill an editable line for each
+attempt, with its card number distinguishing identical titles. A picked revision is Kept until a merge
+is observed; the person's merged attempt overrides the referee's pick, and
+the other attempt defaults to Not kept with an editable reason.
 The existing receipt protocol still records that disposition as dropped. The
 person reviews and can edit every field before confirming the wrap.

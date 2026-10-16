@@ -182,3 +182,20 @@ it('keeps an edited summary while late run evidence fills untouched dispositions
   expect(summary.value).toBe('My own summary')
   expect([...document.querySelectorAll<HTMLSelectElement>('select')][1]!.value).toBe('dropped')
 })
+
+it('prefills the person’s alternate merge and keeps edits when that receipt arrives late', async () => {
+  const { teamWordsRepairFixture } = await import('../preview/team-words-repairs-fixture')
+  const { view, store } = teamWordsRepairFixture()
+  const beforeMerge = { ...view, board: { ...view.board, intents: view.board.intents.map(card => card.id === 6
+    ? { ...card, state: 'open' as const, outcome: null, handoff: null } : card) } }
+  const show = (next: GoalView) => act(() => root.render(<StoreProvider store={store}><GoalWrap view={next} onClose={vi.fn()} /></StoreProvider>))
+  show(beforeMerge)
+  const summary = document.querySelector<HTMLTextAreaElement>('[aria-label="What finished"]')!
+  const disposition = (id: number) => document.querySelector<HTMLSelectElement>(`[aria-label="Disposition for #${id} · Improve the session store"]`)!
+  expect(disposition(2).value).toBe('dropped')
+  act(() => type(summary, 'My own summary'))
+  show(view)
+  expect(summary.value).toBe('My own summary')
+  expect(disposition(1).value).toBe('dropped')
+  expect(disposition(2).value).toBe('finished')
+})
