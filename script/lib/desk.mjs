@@ -396,6 +396,9 @@ export const closeDesk = async ({ child, cdp, sink, processGroup }) => {
       const killed = waitForDeskClose(child, 2500)
       if (processGroup !== undefined || !closed) signal('SIGKILL')
       if (!(await killed)) throw new Error(`desk ${child.pid} did not close its process and output pipes after SIGKILL`)
+      // Closed launch pipes cannot prove that separate runtime groups are
+      // gone: escalation may have interrupted the shell's runtime disposal.
+      if (!closed) throw new Error(`desk ${child.pid} required SIGKILL; runtime disposal could not be confirmed`)
     }
   } catch (error) {
     errors.push(error)

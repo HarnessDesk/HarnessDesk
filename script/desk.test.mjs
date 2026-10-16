@@ -148,7 +148,7 @@ test('connectDesk cleans up when a renderer target appears but its store never m
 
 // Run cleanup outside node:test: a returned promise is insufficient evidence
 // that Node can exit. Inherited output pipes kept the old implementation alive.
-for (const mode of ['normal-helper', 'stubborn-helper', 'exited-launcher', 'discovery-failure', 'connected']) {
+for (const mode of ['normal-helper', 'stubborn-helper', 'exited-launcher', 'discovery-failure', 'connected', 'slow-disposal']) {
   test(`desk cleanup permits natural process termination: ${mode}`, {
     skip: process.platform === 'win32' ? 'POSIX process groups' : false,
     timeout: 15_000,
@@ -167,9 +167,11 @@ for (const mode of ['normal-helper', 'stubborn-helper', 'exited-launcher', 'disc
     let stdout = ''
     let stderr = ''
     let group
+    let runtime
     runner.stdout.on('data', chunk => {
       stdout += chunk
       group = Number(/group:(\d+)/.exec(stdout)?.[1]) || group
+      runtime = Number(/runtime:(\d+)/.exec(stdout)?.[1]) || runtime
     })
     runner.stderr.on('data', chunk => { stderr += chunk })
     const timer = setTimeout(() => runner.kill('SIGKILL'), 12_000)
@@ -178,6 +180,11 @@ for (const mode of ['normal-helper', 'stubborn-helper', 'exited-launcher', 'disc
       // Always reclaim this fixture's group, including when testing old code.
       if (group) {
         try { process.kill(-group, 'SIGKILL') } catch (error) {
+          if (error.code !== 'ESRCH') throw error
+        }
+      }
+      if (runtime) {
+        try { process.kill(-runtime, 'SIGKILL') } catch (error) {
           if (error.code !== 'ESRCH') throw error
         }
       }
@@ -190,6 +197,7 @@ for (const mode of ['normal-helper', 'stubborn-helper', 'exited-launcher', 'disc
     assert.doesNotThrow(() => process.kill(unrelated.pid, 0))
     if (mode === 'normal-helper') assert.doesNotMatch(stderr, /escalating/)
     else assert.match(stderr, /escalating.*stdoutOpen.*true/)
+    if (mode === 'slow-disposal') assert.match(stdout, /detached-runtime-survived/)
     assert.match(stdout, /cleanup-complete/)
     assert.match(stdout, /"stdoutClosed":true,"stderrClosed":true,"logFinished":true/)
   })
