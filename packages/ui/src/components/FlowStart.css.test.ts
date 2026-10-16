@@ -13,7 +13,8 @@ describe('New Team seat controls', () => {
   it('ellipsizes a long selected agent name while its control carries the full title', () => {
     expect(source).toContain('className={styles.agentSelect}')
     expect(source).toContain('title={selectedRuntime?.presentation.name ?? automaticName ?? undefined}')
-    expect(body('.agentSelect select')).toMatch(/text-overflow:\s*ellipsis/)
+    expect(source).toContain('<Popover fullWidth')
+    expect(source).toContain('<Text role="row" truncate>')
     expect(body('.roleControls')).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
     expect(body('.agentSelect')).toMatch(/grid-column:\s*1\s*\/\s*-1/)
   })

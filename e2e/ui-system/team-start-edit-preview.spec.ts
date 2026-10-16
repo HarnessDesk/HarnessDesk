@@ -11,7 +11,7 @@ for (const theme of ['light', 'dark'] as const) {
       if (surface === 'catalogue') await page.getByRole('button', { name: 'Write and review', exact: true }).click()
       const dialog = page.getByRole('dialog')
       await dialog.getByRole('textbox', { name: 'What should they do?', exact: true }).fill('Repair checkout retry for review')
-      await expect(dialog.getByRole('combobox', { name: 'Agent for Writes' })).toBeEnabled()
+      await expect(dialog.getByRole('button', { name: 'Agent for Writes' })).toBeEnabled()
       await dialog.getByRole('button', { name: 'Details', exact: true }).click()
       await expect(dialog.getByText('Review the committed change', { exact: true })).toBeVisible()
       await expect(dialog.getByText(/Approve publishing the reviewed change/)).toBeVisible()

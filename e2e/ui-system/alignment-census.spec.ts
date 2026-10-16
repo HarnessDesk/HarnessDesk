@@ -27,7 +27,7 @@ for (const theme of ['light', 'dark'] as const) {
     if (shape === 'comparison') {
       const judge = dialog.locator('[data-slot="row"]').filter({ has: page.getByText('Judge · optional', { exact: true }) })
       await expect(judge).toHaveCount(1)
-      await expect(judge.getByRole('combobox', { name: 'Agent for Judge', exact: true })).toBeVisible()
+      await expect(judge.getByRole('button', { name: 'Agent for Judge', exact: true })).toBeVisible()
       rows = rows.or(judge)
       await expect(rows).toHaveCount(3)
     }

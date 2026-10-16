@@ -3494,3 +3494,12 @@ The old recorded claims about a runtime naming the rail row, and the page
 repeating that word, are retired: the rail now names a stable route while
 its page keeps the runtime's vocabulary. The one-line row claim stays pinned
 to the updated route test.
+
+New Team uses the same anchored choice menus as the composer. An automatic
+seat reads the runtime chosen by its plan, without requiring an explicit
+runtime change first. A model or effort choice pins that automatic seat.
+Nested Escape belongs to the open picker before the dialog.
+
+A choice menu inside a dialog portals into that dialog's content. Its popup
+therefore shares the modal's stacking context instead of landing below the
+modal viewport; the existing focus and Escape policy still owns dismissal.

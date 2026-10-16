@@ -255,7 +255,7 @@ export const Popover = ({
         >
           {label}
         </PopoverTrigger>
-        <PopoverPortal>
+        <PopoverPortal container={trigger.current?.closest<HTMLElement>('[data-slot="dialog-content"]') ?? undefined}>
           <PopoverPositioner
             positionMethod="fixed"
             side={side ?? (drop === 'up' ? 'top' : 'bottom')}

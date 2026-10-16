@@ -293,7 +293,10 @@ composer and project menu too. With no project open, the empty composer
 offers **Open a folder…**. It and **Open folder…** use the same folder picker
 as the + beside Projects, and both are reachable by keyboard.
 New Team opens the shared dialog with its task, searchable Flow picker, roles
-and optional Done when. Just a Team opens a shared board without fixed steps.
+and optional Done when. Runtime, model and effort use the shared choice menus.
+The automatic runtime supplies its models immediately; changing a model or
+effort makes that seat explicit. Escape closes an open picker before the
+dialog. Just a Team opens a shared board without fixed steps.
 **Most used** appears only for Flows that have actually been started on this
 desk; the rest stay under **More Flows**. Changing the Flow stays in the dialog
 and keeps each draft.

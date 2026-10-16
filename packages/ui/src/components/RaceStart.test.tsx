@@ -36,10 +36,13 @@ it('takes /race through New Team with its task and ordinary preview token, then 
     await act(async () => root.render(<StoreProvider store={store}><RaceStart root="/repo" task="Fix the cart total" onClose={close} /></StoreProvider>))
     expect(document.querySelector<HTMLTextAreaElement>('[aria-label="What should both try?"]')?.value).toBe('Fix the cart total')
     expect(document.body.textContent).not.toContain('Race an Agent against itself')
-    const chooseJudge = async (value: string) => act(async () => {
-      const judge = document.querySelector<HTMLSelectElement>('[aria-label="Agent for Judge"]')!
-      judge.value = value; judge.dispatchEvent(new Event('change', { bubbles: true }))
-    })
+    const chooseJudge = async (value: string) => {
+      const judge = document.querySelector<HTMLButtonElement>('[aria-label="Agent for Judge"]')!
+      await act(async () => judge.click())
+      const name = value ? 'Runtime 1' : 'You'
+      const choice = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(one => one.textContent === name)!
+      await act(async () => choice.click())
+    }
     await chooseJudge('alpha')
     const chosen = () => JSON.parse((request.mock.calls.filter(call => call[0] === 'authoring/start/preview').at(-1)![1] as { source: string }).source) as FlowPolicy
     expect(chosen().roles.find(role => role.id === 'judge')).toMatchObject({ seats: [{ runtime: 'alpha' }], independentOf: [] })
