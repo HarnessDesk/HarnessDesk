@@ -21,11 +21,15 @@ export type TokenTable = {
 const LENGTH = /^-?\d+(\.\d+)?px$/
 /**
  * A length a token derives from others, `calc(8px + 8px + 1px)` once the
- * variables are in. Units that resolve against a box (`%`, viewport, `em`)
- * are left out: what they come to on the probe is not what they come to
- * where they are used.
+ * variables are in, that the probe resolves to what it is where it is used.
+ * A unit that resolves against a box or a font — `%`, viewport and container
+ * units, `em`, `ex`, `ch`, `cap`, `ic`, `lh` — comes to something else on the
+ * probe, so a token using one is left out. `rem` and `rlh` stay: they resolve
+ * against the root, which is the same for the probe as for every element.
  */
-const DERIVED = /^(calc|min|max|clamp)\((?!.*(%|vw|vh|vmin|vmax|dvh|svh|lvh|\bem|ch\b|ex\b|lh\b))/
+const RELATIVE = /\d(?:%|(?:vw|vh|vmin|vmax|[dsl]v[hwib]|vi|vb|cq\w+|em|ex|ch|cap|ic|lh)\b)/i
+export const isDerivedLength = (value: string) => /^(calc|min|max|clamp)\(/.test(value) && !RELATIVE.test(value)
+
 const add = <K>(map: Map<K, string[]>, key: K, name: string) => {
   const list = map.get(key)
   if (list) list.push(name)
@@ -60,7 +64,7 @@ export const readTokens = (): TokenTable => {
     const value = style.getPropertyValue(name).trim()
     if (!value) continue
     // The probe resolves a derived length; a margin takes negatives as they are.
-    const length = LENGTH.test(value) ? value : DERIVED.test(value) ? resolve(probe, value) : null
+    const length = LENGTH.test(value) ? value : isDerivedLength(value) ? resolve(probe, value) : null
     if (length) {
       const px = Math.round(parseFloat(length) * 100) / 100
       add(table.lengths, px, name)
