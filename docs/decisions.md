@@ -3482,3 +3482,42 @@ Run plus conversation and card or approval identify the row; repeated snapshots 
 state. Answering or moving past a step clears it, as does ending or wrapping
 the Run. Its destination opens the Team's existing view. Needs you itself keeps
 its current presentation.
+
+
+## First run always has a text box — 2026-10-16
+
+Issue [#1720](https://github.com/HarnessDesk/HarnessDesk/issues/1720) found that
+a fresh desk replaced its text box with a folder button. The owner chose:
+
+1. Keep the enabled text box in every state and focus a fresh draft.
+2. Put **Choose folder** in the composer's own toolbar, using the existing
+   folder picker from Projects and New session. A chosen folder shows its
+   name, truncating with its full path on hover; worktree choices remain.
+3. Enable Send for text on a ready agent without a folder. Send waits for the
+   picker: choosing sends into that folder; cancelling preserves the draft.
+   No conversation starts without a folder.
+4. Keep **What should we build?** and one line, **Describe a task, then choose
+   the folder it runs in.** Remove history-source copy from the main pane.
+5. Keep the installed-agent offer from #1673 in a compact row: names, small
+   secondary **Add** buttons, and **Installed on this Mac** on one centre line.
+6. Draft Details omits unknown permission and branch prose, even with a
+   folder chosen, and omits an empty Plan card. **Not chosen** and **No usage
+   yet** are facts worth showing.
+7. Keep toolbar items on one centre line with the toolbar's spacing, checked
+   at 1280 and 1600 pixels, with no height jump after choosing a folder.
+8. The first screen names no CLI, editor extension or other history source.
+   This supersedes #1673's history-copy sentence for both the main pane and
+   sidebar. No reader remains for `presentation.historySource`, so its UI
+   helper, adapter declaration and protocol field are removed.
+9. The owner's second addendum removes the global sidebar empty-state block
+   entirely, replacing the earlier zero-project-only wording. Projects always
+   draws its heading, filter, options and +; individual projects retain **No
+   conversations yet — ⌘N starts one here.** as their own row state.
+10. The folder fact in Details shows the folder name, with the full path in
+    its title, rather than shortening a path in the middle.
+11. All drafts omit the unreported-permission line, including after a folder
+    has been chosen.
+
+This replaces #1675 D4's standalone empty-composer button while preserving
+its shared-picker decision and #1673's registration behaviour. No new theme,
+scratch folder, agent registration or sign-in policy is introduced.

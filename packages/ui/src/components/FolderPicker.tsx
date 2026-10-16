@@ -47,7 +47,7 @@ interface Listing {
   readonly entries: readonly { readonly name: string; readonly path: string }[]
 }
 
-export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
+export const FolderPicker = ({ onClose }: { onClose: (chosen?: boolean) => void }) => {
   const store = useStore()
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
@@ -110,22 +110,21 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
       size="lg"
       tall
       flush
-      onClose={onClose}
+      onClose={() => onClose()}
       bodyPrelude={location}
       footer={
         <>
           <Button
             variant="default"
             disabled={!listing}
-            onClick={() => {
+            onClick={async () => {
               if (!listing) return
-              onClose()
-              void store.openWorkspace(listing.path)
+              if (await store.openWorkspace(listing.path)) onClose(true)
             }}
           >
             Open {listing ? `“${crumbsOf(listing.path).at(-1)?.name ?? listing.path}”` : 'folder'}
           </Button>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={() => onClose()}>Cancel</Button>
         </>
       }
     >

@@ -2092,6 +2092,24 @@ stops. Scrolling never adds a per-screen scrollbar skin. The frame contract
 checks that a resting thumb is invisible, that scrolling reveals it, and that
 it fades again.
 
+## First-run composition
+
+A draft always has an enabled text box, focused on entry. **Choose folder**
+is a folder icon and label in the existing toolbar; after a choice, it shows
+the folder name with its full path in the title. The folder picker and the
+worktree chooser compose the existing small buttons and menu controls, on
+one centre line with the toolbar's spacing. Choosing a folder adds no row and
+changes no composer height. Send may ask for a folder, and cancellation keeps
+what was typed.
+
+The empty pane has one heading and one line of task guidance. Installed
+agents follow in a compact, vertically centred row of names and small
+secondary Add buttons beside **Installed on this Mac**. Neither the pane nor
+the sidebar explains other clients' history. The sidebar has no global empty-state text. Projects retains its heading and
+controls with zero or more projects; a project earns its own empty row. Draft Details shows facts: **Not chosen** or the folder name
+with a full-path title, **No usage yet**, a known branch, and a plan only when
+one exists. Unknown permission and branch prose earns no row in a draft.
+
 ## Composer selected values
 
 Permission and Mode tracks keep their selected values at their natural width.

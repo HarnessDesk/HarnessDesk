@@ -140,7 +140,6 @@ export const Sidebar = ({
     }
   }, [snapshot.historyCursor, snapshot.historyLoading, store])
 
-  const runtime = useRuntime()
   const health = useRuntimeHealth()
   const ready = health?.state === 'ready' || health?.state === 'idle'
   const agentsBroken = anyBroken(snapshot.agents ?? [])
@@ -188,14 +187,6 @@ export const Sidebar = ({
     <LeftColumnProjectsHead value={query} onChange={setQuery} focused={filterFocused}
       onFocusChange={setFilterFocused} options={<SessionListControls searching={searchQuery.length > 0} />}
       onBrowseFolders={onBrowseFolders} />
-      {snapshot.history.length === 0 && !snapshot.historyLoading && !searchQuery && (
-        <EmptyState
-          variant="inline"
-          title={ready
-            ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
-            : 'Connect a runtime to see your sessions.'}
-        />
-      )}
       <SessionTree
         now={now}
         suppressSelection={activeDestination !== null}

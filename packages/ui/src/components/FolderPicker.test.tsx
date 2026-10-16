@@ -87,3 +87,17 @@ it('draws a separator between crumbs as the item’s own sibling, not its child'
   const crumbs = [...document.querySelectorAll('[data-slot="breadcrumb-page"], [data-slot="breadcrumb-item"] button')]
   expect(crumbs.some((el) => el.textContent === 'harness-desk')).toBe(true)
 })
+
+it('reports a chosen folder only after it has opened successfully (#1720)', async () => {
+  const { store } = rig()
+  let finish!: (opened: boolean) => void
+  store.openWorkspace = vi.fn(() => new Promise<boolean>(resolve => { finish = resolve }))
+  const close = vi.fn()
+  await act(async () => root.render(<StoreProvider store={store}><FolderPicker onClose={close} /></StoreProvider>))
+  const open = [...document.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('Open “'))!
+  expect(open).toBeDefined()
+  act(() => open.click())
+  expect(close).not.toHaveBeenCalled()
+  await act(async () => finish(true))
+  expect(close).toHaveBeenCalledWith(true)
+})

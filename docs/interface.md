@@ -289,9 +289,11 @@ is replaced by **Make a first commit to work in a worktree**, with a **Commit**
 button that opens the existing commit flow. After that commit the normal
 worktree choice returns. Menus re-read the checkout when opened, so commits
 made by an agent or terminal also restore the choice. This applies to the
-composer and project menu too. With no project open, the empty composer
-offers **Open a folder…**. It and **Open folder…** use the same folder picker
-as the + beside Projects, and both are reachable by keyboard.
+composer and project menu too. With no project open, the composer keeps an enabled text box and a **Choose folder**
+control in its toolbar. It and **Open folder…** use the same folder picker
+as the + beside Projects, and both are reachable by keyboard. Sending a task
+without a folder opens that picker; choosing sends into the chosen folder,
+and cancelling leaves the draft untouched. A conversation always has a folder.
 New Team opens the shared dialog with its task, searchable Flow picker, roles
 and optional Done when. Just a Team opens a shared board without fixed steps.
 **Most used** appears only for Flows that have actually been started on this
@@ -761,14 +763,24 @@ on this viewer.
 
 ## The composer
 
-An empty conversation offers agents already installed on this Mac, with one
-compact **name — Add** button per runtime beside **Installed on this Mac**.
-The pane draws before the background scan answers; the scan runs once per
-window and the offer is omitted when nothing new is found. Adding uses the
-same registration as Settings › Runtimes › Add a runtime. The new runtime
-becomes available in the composer, and its offer disappears. The history
-sentence names the present runtimes' declared history sources, once per source;
-it is omitted when none reads history through.
+A fresh draft focuses its enabled text box and asks **What should we build?**,
+with one line: **Describe a task, then choose the folder it runs in.** The
+folder control shares the toolbar's centre line and spacing. It shows
+**Choose folder** until a folder is chosen, then its name with the full path
+on hover; worktree choices remain beside it. Choosing a folder keeps the box's
+height. Details shows **Not chosen** or the folder name (full path on hover),
+and **No usage yet**. Drafts omit unreported permissions and branches and an
+empty Plan card. The sidebar has no global empty-state text: Projects retains its heading,
+filter, options and + even without projects. Each project owns its empty row. Neither pane names
+another client or a history source.
+
+An empty conversation offers agents already installed on this Mac, with a
+compact row of each agent's name and a small secondary **Add** button beside
+**Installed on this Mac**. The pane draws before the background scan answers;
+the scan runs once per window and the offer is omitted when nothing new is
+found. Adding uses the same registration as Settings › Runtimes › Add a
+runtime. The new runtime becomes available in the composer, and its offer
+disappears.
 
 A signed-out agent’s empty conversation offers one normal Sign in button.
 Its composer does not repeat the sign-in notice while the page already explains
