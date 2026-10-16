@@ -10,7 +10,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    # Not on labels: `full-ci` starts its own full run (full-ci-label.yml).
+    types: [opened, synchronize, reopened]
   # Runs started by hand always prove the full suite.
   workflow_dispatch:
 

@@ -59,7 +59,7 @@ Node tests, the Node end-to-end tests, the UI tests, and the checks.
 Browser integration has two tiers. Ordinary pull requests use the **bounded**
 tier. A push to `main`, a pull request whose head branch starts with `batch/`,
 a pull request labelled `full-ci`, and a manual dispatch use the **full** tier.
-Adding or removing a label starts a new run. The full tier runs every browser
+Adding `full-ci` starts one full run on the head commit (`full-ci-label.yml`); no other label starts anything. The full tier runs every browser
 spec in both themes, with the existing matrix of up to sixteen shards, and
 native smoke. A check named `CI tier: bounded` or `CI tier: full`, the browser
 aggregate's log and the job summary identify what ran. Required check names stay
