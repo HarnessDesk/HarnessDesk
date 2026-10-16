@@ -1,5 +1,5 @@
 import { teamsInput } from '../lib/teams-snapshot'
-import { goneProjectFolders } from '../lib/room-folders'
+import { goneProjectFolders, roomsByProjectFor } from '../lib/room-folders'
 import { SidebarMenuState } from '../design'
 import { teamListRow, type TeamListState } from '../lib/teams-list'
 import {
@@ -1083,16 +1083,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
      only ever name *one*, and a project can hold several. Rooms are rows in
      the tree now, beside the sessions, which is where the things you open
      live. */
-  const roomsByProject = useMemo(() => {
-    const out = new Map<string, TeamState[]>()
-    for (const team of snapshot.teams.values()) {
-      const root = roomGroupRootOf(team, [snapshot.workspace, ...snapshot.workspaces])
-      const held = out.get(root)
-      if (held) held.push(team)
-      else out.set(root, [team])
-    }
-    return out
-  }, [snapshot.teams, snapshot.workspace, snapshot.workspaces])
+  const roomsByProject = useMemo(() => roomsByProjectFor(snapshot.teams, snapshot.foldersGone, [snapshot.workspace, ...snapshot.workspaces], searching), [snapshot.teams, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, searching])
 
   // The current project stays open; the rest fold under "Other projects"
   // once there are enough of them for the fold to save anything. The fold's

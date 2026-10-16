@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { realpathSync } from 'node:fs'
+import { realpathSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { errnoOf, NOTHING_HERE } from './errno.js'
@@ -67,8 +67,7 @@ export const folderGoneAt = (root: string): boolean | undefined => {
   if (cache?.has(root)) return cache.get(root)
   let gone: boolean | undefined
   try {
-    realpathSync.native(root)
-    gone = false
+    gone = !statSync(realpathSync.native(root)).isDirectory()
   } catch (error) {
     // Permission or I/O failures do not prove a folder was deleted.
     if (NOTHING_HERE.has(errnoOf(error))) gone = true

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
@@ -144,4 +144,21 @@ test('room folder measurements do not call an unreadable root gone', async (t) =
   t.mock.method(realpathSync, 'native', () => { throw Object.assign(new Error('refused'), { code: 'EACCES' }) })
   assert.equal(withCanonicalPaths(() => folderGoneAt('/work/private')), undefined)
   assert.equal(folderGoneAt(''), undefined)
+})
+
+test('room folder measurements reject a file and its symlink and refresh after directory recreation', async () => {
+  const { folder, alias } = fixture()
+  const { folderGoneAt } = await import('../src/path-identity.js')
+  rmSync(folder, { recursive: true })
+  writeFileSync(folder, 'a file is not a project folder')
+  withCanonicalPaths(() => {
+    assert.equal(folderGoneAt(folder), true)
+    assert.equal(folderGoneAt(alias), true)
+  })
+  rmSync(folder)
+  mkdirSync(folder)
+  withCanonicalPaths(() => {
+    assert.equal(folderGoneAt(folder), false)
+    assert.equal(folderGoneAt(alias), false)
+  })
 })

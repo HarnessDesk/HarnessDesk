@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { GoalView, HostMethodName, TeamState, WireNotification } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, type GoalView, type HostMethodName, type SessionSummary, type TeamState, type WireNotification } from '@harnessdesk/protocol'
 
 import { AppStore } from './store'
 import { StoreProvider } from './context'
@@ -96,4 +96,30 @@ it('keeps a gone alias out of an existing project even when recent folders remem
   expect(list().groups.map(group => group.root)).toEqual([live])
   expect(list().gone).toEqual([gone])
   expect(container.querySelector('[aria-label="Room Team gone"]')).toBeNull()
+})
+
+it('hides gone Teams filed through a surviving clone with history, but keeps them searchable after Forget', async () => {
+  const { store, list, container, render } = await rig()
+  const history: SessionSummary[] = [live, gone].map((cwd, index) => ({
+    id: sessionId(`clone-${index}`), runtime: runtimeId('agent'), title: `Clone ${index}`, preview: null,
+    cwd, status: { type: 'notLoaded' }, createdAt: index + 1, updatedAt: index + 1,
+    git: { sha: 'x', branch: 'main', originUrl: 'https://acme.dev/storefront.git' },
+    folderGone: cwd === gone,
+  }))
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => method === 'session/index'
+    ? { data: history, nextCursor: null } : null) as never)
+  await act(async () => { await store.loadHistory({ reset: true }) })
+  await paint()
+  expect(list().groups).toHaveLength(1)
+  expect(list().groups[0]?.folders).toContain(gone)
+  expect(container.querySelector('[aria-label="Room Team live"]')).not.toBeNull()
+  expect(container.querySelector('[aria-label="Room Team gone"]')).toBeNull()
+  expect(list().gone).toEqual([gone])
+  await act(async () => { await store.forgetFolders([gone]) })
+  await paint()
+  expect(list().gone).toEqual([])
+  expect(container.querySelector('[aria-label="Room Team gone"]')).toBeNull()
+  render(true)
+  expect(container.querySelector('[aria-label="Room Team gone"]')).not.toBeNull()
+  expect(store.getSnapshot().teams.size).toBe(3)
 })
