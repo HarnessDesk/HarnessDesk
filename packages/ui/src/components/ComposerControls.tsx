@@ -227,7 +227,7 @@ const StaleDefaultRows = ({ stale }: { stale: readonly StaleDefault[] }) => {
   const runtime = useRuntime()?.id
   return <>{stale.map((one) => <MenuItem key={one.id} icon={<AlertIcon size={14} />}
     label="Use the agent’s current value" hint={`Saved ${one.label}: ${one.valueLabel}. ${one.reason}`}
-    onSelect={() => { if (runtime) void store.clearNewSessionDefault(runtime, one.id) }} />)}
+    onSelect={() => { if (runtime) void Promise.resolve(store.clearNewSessionDefault(runtime, one.id)).catch(error => store.resultNotice('warning', error instanceof Error ? error.message : String(error))) }} />)}
     {stale.length > 0 && <MenuSeparator />}
   </>
 }

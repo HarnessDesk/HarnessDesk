@@ -8422,7 +8422,7 @@ export class AppStore {
     const next = reduceSession(existing, event)
     if (next !== existing) this.#setSession(next)
     if (event.type === 'session/options' && Object.keys(this.#draftsByRuntime[runtime] ?? {}).length > 0) {
-      void this.newSessionDefaultsFor(runtime)
+      void this.newSessionDefaultsFor(runtime).catch(error => this.resultNotice('warning', describe(error)))
     }
   }
 

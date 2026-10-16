@@ -2158,6 +2158,7 @@ grant without relaxing the admission policy.
 General's **New conversations** section uses the existing Settings Rows and
 menu controls for runtime, permission, model and effort. Recommended is a
 choice in each option menu; the adapter's actual recommendation is its hover
-title. A refused recommendation uses the shared warning Banner while leaving
+title. General, runtime New sessions and Permissions › Approvals show a
+refused recommendation in the shared warning Banner while leaving
 the choice rows available for recovery. This section adds no control or token
 spelling of its own.

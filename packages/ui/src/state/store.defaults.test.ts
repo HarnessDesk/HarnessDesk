@@ -382,6 +382,20 @@ it('keeps an option-only live update local when no saved picks need validation',
   expect(request.mock.calls).toEqual([])
 })
 
+it('reports a defaults resolver rejection from a live option update', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const id = sessionId('live-defaults')
+  const session = { runtime, id, cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0, options: declared }
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) =>
+    method === 'runtime/sessionDefaults' ? declared : method === 'session/read' || method === 'session/resume' ? session : {}) as never)
+  await store.setNewSessionDefault(runtime, 'model', 'old')
+  await store.openSession(id, { runtime })
+  vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error('Recommendation unavailable.'))
+  const notice = vi.spyOn(store, 'resultNotice')
+  ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/options', sessionId: id, options: declared })
+  await vi.waitFor(() => expect(notice).toHaveBeenCalledWith('warning', 'Recommendation unavailable.'))
+})
+
 it('validates saved picks again at session creation before sending any start options', async () => {
   const store = new AppStore('ws://localhost:0/')
   let options = declared
