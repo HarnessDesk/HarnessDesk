@@ -284,6 +284,20 @@ test('Node package selection excludes CI end-to-end files and runs dependants on
   })
 })
 
+test('host retention runs alone with the ordinary deadline, outside the concurrent server files', async () => {
+  await fixture(async (directory, put) => {
+    put('packages/server/test/host-retention.test.ts', '')
+    const { createPlan } = await api()
+    const plan = createPlan(directory, { paths: ['packages/server/test/host-retention.test.ts'], chromium: true })
+    const ordinary = plan.steps.find(step => step.name === 'Node tests: server')
+    const retention = plan.steps.find(step => step.name === 'Node tests: server retention')
+    assert.deepEqual(ordinary.args, ['--test', '--test-timeout=120000', 'packages/server/dist/test/host.test.js'])
+    assert.equal(retention?.status, 'run')
+    assert.deepEqual(retention.args, ['--test', '--test-timeout=120000', 'packages/server/dist/test/host-retention.test.js'])
+    assert.deepEqual(retention.needs, ['Node build'])
+  })
+})
+
 test('browser selection observes both limits and always retains directly edited specs', async () => {
   await fixture(async (directory, put) => {
     const { createPlan } = await api()

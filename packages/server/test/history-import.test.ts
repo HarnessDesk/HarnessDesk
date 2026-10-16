@@ -4,7 +4,7 @@ import { mkdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test, type TestContext } from 'node:test'
-import { runtimeId, sessionId, type Page, type SessionSummary } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, type HistoryImportState, type Page, type SessionSummary } from '@harnessdesk/protocol'
 import { Host } from '../src/host.js'
 import { StateStore } from '../src/state.js'
 import { SessionIndex } from '../src/session-index.js'
@@ -23,13 +23,20 @@ const fixture = (t: TestContext, native = false) => {
   return { host, root, runtime }
 }
 const finished = async (host: Host) => {
-  for (let i = 0; i < 100; i++) {
+  let settle!: (state: HistoryImportState) => void
+  const completion = new Promise<HistoryImportState>(resolve => { settle = resolve })
+  // Subscribe before reading: the import can finish while status is awaited.
+  const detach = host.addBroadcaster(notification => {
+    if (notification.method === 'history/importChanged' && notification.params.runtime === 'fake' && notification.params.state !== 'running') {
+      const { runtime: _runtime, ...state } = notification.params
+      settle(state)
+    }
+  })
+  try {
     const status = await host.call('history/status', { runtime: runtimeId('fake') })
     assert.ok(status)
-    if (status.state !== 'running') return status
-    await new Promise(resolve => setImmediate(resolve))
-  }
-  assert.fail('import did not settle')
+    return status.state === 'running' ? await completion : status
+  } finally { detach() }
 }
 
 test('import starts an idle runtime and writes all 2,000 metadata rows, preserving desk bodies and tombstones', async t => {
@@ -142,6 +149,25 @@ test('a host-only rename survives import and later transcript reads, including b
     assert.equal((await history()).data[0]?.title, title, 'a later transcript refresh keeps the name')
     assert.equal((await host.call('session/index', { runtimes: [runtime.info.id] })).data.length, 0, 'rename and read do not adopt a preview')
   })
+})
+
+test('import completion waits for a held listing beyond 100 event-loop turns', async t => {
+  const { host, runtime } = fixture(t)
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  t.after(() => release())
+  runtime.listSessions = async () => { await held; return { data: [row('late')], nextCursor: null } }
+  host.register(runtime)
+  await host.call('history/import', { runtime: runtime.info.id })
+  // Attach the rejection handler before advancing the loop: the old bounded
+  // poll fails here even though the import is still legitimately in flight.
+  const completion = finished(host).catch(error => error as Error)
+  for (let n = 0; n < 200; n++) await new Promise(resolve => setImmediate(resolve))
+  release()
+  const result = await completion
+  assert.ok(!(result instanceof Error), String(result))
+  assert.equal(result.state, 'done')
+  assert.equal(result.count, 1)
 })
 
 test('the first project-filtered History page resolves cold folders beyond the unfiltered first page', async t => {
@@ -263,9 +289,12 @@ test('import spawns no Git, including reconciliation of an existing desk archive
     const runtime=new FakeRuntime();
     runtime.listSessions=async query=>({data:query.archived==='only'?[{runtime:'fake',id:'desk',cwd:${JSON.stringify(root)},title:'Synthetic native',createdAt:1,updatedAt:3,status:{type:'notLoaded'}}]:[],nextCursor:null});
     host.register(runtime); measuring=true;
+    const finished=new Promise(resolve=>host.addBroadcaster(event=>{
+      if(event.method==='history/importChanged' && event.params.state!=='running') resolve(event.params);
+    }));
     await host.call('history/import',{runtime:'fake'});
-    for(let i=0;i<100;i++){const state=await host.call('history/status',{runtime:'fake'});if(state.state!=='running'){if(state.state!=='done')throw new Error(JSON.stringify(state));break} await new Promise(r=>setImmediate(r));}
-    await new Promise(r=>setTimeout(r,30));
+    const state=await finished;
+    if(state.state!=='done')throw new Error(JSON.stringify(state));
     measuring=false;console.log(JSON.stringify({git}));await host.dispose();
   `
   const output = execFileSync(process.execPath, ['--input-type=module', '-e', driver], { encoding: 'utf8' })
