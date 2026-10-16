@@ -179,13 +179,16 @@ const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
  * it crosses by no more than the pull; the row's card around it is measured
  * on its own.
  */
-const pulledInSlot = (kid: Element, el: Element, k: DOMRect, r: DOMRect) => {
+export const pulledInSlot = (kid: Element, el: Element, k: Pick<DOMRect, 'left' | 'right' | 'bottom'>, r: Pick<DOMRect, 'left' | 'right' | 'bottom'>) => {
   if (!el.matches('[data-slot="row-ctl"]')) return false
   const pulled = kid.closest('[style*="--edge-pull"]')
   if (!pulled || !el.contains(pulled)) return false
+  // Each margin's pull is allowed on its own edge only: a control pulled to
+  // the end has not earned room past the start.
   const style = getComputedStyle(pulled)
-  const pull = Math.max(0, -parseFloat(style.marginRight) || 0, -parseFloat(style.marginLeft) || 0)
-  return pull > 0 && k.right <= r.right + pull + 1 && k.left >= r.left - pull - 1 && k.bottom <= r.bottom + 1
+  const right = Math.max(0, -parseFloat(style.marginRight) || 0)
+  const left = Math.max(0, -parseFloat(style.marginLeft) || 0)
+  return right + left > 0 && k.right <= r.right + right + 1 && k.left >= r.left - left - 1 && k.bottom <= r.bottom + 1
 }
 
 const sticksOut = (el: Element, r: DOMRect) => {
