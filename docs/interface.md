@@ -896,6 +896,22 @@ where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.
 
+Library's More menu offers **Import**, **Add from GitHub…**, and **Rescan**.
+The first two wait until the Library has been read. Add from GitHub accepts a
+public repository or folder URL and an optional branch, tag or commit. Found
+skills show their folder, file count and counts of files that can run or are
+binary; only skills with neither kind start checked. Refused folders keep the
+host's reason. Choose at least one skill and one agent with a skills location
+to review the install.
+
+The install plan lists every file, including local installs, with its size and
+any Can run or Binary mark. A runnable file keeps its reason under its path.
+Fetched files with either mark can be read as plain text; binary content is
+not displayed and a capped read says it shows the first 256 KB. A fetched plan
+with incoming runnable or binary files requires one acknowledgement before
+Apply. It acknowledges only the operations that need it; local installs ask
+for none. Each operation keeps its own result or refusal after Apply.
+
 The Library’s List view compares Skill (or Server), State and Loaded by in
 three labelled columns. Descriptions wrap, a warning names a needed fix, and
 only agents that load the entry appear as faces; Matrix and the entry’s sheet

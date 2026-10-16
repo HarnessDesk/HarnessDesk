@@ -1,3 +1,4 @@
+import { GITHUB_SOURCE, githubFile, githubPlan } from './library-github-fixture'
 import { FRAME } from '../design/frame'
 import { DOCUMENT_DIFF } from './run-shapes-fixture'
 import { panes, type TeamChatLayout, type TeamFramePage } from '../state/layout'
@@ -2288,7 +2289,10 @@ class PreviewStore {
           backupPath: '/home/u/.harnessdesk/backups/project-checks/SKILL.md',
         }]
       }
-      if (method === 'library/plan') return { plannedAt: now, ops: [] }
+      if (method === 'library/source/fetch') return { ...GITHUB_SOURCE, ref: (params as { ref?: string }).ref ?? GITHUB_SOURCE.ref }
+      if (method === 'library/source/file') return githubFile((params as { path: string }).path)
+      if (method === 'library/plan') return githubPlan((params as { intents: import('@harnessdesk/protocol').LibraryIntent[] }).intents)
+      if (method === 'library/apply') return (params as { ops: import('@harnessdesk/protocol').LibraryPlannedOp[] }).ops.map(op => ({ id: op.id, outcome: 'done' }))
       return null
     },
   }

@@ -3317,3 +3317,14 @@ for every agent it opens, in later rounds and after recovery too. An explicit
 runtime choice that cannot enforce that access remains refused beside its row,
 with a way to choose a compatible agent. Automatic uses the same strict plan,
 so an earlier incompatible preference cannot block a later compatible one.
+
+## A fetched skill is reviewed as a bundle before installing — 2026-10-16
+
+The Library's Add from GitHub flow pins a public repository revision and lets
+the person choose skills and destination agents before the ordinary plan.
+The plan lists every carried file and lets runnable or binary fetched files
+be read as plain text. Those incoming files require an explicit acknowledgement
+before Apply; ordinary local installs retain their existing confirmation.
+The acknowledgement travels only on the operations whose files need it.
+This keeps the review attached to the bundle the host planned and checks again
+at apply, rather than treating a skill's definition as its entire contents.

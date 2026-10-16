@@ -2147,3 +2147,13 @@ it does not send someone above the form to find an unexplained dry run.
 The dedicated [New Team access specimen](../packages/ui/front-door-edit.html)
 shows the edit-first form; its `before` query reproduces the former publish
 grant without relaxing the admission policy.
+
+### Library source review
+
+Add from GitHub uses the shared Dialog, Field, Input, Checkbox, Row/Rows, Chip,
+Note, SectionHead, CodeBlock, ActionError and Button contracts. Folder paths and
+runnable-file reasons earn a second line; counts and file kinds stay beside
+the label. Read shows fetched bytes as plain text. The plan's acknowledgement
+belongs to incoming fetched files that can run or are binary, and gates Apply.
+`preview.html?library-github` shows selection; `?library-github=plan` shows
+the file review, both using the method-aware placeholder repository fixture.
