@@ -1,6 +1,7 @@
 import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
 import { Button } from '../design'
+import { useSidebarHistory } from '../lib/use-sidebar-history'
 import { ArrowLeftIcon, ArrowRightIcon, SidebarIcon } from './Icons'
 import styles from './WindowControls.module.css'
 
@@ -13,26 +14,28 @@ import styles from './WindowControls.module.css'
  * does not — put away, or floating over a narrow window — so the controls
  * never leave the row the eye expects them on.
  *
- * When the column is away, Search stays beside the toggle in the title row.
- * Below the frame's window threshold, history arrows move out of the lead;
- * the floating sidebar's own row retains both arrows.
+ * When the standing sidebar's own history folds, main carries the arrows alone.
  */
-export const WindowControls = ({ history = true }: { sidebarRow?: boolean; history?: boolean } = {}) => {
+export const WindowControls = ({ sidebarRow = false, history = true }: { sidebarRow?: boolean; history?: boolean } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const settings = snapshot.workbench.navigation.current.kind === 'settings'
-  const shown = sidebarPlacement(snapshot) !== 'away'
+  const placement = sidebarPlacement(snapshot)
+  const shown = placement !== 'away'
+  const historyInMain = useSidebarHistory(placement === 'column', settings)
+  if (!sidebarRow && placement === 'column' && !historyInMain) return null
+  const historyOnly = !sidebarRow && placement === 'column'
   const navigation = history && !settings
   return (
     <span className={styles.group}>
-      <Button
+      {!historyOnly && <Button
         variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
         onClick={() => store.toggleSidebar()}
         title={shown ? 'Hide the sidebar' : 'Show the sidebar'}
         aria-label={shown ? 'Hide sidebar' : 'Show sidebar'}
       >
         <SidebarIcon size={14} />
-      </Button>
+      </Button>}
       {navigation && <span>
         <Button
           variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}

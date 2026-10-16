@@ -7,6 +7,17 @@ the rule is the last line of its section.
 
 ---
 
+## History arrows move to the main bar when the sidebar runs out of room — 2026-10-15
+
+The native corner consumes 78px of the sidebar's top row. The default 256px
+column fits four full 28px controls and the mode switch when the controls
+give up their gaps. At smaller widths, both history arrows move to the main
+bar's lead, returning when the sidebar has room. Their rendered fold owns
+the handoff, so native corner reservations and live seam drags agree.
+
+**The rule:** the sidebar's history arrows never fold away without a visible
+pair in the main bar. Control targets keep their design-system size.
+
 ## Browser CI is bounded on a pull request and complete before landing — 2026-10-15
 
 A measured UI pull request took 79 minutes end to end: sixteen browser shards

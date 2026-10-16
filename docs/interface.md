@@ -241,9 +241,10 @@ conversation or a room — whenever the sidebar is not standing beside it: put
 away, floating over a narrow window, or hidden by a panel given the whole
 window, where showing it gives the panel the content area instead. Only the
 middle's own header takes them; a conversation docked beside it, or a member's
-column in a room, does not draw a second set. A header too narrow for all
-three keeps the toggle and folds the arrows, which are still on the sidebar's
-own row.
+column in a room, does not draw a second set. The native default sidebar keeps
+the toggle, Search and both arrows beside the mode switch without reducing
+their targets. When the sidebar's lead cannot fit the arrows, both move to
+the main bar's lead; they return as soon as the sidebar has room.
 
 **Nothing renders under the window buttons**, and *which* row that constrains
 moves: the sidebar's title bar while the sidebar is up, a conversation's header
@@ -260,9 +261,9 @@ slash commands, grouped in a fixed order and scored within each group.
 
 **⌘[ and ⌘] step back and forward** through what the middle has shown — a
 conversation or a room — and `/back` and `/forward` are the same pair in the
-palette and the composer. The header's arrows do the same thing and fold away
-in a header under 520px, which a wide window reaches as soon as a panel is
-docked and the sidebar is away; the keys do not depend on that room. While a
+palette and the composer. The title row's arrows do the same thing; when they
+cannot fit beside the sidebar's native corner they move to the main bar
+instead of disappearing. The keys do not depend on that room. While a
 browser pane is the one you are working in, the same two keys step that
 page's history instead, as its other browser keys do. A file editor answers
 the pair too — there they outdent and indent — and while it has focus it keeps
@@ -1163,9 +1164,9 @@ pixels. A 400px reading column is protected in this order:
 - **A header folds by its own width, not the window's**, so a narrow pane in
   a wide window folds the same way. At 520px the branch's name, the status's
   word and the tasks chip's words fold to their marks — still read out, and
-  on hover — while the back and forward arrows go, the sidebar's own pair
-  being the way back, and the plan meter shows its figure only when the
-  agent is running low. At 400px a resting status goes, the browser and
+  on hover — while back and forward retain their title-row targets, moving
+  to the main bar if the sidebar has no room, and the plan meter shows its
+  figure only when the agent is running low. At 400px a resting status goes, the browser and
   terminal buttons fold into ⋯ › View where there is a ⋯ — a draft has none,
   and keeps its browser button — and the plan meter keeps its bar alone, low
   or not. The title is what all of it protects: at a 375px window it keeps
