@@ -69,6 +69,9 @@ const settle = () => act(async () => {})
 
 const storeFor = (overrides: Record<string, unknown> = {}): AppStore =>
   ({
+    getSnapshot: () => emptySnapshot,
+    subscribe: () => () => {},
+    setDiffPrefs: vi.fn(),
     previewAgentEdit: vi.fn(async (): Promise<AuthoringSavePreview> => ({ token: null, edits: [], issues: [], resuming: false })),
     applyAuthoringSave: vi.fn(async () => ({ state: 'applied', written: ['agents/reviewer/AGENT.md'], message: 'Saved.' })),
     readAuthoring: vi.fn(async () => DOCUMENT),

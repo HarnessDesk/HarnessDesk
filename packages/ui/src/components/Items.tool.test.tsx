@@ -86,7 +86,9 @@ const outputs = (): string[] => [
   ...container.querySelectorAll('[data-slot="code-block-body"]'),
 ].map((el) => el.textContent ?? '')
 const diffText = (): string[] =>
-  [...container.querySelectorAll('td[class*="_code_"]')].map((cell) => cell.childNodes[1]?.textContent ?? '')
+  [...container.querySelectorAll('td[class*="_code_"]')].map((cell) =>
+    // Changed words add inline spans; read all code after the leading diff marker.
+    [...cell.childNodes].slice(1).map(node => node.textContent ?? '').join(''))
 
 describe('an opened tool step', () => {
   it('does not offer to open a step with nothing under it', () => {
