@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { GitMergeOutcome, GitRefsSummary } from '@harnessdesk/protocol'
 
 import { useStore } from '../../state/context'
-import { DiffView } from '../../editor'
+import { DiffFilesView, splitByFile } from '../../editor'
 import { DiffIcon, MergeIcon } from '../../components/Icons'
 import { Button } from '../ui/button'
 import { NativeSelect } from '../ui/native-select'
@@ -169,7 +169,7 @@ export const DiffRangeDialog = ({
       ) : diff.length === 0 ? (
         <Note>The two are identical.</Note>
       ) : (
-        <DiffView diff={diff} />
+        <DiffFilesView files={splitByFile(diff)} />
       )}
     </Dialog>
   )

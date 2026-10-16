@@ -309,7 +309,7 @@ export const PlanDialog = ({
                 {result?.outcome === 'failed' && <ActionError>{result.detail}</ActionError>}
                 {open === op.id && op.preview && (
                   <FormStack>
-                    <DiffView diff={op.preview} wrap />
+                    <DiffView diff={op.preview} />
                     {op.extraFiles && op.extraFiles.length> 0 && (
                       <Text as="p" role="meta" ink="secondary">
                         Also carries {op.extraFiles.length}{' '}

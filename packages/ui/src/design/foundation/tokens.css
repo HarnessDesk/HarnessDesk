@@ -944,11 +944,16 @@ body {
      code — is spaced so its groups read across a room. */
   --hd-code-tracking-spaced: 0.18em;
   --hd-code-max-height: 380px;
-  /* Diff rows sit inside the darker code fill. Resolve their state washes
+  /* --- diff grounds -------------------------------------------------------
+     Diff rows sit inside the darker code fill. Resolve their state washes
      against the page as opaque colours so a gutter does not composite the
      same alpha twice, and each state's ink keeps its AA pairing. */
   --hd-code-add-fill: color-mix(in srgb, var(--hd-success) 12%, var(--hd-background));
   --hd-code-remove-fill: color-mix(in srgb, var(--hd-danger) 12%, var(--hd-background));
+  /* Changed words sit one step stronger than their removed/added line ground. */
+  --hd-code-add-word-fill: color-mix(in srgb, var(--hd-success) 28%, var(--hd-background));
+  --hd-code-remove-word-fill: color-mix(in srgb, var(--hd-danger) 28%, var(--hd-background));
+  /* === End diff grounds ================================================= */
 
   /* The button, re-measured in 2026-09 and moved on four counts. Each is one
      line here and reaches both spellings of the

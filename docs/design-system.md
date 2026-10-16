@@ -410,6 +410,17 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-active` | `rgba(9, 12, 17, 0.09)` |
 | `--hd-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
 
+### Diff grounds
+
+Diff rows sit inside the darker code fill. Resolve their state washes against the page as opaque colours so a gutter does not composite the same alpha twice, and each state's ink keeps its AA pairing.
+
+| token | value |
+| --- | --- |
+| `--hd-code-add-fill` | `color-mix(in srgb, rgb(65, 189, 111) 12%, rgb(255, 255, 255))` |
+| `--hd-code-remove-fill` | `color-mix(in srgb, rgb(228, 68, 62) 12%, rgb(255, 255, 255))` |
+| `--hd-code-add-word-fill` | `color-mix(in srgb, rgb(65, 189, 111) 28%, rgb(255, 255, 255))` |
+| `--hd-code-remove-word-fill` | `color-mix(in srgb, rgb(228, 68, 62) 28%, rgb(255, 255, 255))` |
+
 ### Density scopes
 
 A page-sized decision about how big a control is, named so a component can opt into it without redefining a system token in its own stylesheet. `[data-hd-density='comfortable']` is the settings and usage window: every control inside it stands at 36px instead of the app's working 26px, because those are pages a person reads rather than works in. The rule lives at the foot of this file, because it has to be a selector rather than a value.

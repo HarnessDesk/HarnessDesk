@@ -6,7 +6,7 @@ import { AgentIcon, AlertIcon, BranchIcon, CaretIcon, CheckIcon, CrossIcon, Filt
 import { libraryNoticeResults } from '../../preview/notice-fixture'
 import { MessageQueue } from '../../components/MessageQueue'
 import { RuntimeMark } from '../../components/BrandIcons'
-import { DiffView } from '../../editor'
+import { DiffView, DiffFilesView } from '../../editor'
 import { TurnFiles } from '../../components/TurnFiles'
 import { Notices } from '../../components/Notices'
 import { Toaster } from '../ui/toast'
@@ -1564,6 +1564,16 @@ const CodeBoard = () => (
     <Case label="two hunks, including a new file">
       <div className="w-full" data-testid="diff-sample">
         <DiffView diff={CATALOGUE_DIFF} />
+      </div>
+    </Case>
+    <Case label="wrapped changed words and file view options">
+      <div className="w-full max-w-96" data-testid="diff-options-sample">
+        <StoreProvider store={catalogueStore}>
+          <DiffFilesView files={[
+            { path: 'src/summary.ts', diff: '@@ -1 +1 @@\n-render("A long checkout summary stays inside this narrow pane so its final changed word is visible: before")\n+render("A long checkout summary stays inside this narrow pane so its final changed word is visible: after")' },
+            { path: 'test/summary.ts', diff: '@@ -1 +1 @@\n-expect(summary).toBe("before")\n+expect(summary).toBe("after")' },
+          ]} />
+        </StoreProvider>
       </div>
     </Case>
     <Case label="the same plate in an opened step">

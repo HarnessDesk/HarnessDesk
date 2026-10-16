@@ -2034,7 +2034,8 @@ hierarchy in light and dark themes at wide and narrow window widths.
 
 A long token in a conversation never widens the main column. Prose, notices,
 tool labels and Markdown headings break anywhere a token can occur. Code
-plates, diffs and tables keep their own horizontal scrollers. The frame
+plates and tables keep their own horizontal scrollers. Diffs wrap by default;
+their view-options menu can restore sideways scrolling. The frame
 contract checks the workbench main region at 1440px and 720px: its
 `scrollWidth` must equal its `clientWidth` with 600-character tokens in each
 transcript row kind.
@@ -2099,3 +2100,20 @@ A Banner defaults to the reading column. When it sits in a page section whose
 other blocks use a wider measure, set `measure="container"`: the notice fills
 the section's width so a warning and its list share one edge. The banner frame
 and card both follow that measure; a screen should not size either one itself.
+
+
+## Diff reading
+
+Diffs wrap long lines by default at every width, preserving line numbers and
+file paths with their `+N −N` counts. Paired removed/added lines highlight the
+changed words in a stronger red/green band using `--hd-code-remove-word-fill`
+and `--hd-code-add-word-fill` over the existing line grounds. Long tokens break
+anywhere inside the code cell; a wrapped line never widens its pane.
+
+The header's vertical ellipsis opens the design-system choice menu: Word wrap
+and Highlight changed words default on; Hide whitespace changes defaults off.
+These are standing preferences saved through the host's `app/state`, shared
+across diff readers. Multi-file patches add Collapse all files / Expand all
+files and a file list with Show files (on) and Group files by folder (off).
+File headings and counts stay visible when collapsed or when the list is hidden.
+The code board includes a narrow long-line and multi-file specimen.

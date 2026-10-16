@@ -7,6 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Diffs show the changed words.** Long lines wrap by default, modified words
+  carry a stronger tint, and the view-options menu remembers wrapping, word
+  highlighting, whitespace filtering and multi-file navigation choices.
+
 - **Notices share the composer's plate.** Cards keep their tile centred beside
   wrapped copy, stack long action groups below it, and mark failures with a
   left bar. A success tone confirms completed actions.
