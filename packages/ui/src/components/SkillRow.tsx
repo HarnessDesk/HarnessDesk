@@ -7,6 +7,7 @@ import { RuntimeMark } from './BrandIcons'
 import { Button, Chip, CodeText, AvatarStack, ListRow, ListRows, Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
 import { useNarrowLayout } from '../lib/use-narrow-layout'
 import { runtimeTint } from '../lib/accounts'
+import { libraryUpdateFor } from '../lib/library-updates'
 import { useSnapshot } from '../state/context'
 import { ChevronIcon } from './Icons'
 import type { LibraryColumn } from './LibraryActions'
@@ -48,7 +49,7 @@ export const monogramFor = (name: string): string => {
 export const findingFor = (
   entry: LibraryEntry,
   columns: readonly LibraryColumn[],
-): { text: string; tone: 'warn' | 'quiet' } | null => {
+): { text: string; tone: 'warn' | 'quiet'; title?: string } | null => {
   if (entry.copies.some((copy) => copy.hollow)) return { text: 'Empty on disk', tone: 'warn' }
   // Before every other finding: an agent that read the definition and refused
   // it has told us something no amount of reading the disk could, and it is
@@ -64,6 +65,14 @@ export const findingFor = (
   }
   const digests = new Set(entry.copies.filter((one) => !one.hollow).map((one) => one.digest))
   if (digests.size > 1) return { text: `${digests.size} copies differ`, tone: 'warn' }
+
+  if (entry.reach.length > 0 && entry.reach.every(one => one.state !== 'reaches' && one.state !== 'off' && one.state !== 'stale')) {
+    return { text: entry.copies.some(copy => copy.readBy.length === 0) ? 'Where no agent looks' : 'Loaded by nobody', tone: 'warn' }
+  }
+  const update = libraryUpdateFor(entry)
+  if (update?.status === 'behind') return { text: 'Update available', tone: 'quiet' }
+  if (update?.status === 'gone') return { text: 'Source branch is gone', tone: 'warn' }
+  if (update?.status === 'unreachable') return { text: 'Could not check', tone: 'quiet', ...(update.reason ? { title: update.reason } : {}) }
 
   const offColumns = entry.reach.filter((one) => one.state === 'off')
   if (offColumns.length > 0) {
@@ -90,17 +99,6 @@ export const findingFor = (
     return { text: `Not read yet by ${label}`, tone: 'quiet' }
   }
 
-  if (entry.reach.length > 0 && entry.reach.every((one) => one.state !== 'reaches')) {
-    // The two ways to reach nobody are worth telling apart: a copy in a
-    // directory nothing scans is one move from working, and the move is
-    // different from the one an absent skill needs.
-    return {
-      text: entry.copies.some((copy) => copy.readBy.length === 0)
-        ? 'Where no agent looks'
-        : 'Loaded by nobody',
-      tone: 'warn',
-    }
-  }
   return null
 }
 
@@ -144,7 +142,7 @@ export const SkillRow = ({ entry, columns, onOpen }: {
     title={<>{title}{!finding && <span className="sr-only"> Ready</span>}</>}
     subtitle={description}
     wrapSubtitle
-    meta={finding ? <Chip tone={finding.tone === 'warn' ? 'warning' : 'neutral'} size="sm">{finding.text}</Chip> : undefined}
+    meta={finding ? <Chip tone={finding.tone === 'warn' ? 'warning' : 'neutral'} size="sm" title={finding.title}>{finding.text}</Chip> : undefined}
     trail={<>{faces}<ChevronIcon size={15} /></>}
   />
   return (
@@ -169,7 +167,7 @@ export const SkillRow = ({ entry, columns, onOpen }: {
       <TableCell className="w-px whitespace-nowrap">
         {finding?.tone === 'warn'
           ? <Chip tone="warning" size="sm">{finding.text}</Chip>
-          : <Text role="muted" ink="muted">{finding?.text ?? 'Ready'}</Text>}
+          : <Text role="muted" ink="muted" title={finding?.title}>{finding?.text ?? 'Ready'}</Text>}
       </TableCell>
       <TableCell className="w-px whitespace-nowrap">
         <span className="flex items-center justify-between gap-3">

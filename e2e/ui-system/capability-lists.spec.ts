@@ -137,28 +137,30 @@ for (const theme of ['light', 'dark'] as const) {
       const readability = await rows.evaluateAll(rows => rows.map(row => {
         const name = row.querySelector('[data-slot="text"][data-role="subject"]')!
         const description = row.querySelector('[data-skill-description]')!
-        const nameText = name.firstChild!
+        const nameText = document.createTreeWalker(name, NodeFilter.SHOW_TEXT).nextNode()!
         const prefix = document.createRange()
         prefix.setStart(nameText, 0)
         prefix.setEnd(nameText, Math.min(8, nameText.textContent!.length))
         const nameBox = name.getBoundingClientRect()
         const lines = new Map<number, string[]>()
-        const text = description.firstChild!
+        const textNodes = document.createTreeWalker(description, NodeFilter.SHOW_TEXT)
         const box = description.getBoundingClientRect()
-        for (const match of text.textContent!.matchAll(/\S+/g)) {
-          const word = document.createRange()
-          word.setStart(text, match.index!)
-          word.setEnd(text, match.index! + match[0].length)
-          const rect = word.getBoundingClientRect()
-          if (rect.top >= box.bottom) continue // the full sentence lives in detail
-          const line = lines.get(rect.top) ?? []
-          line.push(match[0]); lines.set(rect.top, line)
+        for (let text = textNodes.nextNode(); text; text = textNodes.nextNode()) {
+          for (const match of text.textContent!.matchAll(/\S+/g)) {
+            const word = document.createRange()
+            word.setStart(text, match.index!)
+            word.setEnd(text, match.index! + match[0].length)
+            const rect = word.getBoundingClientRect()
+            if (rect.top >= box.bottom) continue // the full sentence lives in detail
+            const line = lines.get(rect.top) ?? []
+            line.push(match[0]); lines.set(rect.top, line)
+          }
         }
         const font = getComputedStyle(name)
         const canvas = document.createElement('canvas').getContext('2d')!
         canvas.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
         const ellipsis = name.scrollWidth > name.clientWidth ? canvas.measureText('…').width : 0
-        return { name: name.textContent, prefixRight: prefix.getBoundingClientRect().right, nameRight: nameBox.right - ellipsis, lines: [...lines.values()], clamp: getComputedStyle(description).webkitLineClamp, unbroken: text.textContent!.includes('x'.repeat(120)) }
+        return { name: name.textContent, prefixRight: prefix.getBoundingClientRect().right, nameRight: nameBox.right - ellipsis, lines: [...lines.values()], clamp: getComputedStyle(description).webkitLineClamp, unbroken: description.textContent!.includes('x'.repeat(120)) }
       }))
       for (const reading of readability) {
         expect(reading.prefixRight, reading.name ?? '').toBeLessThanOrEqual(reading.nameRight)

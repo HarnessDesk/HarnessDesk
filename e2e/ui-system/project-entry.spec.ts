@@ -4,7 +4,7 @@ const preview = '/src/preview/project-entry.html'
 
 test('the empty composer and both sidebar entries open one folder picker with keyboard access', async ({ page }) => {
   await page.goto(preview)
-  const open = page.getByRole('button', { name: 'Open a folder…', exact: true })
+  const open = page.getByRole('button', { name: 'Choose folder', exact: true })
   await expect(open).toBeEnabled()
   await open.focus()
   await page.keyboard.press('Enter')

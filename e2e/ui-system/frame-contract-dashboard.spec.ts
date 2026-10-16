@@ -136,15 +136,15 @@ test.describe('FIX4 Dashboard contracts', () => {
     expect(Math.max(...geometry.labelTops) - Math.min(...geometry.labelTops), 'all Overview figure labels share a baseline').toBeLessThanOrEqual(1)
   })
 
-  test('Overview selection is a chip and the figure hover plate is outdented', async ({ page }) => {
+  test('Overview selection follows the pressed measure and the figure hover plate is outdented', async ({ page }) => {
     await openFrame(page, 'frame-wall=dashboard&frame-view=overview', 'light', 1440)
     const turns = page.locator('[aria-label="What it cost, in brief"] button').filter({ hasText: 'Turns' })
     await turns.click()
     await expect(page.getByText('Turns per day', { exact: true })).toBeVisible()
     const selected = page.locator('[aria-label="What it cost, in brief"] button[aria-pressed="true"]')
-    const chip = selected.locator('[data-slot="chip"]')
-    await expect(chip).toHaveText('Selected')
-    await expect(chip).toHaveAttribute('data-variant', 'default')
+    await expect(selected).toHaveCount(1)
+    await expect(turns).toHaveAttribute('aria-pressed', 'true')
+    await expect(selected.getByText('Selected', { exact: true })).toHaveCount(0)
     await selected.hover()
     const geometry = await selected.evaluate(button => {
       const label = button.querySelector<HTMLElement>('[data-slot="stat-label"]')!

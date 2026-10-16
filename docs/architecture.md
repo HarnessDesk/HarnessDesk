@@ -600,7 +600,8 @@ These only exist because no vendor owns the desk:
   fetched origin in the same plan/apply pair, listing added, changed and removed
   files before replacing the bundle. An edited copy takes the backup path;
   added or changed runnable or binary files require acknowledgement again.
-  There is no client command or screen for these methods yet.
+  The Library screen checks only on request and reviews updates through that
+  same plan/apply path; these methods have no client command.
 - **One history, one search** across every backend, grouped by repository so
   a project is one row whichever agent worked in it.
 - **One permission policy and one audit log.**

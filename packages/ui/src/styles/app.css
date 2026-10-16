@@ -372,3 +372,24 @@ a:hover {
 :root[data-hd-resizing] body webview {
   pointer-events: none; /* desk: root interaction state disables guest hit testing (#954) */
 }
+
+/*
+ * A maker's mark in its own colours, or in the ink of the ground it sits on.
+ *
+ * components/BrandIcons.tsx draws each mark that has a colour file twice: the
+ * colours, and the one-colour twin on `currentColor`. The colours show
+ * everywhere except on an identity's own ground — a face or tile with a tint
+ * or a listing's colour, an account's ring, a signed-out seat — where the
+ * ground's ink is the one that means something.
+ */
+.brand > [data-ink='mono'] {
+  display: none;
+}
+
+:where([data-tint], [data-color], [data-off]) .brand > [data-ink='colour'] {
+  display: none;
+}
+
+:where([data-tint], [data-color], [data-off]) .brand > [data-ink='mono'] {
+  display: inline;
+}

@@ -5,7 +5,17 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.5.0 — 2026-10-16
+
+Flows now have their own page, with a canvas for building the work a Team will
+run. Getting there brings one shared New Team dialog, a window that keeps
+cards beside the work, files you can edit beside the conversation, and
+reviewed skill bundles, faster history and verified Team outcomes.
+
+- **Agent and model logos in their own colours.** Claude, Codex, Gemini,
+  DeepSeek and the rest are drawn in their makers' colours wherever a logo
+  appears. A logo on an account's coloured face or ring still takes that
+  colour, and a maker with no colour logo stays in one colour.
 
 - **Flows have their own page.** Browse cards with mini graphs, then build,
   connect, edit and save a Flow on its canvas. Its rail holds the selected
@@ -48,17 +58,11 @@ move is real work and is not news to a person weighing an upgrade.
   nothing to click around it stays still, and so does every icon when the
   system asks for reduced motion.
 
-- **DeepSeek shows the key it is really using.** From DeepSeek Harness
-  0.2.1-alpha.3 a key saved in its own store is used ahead of the one this app
-  hands it, so with both present the account row said "stored here" about a key
-  the agent ignored, and the balance was read for the wrong account. The row now
-  names the store, and the balance follows it, on those builds; older builds keep
-  the order they always had. The key stored in this window stays there to replace
-  or remove, and the build is remembered between runs so the account and the
-  balance agree from the first read after a restart. The key dialog and the
-  account page say the same thing instead of promising that a key stored here
-  takes precedence: on those builds it is used only if the key in the agent's
-  own store is removed.
+- **Accounts name the key actually in use.** When an agent's own credential
+  store takes precedence over a key saved here, the account row, balance and
+  key dialog agree about that order. The stored copy stays available to
+  replace or remove, and the remembered build keeps those readings consistent
+  after restart. The dialog explains when that copy can be used instead.
 
 - **Teams opens at once on a busy desk.** The page reads recorded usage only
   for the Teams its open tab shows, with one read of the usage sources for all
@@ -72,6 +76,270 @@ move is real work and is not news to a person weighing an upgrade.
   to everyone on the grid, or to the Seats picked with `@`, and Chat keeps it
   once. The room draft follows between Chat and the grid; a single tile keeps
   its own composer. Approvals remain in each tile, clear of the shared box.
+
+- **The first screen keeps its text box.** Describe the task before choosing
+  a folder; Choose folder lives in the composer toolbar, and Send asks for
+  one when it is still missing. Cancelling keeps the draft, and a dismissed
+  picker cannot send a later message. Installed agents can be added from a
+  compact row. Details leaves out unknown permissions and an empty Plan.
+
+- **New conversations start with careful defaults.** Workspace editing and
+  the agent's recommended model and effort are the starting choices, with
+  defaults in Settings › General. Your explicit picks win. A refused or stale
+  choice stays visible with a way to clear or replace it; a failed refresh
+  cannot silently start a conversation with a different choice.
+
+- **Permissions and planning have separate controls.** Permissions keeps the
+  agent's access levels in one composer slot; Collaboration mode holds Plan
+  and Act when the agent offers them. While planning, Permissions shows the
+  level Act will return to. Model, effort and the chosen permission label
+  keep their width while the toolbar has room, then fold together.
+
+- **Files have an Editor mode.** Switch from a conversation to its Explorer,
+  file tabs and Preview, Source or Changes view, with the conversation beside
+  the file. Save explicitly, compare an outside edit before overwriting it,
+  and send selected text to the draft with Ask in chat. Review opens the
+  turn's first changed file; transcript links open at their line. Removed
+  lines keep one minus sign and line up with added text.
+
+- **The sidebar reads the desk first.** Conversations started or continued
+  here come from a local index, fifty at a time, without waiting for every
+  agent's history or a repository scan. Team conversations stay beneath
+  their Team. Older conversations whose folder is unknown wait under No
+  folder while the desk tries to recover it, keeping their first-ask names.
+
+- **Projects keep a short, roomier list.** Each project shows five Teams and
+  loose conversations, keeping the selected row visible; Show more opens
+  the rest and Show less folds it back. Needs you and failures keep their
+  marks; activity, branch, pin and unread facts stay on hover. Icons and
+  trailing marks sit on the row's centre, and back and forward remain
+  reachable beside the window corner. Agents, Plugins and Flows keep their
+  totals on their own pages.
+
+- **Finished Teams stay until you wrap them.** Their sidebar row says Ready
+  to wrap. A Team whose project folder is gone leaves the ordinary project
+  list but stays reachable through search and Teams. Forget clears the
+  gone-folder count without removing its board, history or receipts.
+
+- **Sidebar search explains an empty result.** Clear search stays reachable
+  after filtering, folded matches are still counted, and removing an agent
+  finishes and refreshes the search instead of leaving it loading. The
+  command palette names a new conversation from its first ask straight away
+  and includes file results from the chosen folder.
+
+- **History browses conversations before adopting them.** Import an agent's
+  conversation metadata on request, filter and search it in History, and
+  read a cached preview without putting it in the sidebar. Continuing it
+  brings it onto the desk. Imports can be cancelled and preserve newer
+  names and archive choices; cached previews can be cleared separately.
+
+- **Remove has an Undo.** Remove from HarnessDesk takes away the desk's copy
+  and keeps it through the Undo window. Delete everywhere is a separate
+  confirmed action, offered only when the agent can delete its source, and
+  says where it goes. Either action stops an open conversation first.
+
+- **Worktrees follow their conversations.** Archiving removes a clean,
+  unused managed checkout and keeps its branch; reopening restores it.
+  Uncommitted or ignored files, a detached checkout and another active
+  conversation keep the folder. Discard worktree previews what would go
+  and asks again if it changes. Wrapping a Team archives idle members and
+  counts the ones still working.
+
+- **Storage shows what can be freed.** Settings › Storage measures retained
+  conversations and cached previews, and reviews inactive managed worktrees
+  before removing them. A checkout still shown in a pane or Team tile stays
+  out of cleanup, and branches remain available for reopening.
+
+- **Reopening keeps the history you can read.** An unchanged source reuses
+  its retained transcript; a failed source replay identifies the held copy.
+  A refused resume leaves readable history on screen, and visible Team
+  tiles reload their bodies after reconnecting. Closing conversations lets
+  go of their in-memory transcripts after saving them.
+
+- **Conversation search includes retained messages.** The desk stores turns,
+  tool items and usage together and can search message text with tool output
+  included when requested. A damaged retained conversation does not hide
+  healthy search results, and newer-format history stays intact for a build
+  that can read it.
+
+- **Agents start when they are needed.** Startup prepares the default agent
+  in the background; opening an agent's controls prepares a costly agent
+  before use. Remembered model and sign-in readings keep those controls
+  useful while it starts, and New Team waits for cold candidates before
+  calling them unavailable.
+
+- **A comparison starts with your choice.** Side by side makes an agent judge
+  optional and defaults to You. The two attempts use signed-in agents when
+  available, each with its own model and effort. `/race` opens that same
+  form with the task filled in, and a new comparison opens on its tiles.
+
+- **Attempt checks are optional.** Side by side and Mechanical contest suggest
+  the selected project's test command and let you edit or clear it before
+  Start. An empty command skips the check round; the dry run shows the exact
+  command each attempt would run. Project Flows retain their own routes.
+
+- **Start says what it is waiting for.** New Team and Run again name the
+  inputs or Seats still being checked beside the action. A project outside
+  the open workspace offers Open without losing the task or checkout choice.
+  A Seat that cannot be held to its required access names the refusal and
+  offers a compatible agent when one is available.
+
+- **Write and review hands publishing to you.** The writer edits and commits
+  locally under enforced editing access, then an independent reviewer reads
+  the committed change. Approval opens a person step naming the reviewed
+  revision and branch, where you decide whether to publish and merge it.
+
+- **A comparison's decision stays beside its attempts.** Side by side shows
+  the recorded recommendation, your pick and the confirmed merge, with
+  Compare changes and the pending person choice available there. A judge's
+  reviews of different revisions remain separate, so one cannot hide the
+  other. Overview counts recorded attempts and names who picked only after
+  that choice is recorded.
+
+- **Merged means the destination contains the chosen attempt.** Picking,
+  merging and I merged it all use the recorded attempt commit. The host
+  checks that commit against the named destination branch before recording
+  a merge; a refusal keeps the question open. The receipt keeps the actual
+  merge commit and destination even if a checkout changes afterwards.
+
+- **Wrap starts from the result.** Its editable summary and attempt lines
+  come from recorded picks and verified person merges. A person's merged
+  attempt takes precedence over the judge's recommendation; another attempt
+  starts as Not kept with a reason you can change before confirming.
+
+- **Finished Runs stop asking for finished work.** A successful landing
+  completes its Run even after a retry, and Stop clears that Run's unanswered
+  person steps without interrupting a later Run. Completed cards stay out of
+  Needs you while independent follow-ups keep their own attention.
+
+- **The Board keeps occupied columns in view.** Empty columns start as named
+  rails with zero counts and expand in place; the badge still counts every
+  card. The horizontal scrollbar remains visible at rest, and narrow panes
+  keep the compact list. Running check cards stay in Working.
+
+- **Run results use plain words.** Board tool headlines name the action;
+  exact tool identifiers stay in details. A successful attempt keeps neutral
+  ink when a sub-step failed, with the failure count and opened step carrying
+  that fact. A stopped Run keeps its full refusal and recovery on Run, with
+  Review stopped Run leading there from the other Team pages.
+
+- **Reviews follow the checkout that finished the work.** A card records the
+  writer's completion branch, including a switch and return, and a changed
+  checkout refuses a stale review. Reviewing a pull request opened outside
+  the Team reads that request's head. An empty review round cannot claim it
+  was posted.
+
+- **Publication states say where the review went.** This desk only names a
+  review retained locally. Findings on a passed-over attempt say Not
+  published beside their unchanged Open or repaired state, keeping that
+  fact distinct from the attempt's Not kept result.
+
+- **Isolated attempts can claim the same file.** Two attempts in different
+  checkouts can both own the same relative path. Conversations sharing a
+  checkout still contend, including when they start in different subfolders.
+
+- **Tools follow the conversation's checkout.** Git tools, shell calls and
+  branch context use an ordinary worktree conversation's own checkout.
+  Switching conversations moves project tools to the folder on screen,
+  including when folder reads finish out of order.
+
+- **Each Seat can show its own browser.** A Team tile switches between its
+  conversation and pages, keeping shortcuts with the focused pane. Short
+  windows give the pages enough height instead of forcing four unusable
+  tiles into two rows; the shared composer and comparison decision stay clear.
+
+- **Agent edits draw as diffs.** File edits reported over the agent connection
+  use the changed-files view, and running shell calls show the command while
+  it runs. Board tools retain their originating Seat through permission
+  checks, so a missing tool name no longer loses the desk's own request.
+
+- **The Library installs complete skill bundles.** Add from GitHub pins a
+  public repository revision, then lets you choose skills and destination
+  agents. Review lists the definition, scripts and references with sizes;
+  incoming runnable or binary files can be read and require acknowledgement
+  before Apply. Changed previews, unreadable files and oversized bundles
+  refuse before replacement, and local edits keep their backup protection.
+
+- **Skill updates are checked when you ask.** Check for updates reads recorded
+  repository origins; rows show the result and the skill sheet names pinned
+  and newer commits. Review fetches the current source and lists added,
+  changed and removed files before Apply, with the same acknowledgement for
+  incoming runnable or binary files. Origins remain visible before a check;
+  checks survive an overlapping rescan but are not invented after restart.
+
+- **A picked skill reaches the message box.** Use in composer in the Library
+  and a skill chosen from the command palette return to the conversation
+  before inserting the command. If no composer can receive it, the desk
+  says so instead of dropping it.
+
+- **The command line can read the Library.** `harnessdesk library list` and
+  `harnessdesk library show` inspect visible skills and tool servers, their
+  copies and usage. Filters narrow the inventory, and `--text` prints a
+  complete readable definition or refuses without printing a partial one.
+
+- **Conversation reports show what the agent loaded.**
+  `harnessdesk session show` reads recorded skills, servers, memory files and
+  agents without starting an agent, including retained epochs when asked.
+  `harnessdesk run show` carries each Seat's report beside attachment
+  readback. An unreported list stays distinct from an empty one, and sizes
+  appear only where the agent supplied them.
+
+- **A Flow previews its attachments before spending.** Its dry run and the
+  command line show which declared attachments would load and what would
+  refuse, without staging them. Removing an unused role also removes its
+  completion rule, keeping the edited Flow valid.
+
+- **Team waits reach the Inbox.** Pending person cards, picks, approvals and
+  questions appear under the bell and open the Team's existing view. Repeated
+  reads preserve read and cleared states; answering, stopping or wrapping
+  clears the corresponding live wait, including after reconnecting.
+
+- **Pace forecasts wait until they matter.** Dashboard keeps the forecast at
+  every remaining share. Above the composer it appears after work starts and
+  less than 15% of the binding window remains; elsewhere the account tooltip
+  carries it. Dismissed or silenced warnings stay dismissed there too.
+
+- **Repository actions know whether a commit exists.** A new repository offers
+  its first commit. Undo on a turn's changed files is no longer offered for
+  committed edits, and a stale card cannot undo them. Reopening a menu or
+  refreshing a checkout reads the current repository evidence.
+
+- **Project actions remain within reach.** New worktree appears for a saved
+  repository and says why it is unavailable elsewhere. Show Terminal opens
+  in the chosen project's folder even from a page, asking for a folder when
+  none is chosen. Narrow composer notices put actions below their copy,
+  result toasts stay above the composer, and the standing goal stays centred.
+
+- **Pages stay in the same window frame.** Opening a page keeps the work's
+  tools within reach; Settings changes the left column rather than covering
+  the desk. Page titles and controls share the content's reading edge.
+  Plan usage and sign-in actions live in the seat menu, background tasks
+  stay with the work's cards, and the old status bar is gone.
+
+- **Settings names the page you are on.** Each page puts its visible title
+  above its description. Permissions lists agents in use first and folds
+  the rest under Other agents. Buttons and tabs have more room, type uses
+  lighter weights, and the composer has a softer shadow.
+
+- **Usage keeps unknown readings unknown.** Dashboard hides Turns when no
+  agent reports them, keeps a reported zero, and draws a plan with one window
+  once. Plan names written with underscores read as words, and Plans filters
+  wrap before squeezing the attention sentence. Sign-in guidance appears once.
+
+- **Plugin tools have short titles.** Capabilities, plugin pages and transcript
+  rows use the same action names, with full descriptions on hover or the
+  plugin page. One group note explains the usual reach; only exceptions need
+  a mark beside the tool. A configured default speed reads as Standard.
+
+- **History capture leaves room for the desk.** Long attribution scans yield
+  while foreground requests run and compact superseded checkpoints without
+  losing recorded evidence. Wider history requests revisit earlier boundaries,
+  and retained ancestry stays readable when a repository object is missing.
+  Retrying a failed worktree admission closes its old capture observers first.
+
+- **The website's Dashboard is interactive.** Explore plan spending, activity
+  and time-of-day views against one fictional desk, using the same controls
+  as the app.
 
 ## 0.4.0 — 2026-10-07
 

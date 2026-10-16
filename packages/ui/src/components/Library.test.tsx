@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { runtimeId } from '@harnessdesk/protocol'
-import type { AgentAttachmentsView, AgentEntry, Library, LibraryEntry, LibraryUsage, ReachState, RuntimeInfo } from '@harnessdesk/protocol'
+import type { AgentAttachmentsView, AgentEntry, Library, LibraryEntry, LibrarySkillUpdate, LibraryUsage, ReachState, RuntimeInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -11,6 +11,9 @@ import { LibrarySection } from './Library'
 import { SkillList } from './SkillRow'
 import { DestinationPageScope } from '../panels/destination-page'
 import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
+
+const { toast } = vi.hoisted(() => ({ toast: vi.fn() }))
+vi.mock('../design', async importOriginal => ({ ...await importOriginal<typeof import('../design')>(), showToast: toast }))
 
 /** The home every `~/…` path in these fixtures hangs off; the page prints them back with the tilde. */
 const HOME = '/home/u'
@@ -42,6 +45,7 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  toast.mockClear()
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 1000 } as DOMRect)
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -141,11 +145,11 @@ const mount = async (
     /** Stands in for the store verb that leaves the page for the conversation. */
     returnToWork?: () => void
   } = {},
-): Promise<ReturnType<typeof vi.fn>> => {
+): Promise<ReturnType<typeof vi.fn<(method: string, params?: unknown) => Promise<unknown>>>> => {
   // Method-aware: the page asks for the library, then usage, then its own
   // history; answering everything with the library was one `undefined.skills`
   // from a crash.
-  const request = vi.fn(async (method: string) =>
+  const request = vi.fn(async (method: string, _params?: unknown) =>
     // A refresh that really refreshed, which is the shape the host sends when
     // an agent was idle. The interesting cases override this.
     method === 'runtime/refreshCatalog'
@@ -1770,7 +1774,7 @@ it('Agent filter preserves measured reach: same skill declared by two origins bu
       ],
     },
   }
-  const request = vi.fn(async (method: string) =>
+  const request = vi.fn(async (method: string, _params?: unknown) =>
     method === 'library/usage' ? { generatedAt: 1, sessionsScanned: 0, skills: {} }
     : method === 'library/plan' ? { plannedAt: 1, ops: [] }
     : value,
@@ -1856,7 +1860,7 @@ it('an Agent whose attachments view could not be read is treated as nothing decl
     // stub CI actually hit.
     'agent-b': undefined,
   }
-  const request = vi.fn(async (method: string) =>
+  const request = vi.fn(async (method: string, _params?: unknown) =>
     method === 'library/usage' ? { generatedAt: 1, sessionsScanned: 0, skills: {} }
     : method === 'library/plan' ? { plannedAt: 1, ops: [] }
     : value,
@@ -2049,7 +2053,7 @@ it('groups identical Why notes once and names the agents they cover', async () =
 it('E6 controlled sections and import intents keep one destination body', async () => {
   const value = library([entry('alpha', ['reaches', 'absent']), entry('server', ['reaches', 'absent'], { kind: 'mcp' })])
   const snapshot = { ...emptySnapshot(), status: 'open', agents: [], runtimes: [runtime('one', 'First Agent'), runtime('two', 'Second Agent')] } as AppSnapshot
-  const request = vi.fn(async (method: string) => method === 'library/usage' ? { generatedAt: 1, sessionsScanned: 0, skills: {} } : method === 'audit/query' ? [] : value)
+  const request = vi.fn(async (method: string, _params?: unknown) => method === 'library/usage' ? { generatedAt: 1, sessionsScanned: 0, skills: {} } : method === 'audit/query' ? [] : value)
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, transport: { request } } as unknown as AppStore
   const change = vi.fn()
   const draw = async (section: 'skill' | 'mcp', intent: number, active = true) => act(async () => root.render(
@@ -2082,7 +2086,7 @@ it('E6 hidden Library cancels a late scan before starting usage and rereads on r
   const value = library([entry('fresh', ['reaches', 'absent'])])
   let reply!: (value: Library) => void
   const first = new Promise<Library>(resolve => { reply = resolve })
-  const request = vi.fn(async (method: string) => method === 'library/read' ? first
+  const request = vi.fn(async (method: string, _params?: unknown) => method === 'library/read' ? first
     : method === 'library/usage' ? {generatedAt:1,sessionsScanned:0,skills:{}} : [])
   const snapshot = {...emptySnapshot(),status:'open',agents:[]} as AppSnapshot
   const store = {subscribe:()=>()=>{},getSnapshot:()=>snapshot,transport:{request}} as unknown as AppStore
@@ -2112,4 +2116,202 @@ it('omits reserved folders and skills without any nonempty definition from both 
   expect([...document.body.querySelectorAll('tbody th[scope="row"]')].map(node => node.textContent)).toEqual(['reviewRead src/ first. '])
   expect(document.body.querySelector('tbody code')?.textContent).toBe('src/')
   expect(document.body.querySelector('script')).toBeNull()
+})
+
+const updateOrigin = { url: 'https://github.com/acme-dev/skills', ref: 'main', commit: '1234567890abcdef', path: 'review/code-review' }
+const skillUpdate = (status: LibrarySkillUpdate['status'], over: Partial<LibrarySkillUpdate> = {}): LibrarySkillUpdate => ({ name: 'code-review', runtime: runtimeId('one'), origin: updateOrigin, latest: 'abcdef1234567890', status, reason: null, ...over })
+const pressUpdateCheck = async () => {
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
+  const check = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(n => n.textContent === 'Check for updates')
+  expect(check).toBeTruthy()
+  await act(async () => check!.click())
+}
+
+it.each([
+  { statuses: ['behind', 'current'], title: '1 update available', tone: 'neutral' },
+  { statuses: ['current'], title: 'Everything from a repository is up to date', tone: 'success' },
+  { statuses: [], title: 'No skill here came from a repository', tone: 'neutral' },
+  { statuses: ['behind', 'unreachable', 'gone'], title: '2 sources could not be checked', tone: 'warning' },
+] as const)('checks only on click, reloads, and toasts $title', async ({ statuses, title, tone }) => {
+  const request = await mount(library([entry('code-review', ['reaches'])]))
+  await act(async () => { window.dispatchEvent(new Event('focus')) })
+  expect(request.mock.calls.some(([method]) => method === 'library/sources/check')).toBe(false)
+  const original = request.getMockImplementation()!
+  request.mockImplementation(async method => method === 'library/sources/check' ? statuses.map(status => skillUpdate(status, { reason: status === 'unreachable' ? 'The source did not answer.' : null })) : original(method))
+  await pressUpdateCheck()
+  expect(request).toHaveBeenCalledWith('library/sources/check', {})
+  expect(request.mock.calls.filter(([m]) => m === 'library/read')).toHaveLength(2)
+  expect(toast).toHaveBeenCalledOnce()
+  expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title, tone, ...(tone === 'warning' ? { body: 'The source did not answer.' } : {}) }))
+})
+
+it('keeps a host check failure in the page ActionError and allows retry', async () => {
+  const request = await mount(library([]))
+  request.mockRejectedValueOnce(new Error('The source check was refused.'))
+  await pressUpdateCheck()
+  expect(container.textContent).toContain('The source check was refused.')
+  expect(toast).not.toHaveBeenCalled()
+})
+
+it('shows Checking and disables another check while the first request is pending', async () => {
+  const request = await mount(library([]))
+  let finish!: (value: unknown) => void
+  request.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  await pressUpdateCheck()
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
+  const checking = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(n => n.textContent === 'Checking…')
+  expect(checking?.getAttribute('aria-disabled')).toBe('true')
+  await act(async () => { finish([]) })
+})
+
+const mountUpdateSheet = async (updates?: readonly LibrarySkillUpdate[], origins = [updateOrigin]) => {
+  const value = entry('code-review', ['reaches'], {
+    copies: origins.map((origin, index) => ({ path: `/home/jane/.runtime-${index}/skills/code-review`, scope: 'user', readBy: [runtimeId('one')], hollow: false, digest: 'same', readOnly: false, origin })),
+    ...(updates ? { update: updates } : {}),
+  })
+  const request = await mount(library([value]))
+  await act(async () => cards()[0]!.click())
+  return request
+}
+const updateSheet = () => document.querySelector('[data-slot="skill-sheet"]')!
+const reviewUpdate = () => [...updateSheet().querySelectorAll('button')].find(b => b.textContent === 'Review update…')
+
+it('shows the recorded origin once before any check and no update state', async () => {
+  await mountUpdateSheet(undefined, [updateOrigin, updateOrigin])
+  const text = updateSheet().textContent!
+  expect(text.match(/Where it came from/g)).toHaveLength(1)
+  expect(text.match(/acme-dev\/skills/g)).toHaveLength(1)
+  expect(text).toContain('review/code-review · main, pinned at 1234567')
+  expect(text).not.toContain('Update available')
+  expect(text).not.toContain('Could not check')
+  expect(reviewUpdate()).toBeUndefined()
+})
+
+it('shows each distinct recorded origin, and nothing about origins for a local skill', async () => {
+  await mountUpdateSheet(undefined, [updateOrigin, { ...updateOrigin, ref: 'stable' }])
+  expect(updateSheet().textContent).toContain('main, pinned at 1234567')
+  expect(updateSheet().textContent).toContain('stable, pinned at 1234567')
+})
+
+it.each(['behind', 'gone', 'unreachable', 'current'] as const)('renders the %s update state in the facts column', async status => {
+  await mountUpdateSheet([skillUpdate(status, { reason: 'The source did not answer.' })])
+  const sheet = updateSheet()
+  if (status === 'behind') {
+    expect(sheet.textContent).toContain('Update available')
+    expect(sheet.textContent).toContain('1234567 → abcdef1')
+    expect(reviewUpdate()).toBeTruthy()
+  } else {
+    expect(reviewUpdate()).toBeUndefined()
+    if (status === 'gone') expect(sheet.textContent).toContain('The branch main no longer exists in acme-dev/skills.')
+    if (status === 'unreachable') {
+      const quiet = [...sheet.querySelectorAll('*')].find(n => n.textContent === 'Could not check: The source did not answer.')
+      expect(quiet).toBeTruthy()
+      expect(quiet!.closest('[data-slot="notice"]')).toBeNull()
+    }
+    if (status === 'current') expect(sheet.textContent).not.toContain('Update available')
+  }
+})
+
+it('fetches each distinct behind origin once and plans every runtime from the matching dir at the fetched commit', async () => {
+  const second = { ...updateOrigin, url: 'https://github.com/acme-dev/other-skills', path: 'review/other' }
+  const updates = [skillUpdate('behind'), skillUpdate('behind', { runtime: runtimeId('two'), origin: { ...updateOrigin, commit: 'older-pinned-commit' } }), skillUpdate('behind', { runtime: runtimeId('three'), origin: second }), skillUpdate('current', { runtime: runtimeId('four') })]
+  const request = await mountUpdateSheet(updates)
+  const original = request.getMockImplementation()!
+  request.mockImplementation(async (method: string, params?: unknown) => {
+    if (method === 'library/source/fetch') {
+      const p = params as typeof updateOrigin
+      return { ...p, repo: 'acme-dev/skills', commit: 'fresh-commit', skills: [{ name: 'code-review', dir: 'wrong', bundle: 'wrong' }, { name: 'folder-name-differs', dir: p.path, bundle: `bundle-${p.path}` }], refused: [] }
+    }
+    return original(method)
+  })
+  await act(async () => reviewUpdate()!.click())
+  expect(request.mock.calls.filter(([m]) => m === 'library/source/fetch')).toEqual([
+    ['library/source/fetch', { url: updateOrigin.url, ref: 'main', path: updateOrigin.path }],
+    ['library/source/fetch', { url: second.url, ref: 'main', path: second.path }],
+  ])
+  expect(request).toHaveBeenCalledWith('library/plan', { intents: updates.filter(u => u.status === 'behind').map(u => ({ kind: 'updateSkill', name: 'code-review', targetRuntime: u.runtime, origin: { ...u.origin, commit: 'fresh-commit', bundle: `bundle-${u.origin.path}` } })) })
+  expect(updateSheet()).toBeNull()
+})
+
+it.each(['missing', 'refused', 'failure'] as const)('keeps a %s fetch in the banner and opens no plan', async result => {
+  const request = await mountUpdateSheet([skillUpdate('behind')])
+  request.mockImplementationOnce(async () => {
+    if (result === 'failure') throw new Error('The repository did not answer.')
+    return { ...updateOrigin, commit: 'fresh', skills: [], refused: result === 'refused' ? [{ dir: updateOrigin.path, reason: 'The requested folder contains no skill.' }] : [] }
+  })
+  await act(async () => reviewUpdate()!.click())
+  expect(updateSheet().textContent).toContain(result === 'failure' ? 'The repository did not answer.' : result === 'refused' ? 'The requested folder contains no skill.' : 'No skill was found at review/code-review.')
+  expect(request.mock.calls.some(([m]) => m === 'library/plan')).toBe(false)
+})
+
+it('keeps Fetching disabled while fetching and clears the update only through the post-apply library read', async () => {
+  const request = await mountUpdateSheet([skillUpdate('behind')])
+  let finish!: (value: unknown) => void
+  request.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  await act(async () => reviewUpdate()!.click())
+  const fetching = [...updateSheet().querySelectorAll('button')].find(b => b.textContent === 'Fetching…')!
+  expect(fetching.disabled).toBe(true)
+  const original = request.getMockImplementation()!
+  request.mockImplementation(async (method: string) => {
+    if (method === 'library/plan') return { plannedAt: 1, ops: [{ id: 'u', kind: 'skill', name: 'code-review', action: 'update', targetPath: '/home/jane/.alpha/skills/code-review', guardDigest: 'same', backup: false, replaceBundle: true }] }
+    if (method === 'library/apply') return [{ id: 'u', outcome: 'done' }]
+    if (method === 'library/read') return library([entry('code-review', ['reaches'])])
+    return original(method)
+  })
+  await act(async () => finish({ ...updateOrigin, commit: 'fresh', skills: [{ dir: updateOrigin.path, bundle: 'fresh-bundle' }], refused: [] }))
+  await act(async () => [...document.body.querySelectorAll('button')].find(b => b.textContent === 'Apply 1 change')!.click())
+  expect(request.mock.calls.filter(([m]) => m === 'library/read')).toHaveLength(2)
+  expect(cards()[0]?.textContent).not.toContain('Update available')
+})
+
+it('a local skill has no source fact or update banner', async () => {
+  await mount(library([entry('local-review', ['reaches'])]))
+  await act(async () => cards()[0]!.click())
+  expect(updateSheet().textContent).not.toContain('Where it came from')
+  expect(updateSheet().textContent).not.toContain('Update available')
+  expect(reviewUpdate()).toBeUndefined()
+})
+it('a matching refusal wins over a listed skill and a second-source refusal opens no partial plan', async () => {
+  const second = { ...updateOrigin, path: 'review/other' }
+  const request = await mountUpdateSheet([skillUpdate('behind'), skillUpdate('behind', { runtime: runtimeId('two'), origin: second })])
+  request.mockImplementationOnce(async () => ({ ...updateOrigin, commit: 'fresh', skills: [{ dir: updateOrigin.path, bundle: 'bundle' }], refused: [] }))
+  request.mockImplementationOnce(async () => ({ ...second, commit: 'fresh', skills: [{ dir: second.path, bundle: 'bundle' }], refused: [{ dir: second.path, reason: 'The folder was refused.' }] }))
+  await act(async () => reviewUpdate()!.click())
+  expect(updateSheet().textContent).toContain('The folder was refused.')
+  expect(request.mock.calls.some(([m]) => m === 'library/plan')).toBe(false)
+})
+it('closing a sheet during a fetch cannot open a late plan', async () => {
+  const request = await mountUpdateSheet([skillUpdate('behind')])
+  let finish!: (value: unknown) => void
+  request.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  await act(async () => reviewUpdate()!.click())
+  await act(async () => updateSheet().querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click())
+  await act(async () => finish({ ...updateOrigin, commit: 'fresh', skills: [{ dir: updateOrigin.path, bundle: 'bundle' }], refused: [] }))
+  expect(request.mock.calls.some(([m]) => m === 'library/plan')).toBe(false)
+})
+
+it('Rescan during a pending check still refreshes the checked library and reports its result', async () => {
+  const request = await mount(library([entry('code-review', ['reaches'])]))
+  const original = request.getMockImplementation()!
+  let finish!: (value: unknown) => void
+  request.mockImplementation(async (method, params) => method === 'library/sources/check' ? new Promise(resolve => { finish = resolve }) : original(method, params))
+  await pressUpdateCheck()
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(n => n.textContent === 'Rescan')!.click())
+  await act(async () => finish([skillUpdate('behind')]))
+  expect(request.mock.calls.filter(([m]) => m === 'library/read')).toHaveLength(3)
+  expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: '1 update available' }))
+})
+
+it('Rescan cannot suppress a pending check failure', async () => {
+  const request = await mount(library([]))
+  const original = request.getMockImplementation()!
+  let fail!: (error: Error) => void
+  request.mockImplementation(async (method, params) => method === 'library/sources/check' ? new Promise((_resolve, reject) => { fail = reject }) : original(method, params))
+  await pressUpdateCheck()
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(n => n.textContent === 'Rescan')!.click())
+  await act(async () => fail(new Error('The repository did not answer.')))
+  expect(container.textContent).toContain('The repository did not answer.')
+  expect(toast).not.toHaveBeenCalled()
 })

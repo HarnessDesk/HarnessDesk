@@ -23,7 +23,7 @@ const FileRow = ({ file, sourcePath }: { file: PlannedFile; sourcePath?: string 
   return <div>
     <Row title={<Toolbar><CodeText as="code">{file.path}</CodeText>{file.runnable && <Chip tone="warning" size="sm">Can run</Chip>}{file.binary && <Chip tone="warning" size="sm">Binary</Chip>}</Toolbar>}
       desc={file.runnable ? file.reason : undefined}
-      control={<Toolbar><Text role="meta">{file.change ? `${file.change} · ` : ''}{file.bytes < 1024 ? `${file.bytes} B` : `${(file.bytes / 1024).toFixed(1)} KB`}</Text>{sourcePath && (file.runnable || file.binary) && <Button variant="secondary" size="sm" onClick={() => void read()}>{open ? 'Hide' : 'Read'}</Button>}</Toolbar>} />
+      control={<Toolbar><Text role="meta">{file.change ? `${file.change[0]!.toUpperCase()}${file.change.slice(1)} · ` : ''}{file.bytes < 1024 ? `${file.bytes} B` : `${(file.bytes / 1024).toFixed(1)} KB`}</Text>{sourcePath && file.change !== 'removed' && (file.runnable || file.binary) && <Button variant="secondary" size="sm" onClick={() => void read()}>{open ? 'Hide' : 'Read'}</Button>}</Toolbar>} />
     {open && <FormStack>
       {busy && <Note>Reading…</Note>}
       {failed !== null && <ActionError>{failed}</ActionError>}

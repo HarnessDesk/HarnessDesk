@@ -159,10 +159,10 @@ export const OverviewStrip = ({
     value:currentPaid.amount === null ? '—' : formatMoney(currentPaid.amount, currentPaid.currency ?? 'USD'),
     caption:currentPaid.amount === null ? <CaptionLink onClick={linkFor(reports[0]?.runtime)}>Set plan prices</CaptionLink> : paidCaption,
   }} measures={[
-    {id:'value',label:'Value',value:ledger === null ? '—' : ledger.totalCost === null ? '—' : formatMoney(ledger.totalCost,ledger.currency),
+    {id:'value',label:'Usage cost',value:ledger === null ? '—' : ledger.totalCost === null ? '—' : formatMoney(ledger.totalCost,ledger.currency),
       caption:<Text role="meta" tone={ratio === null ? undefined : ratio >= 1 ? 'neutral' : 'warning'}>{ratio !== null ? paidRatioCaption(ratio) : currentCost !== null ? `${formatMoney(perDay(currentCost,range) ?? 0,ledger?.currency ?? 'USD')} a day` : ''}</Text>,
       trend:valueChange !== null ? <Delta value={Math.round(valueChange)} better="down" tone="neutral" /> : undefined,
-      title:valuePricing ? `Value (${valuePricing}). Switch the chart below to cost per day` : 'Value. Switch the chart below to cost per day',
+      title:valuePricing ? `Usage cost (${valuePricing}). Switch the chart below to cost per day` : 'Usage cost. Switch the chart below to cost per day',
       selected:metric === 'value',run:()=>onMetricChange('value')},
     ...(currentTurns !== null || turnsCoverage.known > 0 ? [{id:'turns',label:'Turns',value:currentTurns !== null ? currentTurns.toLocaleString() : '—',
       caption:perTurn !== null ? `${formatMoney(perTurn,currentPaid.currency ?? 'USD')} paid a turn` : turnsCoverage.partial ? `known for ${turnsCoverage.known} of ${turnsCoverage.total} agents` : '',

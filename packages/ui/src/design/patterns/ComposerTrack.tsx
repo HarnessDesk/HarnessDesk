@@ -45,7 +45,12 @@ const tightTrackClass: Partial<Record<ComposerTrackName, string>> = {
   model: styles.trackModelTight!,
 }
 
-/** A token-sized position in the composer toolbar. */
+/**
+ * A token-sized position in the composer toolbar. Drafts keep their folder
+ * picker here, beside worktree choices, on the row's common centre line.
+ * No folder choice adds a row or changes the text well's height; folder
+ * names may shorten, and their full paths stay in titles.
+ */
 export const ComposerTrack = ({
   name,
   folded = false,

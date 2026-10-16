@@ -289,9 +289,11 @@ is replaced by **Make a first commit to work in a worktree**, with a **Commit**
 button that opens the existing commit flow. After that commit the normal
 worktree choice returns. Menus re-read the checkout when opened, so commits
 made by an agent or terminal also restore the choice. This applies to the
-composer and project menu too. With no project open, the empty composer
-offers **Open a folder…**. It and **Open folder…** use the same folder picker
-as the + beside Projects, and both are reachable by keyboard.
+composer and project menu too. With no project open, the composer keeps an enabled text box and a **Choose folder**
+control in its toolbar. It and **Open folder…** use the same folder picker
+as the + beside Projects, and both are reachable by keyboard. Sending a task
+without a folder opens that picker; choosing sends into the chosen folder,
+and cancelling leaves the draft untouched. A conversation always has a folder.
 New Team opens the shared dialog with its task, searchable Flow picker, roles
 and optional Done when. Runtime, model and effort use the shared choice menus.
 The automatic runtime supplies its models immediately; changing a model or
@@ -454,6 +456,18 @@ facts as the former window foot: windows, resets, blocks, source and age. Each
 fold has Open usage, scoped to that agent; an agent needing an account has Sign
 in. Then come Settings and signing out of the default agent. Dashboard in the
 sidebar opens on everything.
+
+Dashboard's Overview names the ledger total **Usage cost**; its title explains
+whether that cost was metered or priced at public rates. The pressed chart
+measure keeps the shared quiet button's visible fill after the pointer leaves,
+without a Selected chip. **What is left** includes
+every account reporting limits, including healthy accounts and limits supplied
+by a host meter. Plan labels come from adapter presentation, with the raw plan
+type in the title. Pace badges describe remaining allowance against an even
+burn: **▼ 39% under pace**, **▲ 39% over pace**, or **● 0% on pace**, with no
+signed percentage. A read observed before this window opened says **From a
+cached read**; a reading made in this window says **Read … ago**. The page's
+read note follows the selected accounts and uses their oldest observation.
 
 The quota forecast, "&lt;agent&gt; will run out before it refills", stays on the
 Dashboard. Above a visible composer it appears only after a desk conversation
@@ -764,14 +778,24 @@ on this viewer.
 
 ## The composer
 
-An empty conversation offers agents already installed on this Mac, with one
-compact **name — Add** button per runtime beside **Installed on this Mac**.
-The pane draws before the background scan answers; the scan runs once per
-window and the offer is omitted when nothing new is found. Adding uses the
-same registration as Settings › Runtimes › Add a runtime. The new runtime
-becomes available in the composer, and its offer disappears. The history
-sentence names the present runtimes' declared history sources, once per source;
-it is omitted when none reads history through.
+A fresh draft focuses its enabled text box and asks **What should we build?**,
+with one line: **Describe a task, then choose the folder it runs in.** The
+folder control shares the toolbar's centre line and spacing. It shows
+**Choose folder** until a folder is chosen, then its name with the full path
+on hover; worktree choices remain beside it. Choosing a folder keeps the box's
+height. Details shows **Not chosen** or the folder name (full path on hover),
+and **No usage yet**. Drafts omit unreported permissions and branches and an
+empty Plan card. The sidebar has no global empty-state text: Projects retains its heading,
+filter, options and + even without projects. Each project owns its empty row. Neither pane names
+another client or a history source.
+
+An empty conversation offers agents already installed on this Mac, with a
+compact row of each agent's name and a small secondary **Add** button beside
+**Installed on this Mac**. The pane draws before the background scan answers;
+the scan runs once per window and the offer is omitted when nothing new is
+found. Adding uses the same registration as Settings › Runtimes › Add a
+runtime. The new runtime becomes available in the composer, and its offer
+disappears.
 
 A signed-out agent’s empty conversation offers one normal Sign in button.
 Its composer does not repeat the sign-in notice while the page already explains
@@ -886,6 +910,17 @@ level and does not declare this status.
 
 ## Settings
 
+**General › New conversations** sets the default runtime, permission level,
+model and reasoning effort. Runtime names and choices come from the adapters.
+With no saved pick, the composer uses the adapter's workspace-editing access
+and recommended model and effort. **Recommended** clears a saved option so it
+follows the adapter again. Picks persist per runtime and are shared with the
+composer; a conversation already open keeps its own settings. Data location,
+backup and diagnostics remain on General. If an adapter refuses its recommendation,
+General, the runtime's New sessions section and Permissions › Approvals show
+the reason and keep the runtime's choices available for an explicit pick;
+a new conversation waits until its start values can be validated.
+
 **Conversations › Storage** shows the database, snapshots, cached previews and
 managed worktrees as single-line rows with counts and sizes. Worktree sizes say
 **Measuring…** until the background read finishes. Kept worktrees of removed or
@@ -939,8 +974,10 @@ where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.
 
-Library's More menu offers **Import**, **Add from GitHub…**, and **Rescan**.
-The first two wait until the Library has been read. Add from GitHub accepts a
+Library's More menu offers **Import**, **Add from GitHub…**, **Check for updates**,
+and **Rescan**.
+Import, Add from GitHub and Check for updates wait until the Library has been read.
+A check stays disabled while it runs. Add from GitHub accepts a
 public repository or folder URL and an optional branch, tag or commit. Found
 skills show their folder, file count and counts of files that can run or are
 binary; only skills with neither kind start checked. Refused folders keep the
@@ -959,6 +996,27 @@ Library omits reserved skill folders beginning with `_` and skills whose only
 on-disk definitions are empty. A usable copy elsewhere keeps the skill listed;
 empty copies remain available to the cleanup action. Descriptions render inline
 markdown through the sanitized reading path.
+
+Check for updates asks once about skills installed from a repository, then reads
+the Library again. A toast reports available updates, an up-to-date result, no
+recorded sources, or sources that could not be checked. Nothing checks on open,
+on focus or on a timer. An update is a quiet row finding, after existing warnings;
+it does not change problem counts. A missing source branch is a warning and an
+unreachable source keeps its reason on hover.
+
+The skill sheet always shows each distinct recorded origin — repository, path,
+ref and pinned commit — even before a check. A newer commit adds an Update
+available banner with shortened revisions and Review update. A missing branch
+has no review action; an unreachable source is quiet text. Review fetches each
+behind source once and plans its runtime copies at the freshly fetched commit.
+A refused or missing folder keeps its reason in the banner and opens no plan.
+
+Update plans label each file Added, Changed or Removed. Read opens the new
+runnable or binary file; removed files have no Read action. The definition diff
+starts open. An edited-copy reason appears verbatim above the files, and only
+an operation that plans a backup says it will make one. Added or changed runnable
+or binary files use the existing acknowledgement; removed files need none.
+After Apply the ordinary Library read supplies the new state.
 
 The Library’s List view compares Skill (or Server), State and Loaded by in
 three labelled columns. Descriptions wrap, a warning names a needed fix, and

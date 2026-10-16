@@ -172,6 +172,7 @@ const desk = await launchDesk({
 })
 const { cdp } = desk
 const q = (value) => JSON.stringify(value)
+let sceneError
 
 try {
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: 2, mobile: false })
@@ -3142,6 +3143,14 @@ rules:
     await new Promise(resolve => process.stdin.once('data', resolve))
     process.stdin.pause()
   }
+} catch (error) {
+  sceneError = error
+  throw error
 } finally {
-  await closeDesk(desk).catch(() => {})
+  try {
+    await closeDesk(desk)
+  } catch (cleanupError) {
+    if (sceneError) throw new AggregateError([sceneError, cleanupError], 'scene and desk cleanup failed')
+    throw cleanupError
+  }
 }
