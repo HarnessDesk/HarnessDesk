@@ -2129,9 +2129,9 @@ export const SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS = [
   {
     sheet: 'components/GitPane.module.css',
     selector: '.tableHead',
-    property: 'padding-right',
+    property: 'padding-inline',
     value: 'var(--hd-space-3)',
-    reason: "The same head's end inset, which is the commit rows' own, so its columns line up with the rows scrolling under it.",
+    reason: "The same head's inset on both sides, which is the commit rows' own, so its columns line up with the rows scrolling under it.",
   },
   {
     sheet: 'components/GitPane.module.css',

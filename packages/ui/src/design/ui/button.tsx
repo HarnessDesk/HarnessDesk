@@ -206,7 +206,7 @@ const boxedVariants = cva(
            arithmetic assumes (`--hd-table-row-h`), with only the right inset
            a table row keeps clear of its own scrollbar. Distinct from `row`
            earlier in this list, which is a navigation destination sized off `--hd-nav-h`. */
-        'log-row': 'h-(--hd-table-row-h) p-0 pr-(--hd-space-3) whitespace-normal',
+        'log-row': 'h-(--hd-table-row-h) px-(--hd-space-3) py-0 whitespace-normal',
         /* The box belongs to a design-system pattern's own stylesheet — a
            settings `RowButton`, `RowChoice` — and the button brings only its
            behaviour and its variant's states. Not a reset: `content`'s `p-0`

@@ -265,7 +265,7 @@ it('keeps the windowed commit row divided and marks the graph column edge', asyn
   expect(rows.every((row) => row.className.includes('cursor-default'))).toBe(true)
   expect(rows.every((row) => row.className.includes('select-none'))).toBe(true)
   // The inset is the `log-row` button size's own now (#835), not an inline style.
-  expect(rows.every((row) => row.className.includes('pr-(--hd-space-3)'))).toBe(true)
+  expect(rows.every((row) => row.className.includes('px-(--hd-space-3)'))).toBe(true)
   const head = container.querySelector('[role="row"]')
   expect(head?.querySelector('[data-slot="separator"][data-orientation="vertical"]')).not.toBeNull()
 })
