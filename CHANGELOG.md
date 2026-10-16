@@ -11,6 +11,10 @@ move is real work and is not news to a person weighing an upgrade.
   carry a stronger tint, and the view-options menu remembers wrapping, word
   highlighting, whitespace filtering and multi-file navigation choices.
 
+- **Notices share the composer's plate.** Cards keep their tile centred beside
+  wrapped copy, stack long action groups below it, and mark failures with a
+  left bar. A success tone confirms completed actions.
+
 - **Faces are round.** Agents, Team members, senders in a chat and your own
   seat are now drawn as filled circles, so a Teams card with four agents shows
   four faces instead of a strip of cropped squares, and someone no longer looks

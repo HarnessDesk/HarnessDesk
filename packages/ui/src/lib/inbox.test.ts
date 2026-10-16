@@ -45,3 +45,7 @@ it('a new occurrence remains counted when the host has evicted its bounded histo
   const existing = { id: 'warning', tone: 'warning' as const, title: 'Warning', at: 10, read: true, count: 7 }
   expect(repeated([existing], { ...existing, at: 20, count: 1 })[0]).toMatchObject({ count: 8, read: true, at: 20 })
 })
+
+it('retains success when a completed result is read from the Inbox', () => {
+  expect(readInbox([{ ...entry('saved'), tone: 'success' }])[0]?.tone).toBe('success')
+})

@@ -80,7 +80,7 @@ for (const theme of ['light', 'dark'] as const) {
       const banner = attention ? frame.locator('[data-slot="run-need"]') : ending
       const titles = { complete: 'Nothing waits.', unrouted: 'Ended without a next step', 'person-stop': 'By you', 'desk-stop': 'By the desk', stalled: execution.reason!, rounds: 'Round budget reached', 'without-progress': 'Rounds without progress reached' }
       await expect(banner).toContainText(titles[scene])
-      await expect(banner.locator('[data-tone="warning"]')).toHaveCount(['complete', 'person-stop', 'desk-stop'].includes(scene) ? 0 : 1)
+      await expect(banner.locator('[data-slot="alert"][data-tone="warning"]')).toHaveCount(['complete', 'person-stop', 'desk-stop'].includes(scene) ? 0 : 1)
       await expect(ending.locator('[data-slot="chip"]')).toHaveCount(0)
       await expect(frame.getByRole('button', { name: 'Details', exact: true })).toBeVisible()
       await expect(ending.getByRole('button', { name: 'End', exact: true })).toHaveCount(0)
