@@ -2,6 +2,8 @@ import { MenuItem, PageOptions, type PageOption } from '../design'
 import { ImportIcon, RetryIcon } from '../components/Icons'
 import { DestinationBar } from './destination-page'
 
+// The Library page bar: kind, counts and its More menu.
+
 export const LibraryBar = ({ kind, counts, change, loaded, loading, author, importing, github, rescan, choices = [], search }: {
   readonly kind: 'skill' | 'mcp'
   readonly counts: Readonly<Record<'skill' | 'mcp', number>>
