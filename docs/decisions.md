@@ -3482,3 +3482,21 @@ Run plus conversation and card or approval identify the row; repeated snapshots 
 state. Answering or moving past a step clears it, as does ending or wrapping
 the Run. Its destination opens the Team's existing view. Needs you itself keeps
 its current presentation.
+
+
+## Registry browsing is a separate step; runtime brands keep one colour — 2026-10-16
+
+Owner pick for #1675 D9: **A**. Add a runtime keeps the machine's catalogue
+first and puts ACP registry entries behind **Browse more…**. A single MenuNote
+says the entries are third-party and unreviewed. An entry's install and add
+behaviour stays the same.
+
+The same issue's Part 2 item 3 fixes identity drift: a runtime's presentation
+brand selects one tint in the design system, wherever its tile appears.
+Account ring preferences remain separate. Library's Loaded by tiles use a
+token gap rather than overlap, keeping each runtime mark visible.
+
+This supersedes the account-tint rule for runtime brand faces; account rings
+and account badges still identify the signed-in account. Roll back by restoring
+the inline registry list and account-derived runtime tints, accepting the former
+identity changes between pages.

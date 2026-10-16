@@ -16,7 +16,7 @@ export const RuntimeFace = ({ runtime, size = 'default', ...props }: {
   const name = account && accountName(account, snapshot.accountPrefs[accountKey(runtime.id, account)], runtime.presentation.name)
   const badge = size === 'navigation' || size === 'stack' || size === 'xs' ? undefined
     : runtimeAccountBadge(runtime, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)
-  return <IconTile {...props} size={size} shape="face" tint={runtimeTint(runtime.id, snapshot.accountsByRuntime, snapshot.accountPrefs)} badge={badge}
+  return <IconTile {...props} size={size} shape="face" tint={runtimeTint(runtime)} badge={badge}
     title={[runtime.presentation.name, name !== runtime.presentation.name && name, account && accountIdentity(account)].filter(Boolean).join(' · ')}>
     <RuntimeMark runtime={runtime} />
   </IconTile>

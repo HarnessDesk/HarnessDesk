@@ -727,7 +727,7 @@ having written the judgement down.
 
 ### `identity badge`
 
-**Use** — IconTile.badge and AvatarStack members[].badge carry one identity qualifier at bottom-right, cut out with --stack-surface (page ground by default). Sub-agents wear the robot plus ↳ at every size; runtime faces use unique account initials when their runtime has two or more signed-in accounts, from 24px up. Smaller faces retain their account tint and a title naming the account.
+**Use** — IconTile.badge and AvatarStack members[].badge carry one identity qualifier at bottom-right, cut out with --stack-surface (page ground by default). Sub-agents wear the robot plus ↳ at every size; runtime faces use unique account initials when their runtime has two or more signed-in accounts, from 24px up. Runtime brand faces retain their shared brand tint at every size and a title naming the account; account rings retain their own tint preference.
 
 **Not** — An attention count at bottom-right, two badges in one corner, or a new runtime glyph for each account. Top-right is reserved for attention counts. The title or row text names the sub-agent’s parent; a badge is hidden from readers.
 

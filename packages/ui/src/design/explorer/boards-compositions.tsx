@@ -1040,7 +1040,7 @@ const SideBySideBoard = () => {
     const session = snapshot.sessions.get(key)
     if (!session) return null
     return sideBySideTileEntry({
-      tint: runtimeTint(session.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs),
+      tint: runtimeTint(snapshot.runtimes.find(info => info.id === session.runtime)),
       // Public catalogue frames keep agent marks neutral even when the staged
       // fixture uses runtime IDs internally to resolve the conversation.
       brand: null,

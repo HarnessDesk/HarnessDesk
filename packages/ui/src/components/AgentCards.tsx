@@ -750,9 +750,9 @@ export const AgentHoverCard = ({
 const accountOf = (snapshot: AppSnapshot, runtime: RuntimeId): Account | null =>
   snapshot.accountsByRuntime[runtime]?.accounts[0] ?? null
 
-/** The ring this agent wears here, and everywhere else it is drawn. */
+/** The brand tint this runtime wears wherever its tile is drawn. */
 const tintFor = (snapshot: AppSnapshot, runtime: RuntimeId) =>
-  runtimeTint(runtime, snapshot.accountsByRuntime, snapshot.accountPrefs)
+  runtimeTint(snapshot.runtimes.find(info => info.id === runtime))
 
 /** "Claude Code · shane@harnessdesk.app", or as much of it as is true. */
 const identityOf = (snapshot: AppSnapshot, info: RuntimeInfo | null, fallback: string): string => {

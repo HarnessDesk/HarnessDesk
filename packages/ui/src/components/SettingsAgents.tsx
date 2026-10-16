@@ -1,7 +1,7 @@
 import { slotForCategory } from '../lib/composer-slots'
 import { CheckIcon } from './Icons'
 import { DestinationBar, useDestinationActive } from '../panels/destination-page'
-import { PageExplanation, PageControls, PageOptions, MenuItem, Toolbar } from '../design'
+import { PageExplanation, PageControls, PageOptions, MenuItem, MenuNote, Toolbar } from '../design'
 import { AgentHistory } from './History'
 import { RuntimeResources } from './RuntimeResources'
 import { RuntimeFace } from './RuntimeFace'
@@ -1078,6 +1078,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
   const [templates, setTemplates] = useState<readonly AgentTemplateInfo[] | null>(null)
   const [registry, setRegistry] = useState<AcpRegistryCatalogInfo | null>(null)
   const [registryQuery, setRegistryQuery] = useState('')
+  const [browsing, setBrowsing] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [customOpen, setCustomOpen] = useState(false)
 
@@ -1137,7 +1138,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                yet, so it shows only the runtime's face. */
             kind="record"
             face={
-              <IconTile shape="face" tint={runtimeTint(template.key as RuntimeId, {}, {})}>
+              <IconTile shape="face" tint={runtimeTint({ id: template.key as RuntimeId, presentation: { name: template.name, ...(template.brand ? { brand: template.brand } : {}) } })}>
                 <RuntimeMark
                   runtime={{
                     id: template.key,
@@ -1206,10 +1207,13 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
         {templates === null && <Row title="Looking at this machine…" />}
       </Rows>
 
-      {/* The protocol's own list. Every entry is shown — the blocked ones say
-          why in the line a description would use, and the search exists
-          because forty rows is where scanning stops working. */}
+      <Rows>
+        <RowButton title="Browse more…" onClick={() => setBrowsing(!browsing)}
+          aria-expanded={browsing} />
+      </Rows>
+      {browsing && <>
       <SectionHead name="From the ACP registry" />
+      <MenuNote>Third-party entries from the ACP registry. HarnessDesk has not reviewed them.</MenuNote>
       {(registry?.agents.length ?? 0) > 8 && (
         <PageControls search={{label:"Search the ACP registry",placeholder:"Search the registry",value:registryQuery,change:setRegistryQuery}}/>
       )}
@@ -1220,7 +1224,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
       {registryListed.length > 0 && (
         <Rows>
           {registryListed.map(agent => <Row key={agent.id} kind="record"
-            mark={<IconTile shape="face" tint={runtimeTint(agent.id as RuntimeId,{}, {})}><RuntimeMark runtime={{id:agent.id,presentation:{name:agent.name}}} size={16}/></IconTile>}
+            mark={<IconTile shape="face" tint={runtimeTint({ id: agent.id as RuntimeId, presentation: { name: agent.name } })}><RuntimeMark runtime={{id:agent.id,presentation:{name:agent.name}}} size={16}/></IconTile>}
             title={agent.name} desc={registrySentence(agent)}
             titleChip={agent.run==='binary' && agent.integrity==='none' && !agent.installed
               ? <Chip tone="neutral" size="sm" title="The registry publishes no checksum for this build, so the download cannot be verified.">Unverified</Chip>:undefined}
@@ -1245,6 +1249,8 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
           />
         </Rows>
       )}
+
+      </>}
 
       <SectionHead name="Something else" />
       <Rows>

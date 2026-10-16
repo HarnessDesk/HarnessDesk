@@ -69,3 +69,11 @@ it('keeps a member badge outside the image crop, cut out on the stack surface', 
   expect(badge.className).toContain('--stack-surface')
   expect(badge.getAttribute('data-corner')).toBe('bottom-right')
 })
+
+it('separates runtime marks with a token gap when overlap is disabled', () => {
+  const box = document.createElement('div')
+  box.innerHTML = renderToStaticMarkup(<AvatarStack members={members} size="stack" overlap={false} />)
+  const group = box.querySelector('[data-slot="avatar-stack"] > span')!
+  expect(group.className).toContain('gap-(--hd-space-2)')
+  expect(group.className).not.toContain('-space-x-')
+})

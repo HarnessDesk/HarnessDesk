@@ -1029,7 +1029,14 @@ or unmeasured start in the background; the page can show the last learned models
 options and account while it waits. Shared recycling refusals are stated once below the table.
 
 It has a page per runtime (health, update, the runtime's own options) or per account;
-*Add a runtime* is where a registry entry or a custom one is added. Extensions
+*Add a runtime* lists the runtimes this machine can register. **Browse more…**
+reveals ACP registry entries with one group note: “Third-party entries from the
+ACP registry. HarnessDesk has not reviewed them.” Adding or downloading an entry
+works as before; a custom command remains under **Something else**.
+Runtime brand tiles keep the same colour here, in Runtimes, in Library's
+**Loaded by** column and wherever that runtime is drawn. Account ring colours
+remain a separate preference. Library's loading tiles are spaced so each mark
+stays whole. Extensions
 appears only for a runtime with a store or MCP servers to show, which today
 means Codex alone. A runtime whose sign-in the desk cannot ask about — an ACP
 agent with no status command and no stored key — is described by what its own

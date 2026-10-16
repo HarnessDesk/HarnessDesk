@@ -2184,3 +2184,16 @@ the label. Read shows fetched bytes as plain text. The plan's acknowledgement
 belongs to incoming fetched files that can run or are binary, and gates Apply.
 `preview.html?library-github` shows selection; `?library-github=plan` shows
 the file review, both using the method-aware placeholder repository fixture.
+
+## Runtime brand identity and registry browsing
+
+A runtime brand keeps one tint from the design system's `tintForRuntimeBrand`
+palette. `runtimeTint` resolves its presentation brand with the same rule as
+its glyph; account preferences colour account rings, not brand tiles. Templates,
+registered runtimes and Library loading faces use that same answer. Library
+uses `AvatarStack overlap={false}` with the spacing token so every mark stays
+whole; other membership stacks retain their overlap.
+
+Add a runtime keeps the machine's catalogue first. Browse more… reveals the
+registry, with one MenuNote for its third-party, unreviewed status. It does not
+change an entry's add, download, blocked or registered behaviour.
