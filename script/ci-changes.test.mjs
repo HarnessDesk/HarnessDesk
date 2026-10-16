@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { browserPlan, planChange, themeDiff, themeInputs } from './ci-changes.mjs'
+import { browserPlan, ciTier, planChange, themeDiff, themeInputs } from './ci-changes.mjs'
 import { specFiles } from './ci-browser-shards.mjs'
 import { mergeRecords, readMap } from './ui-impact.mjs'
 
@@ -17,7 +17,7 @@ const cliPlan = (paths, event = 'pull_request', env = {}) => {
     const list = join(directory, 'paths')
     if (paths !== null) writeFileSync(list, paths.length ? `${paths.join('\0')}\0` : '')
     const result = spawnSync(process.execPath, [script, list], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', UI_IMPACT_MAP: '', CI_HEAD_BRANCH: '', CI_LABELS: '', ...env },
+      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', UI_IMPACT_MAP: '', CI_HEAD_BRANCH: '', CI_REF_NAME: '', CI_LABELS: '', ...env },
     })
     assert.equal(result.status, 0, result.stderr)
     const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
@@ -194,7 +194,7 @@ test('import scan still refuses an unresolved source helper', async () => {
 // Local browser selection and sizing still use the shared plan unchanged.
 const plan = (paths, env = {}, event = 'pull_request') => {
   const output = planChange(fileURLToPath(new URL('../', import.meta.url)), {
-    event, paths, headBranch: env.CI_HEAD_BRANCH ?? '', labels: JSON.parse(env.CI_LABELS || '[]'),
+    event, paths, headBranch: env.CI_HEAD_BRANCH ?? '', refName: env.CI_REF_NAME ?? '', labels: JSON.parse(env.CI_LABELS || '[]'),
     map: env.UI_IMPACT_MAP ? readMap(env.UI_IMPACT_MAP) : null,
   })
   return Object.fromEntries(Object.entries(output).map(([key, value]) => [key, String(value)]))
@@ -549,4 +549,33 @@ test('an added spec absent from duration tables is mandatory beside a broad chan
     assert.ok(specs.length < 14)
     assert.ok(run.shard_count <= 4)
   })
+})
+
+test('development pushes select the bounded tier, independently of PR metadata', () => {
+  assert.equal(ciTier({ event: 'push', refName: 'development' }), 'bounded')
+  assert.equal(ciTier({ event: 'push', refName: 'main', headBranch: 'development' }), 'full')
+  assert.equal(ciTier({ event: 'push', refName: 'development/topic' }), 'full')
+  assert.equal(plan(['package.json'], { CI_REF_NAME: 'development' }, 'push').tier, 'bounded')
+})
+
+for (const paths of [null, [], ['package.json'], ['docs/architecture.md']]) {
+  test(`CLI runs core only on development pushes: ${JSON.stringify(paths)}`, () => {
+    const run = cliPlan(paths, 'push', { CI_REF_NAME: 'development' })
+    assert.deepEqual([run.tier, run.browser, run.native, run.browser_specs, run.shard_count, run.record], ['bounded', 'none', 'false', '[]', '0', 'false'])
+    assert.match(run.summary, /Core CI only/)
+  })
+}
+
+for (const event of ['pull_request', 'workflow_dispatch']) {
+  test(`development runs the full tier on ${event}`, () => {
+    const env = { CI_REF_NAME: 'development', CI_HEAD_BRANCH: event === 'pull_request' ? 'development' : '' }
+    const run = cliPlan(['docs/architecture.md'], event, env)
+    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.browser_specs, run.record], ['full', 'all', 'true', 'full', 'all', 'true'])
+    assert.equal(plan(['docs/architecture.md'], env, event).tier, 'full')
+  })
+}
+
+test('only the exact development PR head selects the release tier', () => {
+  assert.equal(ciTier({ event: 'pull_request', headBranch: 'development/topic' }), 'bounded')
+  assert.equal(ciTier({ event: 'pull_request', refName: 'development' }), 'bounded')
 })

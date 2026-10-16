@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 import { ciCommands, missingFromCI } from './check-verify-drift.mjs'
 
@@ -44,6 +48,8 @@ test('CI keeps the tier selection, label trigger and visible landing proof wired
   for (const token of [
     'types: [opened, synchronize, reopened]',
     'CI_HEAD_BRANCH: ${{ github.head_ref }}',
+    'CI_REF_NAME: ${{ github.ref_name }}',
+    'branches: [main, development]',
     'CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}',
     'tier: ${{ steps.paths.outputs.tier }}',
     'name: UI integration inputs',
@@ -52,5 +58,65 @@ test('CI keeps the tier selection, label trigger and visible landing proof wired
   ]) {
     assert.ok(workflow.includes(token), token)
     assert.ok(tierProblems(workflow.replaceAll(token, '# removed')).length > 0, token)
+  }
+})
+
+test('development core pushes cannot cancel full dispatches; same-event runs still supersede', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+  const concurrency = workflow.match(/^concurrency:\n([\s\S]*?)(?=^\S)/m)?.[1]
+  assert.ok(concurrency, 'workflow concurrency policy')
+  const template = concurrency.match(/^  group: (.+)$/m)?.[1]
+  assert.ok(template, 'workflow concurrency group')
+  const group = (event_name, ref, run_id = '1', sha = 'a'.repeat(40)) => {
+    const context = { workflow: 'CI', event_name, ref, run_id, sha }
+    const value = template.replace(/\$\{\{\s*github\.(\w+)\s*\}\}/g, (_, key) => {
+      assert.ok(Object.hasOwn(context, key), key)
+      return context[key]
+    })
+    assert.ok(!value.includes('${{'), 'every group expression was evaluated')
+    return value
+  }
+  const development = 'refs/heads/development'
+  assert.notEqual(group('push', development), group('workflow_dispatch', development), 'a core push must not supersede a nightly full run')
+  for (const [event, ref] of [['push', development], ['workflow_dispatch', development], ['pull_request', 'refs/pull/1/merge']]) {
+    assert.equal(group(event, ref), group(event, ref, '2', 'b'.repeat(40)), 'a newer run/commit of the same event/ref still supersedes')
+  }
+  assert.notEqual(group('pull_request', 'refs/pull/1/merge'), group('pull_request', 'refs/pull/2/merge'))
+  assert.ok(concurrency.includes("  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}"), 'main runs remain protected from cancellation')
+})
+
+test('nightly development dispatches full CI only when the branch exists', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/nightly-development.yml', import.meta.url), 'utf8')
+  assert.match(workflow, /cron: ['"]0 11 \* \* \*['"]/)
+  for (const token of ['workflow_dispatch:', 'actions: write', 'contents: read', 'GH_TOKEN: ${{ github.token }}', 'GH_REPO: ${{ github.repository }}']) {
+    assert.ok(workflow.includes(token), token)
+  }
+  const shell = workflow.split('        run: |\n')[1]?.split('\n').filter(Boolean).map(line => line.slice(10)).join('\n')
+  assert.ok(shell, 'nightly dispatch shell')
+  const directory = mkdtempSync(join(tmpdir(), 'nightly-development-'))
+  try {
+    const fake = join(directory, 'gh')
+    const calls = join(directory, 'calls')
+    writeFileSync(fake, `#!/usr/bin/env node
+const args = process.argv.slice(2)
+if (args[0] === 'api') {
+  if (args[1] !== 'repos/acme/widgets/git/matching-refs/heads/development' || args[2] !== '--jq' || args[3] !== 'any(.[]; .ref == "refs/heads/development")') process.exit(9)
+  if (process.env.BRANCH_EXISTS === 'error') process.exit(7)
+  process.stdout.write(process.env.BRANCH_EXISTS)
+} else {
+  require('node:fs').writeFileSync(process.env.CALLS, JSON.stringify(args))
+}
+`)
+    chmodSync(fake, 0o755)
+    for (const exists of ['false', 'true', 'error']) {
+      rmSync(calls, { force: true })
+      const result = spawnSync('bash', ['-e', '-c', shell], { encoding: 'utf8', env: { ...process.env, PATH: `${directory}${delimiter}${process.env.PATH}`, GH_REPO: 'acme/widgets', BRANCH_EXISTS: exists, CALLS: calls } })
+      assert.equal(result.status, exists === 'error' ? 7 : 0, result.stderr)
+      if (exists === 'true') assert.deepEqual(JSON.parse(readFileSync(calls, 'utf8')), ['workflow', 'run', 'ci.yml', '--ref', 'development'])
+      else assert.throws(() => readFileSync(calls), { code: 'ENOENT' })
+      if (exists === 'false') assert.equal(result.stdout, '')
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
   }
 })

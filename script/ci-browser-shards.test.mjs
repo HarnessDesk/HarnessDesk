@@ -252,8 +252,8 @@ test('changes compares the merge to its first parent and falls back on failed di
   assert.match(changes, /native: \$\{\{ steps\.paths\.outputs\.native \}\}/)
 })
 
-test('only main pushes trigger CI; tags keep their original release path', () => {
-  assert.match(workflow, /^    branches: \[main\]$/m)
+test('only main and development pushes trigger CI; tags keep their original release path', () => {
+  assert.match(workflow, /^    branches: \[main, development\]$/m)
   assert.doesNotMatch(workflow, /^    tags:/m)
 })
 
