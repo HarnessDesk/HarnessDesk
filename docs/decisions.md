@@ -3498,3 +3498,14 @@ Run plus conversation and card or approval identify the row; repeated snapshots 
 state. Answering or moving past a step clears it, as does ending or wrapping
 the Run. Its destination opens the Team's existing view. Needs you itself keeps
 its current presentation.
+
+## 2026-10-16 — Board cards share their frame before another page uses it
+
+The compact opening card is `BoardCard`, a design pattern over the shared
+Button and Card. It owns the truncated identity, optional title aside,
+attention detail and optional middle and footer slots. Callers retain their
+own metadata and description ids. The Teams card composes it with its Run
+path, unread dot, faces, project and age, preserving its DOM and appearance.
+The public entrypoint exports it as `CompactBoardCard`, preserving the
+existing work-board primitive named `BoardCard`. This establishes the shared
+shape before a second page uses it; it adds no new tone, token or page behavior.

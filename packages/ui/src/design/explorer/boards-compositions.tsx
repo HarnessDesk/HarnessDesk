@@ -19,6 +19,7 @@ import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { ShapeGraphBoard } from '../../preview/frames-shape-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
+import { BoardCardExample } from './board-card-example'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
 import { MainDestination, DestinationBody, Page, TopBar, TopBarToolButton } from '..'
@@ -3437,6 +3438,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Teams on the desk',
     about: 'Attention first, settled work folded, and recorded usage in its own unit.',
     render: TeamsPageBoard,
+  },
+  {
+    id: 'board-card',
+    title: 'BoardCard',
+    about: 'A compact opening card with optional attention, middle and footer content.',
+    render: BoardCardExample,
   },
   {
     id: 'team-record',

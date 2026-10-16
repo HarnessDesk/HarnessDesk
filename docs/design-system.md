@@ -1228,6 +1228,15 @@ the room's composer rather than covering the conversation everyone else in
 it is reading. It has exactly one filled act, the plain approve, like any
 footer in the app; every other answer is quiet, and its number still works.
 
+### `BoardCard`
+
+`packages/ui/src/design/patterns/BoardCard.tsx`
+
+A compact opening card, exported publicly as CompactBoardCard: identity,
+optional attention detail, middle and footer.
+Title and detail props preserve a caller's hover text, slots and description ids.
+Supply aria-describedby for the detail and any facts inside the footer slot.
+
 ### `ChannelSignal`
 
 `packages/ui/src/design/patterns/ChannelMessage.tsx`
