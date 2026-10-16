@@ -7,6 +7,20 @@ the rule is the last line of its section.
 
 ---
 
+## Diffs wrap and highlight changed words
+
+*Owner decision, 2026-10-15; issue #1671.*
+
+A change at the end of a long line must be visible in the narrow Changes pane
+without finding an unadvertised sideways scroll. The same defaults apply at
+full width: wrap long lines and highlight the changed words within paired
+removed/added lines, over their existing red/green grounds. Both are personal
+choices in the diff header's view-options menu, persisted with other UI
+preferences through the host's app state. Hide whitespace changes starts off.
+Multi-file patches keep paths, counts and line numbers and offer collapse /
+expand plus a hideable file list that can group paths by folder. Unified rows
+remain the patch layout; a side-by-side layout is a separate extension.
+
 ## Round is someone, square is a thing
 
 Faces are round and filled by default: an agent, a runtime, a Team's member, a

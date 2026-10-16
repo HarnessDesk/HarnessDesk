@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '../design'
-import { asAdditions, asRemovals, drawnWhole, parseDiff, type DiffLine, type WholeFile } from './diff'
+import { asAdditions, asRemovals, drawnWhole, parseDiff, presentDiffLines, splitByFile, type PresentedDiffLine, type WholeFile } from './diff'
 import { scriptedScrollBehavior } from '../lib/scripted-scroll'
 import { ChevronIcon } from '../components/Icons'
 import styles from './DiffView.module.css'
+import { DiffOptions, useDiffPreferences } from './DiffOptions'
+import { DiffFilesView } from './DiffFilesView'
+import type { DiffPrefs } from './diff-prefs'
 
 /**
  * Unified diff rendering. Parsing lives in `editor/diff`.
@@ -25,27 +28,21 @@ export interface DiffViewProps {
    * is drawn as the diff it is either way.
    */
   readonly wholeFile?: boolean | WholeFile
-  /**
-   * Wrap long lines instead of scrolling them.
-   *
-   * Off everywhere a diff is read in a pane, where sideways scrolling is the
-   * expected thing and keeps the columns straight. On where a diff is the
-   * evidence in a *dialog* — the library's install preview is 620px wide, an
-   * eighty-column line does not fit in it, and a preview whose whole job is
-   * "read this before you agree" must not hide the ends of its lines behind
-   * a scrollbar nobody drags.
-   */
+  /** Explicit presentation override; otherwise use the person's standing choice (on by default). */
   readonly wrap?: boolean
   /** A transcript diff: no pane navigation, and one useful line-number column. */
   readonly inline?: boolean
+  /** A containing multi-file viewer owns the header menu. */
+  readonly options?: boolean
+  readonly preferences?: DiffPrefs
 }
 
 const startsAtFirstNewLine = (text: string): boolean => /^@@+ .*\+1(?:,\d+)? @@+/.test(text)
 
 /** Drop file introductions only for the file section that has content to show instead. */
-const withoutIntroductions = (lines: readonly DiffLine[]): DiffLine[] => {
-  const shown: DiffLine[] = []
-  let section: DiffLine[] = []
+const withoutIntroductions = (lines: readonly PresentedDiffLine[]): PresentedDiffLine[] => {
+  const shown: PresentedDiffLine[] = []
+  let section: PresentedDiffLine[] = []
   const flush = () => {
     const hasContent = section.some((line) => line.kind !== 'meta')
     shown.push(...(hasContent
@@ -61,7 +58,10 @@ const withoutIntroductions = (lines: readonly DiffLine[]): DiffLine[] => {
   return shown
 }
 
-export const DiffView = ({ diff, wholeFile = false, wrap = false, inline = false }: DiffViewProps) => {
+const DiffRows = ({ diff, wholeFile = false, wrap, inline = false, options = true, preferences }: DiffViewProps) => {
+  const { prefs: saved, set } = useDiffPreferences()
+  const prefs = preferences ?? saved
+  const shouldWrap = wrap ?? prefs.wrap
   const [expanded, setExpanded] = useState(false)
   const [hunk, setHunk] = useState(0)
   const rows = useRef<Map<number, HTMLTableRowElement>>(new Map())
@@ -77,13 +77,13 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false, inline = false
   const displayLines = useMemo(() => {
     // The post-hunk "no newline" marker is a fact about the change, not part
     // of git's file introduction, so it keeps the quiet metadata treatment.
-    const withoutHeaders = withoutIntroductions(lines)
+    const withoutHeaders = withoutIntroductions(presentDiffLines(lines, prefs.hideWhitespace, prefs.highlightWords))
     const hunks = withoutHeaders.filter((line) => line.kind === 'hunk')
     if (hunks.length === 1 && startsAtFirstNewLine(hunks[0]!.text)) {
       return withoutHeaders.filter((line) => line !== hunks[0])
     }
     return withoutHeaders
-  }, [lines])
+  }, [lines, prefs.hideWhitespace, prefs.highlightWords])
   const hunkRows = useMemo(
     () => displayLines.flatMap((line, index) => (line.kind === 'hunk' ? [index] : [])),
     [displayLines],
@@ -137,10 +137,11 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false, inline = false
           </Button>
         </div>
       )}
+      {!inline && options && <div className={styles.options}><DiffOptions prefs={{ ...prefs, wrap: shouldWrap }} set={set} /></div>}
       <div className={styles.scroll}>
         <table
           className={styles.table}
-          {...(wrap ? { 'data-wrap': '' } : {})}
+          {...(shouldWrap ? { 'data-wrap': '' } : {})}
           {...(inline ? { 'data-inline': '' } : {})}
         >
           <tbody>
@@ -174,7 +175,9 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false, inline = false
                   <span className={styles.marker}>
                     {line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ''}
                   </span>
-                  {line.text}
+                  {line.words ? line.words.map((part, index) => part.changed
+                    ? <span key={index} data-changed-word="" className={styles.word}>{part.text}</span>
+                    : part.text) : line.text}
                 </td>
               </tr>
             ))}
@@ -191,4 +194,12 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false, inline = false
       )}
     </div>
   )
+}
+
+
+/** Aggregate payloads use the same file controls as the Changes inspector. */
+export const DiffView = (props: DiffViewProps) => {
+  const files = useMemo(() => !props.inline && props.options !== false && !drawnWhole(props.diff, Boolean(props.wholeFile))
+    ? splitByFile(props.diff) : [], [props.diff, props.inline, props.options, props.wholeFile])
+  return files.length > 1 ? <DiffFilesView files={files} wrap={props.wrap} preferences={props.preferences} /> : <DiffRows {...props} />
 }
