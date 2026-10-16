@@ -360,6 +360,8 @@ export interface LibrarySourceResult extends LibrarySkillOrigin {
     readonly dir: string
     readonly sourcePath: string
     readonly files: number
+    readonly runnable: number
+    readonly binary: number
     readonly bytes: number
     readonly bundle: string
   }[]
@@ -443,6 +445,15 @@ export interface LibraryPlannedOp {
   readonly preview?: string
   /** Bundle files beyond `SKILL.md` carried along, relative to the bundle. */
   readonly extraFiles?: readonly string[]
+  /** Every incoming file, with the byte count and what can run or is binary. */
+  readonly files?: readonly {
+    readonly path: string
+    readonly bytes: number
+    readonly runnable: boolean
+    readonly binary: boolean
+    readonly reason: string | null
+  }[]
+  readonly acknowledged?: boolean
   /** Why a `skip` or `refuse` will not run; advisory notes on runnable ops. */
   readonly reason?: string
   /**

@@ -968,3 +968,12 @@ test('library/source/fetch delegates only to the host source reader', async () =
   assert.equal(await dispatch(ctx, 'library/source/fetch' as never, params as never), result)
   assert.deepEqual(calls, [params])
 })
+
+test('library/source/file delegates only to the host source reader', async () => {
+  const calls: unknown[] = []
+  const result = { path: 'note.md', bytes: 4, text: 'Read', truncated: false }
+  const ctx = { librarySources: () => ({ file: async (params: unknown) => { calls.push(params); return result } }) } as unknown as HostContext
+  const params = { sourcePath: '/library/sources/demo', path: 'note.md' }
+  assert.equal(await dispatch(ctx, 'library/source/file' as never, params as never), result)
+  assert.deepEqual(calls, [params])
+})
