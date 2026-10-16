@@ -107,7 +107,7 @@ const click = (element: Element): void => {
 }
 
 const heading = (): string => container.querySelector('[data-slot="row-title"]')?.textContent ?? ''
-const headFace = (): HTMLImageElement | null => container.querySelector('[data-slot="row-mark"] img')
+const headFace = (): HTMLImageElement | null => container.querySelector('[data-slot="row-face"] img')
 const button = (name: string): HTMLButtonElement | null =>
   [...container.querySelectorAll('button')].find((element) => element.textContent?.trim() === name) ?? null
 const tiles = (): HTMLButtonElement[] => [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
@@ -123,7 +123,7 @@ it('is HarnessDesk and the house mark until you choose', () => {
   expect(field().value).toBe('')
   expect(field().placeholder).toBe('HarnessDesk')
   expect(headFace()).toBeNull()
-  expect(container.querySelector('[data-slot="row-mark"] .brand-harnessdesk')).not.toBeNull()
+  expect(container.querySelector('[data-slot="row-face"] .brand-harnessdesk')).not.toBeNull()
   expect(worn().getAttribute('aria-label')).toBe('Default')
   expect(button('Reset to default')).toBeNull()
 })

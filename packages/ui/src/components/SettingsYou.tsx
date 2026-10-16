@@ -129,7 +129,7 @@ export const ProfileSection = () => {
 
   return (
     <>
-      <Rows><Row mark={<Face avatar={profile.avatar} size={44} />} title={profileName(live)} desc={"Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."} control={isDefaultProfile(live) ? undefined : (
+      <Rows><Row face={<Face avatar={profile.avatar} />} title={profileName(live)} desc={"Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."} control={isDefaultProfile(live) ? undefined : (
             <Button variant="outline" onClick={reset}>
               Reset to default
             </Button>
