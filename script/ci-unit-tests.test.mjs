@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { test } from 'node:test'
@@ -424,7 +426,14 @@ test('scripts read by imports, transitive scripts or setup still select all', ()
 })
 
 test('real-tree script reads include named gates and their static imports without selecting unrelated scripts', t => {
-  const started = performance.now()
+  const read = fs.readFileSync
+  let scriptReads = 0
+  t.mock.method(fs, 'readFileSync', (file, ...args) => {
+    if (String(file).startsWith(join(root, 'script') + '/')) scriptReads++
+    return read(file, ...args)
+  })
+  syncBuiltinESMExports()
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports() })
   const reads = outsideReads(root).filter(path => path.startsWith('script/'))
   assert.deepEqual(reads, [
     'script/check-reachable.mjs', 'script/check-ui-system.mjs', 'script/design-audit.mjs', 'script/design-doc.mjs',
@@ -432,14 +441,22 @@ test('real-tree script reads include named gates and their static imports withou
     'script/lib/repository-files.mjs', 'script/lib/steps.mjs', 'script/lib/stylesheet-imports.mjs', 'script/lib/without-comments.mjs',
     'script/shots/cli-install.mjs', 'script/ui-architecture.mjs', 'script/ui-catalog.mjs', 'script/vendor-fonts.mjs', 'script/verify.mjs',
   ], 'update this list consciously when UI text or script imports change')
-  for (const path of ['script/cli-doc.mjs', 'script/generate-codex-protocol.mjs', 'script/check-secrets.mjs', 'script/cut-avatars.mjs']) {
-    assert.equal(plan([path]).mode, 'none', path)
+  const bounded = operation => {
+    scriptReads = 0
+    const result = operation()
+    // Each named source needs at most one read per plan. This protects the
+    // traversal's work without charging a busy runner for time off the CPU.
+    assert.ok(scriptReads <= reads.length, `${scriptReads} script reads exceeds the ${reads.length} named paths`)
+    return result
   }
-  for (const path of ['script/design-audit.mjs', 'script/verify.mjs', 'script/check-ui-system.mjs']) assert.equal(plan([path]).mode, 'all', path)
-  assert.equal(plan(['script/cli-doc.mjs', 'docs/x.md', 'packages/cli/src/y.ts']).mode, 'none')
+  const measuredPlan = paths => bounded(() => plan(paths))
+  bounded(() => outsideReads(root))
+  for (const path of ['script/cli-doc.mjs', 'script/generate-codex-protocol.mjs', 'script/check-secrets.mjs', 'script/cut-avatars.mjs']) {
+    assert.equal(measuredPlan([path]).mode, 'none', path)
+  }
+  for (const path of ['script/design-audit.mjs', 'script/verify.mjs', 'script/check-ui-system.mjs']) assert.equal(measuredPlan([path]).mode, 'all', path)
+  assert.equal(measuredPlan(['script/cli-doc.mjs', 'docs/x.md', 'packages/cli/src/y.ts']).mode, 'none')
   const changed = ['packages/ui/src/components/BringHome.tsx']
-  assert.deepEqual(plan(['script/cli-doc.mjs', ...changed]), plan(changed))
-  const milliseconds = (performance.now() - started) / 11
-  t.diagnostic(`Real-tree planner: ${milliseconds.toFixed(1)}ms average; ${reads.length} script reads`)
-  assert.ok(milliseconds < 500, `planner took ${milliseconds.toFixed(1)}ms per call`)
+  assert.deepEqual(measuredPlan(['script/cli-doc.mjs', ...changed]), measuredPlan(changed))
+  t.diagnostic(`Real-tree planner: at most ${reads.length} script reads per call`)
 })

@@ -1052,6 +1052,11 @@ export interface HostMethods {
     }
     result: null
   }
+  /** Read one bounded file from a fetched skill before acknowledging its files. */
+  'library/source/file': {
+    params: { readonly sourcePath: string; readonly path: string }
+    result: { readonly path: string; readonly bytes: number; readonly text: string | null; readonly truncated: boolean }
+  }
   /** Fetch public repository skill bytes at one resolved commit into the host's cache. */
   'library/source/fetch': {
     params: { readonly url: string; readonly ref?: string; readonly path?: string }

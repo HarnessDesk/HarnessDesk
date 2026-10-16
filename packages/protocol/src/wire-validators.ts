@@ -259,6 +259,17 @@ const libraryIntentValidator: Validator<LibraryIntent> = taggedUnion('kind', {
 const nullableString: Validator<string | null> = (value, path = '') =>
   value === null ? null : isString(value, path)
 
+const libraryFileList: Validator<NonNullable<LibraryPlannedOp['files']>> = (value, path = '') => {
+  if (!Array.isArray(value) || value.length > 200) throw new ValidationError(path, 'expected at most 200 files')
+  return arrayOf(shape({
+    path: atMost(4096),
+    bytes: nonNegativeSafeInteger,
+    runnable: isBoolean,
+    binary: isBoolean,
+    reason: (value, path) => value === null ? null : atMost(256)(value, path),
+  }))(value, path)
+}
+
 const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
   id: isString,
   kind: literalUnion('skill', 'mcp'),
@@ -268,6 +279,8 @@ const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
   targetRuntime: optional(isRuntimeId),
   preview: optional(isString),
   extraFiles: optional(arrayOf(isString)),
+  files: (value, path) => value === undefined ? undefined : libraryFileList(value, path),
+  acknowledged: (value, path) => value === undefined ? undefined : isBoolean(value, path),
   reason: optional(isString),
   content: optional(isString),
   sourcePath: optional(isString),
@@ -1002,6 +1015,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/skills': shape({ runtime: isString, cwd: optional(isString) }),
   'runtime/skills/setEnabled': shape({ runtime: isString, name: isString, path: optional(isString), enabled: isBoolean }),
   'runtime/hooks': shape({ runtime: isString, cwd: optional(isString) }),
+  'library/source/file': shape({ sourcePath: atMost(4096), path: atMost(4096) }),
   'library/source/fetch': shape({
     url: isString,
     ref: (value, path) => value === undefined ? undefined : isString(value, path),

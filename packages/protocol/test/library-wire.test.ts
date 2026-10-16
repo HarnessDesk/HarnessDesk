@@ -36,3 +36,30 @@ test('library/source/fetch validates its strings and origin survives plan and ap
     assert.throws(() => parseClientMessage({ id: 4, method: 'library/apply', params: { ops: [{ ...op, origin: bad }] } }), ValidationError)
   }
 })
+
+test('library/apply bounds file details and validates acknowledgement', () => {
+  const op = { id: 'op-1', kind: 'skill', name: 'demo', action: 'create', targetPath: '/work/.agents/skills/demo', guardDigest: null, backup: false }
+  const file = { path: 'scripts/run.sh', bytes: 12, runnable: true, binary: false, reason: 'script (.sh)' }
+  const request = (fields: object) => parseClientMessage({ id: 1, method: 'library/apply', params: { ops: [{ ...op, ...fields }] } })
+  const fields = { files: [file, { ...file, reason: null }], acknowledged: true }
+  const parsed = request(fields)
+  const result = (parsed.params as HostParams<'library/apply'>).ops[0]!
+  assert.deepEqual(result.files, fields.files)
+  assert.equal(result.acknowledged, true)
+  assert.doesNotThrow(() => request({ files: Array(200).fill(file), acknowledged: false }))
+  for (const fields of [{ acknowledged: 'yes' }, { acknowledged: null }, { files: Array(201).fill(file) }, { files: null }]) {
+    assert.throws(() => request(fields), ValidationError)
+  }
+  for (const bad of [{ path: 'x'.repeat(4097) }, { bytes: -1 }, { bytes: 1.5 }, { runnable: 1 }, { binary: 'no' }, { reason: 'x'.repeat(257) }]) {
+    assert.throws(() => request({ files: [{ ...file, ...bad }] }), ValidationError)
+  }
+})
+
+test('library/source/file validates bounded source and relative path strings', () => {
+  const read = (params: unknown) => parseClientMessage({ id: 5, method: 'library/source/file', params })
+  const params = { sourcePath: '/library/sources/demo', path: 'references/note.md' }
+  assert.deepEqual(read(params).params, params)
+  for (const bad of [{}, { ...params, path: 1 }, { ...params, sourcePath: null }, { ...params, path: 'x'.repeat(4097) }, { ...params, sourcePath: 'x'.repeat(4097) }]) {
+    assert.throws(() => read(bad), ValidationError)
+  }
+})

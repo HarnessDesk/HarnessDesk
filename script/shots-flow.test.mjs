@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -174,6 +176,27 @@ test('concurrent reviews keep their thread tools and candidates and do not repla
   const before = rig.calls.length
   await rig.play(1, 'API')
   assert.equal(rig.calls.length, before)
+})
+
+test('a sibling reading scripted state during a write sees a complete snapshot', async t => {
+  const rig = worker(t, { WRITE: { kind: 'write', file: 'retry.txt', outcomes: ['committed'] } })
+  writeFileSync(rig.state, JSON.stringify({ passes: {}, done: [] }))
+  const write = fs.writeFileSync
+  let reads = 0
+  t.mock.method(fs, 'writeFileSync', (file, data, ...args) => {
+    // Hold each write at its truncate/write boundary, where the other fake
+    // process can read. Publishing through a rename keeps this JSON whole.
+    write(file, '')
+    JSON.parse(readFileSync(rig.state, 'utf8'))
+    reads++
+    return write(file, data, ...args)
+  })
+  syncBuiltinESMExports()
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports() })
+  await rig.play(1, 'WRITE')
+  assert.equal(rig.events.at(-2).params.turn.status, 'completed', JSON.stringify(rig.events))
+  assert.ok(reads > 0)
+  assert.deepEqual(JSON.parse(readFileSync(rig.state, 'utf8')).done, ['scene:1'])
 })
 
 test('interrupting a scripted turn during its camera delay leaves the checkout untouched', async (t) => {

@@ -18,6 +18,7 @@ import type {
 import { parseGithubSource } from './github-source.js'
 import { isSafePathSegment, isSafeSkillRelativePath, validSkillName } from './skill-paths.js'
 export { isSafePathSegment, isSafeSkillRelativePath, validSkillName } from './skill-paths.js'
+import { classifySkillFiles } from './skill-risk.js'
 import { bundleDigest, digestOf } from './digest.js'
 import { unifiedDiff } from './diff.js'
 import {
@@ -180,7 +181,7 @@ const bundleExtras = (
       if (!stats.isFile()) return `${relative} is not a regular file, so this bundle was not read.`
       files.push(relative)
       bytes += stats.size
-      if (files.length > MAX_BUNDLE_FILES) {
+      if (files.length + 1 > MAX_BUNDLE_FILES) {
         return `The bundle holds more than ${MAX_BUNDLE_FILES} files — too large to carry as a skill.`
       }
       if (bytes > MAX_BUNDLE_BYTES) {
@@ -207,7 +208,7 @@ const writableSkillFiles = (files: readonly SkillFile[], extras: readonly string
 /** Updates retain unshipped extras; the resulting union must remain readable. */
 const updatedSkillBundleRefusal = (retained: readonly SkillFile[], incoming: readonly SkillFile[]): string | undefined => {
   const extras = new Map([...retained, ...incoming].filter((file) => file.path !== 'SKILL.md').map((file) => [file.path, file.bytes]))
-  if (extras.size > MAX_BUNDLE_FILES) {
+  if (extras.size + 1 > MAX_BUNDLE_FILES) {
     return `The bundle holds more than ${MAX_BUNDLE_FILES} files — too large to carry as a skill.`
   }
   let bytes = 0
@@ -308,7 +309,7 @@ const push = (state: PlanState, op: Omit<LibraryPlannedOp, 'id'>): void => {
     state.counter += 1
     state.ops.push({
       id: `op-${state.counter}`, ...op, guardBundle,
-      ...(files !== undefined ? { sourceBundle: bundleDigest(files) } : {}),
+      ...(files !== undefined ? { sourceBundle: bundleDigest(files), files: classifySkillFiles(files) } : {}),
       ...(difference !== undefined ? { reason: [op.reason, difference].filter(Boolean).join(' ') } : {}),
     })
   } else {
@@ -1259,6 +1260,9 @@ const applyOne = async (
       throw new Error('The source changed since the preview — plan again.')
     }
     const toWrite = writableSkillFiles(files, op.extraFiles)
+    if (op.origin && op.acknowledged !== true && classifySkillFiles(toWrite).some(file => file.runnable || file.binary)) {
+      throw new Error('This skill carries files that can run or are binary. Read the list and acknowledge it before installing.')
+    }
     if (op.action !== 'replace' && op.flat !== true) {
       const reason = updatedSkillBundleRefusal(currentFiles ?? [], toWrite)
       if (reason !== undefined) throw new Error(reason)

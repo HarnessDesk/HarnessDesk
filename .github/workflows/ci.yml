@@ -156,17 +156,22 @@ jobs:
       # here, never widen it. The four flow-host-evidence end-to-end files,
       # the server's intake test files and the command line's end-to-end file
       # legitimately need more than this, so they run in their own job below
-      # instead of sharing this one; everything else fits inside it.
+      # instead of sharing this one. Retention keeps this deadline, but runs
+      # alone below so concurrent fixtures cannot consume its workload guard.
       #
       # The exclusion is a `find`, not a second glob, because node's own
       # glob matching has no negation syntax. It names each carved-out step
       # by the very path glob that step is given (`-path`, not `-name`): a
       # bare name also dropped `packages/protocol`'s `intake-wire.test.js`,
       # which the server-only step below never picks up, so it ran nowhere.
-      # Still the same glob as before, minus the files the next three steps
+      # Still the same glob as before, minus the files the dedicated steps
       # cover, so a package that gains tests is covered here the day it does.
       - name: Node tests
-        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js')"
+        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js')"
+      # The same heap/CPU budgets and workload deadline, with no competing
+      # server fixtures on this runner while the 20 real Flow runs settle.
+      - name: Host retention tests
+        run: node --test --test-timeout=120000 "packages/server/dist/test/host-retention.test.js"
 
   node-e2e:
     name: Node end-to-end tests

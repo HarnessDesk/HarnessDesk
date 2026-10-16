@@ -17,6 +17,8 @@ import type { MethodsUnder } from './context.js'
  * are held to.
  */
 export const libraryMethods = {
+  'library/source/file': (ctx, params) => ctx.librarySources().file(params),
+
   'library/source/fetch': (ctx, params) => ctx.librarySources().fetch(params),
 
   'library/read': (ctx, params) => {

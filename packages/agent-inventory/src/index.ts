@@ -22,6 +22,7 @@ import {
  * would be a test hook, and a second `createHash` somewhere else would be a
  * second answer about trailing whitespace.
  */
+export { classifySkillFiles } from './skill-risk.js'
 export { parseGithubSource } from './github-source.js'
 export { knownRoots } from './locations.js'
 export { bundleDigest, digestOf } from './digest.js'

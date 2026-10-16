@@ -41,7 +41,9 @@ desktop) plus the server's flow-host-evidence and intake test files and the
 command line's end-to-end file in runs of their own, at a wider per-file
 timeout than the rest (Node 22 caps
 `--test-timeout` per file, cumulatively, where these legitimately run long; it
-is a per-test default on newer Node), the UI typecheck, the layering rules, the half-applied-fixes check, a tracked-secrets scan, the
+is a per-test default on newer Node), the host-retention test file alone at the
+ordinary timeout (its heap and CPU workload runs without competing server
+fixtures), the UI typecheck, the layering rules, the half-applied-fixes check, a tracked-secrets scan, the
 reachable-methods check, the third-party notices check, the design-system
 gates, the UI-system architecture gate, interface drift, the command-line reference check, the recorded-claims link, the doc-paths check, the
 check that holds this gate and CI to one list, Codex protocol drift, and the

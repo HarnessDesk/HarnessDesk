@@ -76,10 +76,14 @@ test('a press on the backdrop neither answers nor dismisses the question', async
 })
 
 test('a click already on its way when the question opens answers nothing; once armed, a click answers once', async ({ page }) => {
+  await page.clock.install({ time: 0 })
+  await page.clock.pauseAt(1)
   await mountQuestion(page)
   await page.getByRole('button', { name: 'Ask the question' }).click()
+  await page.clock.runFor(300) // Open the question, then hold its arming timer.
   await expect(question(page)).toBeVisible()
   const run = question(page).getByRole('button', { name: 'Run lint' })
+  await expect(run).toBeDisabled()
   const box = await run.boundingBox()
   if (!box) throw new Error('the answer is not drawn')
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
@@ -87,6 +91,9 @@ test('a click already on its way when the question opens answers nothing; once a
   expect(await answers(page)).toBe(0)
   await expect(question(page)).toBeVisible()
 
+  await page.clock.runFor(599)
+  await expect(run).toBeDisabled()
+  await page.clock.runFor(1)
   await expect(run).toBeEnabled()
   await run.click()
   await expect(question(page)).toBeHidden()
