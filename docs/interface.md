@@ -1124,7 +1124,10 @@ window saw.
 A Team step waiting for the person also appears in the Inbox, with the Team
 name, the step or approval, and **Open the Team**. The row follows the same
 held facts as Needs you: answering, closing its round, or ending the Run removes
-it. Repeated run or board events do not make a read row unread again.
+it. Repeated run or board events do not make a read row unread again. Active
+Runs are read when the desk connects, so waiting steps arrive without opening
+their Team. Read state survives preference and Team hydration; clearing the
+Inbox suppresses the same live occurrence, including after reopening the desk.
 
 Conversation warnings, context compaction and model changes stay as quiet
 transcript lines outside the work fold. Errors keep one inline explanation and

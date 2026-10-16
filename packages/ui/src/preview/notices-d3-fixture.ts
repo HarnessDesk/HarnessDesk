@@ -1,5 +1,6 @@
 import { type FlowExecution, type TeamState } from '@harnessdesk/protocol'
 import { overviewTeamStore } from './team-overview-fixture'
+import { noticesD3Preferences } from './notices-d3-preferences'
 
 /** A placeholder Team waiting for the person's pick, with the ordinary production facts. */
 export const waitingInboxFixture = () => {
@@ -12,7 +13,7 @@ export const waitingInboxFixture = () => {
   const execution: FlowExecution = { ...base, state: 'running', rounds: [{ n: 1, role: 'pick', cards: [4], seats: [], evidence: [], cause: 'seed', state: 'running' }],
     document: { format: 'agents', flow: { ...base.document.flow, roles: [{ id: 'pick', kind: 'person', outcomes: ['kept', 'stopped'] }] } } }
   const board: TeamState = { ...team, intents: [card] }
-  return { snapshot: { ...snapshot, teams: new Map([[board.id, board]]), flowExecutions: new Map([[execution.id, execution]]), approvals: [] }, board, execution }
+  return { snapshot: { ...snapshot, teams: new Map([[board.id, board]]), goals: new Map([[board.id, { ...snapshot.goals.get(board.id)!, board }]]), flowExecutions: new Map([[execution.id, execution]]), approvals: [] }, board, execution }
 }
 
 /** Seed the complete window only when a notices-d3 browser specimen asks for it. */
@@ -35,6 +36,7 @@ export const installNoticesD3 = (store: import('../state/store').AppStore) => {
   })
   if (scene === 'fresh') Object.assign(snapshot, { sessions: new Map([...snapshot.sessions].map(([key, session]) => [key, { ...session, turns: [] }])) })
   if (scene === 'waiting') {
+    noticesD3Preferences(store)
     const { snapshot: waits, execution, board } = waitingInboxFixture()
     Object.assign(snapshot, { teams: waits.teams, goals: waits.goals, flowExecutions: new Map(), approvals: [], usage: [], sessions: new Map([...snapshot.sessions, ...waits.sessions]) })
     const push = (notification: import('@harnessdesk/protocol').WireNotification) => (store.transport as unknown as { handlers: { onNotification(value: import('@harnessdesk/protocol').WireNotification): void } }).handlers.onNotification(notification)
