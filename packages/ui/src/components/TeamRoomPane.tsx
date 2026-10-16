@@ -1082,7 +1082,7 @@ export const TeamRoomPane = ({
     ...(goal?.receipt ? [{ value: 'receipt', label: 'Receipt', run: () => show('receipt') }] : []),
   ]
   useTopBar(mainOwner, {
-    lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
+    lead: <WindowControls />,
     place: sanitizeText(title), placeTitle: sanitizeText(fullTitle), state: runState ? <Dot tone={runState.tone} pulse={runState.pulse} title={runState.label} aria-label={runState.label} /> : undefined,
     placeMenu: close => <>
       {goal && <MenuItem icon={<PencilIcon />} label="Rename" disabled={record ? RECORD_REASON : false} onSelect={() => { setRename(goal.goal.sentence); setRenameError(null); setRenaming(true); close() }} />}

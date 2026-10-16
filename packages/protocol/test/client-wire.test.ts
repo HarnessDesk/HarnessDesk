@@ -36,7 +36,7 @@ test('library reads are on the read tier while plan and apply stay off the clien
   for (const method of ['library/read', 'library/definition', 'library/usage']) {
     assert.equal(clientTierFor(method), 'read', method)
   }
-  for (const method of ['library/plan', 'library/apply']) {
+  for (const method of ['library/plan', 'library/apply', 'library/sources/check']) {
     assert.equal(clientTierFor(method), null, method)
     assert.equal(Object.hasOwn(CLIENT_METHODS, method), false, method)
   }

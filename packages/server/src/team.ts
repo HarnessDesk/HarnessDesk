@@ -46,7 +46,7 @@ import { claimCheckout } from './claim-checkouts.js'
 import { errnoOf, NOTHING_YET } from './errno.js'
 import { MemberWaits, type MemberStatus } from './goals/member-waits.js'
 import { memberNames } from './goals/members.js'
-import { sameCanonicalPath, withCanonicalPaths } from './path-identity.js'
+import { folderGoneAt, sameCanonicalPath, withCanonicalPaths } from './path-identity.js'
 
 /**
  * The team plane: one board and one channel per workspace, host-owned.
@@ -1241,7 +1241,7 @@ export class Team {
    * `roomsFor`, and simply vanished from the tree at the next launch.
    */
   states(): TeamState[] {
-    return [...this.#boards.values()].map((board) => this.#wireStateOf(board))
+    return withCanonicalPaths(() => [...this.#boards.values()].map((board) => this.#wireStateOf(board)))
   }
 
   hasRoom(id: string): boolean {
@@ -3612,9 +3612,11 @@ export class Team {
   }
 
   #wireState(state: TeamState): TeamState {
-    const realRoot = this.#realRootOf(state.root)
+    const folderGone = folderGoneAt(state.root)
+    const realRoot = folderGone ? undefined : this.#realRootOf(state.root)
     return {
       ...state,
+      folderGone,
       ...(realRoot ? { realRoot } : {}),
       intents: cardsForWire(state.intents),
     }

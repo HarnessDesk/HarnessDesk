@@ -55,6 +55,7 @@ const CALLERS = ['packages/ui/src', 'packages/desktop/electron', 'packages/clien
  * true, and those are worse than no claim at all.
  */
 const UNREACHED = {
+  'library/sources/check': 'the update-available screen is its caller',
   'library/source/file': 'the Add from GitHub screen is its caller',
   'library/source/fetch': 'the Add from GitHub screen is its caller',
   'team/rooms':
