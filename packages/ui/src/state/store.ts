@@ -1,3 +1,4 @@
+import { recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
@@ -358,6 +359,16 @@ interface TerminalOpenOptions {
   readonly cwd?: string
   readonly command?: readonly string[]
   readonly size?: TerminalSize
+}
+
+/** A saved profile owns its model; recommendations fill only its other controls. */
+const draftRecommendations = (options: readonly ConfigOption[], saved: Readonly<Record<string, OptionValue>>) => {
+  const values = recommendedOptionValues(options)
+  if (options.some(option => option.category === '_profile' && Boolean(saved[option.id]) && !option.disabled
+    && refuseOptionValue(option, saved[option.id]!) === null)) {
+    for (const option of options) if (option.category === 'model') delete values[option.id]
+  }
+  return values
 }
 
 export class AppStore {
@@ -6235,7 +6246,6 @@ export class AppStore {
     const previous = this.#creationDefaults[runtime] ?? Promise.resolve({})
     const validation = previous.catch(() => ({})).then(async () => {
       while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
-      if (Object.keys(this.#draftsByRuntime[runtime] ?? {}).length === 0) return {}
       let revision: number
       do {
         const checking = this.newSessionDefaultsFor(runtime, cwd)
@@ -6244,7 +6254,10 @@ export class AppStore {
         // A refresh or a user pick may supersede a pending validation.
         // Its cached answer is not permission to send the old defaults.
       } while (this.#draftRevisions[runtime] !== revision)
-      return this.#draftsByRuntime[runtime] ?? {}
+      const options = this.#draftOptionsByRuntime[runtime] ?? []
+      const recommendations = draftRecommendations(options, this.#draftsByRuntime[runtime] ?? {})
+      return { ...Object.fromEntries(options.filter(option => option.id in recommendations)
+        .map(option => [option.id, option.currentValue])), ...this.#draftsByRuntime[runtime] }
     })
     this.#creationDefaults[runtime] = validation
     try { return await validation }
@@ -6262,31 +6275,49 @@ export class AppStore {
     const revision = this.#nextDraftRevision(runtime)
     const asked = this.#draftsByRuntime[runtime] ?? {}
     const params = { runtime, ...(cwd ? { cwd } : {}) }
+    let recommended = false
     try {
       // Discover first: an obsolete saved value never rides the next request.
       let declared = await this.transport.request('runtime/sessionDefaults', params)
       if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      recommended = Object.keys(draftRecommendations(declared, asked)).length > 0
       // Reasoning and other controls can depend on the selected model. Resolve
       // a valid saved model (or profile that chooses one) before judging its
       // dependent saved values against the agent's default declarations.
-      const selectors = Object.fromEntries(Object.entries(asked).filter(([id]) =>
+      const selectors = Object.fromEntries(Object.entries({ ...draftRecommendations(declared, asked), ...asked }).filter(([id]) =>
         declared.some((one) => one.id === id && (one.category === 'model' || one.category === '_profile'))))
       const invalidSelectors = new Set(staleDefaults(selectors, declared)
         .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
-      const selectorValues = modelFirstValues(Object.fromEntries(Object.entries(selectors).filter(([id]) => !invalidSelectors.has(id))), declared)
-      if (Object.keys(selectorValues).length > 0 && Object.keys(asked).some((id) => !(id in selectors))) {
+      const validSelectors = Object.fromEntries(Object.entries(selectors).filter(([id]) => !invalidSelectors.has(id)))
+      const fallbackSelectors = Object.fromEntries(Object.entries(draftRecommendations(declared,
+        Object.fromEntries(Object.entries(asked).filter(([id]) => !invalidSelectors.has(id)))))
+        .filter(([id]) => declared.some(one => one.id === id && (one.category === 'model' || one.category === '_profile'))))
+      const selectorValues = modelFirstValues({ ...fallbackSelectors, ...validSelectors }, declared)
+      if (Object.keys(selectorValues).length > 0 && Object.keys({ ...draftRecommendations(declared, asked), ...asked }).some((id) => !(id in selectors))) {
         declared = await this.transport.request('runtime/sessionDefaults', { ...params, values: selectorValues })
         if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
       }
       const invalid = new Set(staleDefaults(asked, declared, this.#draftOptionsByRuntime[runtime])
         .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
-      const applicable = modelFirstValues(Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id))), declared)
-      const options = Object.keys(applicable).length > 0
+      const applicable = modelFirstValues({ ...draftRecommendations(declared, asked), ...Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id))) }, declared)
+      let options = Object.keys(applicable).length > 0
         ? await this.transport.request('runtime/sessionDefaults', { ...params, values: applicable }) : declared
+      // A model's recommendation can reveal its own effort. Read it from the
+      // answer, without carrying the previous model's recommended effort.
+      const resolved = modelFirstValues({ ...draftRecommendations(options, asked), ...Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id))) }, options)
+      if (JSON.stringify(resolved) !== JSON.stringify(applicable)) {
+        options = await this.transport.request('runtime/sessionDefaults', { ...params, values: resolved })
+      }
       if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      for (const [id, value] of Object.entries(draftRecommendations(options, asked))) {
+        if (!(id in asked) && findOption(options, id)?.currentValue !== value) {
+          throw new Error(`The runtime did not accept its recommended ${findOption(options, id)?.label ?? id}. Choose a default in Settings and try again.`)
+        }
+      }
       await this.#rememberDraftDefaults(runtime, asked, options)
       return options
-    } catch {
+    } catch (error) {
+      if (recommended) throw error
       try {
         const options = await this.transport.request('runtime/sessionDefaults', params)
         if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
@@ -6355,11 +6386,14 @@ export class AppStore {
     const revision = this.#nextDraftRevision(runtime)
     const asked = modelFirstValues({ ...(this.#draftsByRuntime[runtime] ?? {}), [id]: value }, this.#draftOptionsByRuntime[runtime] ?? [])
     try {
-      const options = await this.transport.request('runtime/sessionDefaults', {
-        runtime,
-        ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
-        values: asked,
-      })
+      const params = { runtime, ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}) }
+      let options = await this.transport.request('runtime/sessionDefaults', { ...params, values: asked })
+      const recommended = draftRecommendations(options, asked)
+      if (Object.keys(recommended).length > 0) {
+        options = await this.transport.request('runtime/sessionDefaults', {
+          ...params, values: modelFirstValues({ ...recommended, ...asked }, options),
+        })
+      }
       if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
       const values = kept(asked, options, this.#draftOptionsByRuntime[runtime])
       // What the runtime did with a pick is read off the list it answered

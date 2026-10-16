@@ -3345,3 +3345,20 @@ for every agent it opens, in later rounds and after recovery too. An explicit
 runtime choice that cannot enforce that access remains refused beside its row,
 with a way to choose a compatible agent. Automatic uses the same strict plan,
 so an earlier incompatible preference cannot block a later compatible one.
+
+
+## New conversations start carefully, with defaults in General
+
+For issue #1675 the owner chose D2 A and D12 A on 2026-10-15: a new
+conversation starts at workspace-editing access and the runtime's recommended
+model and effort, and those choices are available in Settings › General.
+Adapters declare `recommendedValue` on their options. The renderer validates
+and applies these before starting, resolving the model before its dependent
+effort, without a model-name or runtime-id table. Explicit saved picks win;
+recommendations themselves are not persisted as personal choices. Existing
+conversations keep the settings their runtime reports.
+
+General and the composer share the existing per-runtime draft preference
+record. Choosing Recommended removes a saved value; changing the default
+runtime uses the existing persisted runtime selection. The data, backup and
+support sections stay where they are.

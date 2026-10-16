@@ -398,3 +398,55 @@ it('validates saved picks again at session creation before sending any start opt
   expect(request.mock.calls.filter(([method]) => method === 'runtime/sessionDefaults').at(-1)?.[1]).toEqual({ runtime, cwd: '/workspace' })
   expect(store.getSnapshot().staleDraftDefaults[runtime]).toMatchObject([{ id: 'model', value: 'old' }])
 })
+
+
+it('starts an unsaved conversation with adapter recommendations and preserves explicit picks', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const options = [
+    { id: 'model', type: 'select', category: 'model', label: 'Model', currentValue: 'large', recommendedValue: 'small', choices: [{ value: 'small', label: 'Small' }, { value: 'large', label: 'Large' }] },
+    { id: 'effort', type: 'select', category: 'thought_level', label: 'Effort', currentValue: 'high', recommendedValue: 'medium', choices: [{ value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }] },
+    { id: 'access', type: 'select', category: '_permissions', label: 'Access', currentValue: 'full', recommendedValue: 'workspace', choices: [{ value: 'workspace', label: 'Workspace' }, { value: 'full', label: 'Full' }] },
+  ]
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown> }) => {
+    if (method === 'runtime/sessionDefaults') return options.map(option => ({ ...option, currentValue: params.values?.[option.id] ?? option.currentValue }))
+    if (method === 'session/create') return { runtime, id: sessionId('careful'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return {}
+  }) as never)
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1]).toMatchObject({ options: { options: { model: 'small', effort: 'medium', access: 'workspace' } } })
+  await store.setNewSessionDefault(runtime, 'model', 'large')
+  await store.setNewSessionDefault(runtime, 'access', 'full')
+  request.mockClear()
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1]).toMatchObject({ options: { options: { model: 'large', effort: 'medium', access: 'full' } } })
+})
+
+it.each([false, true])('resolves recommended model and effort with an obsolete saved model: %s', async (obsolete) => {
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown> }) => {
+    if (method === 'runtime/sessionDefaults') {
+      const selected = params.values?.model ?? 'large'
+      if (params.values?.effort === 'high' && selected === 'small') throw new Error('Small has no high effort')
+      return [
+        { id: 'model', label: 'Model', category: 'model', type: 'select', currentValue: selected, recommendedValue: 'small', choices: [{ value: 'small', label: 'Small' }, { value: 'large', label: 'Large' }] },
+        { id: 'effort', label: 'Effort', category: 'thought_level', type: 'select', currentValue: selected === 'small' ? 'low' : 'high', recommendedValue: selected === 'small' ? 'low' : 'high', choices: [{ value: selected === 'small' ? 'low' : 'high', label: 'Effort' }] },
+      ]
+    }
+    if (method === 'app/state/get') return obsolete ? { draftValues: { [runtime]: { model: 'gone' } } } : {}
+    if (method === 'session/create') return { runtime, id: sessionId('dependent'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return {}
+  }) as never)
+  await store.loadPreferences()
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1]).toMatchObject({ options: { options: { model: 'small', effort: 'low' } } })
+})
+
+it('does not start when a runtime ignores the recommended access value', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'runtime/sessionDefaults') return [{ id: 'access', label: 'Access', type: 'select', category: '_permissions', currentValue: 'full', recommendedValue: 'workspace', choices: [{ value: 'workspace', label: 'Workspace' }, { value: 'full', label: 'Full' }] }]
+    return {}
+  }) as never)
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.some(([method]) => method === 'session/create')).toBe(false)
+})

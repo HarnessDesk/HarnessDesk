@@ -1,3 +1,4 @@
+import SettingsNewConversations from './SettingsNewConversations'
 import { Toolbar } from '../design'
 import type { SettingsRoute, SettingsSection } from '../state/destinations'
 import { DestinationBar, useDestinationPage, useDestinationActive } from '../panels/destination-page'
@@ -1484,6 +1485,7 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
  */
 export const GeneralSectionRows = () => (
   <>
+    <SettingsNewConversations />
     <SectionHead name="Backup" />
     <BackupRows />
 

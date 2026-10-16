@@ -403,6 +403,7 @@ export const sessionOptions = (state: ThreadState, catalog: Catalog): ConfigOpti
   options.push({
     type: 'select',
     id: 'model',
+    recommendedValue: catalog.models.find((entry) => entry.isDefault && !entry.hidden)?.id,
     category: 'model',
     label: 'Model',
     ...(catalog.warning
@@ -428,6 +429,7 @@ export const sessionOptions = (state: ThreadState, catalog: Catalog): ConfigOpti
     options.push({
       type: 'select',
       id: 'effort',
+      recommendedValue: model.defaultReasoningEffort,
       category: 'thought_level',
       label: 'Reasoning effort',
       description: 'How hard the model thinks before answering.',
@@ -473,6 +475,7 @@ export const sessionOptions = (state: ThreadState, catalog: Catalog): ConfigOpti
   options.push({
     type: 'select',
     id: 'permissions',
+    recommendedValue: ':workspace',
     category: '_permissions',
     label: 'Permissions',
     description: 'What the agent may touch without asking.',
@@ -504,6 +507,7 @@ export const sessionOptions = (state: ThreadState, catalog: Catalog): ConfigOpti
   options.push({
     type: 'select',
     id: 'approvals',
+    recommendedValue: 'on-request',
     category: '_permissions',
     label: 'Approvals',
     description: 'How much the agent asks before acting.',
@@ -524,6 +528,7 @@ export const sessionOptions = (state: ThreadState, catalog: Catalog): ConfigOpti
   options.push({
     type: 'select',
     id: 'approvalsReviewer',
+    recommendedValue: 'user',
     category: '_permissions',
     label: 'Reviewed by',
     description: 'Who decides on approval requests.',

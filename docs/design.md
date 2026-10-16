@@ -2151,3 +2151,11 @@ it does not send someone above the form to find an unexplained dry run.
 The dedicated [New Team access specimen](../packages/ui/front-door-edit.html)
 shows the edit-first form; its `before` query reproduces the former publish
 grant without relaxing the admission policy.
+
+
+## New conversation defaults
+
+General's **New conversations** section uses the existing Settings Rows and
+menu controls for runtime, permission, model and effort. Recommended is a
+choice in each option menu; the adapter's actual recommendation is its hover
+title. This section adds no control or token spelling of its own.

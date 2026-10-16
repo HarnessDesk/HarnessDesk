@@ -1,3 +1,4 @@
+import { ConversationDefaultsPreview } from './defaults-fixture'
 import { ProjectPolishFrame } from './frames-project-polish'
 import { RepositoryStatesPreview } from './repository-states'
 import { RepositoryMenuRepairsPreview } from './repository-menu-repairs'
@@ -1261,6 +1262,8 @@ createRoot(container).render(
           ? <LeftColumnProbe />
           : new URLSearchParams(window.location.search).get('frame-wall') === 'settings-middle'
           ? <SettingsNavigationProbe />
+          : new URLSearchParams(window.location.search).has('conversation-defaults')
+          ? <ConversationDefaultsPreview />
           : new URLSearchParams(window.location.search).has('frame-wall')
           ? <FrameWall />
           : new URLSearchParams(window.location.search).has('team-frame')
