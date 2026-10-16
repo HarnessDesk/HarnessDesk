@@ -26,15 +26,13 @@ import {
   type TeamPeerInfo,
 } from '@harnessdesk/protocol'
 
-import { accountIdentity, accountKey, accountName, runtimeAccountBadge, runtimeTint } from '../lib/accounts'
+import { accountKey, accountName, runtimeAccountBadge, runtimeTint } from '../lib/accounts'
 import { originWords, passedWords, projectOfAgent, seatCautions } from '../lib/agents'
 import { elapsedSince } from '../lib/clock'
 import { describeContext, formatTokens } from '../lib/context-usage'
 import { formatElapsed } from '../lib/turn-view'
-import { bindingLane, describeLane } from '../lib/usage'
-import { usageAccount } from '../lib/usage-alerts'
 import { useSeatAgent, type SeatAgent } from '../state/seat-agent'
-import { useSnapshot, useStore } from '../state/context'
+import { useSnapshot } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { AgentCard, IconTile, MemberName, type Tint, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from '../design'
 import {
@@ -448,7 +446,7 @@ export const AgentHoverCard = ({
   readonly openOnFocus?: boolean
   /** The surface has nothing worth a card; the mark renders bare. */
   readonly disabled?: boolean
-  readonly source?: 'member' | 'account' | 'session'
+  readonly source?: 'member' | 'session'
 }) => {
   const triggerId = useId()
   const [open, setOpen] = useState(false)
@@ -1133,146 +1131,6 @@ export const SessionHoverCard = ({
     className={className}
     {...(side ? { side } : {})}
     {...(inset ? { inset } : {})}
-  >
-    {children}
-  </AgentHoverCard>
-)
-
-/* ── Account: a harness plus a credential ─────────────────────────────── */
-
-/** The account's card, mounted only while it is open. */
-const AccountCardBody = ({
-  info,
-  account,
-  onOpenUsage,
-}: {
-  readonly info: RuntimeInfo
-  readonly account: Account | null
-  readonly onOpenUsage?: (runtime: RuntimeId) => void
-}) => {
-  const snapshot = useSnapshot()
-  /* From context, like every other reader here. This used to arrive as a
-     `store` prop — the one asymmetry in the three cards, and review called it
-     out. It existed only because `selectRuntime` is a verb rather than a
-     field on the snapshot, which is not a reason for one call site to hand
-     over something the others get for free. */
-  const store = useStore()
-
-  const subject = useMemo<AgentCardSubject>(() => {
-    const key = account ? accountKey(info.id, account) : info.id
-    const report =
-      snapshot.usage.find(
-        // Through `usageAccount`, like every other "same account" question: a report
-        // whose account arrived as `"  "` is one that names none (round 2 of #216).
-        (one) => one.runtime === info.id && (account === null || usageAccount(one) === '' || usageAccount(one) === account.label.trim()),
-      ) ?? null
-    /* The lane with the least left, which is the one that will actually stop
-       a session — not the first one the source happened to list. */
-    const lane = report ? bindingLane(report.lanes) : null
-    const view = lane ? describeLane(lane, Date.now(), report?.lanes ?? []) : null
-
-    const sessions = [...snapshot.sessions.values()].filter((one) => one.runtime === info.id)
-    const working = sessions.filter((one) => busyNow(one)).length
-
-    /* A verb that would do nothing is absent, not greyed: the agent that
-       already is the default gets no "run new sessions as this", which
-       `selectRuntime` would return from without a word. The seat's own row
-       and the menu's tick already say it is the default. */
-    const actions: AgentCardAction[] = [
-      ...(info.id === snapshot.activeRuntime
-        ? []
-        : [
-            {
-              label: 'Run new sessions as this',
-              onSelect: () => void store.selectRuntime(info.id),
-              primary: true,
-            },
-          ]),
-      ...(onOpenUsage ? [{ label: 'Usage', onSelect: () => onOpenUsage(info.id) }] : []),
-    ]
-
-    return {
-      kind: 'account',
-      name: account ? accountName(account, snapshot.accountPrefs[key], info.presentation.name) : info.presentation.name,
-      identity: account
-        ? `${info.presentation.name} · ${accountIdentity(account)}`
-        : `${info.presentation.name} · not signed in`,
-      tint: tintFor(snapshot, info.id),
-      badge: runtimeAccountBadge(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs),
-      mark: <RuntimeMark runtime={info} size={16} />,
-      /* No `Running` band, and the version goes with it. Review found this
-         passing `running: { version }` and never drawing it: the band asks for
-         a model or a state and an account has neither, so the object was dead.
-         Surfacing it instead would have been the wrong repair — a band headed
-         "Running" holding nothing but `0.153.0` is the divider-for-one-fact
-         that `AgentCard`'s own test forbids, and an account is not running
-         anything. Settings › Runtimes is where a version is the subject. */
-      /* The same band as a session's context, a different budget: both answer
-         "how much of this can I still spend". `remainingPercent` is null when
-         the source gave a figure that cannot be read as one, and the band
-         then does not draw rather than showing a full bar. */
-      meter:
-        view && view.remainingPercent !== null
-          ? {
-              label: 'Plan',
-              left: view.remainingPercent,
-              of: 100,
-              reading: [`${view.remainingPercent}% left`, view.label, view.shortCountdown && `resets in ${view.shortCountdown}`]
-                .filter(Boolean)
-                .join(' · '),
-              ...(view.tone === 'bad' ? { tone: 'danger' as const } : view.tone === 'warn' ? { tone: 'warning' as const } : {}),
-            }
-          : null,
-      on:
-        sessions.length > 0
-          ? {
-              title: `${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'} open${working > 0 ? ` · ${working} working` : ''}`,
-            }
-          : null,
-      cautions: account
-        ? []
-        : [{ tone: 'warning', text: `${info.presentation.name} has no account on this machine yet.` }],
-      actions,
-    }
-  }, [snapshot, info, account, store, onOpenUsage])
-
-  return <AgentCard subject={subject} />
-}
-
-export const AccountHoverCard = ({
-  info,
-  account,
-  onOpenUsage,
-  children,
-  className,
-  side,
-  align,
-  disabled,
-}: {
-  readonly info: RuntimeInfo
-  /** Null for a seat that has not signed in; the card then says so. */
-  readonly account: Account | null
-  readonly onOpenUsage?: (runtime: RuntimeId) => void
-  readonly children: ReactNode
-  readonly className?: string
-  readonly side?: 'top' | 'right' | 'bottom' | 'left'
-  readonly align?: 'start' | 'center' | 'end'
-  /** The mark renders bare — while a menu is already open over the same seat, say. */
-  readonly disabled?: boolean
-}) => (
-  <AgentHoverCard
-    source="account"
-    {...(disabled !== undefined ? { disabled } : {})}
-    body={() => (
-      <AccountCardBody
-        info={info}
-        account={account}
-        {...(onOpenUsage ? { onOpenUsage } : {})}
-      />
-    )}
-    className={className}
-    {...(side ? { side } : {})}
-    {...(align ? { align } : {})}
   >
     {children}
   </AgentHoverCard>

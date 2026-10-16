@@ -56,6 +56,7 @@ test('opening in a folder without runtime board tools sends a session-linked not
     resumeSession: async (id: string) => ({ id, settings: () => ({}), options: () => ({ cwd: root }) }),
   } as unknown as AgentRuntime
   const ctx = contextWith({
+    loadouts: { observe: () => {} },
     sessionIndex: { reopen: () => {}, record: (session: unknown) => indexed.push(session) },
     sessionWorktrees: { prepare: async () => ({}) },
     runtimes: { resolve: () => runtime, ensureStarted: async () => {} },

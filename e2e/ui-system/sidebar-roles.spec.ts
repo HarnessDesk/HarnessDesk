@@ -29,6 +29,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 test('sidebar navigation names stay regular and truncate at their trailing edge', async ({ page }) => {
   await page.goto('/preview.html')
+  await page.locator('[data-frame-id="sidebar-column"]').getByRole('button', { name: 'Show more', exact: true }).first().click()
 
   const title = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-label"]').filter({
     hasText: 'Pin the flaky inventory test after reconciling every retry branch',

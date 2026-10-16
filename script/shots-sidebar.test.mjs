@@ -93,25 +93,40 @@ test('sidebar marks follow the indexed list without altering agent history', asy
   assert.deepEqual((await store.transport.request('session/list', {})).data, data)
 })
 
-for (const scene of ['workspace-hover', 'session-hover']) {
-  test(`${scene} preserves the rig's marks and pinned project`, async () => {
+for (const scene of ['workspace-hover', 'session-hover']) for (const folded of [false, true]) {
+  test(`${scene} preserves the rig's marks and pinned project (folded=${folded})`, async () => {
     const from = shoot.indexOf('  const workspaceHoverAction =')
     const to = shoot.indexOf('  /**', from)
     const scenes = {}
-    const mutations = []
     const hovered = []
     let staged = 0
-    new Function('SCENES', 'stageSidebarMarks', 'hover', 'cdp', 'sleep', 'STORE',
+    let revealed = 0
+    const root = '/demo/storefront'
+    const project = {
+      getAttribute: () => root,
+      querySelectorAll: () => folded ? [{ textContent: 'Show more', click: () => { revealed += 1 } }] : [],
+    }
+    const document = { querySelectorAll: () => [
+      { getAttribute: () => '/demo/other', querySelectorAll: () => { throw new Error('wrong project') } },
+      project,
+    ] }
+    new Function('SCENES', 'stageSidebarMarks', 'hover', 'cdp', 'sleep', 'STORE', 'q', 'REPO',
       shoot.slice(from, to))(
       scenes, async () => { staged += 1 }, async (selector) => { hovered.push(selector) },
-      { eval: async (expression) => { mutations.push(expression) } }, async () => {}, 'store',
+      // Only a DOM action is available here; changing the staged history or
+      // pin would reference a store this evaluator deliberately does not have.
+      { eval: async expression => new Function('document', `return ${expression}`)(document) },
+      async () => {}, 'store', JSON.stringify, root,
     )
     await scenes[scene].run()
     assert.equal(staged, 1)
-    assert.deepEqual(mutations, [], 'the staged history and pin are not stripped')
+    assert.equal(revealed, scene === 'session-hover' && folded ? 1 : 0)
     assert.equal(hovered.length, 1)
     assert.match(hovered[0], /\[data-left-row\]/, 'the scene must enter the canonical frame row')
     if (scene === 'workspace-hover') assert.match(hovered[0], /aria-label\^="New session in /, 'the project action is the approved new-session glyph')
-    if (scene === 'session-hover') assert.doesNotMatch(hovered[0], /trailing-marks="0"/, 'the native scene targets a marked session')
+    if (scene === 'session-hover') {
+      assert.match(hovered[0], /title\*=" · Worktree /, 'the native scene finds the worktree fact in the row tooltip')
+      assert.doesNotMatch(hovered[0], /trailing-marks="0"/, 'the native scene targets a marked session')
+    }
   })
 }

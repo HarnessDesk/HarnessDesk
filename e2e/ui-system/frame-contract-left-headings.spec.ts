@@ -27,11 +27,11 @@ for (const theme of WALL_THEMES) {
     })
   }
 
-  test(`D8 column bars meet without hairlines in ${theme}`, async ({ page }) => {
+  test(`D8 the quiet footer has a hairline and the top bar stays clear in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
     const column = page.locator('[data-left-column]:visible').first()
     await expect(column.locator('[data-left-top] [data-slot="bar"]')).not.toHaveAttribute('data-rule', 'bottom')
-    await expect(column.locator('[data-left-seat]').locator('..')).not.toHaveAttribute('data-rule', 'top')
+    await expect(column.locator('[data-left-seat]').locator('..')).toHaveAttribute('data-rule', 'top')
   })
 
   {

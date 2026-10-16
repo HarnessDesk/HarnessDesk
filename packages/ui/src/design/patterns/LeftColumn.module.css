@@ -7,8 +7,8 @@
 /* The drawing's group rhythm is shared by both interfaces. */
 .group + .group { padding-block-start: var(--hd-space-4); }
 .label { font-weight: var(--hd-weight-medium); display: block; padding-inline-start: var(--hd-space-2); margin-block: var(--hd-space-2); }
-.row { position: relative; height: var(--hd-left-row-h); min-width: 0; }
-.row .button { box-sizing: border-box; border: 0; padding-block: 0; height: var(--hd-left-row-h); min-height: var(--hd-left-row-h); padding-inline: var(--hd-space-2); gap: var(--hd-left-menu-gap); border-radius: var(--hd-nav-radius); font-size: var(--hd-text-sm); line-height: var(--hd-line-sm); font-weight: var(--hd-weight-normal); }
+.row { position: relative; height: var(--hd-left-row-h); min-width: 0; display: flex; align-items: center; }
+.row .button { box-sizing: border-box; border: 0; padding-block: 0; height: var(--hd-sidebar-highlight-h); min-height: var(--hd-sidebar-highlight-h); padding-inline: var(--hd-space-2); gap: var(--hd-left-menu-gap); border-radius: var(--hd-nav-radius); font-size: var(--hd-text-sm); line-height: var(--hd-line-sm); font-weight: var(--hd-weight-normal); }
 /* The Settings menu reads one step larger than the sidebar (14 / 20); its row sizes are the [data-left-settings] tokens. */
 :global([data-left-settings]) .row .button { font-size: var(--hd-text); line-height: var(--hd-line); }
 .row + .row { margin-block-start: var(--hd-left-row-gap); }
@@ -45,7 +45,7 @@
 .menuAction:hover, .menuAction[data-open] { background: var(--hd-hover); }
 
 .list { min-width: 0; }
-.row > input { width: 100%; height: 100%; min-height: 0; }
+.row > input { width: 100%; height: var(--hd-sidebar-highlight-h); min-height: 0; }
 
 .row[data-current] .button { color: var(--hd-foreground); font-weight: var(--hd-weight-medium); }
 .row[data-insert='before'] { box-shadow: inset 0 var(--hd-border-width) var(--hd-ring); }
@@ -53,7 +53,7 @@
 .row[data-insert='into'] { outline: var(--hd-border-width) solid var(--hd-ring); }
 
 .navigation { flex: none; }
-.projectsHead { display: flex; align-items: center; gap: var(--hd-space-0-5); }
+.projectsHead { --left-head-space: calc(var(--hd-sidebar-group-space) - (var(--hd-left-row-h) - var(--hd-sidebar-highlight-h)) / 2); display: flex; align-items: center; gap: var(--hd-space-0-5); }
 .projectsLabel { display: block; min-width: 0; }
 .projectsHead > [data-slot='navigation-group-label'] { flex: 1; min-width: 0; }
 .filtered { display: inline-flex; align-items: center; gap: var(--hd-space-0-5); }
@@ -78,17 +78,17 @@
 
 /* Header controls centre a line inside their target; the air belongs to the
    label, not the top of that larger target. */
-.head:has([data-left-group-text]) { padding-block-start: calc(var(--hd-space-4) - (var(--hd-icon-target) - var(--hd-line-sm)) / 2); }
+.head:has([data-left-group-text]) { padding-block-start: calc(var(--left-head-space, var(--hd-space-4)) - (var(--hd-icon-target) - var(--hd-line-sm)) / 2); }
 /* Foldable group names start at the ordinary icon edge. The disclosure follows
    the visible name, inside the label's reserved space beside the end action. */
-.row[data-left-project] { margin-block-start: calc(var(--hd-space-4) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2); }
+.row[data-left-project] { margin-block-start: calc(var(--hd-sidebar-group-space) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2); }
 .button[aria-expanded] { color: var(--hd-secondary-foreground); font-weight: var(--hd-weight-medium); }
 .button[aria-expanded] [data-slot='sidebar-menu-label-content'] { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: var(--hd-space-1-5); }
 .foldName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .disclosure { flex: none; visibility: hidden; }
 .button[aria-expanded='false'] .disclosure, .row:hover .disclosure, .row:has(:focus-visible) .disclosure { visibility: visible; }
 /* The pinned band's hairline is already part of the following group's air. */
-.body [data-sidebar-band='pinned'] + [data-project-root] .row[data-left-project] { margin-block-start: calc(var(--hd-space-4) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2 - var(--hd-border-width)); }
+.body [data-sidebar-band='pinned'] + [data-project-root] .row[data-left-project] { margin-block-start: calc(var(--hd-sidebar-group-space) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2 - var(--hd-border-width)); }
 
 .treeLabel { display: flex; align-items: center; gap: var(--hd-space-2); min-width: 0; }
 .treeIcon { display: inline-flex; flex: none; width: var(--hd-space-4); height: var(--hd-space-4); }
@@ -105,3 +105,5 @@
 .explorerFoot { flex: none; padding: var(--hd-space-2) var(--hd-space-4); }
 .explorerFoot .fileSearch { width: 100%; justify-content: flex-start; gap: var(--hd-space-2); background: var(--hd-input); border: var(--hd-border-width) solid var(--hd-border); }
 .fileSearch > span:last-child { margin-inline-start: auto; }
+
+.seatMenu > div > button { background: transparent; }

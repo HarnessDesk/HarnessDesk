@@ -34,7 +34,7 @@ export interface OptionDoc {
 export const EXIT_CODES: Readonly<Record<number, string>> = {
   0: 'Done. For `run wait`: the run settled.',
   1: 'The desk answered with an error not covered below, or the command failed for another reason.',
-  2: 'Usage: an unknown command or flag, a missing argument, or a spend without a terminal and without `--yes`.',
+  2: 'An ambiguous conversation id, or usage: an unknown command or flag, a missing argument, or a spend without a terminal and without `--yes`.',
   3: 'No desk: none is running for this home.',
   4: 'Refused: the desk refused the request (a flow with problems, a tier this desk does not grant, a card not addressed to a person), or its socket failed the ownership check. The desk\'s error code is printed on stderr.',
   5: 'Waiting for a person: `run wait` ended on a person card or a question.',

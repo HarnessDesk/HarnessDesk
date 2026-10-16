@@ -139,10 +139,10 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
     </div>}
   </Bar>
 </div>
-/** The account row closes the column without a separator hairline above it. */
+/** A quiet account row closes the column beneath a full-width hairline. */
 export const LeftColumnSeat = ({ menu, notifications, settingsOpen, onSettings }: {
   menu: ReactNode; notifications?: ReactNode; settingsOpen: boolean; onSettings: () => void
-}) => <Bar inset="rail"><div data-left-seat className={styles.seat}>
+}) => <Bar inset="rail" size="lg" rule="top" paintedRule><div data-left-seat className={styles.seat}>
   <div className={styles.seatMenu}>{menu}</div>
   <div className={`${styles.topActions} hd-no-drag`}>{notifications}</div>
   <Button variant="ghost" size="pattern" className={styles.topButton} aria-label="Settings" title="Settings"

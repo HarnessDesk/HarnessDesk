@@ -37,7 +37,7 @@ const SidebarMenu = ({ className, nested = false, horizontal = false, ...props }
     data-sidebar="menu"
     data-nested={nested ? 'true' : undefined}
     className={cn(
-      'flex w-full min-w-0 gap-(--hd-space-0-5)',
+      'flex w-full min-w-0 gap-0',
       horizontal ? 'flex-row items-center gap-(--hd-space-1) px-(--hd-space-2)' : 'flex-col',
       nested && sidebarNestedClass,
       className,

@@ -1,6 +1,7 @@
 import { measureDestination, expectPageJourney } from './frame-page-contract'
 import { expect, test } from '@playwright/test'
 import { openFrame, resolvedPx } from './frame-contract-helpers'
+import { revealPreviewConversation } from './sidebar-preview-actions'
 
 
 // Contract runs measure the preview; the final wall owns images and recordings.
@@ -65,7 +66,7 @@ for (const width of [1440, 720]) test(`E4 Agents column opens draft session and 
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
   await reveal()
-  await column.getByRole('button', { name: /Worktree Management/ }).first().click()
+  await (await revealPreviewConversation(column, 'Worktree Management')).click()
   await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)

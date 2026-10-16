@@ -1,3 +1,4 @@
+import type { ConversationLoadouts } from '@harnessdesk/protocol'
 import type { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import type {
   AgentEntry,
@@ -106,6 +107,11 @@ export interface HostContext {
   readonly logger: Logger
   readonly credentials: CredentialBroker
   readonly audit: AuditLog
+  readonly loadouts: {
+    observe(runtime: AgentRuntime, session: SessionId, cwd: string): void
+    read(session: string, runtime?: RuntimeId): Promise<ConversationLoadouts>
+    forget(runtime: RuntimeId, session: SessionId): Promise<void>
+  }
   readonly transcripts: TranscriptStore
   readonly archive: SessionArchive
   /** Metadata only: the sidebar never consults an agent on this port. */

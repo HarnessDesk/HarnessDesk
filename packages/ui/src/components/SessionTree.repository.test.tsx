@@ -274,7 +274,7 @@ it('keeps the opened home and its fold while another agent’s clone is the only
     listPrefs: { ...emptySnapshot().listPrefs, agent: second.id, pinned: [WIDGETS], collapsed: [WIDGETS] },
   })
   expect(projects()).toEqual(['widgets'])
-  expect(container.querySelector('[draggable="true"] [aria-label="Pinned"]')).not.toBeNull()
+  expect(container.querySelector('[draggable="true"] button[title*="Pinned"]')).not.toBeNull()
   expect(titles()).toEqual([])
   expect(rig.store.setListPrefs).not.toHaveBeenCalled()
   rig.update({ listPrefs: { ...rig.store.getSnapshot().listPrefs, collapsed: [] } })
@@ -290,7 +290,7 @@ it('uses opened repository metadata before a history page contains the home chec
     listPrefs: { ...emptySnapshot().listPrefs, pinned: [WIDGETS], collapsed: [WIDGETS] },
   })
   expect(projects().sort()).toEqual(['other', 'widgets'])
-  expect(container.querySelector('[draggable="true"] [aria-label="Pinned"]')).not.toBeNull()
+  expect(container.querySelector('[draggable="true"] button[title*="Pinned"]')).not.toBeNull()
   expect(titles()).toEqual([])
 })
 
@@ -300,7 +300,7 @@ it('carries a gone clone’s pin and fold to the surviving checkout at startup',
     listPrefs: { ...emptySnapshot().listPrefs, pinned: [PLAN], collapsed: [PLAN] },
   })
   expect(projects()).toEqual(['widgets'])
-  expect(container.querySelector('[draggable="true"] [aria-label="Pinned"]')).not.toBeNull()
+  expect(container.querySelector('[draggable="true"] button[title*="Pinned"]')).not.toBeNull()
   expect(titles()).toEqual([])
   expect(rig.store.setListPrefs).toHaveBeenCalledWith({ pinned: [WIDGETS], collapsed: [WIDGETS] })
   expect(goneLine()?.textContent).toContain('1 folder is gone')
@@ -322,7 +322,7 @@ it('a pin or a fold recorded under a clone is the project’s, and is rewritten 
     listPrefs: { ...emptySnapshot().listPrefs, pinned: [PLAN, '/Users/a/code/other'], collapsed: [LUNA] },
   })
   // Read through the group: the project is pinned and folded though nothing is stored under its home.
-  expect(container.querySelector('[draggable="true"] [aria-label="Pinned"]')).not.toBeNull()
+  expect(container.querySelector('[draggable="true"] button[title*="Pinned"]')).not.toBeNull()
   expect(titles().filter((title) => ['a', 'b', 'c'].includes(title))).toEqual([])
   // And the lists are rewritten so a toggle or a move works on what is stored.
   expect(rig.store.setListPrefs).toHaveBeenCalledWith({ pinned: [WIDGETS, '/Users/a/code/other'], collapsed: [WIDGETS] })
