@@ -454,7 +454,8 @@ sidebar opens on everything.
 
 Dashboard's Overview names the ledger total **Usage cost**; its title explains
 whether that cost was metered or priced at public rates. The pressed chart
-measure carries selection without a Selected chip. **What is left** includes
+measure keeps the shared quiet button's visible fill after the pointer leaves,
+without a Selected chip. **What is left** includes
 every account reporting limits, including healthy accounts and limits supplied
 by a host meter. Plan labels come from adapter presentation, with the raw plan
 type in the title. Pace badges describe remaining allowance against an even

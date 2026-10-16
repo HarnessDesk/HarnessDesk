@@ -62,13 +62,13 @@ export const DashboardBurn = ({ readings, plot }: { readonly readings: ReactNode
 /** A borrowed reading's activity summary belongs to that account, in one band. */
 export const DashboardAccountActivity = ({ label, readings }: { readonly label: ReactNode; readonly readings: readonly ReactNode[] }) => <Card variant="muted" data-slot="account-activity"><CardContent><Text role="meta">{label}</Text><div className={styles.money}>{readings}</div></CardContent></Card>
 
-/** Paid plus named chart measures such as Usage cost; aria-pressed carries selection without a repeated chip. */
+/** Paid plus named chart measures such as Usage cost; the shared quiet button's pressed fill shows selection without a repeated chip. */
 export const DashboardOverviewStats = ({ paid, measures }: {
   readonly paid: { readonly value: ReactNode; readonly caption?: ReactNode }
   readonly measures: readonly { readonly id: string; readonly label: string; readonly value: ReactNode; readonly caption?: ReactNode; readonly trend?: ReactNode; readonly title: string; readonly selected: boolean; readonly run: () => void }[]
 }) => <div aria-label="What it cost, in brief">
   <StatRow><Stat variant="plain" label={<span className={styles.figureLabel}>Paid</span>} value={paid.value} caption={paid.caption} />
-    {measures.map(item => <Button key={item.id} size="content" edgePlate variant="ghost" bordered={false} title={item.title} aria-pressed={item.selected} onClick={item.run}>
+    {measures.map(item => <Button key={item.id} size="content" edgePlate variant="quiet" bordered={false} title={item.title} aria-pressed={item.selected} onClick={item.run}>
       <Stat variant="plain" label={<span className={styles.figureLabel}>{item.label}</span>} value={item.value} caption={item.caption} trend={item.trend} />
     </Button>)}
   </StatRow>
