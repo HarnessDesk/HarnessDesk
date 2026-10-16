@@ -7,6 +7,7 @@ import { chromium, expect } from '@playwright/test'
 import { Host, Logger, StateStore, serve } from '../../packages/server/dist/src/index.js'
 import { CodexRuntime } from '../../packages/adapter-codex/dist/src/index.js'
 
+mkdirSync('/tmp/gone-rooms', { recursive: true })
 const scratch = realpathSync(mkdtempSync('/tmp/gone-rooms/rig-'))
 const out = resolve(process.env.ROOM_FOLDERS_FRAMES ?? '/tmp/gone-rooms/frames')
 mkdirSync(out, { recursive: true })
@@ -53,6 +54,7 @@ try {
       window.__hdStore.setOthersOpen(true)
       window.__hdStore.dismissStanding({ key: 'import:offer', kind: 'import:offer', lifetime: 'once' })
     })
+    await expect(page.getByText('Skills and servers to share', { exact: true })).toHaveCount(0)
     const tree = page.locator('[data-region="session-tree"]:visible')
     if (before) await expect(tree.getByRole('button', { name: 'Room Repair the checkout retry', exact: true })).toBeInViewport()
     else {
@@ -70,15 +72,17 @@ try {
     }
     if (!before) {
       await tree.getByRole('button', { name: '1 folder is gone', exact: true }).click()
-      await page.getByRole('menuitem', { name: 'Forget 1 folder', exact: true }).click()
+      await page.getByRole('menuitem', { name: /^Forget 1 folder/ }).click()
       await expect(tree.locator('[data-region="gone-folders"]')).toHaveCount(0)
       const kept = await host.call('goal/list', {})
       assert.equal(kept.length, 3, 'Forget keeps every Goal')
       assert.equal(kept.filter(view => view.board.folderGone).length, 2)
+      await page.getByRole('button', { name: 'Teams', exact: true }).click()
+      await expect(page.getByText('Repair the checkout retry', { exact: true }).first()).toBeVisible()
     }
     await context.close()
   }
-  console.log('PASS: four fake-agent frames; missing roots hidden; Forget preserves all three Goals')
+  console.log('PASS: four fake-agent frames; missing roots hidden; Forget preserves all three Goals and Teams still reaches the missing-root work')
 } finally {
   await browser?.close()
   await server?.close()

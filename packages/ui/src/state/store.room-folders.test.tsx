@@ -85,3 +85,15 @@ it('refreshes folder facts from room events and list reloads without extra reque
   expect(store.getSnapshot().goals.size).toBe(views.length)
   expect(vi.mocked(store.transport.request).mock.calls.every(([method]) => method === 'goal/list')).toBe(true)
 })
+
+it('keeps a gone alias out of an existing project even when recent folders remember its resolved path', async () => {
+  const { store, list, container } = await rig()
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => method === 'workspace/recent'
+    ? [{ path: live, name: 'kept-clone', lastOpenedAt: 2 }, { path: gone, realPath: live, name: 'deleted-clone', lastOpenedAt: 1 }]
+    : null) as never)
+  await act(async () => { await store.loadWorkspaces() })
+  await paint()
+  expect(list().groups.map(group => group.root)).toEqual([live])
+  expect(list().gone).toEqual([gone])
+  expect(container.querySelector('[aria-label="Room Team gone"]')).toBeNull()
+})
