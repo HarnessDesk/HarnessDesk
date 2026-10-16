@@ -6,7 +6,6 @@ import { expect, test, type Page } from '@playwright/test'
 import { SCENES, WINDOW, sceneUrl } from '../../packages/ui/src/review/scenes'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { WALL_TIME } from './frame-wall-destinations'
-import { impactUnit, unitsToRun } from './impact-units'
 import { writeOnceEveryTestPasses } from './write-once'
 
 /**
@@ -69,11 +68,8 @@ const measure = async (page: Page, url: string, hasSteps: boolean) => {
 test.use({ viewport: { width: WINDOW.width, height: WINDOW.height }, screenshot: 'off', trace: 'off', video: 'off' })
 if (UPDATE) writeOnceEveryTestPasses(test, () => writeFileSync(TABLE, `${JSON.stringify(observed, null, 2)}\n`))
 
-// One unit per scene: a change that reaches three scenes measures those three (`impact-units.ts`).
-const units = UPDATE ? null : unitsToRun('guides-standard.spec.ts', SCENES.map(scene => scene.id))
-
-for (const scene of SCENES.filter((one) => !units || units.has(one.id))) {
-  test(`guides standard: ${scene.id}`, impactUnit(scene.id), async ({ page }) => {
+for (const scene of SCENES) {
+  test(`guides standard: ${scene.id}`, async ({ page }) => {
     if (scene.width || scene.height) await page.setViewportSize({ width: scene.width ?? WINDOW.width, height: scene.height ?? WINDOW.height })
     await page.emulateMedia({ colorScheme: 'light' })
     const report = await measure(page, sceneUrl(scene, 'light', 'lines'), !!scene.steps?.length)

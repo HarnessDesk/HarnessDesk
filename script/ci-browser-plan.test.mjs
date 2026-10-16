@@ -285,14 +285,3 @@ test('a frame spec that asserts a colour is listed, so it reads both themes', ()
   assert.deepEqual(unlisted, [], 'add these to COLOUR_SPECS in playwright.ui-system.config.ts, so a pull request reads their dark cases')
   for (const name of COLOUR_SPECS) assert.ok(existsSync(new URL(`../e2e/ui-system/${name}.spec.ts`, import.meta.url)), `${name} is listed but is no spec`)
 })
-
-test('a spec narrowed to its impact units is selected, dealt and weighed as that spec', () => {
-  const named = ['e2e/ui-system/guides-standard.spec.ts#agent-detail,teams', 'e2e/ui-system/rules.spec.ts']
-  assert.deepEqual(selectedSpecs(root, JSON.stringify(named)), ['guides-standard.spec.ts#agent-detail,teams', 'rules.spec.ts'])
-  for (const malformed of ['guides-standard.spec.ts#', 'guides-standard.spec.ts#a,,b', 'not-a-spec.spec.ts#a']) {
-    assert.throws(() => selectedSpecs(root, JSON.stringify([malformed])), /not specs of e2e\/ui-system/, malformed)
-  }
-  const seconds = { 'guides-standard.spec.ts': 150, 'rules.spec.ts': 10 }
-  assert.deepEqual(plan(['guides-standard.spec.ts#a', 'rules.spec.ts'], seconds, 1)[0].load, 160)
-  assert.equal(shardCount(['guides-standard.spec.ts#a'], seconds, { target: 100 }), 1)
-})

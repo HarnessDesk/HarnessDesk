@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { IMPORT, SOURCE, suiteGraph, unobservedSpecs, walk } from './ci-imports.mjs'
-import { MAP_VERSION, environmentAt, expectedCounts, exportsData, foldUnits, impactedSpecs, mergeRecords, readMap, repoPath, uiExternalImports, uiFiles, uiGlobbers, uiImporters } from './ui-impact.mjs'
+import { MAP_VERSION, environmentAt, expectedCounts, exportsData, impactedSpecs, mergeRecords, readMap, repoPath, uiExternalImports, uiFiles, uiGlobbers, uiImporters } from './ui-impact.mjs'
 
 const real = fileURLToPath(new URL('../', import.meta.url))
 
@@ -545,83 +545,4 @@ test('the scan of the suite does not need the build: an import of build output t
     rmSync(root, { recursive: true, force: true })
     rmSync(unresolved, { recursive: true, force: true })
   }
-})
-
-test('a spec recorded unit by unit is planned onto the units a change reaches', () => {
-  const root = fixture()
-  try {
-    // `a` has two units: `one` ran x, `two` ran y. `b` has none.
-    const map = mergeRecords(root, [
-      record('e2e/ui-system/a.spec.ts', { loaded: everything, ran: ['/src/x.tsx', '/src/y.tsx'] }),
-      record('e2e/ui-system/a.spec.ts#one', { tests: 1, loaded: everything, ran: ['/src/x.tsx'] }),
-      record('e2e/ui-system/a.spec.ts#two', { tests: 1, loaded: everything, ran: ['/src/y.tsx'] }),
-      record('e2e/ui-system/b.spec.ts', { loaded: everything, ran: ['/src/y.tsx'] }),
-    ], { commit: 'abc' })
-    assert.deepEqual(map.specs, ['a.spec.ts', 'a.spec.ts#one', 'a.spec.ts#two', 'b.spec.ts'])
-    assert.equal(map.hashes[1], map.hashes[0], 'a unit is its spec in its present form')
-    assert.deepEqual(impactedSpecs(map, ['packages/ui/src/x.tsx'], context(root, map)).specs, ['a.spec.ts#one'])
-    assert.deepEqual(impactedSpecs(map, ['packages/ui/src/y.tsx'], context(root, map)).specs, ['a.spec.ts#two', 'b.spec.ts'])
-    assert.deepEqual(impactedSpecs(map, ['packages/ui/src/shared.ts'], context(root, map)).specs, ['a.spec.ts#one,two', 'b.spec.ts'])
-    const edited = impactedSpecs(map, ['packages/ui/src/x.tsx'], context(root, map, { specHash: name => (name === 'a.spec.ts' ? 'edited' : map.hashes[map.specs.indexOf(name)]) }))
-    assert.deepEqual(edited.specs, ['a.spec.ts'], 'an edited spec runs whole')
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('a unit is planned from only when its whole spec was recorded clean', () => {
-  const root = fixture()
-  try {
-    const map = mergeRecords(root, [
-      record('e2e/ui-system/a.spec.ts', { unclean: 1, loaded: everything, ran: everything }),
-      record('e2e/ui-system/a.spec.ts#one', { tests: 1, loaded: everything, ran: ['/src/x.tsx'] }),
-      record('e2e/ui-system/b.spec.ts', { loaded: everything, ran: ['/src/y.tsx'] }),
-      record('e2e/ui-system/b.spec.ts#two', { tests: 1, unclean: 1, loaded: everything, ran: ['/src/y.tsx'] }),
-    ])
-    assert.deepEqual(map.specs, ['b.spec.ts'])
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('whole-spec coverage from any input survives another input reaching a unit', () => {
-  const root = fixture()
-  try {
-    const map = mergeRecords(root, [
-      record('e2e/ui-system/a.spec.ts', { loaded: everything, ran: ['/src/x.tsx', '/src/y.tsx'] }),
-      record('e2e/ui-system/a.spec.ts#one', { tests: 1, loaded: everything, ran: ['/src/x.tsx'] }),
-      record('e2e/ui-system/b.spec.ts', { loaded: everything, ran: [] }),
-    ])
-    const x = 'packages/ui/src/x.tsx', y = 'packages/ui/src/y.tsx'
-    assert.deepEqual(impactedSpecs(map, [x], context(root, map)).specs, ['a.spec.ts#one'])
-    for (const paths of [[x, y], [y, x]]) {
-      assert.deepEqual(impactedSpecs(map, paths, context(root, map)).specs, ['a.spec.ts'])
-    }
-    assert.deepEqual(impactedSpecs(map, [x], context(root, map, {
-      baseFiles: () => baseOf(map, files => { files[y] = 'new-on-main' }),
-    })).specs, ['a.spec.ts'], 'drift on main also keeps whole-spec coverage')
-    assert.deepEqual(impactedSpecs(map, [x, 'packages/ui/src/new.ts'], context(root, map, {
-      globbers: () => [y],
-    })).specs, ['a.spec.ts'], 'a changed glob also keeps whole-spec coverage')
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('unit coverage through an importer cannot hide a module that ran outside a unit', () => {
-  const root = fixture()
-  try {
-    const map = mergeRecords(root, [
-      record('e2e/ui-system/a.spec.ts', { loaded: everything, ran: ['/src/x.tsx', '/src/shared.ts'] }),
-      record('e2e/ui-system/a.spec.ts#one', { tests: 1, loaded: everything, ran: ['/src/x.tsx'] }),
-      record('e2e/ui-system/b.spec.ts', { loaded: everything, ran: [] }),
-    ])
-    assert.deepEqual(impactedSpecs(map, ['packages/ui/src/shared.ts'], context(root, map)).specs, ['a.spec.ts'])
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('one entry per spec: whole wins over its units, and units join', () => {
-  assert.deepEqual(foldUnits(['a.spec.ts#two', 'b.spec.ts', 'a.spec.ts#one', 'c.spec.ts#x', 'c.spec.ts']), ['a.spec.ts#one,two', 'b.spec.ts', 'c.spec.ts'])
 })

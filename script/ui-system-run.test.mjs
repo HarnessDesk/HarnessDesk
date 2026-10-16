@@ -256,16 +256,3 @@ test('failed or unreadable listings cannot turn an empty run green', async () =>
     }
   })
 })
-
-test('a spec narrowed to units runs as its file, with the units handed to it', async () => {
-  const { narrowedSpecs, planRun } = await api()
-  assert.deepEqual(narrowedSpecs(['e2e/ui-system/dev.spec.ts#a,b', 'e2e/ui-system/plain.spec.ts']),
-    { files: ['e2e/ui-system/dev.spec.ts', 'e2e/ui-system/plain.spec.ts'], units: { 'dev.spec.ts': ['a', 'b'] } })
-  assert.deepEqual(narrowedSpecs(['e2e/ui-system/dev.spec.ts#a', 'e2e/ui-system/dev.spec.ts']).units, {}, 'named whole, it runs whole')
-  await fixture(async root => {
-    const plan = planRun(root, { specs: ['e2e/ui-system/dev.spec.ts#a,b'], devOnly: true, env: {} })
-    assert.deepEqual(plan.groups.map(group => [group.args.slice(0, 2), JSON.parse(group.env.UI_SYSTEM_UNITS)]),
-      [[['test:ui-system', 'e2e/ui-system/dev.spec.ts'], { 'dev.spec.ts': ['a', 'b'] }]])
-    assert.equal(planRun(root, { specs, devOnly: true, env: {} }).groups[0].env.UI_SYSTEM_UNITS, undefined)
-  })
-})

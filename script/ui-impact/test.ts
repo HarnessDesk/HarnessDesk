@@ -7,9 +7,6 @@
 // A worker keeps one entry per spec file and writes them when it ends; `script/ui-impact.mjs merge`
 // folds those files, from every shard, into the map a pull request is planned against.
 //
-// A test that names an impact unit (`e2e/ui-system/impact-units.ts`) is also kept under
-// `<spec>#<unit>`, so a change can be planned onto that one test of a spec rather than all of it.
-//
 // It asks the browser only whether a function ran (best-effort coverage: no call counts, no source
 // text, no block ranges), which costs under a tenth of a run; Playwright's own coverage reads every
 // script back and cost half as much again.
@@ -48,8 +45,7 @@ export const test = real.test.extend<{ impactRecorder: void }, { impactSink: Map
   }, { scope: 'worker', auto: true }],
   impactRecorder: [async ({ page, impactSink }, use, testInfo) => {
     const file = path.relative(process.cwd(), testInfo.file).split(path.sep).join('/')
-    // What this test alone saw; it joins its spec's record, and its unit's, when it ends.
-    const seen = { tests: 0, unclean: 0, loaded: new Set<string>(), ran: new Set<string>() }
+    const seen = impactSink.get(file) ?? { tests: 0, unclean: 0, loaded: new Set<string>(), ran: new Set<string>() }
     // Anything that stops the browser from answering makes this test's record unusable, and the spec
     // with it: a record that cannot be trusted must not look like a record of a page that ran nothing.
     let failed = false
@@ -91,18 +87,10 @@ export const test = real.test.extend<{ impactRecorder: void }, { impactSink: Map
       await Promise.all(reads)
       await cdp.send('Profiler.stopPreciseCoverage').catch(() => undefined)
     }
-    seen.tests = 1
+    seen.tests += 1
     // A test that ended as it was meant to (a failure that was expected) taught nothing wrong. One that skipped
     // itself while running did not run what it would have run elsewhere.
-    if (failed || testInfo.status === 'skipped' || testInfo.status !== testInfo.expectedStatus) seen.unclean = 1
-    const unit = testInfo.annotations.find(one => one.type === 'impact-unit')?.description
-    for (const key of unit ? [file, `${file}#${unit}`] : [file]) {
-      const into = impactSink.get(key) ?? { tests: 0, unclean: 0, loaded: new Set<string>(), ran: new Set<string>() }
-      into.tests += seen.tests
-      into.unclean += seen.unclean
-      for (const one of seen.loaded) into.loaded.add(one)
-      for (const one of seen.ran) into.ran.add(one)
-      impactSink.set(key, into)
-    }
+    if (failed || testInfo.status === 'skipped' || testInfo.status !== testInfo.expectedStatus) seen.unclean += 1
+    impactSink.set(file, seen)
   }, { auto: true }],
 })
