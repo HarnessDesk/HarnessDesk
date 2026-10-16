@@ -1,3 +1,4 @@
+import { Issue1675Frames } from './issue-1675-fixture'
 import { LibraryGithubFrames } from './frames-library-github'
 import { ProjectPolishFrame } from './frames-project-polish'
 import { FlowsDestinationFixture } from './flows-destination-fixture'
@@ -1235,7 +1236,7 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
-        {siteScene
+        {new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
           : new URLSearchParams(window.location.search).has('flows-page')
             ? <FlowsDestinationFixture />

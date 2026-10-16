@@ -823,7 +823,9 @@ in [extending.md](extending.md).
   and values. Choosing Act returns to the adapter-declared acting value;
   Permissions displays that acting level while Plan is selected. An
   agent without collaboration modes has no collaboration control. Draft picks
-  retain their selected label while the toolbar has room. A missing-permissions
+  retain their selected label while the toolbar has room. Model and effort
+  take their natural content width; actual toolbar overflow folds the label.
+  A missing-permissions
   placeholder appears only when no permission option is declared.
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
