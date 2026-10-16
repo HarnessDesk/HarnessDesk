@@ -11,6 +11,8 @@ import type {
   RuntimeId,
 } from '@harnessdesk/protocol'
 
+import { LibraryGithub } from './LibraryGithub'
+import { LibraryFiles, needsLibraryAcknowledgement } from './LibraryFiles'
 import { useStore } from '../state/context'
 import {
   ActionError,
@@ -69,6 +71,7 @@ export interface LibraryColumn {
 
 export type LibraryFlow =
   | { readonly type: 'import' }
+  | { readonly type: 'github' }
   | { readonly type: 'author' }
   | { readonly type: 'resolve'; readonly entry: LibraryEntry }
   | { readonly type: 'plan'; readonly title: string; readonly intents: readonly LibraryIntent[] }
@@ -175,6 +178,7 @@ export const PlanDialog = ({
 }) => {
   const store = useStore()
   const active = useDestinationActive()
+  const [acknowledged, setAcknowledged] = useState(false)
   const [plan, setPlan] = useState<LibraryPlan | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
@@ -184,6 +188,11 @@ export const PlanDialog = ({
   useEffect(() => {
     if (!active) return
     let cancelled = false
+    setPlan(null)
+    setFailed(null)
+    setResults(null)
+    setAcknowledged(false)
+    setOpen(null)
     store.transport
       .request('library/plan', { intents, ...(cwd ? { cwd } : {}) })
       .then((answer) => {
@@ -202,12 +211,17 @@ export const PlanDialog = ({
     [plan],
   )
 
+  const ackFiles = (plan?.ops ?? []).filter(needsLibraryAcknowledgement).flatMap(op => (op.files ?? []).filter(file => file.change !== 'removed' && (file.runnable || file.binary)))
+  const needsAck = ackFiles.length > 0
+  const ackKind = ackFiles.some(f => f.runnable) && ackFiles.some(f => f.binary) ? 'can run or are binary' : ackFiles.some(f => f.runnable) ? 'can run' : 'are binary'
+  const ackLabel = ackFiles.length === 1 ? `I read the file that ${ackFiles[0]?.runnable && ackFiles[0]?.binary ? 'can run or is binary' : ackFiles[0]?.runnable ? 'can run' : 'is binary'}` : `I read the files that ${ackKind}`
+
   const apply = useCallback(async () => {
-    if (!plan) return
+    if (!plan || (plan.ops.some(needsLibraryAcknowledgement) && !acknowledged)) return
     setBusy(true)
     try {
       const answer = await store.transport.request('library/apply', {
-        ops: plan.ops,
+        ops: plan.ops.map(op => needsLibraryAcknowledgement(op) ? { ...op, acknowledged: true } : op),
         ...(cwd ? { cwd } : {}),
       })
       setResults(answer)
@@ -217,7 +231,7 @@ export const PlanDialog = ({
     } finally {
       setBusy(false)
     }
-  }, [plan, store, cwd, onApplied])
+  }, [plan, store, cwd, onApplied, acknowledged])
 
   const resultOf = (id: string) => results?.find((one) => one.id === id)
   const done = results?.filter((one) => one.outcome === 'done').length ?? 0
@@ -268,7 +282,7 @@ export const PlanDialog = ({
           <>
             <Button
               variant="default"
-              disabled={busy || !plan || runnable.length === 0}
+              disabled={busy || !plan || runnable.length === 0 || (needsAck && !acknowledged)}
               onClick={() => void apply()}
            >
               {busy
@@ -289,7 +303,7 @@ export const PlanDialog = ({
       ) : plan.ops.length === 0 ? (
         <EmptyState variant="inline" title="Nothing to do." />
       ) : (
-        <Rows role="list">
+        <FormStack><Rows role="list">
           {plan.ops.map((op, index) => {
             const result = resultOf(op.id)
             const expandable = op.preview !== undefined && op.preview !== ''
@@ -306,6 +320,7 @@ export const PlanDialog = ({
                     desc={<Text role="meta" {...(op.action === 'refuse' ? { tone: 'warning' as const } : {})} title={verbOf(op, columns)}>{verbOf(op, columns)}</Text>}
                     control={<>{op.targetPath && <CodeText as="code" title={op.targetPath}>{shortPath(op.targetPath, home)}</CodeText>}{expandable && <DisclosureChevron open={open === op.id} />}</>} />
                 </Button>
+                {op.files && <LibraryFiles op={op} />}
                 {result?.outcome === 'failed' && <ActionError>{result.detail}</ActionError>}
                 {open === op.id && op.preview && (
                   <FormStack>
@@ -334,8 +349,9 @@ export const PlanDialog = ({
               </div>
             )
           })}
-        </Rows>
+        </Rows></FormStack>
       )}
+      {!results && needsAck && <Checkbox label={ackLabel} checked={acknowledged} disabled={busy} onCheckedChange={value => setAcknowledged(value === true)} />}
     </Dialog>
   )
 }
@@ -957,6 +973,10 @@ export const LibraryFlows = ({
         onApplied={onApplied}
       />
     )
+  }
+  if (flow.type === 'github') {
+    if (library === null) return null
+    return <LibraryGithub library={library} columns={columns} onClose={() => setFlow(null)} onPlan={toPlan} />
   }
   if (flow.type === 'import') {
     if (library === null) return null

@@ -34,10 +34,14 @@ const modelsDisplay = (models: readonly ModelInfo[]): readonly ModelInfo[] => mo
 }))
 const optionsDisplay = (options: readonly ConfigOption[]): readonly ConfigOption[] => options.map(entry => ({
   id: entry.id, label: entry.label, type: entry.type, currentValue: entry.currentValue,
+  ...(entry.recommendedValue !== undefined ? { recommendedValue: entry.recommendedValue } : {}),
   ...(entry.description !== undefined ? { description: entry.description } : {}),
   ...(entry.category !== undefined ? { category: entry.category } : {}),
   ...(entry.disabled !== undefined ? { disabled: entry.disabled } : {}),
   ...(entry.modelStatus !== undefined ? { modelStatus: entry.modelStatus } : {}),
+  ...(entry.type === 'select' && entry.collaboration ? { collaboration: {
+    planValue: entry.collaboration.planValue, actValue: entry.collaboration.actValue,
+  } } : {}),
   ...(entry.confirm !== undefined ? { confirm: { title: entry.confirm.title, body: entry.confirm.body, action: entry.confirm.action, ...(entry.confirm.learnMore ? { learnMore: entry.confirm.learnMore } : {}) } } : {}),
   ...(entry.type === 'select' ? { choices: entry.choices.map(choice => ({ value: choice.value, label: choice.label,
     ...(choice.description !== undefined ? { description: choice.description } : {}),

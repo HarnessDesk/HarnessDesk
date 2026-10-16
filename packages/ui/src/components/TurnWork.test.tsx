@@ -311,3 +311,18 @@ it('an ACP permission waits in both the live line and its tool row, scoped by ru
   draw()
   expect(container.textContent).not.toContain('Waiting for approval')
 })
+
+it('keeps a successful attempt neutral when one of its commands failed', () => {
+  const command = { id: 'retry', type: 'command', command: 'pnpm test', cwd: '/work', origin: 'agent', actions: [], status: 'failed', exitCode: 1, output: 'First run failed' } as unknown as AgentItem
+  const turn: Turn = { id: turnId('success'), status: 'completed', durationMs: 42_000, items: [command] }
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><TurnWork turn={turn} work={turn.items} root="/work" /></StoreProvider>))
+  const fold = container.querySelector<HTMLButtonElement>('[data-testid="turn-work"] > button')!
+  expect(fold.textContent).toContain('Worked for 42s')
+  expect(fold.textContent).toContain('1 failed')
+  expect(container.querySelector('[data-trouble]')).toBeNull()
+  expect(fold.querySelector('[data-tone="danger"], [data-tone="warning"]')).toBeNull()
+  act(() => fold.click())
+  expect(container.textContent).toContain('failed')
+})

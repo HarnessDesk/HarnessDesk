@@ -1,3 +1,4 @@
+import SettingsNewConversations from './SettingsNewConversations'
 import { Toolbar } from '../design'
 import type { SettingsRoute, SettingsSection } from '../state/destinations'
 import { DestinationBar, useDestinationPage, useDestinationActive } from '../panels/destination-page'
@@ -87,7 +88,6 @@ import { shortPath } from '../lib/paths'
 import { NewSessionDefaults } from './SettingsAgents'
 import { ProjectPage } from './ProjectPage'
 import { LaneSettings } from './LaneSettings'
-import { TriggerSettings } from './TriggerSettings'
 import { moveSettingsNavigationFocus } from './settings-navigation-focus'
 import { filterSettingsGroups, settingsGroups } from './settings-navigation'
 
@@ -1470,7 +1470,6 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
       <Section title="Lanes">
         <LaneSettings root={snapshot.workspace?.path} />
       </Section>
-      <TriggerSettings focus={focus} />
     </>
   )
 }
@@ -1484,6 +1483,7 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
  */
 export const GeneralSectionRows = () => (
   <>
+    <SettingsNewConversations />
     <SectionHead name="Backup" />
     <BackupRows />
 

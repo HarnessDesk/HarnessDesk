@@ -10,13 +10,13 @@ import { LibraryBar } from './library-bar'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 it('names Library in the body beside its verb and counted sections', async () => {
   const box = document.createElement('div'); document.body.append(box)
-  const root = createRoot(box), importing = vi.fn(), rescan = vi.fn(), change = vi.fn(), author = vi.fn()
+  const root = createRoot(box), importing = vi.fn(), rescan = vi.fn(), change = vi.fn(), author = vi.fn(), github = vi.fn()
   const snapshot = emptySnapshot()
   const store = {subscribe:()=>()=>{},getSnapshot:()=>snapshot} as unknown as AppStore
   try {
     await act(async () => root.render(<StoreProvider store={store}><TopBarProvider>
       <DestinationPageScope owner="destination:library" active><LibraryBar kind="skill" counts={{skill:4,mcp:2}}
-        change={change} loaded loading={false} author={author} importing={importing} rescan={rescan}/></DestinationPageScope>
+        change={change} loaded loading={false} author={author} importing={importing} github={github} rescan={rescan}/></DestinationPageScope>
       <TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}}/>
     </TopBarProvider></StoreProvider>))
     expect(box.querySelector('[data-topbar-title]')).toBeNull()
@@ -39,10 +39,36 @@ it('names Library in the body beside its verb and counted sections', async () =>
     const labels = actions.map(node=>node.textContent)
     expect(labels.filter(label=>label==='Import')).toHaveLength(1)
     expect(labels.filter(label=>label==='Rescan')).toHaveLength(1)
+    expect(labels.indexOf('Add from GitHub…')).toBe(labels.indexOf('Import') + 1)
+    await act(async () => actions.find(node=>node.textContent==='Add from GitHub…')!.click())
+    expect(github).toHaveBeenCalledOnce()
+    await act(async () => box.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
     expect(labels).not.toContain('Terminal')
     expect(labels).not.toContain(['Back', 'to', 'app'].join(' '))
-    await act(async () => actions.find(node=>node.textContent==='Import')!.click())
+    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node=>node.textContent==='Import')!.click())
     expect(importing).toHaveBeenCalledOnce()
     expect(rescan).not.toHaveBeenCalled()
+  } finally { act(() => root.unmount()); box.remove() }
+})
+
+it('disables GitHub and Import until the library has been read', async () => {
+  const box = document.createElement('div'); document.body.append(box)
+  const root = createRoot(box), github = vi.fn()
+  const snapshot = emptySnapshot()
+  const store = {subscribe:()=>()=>{},getSnapshot:()=>snapshot} as unknown as AppStore
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><TopBarProvider>
+      <DestinationPageScope owner="destination:library" active><LibraryBar kind="skill" counts={{skill:0,mcp:0}}
+        change={()=>{}} loaded={false} loading author={()=>{}} importing={()=>{}} github={github} rescan={()=>{}} /></DestinationPageScope>
+      <TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}}/>
+    </TopBarProvider></StoreProvider>))
+    await act(async () => box.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
+    for (const label of ['Import', 'Add from GitHub…']) {
+      const item = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(n=>n.textContent===label)!
+      expect(item).toBeTruthy()
+      expect(item.getAttribute('aria-disabled')).toBe('true')
+      await act(async () => item.click())
+    }
+    expect(github).not.toHaveBeenCalled()
   } finally { act(() => root.unmount()); box.remove() }
 })

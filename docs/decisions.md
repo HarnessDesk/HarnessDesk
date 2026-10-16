@@ -7,6 +7,25 @@ the rule is the last line of its section.
 
 ---
 
+## First launch offers installed runtimes — 2026-10-16
+
+The first empty conversation uses the Add a runtime page's machine catalogue
+to offer installed agents that have not been registered. Each is one compact
+name and Add button. Detection runs once per window, after the pane draws,
+with an eight-second limit on the offer's wait. Nothing found means no offer.
+A runtime available only through a bundled bridge is not an installed CLI.
+
+The owner chose an offer over automatic registration in [#1673](https://github.com/HarnessDesk/HarnessDesk/issues/1673).
+Add uses the existing template registration; it neither installs nor signs in
+nor changes the agent's own files. The registered runtime arrives through the
+host's existing event and becomes selectable in the composer. History copy
+comes from every present runtime's `presentation.historySource`, deduplicated
+for accounts of the same agent, and is absent when no runtime declares one.
+Unregistered agents take their names from the same host catalogue as Settings;
+registered runtime names come from `RuntimeInfo.presentation`.
+
+**The rule:** offer what is installed, and let the person choose what to add.
+
 ## History arrows move to the main bar when the sidebar runs out of room — 2026-10-15
 
 The native corner consumes 78px of the sidebar's top row. The default 256px
@@ -3345,3 +3364,137 @@ for every agent it opens, in later rounds and after recovery too. An explicit
 runtime choice that cannot enforce that access remains refused beside its row,
 with a way to choose a compatible agent. Automatic uses the same strict plan,
 so an earlier incompatible preference cannot block a later compatible one.
+
+
+## New conversations start carefully, with defaults in General
+
+For issue #1675 the owner chose D2 A and D12 A on 2026-10-15: a new
+conversation starts at workspace-editing access and the runtime's recommended
+model and effort, and those choices are available in Settings › General.
+Adapters declare `recommendedValue` on their options. The renderer validates
+and applies these before starting, resolving the model before its dependent
+effort, without a model-name or runtime-id table. Explicit saved picks win;
+recommendations themselves are not persisted as personal choices. Existing
+conversations keep the settings their runtime reports.
+
+General and the composer share the existing per-runtime draft preference
+record. Choosing Recommended removes a saved value; changing the default
+runtime uses the existing persisted runtime selection. The data, backup and
+support sections stay where they are.
+
+## 2026-10-16 — Project entry and finished Teams (#1675 D4, D5, D11)
+
+The owner chose D4 A+B: **Open a folder…** in an empty composer and
+**Open folder…** in the New session menu call the same folder picker as
+Projects. D5 A keeps a finished Team under its project, with the attention
+dot labelled **Ready to wrap**, until it is wrapped; the gone-folder rule
+still applies. D11 A removes Agents and Plugins counts from sidebar rows
+and keeps those totals on their pages; the Flows row, added since, follows the
+same rule, so only Dashboard's attention count remains. Part 2 item 8 earns
+**Most used** only from recorded Flow starts; fresh desks list unused Flows
+under **More Flows**. These entries compose the existing controls and state marks.
+
+## Team runs use plain words and Wrap starts from the result — 2026-10-16
+
+Issue #1675, owner picks D7 A and D8 A. A completed attempt keeps neutral ink
+when one of its sub-steps failed: the failure count and the opened step retain
+the fact without judging the successful turn. Board tool headlines use one
+presentation table of plain actions, and their exact identifiers remain in
+details. The messaging notice explains the effect in plain words. An agent's
+own “Committed” verdict remains verbatim because it describes what it delivered.
+
+A comparison counts the attempts actually recorded in its Run and says who
+picked only once the pick is recorded. Wrap uses the same Run timeline's picks
+and verified person-card merge receipt to prefill an editable line for each
+attempt, with its card number distinguishing identical titles. A picked revision is Kept until a merge
+is observed; the person's merged attempt overrides the referee's pick, and
+the other attempt defaults to Not kept with an editable reason.
+The existing receipt protocol still records that disposition as dropped. The
+person reviews and can edit every field before confirming the wrap.
+
+## The Library read carries where a skill came from, and the network is only asked when a person asks — 2026-10-16
+
+An installed repository skill already has its public repository, ref, commit
+and skill path in the Library manifest. `library/read` carries that recorded
+origin on each non-hollow skill copy, so copies installed for different agents
+can report different pinned commits before anyone checks for an update. Local
+skills, MCP entries and copies without a valid recorded origin omit it.
+
+Every read loads the local manifest again. An applied update therefore changes
+the origin on the next read, while the existing comparison drops a check for an
+older origin. Update results still belong only to the host lifetime in which a
+person requested the check; a new host reads the origin without inventing a
+check result.
+
+**Rule:** the recorded origin is read from the manifest on every read; a check is only ever an explicit request.
+
+## Empty board columns collapse; the badge counts everything
+
+The owner chose option B in [#1674](https://github.com/HarnessDesk/HarnessDesk/issues/1674)
+on 2026-10-15. A finished Team showed Board 3 above four full-width empty
+columns, while its three completed cards were outside the visible row.
+
+The badge continues to count every card. Empty columns start as named rails
+with zero counts, preserving their order and the existing keyboard expansion
+and folding controls. Occupied columns retain their width; the all-empty board
+retains one empty state. Below 600px of content width the compact list remains
+the readable form. A horizontal Board keeps its token-backed scrollbar visible
+at rest, so overflow announces itself before a gesture.
+
+## One Permissions slot; plan vs act is its own control
+
+Decided 2026-10-15 in #1672, option A. Permissions always occupies the same
+composer slot and keeps the agent's own levels. Collaboration mode is a
+separate control; an agent that offers no collaboration mode has none.
+
+The adapter declares permission options with `_permissions`. A mixed list
+also supplies `SelectOption.collaboration`: the existing `planValue` and
+`actValue` that the collaboration control writes. The bridge supplies those
+values on every declaration, including updates. No renderer match on a name,
+a description or an agent id decides the split. Both controls write the same
+underlying option id and its existing values; choosing a permission level
+leaves planning, and choosing Act uses the adapter's acting value (the ordinary
+manual mode when the agent is currently planning). There is no second stored
+permission policy to reconcile with the agent.
+
+While planning, Permissions displays the declared acting value that Act will
+return to; Plan remains selected only in Collaboration mode. This display
+projection does not change the agent's current value. The runtime cache keeps
+both collaboration values so the same split is available before the agent starts.
+
+The Permissions trigger names the slot and the selected level, including in a
+draft. Only a genuinely absent permission option earns the missing-setting
+placeholder. Model and effort take their natural width while space remains;
+they fold with the toolbar when it runs out.
+
+## A fetched skill is reviewed as a bundle before installing — 2026-10-16
+
+The Library's Add from GitHub flow pins a public repository revision and lets
+the person choose skills and destination agents before the ordinary plan.
+The plan lists every carried file and lets runnable or binary fetched files
+be read as plain text. Those incoming files require an explicit acknowledgement
+before Apply; ordinary local installs retain their existing confirmation.
+The acknowledgement travels only on the operations whose files need it.
+This keeps the review attached to the bundle the host planned and checks again
+at apply, rather than treating a skill's definition as its entire contents.
+
+## Pace forecasts earn composer space; Team waits also reach the Inbox
+
+On 2026-10-15 the owner chose A + B for issue #1675 D3: a pace warning above
+the composer waits until work has started in the desk and less than 15% of the
+binding window remains. The named threshold is
+`COMPOSER_PACE_REMAINING_PERCENT`; a turn in a held desk conversation supplies
+the existing work fact, excluding history previews, without a new persisted
+flag. The Dashboard retains the forecast at every remaining share. The Notice
+primitive supplies the sentence stop between an inline title and its detail. Exhausted quota keeps its
+existing behavior.
+
+For D6 the owner chose yes: person cards, picks, approvals and questions waiting
+in a Team also reach the bell's Inbox. The store reconciles live entries from
+the existing Needs-you selector when `team/changed`, `goal/changed`,
+`flow/execution-changed`, `approval/requested` or `approval/resolved` updates
+the held facts, and when initial reads hydrate those same facts. A Team and
+Run plus conversation and card or approval identify the row; repeated snapshots preserve its read
+state. Answering or moving past a step clears it, as does ending or wrapping
+the Run. Its destination opens the Team's existing view. Needs you itself keeps
+its current presentation.

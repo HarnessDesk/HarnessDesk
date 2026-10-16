@@ -5,6 +5,22 @@ const work = destinationOf({ kind: 'room', room: 'team-demo', framePage: 'findin
 const settings = { kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } } as const
 const dashboard = { kind: 'dashboard', view: 'plans', scope: null } as const
 
+test('Flows restores the catalogue, a new draft and an origin-bound file through Back and Forward', () => {
+  const catalogue = { kind: 'flows', root: null, id: null, origin: null } as const
+  const draft = { kind: 'flows', root: '/work/demo', id: null, origin: null } as const
+  const flow = { kind: 'flows', root: '/work/demo', id: 'review', origin: 'project' } as const
+  for (const destination of [catalogue, draft, flow]) expect(readDestination(destination)).toEqual(destination)
+  const start = { context: { kind: 'pull-request', root: '/work/demo', number: 42 }, goal: { id: 'empty-team', revision: 2 }, task: 'Review this change', done: 'Findings resolved' }
+  expect(readDestination({ ...draft, start })).toEqual({ ...draft, start })
+  expect(readDestination({ ...draft, start: { ...start, context: { ...start.context, root: '/work/other' } } })).toBeNull()
+  for (const invalid of [{ ...flow, root: null }, { ...flow, origin: 'unknown' }, { ...draft, origin: 'project' }]) {
+    expect(readDestination(invalid)).toBeNull()
+  }
+  const history = visitDestination(visitDestination({ current: work, back: [], forward: [] }, catalogue), flow)
+  expect(stepDestination(history, 'back')?.current).toEqual(catalogue)
+  expect(stepDestination(stepDestination(history, 'back')!, 'forward')?.current).toEqual(flow)
+})
+
 test('Back/Forward crosses pages and preserves the complete work payload', () => {
   const start = { current: work, back: [], forward: [] }
   const two = visitDestination(visitDestination(start, settings), dashboard)

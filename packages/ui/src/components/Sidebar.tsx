@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { SidebarNotices, useAccountQuotaWarning, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useActiveSession, useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
-import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
+import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, FolderOpenIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
 import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
 import {
@@ -40,8 +40,8 @@ import {
 } from '../design'
 import { accountKey, accountName, accountIdentity, agentKey, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName, projectRootOf } from '../lib/projects'
-import { anyBroken, inForce } from '../lib/agents'
-import { livePlugins } from '../lib/plugins'
+import { anyBroken } from '../lib/agents'
+import { FlowIcon } from './Icons'
 import { Explorer, effectiveWindowMode } from '../editor'
 import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
@@ -73,6 +73,7 @@ export const Sidebar = ({
   onOpenLibrary,
   onOpenAgents,
   onOpenTeams,
+  onOpenFlows,
   onOpenUsage,
   onBrowseFolders,
   onSignIn,
@@ -86,6 +87,7 @@ export const Sidebar = ({
   /** Opens the Agents window — the roster, never a Settings page. */
   onOpenAgents: () => void
   onOpenTeams: () => void
+  onOpenFlows?: () => void
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
   onBrowseFolders: () => void
@@ -96,7 +98,7 @@ export const Sidebar = ({
   settings?: { section: Section; onSection: (section: Section) => void; onBack: () => void }
   listFilter?: { value: string; onChange: (value: string) => void }
   sessionsOwner?: boolean
-  activeDestination?: 'teams' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
+  activeDestination?: 'teams' | 'flows' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -141,13 +143,7 @@ export const Sidebar = ({
   const runtime = useRuntime()
   const health = useRuntimeHealth()
   const ready = health?.state === 'ready' || health?.state === 'idle'
-  // These counts match the destinations' own definitions on their windows.
-  // Not `plugins.length`: an installed copy a built-in has taken over is off,
-  // and counting it here made the sidebar promise one more than the page lists.
-  const agentsRoster = snapshot.agents ?? []
-  const agentsCount = inForce(agentsRoster).length
-  const agentsBroken = anyBroken(agentsRoster)
-  const pluginCount = livePlugins(snapshot.plugins).length
+  const agentsBroken = anyBroken(snapshot.agents ?? [])
   const top = <LeftColumnTop shown={sidebarPlacement(snapshot) !== 'away'}
     settings={Boolean(settings)}
     modeSwitch={{ value: effectiveWindowMode(snapshot.windowMode, snapshot.workbench),
@@ -165,9 +161,10 @@ export const Sidebar = ({
   </Bar>
   const pageDoors = [
     { id: 'teams' as const, label: 'Teams', icon: <TeamIcon size={16} />, run: onOpenTeams, count: 0 },
-    { id: 'agents' as const, label: 'Agents', icon: <AgentIcon size={16} />, run: onOpenAgents, count: agentsCount },
+    { id: 'flows' as const, label: 'Flows', icon: <FlowIcon size={16} />, run: onOpenFlows ?? (() => store.openDestination({kind:'flows',root:null,id:null,origin:null})), count: 0 },
+    { id: 'agents' as const, label: 'Agents', icon: <AgentIcon size={16} />, run: onOpenAgents, count: 0 },
     { id: 'library' as const, label: 'Library', icon: <LibraryIcon size={16} />, run: onOpenLibrary ?? (() => onOpenSettings('library')), count: 0 },
-    { id: 'plugins' as const, label: 'Plugins', icon: <PluginIcon size={16} />, run: onOpenPlugins, count: pluginCount },
+    { id: 'plugins' as const, label: 'Plugins', icon: <PluginIcon size={16} />, run: onOpenPlugins, count: 0 },
     { id: 'dashboard' as const, label: 'Dashboard', icon: <UsageIcon size={16} />, run: () => onOpenUsage(), count: lowAgents },
   ]
   const sessionsHead = <>
@@ -176,13 +173,13 @@ export const Sidebar = ({
       <LeftColumnRow label="New session" icon={<PlusIcon size={16} />}
         disabled={!ready || !snapshot.workspace} title="Start a session here" onClick={() => store.newDraft()}
         menu={{ icons: 'all', label: 'More ways to start', onOpenChange: open => { if (open) { void store.loadWorktrees(); if (snapshot.workspace) void store.refreshWorkspaceGit(snapshot.workspace.path) } },
-          content: close => <WorktreeItems close={close} onChoose={() => { store.returnToWork(); setStarting(true) }} /> }} />
+          content: close => <WorktreeItems close={close} onBrowseFolders={onBrowseFolders} onChoose={() => { store.returnToWork(); setStarting(true) }} /> }} />
       <LeftColumnGroup label="Main sections" heading={false}>
         {pageDoors.map(door => <LeftColumnRow key={door.id} label={door.label} icon={door.icon}
           selected={activeDestination === door.id} onClick={door.run}
           title={door.id === 'agents' && agentsBroken ? 'Agents, some unavailable' : door.label}
           trailing={door.count > 0 ? { kind: 'count', value: door.count,
-            label: door.id === 'agents' ? `${door.count} Agents${agentsBroken ? ', some unavailable' : ''}` : door.id === 'dashboard' ? `${door.count} Agents need attention` : `${door.count} Plugins` } : undefined} />)}
+            label: `${door.count} Agents need attention` } : undefined} />)}
       </LeftColumnGroup>
     </LeftColumnNavigation>
   </>
@@ -251,7 +248,7 @@ export const Sidebar = ({
  * It stays visible in a folder that is not a repository, disabled and saying
  * why. A control that vanishes teaches nobody what it was.
  */
-const WorktreeItems = ({ onChoose, close }: { readonly onChoose: () => void; readonly close: () => void }) => {
+const WorktreeItems = ({ onChoose, close, onBrowseFolders }: { readonly onChoose: () => void; readonly close: () => void; readonly onBrowseFolders: () => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const health = useRuntimeHealth()
@@ -264,6 +261,7 @@ const WorktreeItems = ({ onChoose, close }: { readonly onChoose: () => void; rea
   return (
         <Menu close={close}>
           <MenuItem icon={<PlusIcon size={14} />} label="New session" shortcut="⌘N" onSelect={() => { close(); store.newDraft() }} />
+          <MenuItem icon={<FolderOpenIcon size={14} />} label="Open folder…" onSelect={() => { close(); onBrowseFolders() }} />
           <MenuItem icon={<TeamIcon size={14} />} label="New Team…" shortcut="⌘⇧N" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose() }} />
           {isRepo && snapshot.workspace?.git?.sha === null ? (
             <Row title="Make a first commit to work in a worktree" control={

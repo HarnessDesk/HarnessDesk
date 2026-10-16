@@ -11,6 +11,7 @@ import { PaneProvider, StoreProvider } from '../state/context'
 import { WorkViewControlsOutlet, TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { AppStore } from '../state/store'
 import { GoalFindings } from './GoalFindings'
+import { overviewRun } from '../preview/team-overview-fixture'
 
 installTopBarTestLayout()
 
@@ -101,6 +102,15 @@ const runView = (over: Partial<FindingRunView> = {}): FindingRunView => ({
 
 const notify = (store: AppStore, notification: WireNotification): void => {
   const transport = store.transport as unknown as { handlers: { onNotification(notification: WireNotification): void } }
+  // The real store also derives live Team waits from the Run's frozen Flow.
+  if (notification.method === 'flow/execution-changed') {
+    const execution = notification.params.execution
+    const base = overviewRun('running')
+    notification = { ...notification, params: { execution: { ...base, ...execution,
+      rounds: execution.rounds?.map(round => ({ ...base.rounds[1]!, ...round })) ?? [],
+      findings: { version: 1, budget: { rounds: 5, withoutProgress: 2 }, closedRounds: [], idleRounds: 0, progress: [], series: [], stopped: null, extraRound: null, overrides: [], lastDecision: null, ...execution.findings },
+    } } }
+  }
   transport.handlers.onNotification(notification)
 }
 

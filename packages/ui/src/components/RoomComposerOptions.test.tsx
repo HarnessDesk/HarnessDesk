@@ -49,6 +49,26 @@ it('keeps four fixed setting slots and shows equal current values', () => {
   expect(slots.map((slot) => slot.textContent?.trim())).toEqual(['First', 'First', 'More', 'First'])
 })
 
+it('keeps planning out of the shared Permissions summary and its member menu', () => {
+  const sessions = new Map(rig().snapshot.sessions)
+  for (const [key, session] of sessions) sessions.set(key, { ...session, options: [{
+    id: 'mode', label: 'Mode', type: 'select', category: '_permissions', currentValue: 'planning',
+    collaboration: { planValue: 'planning', actValue: 'manual' },
+    choices: [{ value: 'manual', label: 'Manual' }, { value: 'planning', label: 'Plan' }],
+  }] })
+  const { store } = rig(options(), { sessions })
+  mount(store)
+  expect(container.querySelector('[data-composer-track="permissions"]')?.textContent).toBe('Manual')
+  expect(container.querySelector('[data-composer-track="mode"]')?.textContent).toBe('Plan')
+  click(container.querySelector('[data-composer-track="permissions"] button')!)
+  const target = document.querySelector('[data-option-target]')!
+  expect(target.textContent).toContain('Manual')
+  click(target.querySelector('button')!)
+  expect(document.body.textContent).not.toContain('Unavailable')
+  click([...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(row => row.textContent?.trim() === 'Manual')!)
+  expect(store.setOption).toHaveBeenCalledExactlyOnceWith('mode', 'manual', keys[0])
+})
+
 it('shows Mixed for each slot whose addressed members have different values', () => {
   mount(rig(options('two')).store)
   expect([...container.querySelectorAll('[data-composer-track]')].map((slot) => slot.textContent?.trim())).toEqual(['Mixed', 'Mixed', 'Mixed', 'Mixed'])

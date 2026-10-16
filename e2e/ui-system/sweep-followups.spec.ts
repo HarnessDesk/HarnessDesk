@@ -32,8 +32,10 @@ for (const theme of ['light', 'dark'] as const) {
     })
     await page.goto(`/preview.html?board-list&theme=${theme}`)
     const production = page.locator('[data-frame-id="board-list-page"] [data-slot="board"]')
-    await expect(production.locator('[data-slot="board-column"][data-collapsed]')).toHaveCount(0)
-    await expect(production.getByRole('button', { name: /Open column/ })).toHaveCount(0)
+    await expect(production.locator('[data-slot="board-column"][data-collapsed]')).toHaveCount(2)
+    expect(await production.locator('[data-slot="board-column"][data-collapsed]').evaluateAll(columns =>
+      columns.map(column => column.getAttribute('data-column')))).toEqual(['working', 'review'])
+    await expect(production.getByRole('button', { name: /0 — Open column/ })).toHaveCount(2)
     const fixture = page.locator('[data-fold-foundation]')
     const ready = fixture.locator('[data-column="ready"]')
     await ready.getByRole('button', { name: 'Ready 1 — Open column', exact: true }).click()

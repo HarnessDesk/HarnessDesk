@@ -634,8 +634,8 @@ try {
   /**
    * Like `click`, but scrolls the target into view first.
    *
-   * The New session chooser can list a dozen Agent rows above its plain
-   * choices — tall enough on this rig that the row a scene wants sits past
+   * The New Team picker can list a dozen Flows above its plain Team
+   * choice — tall enough on this rig that the card a scene wants sits past
    * the dialog's own fold. `click`'s coordinate is the unscrolled layout's,
    * so it can center below the visible surface even though
    * `getBoundingClientRect` reports a real, positive size there; dispatching
@@ -670,7 +670,7 @@ try {
     if (!opened) throw new Error('no More ways to start control in the sidebar')
     if (!(await click('New Team…', '[role="menu"]'))) throw new Error('no New Team… choice in More ways to start')
     const picker = '[role="dialog"][aria-label="New Team"]'
-    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(`${picker} input[aria-label="Search shapes"]`)}) !== null`), Boolean)
+    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(`${picker} input[aria-label="Search Flows"]`)}) !== null`), Boolean)
     return picker
   }
 
@@ -1584,9 +1584,9 @@ rules:
       await sleep(1200)
       const picker = await openNewTeam()
       if (!(await clickScrolled('Just a Team', picker))) throw new Error('no Just a Team choice')
-      await waitForSnapshot(() => cdp.eval(`document.querySelector('textarea[aria-label="What should they do?"]') !== null`), Boolean)
+      await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(`${picker} [data-slot="flow-card"][aria-label="Just a Team"][aria-pressed="true"]`)}) !== null`), Boolean)
       if (!(await fill('What should they do?', 'Checkout hardening'))) throw new Error('no Team task field')
-      if (!(await click('Start', '[role="dialog"][aria-label="Just a Team"]'))) throw new Error('no Team Start button')
+      if (!(await click('Start Team', picker))) throw new Error('no enabled Start Team button')
       // A fixed sleep here is a bet on how long creating and loading the Goal
       // takes, and a bet that lost silently left the frame short of what its
       // own filename claims — `shoot()`'s own text check would then be the
@@ -1599,9 +1599,9 @@ rules:
     } },
 
     /**
-     * Starting a shipped shape through New Team's picker, from the catalogue
+     * Starting a shipped Flow through New Team's picker, from the catalogue
      * this project ships (never a project's own file or a person's), its own
-     * input filled in, and Start — reaching the Goal page the held start
+     * input filled in, and Start Team — reaching the Goal page the held start
      * actually opens (#927).
      *
      * Every Seat a front-door start asks for needs a held ceiling, and an ACP
@@ -1626,28 +1626,28 @@ rules:
       if (!(await clickScrolled('Independent review', picker))) {
         throw new Error('no "Independent review" shape in the front door catalogue')
       }
-      // The chosen shape's own dry run reads its file and previews it before
-      // its task field exists to fill — waited for by name rather than
-      // by a fixed pause, the same reason `click` itself waits.
+      // The task is present before a Flow is selected. Wait for the chosen
+      // Flow's actual seating form, after its source has been previewed,
+      // while the picker and fields remain in this same New Team dialog.
       await waitForSnapshot(
-        () => cdp.eval(`[...document.querySelectorAll('label')].some((one) => one.textContent.trim() === 'What should they do?')`),
+        () => cdp.eval(`document.querySelector(${q(`${picker} section[aria-label="Who does what"]`)}) !== null`),
         Boolean,
       )
       if (!(await fill('What should they do?', 'Add 502 to the retryable status set'))) throw new Error('no Task field in the front door')
       if (!(await fill('Done when · optional', 'Ship it once every specialist approves'))) {
         throw new Error('no sentence field in the front door')
       }
-      // Start is refused until the dry run this fill just changed comes back
+      // Start Team is refused until the dry run this fill just changed comes back
       // held with no error — the same seating #927's own regression proves.
       await waitForSnapshot(
         () => cdp.eval(`(() => {
-          const button = [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Start')
+          const button = [...document.querySelectorAll(${q(`${picker} button`)})].find((one) => one.textContent?.trim() === 'Start Team')
           return Boolean(button) && !button.disabled
         })()`),
         Boolean,
       )
-      if (!(await click('Start', '[role="dialog"][aria-label="Independent review"]'))) {
-        throw new Error('no enabled Start button in the front door')
+      if (!(await click('Start Team', picker))) {
+        throw new Error('no enabled Start Team button in the front door')
       }
       await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Ship it once every specialist approves')`), Boolean)
       // The seated Implementer starts its own scripted turn the moment it
@@ -2729,8 +2729,12 @@ rules:
       await openStorefront()
       const picker = await openNewTeam()
       if (!(await clickScrolled('Just a Team', picker))) throw new Error('no Just a Team choice')
-      const team = '[role="dialog"][aria-label="Just a Team"]'
-      await waitForSnapshot(() => cdp.eval(`document.querySelector('${team} [role="checkbox"][aria-label^="Seat "]') !== null`), Boolean)
+      await waitForSnapshot(() => cdp.eval(`(() => {
+        const seat = document.querySelector(${q(`${picker} [role="checkbox"][aria-label^="Seat "]`)})
+        if (!seat) return false
+        seat.closest('[data-slot="fieldset"]').scrollIntoView({ block: 'center' })
+        return true
+      })()`), Boolean)
     } },
 
     /** Command palette, through the sidebar's magnifier: an Agent to start as. */

@@ -246,7 +246,7 @@ const FacePicker = ({
  */
 export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
   <>
-    <PageExplanation>What this Mac’s HarnessDesk keeps, and how to take it with you.</PageExplanation>
+    <PageExplanation>Defaults for new conversations, and what this Mac’s HarnessDesk keeps.</PageExplanation>
 
     <SectionHead name="Your data" />
     <Rows>

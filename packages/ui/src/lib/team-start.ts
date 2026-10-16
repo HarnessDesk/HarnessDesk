@@ -96,7 +96,7 @@ export const pickerSections = (entries: readonly FlowEntry[], starts: Readonly<R
   const ordered = [...entries].sort((a, b) => (a.frontDoor?.order ?? Infinity) - (b.frontDoor?.order ?? Infinity) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
   const project = ordered.filter(one => one.origin === 'project')
   const other = ordered.filter(one => one.origin !== 'project')
-  const most = [...other].sort((a, b) => (starts[b.id] ?? 0) - (starts[a.id] ?? 0) || rank(a.id) - rank(b.id) || ordered.indexOf(a) - ordered.indexOf(b)).slice(0, 4)
+  const most = other.filter(one => (starts[one.id] ?? 0) > 0).sort((a, b) => (starts[b.id] ?? 0) - (starts[a.id] ?? 0) || rank(a.id) - rank(b.id) || ordered.indexOf(a) - ordered.indexOf(b)).slice(0, 4)
   const needle = query.trim().toLocaleLowerCase()
   const matches = (one: FlowEntry): boolean => !needle || `${one.name} ${shapeSummary(one)}`.toLocaleLowerCase().includes(needle)
   return { project: project.filter(matches), most: most.filter(matches), more: other.filter(one => !most.includes(one)).filter(matches) }

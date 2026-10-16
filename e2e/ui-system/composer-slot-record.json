@@ -2,14 +2,25 @@
   "composer": {
     "draft": {
       "folded": [
-        "agent",
-        "more"
+        "agent"
       ],
       "tight": []
     },
     "live": {
       "folded": [],
       "tight": []
+    },
+    "overrides": {
+      "Assistant C": {
+        "draft": {
+          "folded": [],
+          "tight": []
+        },
+        "live": {
+          "folded": [],
+          "tight": []
+        }
+      }
     }
   },
   "560": {
@@ -27,12 +38,50 @@
     "live": {
       "folded": [
         "agent",
-        "permissions",
-        "mode",
-        "more",
-        "context"
+        "more"
       ],
       "tight": []
+    },
+    "overrides": {
+      "Assistant B": {
+        "draft": {
+          "folded": [
+            "agent",
+            "permissions",
+            "mode",
+            "more",
+            "context",
+            "model"
+          ],
+          "tight": []
+        },
+        "live": {
+          "folded": [
+            "agent",
+            "mode",
+            "more",
+            "context"
+          ],
+          "tight": []
+        }
+      },
+      "Assistant C": {
+        "draft": {
+          "folded": [
+            "agent",
+            "permissions",
+            "more",
+            "context"
+          ],
+          "tight": []
+        },
+        "live": {
+          "folded": [
+            "agent"
+          ],
+          "tight": []
+        }
+      }
     }
   },
   "360": {
@@ -71,6 +120,36 @@
         "context",
         "model"
       ]
+    },
+    "overrides": {
+      "Assistant C": {
+        "draft": {
+          "folded": [
+            "agent",
+            "permissions",
+            "more",
+            "context",
+            "model"
+          ],
+          "tight": [
+            "agent",
+            "permissions",
+            "more",
+            "context",
+            "model"
+          ]
+        },
+        "live": {
+          "folded": [
+            "agent",
+            "permissions",
+            "more",
+            "context",
+            "model"
+          ],
+          "tight": []
+        }
+      }
     }
   },
   "320": {
@@ -109,6 +188,42 @@
         "context",
         "model"
       ]
+    },
+    "overrides": {
+      "Assistant C": {
+        "draft": {
+          "folded": [
+            "agent",
+            "permissions",
+            "more",
+            "context",
+            "model"
+          ],
+          "tight": [
+            "agent",
+            "permissions",
+            "more",
+            "context",
+            "model"
+          ]
+        },
+        "live": {
+          "folded": [
+            "agent",
+            "permissions",
+            "more",
+            "context",
+            "model"
+          ],
+          "tight": [
+            "agent",
+            "permissions",
+            "more",
+            "context",
+            "model"
+          ]
+        }
+      }
     }
   }
 }

@@ -187,6 +187,19 @@ it('flags a stale saved model in the control and offers one click to clear its o
   expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'model')
 })
 
+it('reports a recommendation refusal when clearing a stale composer pick', async () => {
+  const clearNewSessionDefault = vi.fn().mockRejectedValue(new Error('Recommendation unavailable.'))
+  const resultNotice = vi.fn()
+  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [model],
+    staleDraftDefaults: { [cursor.id]: [{ id: 'model', label: 'Model', category: 'model', value: 'retired', valueLabel: 'Retired model', reason: 'Removed.' }] } }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, clearNewSessionDefault, resultNotice } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><ModelControl /></StoreProvider>))
+  click(container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!)
+  const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(node => node.textContent?.includes('Use the agent’s current value'))!
+  await act(async () => row.click())
+  expect(resultNotice).toHaveBeenCalledWith('warning', 'Recommendation unavailable.')
+})
+
 it.each(['stale default', 'unavailable current value'] as const)('keeps a single mode actionable for a %s', (state) => {
   const clearNewSessionDefault = vi.fn()
   const setOption = vi.fn()

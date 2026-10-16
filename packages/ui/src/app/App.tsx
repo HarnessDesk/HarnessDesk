@@ -381,7 +381,7 @@ export const App = () => {
   const renderLeftColumn=()=><Sidebar active
     listFilter={{value:leftFilter,onChange:setLeftFilter}} sessionsOwner
     onOpenSettings={section=>openSettingsAt(section??'runtimes',null)} onOpenLibrary={()=>openSettingsAt('library',null)} onOpenPlugins={()=>openSettingsAt('plugins',null)}
-    onOpenAgents={()=>openAgents()} onOpenTeams={openTeams} onOpenUsage={openUsage} onBrowseFolders={chooseFolder}
+    onOpenAgents={()=>openAgents()} onOpenTeams={openTeams} onOpenFlows={()=>openPage({kind:'flows',root:null,id:null,origin:null})} onOpenUsage={openUsage} onBrowseFolders={chooseFolder}
     onSignIn={runtime=>setSignInOpen(runtime??true)} onSearch={()=>setPaletteOpen(true)}
     activeDestination={pageActive && current.kind!=='settings' && current.kind!=='changes-review'?current.kind
       :null}

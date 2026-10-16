@@ -19,7 +19,7 @@ const quotaFixture = async (page: Page) => {
         account: { accounts: [{ kind: 'oauth', label: 'dev@example.com' }], signInMethods: [] },
         accountsByRuntime: { ...quotaSnapshot.accountsByRuntime, [quotaRuntime]: { accounts: [{ kind: 'oauth', label: 'dev@example.com' }], signInMethods: [] } },
         usage: [{ runtime: quotaRuntime, account: 'dev@example.com', plan: null,
-          lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 40, windowMinutes: 10080, resetsAt: Date.now() + 6.5 * 24 * 3600000, usageKnown: true }],
+          lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 86, windowMinutes: 10080, resetsAt: Date.now() + 6.5 * 24 * 3600000, usageKnown: true }],
           credits: null, spend: null, reached: null,
           source: { kind: 'api', label: 'from the preview fixture' },
           fetchedAt: Date.now(), staleAfterMs: 600000, error: null }],

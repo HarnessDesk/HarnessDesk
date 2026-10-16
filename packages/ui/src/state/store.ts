@@ -1,3 +1,4 @@
+import { recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
@@ -180,6 +181,7 @@ import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
 import { BrowserTileRegistry, browserProfileKey, type BrowserTileMount } from '../lib/browser-tiles'
 import { focusTile, fromStored, toStored, type SideBySideState } from '../lib/side-by-side'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
+import { TeamInbox } from '../lib/team-inbox'
 import { kept as keptInInbox, repeated as repeatedInInbox, markedRead, readInbox, type InboxEntry } from '../lib/inbox'
 import {
   classifyNotice,
@@ -358,6 +360,16 @@ interface TerminalOpenOptions {
   readonly cwd?: string
   readonly command?: readonly string[]
   readonly size?: TerminalSize
+}
+
+/** A saved profile owns its model; recommendations fill only its other controls. */
+const draftRecommendations = (options: readonly ConfigOption[], saved: Readonly<Record<string, OptionValue>>) => {
+  const values = recommendedOptionValues(options)
+  if (options.some(option => option.category === '_profile' && Boolean(saved[option.id]) && !option.disabled
+    && refuseOptionValue(option, saved[option.id]!) === null)) {
+    for (const option of options) if (option.category === 'model') delete values[option.id]
+  }
+  return values
 }
 
 export class AppStore {
@@ -966,6 +978,7 @@ export class AppStore {
     // migration stays visible as Goal-specific recovery state without making
     // the rest of the desk unusable.
     await this.loadGoals().catch(() => undefined)
+    await this.#teamInbox.hydrate(this, () => this.#patch({}))
     // The header strip is up from the first frame, so what every plan has left
     // is loaded once here rather than on the first ⌘U. Cached readings answer
     // most of these without anyone being asked again.
@@ -1234,7 +1247,10 @@ export class AppStore {
   async loadDraftOptions(): Promise<void> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
-    const options = await this.newSessionDefaultsFor(runtime)
+    const options = await this.newSessionDefaultsFor(runtime).catch(error => {
+      if (this.#snapshot.activeRuntime === runtime) this.resultNotice('warning', describe(error))
+      return []
+    })
     if (this.#snapshot.activeRuntime !== runtime) return
     this.#patch({ draftOptions: options.length > 0 ? options : null, draftValues: this.#draftsByRuntime[runtime] ?? {} })
   }
@@ -5538,7 +5554,10 @@ export class AppStore {
    * Start immediately rather than leaving the previous token live while a
    * fresh one is fetched.
    */
-  async previewFrontDoor(input: FrontDoorPreviewInput): Promise<FrontDoorPreview> {
+  async previewFrontDoor(input: FrontDoorPreviewInput, options: { readonly publish?: boolean } = {}): Promise<FrontDoorPreview> {
+    // A retained Flow page owns its local dry run. It must neither retire
+    // nor publish into a New Team dialog open above that page.
+    if (options.publish === false) return this.transport.request('authoring/start/preview', input)
     const mine = ++this.#frontDoorGen
     if (this.#snapshot.frontDoor) this.#patch({ frontDoor: { ...this.#snapshot.frontDoor, preview: null } })
     const preview = await this.transport.request('authoring/start/preview', input)
@@ -5697,6 +5716,10 @@ export class AppStore {
   /** An Agent, a flow or a project's triggers file, exactly as it is on disk, with what is in the way of using it. Throws. */
   async readAuthoring(target: AuthoringTarget): Promise<AuthoringDocument> {
     return this.transport.request('authoring/read', { target })
+  }
+
+  async removeFlow(root: string, id: string, origin: 'project' | 'user', expected: string): Promise<void> {
+    await this.transport.request('authoring/flow/remove', { target: { kind: 'flow', root, id, origin }, expected })
   }
 
   /** One field of an Agent, changed in place and previewed against `expected` — the host encodes the value. Throws. */
@@ -6235,7 +6258,6 @@ export class AppStore {
     const previous = this.#creationDefaults[runtime] ?? Promise.resolve({})
     const validation = previous.catch(() => ({})).then(async () => {
       while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
-      if (Object.keys(this.#draftsByRuntime[runtime] ?? {}).length === 0) return {}
       let revision: number
       do {
         const checking = this.newSessionDefaultsFor(runtime, cwd)
@@ -6244,7 +6266,10 @@ export class AppStore {
         // A refresh or a user pick may supersede a pending validation.
         // Its cached answer is not permission to send the old defaults.
       } while (this.#draftRevisions[runtime] !== revision)
-      return this.#draftsByRuntime[runtime] ?? {}
+      const options = this.#draftOptionsByRuntime[runtime] ?? []
+      const recommendations = draftRecommendations(options, this.#draftsByRuntime[runtime] ?? {})
+      return { ...Object.fromEntries(options.filter(option => option.id in recommendations)
+        .map(option => [option.id, option.currentValue])), ...this.#draftsByRuntime[runtime] }
     })
     this.#creationDefaults[runtime] = validation
     try { return await validation }
@@ -6262,40 +6287,57 @@ export class AppStore {
     const revision = this.#nextDraftRevision(runtime)
     const asked = this.#draftsByRuntime[runtime] ?? {}
     const params = { runtime, ...(cwd ? { cwd } : {}) }
-    try {
-      // Discover first: an obsolete saved value never rides the next request.
-      let declared = await this.transport.request('runtime/sessionDefaults', params)
+    // Retry discovery through the same resolver; an unread or rejected list
+    // is never an accepted set of start values.
+    let declared: readonly ConfigOption[]
+    try { declared = await this.transport.request('runtime/sessionDefaults', params) }
+    catch { declared = await this.transport.request('runtime/sessionDefaults', params) }
+    if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+    // Reasoning and other controls can depend on the selected model. Resolve
+    // a valid saved model (or profile that chooses one) before judging its
+    // dependent saved values against the agent's default declarations.
+    const selectors = Object.fromEntries(Object.entries({ ...draftRecommendations(declared, asked), ...asked }).filter(([id]) =>
+      declared.some((one) => one.id === id && (one.category === 'model' || one.category === '_profile'))))
+    const invalidSelectors = new Set(staleDefaults(selectors, declared)
+      .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+    const validSelectors = Object.fromEntries(Object.entries(selectors).filter(([id]) => !invalidSelectors.has(id)))
+    const fallbackSelectors = Object.fromEntries(Object.entries(draftRecommendations(declared,
+      Object.fromEntries(Object.entries(asked).filter(([id]) => !invalidSelectors.has(id)))))
+      .filter(([id]) => declared.some(one => one.id === id && (one.category === 'model' || one.category === '_profile'))))
+    const selectorValues = modelFirstValues({ ...fallbackSelectors, ...validSelectors }, declared)
+    if (Object.keys(selectorValues).length > 0 && Object.keys({ ...draftRecommendations(declared, asked), ...asked }).some((id) => !(id in selectors))) {
+      declared = await this.transport.request('runtime/sessionDefaults', { ...params, values: selectorValues })
       if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
-      // Reasoning and other controls can depend on the selected model. Resolve
-      // a valid saved model (or profile that chooses one) before judging its
-      // dependent saved values against the agent's default declarations.
-      const selectors = Object.fromEntries(Object.entries(asked).filter(([id]) =>
-        declared.some((one) => one.id === id && (one.category === 'model' || one.category === '_profile'))))
-      const invalidSelectors = new Set(staleDefaults(selectors, declared)
-        .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
-      const selectorValues = modelFirstValues(Object.fromEntries(Object.entries(selectors).filter(([id]) => !invalidSelectors.has(id))), declared)
-      if (Object.keys(selectorValues).length > 0 && Object.keys(asked).some((id) => !(id in selectors))) {
-        declared = await this.transport.request('runtime/sessionDefaults', { ...params, values: selectorValues })
-        if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
-      }
-      const invalid = new Set(staleDefaults(asked, declared, this.#draftOptionsByRuntime[runtime])
-        .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
-      const applicable = modelFirstValues(Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id))), declared)
-      const options = Object.keys(applicable).length > 0
-        ? await this.transport.request('runtime/sessionDefaults', { ...params, values: applicable }) : declared
-      if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
-      await this.#rememberDraftDefaults(runtime, asked, options)
-      return options
-    } catch {
-      try {
-        const options = await this.transport.request('runtime/sessionDefaults', params)
-        if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
-        await this.#rememberDraftDefaults(runtime, asked, options)
-        return options
-      } catch {
-        return []
+    }
+    const invalid = new Set(staleDefaults(asked, declared, this.#draftOptionsByRuntime[runtime])
+      .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+    const saved = Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id)))
+    const applicable = modelFirstValues({ ...draftRecommendations(declared, saved), ...saved }, declared)
+    let options = Object.keys(applicable).length > 0
+      ? await this.transport.request('runtime/sessionDefaults', { ...params, values: applicable }) : declared
+    // A model's recommendation can reveal its own effort. Read it from the
+    // answer, without carrying the previous model's recommended effort.
+    const resolved = modelFirstValues({ ...draftRecommendations(options, saved), ...saved }, options)
+    if (JSON.stringify(resolved) !== JSON.stringify(applicable)) {
+      options = await this.transport.request('runtime/sessionDefaults', { ...params, values: resolved })
+    }
+    if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+    const accepted = kept(saved, options, this.#draftOptionsByRuntime[runtime])
+    for (const [id, value] of Object.entries(draftRecommendations(options, accepted))) {
+      if (!(id in accepted) && findOption(options, id)?.currentValue !== value) {
+        throw new Error(`The runtime did not accept its recommended ${findOption(options, id)?.label ?? id}. Choose a default in Settings and try again.`)
       }
     }
+    await this.#rememberDraftDefaults(runtime, asked, options)
+    return options
+  }
+
+  /** Recovery menus may show declarations even when applying recommendations fails.
+   * This read never caches or accepts values for session creation.
+   */
+  async newSessionDefaultChoicesFor(runtime: RuntimeId): Promise<readonly ConfigOption[]> {
+    const cwd = this.#snapshot.workspace?.path
+    return this.transport.request('runtime/sessionDefaults', { runtime, ...(cwd ? { cwd } : {}) })
   }
 
   /** Keeps the rejected fact and the accepted start values as separate records. */
@@ -6355,11 +6397,14 @@ export class AppStore {
     const revision = this.#nextDraftRevision(runtime)
     const asked = modelFirstValues({ ...(this.#draftsByRuntime[runtime] ?? {}), [id]: value }, this.#draftOptionsByRuntime[runtime] ?? [])
     try {
-      const options = await this.transport.request('runtime/sessionDefaults', {
-        runtime,
-        ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
-        values: asked,
-      })
+      const params = { runtime, ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}) }
+      let options = await this.transport.request('runtime/sessionDefaults', { ...params, values: asked })
+      const recommended = draftRecommendations(options, asked)
+      if (Object.keys(recommended).length > 0) {
+        options = await this.transport.request('runtime/sessionDefaults', {
+          ...params, values: modelFirstValues({ ...recommended, ...asked }, options),
+        })
+      }
       if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
       const values = kept(asked, options, this.#draftOptionsByRuntime[runtime])
       // What the runtime did with a pick is read off the list it answered
@@ -8001,6 +8046,7 @@ export class AppStore {
   }
 
   #noticeRevision = 0
+  readonly #teamInbox = new TeamInbox((patch, base) => this.#writeNoticePreference(patch, base, 'The inbox'))
 
   #applyNoticePreferences(preferences: Readonly<Record<string, unknown>>, revision: number): void {
     if (!preferences || revision !== this.#noticeRevision) return
@@ -8386,7 +8432,7 @@ export class AppStore {
     const next = reduceSession(existing, event)
     if (next !== existing) this.#setSession(next)
     if (event.type === 'session/options' && Object.keys(this.#draftsByRuntime[runtime] ?? {}).length > 0) {
-      void this.newSessionDefaultsFor(runtime)
+      void this.newSessionDefaultsFor(runtime).catch(error => this.resultNotice('warning', describe(error)))
     }
   }
 
@@ -8431,6 +8477,7 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
+    next.inbox = this.#teamInbox.reconcile(next, this.#snapshot)
     next.foldersGone = roomFoldersGone(next.foldersGone, this.#snapshot.teams, patch.teams)
     if (patch.windowMode !== undefined || patch.workbench !== undefined) {
       next.workbench = settleConversationTool(next.workbench, effectiveWindowMode(next.windowMode, next.workbench) === 'editor')

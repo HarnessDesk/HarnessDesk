@@ -7,6 +7,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Flows have their own page.** Browse cards with mini graphs, then build,
+  connect, edit and save a Flow on its canvas. Its rail holds the selected
+  step, rules, triggers and recorded Runs. New Team opens the same dialog
+  everywhere, with a task, Flow picker, role choices and dry run; starting
+  from a Flow keeps its current edits. Flows and Triggers leave Settings.
+
 - **One bar, with cards beside the work.** Sessions and Teams share the same
   title menu and tool doors. Conversation facts, plans, background tasks and
   folded Trajectory stay in a separate rail; Terminal, Changes, Browser and

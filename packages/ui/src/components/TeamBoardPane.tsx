@@ -246,6 +246,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [preferredView, setView] = useState<'board' | 'list'>('board')
+  const [expandedEmpty, setExpandedEmpty] = useState<ReadonlySet<FactColumn>>(() => new Set())
   const paneRef = useRef<HTMLElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const [paneWidth, setPaneWidth] = useState<number | null>(null)
@@ -611,6 +612,13 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
               const cards = byColumn.get(column.id) ?? []
               return (
                 <BoardColumn key={column.id} title={column.title} count={cards.length} tint={column.tint}
+                  collapsed={cards.length === 0 && !expandedEmpty.has(column.id)}
+                  onCollapsedChange={cards.length === 0 ? collapsed => setExpandedEmpty(previous => {
+                    const next = new Set(previous)
+                    if (collapsed) next.delete(column.id)
+                    else next.add(column.id)
+                    return next
+                  }) : undefined}
                   data-column={column.id}>
                   {cards.map((intent) => (
                     <IntentCard

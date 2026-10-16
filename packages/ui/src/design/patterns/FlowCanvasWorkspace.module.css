@@ -1,0 +1,52 @@
+.workspace {
+  position: relative;
+  display: flex;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.main {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+.surface {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+.content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  margin-top: var(--flow-toolbar-clearance, 0px);
+}
+.rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.panel {
+  flex: 1;
+}
+.workspace[data-rail-floating='true'] .rail {
+  position: absolute;
+  inset: 0 0 0 auto;
+  max-width: calc(100% - var(--hd-space-4));
+  z-index: var(--hd-z-drawer);
+}
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: var(--hd-z-drawer);
+}

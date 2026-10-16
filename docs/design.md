@@ -12,6 +12,14 @@ foundation layer; `app.css` is bundled last and keeps only the brand globals.
 Use them. A raw `font-size: 12.5px` or literal colour in a component is how the
 app ended up with ten sizes and no scale.
 
+## Installed runtimes in an empty conversation
+
+The first-run offer composes `InlineParts`, meta `Text` and small outline
+`Button`s. Each runtime's name and Add action occupy one button, with no
+second line or explanatory paragraph. The group wraps with the system's chip
+gap when needed. The preview specimen is `packages/ui/src/preview/first-run.tsx`, exercised
+through `preview.html` by `e2e/ui-system/first-run.spec.ts` in both themes.
+
 ## The typographic scale
 
 ### The faces
@@ -1041,7 +1049,7 @@ capitals and for a heavier weight.
 ### Sidebar trailing rail
 
 In the production `SessionTree`, trailing state marks mean attention or an
-error: **Needs you**, a failure or a missing folder. Running conversations
+error: **Needs you**, **Ready to wrap**, a failure or a missing folder. Running conversations
 and Teams have no spinner or Working label; their activity stays on hover,
 along with branch, worktree and pin facts. `LeftColumnRow` uses a compact
 mark that yields to the hover action without folding a full state label.
@@ -1074,9 +1082,12 @@ position inside its row. State stays on its row as a compact attention or
 error mark; running activity stays on hover.
 
 Pinned is one plain section for loose conversations, with its heading,
-separator and uncapped rows. Every active Team is one row in its project,
-beside the project's loose conversations. Team members do not also appear
-as loose rows. Wrapped Teams live on the Teams page.
+separator and uncapped rows. Every active Team, and each finished Team until
+it is wrapped, is one row in its project beside the loose conversations.
+A finished Team keeps the attention dot, labelled **Ready to wrap**. Team
+members do not also appear as loose rows. Wrapped Teams live on the Teams page.
+Agents and Plugins keep catalogue counts on their pages; a sidebar count
+is earned by attention, not by the size of a catalogue.
 
 A project initially shows at most five rows, counting Teams and loose
 conversations together. **Show more** expands it and **Show less** restores
@@ -1932,10 +1943,16 @@ kept conversation.
 
 ### Board columns
 
-The Team Board keeps every state column at its full minimum width, including
-empty columns. When the columns do not fit, the board scrolls horizontally;
-empty columns do not fold into rails or move to another row. Below 600px of pane
-width, the Team Board switches to its compact list.
+The Team Board keeps occupied state columns at their full width. Empty states
+start as narrow named rails with zero counts; their existing keyboard controls
+open and fold them in place without changing column order. The Board tab counts
+all cards, including completed work. An all-empty board has one quiet empty
+state. Below 600px of content width it switches to its compact list.
+
+Scrolling `Board` primitives keep the shared scrollbar thumb visible at rest
+through `data-scroll-affordance`; its fill, inset and hover treatment use the
+same foundation tokens as every other scrollbar. It only draws when content
+overflows, so clipped columns advertise the horizontal row before a gesture.
 
 ### Run controls
 
@@ -2081,7 +2098,13 @@ Permission and Mode tracks keep their selected values at their natural width.
 When the row needs room, the composer's fold order reduces controls to icons;
 the permission and mode words never shorten. The folder name is the one value
 that may shrink, up to its cap, and its full name stays in the title. A folded
-Mode fact never leaves a lone initial on screen: a new-session composer uses
+Permissions is one named slot across agents. Collaboration mode has its own
+control and is absent when the adapter declares none. Mixed permission and
+planning lists are split from adapter metadata, preserving their wire values.
+While planning, Permissions shows the declared acting level and Collaboration
+mode shows Plan; the permission picker never calls the active plan unavailable.
+Selected model and effort labels take their natural width while space remains.
+The Mode fact never leaves a lone initial on screen: a new-session composer uses
 the mode mark with the value available to assistive technology, or hides it at
 the tightest width; a conversation composer keeps the whole value in a
 content-sized track while it fits. Usage shows only its ring; its accessible
@@ -2151,3 +2174,24 @@ it does not send someone above the form to find an unexplained dry run.
 The dedicated [New Team access specimen](../packages/ui/front-door-edit.html)
 shows the edit-first form; its `before` query reproduces the former publish
 grant without relaxing the admission policy.
+
+### Library source review
+
+Add from GitHub uses the shared Dialog, Field, Input, Checkbox, Row/Rows, Chip,
+Note, SectionHead, CodeBlock, ActionError and Button contracts. Folder paths and
+runnable-file reasons earn a second line; counts and file kinds stay beside
+the label. Read shows fetched bytes as plain text. The plan's acknowledgement
+belongs to incoming fetched files that can run or are binary, and gates Apply.
+`preview.html?library-github` shows selection; `?library-github=plan` shows
+the file review, both using the method-aware placeholder repository fixture.
+
+
+## New conversation defaults
+
+General's **New conversations** section uses the existing Settings Rows and
+menu controls for runtime, permission, model and effort. Recommended is a
+choice in each option menu; the adapter's actual recommendation is its hover
+title. General, runtime New sessions and Permissions › Approvals show a
+refused recommendation in the shared warning Banner while leaving
+the choice rows available for recovery. This section adds no control or token
+spelling of its own.
