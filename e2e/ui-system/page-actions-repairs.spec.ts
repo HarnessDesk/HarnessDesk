@@ -41,7 +41,7 @@ for (const theme of ['light', 'dark'] as const) {
     await openFrame(page, 'frame-wall=agents', theme)
     const agents = page.locator('[data-page-destination="agents"]:visible')
     const bar = page.locator('[data-slot="top-bar"]:visible')
-    await bar.getByRole('button', { name: 'New Agent…', exact: true }).click()
+    await agents.getByRole('button', { name: 'New Agent…', exact: true }).click()
     let dialog = page.getByRole('dialog', { name: 'New Agent', exact: true })
     await primaryRightmost(dialog, 'Copy and open')
     await dialog.getByRole('radio', { name: /^A blank Agent/ }).click()

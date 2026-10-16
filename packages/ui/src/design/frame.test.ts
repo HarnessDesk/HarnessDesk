@@ -13,8 +13,11 @@ describe('the frame contract', () => {
     expect(FRAME.menu.rowRadius).toBe(FRAME.menu.radius - FRAME.menu.padding)
   })
 
-  test('each fold leaves main its minimum', () => {
-    expect(FRAME.fold.panelFloats).toBeGreaterThanOrEqual(FRAME.sidebar.width + FRAME.rightPanel.width + FRAME.main.min)
+  test('D1 floats the sidebar and replaces main with its pane below 1000', () => {
+    // D1 fixes this boundary at 1000; above it the pane clamps to the
+    // remaining width instead of requiring all three default widths.
+    expect(FRAME.fold.panelFloats).toBe(1000)
+    expect(FRAME.fold.sidebarFloats).toBe(1000)
     expect(FRAME.fold.sidebarFloats).toBeGreaterThanOrEqual(FRAME.sidebar.width + FRAME.main.min)
   })
 

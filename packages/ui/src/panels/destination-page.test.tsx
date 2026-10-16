@@ -33,12 +33,12 @@ it('withdraws an inactive page claim and restores it on the next visit', () => {
   </TopBarProvider></StoreProvider>))
   render(true)
   expect(host.querySelector('[data-registered]')?.getAttribute('data-registered')).toBe('true')
-  expect(host.querySelector('[data-topbar-title]')?.textContent).toBe('Library')
+  expect(host.querySelector('[data-topbar-title]')).toBeNull()
   render(false)
   expect(host.querySelector('[data-registered]')?.getAttribute('data-registered')).toBe('false')
   expect(host.querySelector('[data-topbar-title]')?.textContent).toBe('Fallback')
   render(true)
-  expect(host.querySelector('[data-topbar-title]')?.textContent).toBe('Library')
+  expect(host.querySelector('[data-topbar-title]')).toBeNull()
 })
 for (const width of [720,1440]) it(`uses the existing work lead and corner policy at ${width}`, () => {
   const store = previewStore({windowWidth:width,narrowWindow:width<1000,sidebarCollapsed:true,sidebarFloating:false})
@@ -48,12 +48,12 @@ for (const width of [720,1440]) it(`uses the existing work lead and corner polic
     <TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}} />
   </TopBarProvider></StoreProvider>))
   const labels = [...host.querySelectorAll('[data-topbar="lead"] button')].map(node=>node.getAttribute('aria-label'))
-  expect(labels).toEqual(width===720 ? ['Show sidebar','Search everything'] : ['Show sidebar','Search everything','Back','Forward'])
+  expect(labels).toEqual(['Show sidebar'])
   expect(host.querySelector('[data-slot="bar"]')?.hasAttribute('data-corner')).toBe(true)
   expect(host.querySelectorAll('[data-work-tool], [data-topbar="view"] button')).toHaveLength(0)
 })
 
-it('folderless page More omits retained terminals while Settings keeps its quiet bar', async () => {
+it('folderless page omits retained terminals, Settings leaves its title in the body, and review uses its root', async () => {
   const base = emptySnapshot()
   const store = previewStore({ workspace: null, workbench: dock(base.workbench, 'bottom', { kind: 'terminal', terminalId: 'retained-pty', runtime: 'fixture' as never, cwd: '/synthetic/shell' }) })
   store.patch({ workbench: { ...store.getSnapshot().workbench, navigation: { ...base.workbench.navigation, current: { kind: 'agents', id: null } } } })
@@ -73,10 +73,11 @@ it('folderless page More omits retained terminals while Settings keeps its quiet
     current: { kind: 'settings', route: { kind: 'section', section: 'general', focus: null } } } } }))
   render('destination:settings')
   expect(host.querySelector('[data-topbar="more"] button')).toBeNull()
+  expect(host.querySelector('[data-topbar-title]')).toBeNull()
   act(() => store.patch({ workbench: { ...store.getSnapshot().workbench, navigation: { ...base.workbench.navigation,
     current: { kind: 'changes-review', root: '/synthetic/review', returnTo: { kind: 'conversation', session: null } } } } }))
   render('destination:changes-review')
   await act(async () => host.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Terminal')
   expect(document.querySelector('[role="menuitemradio"]')?.textContent).toContain('Terminal')
-  expect(document.querySelector('[role="menuitemradio"]')?.getAttribute('aria-checked')).toBe('true')
 })

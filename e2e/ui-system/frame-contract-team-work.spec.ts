@@ -5,6 +5,7 @@ import { FRAME, FRAME_TOKENS } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES } from './frame-wall-destinations'
 import { selectFrameTab } from './frame-actions'
 import { openFrame, resolvedPx } from './frame-contract-helpers'
+import { closeTeamDetails, teamDetails } from './team-frame-actions'
 
 
 // Contract runs measure the preview; the final wall owns images and recordings.
@@ -12,24 +13,30 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 
 for (const theme of WALL_THEMES) {
-  test.describe(`B6 Team view controls keep one View x and no second toolbar in ${theme}`, () => {
-    test.describe.configure({ mode: 'default' }); const xs: number[] = [];
-    for (const tab of ['overview', 'run', 'board', 'room', 'findings']) test(`B6 Team view controls keep one View x and no second toolbar in ${theme}: ${tab}`, async ({ page }) => {
+  test.describe(`B6 Team view controls live in the body in ${theme}`, () => {
+    for (const tab of ['overview', 'run', 'board', 'room', 'findings']) test(`B6 Team mounts body View only for a destination with choices in ${theme}: ${tab}`, async ({ page }) => {
       await openFrame(page, 'frame-wall=team', theme)
       await selectFrameTab(page, tab)
-      const icon = page.locator('[data-topbar="view"]')
-      await expect(icon).toBeVisible()
-      xs.push((await icon.boundingBox())!.x)
+      const main = page.locator('[data-slot="workbench-main"]')
+      const icon = main.getByRole('button', { name: 'View', exact: true })
+      await expect(icon).toHaveCount(tab === 'overview' ? 0 : 1)
+      if (tab === 'overview') await expect(main.locator('[data-slot="page-options"] button, [data-slot="page-options"] input, [data-slot="page-options"] select')).toHaveCount(0)
+      else {
+        await expect(icon).toBeVisible()
+        expect(await icon.evaluate(node => node.closest('[data-slot="top-bar"]'))).toBeNull()
+      }
+      await expect(page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true })).toHaveCount(0)
       await expect(page.locator('[data-slot="view-bar"]')).toHaveCount(0)
       await expect(page.locator('[data-slot="run-header"]')).toHaveCount(0)
     })
-    test.afterAll(() => { expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1) })
-    test(`B6 Team view controls keep one View x and no second toolbar in ${theme}: Findings filter action`, async ({ page }) => {
+    test(`B6 Findings keeps its selected filter in the body in ${theme}`, async ({ page }) => {
       await openFrame(page, 'frame-wall=team', theme)
       await selectFrameTab(page, 'findings')
       await page.getByRole('button', { name: 'View', exact: true }).click()
       await page.getByRole('switch', { name: 'Open', exact: true }).click()
-      await expect(page.locator('[data-topbar="view"] [data-filtered="true"]')).toBeVisible()
+      await page.getByRole('button', { name: 'View', exact: true }).click()
+      await expect(page.getByRole('switch', { name: 'Open', exact: true })).toHaveAttribute('aria-checked', 'true')
+      await page.keyboard.press('Escape')
       await expect(page.getByRole('button', { name: 'Decide this run', exact: true })).toBeVisible()
     })
   })
@@ -45,13 +52,13 @@ for (const theme of WALL_THEMES) {
     await expect(main.locator('[data-slot="timeline-records"]')).toHaveCount(0)
     await group.click()
     await expect(main.locator('[data-row="card-2-2"]')).toHaveAttribute('aria-current', 'true')
-    await expect(page.locator('[data-slot="tool-body"]:visible [data-slot="run-inspector"]')).toContainText('#2')
-    await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    await expect(page.locator('[data-slot="work-tools"]:visible [data-slot="run-inspector"]')).toContainText('#2')
+    await page.getByRole('button', { name: 'Close pane', exact: true }).click()
     await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Flow')
     await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Timeline')
     await expect(group).toHaveCount(1)
     await expect(main.locator('[data-row="card-2-2"]')).toHaveAttribute('aria-current', 'true')
-    await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
+    await expect(page.locator('[data-slot="work-tools"]:visible')).toHaveCount(0)
   })
 
   for (const width of [1440, 720]) {
@@ -63,32 +70,32 @@ for (const theme of WALL_THEMES) {
       await expect(page.locator('[data-slot="run-header"]')).toHaveCount(0)
       await expect(main.locator('[data-slot="run-steps"]')).toBeVisible()
       await expect(page.locator('[data-slot="work-tools"] [data-slot="run-steps"]')).toHaveCount(0)
-      await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
+      await expect(page.locator('[data-slot="work-tools"]:visible')).toHaveCount(0)
       await expect(bar.locator('[data-work-tool]')).toHaveCount(4)
-      const verb = bar.getByRole('button', { name: 'Stop run…', exact: true })
+      const verb = main.getByRole('button', { name: 'Stop run…', exact: true })
       await expect(verb).toBeVisible()
       await expect(verb.locator('svg')).toHaveCount(0)
       await expectTitleRoom(bar.locator('[data-topbar-title]'))
-      const view = bar.locator('[data-topbar="view"]')
+      const view = main.getByRole('button', { name: 'View', exact: true })
       const before = (await view.boundingBox())!
       await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Flow')
       await expect(main.locator('[data-slot="run-flow"]')).toBeVisible()
       await expect(main.locator('[data-slot="flow-canvas"] .react-flow__node')).toHaveCount(4)
       await expect.poll(async () => (await view.boundingBox())!.x).toBe(before.x)
       await expectTitleRoom(bar.locator('[data-topbar-title]'))
-      await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
+      await expect(page.locator('[data-slot="work-tools"]:visible')).toHaveCount(0)
       await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Timeline')
       await expect(main.locator('[data-slot="run-steps"]')).toBeVisible()
-      await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
+      await expect(page.locator('[data-slot="work-tools"]:visible')).toHaveCount(0)
       const future = main.locator('[data-slot="run-steps"] [data-step-row="person"]')
       await future.click()
       await expect(future).toHaveAttribute('aria-current', 'true')
-      await bar.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+      await page.getByRole('button', { name: 'Close pane', exact: true }).click()
       await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Flow')
       await expect(main.locator('[data-slot="flow-step"][data-step="person"]')).toHaveAttribute('data-selected', 'true')
       await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Timeline')
       await expect(future).toHaveAttribute('aria-current', 'true')
-      await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
+      await expect(page.locator('[data-slot="work-tools"]:visible')).toHaveCount(0)
     })
   }
 
@@ -99,14 +106,13 @@ for (const theme of WALL_THEMES) {
     await expect(main).toBeVisible()
     await expect(main.locator('[data-slot="run-workspace"]')).toBeVisible()
     await expect(main).toContainText('Round 1')
-    await page.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
-    const details = page.locator('[data-slot="tool-body"]:visible')
+    const details = await teamDetails(page.locator('[data-frame-id="frame-wall"]'))
     await expect(details.locator('[aria-label="Team Run facts"]')).toBeVisible()
     await expect(details.locator('[aria-label="Seats"]')).toBeVisible()
     await expect(details.locator('[data-slot="summary-card"][data-surface="card"]')).toHaveCount(0)
     // The canonical toggle stays above the covered main area and returns to
     // the same timeline without reselecting or releasing the retained record.
-    await page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    await closeTeamDetails(page.locator('[data-frame-id="frame-wall"]'))
     await expect(main).toBeVisible()
     await expect(main).toContainText('Round 1')
     // The ordinary wall Run truthfully records no Flow steps. Use the existing
@@ -123,10 +129,9 @@ for (const theme of WALL_THEMES) {
     await expect(main).toContainText('Not reached 1')
     // The canonical toggle restores remembered Details on one press; Flow
     // retains its native Rules alternative and Timeline Steps without a Steps tool.
-    await page.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
-    await expect(page.locator('[data-slot="tool-body"]:visible')).toContainText('Seats')
-    await expect(page.locator('[data-slot="tool-body"] [data-slot="run-steps"]')).toHaveCount(0)
-    await page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    await expect(await teamDetails(page.locator('#run-dock-frame'))).toContainText('Seats')
+    await expect(page.locator('[data-frame-region="rail"] [data-slot="run-steps"]')).toHaveCount(0)
+    await closeTeamDetails(page.locator('#run-dock-frame'))
     await expect(main).toBeVisible()
   })
 
@@ -145,8 +150,7 @@ for (const theme of WALL_THEMES) {
     await expect(page.locator('[data-slot="top-bar"]')).toHaveCount(1)
     await expect(page.locator('[data-team-page="overview"]')).toBeVisible()
     await expect(page.locator('[data-team-page="side-by-side"]')).toHaveCount(0)
-    await page.locator('[data-work-tool="details"]').click()
-    const details = page.locator('[data-slot="tool-body"]:visible')
+    const details = await teamDetails(page.locator('[data-frame-id="frame-wall"]'))
     await expect(details).toBeVisible()
     await expect(details.locator('[data-slot="tool-section"] > [data-slot="group-label"]').first()).toContainText('Run')
     const headings = await details.locator('[data-slot="tool-section"] > [data-slot="group-label"]').evaluateAll(nodes => nodes.map(node => node.textContent))

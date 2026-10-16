@@ -1,6 +1,6 @@
 import { TerminalMenuItem } from '../components/TerminalToggle'
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
-import { TopBar, type TopBarProps, type TopBarAction } from '../design'
+import { TopBar, PageOptions, Popover, type TopBarProps, type TopBarAction } from '../design'
 export type ViewSlots = Pick<TopBarProps, 'verb' | 'view'> & { readonly more?: readonly TopBarAction[] }
 type Entry = {
   readonly base?: TopBarProps
@@ -39,6 +39,7 @@ const registry = () => {
     listeners.add(fn); return () => { listeners.delete(fn) }
   }, getSnapshot: () => entries }
 }
+const emptyRegistry = registry()
 const Context = createContext<ReturnType<typeof registry> | null>(null)
 export const TopBarProvider = ({ children }: { children: ReactNode }) => {
   const value = useMemo(registry, [])
@@ -72,13 +73,21 @@ export const WorkDetailsOutlet = ({ owner }: { owner: string }) => {
   const entries = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
   return entries.get(owner)?.value.details ?? null
 }
+/** A view's choices live in its body's first row, under the permanent bar. */
+export const WorkViewControlsOutlet = ({ owner, choices = [] }: { owner: string; choices?: import('../design').PageOption[] }) => {
+  const source = useContext(Context) ?? emptyRegistry
+  const entries = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
+  const slots = entries.get(owner)?.value.view
+  return <PageOptions choices={choices} action={slots?.verb ? { label: slots.verb.label, icon: slots.verb.icon, disabled: slots.verb.disabled || undefined, run: slots.verb.run } : undefined}
+    read={slots?.view && !slots.view.disabled ? <Popover narrowed={slots.view.narrowed} title="View" aria-label="View" label="View" icons="none">{close => slots.view?.content(close)}</Popover> : undefined} />
+}
 export const TopBarOutlet = ({ owner, fallback, rightColumnWidth }: { owner: string; fallback: TopBarProps; rightColumnWidth?: TopBarProps['rightColumnWidth'] }) => {
   const source = useContext(Context)
   if (!source) throw new Error('TopBarOutlet requires TopBarProvider')
   const entries = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
   const current = entries.get(owner)?.value
   const base = current?.base ?? fallback
-  return <TopBar {...base} rightColumnWidth={rightColumnWidth ?? base.rightColumnWidth} verb={current?.view ? current.view.verb : base.verb}
-    view={current?.view ? current.view.view : base.view}
+  return <TopBar {...base} rightColumnWidth={rightColumnWidth ?? base.rightColumnWidth} verb={base.verb}
+    view={undefined}
     more={close => <>{base.more(close)}{current?.more?.(close)}{base.terminal && <TerminalMenuItem close={close} />}</>} extraMore={current?.view?.more} />
 }

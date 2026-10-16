@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import type { LucideIcon, LucideProps } from 'lucide-react'
 import { Animated, type GlyphProps, ActivityGlyph, ArchiveGlyph, ArrowUpGlyph, AtSignGlyph, BellGlyph, BlocksGlyph, BookTextGlyph, BookmarkGlyph, BotGlyph, BrainGlyph, CalendarDaysGlyph, CheckGlyph, CheckCheckGlyph, ChevronDownGlyph, ChevronLeftGlyph, ChevronRightGlyph, ChevronsDownUpGlyph, ChevronsUpDownGlyph, CircleCheckGlyph, CircleDollarSignGlyph, CircleGaugeGlyph, ClockGlyph, CloudDownloadGlyph, CopyGlyph, CpuGlyph, DownloadGlyph, ExternalLinkGlyph, EyeOffGlyph, FileTextGlyph, FolderGit2Glyph, FolderInputGlyph, FolderOpenGlyph, FolderXGlyph, GaugeGlyph, GitBranchGlyph, GitCommitHorizontalGlyph, GitForkGlyph, GitGraphGlyph, GitMergeGlyph, GripVerticalGlyph, HandGlyph, HistoryGlyph, KeyboardGlyph, LoaderCircleGlyph, LockGlyph, LockOpenGlyph, Maximize2Glyph, MessageSquareGlyph, MessageSquarePlusGlyph, PlusGlyph, RefreshCwGlyph, RotateCcwGlyph, RotateCwGlyph, RouteGlyph, SearchGlyph, ServerGlyph, SettingsGlyph, ShieldCheckGlyph, ShrinkGlyph, SlidersHorizontalGlyph, SquareStackGlyph, UserGlyph, UsersGlyph, UsersRoundGlyph, WebhookGlyph, WorkflowGlyph, WrenchGlyph, XGlyph, ZapGlyph } from './glyphs'
 import {
+  ArrowLeftRight,
   Activity,
   Archive,
   ArrowUp,
@@ -499,6 +500,7 @@ export const ExpandIcon = animated(Maximize2Glyph, Maximize2, 'ExpandIcon')
 /** Return a tile from its expanded view to the grid. */
 export const CollapseIcon = animated(ShrinkGlyph, Shrink, 'CollapseIcon')
 /** Back from the full pane area to the split it came from. */
+export const SwapIcon = icon(ArrowLeftRight, 'SwapIcon')
 export const RestoreIcon = icon(Minimize2, 'RestoreIcon')
 /** Read the repository again; distinct from RetryIcon, which re-runs a thing that failed. */
 export const RefreshIcon = animated(RefreshCwGlyph, RefreshCw, 'RefreshIcon')

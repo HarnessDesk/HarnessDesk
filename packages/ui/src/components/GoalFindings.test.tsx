@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { FindingView, GoalView } from '@harnessdesk/protocol'
 
 import { PaneProvider, StoreProvider } from '../state/context'
-import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
+import { WorkViewControlsOutlet, TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { FindingsListState } from '../lib/findings'
 import stylesSettings from '../design/patterns/Settings.module.css'
@@ -74,7 +74,7 @@ const rig = (findings: FindingsListState | undefined, overrides: Partial<AppSnap
 
 const FindingsFrame = ({ store, goal = 'g1' }: { store: AppStore; goal?: string }) => <StoreProvider store={store}><TopBarProvider>
   <PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: goal }, sessionKey: null }}>
-    <TopBarOutlet owner="main" fallback={{ place: 'Ship it', more: () => null }} />
+    <WorkViewControlsOutlet owner="main" /><TopBarOutlet owner="main" fallback={{ place: 'Ship it', more: () => null }} />
     <GoalFindings goal={goal} />
   </PaneProvider>
 </TopBarProvider></StoreProvider>
@@ -87,13 +87,13 @@ const render = async (store: AppStore): Promise<void> => {
 it('B6 permanently registers the waiting Findings verb and puts host filters in View', async () => {
   const { store } = rig(undefined)
   await render(store)
-  const decide = container.querySelector<HTMLButtonElement>('[data-topbar="verb"] button')
-  expect(decide?.getAttribute('aria-label')).toBe('Decide this run')
+  const decide = container.querySelector<HTMLButtonElement>('[data-slot="page-options"] > button')
+  expect(decide?.textContent).toBe('Decide this run')
   expect(decide!.disabled).toBe(true)
   expect(decide!.title).toBe('This Run has no decision waiting')
   expect(container.querySelector('[data-slot="view-bar"]')).toBeNull()
   expect(container.querySelector('[role="tab"]')).toBeNull()
-  const view = container.querySelector<HTMLButtonElement>('button[aria-label="View"]')!
+  const view = container.querySelector<HTMLButtonElement>('button[title="View"]')!
   await act(async () => view.click())
   const filters = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')]
   expect(filters.map(one => one.textContent)).toEqual(['All', 'Open', 'Blocking'])
@@ -180,7 +180,7 @@ it('pressing a View filter asks the store for that filter, and Load more asks wi
   }
   const { store } = rig(state)
   await render(store)
-  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="View"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('button[title="View"]')!.click())
   const blocking = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find(one => one.textContent === 'Blocking')!
   await act(async () => blocking.click())
   expect(store.loadFindings).toHaveBeenCalledWith('g1', 'blocking')

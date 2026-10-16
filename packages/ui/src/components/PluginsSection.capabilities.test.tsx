@@ -147,7 +147,8 @@ const mount = (store: AppStore, section: 'installed' | 'capabilities' = 'install
 }
 
 const openCapabilities = () => {
-  const segment = [...container.querySelectorAll('button')].find((button) =>
+  act(() => container.querySelector<HTMLButtonElement>('[title="Plugin sections"]')!.click())
+  const segment = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((button) =>
     button.textContent?.startsWith('Capabilities'),
   )
   expect(segment, 'the Capabilities segment exists').toBeTruthy()
@@ -361,11 +362,12 @@ it('keeps mixed and superseded plugin glyphs when search matches only an outside
   expect(container.querySelector('[data-slot="row-mark"] .lucide-puzzle')).toBeTruthy()
 })
 
-it('E7 restored capabilities renders the controlled section in the main bar', () => {
+it('E7 restored capabilities renders the controlled section in the first body row', () => {
   mount(makeStore(runtime('fixture', 'Fixture agent', true)), 'capabilities')
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Plugins')
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
   expect(container.querySelector('[aria-label="Search capabilities"]')).toBeTruthy()
-  expect(container.querySelector('[data-slot="top-bar"] [role="tab"][aria-selected="true"]')?.textContent).toContain('Capabilities')
+  expect(container.querySelector('[data-slot="top-bar"] [role="tab"]')).toBeNull()
+  expect(container.querySelector('[data-slot="page-options"] [title="Plugin sections"]')?.textContent).toContain('Capabilities')
 })
 
 it('E7 inactive Plugins suspends host scope reads', async () => {
@@ -384,7 +386,7 @@ it('E7 inactive Plugins suspends host scope reads', async () => {
 it('E7 leaving Plugins dismisses its install dialog instead of retaining a portal', () => {
   const store = makeStore(runtime('fixture', 'Fixture agent', true))
   mount(store)
-  act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Add plugin"]')!.click())
+  act(() => [...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-options"] button')].find(node => node.textContent === 'Add plugin')!.click())
   expect(document.querySelector('[role="dialog"]')).toBeTruthy()
   mount(store, 'installed', false)
   expect(document.querySelector('[role="dialog"]')).toBeNull()

@@ -82,7 +82,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(banner).toContainText(titles[scene])
       await expect(banner.locator('[data-slot="alert"][data-tone="warning"]')).toHaveCount(['complete', 'person-stop', 'desk-stop'].includes(scene) ? 0 : 1)
       await expect(ending.locator('[data-slot="chip"]')).toHaveCount(0)
-      await expect(frame.getByRole('button', { name: 'Details', exact: true })).toBeVisible()
+      await expect(frame.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'Run details', exact: true })).toBeVisible()
       await expect(ending.getByRole('button', { name: 'End', exact: true })).toHaveCount(0)
       const door = scene === 'complete' ? 'Wrap' : scene === 'stalled' ? 'Review and run again…' : 'Run again…'
       await expect(banner.getByRole('button', { name: door, exact: true })).toBeVisible()

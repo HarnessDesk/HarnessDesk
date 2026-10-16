@@ -817,12 +817,22 @@ it('Details names the conversation facts and keeps the fresh checkout branch', (
   const facts = container.querySelector('[aria-label="Conversation facts"]')!
   expect(facts).not.toBeNull()
   expect(facts.textContent).toContain('Branchmain')
-  expect(container.querySelector('header')?.textContent).toContain('Idle')
+  expect(container.querySelector('header [data-slot="dot"]')?.getAttribute('aria-label')).toBe('Idle')
 })
 
 it('the shell records running status in its one state slot', () => {
   render(rig(session({ turns: [{ id: turnId('running'), status: 'inProgress', items: [] }] })).store)
-  expect(container.querySelector('[data-topbar="state"]')?.textContent).toBe('Working')
+  expect(container.querySelector('[data-topbar="state"] [data-slot="dot"]')?.getAttribute('aria-label')).toBe('Working')
+})
+
+it('the conversation title opens Rename, Fork and Archive without worded bar actions', async () => {
+  render(rig(session()).store)
+  const title = container.querySelector<HTMLButtonElement>('[data-topbar-title] button')
+  expect(title).not.toBeNull()
+  await act(async () => title!.click())
+  const menu = document.querySelector('[role="menu"]')!
+  expect([...menu.querySelectorAll('[role="menuitem"]')].map(item => item.textContent)).toEqual(['Rename', 'Fork', 'Archive'])
+  expect(container.querySelector('[data-topbar="state"] [data-slot="dot"]')?.getAttribute('aria-label')).toBe('Idle')
 })
 
 it('Details renders the latest recorded plan states and respects an explicit clear', () => {
@@ -970,10 +980,11 @@ it('uses the conversation file crumb and replaces the transcript while retaining
   expect(container.querySelector('[data-live-transcript]')).toBeNull()
   expect(container.querySelector('textarea')).toBeNull()
   expect(container.querySelector('[data-topbar-title]')?.firstElementChild?.textContent).toBe('src/code.ts')
-  const crumb = container.querySelector<HTMLButtonElement>('[data-topbar="place"] > button')!
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  const crumb = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent === 'Review checkout')!
   expect(crumb.textContent).toContain('Review checkout')
   await act(async () => crumb.click()); expect(mode).toHaveBeenCalledWith('conversation')
-  expect(container.querySelector('[data-work-panel-toggle]')).not.toBeNull()
+  expect(container.querySelector('[data-work-rail-toggle]')).not.toBeNull()
 })
 
 it('reattaches transcript follow after returning from editor main', async () => {

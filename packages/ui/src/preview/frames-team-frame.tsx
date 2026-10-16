@@ -12,6 +12,8 @@ import { emptyWorkbench } from '../state/workbench'
 import { overviewTeamStore } from './team-overview-fixture'
 import { triggerRunsStore } from './team-runs-fixture'
 import { TeamFramePreview } from './TeamFramePreview'
+// These shell examples mount TeamRoomPane through the built-in view registry.
+import '../panels/builtins'
 
 /** The real Team frame and unchanged sidebar, with placeholder-only membership. */
 export const TeamFrame = () => {
@@ -72,7 +74,11 @@ const TeamBarExample = ({narrow = false, sideBySide = false}:{narrow?:boolean;si
  const view=useMemo(()=>({kind:'room' as const,room:'overview-team',...(sideBySide ? {framePage:'room' as const,sideBySide:{tiles:[...store.getSnapshot().sessions.keys()].slice(0,2)}} : {})}),[store,sideBySide])
  useEffect(() => {
   // Keep all three catalogue cases measured on their replacement frame Bar.
-  box.current?.querySelector('header[data-slot="bar"]')?.setAttribute('data-catalog-size', narrow ? 'sm' : sideBySide ? 'lg' : 'default')
+  const mark = () => box.current?.querySelector('[data-shell-host="top"] > header[data-slot="bar"]')?.setAttribute('data-catalog-size', narrow ? 'sm' : sideBySide ? 'lg' : 'default')
+  mark()
+  const observer = new MutationObserver(mark)
+  if (box.current) observer.observe(box.current, { childList: true, subtree: true })
+  return () => observer.disconnect()
  }, [narrow, sideBySide])
  return <div ref={box} className={`h-96 w-full${narrow?' max-w-180':''}`}><StoreProvider store={store}><TeamFramePreview room="overview-team" view={view} /></StoreProvider></div>
 }

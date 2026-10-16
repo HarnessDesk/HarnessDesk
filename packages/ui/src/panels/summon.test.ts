@@ -59,12 +59,12 @@ it('the palette offers one command per view that names one', () => {
   }
 })
 
-it('and the three that used to be menu-only are now named too', () => {
-  // The regression this exists to catch: Trajectory, Agents and Activity were
-  // reachable only from a menu that could not be seen until a panel was
-  // already open on something else.
+it('retired Activity stays registered for replay without a public command or menu', () => {
   const commands = availableCommands(emptySnapshot()).map((entry) => entry.name)
-  for (const name of ['trajectory', 'agents', 'activity']) expect(commands).toContain(name)
+  for (const name of ['trajectory', 'agents', 'tasks']) expect(commands).toContain(name)
+  expect(commands).not.toContain('activity')
+  expect(summonable().map(definition => definition.kind)).not.toContain('activity')
+  expect(views.get('activity')?.component).toBeDefined()
 })
 
 it('every view says where it opens, rather than leaving it to array order', () => {

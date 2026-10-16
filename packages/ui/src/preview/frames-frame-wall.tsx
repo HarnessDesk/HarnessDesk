@@ -21,8 +21,8 @@ import { installPanelComponent } from '../slots/PanelBlocks'
 
 installPanelComponent()
 import { gitWorktrees } from './git-fixture'
-import { TopBar, Chip, Button, Menu, MenuItem } from '../design'
-import { AgentIcon, PlusIcon, PlanIcon, DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../components/Icons'
+import { TopBar, TopBarToolButton, Dot, MenuItem, Page, PageOptions } from '../design'
+import { PlusIcon, PencilIcon, RetryIcon, StopIcon, CommentIcon, ExpandIcon, ArrowRightIcon, SquareMenuIcon, TerminalIcon, FilePlusIcon, GlobeIcon, FolderIcon } from '../components/Icons'
 import { PopupWall } from './popup-wall'
 import { triggerGoalStatus } from './intake-fixture'
 import { type Section } from '../components/Settings'
@@ -167,19 +167,38 @@ const storeFor = (destination: Destination): AppStore => {
 
 const TopBarProbe = () => {
   const [tab, setTab] = useState('findings')
+  const [filter, setFilter] = useState('all')
+  const [railOpen, setRailOpen] = useState(true)
+  const [tool, setTool] = useState<string | null>(null)
   const [parentChoice, setParentChoice] = useState('')
   const parents = new URLSearchParams(location.search).get('frame-parents') === '1'
+  const doors = [
+    { value: 'terminal', label: 'Terminal', Icon: TerminalIcon },
+    { value: 'changes', label: 'Changes', Icon: FilePlusIcon },
+    { value: 'browser', label: 'Browser', Icon: GlobeIcon },
+    { value: 'files', label: 'Files', Icon: FolderIcon },
+  ]
   return <div data-parent-choice={parentChoice} data-frame-id="frame-wall" className="h-screen bg-background">
-    <TopBar place={parents ? 'Jane Doe' : 'Checkout retry · 長いチーム名'} tab={tab}
-      parents={parents ? ['Settings', 'Runtimes', 'Alpha'].map(label => ({ label, run: () => setParentChoice(label) })) : undefined}
-      mark={parents ? <AgentIcon /> : undefined}
-      state={<Chip tone="warning">Needs you</Chip>}
-      verb={parents ? { label: 'Start a conversation with this account', run: () => {} } : { label: 'New job', icon: <PlusIcon />, run: () => {} }}
-      view={{ content: close => <Menu close={close}><MenuItem label="All" onSelect={close} /><MenuItem label="Open" onSelect={close} /></Menu> }}
-      tools={<><Button variant="ghost" size="icon-sm" title="Details"><PlanIcon /></Button><Button variant="ghost" size="icon-sm" title="Changes"><DiffIcon /></Button><Button variant="ghost" size="icon-sm" title="Activity"><HistoryIcon /></Button><Button variant="ghost" size="icon-sm" title="Browser"><GlobeIcon /></Button><Button variant="ghost" size="icon-sm" title="Toggle panel"><PanelIcon /></Button></>}
-      tabs={['Overview', 'Run', 'Board', 'Chat', 'Findings', 'Runs'].map(label => ({
-        value: label.toLowerCase(), label, run: () => setTab(label.toLowerCase()),
-      }))} more={() => null} />
+    <TopBar place={parents ? 'Jane Doe' : 'Checkout retry · 長いチーム名'}
+      state={parents ? undefined : <Dot tone="warning" title="Needs you" aria-label="Needs you" />}
+      placeMenu={parents ? undefined : close => <>
+        <MenuItem icon={<PencilIcon />} label="Rename" onSelect={close} />
+        <MenuItem icon={<RetryIcon />} label="Run again…" onSelect={close} />
+        <MenuItem icon={<CommentIcon />} label="Wrap…" onSelect={close} />
+        <MenuItem icon={<StopIcon />} label="Stop run…" onSelect={close} />
+      </>}
+      tools={parents ? undefined : <>
+        <TopBarToolButton data-work-rail-toggle aria-label="Toggle rail" title="Toggle rail" aria-expanded={railOpen} aria-pressed={railOpen} onClick={() => setRailOpen(value => !value)}><SquareMenuIcon /></TopBarToolButton>
+        <span data-work-tools-divider aria-hidden="true" />
+        {doors.map(({ value, label, Icon }) => <TopBarToolButton key={value} data-work-tool={value} aria-label={label} title={label} aria-pressed={tool === value} onClick={() => setTool(current => current === value ? null : value)}><Icon /></TopBarToolButton>)}
+      </>}
+      more={close => parents ? <>{['Settings', 'Runtimes', 'Alpha'].map(label => <MenuItem key={label} icon={<ArrowRightIcon />} label={label} onSelect={() => { setParentChoice(label); close() }} />)}</>
+        : <MenuItem icon={<ExpandIcon />} label="Fill the window" onSelect={close} />} />
+    <Page width="reading"><PageOptions action={{ label: parents ? 'Start a conversation with this account' : 'New job', icon: parents ? undefined : <PlusIcon />, run: () => {} }}
+      choices={parents ? [] : [
+        { id: 'page', label: 'Team views', value: tab, mode: 'menu', items: ['Overview', 'Run', 'Board', 'Chat', 'Findings', 'Runs'].map(label => ({ value: label.toLowerCase(), label })), change: setTab },
+        { id: 'filter', label: 'Findings filter', value: filter, mode: 'menu', items: ['All', 'Open', 'Blocking'].map(label => ({ value: label.toLowerCase(), label })), change: setFilter },
+      ]} /></Page>
   </div>
 }
 

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openFrame } from './frame-contract-helpers'
 import { selectFrameTab } from './frame-actions'
+import { teamSeats } from './team-frame-actions'
 
 const capture = async (page: Page, name: string) => {
   if (process.env.HD_BEHAVIOR_REPAIR_FRAMES) await page.screenshot({path:`${process.env.HD_BEHAVIOR_REPAIR_FRAMES}/${name}.png`})
@@ -29,8 +30,7 @@ for (const theme of ['light','dark'] as const) {
     await selectFrameTab(page,'run')
     await page.getByRole('button',{name:'Stop run…',exact:true}).click()
     await page.getByRole('alertdialog').getByRole('button',{name:'Stop run',exact:true}).click()
-    await page.getByRole('button',{name:'Details',exact:true}).first().click()
-    const seats=page.getByRole('region',{name:'Seats',exact:true})
+    const seats=await teamSeats(page.locator('[data-frame-id="frame-wall"]'))
     await expect(seats).toContainText('Stopped')
     await capture(page,`team-stopped-seats-${theme}`)
     const actions=seats.getByRole('button',{name:/^Actions for/}).first()

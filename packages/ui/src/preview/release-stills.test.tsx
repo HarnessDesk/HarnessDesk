@@ -58,8 +58,9 @@ it('shows a plugin’s held access in the production detail page', async () => {
   const root = createRoot(container)
   try {
     await act(async () => root.render(<ReleaseStills />))
-    const installed = container.querySelector<HTMLButtonElement>('[data-team-page="installed"]') ?? [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(button=>button.textContent?.startsWith('Installed'))!
-    await act(async()=>installed.click()); await settle()
+    await act(async () => container.querySelector<HTMLButtonElement>('[title="Plugin sections"]')!.click())
+    const installed = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(button => button.textContent?.startsWith('Installed'))!
+    await act(async () => installed.click()); await settle()
     const plugin = container.querySelector<HTMLButtonElement>('[data-plugin-name="Project docs"]')
     expect(plugin).toBeTruthy()
     await act(async () => plugin!.click()); await settle()

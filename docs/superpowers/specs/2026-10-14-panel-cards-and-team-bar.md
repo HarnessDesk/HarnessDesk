@@ -55,13 +55,13 @@ Every top bar has one shape. From the left:
 
    The doors are 28px buttons on a 32 pitch (`--hd-bar-tool-gap` 4). The open one takes the muted fill with no ring;
    pressing it again closes its pane. There is no separate panel toggle (◫);
-7. on a page (Teams, Flows, Agents, Library, Plugins, Dashboard): the title and ⋮ only.
+7. on a standalone page (Settings, Teams, Flows, Agents, Library, Plugins, Dashboard, Inbox): fixed tools only, with its name in the body.
 
 The bar holds **no tabs, no worded buttons and no back arrow**. A page's own verb (New Team, New Flow, Start a Team) is
 the first control in the page's first row. A view's own choices (Thread or Side by side, Run 1 ⌄, Graph or Steps) sit in
 that view: the composer row, the pane header, or a toolbar floating on a canvas.
 
-`--hd-bar-pad` is 12, so every bar's first control or title sits 12 from its column edge. The rail keeps its 8
+`--hd-bar-pad` is 12, so every bar's first control sits 12 from its column edge. The content column anchors a standalone page's title at reading or wide measure; its chooser or verb shares that first body row. The title scrolls away without changing the bar. Named sessions, Teams and edited Flows keep their title menu in the bar. Canvas pages have no body title. The rail keeps its 8
 (`--hd-rail-inset`).
 
 ## The regions

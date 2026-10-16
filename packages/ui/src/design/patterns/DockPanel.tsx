@@ -58,11 +58,12 @@ export const WorkbenchCanvas = forwardRef<HTMLDivElement, React.ComponentProps<'
 WorkbenchCanvas.displayName = 'WorkbenchCanvas'
 
 /** The navigation plate down the workbench's side. */
-export const WorkbenchRail = forwardRef<HTMLElement, React.ComponentProps<'nav'> & { readonly as?: 'div' | 'nav' }>(
-  ({ as = 'div', className, ...props }, ref) => createElement(as, {
+export const WorkbenchRail = forwardRef<HTMLElement, React.ComponentProps<'nav'> & { readonly as?: 'div' | 'nav'; readonly cards?: boolean; readonly sheet?: boolean }>(
+  ({ as = 'div', cards = false, sheet = false, className, ...props }, ref) => createElement(as, {
     ref,
     'data-slot': 'workbench-rail',
-    className: cn('bg-(--hd-sidebar) outline-none data-[floating]:shadow-(--hd-shadow-lg)', className),
+    className: cn(cards ? 'bg-(--hd-background) outline-none' : 'bg-(--hd-sidebar) outline-none data-[floating]:shadow-(--hd-shadow-lg)',
+      sheet && 'rounded-(--hd-radius-matted) border border-(--hd-border) shadow-(--hd-shadow-lg)', className),
     ...props,
   }),
 )
@@ -239,7 +240,7 @@ export const DockPanel = ({
  * its own expand button is a view that knows where it lives, which is the
  * coupling the whole panel system exists to remove.
  */
-export const DockPanelBar = ({ className, contentInset, ...props }: React.ComponentProps<'header'> & { contentInset?: 'tool' }) => (
+export const DockPanelBar = ({ className, contentInset, heading, actions, children, ...props }: React.ComponentProps<'header'> & { contentInset?: 'tool' | 'canvas'; heading?: ReactNode; actions?: ReactNode }) => (
   <header
     data-slot="dock-panel-bar"
     className={cn(
@@ -250,7 +251,7 @@ export const DockPanelBar = ({ className, contentInset, ...props }: React.Compon
       // A plain view title shares the inspector search's leading glyph inset.
       'flex h-(--hd-bar-h) shrink-0 items-center gap-1 border-b border-(--hd-border)',
       'pr-(--hd-bar-pad)', /* desk: 8 → 12, every bar's edge (FRAME.bar.pad) */
-      contentInset !== 'tool' && '[&>[data-slot=text]]:ml-1.5', /* a plain title keeps its 18 */
+      contentInset === undefined && '[&>[data-slot=text]]:ml-1.5', /* a plain title keeps its 18 */
       /* And a top row is a handle for the window, like every other one: the
          conversation's header, a tool's, the sidebar's title bar. This strip
          was the only chrome in the app that was not, so a room or a board in
@@ -267,11 +268,11 @@ export const DockPanelBar = ({ className, contentInset, ...props }: React.Compon
          card's border and its row edge (desk: 12 → 21, the cards' ink). */
       contentInset === 'tool'
         ? 'pl-[max(calc(var(--hd-panel-pad)+var(--hd-border-width)+var(--hd-inset-row)),var(--titlebar-inset,0px))]'
-        : 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]',
+        : contentInset === 'canvas' ? 'pl-[max(var(--hd-inset-dense),var(--titlebar-inset,0px))]' : 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]',
       className,
     )}
     {...props}
-  />
+  >{heading !== undefined && <span className="min-w-0 flex-1 truncate text-sm font-medium">{heading}</span>}{children}{actions && <div className="hd-no-drag flex shrink-0 items-center gap-1">{actions}</div>}</header>
 )
 
 /**
@@ -777,16 +778,20 @@ export const PanelSeam = ({
 }
 
 /** Fixed shell regions retain native guest/grid geometry while out of the row. */
-export const FixedPanelFrame = ({ open, edge, style, className, ...props }: React.ComponentProps<'div'> & { open: boolean; edge: 'right' | 'bottom' }) => <div
+export const FixedPanelFrame = ({ open, edge, style, className, heading, actions, children, ...props }: React.ComponentProps<'div'> & { open: boolean; edge: 'right' | 'bottom'; heading?: ReactNode; actions?: ReactNode }) => <div
   {...(open ? {} : { 'data-hidden': '', inert: true })}
   className={cn('flex flex-col data-[hidden]:absolute data-[hidden]:inset-y-0 data-[hidden]:right-0 data-[hidden]:invisible data-[hidden]:pointer-events-none data-[hidden]:overflow-hidden', edge === 'bottom' && 'data-[hidden]:left-0', className)}
-  style={{ ...(edge === 'bottom' ? { height: open ? '100%' : 'var(--frame-bottom-retained)' } : {}), ...style }} {...props} />
+  style={{ ...(edge === 'bottom' ? { height: open ? '100%' : 'var(--frame-bottom-retained)' } : {}), ...style }} {...props}>
+    {heading !== undefined && <DockPanelBar contentInset="canvas" data-work-pane-header heading={heading} actions={actions} />}{children}
+  </div>
 
 /** The retained frame's containing block, shared by standing and floating modes. */
 export const FixedPanelRow = ({ className, ...props }: React.ComponentProps<'div'>) => <div className={cn('relative', className)} {...props} />
 
-export const FixedPanelBody = ({ className, ...props }: React.ComponentProps<'div'>) => <div
-  className={cn('flex min-h-0 min-w-0 flex-1 flex-col', className)} {...props} />
+export const FixedPanelBody = ({ className, heading, actions, children, ...props }: React.ComponentProps<'div'> & { heading?: ReactNode; actions?: ReactNode }) => <div
+  className={cn('flex min-h-0 min-w-0 flex-1 flex-col', className)} {...props}>
+  {heading !== undefined && <DockPanelBar contentInset="canvas" data-shell-main-header heading={heading} actions={actions} />}{children}
+  </div>
 /** Plugin sections join Details' flow; hidden native layers keep their existing boxes. */
 export const FixedToolLayer = ({ section, className, ...props }: React.ComponentProps<'div'> & { section?: boolean }) => <div
   className={cn(section ? 'flex min-h-0 min-w-0 flex-col' : className)} {...props} />

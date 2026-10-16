@@ -9,7 +9,8 @@ test('the sidebar and Agents window mark agents and align names with their secti
   const frame = page.locator('[data-frame-id="agents-roster"]')
   await expect(frame).toBeVisible()
 
-  await expect(frame.locator('[data-topbar-title]')).toHaveText('Agents')
+  await expect(frame.locator('[data-topbar-title]')).toHaveCount(0)
+  await expect(frame.getByRole('heading', { name: 'Agents', level: 1, exact: true })).toBeVisible()
   await expect(frame.getByRole('navigation', { name: 'Window navigation' })).toHaveCount(0)
   const builtIn = frame.getByRole('region', { name: 'Built in', exact: true })
   const agent = builtIn.getByRole('button', { name: /Implementer/ }).first()

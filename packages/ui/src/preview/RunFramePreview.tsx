@@ -2,14 +2,15 @@ import { useState, type ComponentProps } from 'react'
 import { RunWorkspace } from '../components/RunWorkspace'
 import { RunInspector } from '../components/RunInspector'
 import { TeamRunFacts } from '../components/TeamRunFacts'
-import { DockPanelBody, FRAME, ToolBody, ToolSection } from '../design'
+import { Button, DockPanelBody, FixedPanelBody, FRAME, ToolBody, ToolSection, Toolbar } from '../design'
+import { CrossIcon } from '../components/Icons'
 import { useNarrowLayout } from '../lib/use-narrow-layout'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
 import { fixedSubject } from '../state/workbench'
 import { MountProvider } from '../panels/mount'
 import { WorkTools } from '../panels/WorkTools'
 import { RunDockProvider } from '../panels/run-dock'
-import { TopBarProvider, TopBarOutlet, useWorkDetails, WorkDetailsOutlet } from '../panels/top-bar'
+import { TopBarProvider, TopBarOutlet, useWorkDetails, WorkDetailsOutlet, WorkViewControlsOutlet } from '../panels/top-bar'
 
 type Props = ComponentProps<typeof RunWorkspace> & { facts?: boolean }
 /** A catalogue Run uses the same owned bar, Details body and measured placement as a Team. */
@@ -29,7 +30,7 @@ export const RunFramePreview = (props: Props) => {
   </PaneProvider></RunDockProvider></TopBarProvider>
 }
 const RunFrameBody = ({ facts, ...props }: Props) => {
-  const snapshot = useSnapshot(), owner = 'preview-run-main'
+  const snapshot = useSnapshot(), store = useStore(), owner = 'preview-run-main'
   const subject = fixedSubject(snapshot.workbench.main), intent = subject ? snapshot.workbench.frameTools[subject] : undefined
   const measured = useNarrowLayout<HTMLDivElement>(FRAME.fold.panelFloats), standing = measured.narrow === false
   const details = intent?.open && intent.tool === 'details'
@@ -40,9 +41,14 @@ const RunFrameBody = ({ facts, ...props }: Props) => {
   return <div ref={measured.ref} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
     <TopBarOutlet owner={owner} rightColumnWidth={details && standing ? FRAME.rightPanel.width : undefined} fallback={{ place: 'Recorded Run', tools: <WorkTools />, more: () => null }} />
     <div className="relative flex min-h-0 flex-1 overflow-hidden">
-      <div data-slot="workbench-main" className="flex min-h-0 min-w-0 flex-1"><RunWorkspace {...props} /></div>
+      <FixedPanelBody data-slot="workbench-main"><Toolbar><WorkViewControlsOutlet owner={owner} />
+        <Button variant="ghost" size="sm" aria-label="Run details" onClick={() => store.chooseWorkTool('details', 'run-details')}>Run details</Button>
+      </Toolbar><RunWorkspace {...props} /></FixedPanelBody>
       {details && <div data-preview-tool-placement={standing ? 'column' : 'floating'} className={standing ? 'flex min-h-0 shrink-0 flex-col overflow-hidden' : 'absolute inset-y-0 right-0 z-(--hd-z-drawer) flex min-h-0 flex-col overflow-hidden bg-background shadow-(--hd-shadow-lg)'} style={{ width: FRAME.rightPanel.width, maxWidth: '100%' }}>
-        <DockPanelBody><WorkDetailsOutlet owner={owner} /></DockPanelBody>
+        <FixedPanelBody data-slot="work-tools" heading="Run details" actions={<Button variant="ghost" size="icon-sm"
+          aria-label="Close pane" title="Close pane" onClick={() => store.toggleWorkPanel()}><CrossIcon size={16} /></Button>}>
+          <DockPanelBody><WorkDetailsOutlet owner={owner} /></DockPanelBody>
+        </FixedPanelBody>
       </div>}
     </div>
   </div>

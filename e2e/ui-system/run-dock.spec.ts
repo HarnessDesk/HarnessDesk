@@ -1,10 +1,10 @@
-import { runBar, selectRunView } from './run-frame-actions'
+import { closeRunInspector, selectRunView } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 import { minimapOverlaps, zoomOf } from './canvas-minimap'
 import { FRAME } from '../../packages/ui/src/design/frame'
-import { closeTeamDetails, selectTeamDestination, selectTeamPage, teamBar, teamDetails, teamSeats } from './team-frame-actions'
+import { closeTeamDetails, selectTeamDestination, selectTeamPage, teamDetails, teamSeats } from './team-frame-actions'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`the docked Run Flow fills its pane and contains every step in ${theme}`, async ({ page }) => {
@@ -116,10 +116,10 @@ for (const theme of ['light', 'dark'] as const) {
     })
   }
 
-  test(`Timeline keeps its original Steps while Details or Activity occupies the panel in ${theme}`, async ({ page }) => {
+  test(`Timeline keeps its original Steps beside the rail and a selected inspector in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    // Floating tools do not replace the main Timeline.
-    await page.setViewportSize({ width: 1000, height: 800 })
+    // At a standing width, subject facts and selected inspection share the Timeline.
+    await page.setViewportSize({ width: 1440, height: 800 })
     await page.goto(`/preview.html?run-dock&theme=${theme}`)
     const frame = page.locator('#run-dock-frame')
     await selectTeamPage(frame, 'run')
@@ -127,13 +127,15 @@ for (const theme of ['light', 'dark'] as const) {
     const list = frame.locator('[data-slot="workbench-main"] [data-slot="run-steps"]')
     await teamDetails(frame)
     await expect(list, 'canonical Run facts do not hide the Steps').toBeVisible()
-    await teamBar(frame).locator('[data-work-tool="activity"]').click()
-    await expect(list, 'Activity does not own a readable Steps list').toBeVisible()
-    await teamDetails(frame)
-    await expect(list, 'returning to Details keeps the Steps readable').toBeVisible()
+    await list.locator('[data-row="card-3-3"]').click()
+    await expect(frame.locator('[data-slot="work-tools"]:visible [data-slot="run-inspector"]')).toBeVisible()
+    await expect(list, 'the selected record does not own the Steps list').toBeVisible()
+    await expect(await teamDetails(frame)).toContainText('Seats')
+    await closeRunInspector(frame)
+    await expect(list, 'closing inspection keeps the Steps readable').toBeVisible()
   })
 
-  test(`Team Details keeps Run facts, Seats and selected inspection in ${theme}`, async ({ page }) => {
+  test(`Team rail keeps Run facts and Seats separate from selected inspection in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?run-dock&theme=${theme}`)
     const frame = page.locator('#run-dock-frame')
@@ -191,64 +193,62 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(timelineSteps.locator('[data-row="card-3-3"]')).toHaveAttribute('data-selected', 'true')
     await selectRunView(frame, 'Flow')
     await expect(flowNode).toHaveAttribute('data-selected', 'true')
+    await closeRunInspector(frame)
     await closeTeamDetails(frame)
     await main.locator('[data-step="person"]').click()
     await expect(main.locator('[data-step="person"]')).toHaveAttribute('data-selected', 'true')
     expect(await main.locator('[data-slot="run-flow"]').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `steps-after-${theme}.png`) })
+    await closeRunInspector(frame)
     await closeTeamDetails(frame)
-    await teamBar(frame).getByRole('button', { name: 'Toggle right panel', exact: true }).click()
-    await expect(frame.locator('[data-slot="tool-body"]:visible')).toHaveCount(1)
-    await expect(frame.locator('[data-slot="tool-body"]:visible')).toContainText('Seats')
+    await expect(await teamDetails(frame)).toContainText('Seats')
     await closeTeamDetails(frame)
     await expect(main).toBeVisible()
   })
 
-  test(`an 800px Run stays visible until its details are explicitly opened in ${theme}`, async ({ page }) => {
+  test(`an 800px Run keeps its rail separate from explicitly selected inspection in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.setViewportSize({ width: 800, height: 900 })
     await page.goto(`/preview.html?run-dock&theme=${theme}`)
     const frame = page.locator('#run-dock-frame')
     await selectTeamPage(frame, 'run')
     const main = frame.locator('[data-slot="workbench-main"]')
-    const details = frame.locator('[data-slot="tool-body"]:visible')
+    const details = frame.locator('[data-slot="work-tools"]:visible')
     const opensOnFirstVisit = await details.count() > 0
     expect.soft(opensOnFirstVisit).toBe(false)
-    if (opensOnFirstVisit) await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    if (opensOnFirstVisit) await closeRunInspector(frame)
     await expect(main).toBeVisible()
     await selectRunView(frame, 'Flow')
     const opensOnFlow = await details.count() > 0
     expect.soft(opensOnFlow).toBe(false)
-    if (opensOnFlow) await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    if (opensOnFlow) await closeRunInspector(frame)
     await expect(main).toBeVisible()
     await selectRunView(frame, 'Timeline')
-    await runBar(frame).getByRole('button', { name: 'Details', exact: true }).click()
-    await expect(details).toBeVisible()
-    await expect(details).toContainText('Seats')
-    await expect(details.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+    await expect(await teamDetails(frame)).toContainText('Seats')
+    await expect(details).toHaveCount(0)
     await expect(main.locator('[data-step-row][data-selected="true"]')).toHaveCount(0)
     await closeTeamDetails(frame)
-    await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
-    await expect(details).toBeVisible()
-    await expect(details.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+    await expect(await teamDetails(frame)).toContainText('Seats')
+    await expect(details).toHaveCount(0)
     await closeTeamDetails(frame)
     await main.locator('[data-row][data-kind="card"]').first().click()
     await expect(details.locator('[data-slot="run-inspector"]')).toBeVisible()
-    await expect(details.locator('[aria-label="Seats"]')).toBeVisible()
+    await expect(details.locator('[aria-label="Seats"]')).toHaveCount(0)
+    await closeRunInspector(frame)
+    await expect(await teamDetails(frame)).toContainText('Seats')
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `dock-800-after-${theme}.png`) })
     // Leave while the dock is open, then return at a width where it overlays.
     await page.setViewportSize({ width: 1440, height: 900 })
     await selectTeamPage(frame, 'overview')
-    await expect(details).toBeVisible()
-    await expect(details.locator('[data-slot="run-inspector"]')).toHaveCount(0)
-    await expect(details).toContainText('Seats')
+    await expect(details).toHaveCount(0)
+    await expect(await teamDetails(frame)).toContainText('Seats')
     await page.setViewportSize({ width: 800, height: 900 })
     await selectTeamPage(frame, 'run')
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `return-800-after-${theme}.png`) })
-    await expect(details).toBeVisible()
+    await expect(await teamDetails(frame)).toContainText('Seats')
     await closeTeamDetails(frame)
     await expect(main).toBeVisible()
     await expect(main.locator('[data-row="card-1-1"]')).toBeVisible()
@@ -261,8 +261,7 @@ for (const theme of ['light', 'dark'] as const) {
     const frame = page.locator('#run-dock-frame')
     await selectTeamPage(frame, 'run')
     await expect(frame.locator('[data-slot="dock-panel"][data-edge="left"]')).toHaveCount(0)
-    await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
-    const inspector = frame.locator('[data-slot="tool-body"]:visible')
+    const inspector = await teamDetails(frame)
     await expect(inspector.locator('[data-slot="summary-item"]').filter({ hasText: /^Budget/ })).toHaveCount(0)
     await expect(inspector).toContainText('budget')
     await expect(inspector.locator('[data-slot="summary-item"]').filter({ hasText: /^No progress/ })).toHaveCount(0)
