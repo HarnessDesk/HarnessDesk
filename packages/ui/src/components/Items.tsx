@@ -116,6 +116,7 @@ import {
   TerminalIcon,
   ToolIcon,
 } from './Icons'
+import { transcriptToolTitle } from '../lib/transcript-tool-title'
 import { surfaceFor } from '../lib/notice-policy'
 import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { isAgentMessageSource, splitContextContent, wrapContext } from '../lib/context-envelope'
@@ -1172,7 +1173,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
     (detail?.kind === 'command' && SHELL_TOOLS.test(bare) && /^[a-z]+$/.test(bare))
   const wire = saysOnlyTheVerb ? null : wireNameOf(item.tool)
   // An MCP tool's server is the one word that says whose tool ran.
-  const recordedLabel = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
+  const recordedLabel = transcriptToolTitle(item) ?? described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
   const label = waiting ? `Waiting for approval · ${recordedLabel}` : recordedLabel
   // A call the lookup has no grammar for carries no object in its sentence,
   // so its one telling argument — the page, the query — stands beside it.

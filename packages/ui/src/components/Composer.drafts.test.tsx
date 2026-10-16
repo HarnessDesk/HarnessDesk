@@ -111,12 +111,12 @@ const draw = (key: SessionKey | null, held = false): void => {
   })
 }
 
-const drawNewSessionDraft = (): void => {
+const drawNewSessionDraft = (onChooseProject = () => {}): void => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
         <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: null }, sessionKey: null }}>
-          <Composer onChooseProject={() => {}} />
+          <Composer onChooseProject={onChooseProject} />
         </PaneProvider>
       </StoreProvider>,
     )
@@ -464,4 +464,18 @@ it('shows room Board-only on the own composer and retains its individual draft w
   draw(one)
   expect(container.textContent).not.toContain('Board-only')
   expect(textarea().value).toBe('Review the retry budget')
+})
+
+it('offers an enabled folder action inside a new composer without a project', () => {
+  currentSnapshot = { ...snapshot, workspace: null }
+  const choose = vi.fn()
+  drawNewSessionDraft(choose)
+  const open = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Open a folder…')!
+  expect(open).toBeDefined()
+  expect(open.disabled).toBe(false)
+  act(() => open.click())
+  expect(choose).toHaveBeenCalledOnce()
+  currentSnapshot = snapshot
+  drawNewSessionDraft(choose)
+  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Open a folder…')).toBe(false)
 })

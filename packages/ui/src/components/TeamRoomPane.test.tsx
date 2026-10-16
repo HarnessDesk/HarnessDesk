@@ -4703,6 +4703,22 @@ it('stopped Seats stay readable while their agent actions and composer recipient
 })
 
 
+it('refreshes the actual Overview pick wording when board evidence arrives', async () => {
+  const { teamWordsRepairFixture } = await import('../preview/team-words-repairs-fixture')
+  const { view, store } = teamWordsRepairFixture()
+  const withEvidence = store.getSnapshot()
+  let current: AppSnapshot = { ...withEvidence, boardEvidence: new Map() }
+  store.getSnapshot = () => current
+  await render(store, view.goal.id)
+  await act(async () => row('Overview').click())
+  const overview = () => container.querySelector('[data-slot="team-overview"]')!.textContent
+  expect(overview()).toContain('2 attempts')
+  expect(overview()).not.toContain('Referee picked')
+  current = withEvidence
+  await render(store, view.goal.id)
+  expect(overview()).toContain('2 attempts · Referee picked')
+})
+
 it.each([false, true])('opens a comparison on its tiles with a late Run %s and leaves Overview one tab away', async late => {
   const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
   const execution = { version: 2, id: 'comparison-start', goal: ROOM, state: 'running', reason: null, legacyRun: null, operations: [], rounds: [],

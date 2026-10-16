@@ -12,10 +12,11 @@ test('permission modes keep their chosen label in draft and live composers', asy
     await expect(composer).toBeVisible()
     await expect(composer.getByText('This runtime has no permission setting', { exact: true })).toHaveCount(0)
     await expect(composer.locator('[title="This runtime has no permission setting"]')).toHaveCount(0)
-    await expect(composer.locator('[data-composer-track="permissions"]')).toHaveCount(0)
-    const label = composer.locator('[data-composer-track="mode"] [data-slot="text"]')
+    await expect(composer.locator('[data-composer-track="permissions"]')).toHaveCount(1)
+    const label = composer.locator('[data-composer-track="permissions"] [data-slot="text"]')
     await expect(label).toHaveText('Accept edits')
     await expect(label).toBeVisible()
+    await expect(composer.getByRole('button', { name: 'Collaboration mode — Act' })).toBeVisible()
   }
 })
 
@@ -29,7 +30,10 @@ const aligned = (page: Page, width: string, layout: 'draft' | 'live') => page.ev
     if (!toolbar) return { aligned: false, positions }
     for (const slot of testedSlots) {
       const track = toolbar.querySelector<HTMLElement>(`[data-composer-track="${slot}"]`)
-      if (!track) return { aligned: false, positions }
+      if (!track) {
+        if (slot === 'mode' && shape === 'Assistant C') continue
+        return { aligned: false, positions }
+      }
       positions[slot]?.push(Math.round(track.getBoundingClientRect().left))
       if (['permissions', 'mode'].includes(slot) && !track.hasAttribute('data-folded')) {
         const intrinsic = track.cloneNode(true) as HTMLElement
@@ -47,9 +51,10 @@ const aligned = (page: Page, width: string, layout: 'draft' | 'live') => page.ev
   }
   return {
     // R12.1 permits natural selected-value widths. Outer anchors still line
-    // up across shapes; every natural track must fit its content exactly.
-    aligned: Object.entries(positions).every(([slot, xs]) => xs.length === shapes.length
-      && (['mode', 'extension'].includes(slot) || new Set(xs).size === 1)) && naturalWidths && separated,
+    // up across shapes. An absent mode gives the shrinkable folder more room;
+    // the following controls may move, and each natural track still fits exactly.
+    aligned: Object.entries(positions).every(([slot, xs]) => xs.length === shapes.length - (slot === 'mode' ? 1 : 0)
+      && (!['add', 'work-in', 'send'].includes(slot) || new Set(xs).size === 1)) && naturalWidths && separated,
     positions,
   }
 }, { width, layout, shapes, slots })
@@ -74,20 +79,23 @@ const boxGeometry = (page: Page) => page.evaluate(() => {
 })
 
 type ComposerWidth = keyof typeof expectedFolds
+type FoldState = { folded: readonly string[]; tight: readonly string[] }
+type FoldLayouts = Record<'draft' | 'live', FoldState>
 
 const foldsMatch = (page: Page, width: ComposerWidth) => page.evaluate(({ width, shapes, slots, expected }) => {
-  const folds = expected[width]
+  const folds: FoldLayouts & { overrides?: Record<string, FoldLayouts> } = expected[width]
   return shapes.every((shape) => (['draft', 'live'] as const).every((layout) => {
     const selector = '[data-composer-width="' + width + '"] [data-composer-shape="' + shape + '"] [data-composer-layout="' + layout + '"]'
     const toolbar = document.querySelector<HTMLElement>(selector)
     if (!toolbar) return false
-    const expectedFolded = folds[layout].folded
+    const shapeFolds = (folds.overrides?.[shape] ?? folds)[layout]
+    const expectedFolded = shapeFolds.folded
     const checkedSlots = layout === 'draft' ? slots : slots.filter((slot) => slot !== 'work-in')
     return checkedSlots.every((slot) => {
       const track = toolbar.querySelector<HTMLElement>('[data-composer-track="' + slot + '"]')
-      if (!track) return false
+      if (!track) return slot === 'mode' && shape === 'Assistant C'
       const shouldFold = expectedFolded.includes(slot as never)
-      const shouldTight = folds[layout].tight.includes(slot as never)
+      const shouldTight = shapeFolds.tight.includes(slot as never)
       return track.hasAttribute('data-folded') === shouldFold && track.hasAttribute('data-tight') === shouldTight
     })
   }))
@@ -109,15 +117,18 @@ const tightGlyphsMeetTarget = (page: Page, width: '360' | '320', layout: 'draft'
     const requiredSlots = slots.filter((slot) => layout === 'draft' || slot !== 'work-in')
     return requiredSlots.every((slot) => {
       const track = toolbar.querySelector<HTMLElement>(`[data-composer-track="${slot}"]`)
-      if (!track) return false
+      if (!track) return slot === 'mode' && shape === 'Assistant C'
       const buttons = [...track.querySelectorAll<HTMLButtonElement>('button')]
       if (slot !== 'extension' && buttons.length === 0) return false
       const targetsFit = buttons.every((button) => {
         const bounds = button.getBoundingClientRect()
         return bounds.width >= 24
       })
-      const glyphsFit = [...track.querySelectorAll<SVGSVGElement>('svg')].every((glyph) =>
-        glyph.getBoundingClientRect().width >= 12,
+      // A runtime with no mode can keep the ordinary folded state at 360px.
+      // Its primary glyph still meets 12px; the visible disclosure is the
+      // shared 11px Chevron. Tight controls omit that disclosure entirely.
+      const glyphsFit = [...track.querySelectorAll<SVGSVGElement>('svg')].every((glyph, index) =>
+        glyph.getBoundingClientRect().width >= (track.hasAttribute('data-tight') || index === 0 ? 12 : 11),
       )
       return targetsFit && glyphsFit
     })
@@ -164,7 +175,7 @@ const composerWidthFoldIsStable = (page: Page) => page.evaluate(() => {
   }
 })
 
-test('composer slots keep their tracks aligned across agent shapes', async ({ page }) => {
+test('composer slots keep their order and fit across agent shapes', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1600 })
   await page.goto('/preview.html?composer-slots')
   await page.waitForSelector('[data-composer-width="composer"] [data-composer-layout="live"] [data-composer-track="model"]')

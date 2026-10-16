@@ -48,7 +48,7 @@ it('takes /race through New Team with its task and ordinary preview token, then 
     expect(chosen().roles.some(role => role.id === 'judge')).toBe(false)
     expect(chosen().roles.find(role => role.id === 'referee')).toMatchObject({ review: true })
     await chooseJudge('alpha')
-    const start = [...document.querySelectorAll('button')].find(one => one.textContent === 'Start')!
+    const start = [...document.querySelectorAll('button')].find(one => one.textContent === 'Start Team')!
     expect(start.disabled).toBe(false)
     await act(async () => start.click())
     expect(request.mock.calls.find(call => call[0] === 'flow/start-goal')?.[1]).toMatchObject({ root: '/repo', token: 'fresh-preview', vars: { task: 'Fix the cart total' } })

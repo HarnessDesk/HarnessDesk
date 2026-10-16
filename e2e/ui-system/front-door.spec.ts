@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 /**
  * The front door, mounted from the real preview harness through the same
- * New Team picker. Choose a shape, fill its task, then Start; keyboard and
+ * New Team dialog. Fill its task, choose a Flow, then Start Team; keyboard and
  * pointer both reach it. `FrontDoor.test.tsx` and `store.front-door.test.ts` own the
  * interaction logic itself; this is the one thing jsdom cannot answer: what
  * a real browser lays out and focuses, at desktop and narrow widths, in
@@ -22,22 +22,28 @@ const openBrokenFixture = async (page: Page): Promise<void> => {
   await page.getByRole('button', { name: 'Continue' }).click()
 }
 
-test('a chosen shape shows its seats and optional completion field before Start', async ({ page }) => {
+test('a chosen Flow shows its seats in the same task dialog before Start Team', async ({ page }) => {
   await openFrontDoor(page)
 
+  const dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
+  const original = await dialog.elementHandle()
+  const task = page.getByLabel('What should they do?')
+  await expect(task).toBeVisible()
   await expect(page.getByRole('button', { name: 'Write and review', exact: true })).toBeVisible()
-  // Before a shape is chosen there is nothing to start — Cancel is the only
-  // footer action, not a Start a person could press too soon.
-  await expect(page.getByRole('button', { name: 'Start', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Start Team', exact: true })).toBeDisabled()
+  await task.fill('Fix the cart total')
+  await expect(page.getByRole('button', { name: 'Start Team', exact: true })).toBeDisabled()
 
   await page.getByRole('button', { name: 'Write and review', exact: true }).click()
 
+  expect(await dialog.evaluate((node, opened) => node === opened, original)).toBe(true)
+  await expect(page.getByRole('dialog')).toHaveCount(1)
+  await expect(page.getByLabel('Search Flows')).toBeVisible()
+  await expect(task).toHaveValue('Fix the cart total')
   await expect(page.getByRole('combobox', { name: 'Runtime for Writes' })).toBeVisible()
   await expect(page.getByRole('combobox', { name: 'Runtime for Reviews' })).toBeVisible()
   await expect(page.getByLabel('Done when · optional')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
-  await page.getByLabel('What should they do?').fill('Fix the cart total')
-  await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled()
   await expect(page.getByText('It opens 2 seats')).toBeHidden()
   await page.getByText('Details', { exact: true }).click()
   await expect(page.getByText('It opens 2 seats')).toBeVisible()
@@ -50,13 +56,18 @@ test('a broken shape stays visible with its own reason, never silently dropped f
   await expect(broken).toContainText('there is no usable Agent called "ghost"')
 })
 
-test('keyboard picks from the focused search and Escape closes the form', async ({ page }) => {
+test('keyboard moves from the task to Flow search, picks a card and Escape closes the dialog', async ({ page }) => {
   await openFrontDoor(page)
 
-  await expect(page.getByLabel('Search shapes')).toBeFocused()
+  await expect(page.getByLabel('What should they do?')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('button', { name: 'Build your own', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByLabel('Search Flows')).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByRole('button', { name: 'Write and review', exact: true })).toBeFocused()
   await page.keyboard.press('Enter')
+  await expect(page.getByRole('button', { name: 'Write and review', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByLabel('Done when · optional')).toBeVisible()
 
   await page.keyboard.press('Escape')

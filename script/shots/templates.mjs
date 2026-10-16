@@ -87,44 +87,48 @@ try {
       await photograph('00-project')
       await page.getByRole('button', { name: 'More ways to start', exact: true }).click()
       await page.getByRole('menuitem', { name: /^New Team/ }).click()
-      await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
+      const newTeam = page.getByRole('dialog', { name: 'New Team', exact: true })
+      await expect(newTeam).toBeVisible()
       await photograph('01-new-team')
       const name = contest ? 'Mechanical contest' : template === 'comparison' ? 'Side by side' : 'Write and review'
-      await page.getByRole('dialog').getByRole('button', { name: new RegExp(`^${name}`) }).click()
+      await newTeam.getByRole('button', { name, exact: true }).click()
       // The first dry run can still be installing the project's suggested
       // check when the task field appears. Wait for its editable Seat controls.
-      await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Runtime for / }).first()).toBeEnabled({ timeout: 30000 })
+      await expect(newTeam.getByRole('combobox', { name: /^Runtime for / }).first()).toBeEnabled({ timeout: 30000 })
       const task = template === 'comparison' || contest ? TEMPLATE_TASK : `${TEMPLATE_TASK} for review`
-      await page.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).fill(task)
+      await newTeam.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).fill(task)
       if (template === 'comparison' || contest) {
-        const command = page.getByRole('textbox', { name: 'Check each attempt with', exact: true })
+        const command = newTeam.getByRole('textbox', { name: 'Check each attempt with', exact: true })
         await expect(command).toHaveValue('pnpm test')
         const chosenCheck = contest ? (checkMode === 'skipped' ? '' : 'pnpm test') : TEMPLATE_CHECK
         await command.fill(chosenCheck)
         await expect(command).toHaveValue(chosenCheck)
       }
-      await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled({ timeout: 30000 }).catch(async error => { throw new Error(`${error.message}\n${template}: ${await page.getByRole('dialog').innerText()}`) })
-      await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Model for / }).first()).toBeVisible()
-      await page.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).scrollIntoViewIfNeeded()
+      await expect(newTeam.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled({ timeout: 30000 }).catch(async error => { throw new Error(`${error.message}\n${template}: ${await newTeam.innerText()}`) })
+      await expect(newTeam.getByRole('combobox', { name: /^Model for / }).first()).toBeVisible()
+      await newTeam.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).scrollIntoViewIfNeeded()
       await photograph('02-task')
-      await page.getByRole('dialog').getByRole('button', { name: 'Details', exact: true }).click()
+      await newTeam.getByRole('button', { name: 'Details', exact: true }).click()
       if (!contest) {
-        const reviewer = page.getByRole('combobox', { name: template === 'comparison' ? 'Runtime for Judge' : 'Runtime for Reviews', exact: true })
+        const reviewer = newTeam.getByRole('combobox', { name: template === 'comparison' ? 'Runtime for Judge' : 'Runtime for Reviews', exact: true })
         await reviewer.selectOption('codex-review')
         await expect(reviewer).toHaveValue('codex-review')
       }
-      if (template === 'comparison') await expect(page.getByRole('region', { name: 'Commands it runs' }).getByText(new RegExp(TEMPLATE_CHECK.replaceAll('.', '\\.')))).toBeVisible()
+      await newTeam.getByRole('button', { name: 'Dry run', exact: true }).click()
+      const dryRun = newTeam.getByRole('region', { name: 'Dry run', exact: true })
+      await expect(dryRun).toBeVisible()
+      await expect(newTeam.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled({ timeout: 30000 })
+      if (template === 'comparison') await expect(dryRun.getByRole('region', { name: 'Commands it runs' }).getByText(new RegExp(TEMPLATE_CHECK.replaceAll('.', '\\.')))).toBeVisible()
       if (contest) {
-        const commands = page.getByRole('region', { name: 'Commands it runs' })
+        const commands = dryRun.getByRole('region', { name: 'Commands it runs' })
         if (checkMode === 'declared') await expect(commands.getByText(/pnpm test/)).toBeVisible()
         else await expect(commands).toHaveCount(0)
       }
-      await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled({ timeout: 30000 })
-      await page.getByRole('region', { name: 'Seats this would open' }).scrollIntoViewIfNeeded()
+      await dryRun.getByRole('region', { name: 'Seats this would open' }).scrollIntoViewIfNeeded()
       await photograph('03-preview')
       assert.equal(JSON.parse(readFileSync(rig.stateFile, 'utf8')).workspaces[0].shellIdentity, undefined, 'preview does not pre-admit the legacy record')
-      await page.getByRole('button', { name: 'Start', exact: true }).click()
-      await expect(page.getByRole('dialog', { name, exact: true })).toHaveCount(0, { timeout: 30000 })
+      await newTeam.getByRole('button', { name: 'Start Team', exact: true }).click()
+      await expect(newTeam).toHaveCount(0, { timeout: 30000 })
       await page.waitForFunction(name => [...window.__hdStore.getSnapshot().flowExecutions.values()].some(one => one.document.flow.name === name && window.__hdStore.getSnapshot().goals.has(one.goal)), name)
       const run = await page.evaluate(name => {
         const snapshot = window.__hdStore.getSnapshot()
@@ -255,7 +259,8 @@ try {
         await overview.getByRole('button', { name: '2 done', exact: true }).click()
         await expect(overview.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
         await page.waitForFunction(goal => window.__hdStore.getSnapshot().goals.get(goal)?.activity !== 'working', run.goal)
-        await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toHaveCount(0, { timeout: 30000 })
+        // A finished Team stays in the sidebar, marked, until it is wrapped (#1675 D5).
+        await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toBeVisible({ timeout: 30000 })
         evidence.push({ template, checkMode, checks: checks.map(one => ({ command: one.fact.run, exitCode: one.fact.exit, at: one.fact.at })), rounds: handoff.execution.rounds.map(one => one.role), settledSidebar: true })
         assert.deepEqual(rendererErrors, [], 'the contest renderer had no uncaught errors')
         continue
@@ -388,7 +393,8 @@ try {
         const comments = JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).comments
         assert.equal(comments?.length ?? 0, 0, 'review before publication stays local')
       }
-      await expect(page.getByText(template === 'comparison' ? 'Completed rounds 4 of 4' : 'Completed rounds 3 of 7', { exact: true })).toBeVisible()
+      // A comparison counts its attempts rather than its routing rounds (#1675 D7).
+      await expect(page.getByText(template === 'comparison' ? /^2 attempts( · (Referee|You) picked)?$/ : 'Completed rounds 3 of 7', { exact: true })).toBeVisible()
       // The board settles before the final turn/activity event reaches the
       // sidebar. Capture the finished Goal only once both surfaces agree.
       await page.waitForFunction(({ goal, run }) => {
@@ -396,8 +402,8 @@ try {
         return snapshot.flowExecutions.get(run)?.state === 'settled' &&
           snapshot.goals.has(goal) && snapshot.goals.get(goal).activity !== 'working'
       }, { goal: run.goal, run: run.id })
-      // The rig uses the active list: a finished Team leaves that sidebar.
-      await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toHaveCount(0, { timeout: 30000 })
+      // A finished Team stays in the sidebar, marked, until it is wrapped (#1675 D5).
+      await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toBeVisible({ timeout: 30000 })
       evidence.at(-1).settledSidebar = true
       await photograph('13-finished-overview')
       await tab('Run')

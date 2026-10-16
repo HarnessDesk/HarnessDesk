@@ -314,3 +314,15 @@ it('owns its centred wide Page and a single gutter', () => {
  expect(page?.getAttribute('data-width')).toBe('wide')
  expect(page?.querySelector('[data-inset="reading"]')).toBeNull()
 })
+
+it('summarises comparison attempts and the recorded referee pick without counting routing rounds', async () => {
+ const { teamWordsFixture } = await import('../preview/team-words-fixture')
+ const { input, model } = teamWordsFixture()
+ act(() => root.render(<TeamOverview model={model} timeline={runTimeline(input)} />))
+ expect(box.textContent).toContain('2 attempts · Referee picked')
+ expect(box.textContent).not.toMatch(/Completed rounds|Round 4/)
+ const noPick = { ...input, evidence: { ...input.evidence!, cards: input.evidence!.cards.filter(card => card.card < 5) } }
+ act(() => root.render(<TeamOverview model={model} timeline={runTimeline(noPick)} />))
+ expect(box.textContent).toContain('2 attempts')
+ expect(box.textContent).not.toContain('Referee picked')
+})

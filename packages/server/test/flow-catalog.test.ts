@@ -102,6 +102,17 @@ const agents = (name: string, layout?: unknown) => [
   '',
 ].join('\n')
 
+test('catalogue includes the parsed policy for real mini graphs without previewing or seating', async () => {
+  const project = tempDir('hd-flow-graph-')
+  const flows = join(project, '.harnessdesk', 'flows')
+  await mkdir(flows, { recursive: true })
+  await writeFile(join(flows, 'review.yml'), agents('Review'))
+  const [entry] = await new FlowCatalog({ confine: async () => {} }).list(project)
+  assert.equal(entry?.policy?.name, 'Review')
+  assert.deepEqual(entry?.policy?.roles.map(role => role.id), ['reviewer'])
+  assert.equal(entry?.policy?.seed.role, 'reviewer')
+})
+
 test('catalogue carries the short summary separately from the full description', async () => {
   const project = tempDir('hd-flow-summary-')
   const flows = join(project, '.harnessdesk', 'flows')

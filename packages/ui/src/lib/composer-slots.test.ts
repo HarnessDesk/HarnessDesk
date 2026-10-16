@@ -4,6 +4,19 @@ import type { ConfigOption } from '@harnessdesk/protocol'
 
 import { optionsBySlot, slotForCategory } from './composer-slots'
 import * as mapping from './composer-slots'
+import { summarise } from './options'
+
+it('projects planning into a valid acting permission summary without changing the agent option', () => {
+  const option: ConfigOption = { id: 'mode', label: 'Mode', type: 'select', category: '_permissions', currentValue: 'planning',
+    collaboration: { planValue: 'planning', actValue: 'manual' },
+    choices: [{ value: 'manual', label: 'Manual' }, { value: 'planning', label: 'Plan' }],
+  }
+  const slots = optionsBySlot([option])
+  expect(summarise(slots.permissions)).toBe('Manual')
+  expect(summarise(slots.mode)).toBe('Plan')
+  expect(option.currentValue).toBe('planning')
+  expect(option.choices).toHaveLength(2)
+})
 
 describe('composer option slots', () => {
   it.each([

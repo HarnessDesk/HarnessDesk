@@ -1988,15 +1988,11 @@ it('keeps a pinned gone-folder row’s worktree and Needs you marks without dupl
 it.each([
   ['needs-you', 'Needs you', 'warning', 'limit'],
   ['working', 'Running', 'info', 'signin'],
-  ['ready-to-wrap', 'Ready to wrap', 'brand', 'ready'],
+  ['ready-to-wrap', 'Ready to wrap', 'warning', 'limit'],
 ] as const)('keeps a Goal’s %s signal in its compact state without a member approval', (activity, label, tone, state) => {
   const board = room({ id: 'goal-signal', name: 'Check the rail' })
   const { container: tree } = treeWith([board], [], [], {}, undefined, null,
     new Map([[board.id, triggerGoalView(board, activity)]]))
-  if (activity === 'ready-to-wrap') {
-    expect(tree.querySelector(`[aria-label="Room ${board.name}"]`)).toBeNull()
-    return
-  }
   if (activity === 'working') {
     expect(roomRow(tree, board.name).textContent).toBe(board.name)
     expect(roomRow(tree, board.name).title).toContain('Working')
@@ -2029,15 +2025,19 @@ it('keeps a durable Seat in the Team tree when no live session or history is hel
  expect(tree.querySelector('[data-nested="true"]')).toBeNull()
 })
 
-it('keeps settled Teams and their Seats out of the sidebar, and brings attention back', () => {
+it('keeps a finished Team with attention until wrapped, without listing its Seats', () => {
  const seat=summary({id:'finished-seat'})
  const board=room({id:'settled-team',name:'Settled Team',members:[String(sessionKey(seat.runtime,seat.id))]})
  const view={...triggerGoalView(board),activity:'ready-to-wrap'} as GoalView
  const {container:tree,update}=treeWith([board],[seat],[],{},undefined,null,new Map([[board.id,view]]))
- expect(tree.querySelector('[aria-label="Room Settled Team"]')).toBeNull()
+ const finished = tree.querySelector('[aria-label="Room Settled Team"]')!
+ expect(finished).not.toBeNull()
+ expect(finished.parentElement?.querySelector('[aria-label="Ready to wrap"]')).not.toBeNull()
  expect(rowTitles(tree)).not.toContain('finished-seat')
  update({goals:new Map([[board.id,{...view,activity:'needs-you'}]])})
  expect(tree.querySelector('[aria-label="Room Settled Team"]')).not.toBeNull()
+ update({goals:new Map([[board.id,{...view,goal:{...view.goal,state:'wrapped'}}]])})
+ expect(tree.querySelector('[aria-label="Room Settled Team"]')).toBeNull()
 })
 
 it('keeps working and waiting state on the conversation row inside its project', () => {

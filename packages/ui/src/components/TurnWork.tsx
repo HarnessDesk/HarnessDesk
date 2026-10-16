@@ -134,10 +134,10 @@ export const TurnWork = ({
             them above is the same story told twice. */}
         {!open && line.receipt.length > 0 && <Text role="muted" ink="muted" className={styles.headReceipt}>· {line.receipt}</Text>}
         {!open && line.declined > 0 && (
-          <Text role="muted" tone="warning" className={styles.declinedReceipt}>· {line.declined} declined</Text>
+          <Text role="muted" tone={line.trouble ? 'warning' : 'neutral'} className={styles.declinedReceipt}>· {line.declined} declined</Text>
         )}
         {!open && line.failed > 0 && (
-          <Text role="muted" tone="danger" className={styles.failedReceipt}>· {line.failed} failed</Text>
+          <Text role="muted" tone={line.trouble ? 'danger' : 'neutral'} className={styles.failedReceipt}>· {line.failed} failed</Text>
         )}
         <DisclosureChevron open={open} tone={line.trouble ? 'warning' : 'neutral'} />
         <Separator render={<span />} className={styles.rule} />

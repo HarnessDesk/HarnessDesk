@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { editorConversation } from '../editor'
 import { sanitizeText } from '../lib/sanitize'
 import { sessionUnavailable } from '../lib/session-unavailable'
+import { historySources, useInstalledAgents } from '../lib/first-run'
 import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
 import {
@@ -58,6 +59,7 @@ import {
   ConfirmDialog,
   ComposerDock,
   ConversationEmptyState,
+  InlineParts,
   Menu,
   MenuItem,
   MenuLabel,
@@ -167,6 +169,20 @@ const ConversationEmpty = ({
   const folderPath = session?.cwd || snapshot.workspace?.path || null
   const folder = folderPath ? folderPath.split('/').filter(Boolean).pop() ?? null : null
   const [startingTeam, setStartingTeam] = useState(false)
+  const installed = useInstalledAgents(store, snapshot.runtimes)
+  const history = historySources(snapshot.runtimes)
+  const installedOffer = installed.offers.length > 0 ? (
+    <InlineParts role="group" aria-label="Installed on this Mac">
+      <Text as="span" role="meta">Installed on this Mac:</Text>
+      {installed.offers.map(template => (
+        <Button key={template.key} type="button" variant="outline" size="sm"
+          aria-label={`Add ${template.name}`} disabled={installed.busy !== null}
+          onClick={() => void installed.add(template.key)}>
+          {template.name} — {installed.busy === template.key ? 'Adding…' : 'Add'}
+        </Button>
+      ))}
+    </InlineParts>
+  ) : null
 
   if (session && unavailableSessionMessage) {
     return (
@@ -188,6 +204,7 @@ const ConversationEmpty = ({
           {health.remediation ? ` ${health.remediation}` : ''}
         </EmptyBody>
         <SetupDesk onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
+        {installedOffer}
       </ConversationEmptyState>
     )
   }
@@ -218,6 +235,7 @@ const ConversationEmpty = ({
                 : `Sign in to ${words.name}; this window updates on its own.`)}
           </EmptyBody>
         )}
+        {installedOffer}
       </ConversationEmptyState>
     )
   }
@@ -235,6 +253,7 @@ const ConversationEmpty = ({
         <EmptyBody>
           {words.name} is signed in and healthy. {blocked.detail}
         </EmptyBody>
+        {installedOffer}
       </ConversationEmptyState>
     )
   }
@@ -246,8 +265,8 @@ const ConversationEmpty = ({
         {folder
           ? `Describe what you want done in ${folder}.`
           : 'Pick a project folder and describe what you want done.'}
-        {words.historySource
-          ? ` Sessions you start in ${words.historySource} appear in the sidebar too.`
+        {history
+          ? ` Sessions you start in ${history} appear in the sidebar too.`
           : ''}
       </EmptyBody>
       {/* This pane already knows its folder — the front door reads the same
@@ -267,12 +286,13 @@ const ConversationEmpty = ({
            left for settings to reveal: the other agents on this machine can
            join without anyone hand-editing a file. */
         <EmptyBody>
-          {words.name} is the only runtime here.{' '}
+          {snapshot.runtimes[0]!.presentation.name} is the only runtime here.{' '}
           <Button type="button" variant="link" size="content" onClick={onOpenRuntimes}>
             Add another runtime…
           </Button>
         </EmptyBody>
       )}
+      {installedOffer}
       {startingTeam && session?.cwd && (
         <FrontDoor
           context={{ kind: 'project', root: session.cwd }}

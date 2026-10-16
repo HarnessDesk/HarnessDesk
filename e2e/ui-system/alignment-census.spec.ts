@@ -433,7 +433,10 @@ cataloguePageCases('the rendered frames and boards hold the alignment census cei
       title === 'Foundation' ? 'Tokens' : title === 'Manifest' ? 'Coverage' : title,
     )
     await page.getByText('Mounting the screen…').waitFor({ state: 'hidden' })
-    const boardRoot = page.locator('main > div').last()
+    // Boards can contain their own main/rail composition; the explorer's
+    // registry marker owns the measured board regardless of nested layout.
+    const boardRoot = page.locator('[data-alignment-board-id]')
+    await expect(boardRoot, 'the explorer exposes one canonical board root').toHaveCount(1)
     const stableId = await boardRoot.evaluate(element => {
       element.setAttribute('data-alignment-measure-root', '')
       return element.getAttribute('data-alignment-board-id')

@@ -611,7 +611,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
   return (
     <>
       <LibraryBar kind={kind} counts={kindCounts} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
-        author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} rescan={() => void load()}
+        author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} github={() => setFlow({ type: 'github' })} rescan={() => void load()}
         choices={libraryChoices} search={{ label: 'Search library', value: query, change: setQuery }} />
       <PageExplanation>Every skill and MCP server your runtimes can load, wherever each one keeps them.</PageExplanation>
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}

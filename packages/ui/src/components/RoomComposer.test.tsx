@@ -521,7 +521,8 @@ it('board-only stops the agents, not the person', () => {
      who can always talk that messages were off. */
   expect(box().disabled).toBe(false)
   expect(send().disabled).toBe(false)
-  expect(container.textContent).toContain('Board-only is on')
+  expect(container.textContent).toContain('Agents cannot message each other')
+  expect(container.textContent).not.toContain('Board-only is on')
   expect(container.textContent).toContain('You still can')
 })
 
