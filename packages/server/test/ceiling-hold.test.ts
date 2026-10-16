@@ -138,7 +138,7 @@ test('through the host: a Mac that refuses unheld ceilings passes over every run
       { kind: 'unheld', level: 'read', detail: null },
       { kind: 'unheld', level: 'read', detail: 'Sandbox reads back as Full access, not Read only' },
     ])
-    assert.match(String((error as Error).message), /cannot hold read.*this Mac refuses a seat whose ceiling is only asked/)
+    assert.match(String((error as Error).message), /cannot enforce read-only access\. Choose another agent that supports this access\./)
     return true
   })
   assert.equal(plain.sessions.size, 0)
@@ -190,16 +190,16 @@ test('unattended refuses before and after seating when not held', async (t) => {
 
   // Absent preference: a runtime that cannot hold read is passed over before anything opens.
   await agentFile('fake')
-  await assert.rejects(seat(), /cannot hold read.*this Mac refuses a seat whose ceiling is only asked/)
+  await assert.rejects(seat(), /fake cannot enforce read-only access\. Choose another agent that supports this access\./)
   assert.equal(plain.sessions.size, 0, 'no conversation was opened, so no turn was sent')
   // The watched setting says seat: an unattended Goal still refuses.
   await host.call('app/state/set', { patch: { unheldCeilings: { watched: 'seat' } } })
-  await assert.rejects(seat(), /this Mac refuses a seat whose ceiling is only asked/)
+  await assert.rejects(seat(), /fake cannot enforce read-only access\. Choose another agent that supports this access\./)
   assert.equal(plain.sessions.size, 0)
   // A control that reads back as something else: opened, found unheld, and discarded before any turn.
   await agentFile('holdfake')
   holds.habit = 'settlesElsewhere'
-  await assert.rejects(seat(), /this Mac refuses a seat whose ceiling is only asked/)
+  await assert.rejects(seat(), /holdfake cannot enforce read-only access: Sandbox reads back as Full access, not Read only\. Choose another agent that supports this access\./)
   assert.equal(holds.held.length, 1)
   assert.equal(host.registry.get(runtimeId('holdfake'), holds.held[0]!.id), undefined, 'the unheld conversation was not kept')
 

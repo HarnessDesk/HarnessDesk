@@ -78,7 +78,7 @@ test('asked never receives work', async (t) => {
   const run = (await host.call('flow/start-goal', { root: work, source: SHAPE, token: preview.flow.token, sentence: preview.sentence })) as FlowExecution
   assert.equal(run.requireHeld, true)
   assert.equal(run.state, 'stalled')
-  assert.match(run.reason ?? '', /could not be opened: [\s\S]*cannot hold read — Sandbox reads back as Full access, not Read only, and a start from the front door needs every Seat to hold its ceiling/)
+  assert.match(run.reason ?? '', /could not be opened: [\s\S]*holdfake cannot enforce read-only access: Sandbox reads back as Full access, not Read only\. Choose another agent that supports this access\./)
   // Opened once, provisionally, and closed before anything was sent to it: no brief, no card, no Seat kept.
   assert.equal(holds.held.length, 1)
   assert.deepEqual(sent, [])

@@ -308,7 +308,7 @@ export const TEAM_START_POLICIES = {
         ],
         "seats": [],
         "isolate": false,
-        "grant": "publish",
+        "grant": "edit",
         "independentOf": []
       },
       {
@@ -339,13 +339,13 @@ export const TEAM_START_POLICIES = {
         "on": "fixer",
         "when": {
           "every": [
-            "published"
+            "committed"
           ]
         },
         "then": {
           "role": "reviewer",
-          "title": "Review the pull request",
-          "detail": "Review the pull request the fixer's context package names independently."
+          "title": "Review the committed change",
+          "detail": "Review the committed branch and revision the fixer's context package names independently."
         }
       },
       {
@@ -359,7 +359,7 @@ export const TEAM_START_POLICIES = {
         "then": {
           "role": "fixer",
           "title": "Answer the reviews",
-          "detail": "Answer every finding, push to the same branch, and publish again."
+          "detail": "Answer every finding and commit the repair on the same branch for another review."
         }
       },
       {
@@ -377,15 +377,21 @@ export const TEAM_START_POLICIES = {
         },
         "then": {
           "role": "referee",
-          "title": "Merge it — every reviewer approved",
-          "detail": "Merging is yours; no agent in this flow may do it."
+          "title": "Approve publishing the reviewed change",
+          "detail": "Review and approve publishing revision {{evidence.review.at}} from the branch named in the writer’s context package. You decide whether to push that branch and open a pull request, then merge after its checks pass, or drop the change. No agent in this Team may push or merge."
         }
       }
     ],
+    "complete": {
+      "referee": [
+        "merged",
+        "dropped"
+      ]
+    },
     "seed": {
       "role": "fixer",
       "title": "{{work}}",
-      "detail": "Open a pull request for it when it is done and working."
+      "detail": "Commit the finished work on your own branch and hand over its branch and revision for review. Do not push or open a pull request."
     },
     "messaging": "board-only",
     "wait": 240,

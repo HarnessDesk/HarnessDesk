@@ -1,138 +1,20 @@
-// New Team's edit-first specimen, synthesized from the shipped shape.
-// The old team-start specimen remains the before case. No account data.
+// Current specimens share the canonical shipped policy. Only the explicitly
+// named before case retains the former publication contract. No account data.
 import type { FlowPolicy } from '@harnessdesk/protocol'
+import { TEAM_START_POLICIES } from './team-start-fixture'
 
-export const EDIT_TEAM_START_POLICY: FlowPolicy = {
-  "version": 2,
-  "name": "Write and review",
-  "description": "One writer and a fresh independent reviewer, with at most three reviews before a person takes over.",
-  "summary": "One writes, a fresh reviewer reads, up to three rounds.",
-  "inputs": [
-    {
-      "id": "work",
-      "label": "Task"
-    }
-  ],
-  "roles": [
-    {
-      "id": "fixer",
-      "kind": "agent",
-      "uses": [
-        "implementer"
-      ],
-      "seats": [],
-      "isolate": false,
-      "grant": "edit",
-      "independentOf": []
-    },
-    {
-      "id": "reviewer",
-      "kind": "agent",
-      "uses": [
-        "code-reviewer"
-      ],
-      "seats": [],
-      "isolate": false,
-      "grant": "read",
-      "independentOf": [
-        "fixer"
-      ]
-    },
-    {
-      "id": "referee",
-      "kind": "person",
-      "outcomes": [
-        "merged",
-        "dropped"
-      ]
-    }
-  ],
-  "rules": [
-    {
-      "id": "review-it",
-      "on": "fixer",
-      "when": {
-        "every": [
-          "committed"
-        ]
-      },
-      "then": {
-        "role": "reviewer",
-        "title": "Review the committed change",
-        "detail": "Review the committed branch and revision the fixer's context package names independently."
-      }
-    },
-    {
-      "id": "fix-again",
-      "on": "reviewer",
-      "when": {
-        "any": [
-          "request-changes"
-        ]
-      },
-      "then": {
-        "role": "fixer",
-        "title": "Answer the reviews",
-        "detail": "Answer every finding and commit the repair on the same branch for another review."
-      }
-    },
-    {
-      "id": "hand-to-the-person",
-      "on": "reviewer",
-      "when": {
-        "every": [
-          "approve"
-        ],
-        "evidence": [
-          {
-            "review": "approve"
-          }
-        ]
-      },
-      "then": {
-        "role": "referee",
-        "title": "Approve publishing the reviewed change",
-        "detail": "Review and approve publishing revision {{evidence.review.at}} from the branch named in the writer’s context package. You decide whether to push that branch and open a pull request, then merge after its checks pass, or drop the change. No agent in this Team may push or merge."
-      }
-    }
-  ],
-  "complete": {
-    "referee": [
-      "merged",
-      "dropped"
-    ]
-  },
-  "seed": {
-    "role": "fixer",
-    "title": "{{work}}",
-    "detail": "Commit the finished work on your own branch and hand over its branch and revision for review. Do not push or open a pull request."
-  },
-  "messaging": "board-only",
-  "wait": 240,
-  "budget": {
-    "rounds": 7,
-    "withoutProgress": 2
-  },
-  "layout": {
-    "frontDoor": {
-      "order": 0,
-      "contexts": [
-        "project"
-      ]
-    },
-    "positions": {
-      "fixer": {
-        "x": 40,
-        "y": 40
-      },
-      "reviewer": {
-        "x": 300,
-        "y": 40
-      },
-      "referee": {
-        "x": 560,
-        "y": 40
-      }
-    }
-  }
+export const EDIT_TEAM_START_POLICY: FlowPolicy = TEAM_START_POLICIES['fix-and-review']
+
+export const BEFORE_TEAM_START_POLICY: FlowPolicy = {
+  ...EDIT_TEAM_START_POLICY,
+  roles: EDIT_TEAM_START_POLICY.roles.map(role => role.id === 'fixer' && role.kind === 'agent' ? { ...role, grant: 'publish' } : role),
+  rules: EDIT_TEAM_START_POLICY.rules.map(rule => rule.id === 'review-it' ? {
+    ...rule, when: { every: ['published'] },
+    then: { role: 'reviewer', title: 'Review the pull request', detail: "Review the pull request the fixer's context package names independently." },
+  } : rule.id === 'fix-again' ? {
+    ...rule, then: { role: 'fixer', title: 'Answer the reviews', detail: 'Answer every finding, push to the same branch, and publish again.' },
+  } : rule.id === 'hand-to-the-person' ? {
+    ...rule, then: { role: 'referee', title: 'Merge it — every reviewer approved', detail: 'Merging is yours; no agent in this flow may do it.' },
+  } : rule),
+  seed: { role: 'fixer', title: '{{work}}', detail: 'Open a pull request for it when it is done and working.' },
 }

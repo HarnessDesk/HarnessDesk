@@ -6,11 +6,11 @@ import { StoreProvider } from '../state/context'
 import type { AppSnapshot, AppStore } from '../state/store'
 import { useTheme } from '../state/theme'
 import { teamStartStore } from './frames-team-start'
-import { EDIT_TEAM_START_POLICY } from './front-door-edit-fixture'
+import { BEFORE_TEAM_START_POLICY, EDIT_TEAM_START_POLICY } from './front-door-edit-fixture'
 import '../styles/app.css'
 
-// A separate specimen during the frame redesign: no existing preview or
-// frame is rewritten. The before mode reproduces the former publish grant.
+// The current specimen shares the canonical policy; before explicitly
+// reproduces the former publication contract.
 const makeStore = (): AppStore => {
   const base = teamStartStore()
   const patch = (base as unknown as { patch: (value: Partial<AppSnapshot>) => void }).patch
@@ -20,7 +20,7 @@ const makeStore = (): AppStore => {
   }))
   patch({ runtimes })
   const before = new URLSearchParams(location.search).has('before')
-  const policy: FlowPolicy = { ...EDIT_TEAM_START_POLICY, roles: EDIT_TEAM_START_POLICY.roles.map(role => before && role.id === 'fixer' && role.kind === 'agent' ? { ...role, grant: 'publish' } : role) }
+  const policy = before ? BEFORE_TEAM_START_POLICY : EDIT_TEAM_START_POLICY
   return new Proxy(base, { get(target, key, receiver) {
     if (key === 'flowSource') return async () => JSON.stringify(policy)
     if (key === 'previewFrontDoor') return async (input: FrontDoorPreviewInput) => {
