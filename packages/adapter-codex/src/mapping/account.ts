@@ -1,6 +1,23 @@
 import type { CodexProtocol } from '@harnessdesk/codex'
 import type { Account, AuthMethod, LoginStart } from '@harnessdesk/protocol'
 
+/** Source plan identifiers stay in the adapter; the renderer receives their presentation. */
+const PLAN_LABELS: Record<CodexProtocol.PlanType, string> = {
+  free: 'Free', go: 'Go', plus: 'Plus', pro: 'Pro', prolite: 'Pro Lite', promax: 'Pro Max',
+  team: 'Team', self_serve_business_prolite: 'Business Pro Lite',
+  self_serve_business_usage_based: 'Business Usage Based', business: 'Business',
+  ent26: 'Enterprise', enterprise_cbp_automation: 'Enterprise Automation',
+  enterprise_cbp_usage_based: 'Enterprise Usage Based', enterprise: 'Enterprise',
+  edu: 'Education', edu_plus: 'Education Plus', edu_pro: 'Education Pro', unknown: 'Unknown',
+}
+
+export const mapPlanLabel = (raw: string | null | undefined): string | null => {
+  if (raw == null || !raw.trim()) return null
+  if (Object.hasOwn(PLAN_LABELS, raw)) return PLAN_LABELS[raw as CodexProtocol.PlanType]
+  return raw.trim().replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ')
+    .replace(/^self\s+serve\s+/i, '').toLowerCase().replace(/\b[a-z]/g, letter => letter.toUpperCase())
+}
+
 /**
  * Codex's account model → the protocol's.
  *

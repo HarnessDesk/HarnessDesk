@@ -819,6 +819,18 @@ A tinted face is filled with its tint's ink and uses the accent foreground for
 its mark or initials. A tinted ring is hollow, its edge in the tint and its
 mark in the tint's ink. A tinted square keeps the soft tint wash.
 
+A maker's mark (`BrandMark`, and `RuntimeMark` and `ModelMark` through it) is
+drawn in its maker's own colours wherever lobe-icons has a colour file, because a
+logo is recognised by its colour before its shape. Each such mark also carries
+its one-colour drawing on `currentColor`, and that drawing shows instead on an
+identity's own ground: any element with `data-tint` or `data-color` (a tinted
+face or ring, a listing's colour tile) or `data-off` (a signed-out seat). The
+tint carries the meaning there, and two colours in one disc fight. The switch is
+one rule in `styles/app.css`, so a new face gets it without a prop. A maker with
+no colour file is drawn in ink everywhere. A colour file that is not drawn for a
+page is corrected in `COLOUR_FIXES` (Codex's app-icon square, Kimi's white K),
+and each fix is tested to still find what it removes.
+
 A new surface cannot draw someone in a fixed corner without a test failing.
 `IconTile`, `DetailMark`, `AvatarStack`, `Face`, `AccountMark` and a notice’s
 face each declare what they drew with `data-shape` (`face`, `round`, `square`), and two tests read
@@ -1941,6 +1953,15 @@ preview also mounts the production sidebar and an open Team that can be wrapped
 under a dialog, and an open Team whose Assign dialog sits beside a wrapped Team's
 kept conversation.
 
+### Board cards
+
+`CompactBoardCard` (`packages/ui/src/design/patterns/BoardCard.tsx`) owns the compact clickable card
+frame: a truncated identity and optional aside, an optional attention detail,
+then optional middle and footer
+slots. It composes the shared Button and Card. Callers supply their own
+metadata, hover text and description ids; Teams supplies its Run path and
+Seat, project and age facts without changing the frame.
+
 ### Board columns
 
 The Team Board keeps occupied state columns at their full width. Empty states
@@ -2092,6 +2113,24 @@ stops. Scrolling never adds a per-screen scrollbar skin. The frame contract
 checks that a resting thumb is invisible, that scrolling reveals it, and that
 it fades again.
 
+## First-run composition
+
+A draft always has an enabled text box, focused on entry. **Choose folder**
+is a folder icon and label in the existing toolbar; after a choice, it shows
+the folder name with its full path in the title. The folder picker and the
+worktree chooser compose the existing small buttons and menu controls, on
+one centre line with the toolbar's spacing. Choosing a folder adds no row and
+changes no composer height. Send may ask for a folder, and cancellation keeps
+what was typed.
+
+The empty pane has one heading and one line of task guidance. Installed
+agents follow in a compact, vertically centred row of names and small
+secondary Add buttons beside **Installed on this Mac**. Neither the pane nor
+the sidebar explains other clients' history. The sidebar has no global empty-state text. Projects retains its heading and
+controls with zero or more projects; a project earns its own empty row. Draft Details shows facts: **Not chosen** or the folder name
+with a full-path title, **No usage yet**, a known branch, and a plan only when
+one exists. Unknown permission and branch prose earns no row in a draft.
+
 ## Composer selected values
 
 Permission and Mode tracks keep their selected values at their natural width.
@@ -2184,6 +2223,17 @@ the label. Read shows fetched bytes as plain text. The plan's acknowledgement
 belongs to incoming fetched files that can run or are binary, and gates Apply.
 `preview.html?library-github` shows selection; `?library-github=plan` shows
 the file review, both using the method-aware placeholder repository fixture.
+
+
+## New conversation defaults
+
+General's **New conversations** section uses the existing Settings Rows and
+menu controls for runtime, permission, model and effort. Recommended is a
+choice in each option menu; the adapter's actual recommendation is its hover
+title. General, runtime New sessions and Permissions › Approvals show a
+refused recommendation in the shared warning Banner while leaving
+the choice rows available for recovery. This section adds no control or token
+spelling of its own.
 
 ## Runtime brand identity and registry browsing
 

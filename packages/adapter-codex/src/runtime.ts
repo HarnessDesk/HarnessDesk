@@ -230,7 +230,6 @@ const PRESENTATION = {
   name: 'Codex',
   brand: 'codex',
   tagline: "OpenAI's coding agent, running locally through the Codex CLI.",
-  historySource: 'the Codex CLI or the VS Code extension',
   signIn: { command: 'codex login' },
   signOut: { command: 'codex logout' },
   configLocation: '~/.codex',

@@ -170,12 +170,14 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(askCommit).toHaveBeenCalledWith('/workspace/repo')
   })
 
-  it('shows no sessions empty state rather than connect runtime when active runtime is ready', () => {
-    mount()
-    const empty = container.querySelector('[data-slot="empty-state"]')
-    expect(empty).not.toBeNull()
-    expect(empty?.textContent).not.toContain('Connect a runtime to see your sessions.')
-    expect(empty?.textContent).toContain('No sessions yet.')
+  it.each([false, true])('has no global empty text with a project: %s (#1720)', project => {
+    mount({ workspace: project ? { path: '/workspace/repo', name: 'repo', lastOpenedAt: 1 } : null,
+      workspaces: project ? [{ path: '/workspace/repo', name: 'repo', lastOpenedAt: 1 }] : [] })
+    expect(container.textContent).not.toContain('No sessions yet')
+    expect(container.textContent).not.toContain('show up too')
+    expect(container.querySelector('[data-left-projects-head]')).not.toBeNull()
+    expect(container.textContent).toContain('Projects')
+    if (project) expect(container.textContent).toContain('No conversations yet — ⌘N starts one here.')
   })
 
   it.each(['no matches', 'Agent-filtered matches'])('shows one clearable empty state with %s', async (scenario) => {
@@ -310,8 +312,8 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(moreWays?.disabled).toBe(false)
 
     const empty = container.querySelector('[data-slot="empty-state"]')
-    expect(empty).not.toBeNull()
-    expect(empty?.textContent).toContain('Connect a runtime to see your sessions.')
+    expect(empty).toBeNull()
+    expect(container.textContent).not.toContain('Connect a runtime to see your sessions.')
   })
 })
 

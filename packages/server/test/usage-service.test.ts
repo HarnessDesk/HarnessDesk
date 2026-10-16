@@ -19,6 +19,19 @@ import { LedgerStore } from '../src/ledger/store.js'
 const METERED = runtimeId('metered')
 const SILENT = runtimeId('silent')
 
+test('usage carries adapter plan presentation beside its raw type', async () => {
+  const agent = runtime(METERED)
+  const reporting = { ...agent, info: { ...agent.info, capabilities: { ...agent.info.capabilities, metered: true } },
+    getRateLimits: async () => ({ planType: 'self_serve_business_prolite', planLabel: 'Business Pro Lite',
+      windows: [{ label: 'Weekly', usedPercent: 30, windowMinutes: 10_080, resetsAt: null }] }) }
+  const usage = new UsageService({ runtimes: () => [reporting], meters: new Map(), onReport: () => {} })
+  try {
+    const report = (await usage.reports())[0]!
+    assert.equal(report.plan, 'self_serve_business_prolite')
+    assert.equal(report.planLabel, 'Business Pro Lite')
+  } finally { usage.dispose() }
+})
+
 const runtime = (id: RuntimeId): AgentRuntime =>
   ({
     info: { id, name: String(id), capabilities: { metered: false }, presentation: { name: String(id) } },

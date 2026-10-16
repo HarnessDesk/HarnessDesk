@@ -186,5 +186,5 @@ it('asks for a binary-only incoming file but asks nothing for a removed script',
   await mount(planNode, vi.fn(async () => ({ plannedAt: 1, ops: [{ ...op, files: [{ ...files[1]!, change: 'removed' }] }] })))
   expect(document.body.querySelector('[role="checkbox"]')).toBeNull()
   expect(button('Apply 1 change').disabled).toBe(false)
-  expect(document.body.textContent).toContain('removed · 118 B')
+  expect(document.body.textContent).toContain('Removed · 118 B')
 })

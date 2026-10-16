@@ -367,11 +367,6 @@ export interface RuntimePresentation {
   readonly brand?: string
   /** One line on what it is, for the runtime picker. */
   readonly tagline?: string
-  /**
-   * Where sessions in the sidebar come from, phrased to complete
-   * "Sessions you start in … appear here too". Omit when history is local only.
-   */
-  readonly historySource?: string
   /** How a person signs in and out, when there is an account. */
   readonly signIn?: { readonly command?: string; readonly url?: string }
   readonly signOut?: { readonly command?: string }

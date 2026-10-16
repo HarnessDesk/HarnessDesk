@@ -1178,7 +1178,7 @@ const GLYPH: Record<string, string> = {
 }
 
 /**
- * A rate's verdict: the glyph, the signed margin, and the word.
+ * A window's position: the glyph, the margin's magnitude, and the word.
  *
  * Distinct from `Delta` on purpose. `Delta` reports a *change* between two
  * readings and colours it by whether the change is welcome. This reports a
@@ -1196,34 +1196,40 @@ const PaceBadge = ({
   ...props
 }: Omit<React.ComponentProps<'span'>, 'children'> & {
   status: keyof typeof GLYPH | string
-  /** Points above (positive) or below (negative) the sustainable rate. */
+  /** Remaining allowance above (positive) or below (negative) the even-burn line, in points. */
   margin?: number | null
   tone?: Tone
+  /** The state label when no numerical margin applies (for example, full or spent). */
   word: string
-}) => (
-  <span
-    data-slot="pace-badge"
-    data-status={status}
-    className={cn(
-      'inline-flex h-(--hd-chip-h) shrink-0 items-center gap-1 rounded-full px-2 text-xs font-medium whitespace-nowrap tabular-nums',
-      softTone({ tone }),
-      className,
-    )}
-    {...props}
-  >
-    {/* Not sized down: the badge is already the type scale's smallest step,
-        and an arbitrary size here would be one more number that a density or
-        foundation change cannot reach. The glyphs are chosen to sit at that
-        size — `Delta` takes the same approach with its arrows. */}
-    <span aria-hidden className={cn('leading-none', inkTone({ tone }))}>
-      {GLYPH[status] ?? '●'}
+}) => {
+  const points = margin != null && Number.isFinite(margin) ? Math.round(margin) : null
+  const position = points === null ? word : points === 0 ? 'on pace' : points > 0 ? 'over pace' : 'under pace'
+  const glyph = points === null ? GLYPH[status] ?? '●' : points === 0 ? '●' : points > 0 ? '▲' : '▼'
+  return (
+    <span
+      data-slot="pace-badge"
+      data-status={status}
+      className={cn(
+        'inline-flex h-(--hd-chip-h) shrink-0 items-center gap-1 rounded-full px-2 text-xs font-medium whitespace-nowrap tabular-nums',
+        softTone({ tone }),
+        className,
+      )}
+      {...props}
+    >
+      {/* Not sized down: the badge is already the type scale's smallest step,
+          and an arbitrary size here would be one more number that a density or
+          foundation change cannot reach. The glyphs are chosen to sit at that
+          size — `Delta` takes the same approach with its arrows. */}
+      <span aria-hidden className={cn('leading-none', inkTone({ tone }))}>
+        {glyph}
+      </span>
+      {points !== null && (
+        <span>{`${Math.abs(points)}%`}</span>
+      )}
+      <span className="font-normal opacity-80">{position}</span>
     </span>
-    {margin != null && Number.isFinite(margin) && (
-      <span>{`${margin >= 0 ? '+' : '−'}${Math.abs(Math.round(margin))}%`}</span>
-    )}
-    <span className="font-normal opacity-80">{word}</span>
-  </span>
-)
+  )
+}
 
 export {
   BurnDown,

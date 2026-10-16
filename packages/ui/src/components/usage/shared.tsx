@@ -3,6 +3,7 @@ import { type ReactNode, useMemo } from 'react'
 import type { AccountStatus, LedgerReport, LedgerRow, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import { burnWord } from '../../lib/burn'
+import { dashboardReadLabel } from '../../lib/dashboard-read'
 import { prefsForUsage, runtimeTint, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
 import { formatTokens } from '../../lib/context-usage'
 import { agentCoverage, ledgerRuntimeIds } from '../../lib/overview-strip'
@@ -223,7 +224,7 @@ export const Card = ({
   const drawn = drawnReport(report)
   const borrowed = drawn !== report
   const view: ReportView = describeReport(drawn, { now, maxLanes: 3, preference })
-  const plan = planLabel(report.plan)
+  const plan = report.planLabel ?? planLabel(report.plan)
   const spend = report.spend
   // A prepaid balance is something to say, so an agent that has one is not
   // "not metered" — it is an account with nothing to run out of.
@@ -270,7 +271,7 @@ export const Card = ({
       {/* The canonical card inset holds the recorded heading and its state. */}
       <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
         name={drawn.account ?? agent} agent={drawn.account ? agent : undefined}
-        states={<>{shapeChip}<Chip state={state} {...(plan ? { label: plan } : {})} /></>} />
+        states={<>{shapeChip}<Chip state={state} {...(plan ? { label: plan, title: report.plan ?? undefined } : {})} /></>} />
 
       {moneyRow}
 
@@ -325,7 +326,7 @@ export const Card = ({
       </DashboardAccountBody>
 
       <DashboardAccountFoot source={report.source.label} stale={view.stale}
-        age={hero ? <Text role="meta" tone={view.stale ? 'warning' : 'neutral'}>· {view.age}</Text> : undefined}
+        age={hero ? <Text role="meta" tone={view.stale ? 'warning' : 'neutral'}>· {dashboardReadLabel(drawn.fetchedAt, now, performance.timeOrigin)}</Text> : undefined}
         actions={        <Popover
           label={<MoreIcon size={14} />}
           title={`What to do about ${agent}`}

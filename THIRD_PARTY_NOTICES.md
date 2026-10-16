@@ -46,8 +46,11 @@ timings as published. What was changed — one shared frame, no per-icon hover
 handler, the app's code style — is listed in that folder's `index.ts`.
 
 **Lobe Icons — MIT** (`licenses/MIT-lobe-icons.txt`), Copyright (c) 2023 LobeHub.
-Vendor marks, inlined at build time, unmodified except for size and colour. The
-logos are their owners' trademarks, used to identify those products only.
+Vendor marks in their one-colour and colour versions, inlined at build time,
+unmodified except for size and colour, and in two colour files: Codex's
+background square is removed and Kimi's white letter is drawn in the text
+colour. The logos are their owners' trademarks, used to identify those
+products only.
 
 ## Modifications, as Apache-2.0 §4(b) asks
 

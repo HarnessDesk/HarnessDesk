@@ -737,8 +737,8 @@ of the smaller surfaces below, landing on **Overview**. The window is the same
 shell as Settings — a rail of rows down the left, each a real page — and the
 rail lists **views**, not accounts:
 
-1. **Overview** — the whole story on one screen: an accounts summary limited
-   to what needs looking at first, a bento of what it cost beside where it
+1. **Overview** — the whole story on one screen: every account reporting
+   limits, a bento of what it cost beside where it
    went, and when it ran.
 2. **Plans** — every account in one table, sorted by what is left, filtered
    by shape, expanding into its own shape's story; below it, whether it will
@@ -942,10 +942,10 @@ hard way somewhere and is cheaper to design out than to fix:
   release as the *last* of six candidates for that line, which meant the only
   card that ever showed it was one with nothing else wrong — the opposite of
   when it matters. It is a standing rather than a sentence, so it wears the
-  same shape a standing wears everywhere: a glyph, a signed margin, a word.
-  `▲ +14% conserving`, `▼ −33% over pace`, `■ spent`. The margin is what is
-  left *above* the sustainable rate, so its sign matches the picture in the
-  band below: positive is above the diagonal. It is suppressed for a window
+  same shape a standing wears everywhere: a glyph, a magnitude, a word.
+  `▲ 14% over pace`, `▼ 33% under pace`, `● 0% on pace`, `■ spent`. The margin
+  measures allowance left above or below the even-burn line; the arrow and
+  word carry its direction without a second sign. It is suppressed for a window
   that has barely opened, where the arithmetic is noise, and it takes no tone
   until the burn will actually cost something — a lane at 8% left is already
   amber, and a second amber thing on the card saying the same would be one
@@ -1165,14 +1165,15 @@ browser.
 ## The Overview strip
 
 One bordered object above "What is left", four cells on hairlines: **Paid**,
-**Value**, **Turns** and **Tokens**, all four for the same window the Spend
+**Usage cost**, **Turns** and **Tokens**, all four for the same window the Spend
 chart below draws — the Overview's own 7/30/90-day range, the one range
-control this screen already has. Value, Turns and Tokens are also buttons:
+control this screen already has. Usage cost, Turns and Tokens are also buttons:
 clicking one switches that chart between cost, turns and tokens per day
 (`stackDailyMetric`, `lib/ledger.ts`), so reading the figure and choosing what
 the chart plots are the same click. Paid is not a chart measure — there is no
 "paid per day" series the ledger keeps — so its cell is a plain figure, and
 its caption is the one that opens Settings instead.
+Selection is conveyed by the pressed button, without a repeated Selected chip.
 
 **Paid** is cash that actually left, not a list-price estimate: for every
 account in the strip's scope, its `billing.fee` prorated across the days of
@@ -1205,7 +1206,7 @@ it, else whichever currency's sum is largest, and the caption names each
 other currency's own total ("+ €20") rather than silently converting,
 silently dropping, or merely flagging that more exists.
 
-**Value** is the ledger's own total cost for the window — the same figure
+**Usage cost** (the ledger's Value measure) is its total cost for the window — the same figure
 the Spend chart's own headline shows, labelled by provenance exactly as that
 chart's hint is (`provenanceLabel`, "List-price equivalent" and its
 neighbours), because Value is a list-price estimate first and only sometimes

@@ -534,3 +534,12 @@ test('permission profiles from configuration have a named group and keep their s
   assert.equal(profile.group, 'Profiles')
   assert.equal(profile.description, 'From the project')
 })
+
+
+test('new-conversation recommendations come from the catalogue, independent of live settings', () => {
+  const options = sessionOptions({ ...state, model: 'secret', effort: 'high', permissions: ':danger-full-access' }, catalog)
+  assert.equal((findOption(options, 'model') as { recommendedValue?: string }).recommendedValue, 'gpt-5.5')
+  assert.equal((findOption(options, 'effort') as { recommendedValue?: string }).recommendedValue, 'medium')
+  assert.equal((findOption(options, 'permissions') as { recommendedValue?: string }).recommendedValue, ':workspace')
+  assert.equal(findOption(options, 'permissions')?.currentValue, ':danger-full-access')
+})

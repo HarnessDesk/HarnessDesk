@@ -12,6 +12,7 @@ import electronUpdater from 'electron-updater'
 import { createInlineBrowserEngine } from './browser-engine.mjs'
 import { downloadOutcome, remember, uniqueName } from './downloads.mjs'
 import { respondToCrash } from './crash-policy.mjs'
+import { attachQuitSignals } from './quit-signals.mjs'
 import { MARK, drawTrayMeter } from './meter.mjs'
 import { attachAppUpdates, attachAppUpdateBridge } from './app-updates.mjs'
 import { loadMainWindow } from './main-window.mjs'
@@ -990,3 +991,6 @@ app.on('before-quit', async (event) => {
     app.quit()
   }
 })
+
+// SIGTERM must run the same disposal as the menu: ACP agents own separate groups.
+attachQuitSignals(app)

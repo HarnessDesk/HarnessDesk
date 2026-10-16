@@ -63,6 +63,7 @@ const calls = (method: HostMethodName): unknown[] =>
 beforeEach(async () => {
   store = new AppStore('ws://localhost:0/')
   answers = {
+    'runtime/sessionDefaults': [],
     'workspace/open': (params: { path: string }) => (params.path === OTHER.path ? OTHER : REPO),
     'workspace/recent': [REPO, OTHER],
     'worktree/list': [],
