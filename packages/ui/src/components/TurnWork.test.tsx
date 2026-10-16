@@ -59,6 +59,7 @@ it('keeps a failed turn and its failed step closed until each is opened', () => 
 
   const fold = container.querySelector<HTMLButtonElement>('[data-testid="turn-work"] > button')
   expect(fold?.getAttribute('aria-expanded')).toBe('false')
+  expect(fold?.title).toBe('Show what the runtime did')
   expect(fold?.textContent).toContain('· 1 failed')
   // A turn in trouble says so in the fold's label and its chevron, while closed.
   // The label composes the system's own `Text`, so its slot reads `text`

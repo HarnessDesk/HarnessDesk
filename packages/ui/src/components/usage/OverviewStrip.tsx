@@ -165,11 +165,11 @@ export const OverviewStrip = ({
       title:valuePricing ? `Usage cost (${valuePricing}). Switch the chart below to cost per day` : 'Usage cost. Switch the chart below to cost per day',
       selected:metric === 'value',run:()=>onMetricChange('value')},
     ...(currentTurns !== null || turnsCoverage.known > 0 ? [{id:'turns',label:'Turns',value:currentTurns !== null ? currentTurns.toLocaleString() : '—',
-      caption:perTurn !== null ? `${formatMoney(perTurn,currentPaid.currency ?? 'USD')} paid a turn` : turnsCoverage.partial ? `known for ${turnsCoverage.known} of ${turnsCoverage.total} agents` : '',
+      caption:perTurn !== null ? `${formatMoney(perTurn,currentPaid.currency ?? 'USD')} paid a turn` : turnsCoverage.partial ? `known for ${turnsCoverage.known} of ${turnsCoverage.total} runtimes` : '',
       trend:turnsChange !== null ? <Delta value={Math.round(turnsChange)} better="down" tone="neutral" /> : undefined,
       title:'Turns — switch the chart below to turns per day',selected:metric === 'turns',run:()=>onMetricChange('turns')}] : []),
     {id:'tokens',label:'Tokens',value:currentTokens !== null ? formatTokens(currentTokens) : '—',
-      caption:tokensCoverage.partial ? `known for ${tokensCoverage.known} of ${tokensCoverage.total} agents` : tokenSplitCaption(ledger?.totals) ?? '',
+      caption:tokensCoverage.partial ? `known for ${tokensCoverage.known} of ${tokensCoverage.total} runtimes` : tokenSplitCaption(ledger?.totals) ?? '',
       trend:<>{cacheHit !== null && <Chip size="sm" tone="neutral">{Math.round(cacheHit)}% cached</Chip>}{tokensChange !== null && <Delta value={Math.round(tokensChange)} better="down" tone="neutral" />}</>,
       title:'Tokens — switch the chart below to tokens per day',selected:metric === 'tokens',run:()=>onMetricChange('tokens')},
   ]} />

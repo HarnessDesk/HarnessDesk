@@ -141,14 +141,14 @@ test('FIX9 confirmed sign out uses one phrase on the list and detail', async ({ 
 test('FIX9 absent plan reports are explained once', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=overview&frame-empty-usage=1&frame-fix9-silent=1')
   const left = page.getByRole('region', { name: 'What is left', exact: true })
-  await expect(left).toContainText('No agent here reports plan usage.')
+  await expect(left).toContainText('No runtime here reports plan usage.')
   await expect(left).not.toContainText('agents don’t report usage')
 })
 
 test('FIX9 spend grouping uses sentence case', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=spend')
   const options = page.getByRole('combobox', { name: 'Group spend by', exact: true })
-  await expect(options).toContainText('By agent')
+  await expect(options).toContainText('By runtime')
   await expect(options).toContainText('By model')
   await expect(options).toContainText('By project')
 })

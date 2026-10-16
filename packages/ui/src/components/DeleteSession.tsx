@@ -12,7 +12,7 @@ export const DeleteSession = ({ summary, onClose }: { summary: SessionSummary; o
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const runtime = snapshot.runtimes.find(entry => entry.id === summary.runtime)
-  const agent = runtime?.presentation.name ?? 'The agent'
+  const agent = runtime?.presentation.name ?? 'The runtime'
   const label = sessionLabel(summary.title, summary.preview)
   const allowed = runtime?.capabilities.deleteHistory === 'trash'
   const working = (snapshot.sessions.get(sessionKey(summary.runtime, summary.id))?.status ?? summary.status).type === 'active'
@@ -42,7 +42,7 @@ export const DeleteSession = ({ summary, onClose }: { summary: SessionSummary; o
   >
     <p>It moves to the Trash, and {agent} can no longer resume it.</p>
     {working && <p>The running conversation will stop first.</p>}
-    {!allowed && <Note tone="bad">{!runtime ? 'This conversation’s agent is unavailable.' : `${agent} cannot move it to the Trash.`}</Note>}
+    {!allowed && <Note tone="bad">{!runtime ? 'This conversation’s runtime is unavailable.' : `${agent} cannot move it to the Trash.`}</Note>}
     {error && <Note tone="bad">{error}</Note>}
   </ConfirmDialog>
 }

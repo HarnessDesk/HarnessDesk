@@ -841,7 +841,7 @@ having written the judgement down.
 
 **Use** — Something is broken, or will be lost: a failed check, a missing executable, an action that deletes.
 
-**Not** — For a stop the person asked for. "The agent was stopped." after pressing Stop is neutral — it is the outcome they chose.
+**Not** — For a stop the person asked for. "The runtime was stopped." after pressing Stop is neutral — it is the outcome they chose.
 
 **Why** — Red is the loudest thing a screen can say. Spent on an outcome the reader chose, it teaches them to look past the red that matters.
 

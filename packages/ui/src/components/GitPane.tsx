@@ -881,7 +881,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           <Text role="muted" tone="warning" className={styles.troubleWhat}>{conflicted.said}</Text>
           <Button variant="secondary" size="sm" onClick={() => setAsking(conflicted)}>
             <AgentIcon size={13} />
-            Ask an agent to fix this
+            Ask a runtime to fix this
           </Button>
           <Button variant="secondary" size="sm" onClick={() => store.openDetailsTab('changes')}>
             Open Changes
@@ -1169,7 +1169,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             <MenuSeparator />
             <MenuItem
               icon={<CommitIcon size={14} />}
-              label="Ask the agent to revert this commit"
+              label="Ask the runtime to revert this commit"
               hint="Puts the request in the composer; you send it."
               disabled={session ? false : 'Open a conversation first.'}
               onSelect={() =>
@@ -1180,7 +1180,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             />
             <MenuItem
               icon={<CommitIcon size={14} />}
-              label="Ask the agent to cherry-pick it"
+              label="Ask the runtime to cherry-pick it"
               hint="Onto the current branch, in the composer."
               disabled={session ? false : 'Open a conversation first.'}
               onSelect={() =>

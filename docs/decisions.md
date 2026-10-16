@@ -3649,3 +3649,14 @@ segment and bar. Resolve across the whole roster, reserving distinct brand
 tints first. The first runtime with a tint keeps it; later duplicates borrow
 the next unused roster tint for both series and ranked face. Plans faces,
 account preferences, other pivots and the folded Other row retain their rules.
+## Agent is a role; Runtime runs the conversation — 2026-10-16
+
+For issue #1675 D1, the owner chose B: an Agent is a saved role such as
+Implementer, Judge or Code reviewer. A Runtime is the program that runs a
+conversation. The composer, Settings group, Library loaders, account and
+history surfaces use runtime when they refer to `RuntimeInfo`. Runtime names
+still come from its presentation and features from its capabilities.
+
+The Agents page, Team roles, Seats, sub-agents and Library’s Declared by
+filter keep their role meaning. This is a copy boundary; identifiers, wire
+methods, protocol fields and file names keep their existing spellings.

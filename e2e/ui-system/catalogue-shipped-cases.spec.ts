@@ -106,7 +106,7 @@ test('the catalogue renders refused and partial TurnFiles states', async ({ page
   await expect(refused).toBeVisible()
   await expect(refused.getByRole('button', { name: 'Undo the rest' })).toBeVisible()
   await expect(refused.getByRole('button', { name: /empty\.tsdeleted/ })).toBeVisible()
-  await expect(page.getByText('Cannot put back /workspace/src/empty.ts: the agent recorded no content for it. Nothing was changed.')).toBeVisible()
+  await expect(page.getByText('Cannot put back /workspace/src/empty.ts: the runtime recorded no content for it. Nothing was changed.')).toBeVisible()
 
   const partial = caseLabel(page, 'partial Undo: Close stays greyed until the half changed turn is resolved')
   await expect(partial).toBeVisible()

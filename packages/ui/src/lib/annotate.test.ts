@@ -64,7 +64,7 @@ describe('the block that travels with the picture', () => {
 
   it('says the picture is missing rather than pretending it is attached', () => {
     const text = annotationContext(page, [comment()], { withImage: false })
-    expect(text).toContain('this agent takes no images')
+    expect(text).toContain('this runtime takes no images')
     expect(text).not.toContain('The attached image')
   })
 

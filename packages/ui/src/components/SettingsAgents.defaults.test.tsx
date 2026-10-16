@@ -51,7 +51,7 @@ it('shows a clear-default rejection and leaves choices available for recovery', 
   vi.spyOn(store, 'clearNewSessionDefault').mockRejectedValue(new Error('Recommendation unavailable.'))
   Object.assign(store.getSnapshot(), { staleDraftDefaults: { [runtime]: [{ id: 'retired', label: 'Mode', value: 'old', valueLabel: 'Old', reason: 'Removed.' }] } })
   await mount(store)
-  const clear = [...host.querySelectorAll('button')].find(node => node.textContent?.includes('Use the agent’s current value'))!
+  const clear = [...host.querySelectorAll('button')].find(node => node.textContent?.includes('Use the runtime’s current value'))!
   await act(async () => clear.click())
   expect(host.textContent).toContain('Recommendation unavailable.')
   expect(host.querySelector('select[aria-label="Permissions"]')).toBeTruthy()

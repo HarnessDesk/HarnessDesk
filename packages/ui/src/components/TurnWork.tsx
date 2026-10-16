@@ -126,7 +126,7 @@ export const TurnWork = ({
         variant="row" size="row" className={`${styles.head} gap-1.5`}
         aria-expanded={open}
         onClick={() => setChoice(!open)}
-        title={open ? 'Fold the work away' : 'Show what the agent did'}
+        title={open ? 'Fold the work away' : 'Show what the runtime did'}
       >
         <TurnWorkHeaderLabel state={line.trouble ? 'trouble' : running && !waiting ? 'running' : 'done'}>{waiting ? 'Work paused' : line.head}</TurnWorkHeaderLabel>
         {/* The receipt stands in for the rows, so it shows when they do not:

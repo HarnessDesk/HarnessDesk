@@ -36,7 +36,7 @@ for (const theme of ['light', 'dark'] as const) {
     await offer.getByRole('button', { name: 'Add Gamma', exact: true }).click()
     await expect(offer).toHaveCount(0)
     // The runtime chooser carries its question in its title; folded, the title also names the runtime.
-    const chooser = page.getByRole('button').and(page.getByTitle(/Which agent starts this conversation$/))
+    const chooser = page.getByRole('button').and(page.getByTitle(/Which runtime starts this conversation$/))
     await expect(chooser).toHaveAccessibleName(/^Alpha/)
     await expect(chooser).toBeEnabled()
     await chooser.click()

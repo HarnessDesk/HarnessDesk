@@ -133,7 +133,7 @@ it('names a stale removed option and deletes its saved pick with one click', asy
   const { clearNewSessionDefault } = await mount(DECLARED, [{ id: 'retired-mode', label: 'Mode', category: 'mode', value: 'old-mode', valueLabel: 'Old mode', reason: 'This setting is no longer offered.' }])
   expect(container.textContent).toContain('Saved Mode: Old mode')
   expect(container.textContent).toContain('This setting is no longer offered.')
-  const clear = [...container.querySelectorAll('button')].find((node) => node.textContent?.includes('Use the agent’s current value'))!
+  const clear = [...container.querySelectorAll('button')].find((node) => node.textContent?.includes('Use the runtime’s current value'))!
   await act(async () => { clear.click() })
   expect(clearNewSessionDefault).toHaveBeenCalledWith(INFO.id, 'retired-mode')
   expect(container.textContent).not.toContain('Old mode')

@@ -289,16 +289,16 @@ describe('the heatmap band', () => {
 
     const byAgent = document.querySelector<HTMLSelectElement>('select[aria-label="Show by"]')!
     await act(async () => { byAgent.value = 'agent'; byAgent.dispatchEvent(new Event('change', {bubbles:true})) })
-    expect(isPressed('By agent')).toBe(true)
+    expect(isPressed('By runtime')).toBe(true)
 
     const callsAfterToggle = ledgerMock.mock.calls.length
     await act(async () => railButton('Activity').click())
     expect(document.body.textContent).toContain('When it ran')
     // Still on "By agent" — the toggle is shared state, not reset by the switch.
-    expect(isPressed('By agent')).toBe(true)
+    expect(isPressed('By runtime')).toBe(true)
 
     await act(async () => railButton('Overview').click())
-    expect(isPressed('By agent')).toBe(true)
+    expect(isPressed('By runtime')).toBe(true)
     expect(ledgerMock.mock.calls.length).toBe(callsAfterToggle)
   })
 })

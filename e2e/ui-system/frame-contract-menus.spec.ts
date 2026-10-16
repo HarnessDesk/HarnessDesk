@@ -14,7 +14,7 @@ test('R10.28 Projects keeps submenu values and chevrons inside the popup', async
   await page.getByTitle('How this list is shown', { exact: true }).click()
   const menu = page.locator('[data-popup-kind="menu"]:visible').last()
   await expectMenuGeometry(menu)
-  for (const value of ['Recency', 'All agents']) {
+  for (const value of ['Recency', 'All runtimes']) {
     const row = menu.locator('[data-menu-row]').filter({ hasText: value }).first()
     const trailing = row.locator('[data-menu-trailing]')
     const geometry = await trailing.evaluate((node, wanted) => {
@@ -82,13 +82,13 @@ test('S17 New session menu uses a branch for worktrees and the neutral open plat
   expect(colors.actual).toBe(colors.expected)
 })
 
-test('S17 Projects keeps Show agents values on one line', async ({ page }) => {
+test('S17 Projects keeps Show runtimes values on one line', async ({ page }) => {
   await openFrame(page, 'frame-wall=left-work', 'light', 1100)
   await applyLeftColumnActions(page, { leftOpen: true })
   await page.getByTitle('How this list is shown', { exact: true }).click()
   const menu = page.locator('[data-popup-kind="menu"]:visible').last()
   await expectMenuGeometry(menu)
-  const show = menu.locator('[data-menu-row]').filter({ hasText: 'Show agents' })
+  const show = menu.locator('[data-menu-row]').filter({ hasText: 'Show runtimes' })
   expect(await show.locator('[data-menu-trailing]').evaluate(node => getComputedStyle(node).whiteSpace)).toBe('nowrap')
 })
 

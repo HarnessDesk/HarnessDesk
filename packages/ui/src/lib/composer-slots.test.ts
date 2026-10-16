@@ -107,6 +107,6 @@ it('describes missing options, removed choices and agent-rejected values with th
   expect(mapping.staleDefaults?.({ model: 'old', mode: 'plan', effort: 'high', accepted: false }, options, before)).toEqual([
     { id: 'model', label: 'Model', category: 'model', value: 'old', valueLabel: 'Old model', reason: 'This value is no longer offered.' },
     { id: 'mode', label: 'Mode', category: 'mode', value: 'plan', valueLabel: 'Plan', reason: 'This setting is no longer offered.' },
-    { id: 'effort', label: 'Effort', category: 'thought_level', value: 'high', valueLabel: 'High', reason: 'The agent returned a different value.' },
+    { id: 'effort', label: 'Effort', category: 'thought_level', value: 'high', valueLabel: 'High', reason: 'The runtime returned a different value.' },
   ])
 })

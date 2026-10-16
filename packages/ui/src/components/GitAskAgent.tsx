@@ -84,7 +84,7 @@ export const AskAgentDialog = ({
 
   return (
     <Dialog
-      title="Ask an agent to fix this"
+      title="Ask a runtime to fix this"
       icon={<AgentIcon size={16} />}
       size="lg"
       onClose={() => onDone(false)}
@@ -104,10 +104,10 @@ export const AskAgentDialog = ({
 
         {runtimes.length === 0 ? (
           <ActionError>
-            No agents are set up yet, so there is nobody to ask. Add one in Settings first.
+            No runtimes are set up yet, so there is nobody to ask. Add one in Settings first.
           </ActionError>
         ) : (
-          <div className={styles.agents} role="radiogroup" aria-label="Which agent">
+          <div className={styles.agents} role="radiogroup" aria-label="Which runtime">
             {runtimes.map((entry) => (
               <Button
                 key={entry.id}
@@ -138,7 +138,7 @@ export const AskAgentDialog = ({
               value={prompt}
               rows={12}
               spellCheck={false}
-              aria-label="The prompt the agent is sent"
+              aria-label="The prompt the runtime is sent"
               onChange={(event) => setPrompt(event.target.value)}
             />
           )}
@@ -176,7 +176,7 @@ export const TroubleNote = ({
     {trouble && (
       <Button variant="secondary" size="sm" className={styles.troubleDo} onClick={() => onAsk(trouble)}>
         <AgentIcon size={13} />
-        Ask an agent to fix this
+        Ask a runtime to fix this
       </Button>
     )}
   </Alert>

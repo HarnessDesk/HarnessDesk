@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { E2E_PAGES } from './ci-imports.mjs'
 
 const api = () => import('./ui-system-run.mjs')
 const fixture = async run => {
@@ -67,6 +68,8 @@ test('only an explicit prebuilt signal trusts an artifact; local runs and CI emu
     put('packages/ui/dist-e2e/narrow-overlay.html')
     assert.equal(hasE2EBuild(root), false, 'the embedded Seat page is required too')
     put('packages/ui/dist-e2e/src/preview/tile-page.html')
+    assert.equal(hasE2EBuild(root), false, 'the runtime copy repair page is required too')
+    for (const page of E2E_PAGES) put(`packages/ui/dist-e2e/${page}`)
     assert.equal(hasE2EBuild(root), true)
     const ci = planRun(root, { specs, env: { UI_SYSTEM_PAGES: 'prebuilt' } })
     assert.deepEqual(ci.build, [], 'CI never builds in a shard')

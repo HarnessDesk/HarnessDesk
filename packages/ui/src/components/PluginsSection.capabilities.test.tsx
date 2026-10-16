@@ -213,8 +213,8 @@ it('an agent that takes the server says so once for the tool group', () => {
   mount(makeStore(runtime('codex', 'Codex', true)))
   openCapabilities()
   const note = container.querySelector('section[aria-label="2 tools"] [data-slot="section-description"]')
-  expect(note?.textContent).toContain('Reaches agent')
-  expect([...container.querySelectorAll('[data-slot="chip"]')].some(chip => chip.textContent === 'Reaches agent')).toBe(false)
+  expect(note?.textContent).toContain('Reaches runtime')
+  expect([...container.querySelectorAll('[data-slot="chip"]')].some(chip => chip.textContent === 'Reaches runtime')).toBe(false)
   expect(container.textContent).not.toContain('Own config only')
 })
 

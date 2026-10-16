@@ -10,7 +10,7 @@ for (const theme of ['light', 'dark'] as const) {
     if (frames) await page.screenshot({ path: `${frames}/capabilities-${theme}.png` })
     await expect(tools.locator('[data-slot="row-title"]').first()).toHaveText('Open a page')
     await expect(tools.locator('[data-slot="row-desc"]').first()).toHaveText('Browser')
-    await expect(tools.locator('[data-slot="section-description"]')).toContainText('Reaches agent')
+    await expect(tools.locator('[data-slot="section-description"]')).toContainText('Reaches runtime')
     await expect(tools.locator('[data-slot="chip"]')).toHaveCount(0)
   })
   test(`plugin tool exceptions stay beside their titles in ${theme}`, async ({ page }) => {

@@ -76,7 +76,7 @@ it('each kind says where it is shown, offers only the places it may go, and Off'
   const spent = select('Out of quota')
   expect(spent.value).toBe('composer')
   expect([...spent.options].map((option) => option.value)).toEqual(['composer', 'strip', 'inbox', 'off'])
-  expect(select('Import from your other agents').value).toBe('card')
+  expect(select('Import from your other runtimes').value).toBe('card')
 })
 
 it('states how many messages are muted in the summary row', () => {

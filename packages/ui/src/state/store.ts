@@ -1049,7 +1049,7 @@ export class AppStore {
     })
     // Remembered across launches; losing the user's runtime pick on every
     // restart made the shell feel like it had a favourite vendor.
-    void this.#writePreference({ activeRuntime: runtime }, 'The agent you picked')
+    void this.#writePreference({ activeRuntime: runtime }, 'The runtime you picked')
     // Choosing a crashed agent is also "selecting it again": it comes back
     // up, and its health change re-reads the surface once it is ready.
     if (crashed) void this.refreshCatalog()
@@ -1761,7 +1761,7 @@ export class AppStore {
    */
   async signInAgent(runtime: RuntimeId): Promise<void> {
     const name =
-      this.#snapshot.runtimes.find((entry) => entry.id === runtime)?.presentation.name ?? 'That agent'
+      this.#snapshot.runtimes.find((entry) => entry.id === runtime)?.presentation.name ?? 'That runtime'
     const known = this.#snapshot.accountsByRuntime[runtime]?.signInMethods
     let methods = known
     if (methods === undefined) {
@@ -1815,9 +1815,9 @@ export class AppStore {
       this.resultNotice(
         'info',
         applied === 'restarted'
-          ? `Key stored. ${name ?? 'The agent'} restarted with it.`
+          ? `Key stored. ${name ?? 'The runtime'} restarted with it.`
           : applied === 'busy'
-            ? `Key stored. ${name ?? 'The agent'} is mid-turn; it picks the key up on its next start.`
+            ? `Key stored. ${name ?? 'The runtime'} is mid-turn; it picks the key up on its next start.`
             : 'Key stored.',
       )
       return true
@@ -6299,7 +6299,7 @@ export class AppStore {
     const selectors = Object.fromEntries(Object.entries({ ...draftRecommendations(declared, asked), ...asked }).filter(([id]) =>
       declared.some((one) => one.id === id && (one.category === 'model' || one.category === '_profile'))))
     const invalidSelectors = new Set(staleDefaults(selectors, declared)
-      .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+      .filter((one) => one.reason !== 'The runtime returned a different value.').map((one) => one.id))
     const validSelectors = Object.fromEntries(Object.entries(selectors).filter(([id]) => !invalidSelectors.has(id)))
     const fallbackSelectors = Object.fromEntries(Object.entries(draftRecommendations(declared,
       Object.fromEntries(Object.entries(asked).filter(([id]) => !invalidSelectors.has(id)))))
@@ -6310,7 +6310,7 @@ export class AppStore {
       if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
     }
     const invalid = new Set(staleDefaults(asked, declared, this.#draftOptionsByRuntime[runtime])
-      .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+      .filter((one) => one.reason !== 'The runtime returned a different value.').map((one) => one.id))
     const saved = Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id)))
     const applicable = modelFirstValues({ ...draftRecommendations(declared, saved), ...saved }, declared)
     let options = Object.keys(applicable).length > 0
@@ -6586,7 +6586,7 @@ export class AppStore {
       // partial success rather than a success — hence the warning.
       const without =
         skipped.length > 0
-          ? ` ${skipped.join(', ')} ${skipped.length === 1 ? 'was' : 'were'} left alone: the agent recorded nothing to put back there.`
+          ? ` ${skipped.join(', ')} ${skipped.length === 1 ? 'was' : 'were'} left alone: the runtime recorded nothing to put back there.`
           : ''
       this.resultNotice(
         skipped.length > 0 ? 'warning' : 'info',
@@ -8166,7 +8166,7 @@ export class AppStore {
     const skipPaint = surfaceFor(policy, kind) === null || (!old && wasKept(policy, key)) ||
       (event.id && old?.lastEvent === event.id) ||
       (old && event.id && event.count !== undefined && event.at !== undefined && event.at <= old.at && event.count <= (old.count ?? 1))
-    const name = this.#snapshot.runtimes.find(info => info.id === runtime)?.presentation.name ?? 'The agent'
+    const name = this.#snapshot.runtimes.find(info => info.id === runtime)?.presentation.name ?? 'The runtime'
     const settings = detail?.settings ?? []
     const title = kind === 'runtime:config' && settings.length > 0
       ? `${name} ignored ${settings.length} ${settings.length === 1 ? 'setting' : 'settings'} in its config file`

@@ -526,14 +526,14 @@ const ControlBoard = () => {
             {SWITCH_CATALOG_ON.map((value) => (
               <SwitchShape key={value} checked={value === 'true'} data-catalog-on={value} />
             ))}
-            <Switch checked aria-label="Managed by the agent" disabled />
+            <Switch checked aria-label="Managed by the runtime" disabled />
           </div>
         </Case>
         <Case label="native select variants and sizes">
           <div className="grid w-full gap-2" data-catalog-states={NATIVE_SELECT_CATALOG_STATES.join(' ')}>
             {NATIVE_SELECT_CATALOG_VARIANTS.map((variant) => (
               <NativeSelect key={variant} variant={variant} data-catalog-variant={variant} aria-label={`${variant} model`} defaultValue="default">
-                <option value="default">The agent&apos;s default</option>
+                <option value="default">The runtime&apos;s default</option>
                 <option value="fast">Fast</option>
               </NativeSelect>
             ))}
@@ -582,7 +582,7 @@ const ControlBoard = () => {
       <p className={styles.rule}>
         A toggle is a <code>&lt;button role=&quot;switch&quot;&gt;</code> rather than a checkbox
         because every one of these takes effect the moment it is pressed — there is no form to
-        submit. Passing no <code>onChange</code> is how a control says the agent owns this setting;
+        submit. Passing no <code>onChange</code> is how a control says the runtime owns this setting;
         it disables itself rather than lying about being editable.
       </p>
     </>
@@ -700,7 +700,7 @@ const RowBoard = () => {
           <AccountMark size="sm" data-off=""><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
         </div>
 
-        <SectionHead name="When an agent asks to run something" />
+        <SectionHead name="When a runtime asks to run something" />
         <Rows>
           {[
             { id: 'ask', title: 'Ask every time', desc: 'Nothing runs until you say so.' },
@@ -738,13 +738,13 @@ const RowBoard = () => {
 
 const HeadBoard = () => (
   <>
-    <Specimen measure="page" caption="An Agents page, and one row drilled into">
+    <Specimen measure="page" caption="A Runtimes page, and one row drilled into">
     <div className={styles.stack}>
       <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
-      <SectionHead name={<span data-slot="page-title-case" data-catalog-size="page">Agents</span>}
-        description="Which coding agents this app can start a session with."
-        action={<Button variant="outline" size="sm">Add an agent</Button>} />
-      <SectionHead name="Browser" description="Drive a page and read it back. Available to agents that accept plugin tools." action={<Button variant="outline" size="sm">Remove</Button>} />
+      <SectionHead name={<span data-slot="page-title-case" data-catalog-size="page">Runtimes</span>}
+        description="Which runtimes this app can start a session with."
+        action={<Button variant="outline" size="sm">Add a runtime</Button>} />
+      <SectionHead name="Browser" description="Drive a page and read it back. Available to runtimes that accept plugin tools." action={<Button variant="outline" size="sm">Remove</Button>} />
     </div>
     </Specimen>
     <p className={styles.rule}>
@@ -782,20 +782,20 @@ const FaceBoard = () => (
    desk's own situations, so the board reads as the app would. */
 const NOTICE_NOW = 30 * 60_000
 const NOTICE_CARD: NoticeMessage[] = [
-  { id: 'update', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 and one agent update are ready.', action: { label: 'Relaunch', onSelect: () => {}, shortcut: '⌘R' } },
-  { id: 'offer', title: 'Skills and servers to share', body: 'Your other agents have some this machine could use. Nothing is copied until you confirm.', action: { label: 'Review in Library', onSelect: () => {} } },
+  { id: 'update', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 and one runtime update are ready.', action: { label: 'Relaunch', onSelect: () => {}, shortcut: '⌘R' } },
+  { id: 'offer', title: 'Skills and servers to share', body: 'Your other runtimes have some this machine could use. Nothing is copied until you confirm.', action: { label: 'Review in Library', onSelect: () => {} } },
 ]
 const NOTICE_STRIP: NoticeMessage[] = [
   { id: 'pace', tone: 'warning', title: 'Alpha can continue.', body: 'Continue when ready.', action: { label: 'Continue with Alpha', onSelect: () => {} } },
   { id: 'signin', tone: 'danger', title: 'Cursor is not signed in.', action: { label: 'Sign in', onSelect: () => {} } },
 ]
 const NOTICE_STRIP_MANY: NoticeMessage[] = [
-  { id: 'strip-limit', tone: 'warning', title: 'Agent B has reached its weekly limit.' },
-  { id: 'strip-signin', tone: 'danger', title: 'Agent C is not signed in.' },
+  { id: 'strip-limit', tone: 'warning', title: 'Runtime B has reached its weekly limit.' },
+  { id: 'strip-signin', tone: 'danger', title: 'Runtime C is not signed in.' },
 ]
 const NOTICE_INBOX: InboxMessage[] = [
   { id: 'i0', tone: 'info', from: 'Reviewer', title: 'Keep the old retry count, or raise it to five?', body: 'Five covers the documented flaps; three matches the other clients.', action: { label: 'Start as a task', onSelect: () => {} }, at: NOTICE_NOW - 60_000 },
-  { id: 'i1', tone: 'warning', title: 'On course to run out', body: 'Claude Code will run out in 51m, before the window resets.', action: { label: 'Switch agent', onSelect: () => {} }, at: NOTICE_NOW - 4 * 60_000 },
+  { id: 'i1', tone: 'warning', title: 'On course to run out', body: 'Claude Code will run out in 51m, before the window resets.', action: { label: 'Switch runtime', onSelect: () => {} }, at: NOTICE_NOW - 4 * 60_000 },
   { id: 'i2', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 is ready.', at: NOTICE_NOW - 2 * 3_600_000 },
   { id: 'i3', from: 'Checkout hardening', title: 'Goal finished', body: 'Checkout hardening closed its last card.', at: NOTICE_NOW - 26 * 3_600_000, read: true },
 ]
@@ -847,7 +847,7 @@ const NOTICE_LONG_PATH: NoticeMessage = {
 const NOTICE_COMPOSER: NoticeMessage = {
   id: 'composer-limit',
   tone: 'warning',
-  title: 'This conversation cannot start until its agent reconnects.',
+  title: 'This conversation cannot start until its runtime reconnects.',
   body: 'The current conversation stays here while the connection is restored.',
 }
 
@@ -1034,7 +1034,7 @@ const AlertAndBannerExamples = () => (
       >
         Choose how Alpha retries after the failed check.
       </Banner>
-      <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
+      <Banner tone="neutral" title="A newer version of the runtime is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
       </Banner>
       <Banner
@@ -1050,7 +1050,7 @@ const AlertAndBannerExamples = () => (
       </Banner>
       <Banner
         tone="danger"
-        title="The agent stopped responding."
+        title="The runtime stopped responding."
         actions={
           <>
             <BannerAction onClick={() => {}}>Restart</BannerAction>
@@ -1301,7 +1301,7 @@ const catalogueTurnFilesStore = {
   openFile: () => {},
   dismissNotice: () => {},
 } as unknown as AppStore
-const catalogueRefusedMessage = 'Cannot put back /workspace/src/empty.ts: the agent recorded no content for it. Nothing was changed.'
+const catalogueRefusedMessage = 'Cannot put back /workspace/src/empty.ts: the runtime recorded no content for it. Nothing was changed.'
 const catalogueRefusedSnapshot = {
   ...catalogueTurnFilesSnapshot,
   notices: [{ id: 'catalogue-undo-refused', class: 'result', level: 'error', message: catalogueRefusedMessage, at: 0 }],
@@ -1955,7 +1955,7 @@ export const DialogBoard = () => {
                 { value: 'edit', title: 'Edit', description: 'May change files and commit in its own checkout, and never push.' },
                 { value: 'publish', title: 'Publish', description: 'May push its own branch and open a pull request, and never merge.' },
                 { value: 'merge', title: 'Merge', description: 'May merge what it is asked to merge.' },
-                { value: 'unavailable', title: 'Run on this machine', description: "Can't do this here · the Agent is signed out.", refused: true },
+                { value: 'unavailable', title: 'Run on this machine', description: "Can't do this here · the Runtime is signed out.", refused: true },
               ]}
             />
           </Fieldset>
@@ -1969,7 +1969,7 @@ export const DialogBoard = () => {
           onConfirm={() => setOpen(null)}
           onCancel={() => setOpen(null)}
         >
-          This removes <strong>Review the sprint notes</strong> from the agent, and the transcript
+          This removes <strong>Review the sprint notes</strong> from the runtime, and the transcript
           HarnessDesk kept of it. It will not be in either window afterwards.
         </ConfirmDialog>
       )}
@@ -2070,8 +2070,8 @@ export const DialogBoard = () => {
           }} />
         </Case>
         <Case label="refused action">
-          <RefusedAction reason="Finish the active turn before removing this agent.">
-            <Button disabled variant="destructive">Remove agent</Button>
+          <RefusedAction reason="Finish the active turn before removing this runtime.">
+            <Button disabled variant="destructive">Remove runtime</Button>
           </RefusedAction>
         </Case>
       </div>
@@ -2288,7 +2288,7 @@ export const BOARDS: Board[] = [
   {
     id: 'checklist',
     title: 'Checklist',
-    about: 'An agent\u2019s plan, in the Tasks panel and the transcript: the mark says the state, centred on the step\u2019s first line.',
+    about: 'A runtime\u2019s plan, in the Tasks panel and the transcript: the mark says the state, centred on the step\u2019s first line.',
     render: ChecklistBoard,
   },
   {

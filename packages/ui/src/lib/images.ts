@@ -48,7 +48,7 @@ export const vetImageFiles = (files: Iterable<File>): VettedImages => {
     } else if (!IMAGE_TYPES.has(type)) {
       rejected.push({
         file,
-        reason: `${labelOf(file)} is ${type.slice('image/'.length).toUpperCase()}; agents read PNG, JPEG, GIF and WebP.`,
+        reason: `${labelOf(file)} is ${type.slice('image/'.length).toUpperCase()}; runtimes read PNG, JPEG, GIF and WebP.`,
       })
     } else if (file.size > MAX_IMAGE_BYTES) {
       rejected.push({

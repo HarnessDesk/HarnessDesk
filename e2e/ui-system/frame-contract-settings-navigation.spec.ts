@@ -38,7 +38,7 @@ for (const theme of WALL_THEMES) {
     await openFrame(page, 'frame-wall=settings-middle', theme)
     const nav = page.locator('[data-left-settings]')
     const labels = await nav.locator('[data-left-group-text]').allTextContents()
-    expect(labels).toEqual(['Preferences', 'Conversations', 'Agents', 'Access'])
+    expect(labels).toEqual(['Preferences', 'Conversations', 'Runtimes', 'Access'])
     for (const row of await nav.locator('[data-left-row]').all()) {
       expect((await row.boundingBox())!.height).toBe(FRAME.rail.settingsRowHeight)
     }

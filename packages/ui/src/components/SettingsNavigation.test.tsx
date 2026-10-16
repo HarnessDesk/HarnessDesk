@@ -45,7 +45,7 @@ test('the Settings middle keeps preference order and gates agent-owned pages on 
   const runtime = { ...source, presentation: { ...source.presentation, skillsLabel: 'Commands' },
     capabilities: { ...source.capabilities, extensionStore: false, mcp: false } }
   const groups = settingsGroups(snapshot, runtime)
-  expect(groups.map(group => group.label)).toEqual(['Preferences', 'Conversations', 'Agents', 'Access'])
+  expect(groups.map(group => group.label)).toEqual(['Preferences', 'Conversations', 'Runtimes', 'Access'])
   expect(groups.flatMap(group => group.entries.map(entry => entry.id))).toEqual([
     'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'history', 'storage', 'archive',
     'runtimes', 'models', 'skills', 'permissions', 'browser',
@@ -59,13 +59,14 @@ test('the Settings middle keeps preference order and gates agent-owned pages on 
   expect(filterSettingsGroups(groups, 'zzzz')).toEqual([])
 })
 
-test('Settings groups do not repeat an item name and every destination has its own icon', () => {
+test('only the Runtimes group names its own destination and each destination has its own icon', () => {
   const snapshot = previewStore().getSnapshot()
   const groups = settingsGroups(snapshot, snapshot.runtimes[0]!)
   const entries = groups.flatMap(group => group.entries)
 
   for (const group of groups) {
-    expect(group.entries.some(entry => entry.label === group.label)).toBe(false)
+    expect(group.entries.filter(entry => entry.label === group.label).map(entry => entry.id))
+      .toEqual(group.label === 'Runtimes' ? ['runtimes'] : [])
   }
   const iconTypes = entries.map(entry => {
     expect(isValidElement(entry.icon)).toBe(true)

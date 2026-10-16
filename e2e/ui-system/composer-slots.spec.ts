@@ -10,8 +10,8 @@ test('permission modes keep their chosen label in draft and live composers', asy
   for (const layout of ['draft', 'live']) {
     const composer = page.locator(`[data-permission-mode-case="${layout}"]`)
     await expect(composer).toBeVisible()
-    await expect(composer.getByText('This agent has no permission setting', { exact: true })).toHaveCount(0)
-    await expect(composer.locator('[title="This agent has no permission setting"]')).toHaveCount(0)
+    await expect(composer.getByText('This runtime has no permission setting', { exact: true })).toHaveCount(0)
+    await expect(composer.locator('[title="This runtime has no permission setting"]')).toHaveCount(0)
     await expect(composer.locator('[data-composer-track="permissions"]')).toHaveCount(1)
     const label = composer.locator('[data-composer-track="permissions"] [data-slot="text"]')
     await expect(label).toHaveText('Accept edits')

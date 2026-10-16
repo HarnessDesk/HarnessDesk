@@ -70,13 +70,13 @@ const approval = {
 const PANE = 'pane-1' as never
 
 /** Render the card in `pane-1`, with the layout focused wherever the test says. */
-const mount = (focusedPane: string) => {
+const mount = (focusedPane: string, asking: Approval = approval) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
     activeRuntime: RUNTIME,
     runtimes: [info],
-    approvals: [{ key: KEY, approval }],
+    approvals: [{ key: KEY, approval: asking }],
     /* The approval card lives in a pane here, so the main area's focus is the
        one that decides — but it is read through `focusedMount`, which prefers
        a docked panel when one holds the focus. Both halves are set so the
@@ -220,4 +220,10 @@ it('gives the caret back when the approval goes away', () => {
   expect(card()).toBeNull()
   expect(document.activeElement).toBe(elsewhere)
   elsewhere.remove()
+})
+
+
+it('names the runtime when an ordinary conversation asks to write files', () => {
+  mount('pane-1', { ...approval, type: 'fileChange', changes: [] } as unknown as Approval)
+  expect(card()?.textContent).toContain('The runtime wants to write changes to disk.')
 })

@@ -195,7 +195,7 @@ it('says in the token whether anything else is in the way, without being opened'
   expect(token?.textContent).toBe('3 out')
   expect(token?.getAttribute('data-tone')).toBe('neutral')
   expect(titles()[titles().length - 1]).toBe(
-    '5 other agents — 3 out of quota, least left 44%, 1 needs sign-in',
+    '5 other runtimes — 3 out of quota, least left 44%, 1 needs sign-in',
   )
 })
 
@@ -313,7 +313,7 @@ it('leaves another agent sign-in to the token, which is where a count belongs', 
     ...conversationWith('a'),
   })
   expect(bars().map((bar) => bar.textContent)).toEqual(['55%', '2'])
-  expect(titles()[1]).toBe('2 other agents — 2 needs sign-in')
+  expect(titles()[1]).toBe('2 other runtimes — 2 needs sign-in')
 })
 
 it('names a spent allowance honestly when its reset time is unknown', () => {

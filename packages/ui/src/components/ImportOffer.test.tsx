@@ -115,7 +115,7 @@ it('offers what it found, once there is something to offer', async () => {
   expect(container.textContent).toContain('Skills and servers to share')
   // The evidence is the *kind* of thing found, never the detector's label —
   // those labels carry absolute paths nobody can read in a glance.
-  expect(container.textContent).toContain('Your other agents have skills and MCP servers this machine could use')
+  expect(container.textContent).toContain('Your other runtimes have skills and MCP servers this machine could use')
   expect(container.textContent).not.toContain('/home/u')
   // The promise the Library keeps: the banner sells a preview, not a migration.
   expect(container.textContent).toContain('Nothing is copied until you confirm it')

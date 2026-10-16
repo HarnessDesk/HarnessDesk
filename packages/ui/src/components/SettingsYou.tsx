@@ -252,12 +252,12 @@ export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
     <Rows>
       <Row
         title="HarnessDesk’s data stays on this Mac"
-        desc="HarnessDesk keeps its preferences, conversations and work records in ~/.harnessdesk. Agents connect to their own services."
+        desc="HarnessDesk keeps its preferences, conversations and work records in ~/.harnessdesk. Runtimes connect to their own services."
         control={<RowValue>Local</RowValue>}
       />
       <Row
-        title="Agent sign-ins belong to the agents"
-        desc="Each credential stays with its own agent; HarnessDesk never keeps a copy."
+        title="Runtime sign-ins belong to the runtimes"
+        desc="Each credential stays with its own runtime; HarnessDesk never keeps a copy."
       />
     </Rows>
 

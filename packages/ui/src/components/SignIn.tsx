@@ -258,7 +258,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
 
         <div className={own.split}>
           {/* The sign-in roster stays below the dialog's own head. */}
-          <SignInRail aria-label="Agents" className={own.rail}>
+          <SignInRail aria-label="Runtimes" className={own.rail}>
             <PaneColumn inset="rail" data-slot="sign-in-list" className={own.railList}>
               {groups.map((group) => (
                 <div key={group.name} role="group" aria-label={group.name} className={own.group}>
@@ -337,7 +337,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
 
             <SectionFooter>
               <Text as="div" role="muted">
-                Credentials stay on this machine — in each agent's own store, or here
+                Credentials stay on this machine — in each runtime's own store, or here
                 under {snapshot.credentialProtection} for the keys you paste.
               </Text>
             </SectionFooter>
@@ -357,7 +357,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
               ) : row ? (
                 <Agent key={row.info.id} row={row} onSelect={setSelected} />
               ) : (
-                <Note>No agents are registered yet.</Note>
+                <Note>No runtimes are registered yet.</Note>
               )}
 
               {row && isConnected(row) ? (
@@ -374,7 +374,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                     </AlertTitle>
                     <AlertDescription>
                       {nextUp
-                        ? 'One more sign-in and every agent here can take a turn.'
+                        ? 'One more sign-in and every runtime here can take a turn.'
                         : 'Nothing left to sign in — close this and start a conversation.'}
                     </AlertDescription>
                   </AlertContent>
@@ -493,7 +493,7 @@ const CredentialHome = ({ info, label }: { info: RuntimeInfo; label: string }) =
         label={label}
         kind="path"
         note={info.slot?.removable
-          ? `It belongs to ${info.presentation.name}. Only the credential lives there — the sessions are the agent’s own.`
+          ? `It belongs to ${info.presentation.name}. Only the credential lives there — the sessions are the runtime’s own.`
           : `It belongs to ${info.presentation.name}. Signing out here signs that CLI out too.`}
       >
         {home}
@@ -798,7 +798,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
 
       {pending ? (
         <FinePrint>
-          HarnessDesk never sees your password — it reads only whether the agent's own
+          HarnessDesk never sees your password — it reads only whether the runtime's own
           sign-in worked.
         </FinePrint>
       ) : null}
@@ -846,7 +846,7 @@ const RegistryAgent = ({
         name={agent.name}
         meta={meta}
       >
-        {agent.description ?? 'An agent from the public ACP registry.'}
+        {agent.description ?? 'A runtime from the public ACP registry.'}
       </CardHead>
 
       {error ? <ActionError className={own.actionError}>{error}</ActionError> : null}
@@ -868,8 +868,8 @@ const RegistryAgent = ({
           </div>
           <Note className={own.noteFlush}>
             {agent.run === 'binary'
-              ? 'The agent keeps its own account, configuration and history. Removing it from HarnessDesk later deletes the downloaded build and nothing else.'
-              : 'Registering points HarnessDesk at it and nothing more — the agent keeps its own account, configuration and history, and removing it later uninstalls nothing.'}
+              ? 'The runtime keeps its own account, configuration and history. Removing it from HarnessDesk later deletes the downloaded build and nothing else.'
+              : 'Registering points HarnessDesk at it and nothing more — the runtime keeps its own account, configuration and history, and removing it later uninstalls nothing.'}
           </Note>
         </div>
       ) : (
@@ -1134,7 +1134,7 @@ const PasteCode = ({
           ? { error: 'That code didn\u2019t work. Paste the whole code from the browser page, then send it again.' }
           : {
               hint: waiting
-                ? 'Sent. This window updates once the agent accepts it.'
+                ? 'Sent. This window updates once the runtime accepts it.'
                 : 'From the browser page that just opened, if it shows one.',
             })}
       >
@@ -1233,7 +1233,7 @@ const Pending = ({
         <div className={own.aside}>
           <SectionHead name="Sign in as somebody else" />
           <Note className={own.noteFlush}>
-            This agent already has {alreadyAs}, and the page uses whichever account your
+            This runtime already has {alreadyAs}, and the page uses whichever account your
             browser is signed in to. Choose a different one there — one identity is one
             account here, and finishing as somebody it already has drops the extra row,
             whichever of the two you started from.

@@ -121,7 +121,7 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
         <Rows>
           {active.flatMap(group => group.siblings).map(runtime => <RuntimeCeilings key={runtime.id} runtime={runtime} />)}
           {other.length > 0 && <RowButton
-            title={`Other agents · ${other.length}`}
+            title={`Other runtimes · ${other.length}`}
             aria-expanded={otherOpen}
             chevron={false}
             control={<DisclosureChevron open={otherOpen} placement="trailing" />}

@@ -206,7 +206,7 @@ See Paid beside Value, and recorded activity By hour. Value is an estimate at pu
 - **[Repository tools](docs/interface.md)** — history, branches, changes and worktrees beside the work.
 - **[Agents](docs/agents.md)** — reusable briefs, ceilings and preferred Seats; ten built-in roles to start from.
 - **Plugins.** Twelve built in. HarnessDesk projects its 73 built-in plugin tools into each agent’s tool interface. [Docs →](docs/extending.md)
-- **[Library](docs/interface.md#settings)** — skills and MCP servers across installed agents, and which ones load each.
+- **[Library](docs/interface.md#settings)** — skills and MCP servers across installed runtimes, and which ones load each.
 - **[One policy, one audit log](docs/architecture.md)** — the same rules whichever agent asked.
 
 ## Getting started
