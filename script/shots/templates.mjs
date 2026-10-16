@@ -103,7 +103,7 @@ try {
         await command.fill(chosenCheck)
         await expect(command).toHaveValue(chosenCheck)
       }
-      await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled({ timeout: 30000 })
+      await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled({ timeout: 30000 }).catch(async error => { throw new Error(`${error.message}\n${template}: ${await page.getByRole('dialog').innerText()}`) })
       await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Model for / }).first()).toBeVisible()
       await page.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).scrollIntoViewIfNeeded()
       await photograph('02-task')
@@ -343,15 +343,17 @@ try {
       } else {
         rig.release('writer')
         await observe(cards => cards.some(one => one.role === 'reviewer' && one.state === 'claimed'), 'fresh reviewer seated')
-        await expect(boardTitle('Review the pull request')).toBeVisible()
+        await expect(boardTitle('Review the committed change')).toBeVisible()
         await expect(boardColumn('Working').getByRole('heading', { level: 4 })).toHaveCount(1)
         await photograph('08-review-board')
         rig.release('reviewer')
         const reviewed = await observe(cards => cards.some(one => one.role === 'referee' && one.state === 'open'), 'person handoff')
-        await expect(boardTitle('Merge it — every reviewer approved')).toBeVisible()
-        await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Merge it — every reviewer approved$/ })).toBeVisible()
+        await expect(boardTitle('Approve publishing the reviewed change')).toBeVisible()
+        await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Approve publishing the reviewed change$/ })).toBeVisible()
         await photograph('09-referee-board')
         const referee = reviewed.view.board.intents.find(one => one.role === 'referee')
+        assert.equal(JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).pr, null, 'nothing was published before the person handoff')
+        await rig.publish()
         await mergeFromRepository(TEMPLATE_PUBLISH_BRANCH)
         const published = JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).pr
         rig.git('merge-base', '--is-ancestor', published.headRefOid, 'main')
@@ -372,9 +374,7 @@ try {
       await expect(page.getByText('Not confirmed', { exact: true })).toHaveCount(0)
       if (template === 'fix-and-review') {
         const comments = JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).comments
-        assert.equal(comments?.length, 1, 'the Host posted one closed-round review comment to the local forge')
-        assert.ok(comments[0].body.includes(`reviewed ${evidence.at(-1).publishedHead.slice(0, 12)} in round 2 and raised no findings.`))
-        evidence.at(-1).reviewCommentUrl = comments[0].html_url
+        assert.equal(comments?.length ?? 0, 0, 'review before publication stays local')
       }
       await expect(page.getByText(template === 'comparison' ? 'Completed rounds 4 of 4' : 'Completed rounds 3 of 7', { exact: true })).toBeVisible()
       // The board settles before the final turn/activity event reaches the
