@@ -1,12 +1,13 @@
 import type { GoalView } from '@harnessdesk/protocol'
 
 import { goalViewForWire } from '../goals/wire.js'
+import { withCanonicalPaths } from '../path-identity.js'
 import type { MethodsUnder } from './context.js'
 
 export { goalViewForWire }
 
 export const goalMethods = {
-  'goal/list': async (ctx, params) => (await ctx.goals.list(params.root)).map(goalViewForWire),
+  'goal/list': (ctx, params) => withCanonicalPaths(async () => (await ctx.goals.list(params.root)).map(goalViewForWire)),
   'goal/read': async (ctx, params) => goalViewForWire(await ctx.goals.view(params.goal)),
   'goal/create': async (ctx, params) => goalViewForWire(await ctx.goals.create(params)),
   'goal/update': async (ctx, params) => goalViewForWire(await ctx.goals.update(params.goal, params.revision, {

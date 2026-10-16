@@ -10,6 +10,7 @@ import { settleConversationTool, conversationToolContext, fixedToolRefusal, forg
 import { activeView, fixedSubject, normalizeFixedWorkbench } from './workbench'
 import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
 import { teamsInput } from '../lib/teams-snapshot'
+import { roomFoldersGone } from '../lib/room-folders'
 import {
   DEFAULT_QUESTION_WAIT,
   QUESTION_WAIT_PREFERENCE,
@@ -8437,6 +8438,7 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
+    next.foldersGone = roomFoldersGone(next.foldersGone, this.#snapshot.teams, patch.teams)
     if (patch.windowMode !== undefined || patch.workbench !== undefined) {
       next.workbench = settleConversationTool(next.workbench, effectiveWindowMode(next.windowMode, next.workbench) === 'editor')
       next.detailsTab = visibleInspector(next.workbench)
