@@ -40,6 +40,7 @@ import {
   MetaList,
   Text,
   Toolbar,
+  showToast,
 } from '../design'
 import {
   Button,
@@ -234,6 +235,8 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
   const [usage, setUsage] = useState<LibraryUsage | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState<string | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [checkFailed, setCheckFailed] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState<string | null>(null)
@@ -291,6 +294,33 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
     if (active) void load()
     return () => { generation.current++ }
   }, [active, load])
+
+  const checkUpdates = async () => {
+    if (!library || checking) return
+    const ticket = generation.current
+    const current = () => alive.current && ticket === generation.current
+    setChecking(true)
+    setCheckFailed(null)
+    try {
+      const updates = await store.transport.request('library/sources/check', {})
+      if (!current()) return
+      await load()
+      if (!alive.current || generation.current !== ticket + 1) return
+      const unavailable = updates.filter(one => one.status === 'gone' || one.status === 'unreachable')
+      const behind = updates.filter(one => one.status === 'behind')
+      showToast({ id: 'library-updates', ...(unavailable.length > 0
+        ? { tone: 'warning', title: `${unavailable.length} sources could not be checked`, ...(unavailable[0]?.reason ? { body: unavailable[0].reason } : {}) }
+        : behind.length > 0
+          ? { tone: 'neutral', title: `${behind.length} updates available` }
+          : updates.length > 0
+            ? { tone: 'success', title: 'Everything from a repository is up to date' }
+            : { tone: 'neutral', title: 'No skill here came from a repository' }) })
+    } catch (error) {
+      if (current()) setCheckFailed(error instanceof Error ? error.message : String(error))
+    } finally {
+      setChecking(false)
+    }
+  }
 
   // The Agent filter's own roster — the same guarded, cached read every other
   // Agent picker in the app uses (`CommandPalette`), never a fresh load per
@@ -611,10 +641,11 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
   return (
     <>
       <LibraryBar kind={kind} counts={kindCounts} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
-        author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} github={() => setFlow({ type: 'github' })} rescan={() => void load()}
+        author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} github={() => setFlow({ type: 'github' })} checking={checking} check={() => void checkUpdates()} rescan={() => void load()}
         choices={libraryChoices} search={{ label: 'Search library', value: query, change: setQuery }} />
       <PageExplanation>Every skill and MCP server your agents can load, wherever each one keeps them.</PageExplanation>
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
+      {checkFailed !== null && <ActionError>{checkFailed}</ActionError>}
 
       {kind === 'skill' && (hollowCopies.length> 0 || overloaded.length> 0) && (
         <div data-slot="library-attention"><FormStack>

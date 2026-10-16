@@ -3482,3 +3482,21 @@ Run plus conversation and card or approval identify the row; repeated snapshots 
 state. Answering or moving past a step clears it, as does ending or wrapping
 the Run. Its destination opens the Team's existing view. Needs you itself keeps
 its current presentation.
+
+
+## Updates are checked when asked and reviewed file by file — 2026-10-16
+
+The Library checks recorded repository origins only when the person asks.
+It shows the most actionable result on the row and the pinned and newer commits
+on the sheet. Recorded origins remain visible before a check. Review fetches
+each distinct source once and plans each runtime copy at the fetched commit,
+which can differ from the commit an earlier check saw.
+
+The existing plan lists added, changed and removed files, opens the definition
+diff, and reads incoming runnable or binary files. Those files use the same
+acknowledgement as an install; removed files need none. An edited copy carries
+the host's reason and its planned backup. Check results live only with the host,
+so a restart needs another explicit check; the ordinary read after Apply clears
+results whose recorded origin changed.
+
+**Rule:** nothing checks on a timer and nothing applies by itself.

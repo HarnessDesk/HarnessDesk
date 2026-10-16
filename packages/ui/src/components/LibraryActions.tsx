@@ -22,6 +22,7 @@ import {
   Dialog,
   Field,
   FormStack,
+  Note,
   Input,
   Separator,
   Text,
@@ -114,9 +115,9 @@ const verbOf = (op: LibraryPlannedOp, columns: readonly LibraryColumn[]): string
     case 'remove':
       return target ? `Remove the copy ${target} reads` : 'Remove the copy'
     case 'skip':
-      return op.reason ?? 'Nothing to do'
+      return op.replaceBundle ? 'Nothing to do' : op.reason ?? 'Nothing to do'
     case 'refuse':
-      return op.reason ?? 'Refused'
+      return op.replaceBundle ? 'Refused' : op.reason ?? 'Refused'
   }
 }
 
@@ -181,7 +182,7 @@ export const PlanDialog = ({
   const [acknowledged, setAcknowledged] = useState(false)
   const [plan, setPlan] = useState<LibraryPlan | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
-  const [open, setOpen] = useState<string | null>(null)
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [results, setResults] = useState<readonly LibraryOpResult[] | null>(null)
 
@@ -192,11 +193,14 @@ export const PlanDialog = ({
     setFailed(null)
     setResults(null)
     setAcknowledged(false)
-    setOpen(null)
+    setOpen(new Set())
     store.transport
       .request('library/plan', { intents, ...(cwd ? { cwd } : {}) })
       .then((answer) => {
-        if (!cancelled) setPlan(answer)
+        if (!cancelled) {
+          setPlan(answer)
+          setOpen(new Set(answer.ops.filter(op => op.replaceBundle && op.preview).map(op => op.id)))
+        }
       })
       .catch((error) => {
         if (!cancelled) setFailed(error instanceof Error ? error.message : String(error))
@@ -312,17 +316,18 @@ export const PlanDialog = ({
                 <Button
                   type="button"
                   variant="row" size="row"
-                  onClick={() => expandable && setOpen((current) => (current === op.id ? null : op.id))}
-                  aria-expanded={open === op.id}
+                  onClick={() => expandable && setOpen(current => { const next = new Set(current); if (next.has(op.id)) next.delete(op.id); else next.add(op.id); return next })}
+                  aria-expanded={open.has(op.id)}
                   disabled={!expandable}
                >
                   <Row title={op.name} mark={<Mark op={op} {...(result ? { result } : {})} />}
                     desc={<Text role="meta" {...(op.action === 'refuse' ? { tone: 'warning' as const } : {})} title={verbOf(op, columns)}>{verbOf(op, columns)}</Text>}
-                    control={<>{op.targetPath && <CodeText as="code" title={op.targetPath}>{shortPath(op.targetPath, home)}</CodeText>}{expandable && <DisclosureChevron open={open === op.id} />}</>} />
+                    control={<>{op.targetPath && <CodeText as="code" title={op.targetPath}>{shortPath(op.targetPath, home)}</CodeText>}{expandable && <DisclosureChevron open={open.has(op.id)} />}</>} />
                 </Button>
+                {op.replaceBundle && op.reason && <Note>{op.reason}</Note>}
                 {op.files && <LibraryFiles op={op} />}
                 {result?.outcome === 'failed' && <ActionError>{result.detail}</ActionError>}
-                {open === op.id && op.preview && (
+                {open.has(op.id) && op.preview && (
                   <FormStack>
                     <DiffView diff={op.preview} />
                     {op.extraFiles && op.extraFiles.length> 0 && (
