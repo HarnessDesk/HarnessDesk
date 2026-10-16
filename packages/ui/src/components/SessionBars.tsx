@@ -1,4 +1,4 @@
-import { Alert, Button, ChangeStats, Chip, CodeText, FileState, PaneColumn, Spinner, Text, type Tone } from '../design'
+import { Alert, Button, ChangeStats, Chip, CodeText, FileState, InlineParts, PaneColumn, Spinner, Text, type Tone } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import { allItems, currentTurn, type FileChangeItem, type Session } from '@harnessdesk/protocol'
@@ -48,26 +48,28 @@ export const GoalBar = () => {
       : `${goal.tokensUsed.toLocaleString()} tokens`
 
   return (
-    <Alert tone="neutral" className={`${styles.goal} gap-2`}>
-      <Text role="meta" tone="brand">
-        <GoalIcon size={14} />
-      </Text>
-      <Text role="row" className={styles.goalText} title={goal.objective}>
-        {goal.objective}
-      </Text>
-      <Text role="meta" numeric className={styles.goalBudget}>{budget}</Text>
-      <Chip tone={GOAL_TONE[goal.status] ?? 'neutral'}>
-        {STATUS_LABEL[goal.status] ?? goal.status}
-      </Chip>
-      <span className={styles.goalClear}><Button
-        type="button"
-        variant="ghost" size="icon-xs" edge="end" edgeGlyph={11}
-        aria-label="Clear goal"
-        title="Clear this goal"
-        onClick={() => void store.setGoal(null)}
-      >
-        <CrossIcon size={11} />
-      </Button></span>
+    <Alert tone="neutral" className={styles.goal}>
+      <InlineParts className="w-full">
+        <Text role="meta" tone="brand" className="flex">
+          <GoalIcon size={14} />
+        </Text>
+        <Text role="row" className={styles.goalText} title={goal.objective}>
+          {goal.objective}
+        </Text>
+        <Text role="meta" numeric className={styles.goalBudget}>{budget}</Text>
+        <Chip tone={GOAL_TONE[goal.status] ?? 'neutral'}>
+          {STATUS_LABEL[goal.status] ?? goal.status}
+        </Chip>
+        <InlineParts className={styles.goalClear}><Button
+          type="button"
+          variant="ghost" size="icon-xs" edge="end" edgeGlyph={11}
+          aria-label="Clear goal"
+          title="Clear this goal"
+          onClick={() => void store.setGoal(null)}
+        >
+          <CrossIcon size={11} />
+        </Button></InlineParts>
+      </InlineParts>
     </Alert>
   )
 }
