@@ -13,6 +13,29 @@ move is real work and is not news to a person weighing an upgrade.
   everywhere, with a task, Flow picker, role choices and dry run; starting
   from a Flow keeps its current edits. Flows and Triggers leave Settings.
 
+- **One bar, with cards beside the work.** Sessions and Teams share the same
+  title menu and tool doors. Conversation facts, plans, background tasks and
+  folded Trajectory stay in a separate rail; Terminal, Changes, Browser and
+  Files open in a full-height pane that can swap with main. Git history lives
+  with Changes, page controls start in the page body, and narrow windows float
+  the rail while a tool takes main's place.
+
+- **Diffs show the changed words.** Long lines wrap by default, modified words
+  carry a stronger tint, and the view-options menu remembers wrapping, word
+  highlighting, whitespace filtering and multi-file navigation choices.
+
+- **Notices share the composer's plate.** Cards keep their tile centred beside
+  wrapped copy, stack long action groups below it, and mark failures with a
+  left bar. A success tone confirms completed actions.
+
+- **Faces are round.** Agents, Team members, senders in a chat and your own
+  seat are now drawn as filled circles, so a Teams card with four agents shows
+  four faces instead of a strip of cropped squares, and someone no longer looks
+  like the square tile of a plugin or a file. An account is a hollow ring in its
+  colour, so the account beside your face never reads as a second face. Square
+  faces are still one choice away in Settings › Appearance › Faces, and a desk
+  that already chose square keeps it.
+
 - **Teams shows what needs you.** The page is a board with Needs you, Working
   and Ready to wrap columns, searchable across projects. Cards show the ask,
   current step or outcome, the Run's path and its Seats. Wrapped receipts fold

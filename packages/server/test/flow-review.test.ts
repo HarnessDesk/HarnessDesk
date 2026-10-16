@@ -199,6 +199,25 @@ test('candidates offered for a card with no binding are empty, and recording aga
   await assert.rejects(() => review.record({ intent: 9, candidate: 'anything', verdict: 'approve' }, scope), /do not hold this card/)
 })
 
+for (const changed of ['stopped', 'revision'] as const) test(`a person merge records no review if its ${changed} changes during verification`, async () => {
+  const port = new FakePort()
+  const binding: ReviewBinding = {
+    goal: 'goal-1', seat: PERSON_REVIEWER_ID, answers: ['merged'], round: 4,
+    subjects: [{ card: 7, round: 2, checkout: { cwd: '/repo/attempt', branch: 'attempt-one' }, at: SHA_A }],
+  }
+  port.personBindings.set('run-1\u00005', binding)
+  const review = new FlowReview(port)
+  const [candidate] = await review.personCandidates('run-1', 5)
+  let answered = false
+  await assert.rejects(review.decidePerson('goal-1', 'run-1', 5, candidate!.id, 'merged', async () => { answered = true }, async offered => {
+    assert.equal(offered.at, SHA_A)
+    if (changed === 'stopped') port.personBindings.delete('run-1\u00005')
+    else port.personBindings.set('run-1\u00005', { ...binding, subjects: [{ ...binding.subjects[0]!, at: SHA_B }] })
+  }), /changed while verifying/)
+  assert.equal(answered, false)
+  assert.equal(port.facts_.get('goal-1')?.length ?? 0, 0)
+})
+
 test('a person review records the stable person marker on a held candidate and refuses stale, unknown, and conflicting choices', async () => {
   const port = new FakePort()
   const binding: ReviewBinding = {
@@ -389,4 +408,25 @@ test('a field the reader would refuse, other than `against`, is caught by the sa
     /This review could not be recorded in a form the ledger reads\.$/,
   )
   assert.equal(port.facts_.get('goal-1'), undefined, 'nothing was appended')
+})
+
+test('a fresh person candidate completes after the original token expires, even if verification takes time', async () => {
+  const port = new FakePort()
+  port.personBindings.set('run-1\u00005', {
+    goal: 'goal-1', seat: PERSON_REVIEWER_ID, answers: ['merged'], round: 4,
+    subjects: [{ card: 7, round: 2, checkout: { cwd: '/repo/attempt', branch: 'attempt-one' }, at: SHA_A }],
+  })
+  const review = new FlowReview(port)
+  const [expired] = await review.personCandidates('run-1', 5)
+  port.now_ += 11 * 60_000
+  let verified = 0, answered = 0
+  const verify = async () => { verified++; port.now_ += 11 * 60_000 }
+  const answer = async () => { answered++ }
+  await assert.rejects(review.decidePerson('goal-1', 'run-1', 5, expired!.id, 'merged', answer, verify), /no longer being offered/)
+  assert.equal(verified, 0, 'an expired token cannot trigger a merge')
+  const [fresh] = await review.personCandidates('run-1', 5)
+  await review.decidePerson('goal-1', 'run-1', 5, fresh!.id, 'merged', answer, verify)
+  assert.equal(verified, 1)
+  assert.equal(answered, 1)
+  assert.equal(port.facts_.get('goal-1')?.length, 1)
 })

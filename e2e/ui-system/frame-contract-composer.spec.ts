@@ -40,6 +40,10 @@ for (const theme of WALL_THEMES) {
   test(`Composer fit: permission value and trailing chevron stay together at 1280 in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, 1280)
     expect((await page.locator('[data-frame-region="left"]').boundingBox())!.width).toBeGreaterThan(0)
+    // Full-value fitting uses the sidebar's remaining main, with D1's independent rail put away.
+    const rail = page.getByRole('button', { name: 'Toggle rail', exact: true })
+    if (await rail.getAttribute('aria-expanded') === 'true') await rail.click()
+    await expect.poll(async () => (await page.locator('[data-frame-region="main"]').boundingBox())!.width).toBe(1280 - FRAME.sidebar.width)
     const tools = page.locator('[data-slot="composer-tools"]:visible').last()
     const permission = tools.locator('[data-composer-track="permissions"] button')
     const label = permission.locator('[data-slot="text"][data-role="row"]')
@@ -61,7 +65,9 @@ for (const theme of WALL_THEMES) {
     await openFrame(page, 'frame-wall=conversation&frame-composer-values=1', theme, 1280)
     expect((await page.locator('[data-frame-region="left"]').boundingBox())!.width).toBeGreaterThan(0)
     const top = page.locator('[data-slot="top-bar"]:visible')
-    await top.getByRole('button', { name: 'Details', exact: true }).click()
+    const rail = top.getByRole('button', { name: 'Toggle rail', exact: true })
+    if (await rail.getAttribute('aria-expanded') === 'true') await rail.click()
+    await top.getByRole('button', { name: 'Changes', exact: true }).click()
     const main = page.locator('[data-frame-region="main"]:visible')
     const right = page.locator('[data-frame-region="right"]:visible')
     await expect(right).toBeVisible()

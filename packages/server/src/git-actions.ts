@@ -335,13 +335,18 @@ export const fetch = async (root: string): Promise<{ summary: string }> => {
 // --------------------------------------------------------- merge and rebase
 
 /** Merges a revision into the current branch, leaving conflicts in place. */
-export const merge = async (root: string, ref: string, expectedBranch?: string): Promise<MergeOutcome> => withGitMutation(root, async () => {
+export const merge = async (root: string, ref: string, expectedBranch?: string): Promise<MergeOutcome> =>
+  withGitMutation(root, () => mergeWithin(root, ref, expectedBranch))
+
+const mergeWithin = async (root: string, ref: string, expectedBranch?: string, prepare?: () => Promise<() => void>): Promise<MergeOutcome> => {
   const before = await head(root)
   const revision = await resolveCommitish(root, ref)
   const branch = await currentBranch(root)
   if (expectedBranch !== undefined && branch !== expectedBranch) {
     throw new Error('The destination branch changed. Close this question and check Changes before merging.')
   }
+  const check = await prepare?.()
+  check?.()
   try {
     await git(root, ['merge', '--no-edit', revision])
   } catch (error) {
@@ -362,6 +367,33 @@ export const merge = async (root: string, ref: string, expectedBranch?: string):
     conflicts: [],
     ...(branch && after ? {merged:{branch, commit:after}} : {}),
   }
+}
+
+/** A person's merge answer is earned by reachability on the named destination. */
+export const verifyMerge = async (root: string, revision: string, expectedBranch: string): Promise<{ branch: string; commit: string }> =>
+  withGitMutation(root, () => verifyMergeWithin(root, revision, expectedBranch))
+
+const verifyMergeWithin = async (root: string, revision: string, expectedBranch: string): Promise<{ branch: string; commit: string }> => {
+  const branch = await currentBranch(root)
+  if (!branch || branch !== expectedBranch) throw new Error('The destination branch changed. Check Changes before verifying the merge.')
+  if (await concluding(root)) throw new Error('Conclude the current Git operation before verifying the merge.')
+  const picked = await resolveCommitish(root, revision)
+  const commit = await resolveCommitish(root, `refs/heads/${branch}`)
+  try {
+    await git(root, ['merge-base', '--is-ancestor', picked, commit])
+  } catch {
+    throw new Error(`The picked attempt is not reachable from ${branch}. Merge it before recording this answer.`)
+  }
+  return { branch, commit }
+}
+
+/** Holds the destination lock through preparation, merge and reachability verification.
+ * Preparation returns a synchronous live-state check, called immediately before Git writes.
+ */
+export const mergeVerified = async (root: string, revision: string, expectedBranch: string, prepare: () => Promise<() => void>): Promise<{ branch: string; commit: string }> => withGitMutation(root, async () => {
+  const outcome = await mergeWithin(root, revision, expectedBranch, prepare)
+  if (outcome.conflicts.length) throw new Error(outcome.summary)
+  return verifyMergeWithin(root, revision, expectedBranch)
 })
 
 /**

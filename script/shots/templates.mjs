@@ -158,23 +158,17 @@ try {
       const tab = async name => {
         const value = ({ Overview: 'overview', Run: 'run', Board: 'board', Chat: 'room' })[name]
         assert.ok(value, `unknown Team destination ${name}`)
-        const bar = page.locator('[data-slot="top-bar"]:visible').first()
-        const direct = bar.locator(`[data-team-page="${value}"]:visible`)
-        const folded = bar.getByTitle('Destination views', { exact: true })
-        await direct.or(folded).first().click()
-        if (await bar.locator('button[title="Destination views"][aria-expanded="true"]').count()) {
-          await page.locator(`[role="menu"] [data-team-page="${value}"]:visible`).click()
-        }
-        await expect(bar.locator(`[data-team-page="${value}"][aria-selected="true"]:visible`)
-          .or(folded.filter({ hasText: new RegExp(`^${name}(?:\\s*\\d+)?$`) }))).toHaveCount(1)
+        const direct = page.locator(`[data-slot="workbench-main"] [data-team-page="${value}"]:visible`)
+        await direct.click()
+        await expect(direct).toHaveAttribute('aria-selected', 'true')
       }
       const runView = async name => {
-        await page.locator('[data-slot="top-bar"]:visible').first().getByRole('button', { name: 'View', exact: true }).click()
+        await page.locator('[data-slot="workbench-main"]:visible').getByRole('button', { name: 'View', exact: true }).click()
         await page.getByRole('menuitem', { name, exact: true }).click()
       }
       const chatView = async name => {
         await tab('Chat')
-        await page.locator('[data-slot="top-bar"]:visible').first().getByRole('button', { name: 'View', exact: true }).click()
+        await page.locator('[data-slot="workbench-main"]:visible').getByRole('button', { name: 'View', exact: true }).click()
         await page.getByRole('menuitemradio', { name, exact: true }).click()
       }
       const boardTitle = title => page.getByRole('heading', { level: 4, name: new RegExp(`^#\\d+ ${title}$`) })
@@ -186,16 +180,19 @@ try {
       }
       const mergeFromRepository = async revision => {
         await repository()
-        const repositoryPanel = page.locator('[data-fixed-tool-frame]')
-        const activity = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Activity', exact: true })
-        await expect(activity).toHaveAttribute('aria-pressed', 'true')
+        const rail = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Toggle rail', exact: true })
+        if (await rail.getAttribute('aria-pressed') === 'true') await rail.click()
+        await expect(page.locator('[data-frame-region="rail"]')).toBeHidden()
+        const repositoryPanel = page.locator('[data-frame-region="right"]')
+        const changes = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Changes', exact: true })
+        await expect(changes).toHaveAttribute('aria-pressed', 'true')
         await expect(repositoryPanel).toBeVisible()
         await expect(repositoryPanel.getByRole('grid', { name: 'Commits', exact: true })).toBeVisible()
         await expect(repositoryPanel).toContainText('commits')
         await expect.poll(() => repositoryPanel.evaluate(node => node.getBoundingClientRect().width)).toBe(FRAME.rightPanel.width)
         await expect(repositoryPanel.getByRole('button', { name: 'Give this panel the whole area', exact: true })).toHaveCount(0)
         // Fixed tools retire whole-area zoom. Resize through the real seam
-        // to FRAME's maximum width, where Git shows its branch rail.
+        // to FRAME's maximum width; Git's refs stay in the compact picker.
         const repositorySeam = page.getByRole('separator', { name: 'Resize the right panel', exact: true })
         const seamBox = await repositorySeam.boundingBox()
         assert.ok(seamBox, 'the Repository panel has a visible resize seam')
@@ -207,9 +204,17 @@ try {
         await page.mouse.move(seamX - (FRAME.rightPanel.max - panelWidth), seamY, { steps: 6 })
         await page.mouse.up()
         await expect.poll(() => repositoryPanel.evaluate(node => node.getBoundingClientRect().width)).toBe(FRAME.rightPanel.max)
-        const main = repositoryPanel.getByTitle('main — click to find it, double-click to check it out', { exact: true })
-        await main.dblclick()
+        const refs = repositoryPanel.getByRole('button', { name: 'Switch the refs rail', exact: true })
+        await refs.click()
+        const main = page.locator('[data-git-ref="main"]')
+        await expect(main).toBeVisible()
+        if (await main.getAttribute('data-current') === null) {
+          await main.click({ button: 'right' })
+          await page.getByRole('menuitem', { name: 'Check out main', exact: true }).click()
+          await refs.click()
+        }
         await expect(main).toHaveAttribute('data-current', '')
+        await page.keyboard.press('Escape')
         if (!contest) await photograph('10-person-repository')
         await page.getByTitle('Merge into the current branch…', { exact: true }).click()
         const merge = page.getByRole('dialog', { name: 'Merge into main', exact: true })
@@ -219,9 +224,9 @@ try {
         await expect(merge).toHaveCount(0)
       }
       const returnToBoard = async () => {
-        const activity = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Activity', exact: true })
-        await activity.click()
-        await expect(activity).toHaveAttribute('aria-pressed', 'false')
+        const changes = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Changes', exact: true })
+        await page.locator('[data-fixed-tool-frame]').getByRole('button', { name: 'Close pane', exact: true }).click()
+        await expect(changes).toHaveAttribute('aria-pressed', 'false')
         await expect(page.locator('[data-fixed-tool-frame]')).toBeHidden()
         await tab('Board')
       }
@@ -250,7 +255,9 @@ try {
         await page.getByRole('menuitem', { name: 'Answer merged', exact: true }).click()
         await observe((cards, execution) => execution.state === 'settled' && cards.every(one => one.state === 'done'), 'contest completed')
         await tab('Overview')
-        await expect(page.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
+        const overview = page.locator('[data-slot="team-overview"]')
+        await overview.getByRole('button', { name: '2 done', exact: true }).click()
+        await expect(overview.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
         await page.waitForFunction(goal => window.__hdStore.getSnapshot().goals.get(goal)?.activity !== 'working', run.goal)
         await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toHaveCount(0, { timeout: 30000 })
         evidence.push({ template, checkMode, checks: checks.map(one => ({ command: one.fact.run, exitCode: one.fact.exit, at: one.fact.at })), rounds: handoff.execution.rounds.map(one => one.role), settledSidebar: true })
@@ -347,15 +354,17 @@ try {
       } else {
         rig.release('writer')
         await observe(cards => cards.some(one => one.role === 'reviewer' && one.state === 'claimed'), 'fresh reviewer seated')
-        await expect(boardTitle('Review the pull request')).toBeVisible()
+        await expect(boardTitle('Review the committed change')).toBeVisible()
         await expect(boardColumn('Working').getByRole('heading', { level: 4 })).toHaveCount(1)
         await photograph('08-review-board')
         rig.release('reviewer')
         const reviewed = await observe(cards => cards.some(one => one.role === 'referee' && one.state === 'open'), 'person handoff')
-        await expect(boardTitle('Merge it — every reviewer approved')).toBeVisible()
-        await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Merge it — every reviewer approved$/ })).toBeVisible()
+        await expect(boardTitle('Approve publishing the reviewed change')).toBeVisible()
+        await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Approve publishing the reviewed change$/ })).toBeVisible()
         await photograph('09-referee-board')
         const referee = reviewed.view.board.intents.find(one => one.role === 'referee')
+        assert.equal(JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).pr, null, 'nothing was published before the person handoff')
+        await rig.publish()
         await mergeFromRepository(TEMPLATE_PUBLISH_BRANCH)
         const published = JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).pr
         rig.git('merge-base', '--is-ancestor', published.headRefOid, 'main')
@@ -370,15 +379,18 @@ try {
       }
       await observe((cards, execution) => execution.state === 'settled' && cards.every(one => one.state === 'done'), 'template completed')
       await tab('Overview')
-      await expect(page.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
+      const overview = page.locator('[data-slot="team-overview"]')
+      const done = overview.getByRole('button', { name: /^\d+ done$/, exact: true })
+      // Completed Seats stay folded until the person asks to see them.
+      if (await done.getAttribute('aria-expanded') !== 'true') await done.click()
+      await expect(done).toHaveAttribute('aria-expanded', 'true')
+      await expect(overview.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
       await expect(page.getByRole('status').filter({ hasText: 'this run is complete.' })).toBeVisible()
       await expect(page.getByText('Needs you', { exact: true })).toHaveCount(0)
       await expect(page.getByText('Not confirmed', { exact: true })).toHaveCount(0)
       if (template === 'fix-and-review') {
         const comments = JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).comments
-        assert.equal(comments?.length, 1, 'the Host posted one closed-round review comment to the local forge')
-        assert.ok(comments[0].body.includes(`reviewed ${evidence.at(-1).publishedHead.slice(0, 12)} in round 2 and raised no findings.`))
-        evidence.at(-1).reviewCommentUrl = comments[0].html_url
+        assert.equal(comments?.length ?? 0, 0, 'review before publication stays local')
       }
       await expect(page.getByText(template === 'comparison' ? 'Completed rounds 4 of 4' : 'Completed rounds 3 of 7', { exact: true })).toBeVisible()
       // The board settles before the final turn/activity event reaches the

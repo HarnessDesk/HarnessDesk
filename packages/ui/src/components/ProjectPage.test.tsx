@@ -185,7 +185,7 @@ it('each folder opens its project’s page, which lists the project’s own Agen
   act(() => rowFor('storefront').click())
   await settle()
   expect(store.agentsIn).toHaveBeenCalledWith(STOREFRONT.path)
-  expect(button('Workspaces ›')).toBeDefined()
+  expect(button('Back to Workspaces')).toBeDefined()
   const text = agentsText()
   expect(text).toContain('Code reviewer')
   expect(text).toContain('Edit')

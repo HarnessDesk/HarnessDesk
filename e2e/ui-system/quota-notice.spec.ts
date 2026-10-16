@@ -38,8 +38,9 @@ for (const theme of ['light', 'dark'] as const) {
       await page.evaluate(async () => { await document.fonts.ready })
       const notice = frame.locator('[data-slot="composer-notice"], [data-slot="notice-strip"]').filter({ hasText: 'will run out before it refills' })
       const warning = frame.getByRole('img', { name: /will run out before it refills/ })
+      const account = frame.locator('[data-left-seat] button[title*="will run out before it refills"]')
       if (process.env.QUOTA_FRAME_DIR && ['conversation', 'dashboard', 'library'].includes(destination)) {
-        await expect(notice.or(warning).first()).toBeVisible()
+        await expect(notice.or(account).first()).toBeVisible()
         await page.screenshot({ path: `${process.env.QUOTA_FRAME_DIR}/${process.env.QUOTA_FRAME_PREFIX ?? 'after'}-${destination}-${theme}.png` })
       }
       if (destination === 'conversation' || destination === 'dashboard') {
@@ -49,9 +50,9 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(notice.getByRole('button', { name: 'Dismiss', exact: true })).toBeVisible()
       } else {
         await expect(notice).toHaveCount(0)
-        await expect(warning).toBeVisible()
-        await expect(warning).toHaveAttribute('title', /will run out before it refills\. Weekly runs out in .+, and it resets in /)
-        await expect(warning).toHaveAttribute('aria-label', await warning.getAttribute('title') ?? '')
+        await expect(warning).toHaveCount(0)
+        await expect(account).toBeVisible()
+        await expect(account).toHaveAttribute('title', /will run out before it refills\. Weekly runs out in .+, and it resets in /)
       }
     })
   }

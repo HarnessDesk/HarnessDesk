@@ -112,7 +112,7 @@ test('S18 every dialog preview uses the same title, inset, close, and footer ana
   await opened.surface.getByRole('button', {name:'Cancel',exact:true}).click()
 
   await openFrame(page, 'frame-wall=plugins', 'light')
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', {name:'Add plugin',exact:true}).click()
+  await page.locator('[data-page-destination="plugins"]:visible').getByRole('button', {name:'Add plugin',exact:true}).click()
   opened = await inspect('dialog')
   await opened.surface.getByRole('textbox', {}).fill('/work/sample-plugin')
   await opened.surface.getByRole('button', {name:'Continue',exact:true}).click()

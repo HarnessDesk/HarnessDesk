@@ -1,3 +1,4 @@
+import type { RuntimeLoadout, RuntimeLoadoutPart } from '@harnessdesk/protocol'
 import { realpathSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -794,6 +795,50 @@ export class CodexRuntime implements AgentRuntime {
    * Codex reports them per working directory; the UI wants one list, and a skill
    * available from two roots is still one skill.
    */
+  async loadout(session: SessionId, cwd: string): Promise<RuntimeLoadout> {
+    const missing = (part: string): RuntimeLoadoutPart => ({ reported: false, reason: `This agent does not report its ${part}.` })
+    const read = async (call: () => Promise<RuntimeLoadoutPart>): Promise<RuntimeLoadoutPart> => {
+      try { return await call() } catch (error) {
+        return { reported: false, reason: error instanceof Error ? error.message : String(error) }
+      }
+    }
+    // No idle/restored listSkills fallback: a loadout belongs to a live handle.
+    if (this.health().state !== 'ready') throw new Error('The agent is not ready to report its loadout.')
+    const [skills, mcp] = await Promise.all([
+      this.info.capabilities.skills ? read(async () => ({ reported: true, more: 0,
+        items: (await this.listSkills(cwd)).map(skill => ({ name: skill.name, group: null,
+          origin: skill.scope ?? null, path: skill.path ?? null, tokens: null, count: null, enabled: skill.enabled })),
+      })) : missing('skills'),
+      this.info.capabilities.mcp ? read(async () => {
+        const items = []
+        let cursor: string | null = null, more = 0
+        const cursors = new Set<string>()
+        const deadline = Date.now() + 3000
+        do {
+          const remaining = deadline - Date.now()
+          if (remaining <= 0) throw new Error('The agent did not finish reporting its MCP servers within 3 seconds.')
+          // The control catalogue cannot describe a thread's frozen selection.
+          const page: CodexProtocol.v2.ListMcpServerStatusResponse = await this.#server.request('mcpServerStatus/list', {
+            threadId: session, detail: 'toolsAndAuthOnly', cursor, limit: 500,
+          }, { timeoutMs: remaining })
+          for (const server of page.data) {
+            if (items.length < 500) items.push({ name: server.name, group: null, origin: null,
+              path: null, tokens: null, count: Object.keys(server.tools).length, enabled: null })
+            else more++
+          }
+          cursor = page.nextCursor
+          if (cursor) {
+            if (cursors.has(cursor)) throw new Error('The agent repeated an MCP server page cursor.')
+            cursors.add(cursor)
+          }
+        } while (cursor)
+        return { reported: true, items, more }
+      }) : missing('MCP servers'),
+    ])
+    return { approximate: false, source: 'skills/list; mcpServerStatus/list', skills, mcp,
+      memory: missing('memory files'), agents: missing('agents') }
+  }
+
   async listSkills(cwd?: string): Promise<readonly SkillInfo[]> {
     if (!cwd && this.health().state !== 'ready' && this.#restored?.commands) return this.#restored.commands
     const key = cwd ?? ''

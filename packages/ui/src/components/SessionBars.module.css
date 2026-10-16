@@ -1,7 +1,6 @@
 /* Goal bar, jobs strip, and deliverables — the ambient state around a conversation. */
 
 .goal {
-  flex-wrap: wrap;
   max-width: var(--hd-column);
   margin: 0 auto 8px;
 }

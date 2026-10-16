@@ -1,4 +1,4 @@
-import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
+import { TopBarProvider, WorkViewControlsOutlet, TopBarOutlet } from '../panels/top-bar'
 import { act, type ComponentProps } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
@@ -21,7 +21,7 @@ it('Try again retries the inspector’s failed review read and clears its warnin
   const container = document.createElement('div')
   const root = createRoot(container)
   try {
-    await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={execution} origin={null} onOpenSeat={() => {}}
+    await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><WorkViewControlsOutlet owner="" /><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={execution} origin={null} onOpenSeat={() => {}}
       model={runTimeline({ ...fixture, execution })} number={1} selectedRow={null} onSelect={() => {}} onRetry={retryTimeline} /></TopBarProvider></StoreProvider>))
     expect(container.textContent).toContain('Review details could not be read.')
     const retry = [...container.querySelectorAll('button')].find(button => button.textContent === 'Try again')!
@@ -49,7 +49,7 @@ const mount = async (store: AppStore, props: Partial<ComponentProps<typeof TeamR
   const container = document.createElement('div')
   const root = createRoot(container)
   /** Renders the view again with other props, as a Run that moves to another Goal would. */
-  const show = (next: Partial<ComponentProps<typeof TeamRunView>> = {}) => act(async () => root.render(<StoreProvider store={store}><TopBarProvider><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
+  const show = (next: Partial<ComponentProps<typeof TeamRunView>> = {}) => act(async () => root.render(<StoreProvider store={store}><TopBarProvider><WorkViewControlsOutlet owner="" /><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
     model={runTimeline(fixture)} number={1} selectedRow="card-3-3" onSelect={() => {}} {...props} {...next} /></TopBarProvider></StoreProvider>))
   await show()
   return { container, show, close: () => act(() => root.unmount()) }
@@ -299,7 +299,7 @@ it('does not call a card’s findings none while more of them remain to be read'
 
 const flowing = { flow: <p data-testid="the-flow">The drawing</p> }
 const choice = (container: HTMLElement, name: string): { click: () => Promise<void> } => ({click: async () => {
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="view"] button')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-slot="page-options"] button[title="View"]')!.click())
   await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === name)!.click())
 }})
 it('gives the Flow the whole pane: the inspector steps aside on the Flow tab and returns with the timeline', async () => {
@@ -369,7 +369,7 @@ const mountScene = async (scene: 'running' | 'person', store: AppStore, props: P
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
-  await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
+  await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><WorkViewControlsOutlet owner="" /><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
     model={runTimeline(fixture)} number={1} selectedRow={scene === 'person' ? 'person-4-4' : 'card-4-4'} onSelect={() => {}} {...props} /></TopBarProvider></StoreProvider>))
   return { container, close: () => { act(() => root.unmount()); container.remove() } }
 }

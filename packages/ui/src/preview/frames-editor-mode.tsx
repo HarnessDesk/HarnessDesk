@@ -104,6 +104,10 @@ export function installEditorModeFixture(store: AppStore, scene: EditorModeScene
   store.selectEditorFile(subject, scene === 'preview' ? readme : path)
   store.setEditorExpandedFolders(subject, [`${root}/src`, `${root}/docs`])
   store.setWindowMode(scene === 'conversation' || scene === 'panel' ? 'conversation' : 'editor')
+  if (scene === 'ask') {
+    store.toggleWorkPanel()
+    store.toggleWorkRail()
+  }
   if (scene === 'panel') store.openFile(readme)
   if (scene === 'minimap') store.setEditorPrefs({ minimap: true })
   const control = { scene, subject, path, readme, root, runtime, deleteOnDisk: () => files.delete(path), changeOnDisk: (target = path) => {

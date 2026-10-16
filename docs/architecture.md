@@ -417,6 +417,10 @@ on a run that already ended returns it unchanged and still cancels what it had
 not sent.
 `team/intent` admits only abandon at `run` and done at `answer`. A
 done requires the frozen Flow's live person role and a declared outcome.
+A person review requesting a merge carries its current candidate token to the
+host. Under the destination's Git mutation lock, the host re-reads the selected
+subject and checks the live Run, round and open card immediately before Git
+writes, then verifies reachability before recording the review and answer.
 The shared board mutation preserves the first answer to be saved and its
 handoff — a later answer waits for that save to land or be put back — and
 client provenance is supplied by the door rather than wire params. A start redeems a single-use preview token
@@ -574,8 +578,29 @@ These only exist because no vendor owns the desk:
   and records every change in `audit.ndjson`. Skill writes compare and guard the
   whole bundle, including scripts and references; apply writes the source bytes
   it checked, and an edited supporting file requires a backup to replace.
-  Updates check the retained-plus-incoming bundle limits at preview and before
+  Local copy updates check retained-plus-incoming bundle limits at preview and before
   writing; apply also checks that the source file list matches the preview.
+  The host-only `library/source/fetch` accepts a public GitHub repository URL
+  and resolves its branch or tag to a full commit before fetching objects into
+  a temporary bare repository. It never checks out files. Bounded skills are
+  copied into `library/sources/`; the ordinary plan/apply pair requires their
+  origin and matching bundle digest, and the manifest remembers the repository,
+  ref, commit and skill path. The source cache expires after seven untouched days.
+  Plans list every incoming file (at most 200, including `SKILL.md`),
+  marking files that can run or are binary;
+  fetched source results include both counts. Apply reads and classifies the
+  bytes again, and requires acknowledgement before writing a fetched skill
+  that carries either kind of file. Local copies need no acknowledgement.
+  The host-only `library/source/file` reads a regular file inside a fetched
+  copy, returning at most 256 KB of text, or no text for binary files.
+  The host-only `library/sources/check` resolves installed origins' refs without
+  fetching objects. It reports current, behind, gone or unreachable; the last
+  explicit check appears on `library/read` only for this host's lifetime.
+  Reading the library never checks a source. `updateSkill` uses a freshly
+  fetched origin in the same plan/apply pair, listing added, changed and removed
+  files before replacing the bundle. An edited copy takes the backup path;
+  added or changed runnable or binary files require acknowledgement again.
+  There is no client command or screen for these methods yet.
 - **One history, one search** across every backend, grouped by repository so
   a project is one row whichever agent worked in it.
 - **One permission policy and one audit log.**

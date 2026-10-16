@@ -304,13 +304,15 @@ body {
      Faces are one object wherever they are drawn (the chat, a team's rail, a
      board card's holder, the agent card, the seat, a name inside a sentence),
      so they take their corner from here rather than from the tile they sit
-     in. Square by default, on the radius scale the way every mark is, with
-     the larger face a rung up so 24px and 44px read as one object at two
-     sizes. A person may choose round (Settings > Appearance > Faces), which
-     `body[data-hd-faces='round']` writes in shadcn-themes.css. An account's
-     ring is not a face and stays a ring whichever is chosen. */
-  --hd-face-radius: var(--hd-radius-sm);
-  --hd-face-radius-lg: var(--hd-radius);
+     in. Round by default: round is someone, and square is a thing (a plugin,
+     a file, a section), so the two never read alike. A person may choose
+     square (Settings > Appearance > Faces), which
+     `body[data-hd-faces='square']` writes in shadcn-themes.css, on the radius
+     scale with the larger face a rung up so 24px and 44px read as one object
+     at two sizes. An account is neither: it is a hollow ring, whichever is
+     chosen. */
+  --hd-face-radius: var(--hd-radius-full); /* desk: 6 → full, round is someone */
+  --hd-face-radius-lg: var(--hd-radius-full); /* desk: 10 → full, round is someone */
 
   /* A hairline is one device pixel, not one CSS pixel, so it stays a hairline
      on the retina displays this app actually runs on. */
@@ -558,6 +560,8 @@ body {
   --hd-composer-max: 320px;
   --hd-composer-line: 20px; /* The interface line. */
   --hd-composer-radius: 28px;
+  /* A danger notice marks its neutral composer plate with one narrow bar. */
+  --hd-notice-bar: 3px;
   /* The box's edge is carried by its ring; the shadow is only a soft lift, the same at rest and in focus. */
   --hd-composer-shell-shadow: 0 4px 20px rgba(0, 0, 0, 0.035);
   --hd-composer-shell-shadow-focus: var(--hd-composer-shell-shadow);
@@ -940,11 +944,16 @@ body {
      code — is spaced so its groups read across a room. */
   --hd-code-tracking-spaced: 0.18em;
   --hd-code-max-height: 380px;
-  /* Diff rows sit inside the darker code fill. Resolve their state washes
+  /* --- diff grounds -------------------------------------------------------
+     Diff rows sit inside the darker code fill. Resolve their state washes
      against the page as opaque colours so a gutter does not composite the
      same alpha twice, and each state's ink keeps its AA pairing. */
   --hd-code-add-fill: color-mix(in srgb, var(--hd-success) 12%, var(--hd-background));
   --hd-code-remove-fill: color-mix(in srgb, var(--hd-danger) 12%, var(--hd-background));
+  /* Changed words sit one step stronger than their removed/added line ground. */
+  --hd-code-add-word-fill: color-mix(in srgb, var(--hd-success) 28%, var(--hd-background));
+  --hd-code-remove-word-fill: color-mix(in srgb, var(--hd-danger) 28%, var(--hd-background));
+  /* === End diff grounds ================================================= */
 
   /* The button, re-measured in 2026-09 and moved on four counts. Each is one
      line here and reaches both spellings of the
@@ -1178,8 +1187,12 @@ body {
   --hd-nav-h: calc(var(--hd-line-sm) + var(--hd-space-1) * 2 + 2px); /* Solved from the row's box. */
   /* Every row in a navigation column stands the same. */
   --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
-  /* Frame left-column rows have one size in both interfaces. */
-  --hd-left-row-h: 32px; /* desk: 30 → 32, the roomier column */
+  /* Sidebar pitch is independent of its centred highlight; Settings keeps its own measure. */
+  --hd-sidebar-highlight-h: var(--hd-space-8);
+  --hd-sidebar-row-pitch: calc(var(--hd-sidebar-highlight-h) + var(--hd-space-0-5));
+  --hd-sidebar-group-space: var(--hd-space-5);
+  --hd-bar-h-lg: var(--hd-space-12);
+  --hd-left-row-h: var(--hd-sidebar-row-pitch); /* desk: approved 32 to 34px pitch around a centred 32px highlight. */
   --hd-left-row-gap: 0px;
   --hd-left-menu-gap: var(--hd-space-2);
   --hd-frame-icon-button: 28px;
@@ -1435,7 +1448,7 @@ body[data-hd-interface='studio'] {
     var(--hd-sidebar-selected-foreground) 86%,
     transparent
   );
-  --hd-nav-h: var(--hd-left-row-h); /* desk: shared FRAME destination contract; one height in both interfaces */
+  --hd-nav-h: var(--hd-sidebar-highlight-h); /* The highlight stays inside the sidebar row pitch. */
   /* One height for every row in a navigation column, shared with FRAME left-column and menu rows. */
   --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
   --hd-nav-radius: var(--hd-radius-sm);

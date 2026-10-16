@@ -68,6 +68,19 @@ export const assessCheckRuns = (checkRuns, headSha, requiredNames = REQUIRED_CHE
   return { green: required.every(({ green }) => green), required, newest }
 }
 
+// The tier is a check name, so gh pr checks shows it too. Require the newest
+// marker, from the same workflow check suite as every required aggregate. An
+// older full run (or a full marker from another workflow) cannot bless a PR run.
+export const hasFullCITier = decision => {
+  const proof = [...decision.newest.values()].filter(check => check.name.startsWith('CI tier: ')).sort(newestFirst)[0]
+  const inputs = decision.newest.get('UI integration inputs')
+  return proof?.name === 'CI tier: full' && proof.status === 'completed' && proof.conclusion === 'success'
+    && proof.check_suite?.id != null
+    && inputs?.status === 'completed' && inputs.conclusion === 'success'
+    && inputs.check_suite?.id === proof.check_suite.id
+    && decision.required.every(({ check }) => check?.check_suite?.id === proof.check_suite.id)
+}
+
 const run = (runner, args) => String(runner(args) ?? '').trim()
 
 const readPr = (runner, pr, repo) => {
@@ -146,6 +159,11 @@ export const landSafe = async (
     printReport(io, decision)
     if (!decision.green) {
       write(io.stdout, `DECISION: not green; PR ${pr} was not merged.`)
+      return 2
+    }
+
+    if (!hasFullCITier(decision)) {
+      write(io.stdout, `DECISION: full CI tier required; use a batch/ branch or the full-ci label and run full CI. PR ${pr} was not merged.`)
       return 2
     }
 

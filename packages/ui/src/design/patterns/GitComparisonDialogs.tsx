@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { GitMergeOutcome, GitRefsSummary } from '@harnessdesk/protocol'
 
 import { useStore } from '../../state/context'
-import { DiffView } from '../../editor'
+import { DiffFilesView, splitByFile } from '../../editor'
 import { DiffIcon, MergeIcon } from '../../components/Icons'
 import { Button } from '../ui/button'
 import { NativeSelect } from '../ui/native-select'
@@ -23,6 +23,7 @@ export const MergeDialog = ({
   fixedRef,
   expectedBranch,
   beforeMerge,
+  performMerge,
   onMerged,
   onDone,
 }: {
@@ -33,6 +34,7 @@ export const MergeDialog = ({
   fixedRef?: string
   expectedBranch?: string
   beforeMerge?: () => Promise<void>
+  performMerge?: () => Promise<void>
   onMerged?: (outcome: GitMergeOutcome) => Promise<void>
   onDone: (done: boolean) => void
 }) => {
@@ -55,6 +57,7 @@ export const MergeDialog = ({
     setError(null)
     try {
       await beforeMerge?.()
+      if (performMerge) { await performMerge(); onDone(true); return }
       const outcome = await store.transport.request('git/merge', { root, ref, ...(expectedBranch ? {expectedBranch} : {}) })
       settle(store, outcome)
       if (outcome.conflicts.length === 0) await onMerged?.(outcome)
@@ -166,7 +169,7 @@ export const DiffRangeDialog = ({
       ) : diff.length === 0 ? (
         <Note>The two are identical.</Note>
       ) : (
-        <DiffView diff={diff} />
+        <DiffFilesView files={splitByFile(diff)} />
       )}
     </Dialog>
   )

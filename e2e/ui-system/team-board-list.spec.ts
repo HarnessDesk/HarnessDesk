@@ -2,7 +2,7 @@ import { expect, test, type Locator } from '@playwright/test'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 
 const chooseBoardView = async (pane: Locator, label: 'Board' | 'List') => {
-  await pane.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
+  await pane.getByRole('button', { name: 'View', exact: true }).click()
   await pane.page().getByRole('menuitem', { name: label, exact: true }).click()
 }
 

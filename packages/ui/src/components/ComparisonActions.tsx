@@ -64,8 +64,8 @@ export const ComparisonActions = ({ room, root, execution, cards, verdict, choic
   }
   return <>
     <ComparisonDecision
-      title={choice.card === verdict.attempt.card ? `The judge picked ${label}` : `You picked ${label}`}
-      reason={verdict.reason ? <>{choice.card !== verdict.attempt.card && `Judge picked ${verdict.attempt.label.replace(/^Attempt /, '')}: `}“{sanitizeText(verdict.reason)}”</> : undefined}
+      title={verdict.judge.kind === 'person' || choice.card !== verdict.attempt.card ? `You picked ${label}` : `The judge picked ${label}`}
+      reason={verdict.reason ? <>{choice.card !== verdict.attempt.card && `${verdict.judge.kind === 'person' ? 'You' : 'Judge'} picked ${verdict.attempt.label.replace(/^Attempt /, '')}: `}“{sanitizeText(verdict.reason)}”</> : undefined}
       mergeLabel={`Merge ${label} into ${sanitizeText(refs?.branch ?? '…')}`}
       mergeRefusal={refusal}
       onMerge={canComplete ? () => setDialog('merge') : undefined}

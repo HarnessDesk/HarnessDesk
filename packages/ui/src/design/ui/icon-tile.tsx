@@ -2,7 +2,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
-import { softTint, softTone, solidTint, type Tint, type Tone } from './tone'
+import { ringTint, softTint, softTone, solidTint, type Tint, type Tone } from './tone'
 
 /**
  * A glyph on a soft ground of its own.
@@ -20,10 +20,10 @@ import { softTint, softTone, solidTint, type Tint, type Tone } from './tone'
  * service logo, a file type.
  *
  * `shape` is a real choice and not a style. `face` is someone: an agent's mark
- * or a person's picture, at whatever corner the person chose for faces
- * (`--hd-face-radius`, square unless they picked round), so every face in the
- * app is one shape. `round` is an account's ring or a status coin, `square` a
- * thing or a category. A tile that holds an agent's mark is a face, never a
+ * or a person's picture, filled, at whatever corner the person chose for faces
+ * (`--hd-face-radius`, round unless they picked square), so every face in the
+ * app is one shape. `round` is an account's hollow ring (with a `tint`) or a
+ * status coin (with a `tone`), `square` a thing or a category. A tile that holds an agent's mark is a face, never a
  * bare `square`: a thing's tile does not follow the setting, and a face that
  * does not would be the one face in the app with the wrong corner.
  * `shape="face" empty` is an unassigned identity: an untinted face outline,
@@ -90,7 +90,7 @@ const IconTile = ({ className, size, shape, tone, tint, color, style, badge, emp
         : color
         ? 'bg-(--tile-color) text-(--hd-accent-foreground)'
         : tint
-          ? shape === 'face' ? solidTint({ tint }) : softTint({ tint })
+          ? shape === 'face' ? solidTint({ tint }) : shape === 'round' ? ringTint({ tint }) : softTint({ tint })
           : softTone({ tone }),
       className,
     )}

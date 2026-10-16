@@ -113,7 +113,8 @@ PaneColumn.displayName = 'PaneColumn'
  * carries it, not to a sibling), and `dock` is the element to measure —
  * typically the strip holding the bars and the composer together. A screen
  * wires the two refs to its own markup; the observing and the `setProperty`
- * call are this hook's alone.
+ * call are this hook's alone. Observe the border box so padding and border
+ * changes update the same full height that offsetHeight measures.
  */
 export const useComposerHeightVar = (root: RefObject<HTMLElement | null>): RefObject<HTMLDivElement | null> => {
   const dock = useRef<HTMLDivElement>(null)
@@ -124,7 +125,7 @@ export const useComposerHeightVar = (root: RefObject<HTMLElement | null>): RefOb
     const apply = (): void => rootElement.style.setProperty('--composer-h', `${dockElement.offsetHeight}px`)
     apply()
     const observer = new ResizeObserver(apply)
-    observer.observe(dockElement)
+    observer.observe(dockElement, { box: 'border-box' })
     return () => observer.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

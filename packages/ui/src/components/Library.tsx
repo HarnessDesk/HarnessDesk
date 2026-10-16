@@ -58,7 +58,7 @@ import { shortPath } from '../lib/paths'
 import { REACH_NAME } from '../lib/reach-states'
 import { LibraryBar } from '../panels/library-bar'
 import { useDestinationPage } from '../panels/destination-page'
-import { LibraryMatrix, PageOptions, PageExplanation, FormStack, Row, Rows, type PageOption } from '../design'
+import { LibraryMatrix, PageExplanation, FormStack, Row, Rows, type PageOption } from '../design'
 
 /**
  * The library: every skill and MCP server on this machine, and which agents
@@ -611,8 +611,8 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
   return (
     <>
       <LibraryBar kind={kind} counts={kindCounts} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
-        author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} rescan={() => void load()} />
-      <PageOptions choices={libraryChoices} search={{ label: 'Search library', value: query, change: setQuery }} />
+        author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} rescan={() => void load()}
+        choices={libraryChoices} search={{ label: 'Search library', value: query, change: setQuery }} />
       <PageExplanation>Every skill and MCP server your agents can load, wherever each one keeps them.</PageExplanation>
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
 

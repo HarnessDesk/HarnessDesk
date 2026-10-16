@@ -113,6 +113,7 @@ export {
   DialogTrigger,
   DialogViewport,
 } from './ui/dialog'
+export { Notice, NoticeStatus, NoticeList, NoticeRow, NoticeHost, type NoticeProps, type NoticeAction } from './primitives/Notice'
 export { Banner, BannerAction, BannerStack, type BannerTone } from './primitives/Banner'
 export {
   ComposerNotice,

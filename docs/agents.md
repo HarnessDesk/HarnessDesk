@@ -86,6 +86,10 @@ same filter; forking it is refused. What actually loaded
 card and in the Library's Agent filter, read by the Seat's immutable id, not
 by the Agent's current name.
 
+A conversation on runtime defaults records the skills, servers, memory files
+and agents its runtime reports at conversation start, including sizes when
+available. An agent that cannot say is recorded as "does not report".
+
 `NOTES.md`, beside the Agent's own file, is that Agent's private working
 notes — read and cleared from its page, never treated as an instruction or as
 evidence of anything. This release does not load them onto a Seat: that would

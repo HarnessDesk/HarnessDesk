@@ -3,15 +3,15 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { currentTurn, type GitStatus } from '@harnessdesk/protocol'
 
 import { handOverToComposer } from '../lib/compose'
-import { countChanges, splitByFile, DiffView } from '../editor'
-import { useActiveSession, usePane, useSnapshot, useStore } from '../state/context'
+import { countChanges, splitByFile, DiffView, DiffFilesView } from '../editor'
+import { useActiveSession, usePane, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
 import { inView } from '../lib/git-view'
 import { Activity } from './Activity'
 import { Agents } from './Agents'
 import { SeatRecordBlock } from './SeatRecordBlock'
 import { FileIcon, ReviewIcon } from './Icons'
-import { Button, ListRowDetail, ToolBodyControls, Switch, Tabs, TabsList, TabsTrigger, Chip } from '../design'
+import { Button, ListRowDetail, ToolBodyControls, ToolBodySections, ToolFooterSuppressed, ToolSection, Switch, Tabs, TabsList, TabsTrigger } from '../design'
 import {
   Counts,
   GroupLine,
@@ -22,7 +22,7 @@ import {
   PanelFrame,
   PanelRow,
 } from './Panel'
-import { Trajectory } from './Trajectory'
+import { Trajectory, trajectorySummary } from './Trajectory'
 import styles from './Details.module.css'
 
 /**
@@ -181,25 +181,35 @@ export const ChangesView = () => {
   )
 }
 
-export const TrajectoryView = () => {
+export const TrajectoryView = ({ initialFilter = 'all' }: { initialFilter?: 'all' | 'timed' | 'events' }) => {
   const [query, setQuery] = useState('')
-  const [timedOnly, setTimedOnly] = useState(false)
+  const [filter, setFilter] = useState(initialFilter)
   const [foot, onFoot] = useFoot()
+  const key = useSessionKey()
+  const keys = useMemo(() => key ? [key] : [], [key])
   return (
     <InspectorFrame
-      find="Filter steps"
+      find={filter === 'events' ? 'Filter events' : 'Filter steps'}
       query={query}
       onQuery={setQuery}
       foot={foot}
       tools={
-        <Tabs value={timedOnly ? 'timed' : 'all'} onValueChange={value => setTimedOnly(value === 'timed')}><TabsList>
-          <TabsTrigger value="all">All</TabsTrigger><TabsTrigger value="timed" title="Show only steps the runtime timed">Timed</TabsTrigger>
+        <Tabs value={filter} onValueChange={value => setFilter(value as typeof filter)}><TabsList aria-label="Trajectory filter">
+          <TabsTrigger value="all">All</TabsTrigger><TabsTrigger value="timed" title="Show only steps the runtime timed">Timed</TabsTrigger><TabsTrigger value="events">Events</TabsTrigger>
         </TabsList></Tabs>
       }
     >
-      <Trajectory query={query} timedOnly={timedOnly} onFoot={onFoot} />
+      {filter === 'events' ? <Activity query={query} sessionKeys={keys} onFoot={onFoot} hideEmpty />
+        : <Trajectory query={query} timedOnly={filter === 'timed'} onFoot={onFoot} />}
     </InspectorFrame>
   )
+}
+
+export const TrajectoryCard = () => {
+  const session = useActiveSession()
+  return <ToolSection label="Trajectory" value={trajectorySummary(session?.turns ?? []) || 'No timing yet'} fold defaultOpen={false}>
+    <ToolBodySections><ToolFooterSuppressed><TrajectoryView /></ToolFooterSuppressed></ToolBodySections>
+  </ToolSection>
 }
 
 export const AgentsView = () => {
@@ -213,21 +223,8 @@ export const AgentsView = () => {
   )
 }
 
-export const ActivityView = () => {
-  const [query, setQuery] = useState('')
-  const [foot, onFoot] = useFoot()
-  return (
-    <InspectorFrame
-      find="Filter sessions"
-      query={query}
-      onQuery={setQuery}
-      foot={foot}
-      tools={<Chip tone="neutral">this week</Chip>}
-    >
-      <Activity query={query} onFoot={onFoot} />
-    </InspectorFrame>
-  )
-}
+/** Kept imports and old routes reach the Events filter of the same ledger. */
+export const ActivityView = () => <TrajectoryView initialFilter="events" />
 
 /** What this conversation edited, and what the tree looks like now. */
 const Changes = ({
@@ -378,24 +375,7 @@ const Changes = ({
       {turnFiles.length > 0 && (
         <>
           <GroupLine left={`This turn · ${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'}`} />
-          {turnFiles.map((file, index) => {
-            const count = countChanges(file.diff)
-            return (
-              <div key={`${file.path}-${index}`}>
-                <PanelRow
-                  mark={<FileIcon size={13} />}
-                  title={basename(file.path)}
-                  sub={dirname(file.path) || 'in this folder'}
-                  subPath
-                  tooltip={file.path}
-                  trail={<Counts added={count.added} removed={count.removed} />}
-                />
-                <ListRowDetail>
-                  <DiffView diff={file.diff} />
-                </ListRowDetail>
-              </div>
-            )
-          })}
+          <DiffFilesView files={turnFiles} />
         </>
       )}
 

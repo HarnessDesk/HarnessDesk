@@ -7,6 +7,8 @@ import { StoreProvider } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { previewStore } from './harness'
 import { overviewReport, overviewTeamStore } from './team-overview-fixture'
+// These shell examples mount TeamRoomPane through the built-in view registry.
+import '../panels/builtins'
 
 export const TEAM_RECORD_STATES = ['wrapped', 'older', 'shared', 'unlinked', 'empty', 'narrow', 'person', 'running'] as const
 export type RecordScene = typeof TEAM_RECORD_STATES[number]

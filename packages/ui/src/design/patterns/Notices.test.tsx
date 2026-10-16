@@ -7,7 +7,7 @@ import { InboxMenu } from './InboxMenu'
 import noticeCss from './Notices.module.css?raw'
 
 const { toast } = vi.hoisted(() => {
-  const toast = Object.assign(vi.fn(), { error: vi.fn(), warning: vi.fn(), promise: vi.fn(), dismiss: vi.fn() })
+  const toast = Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), warning: vi.fn(), promise: vi.fn(), dismiss: vi.fn() })
   return { toast }
 })
 vi.mock('../ui/toast', () => ({ toast }))
@@ -266,4 +266,10 @@ it('the canonical Inbox menu retains a complete title when title-only guidance e
   await act(async () => host.querySelector<HTMLElement>('[role="menuitem"]')!.click())
   expect(host.querySelector('[data-part="inbox-full-title"]')?.textContent).toBe(title)
   expect((host.textContent ?? '').split(title)).toHaveLength(2)
+})
+
+it('routes a completed Library write through success with its single action and no body', () => {
+  const onSelect = vi.fn()
+  showToast({ tone: 'success', title: 'Saved 3 skills', action: { label: 'View changes', onSelect } })
+  expect(toast.success).toHaveBeenCalledWith('Saved 3 skills', { action: { label: 'View changes', onClick: onSelect } })
 })

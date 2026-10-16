@@ -229,6 +229,13 @@ export const ELEMENTS: readonly UsageRule[] = [
   },
   {
     family: 'tone',
+    variant: 'success',
+    when: 'A result the person asked for has completed: moved to the Trash, a Library write, or a choice applied.',
+    never: 'For a default state or a limit working as designed. Those stay neutral.',
+    because: 'Completion deserves confirmation; colouring ordinary conditions green would hide that result.',
+  },
+  {
+    family: 'tone',
     variant: 'warning',
     when: 'The person must act now — sign in, approve, free a limit — and the thing cannot go on without them. Chip, Badge, Note and Banner all read it this way.',
     never: 'For a default or a normal state: a permission that is "asked" by default, an open finding, a shadowed copy, a limit working as designed. Those are neutral or carry no chip.',
@@ -317,9 +324,9 @@ export const ELEMENTS: readonly UsageRule[] = [
   {
     family: 'title',
     variant: 'one step',
-    when: 'A destination is named once by its permanent top bar, using the subject step: 14px medium. Settings uses a visible h1 in the page role above its description instead; its bar has no title. The wordmark keeps its own type role.',
+    when: 'A standalone page names itself once in its body with Text as="h1" role="page", on the content column beside its chooser or primary verb. Settings sections use their own name without a breadcrumb. Named subjects keep their title menu in the bar; canvases have no body title. The wordmark keeps its own type role.',
     never: 'Repeating a destination title in both its bar and page body, or another type size for a detail destination.',
-    because: 'A retained destination shares the same shell and title position as work. Its content starts at the Page gutter.',
+    because: 'The content column anchors the page name at every width. Its title row scrolls away with the body; the fixed bar keeps its height and controls.',
   },
   {
     family: 'label',

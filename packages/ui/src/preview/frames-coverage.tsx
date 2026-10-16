@@ -1,9 +1,10 @@
-import { Input, Text } from '../design'
+import { Notice, NoticeHost, Input, Text } from '../design'
+import { libraryNoticeResults } from './notice-fixture'
 import { SettingsPreviewScope } from './settings-pages'
 import { MessageActions } from '../components/MessageActions'
 import { TopBarProvider } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { runtimeId, type FlowPreview, type UsageReport } from '@harnessdesk/protocol'
 
@@ -151,21 +152,34 @@ const noticeLayoutStore = (id: string, options: {
   return result
 }
 
-const NoticeLayoutFrame = ({ id, title, options }: { readonly id: string; readonly title: string; readonly options?: Parameters<typeof noticeLayoutStore>[1] }) => (
-  <Frame id={id} title={title}>
+const NoticeLayoutFrame = ({ id, title, options }: { readonly id: string; readonly title: string; readonly options?: Parameters<typeof noticeLayoutStore>[1] }) => {
+  const store = useMemo(() => noticeLayoutStore(id, options), [id, options])
+  const viewport = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const element = viewport.current
+    if (!element || !options?.split) return
+    // Split previews must fold the rail against their embedded viewport.
+    const measure = () => store.setWindowSize(element.clientWidth, element.clientHeight)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [store, options?.split])
+  return <Frame id={id} title={title}>
     <div
+      ref={viewport}
       data-testid="notice-layout-canvas"
       className="h-[620px] min-w-0 overflow-hidden border"
       style={options?.narrowRoom ? { width: '900px' } : undefined}
     >
-      <StoreProvider store={noticeLayoutStore(id, options)}>
+      <StoreProvider store={store}>
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
           <TopBarProvider><ShellHostsProvider><Workbench sidebar={<div className="p-2">Preview sidebar</div>} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
         </ShellProvider>
       </StoreProvider>
     </div>
   </Frame>
-)
+}
 const DIALOGS = ['off', 'edit agent', 'prefer agent', 'handoff', 'confirm', 'worktree', 'import', 'resolve', 'plan', 'library flow', 'add agents'] as const
 type Dialog = (typeof DIALOGS)[number]
 
@@ -294,7 +308,9 @@ export const CoverageFrames = () => {
       </Frame>
       <Frame id="coverage-notices" title="Notices — strip, inbox and toast">
         <StoreProvider store={coverageStore}>
-          <div className="p-4"><Notices /><NoticeStripOutlet host /><SidebarNotices /></div>
+          <div className="p-4 flex flex-col gap-3"><Notices /><NoticeStripOutlet host /><SidebarNotices />
+            <NoticeHost size="compact">{libraryNoticeResults.map((message, index) => <Notice key={index} {...message} />)}</NoticeHost>
+          </div>
         </StoreProvider>
       </Frame>
       <Frame id="coverage-library" title="Library — changes made from here">

@@ -15,7 +15,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { PaneProvider, StoreProvider } from '../state/context'
-import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
+import { WorkViewControlsOutlet, TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dismissOverlays } from '../design'
 import { cardEvidence, checkView, ciView, factView, PREVIEW_UNSEEN, prView } from '../preview/evidence-fixture'
@@ -185,7 +185,7 @@ const render = async (store: AppStore): Promise<void> => {
     root.render(
       <StoreProvider store={store}>
         <TopBarProvider><PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: ROOM }, sessionKey: null }}>
-          <TopBarOutlet owner="main" fallback={{ place: 'Board Team', more: () => null }} />
+          <WorkViewControlsOutlet owner="main" /><TopBarOutlet owner="main" fallback={{ place: 'Board Team', more: () => null }} />
           <TeamBoardPane room={ROOM} />
         </PaneProvider></TopBarProvider>
       </StoreProvider>,
@@ -198,17 +198,17 @@ it('B6 registers New job and Board/List in the shell with content facts', async 
   const { store } = rig([intent({})])
   await render(store)
   expect(container.querySelector('[data-slot="view-bar"]')).toBeNull()
-  const add = container.querySelector<HTMLButtonElement>('[data-topbar="verb"] button[aria-label="New job"]')
+  const add = container.querySelector<HTMLButtonElement>('[data-slot="page-options"] > button[aria-label="New job"]')
   expect(add).not.toBeNull()
   expect(add!.textContent).toBe('New job')
   expect(add!.querySelector('svg')).not.toBeNull()
   expect(container.querySelector('[aria-label="Board summary"]')).toBeNull()
-  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="View"]')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('button[title="View"]')!.click())
   expect([...document.querySelectorAll('[role="menuitem"]')].map(one => one.textContent)).toEqual(['Board', 'List'])
 })
 
 const chooseBoardView = async (label: 'Board' | 'List'): Promise<void> => {
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="view"] button')!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-slot="page-options"] button[title="View"]')!.click())
   const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent === label)!
   expect(choice).toBeDefined()
   await act(async () => choice.click())
@@ -1039,7 +1039,7 @@ it('the attempt dialog asks for both an attempt and a declared answer before rec
   expect(document.body.textContent).toContain('Pick the best attempt')
   expect(document.body.textContent).toContain('Choose the attempt this step answers for.')
   expect(document.body.textContent).toContain('Implement checkout')
-  expect(document.body.textContent).toContain('attempt-one · abcdef0')
+  expect(document.body.textContent).toContain('abcdef0 · attempt-one')
   expect(document.body.textContent).toContain('Pass')
   expect(document.body.textContent).not.toContain('Fail')
   const row = document.querySelector<HTMLElement>('[role="dialog"] [role="radio"]')
@@ -1075,8 +1075,9 @@ it.each(['picked', 'merged'])('a one-outcome person review uses %s without addin
     } },
     rounds: [{ n: 1, role: 'judge', cards: [1], seats: [], evidence: [], state: 'running', cause: 'cause' }],
   }
+  const request = vi.fn(async () => ({ branch: 'main', headSha: 'f'.repeat(40), branches: [], remotes: [], tags: [], stashes: [] }))
   const reviewSnapshot = { ...snapshot, flowExecutions: new Map([[execution.id, execution]]) }
-  await render({ ...store, getSnapshot: () => reviewSnapshot } as unknown as AppStore)
+  await render({ ...store, transport: { request }, getSnapshot: () => reviewSnapshot } as unknown as AppStore)
   await pick(1, 'Pick an attempt…')
   expect(document.body.textContent).toContain('Choose a route')
   expect(document.body.textContent).toContain('Choose the attempt this step answers for.')
@@ -1090,10 +1091,13 @@ it.each(['picked', 'merged'])('a one-outcome person review uses %s without addin
   expect(attemptRow).not.toBeNull()
   act(() => attemptRow!.click())
   await act(async () => {})
-  const confirm = [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Record answer')
+  const confirm = [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === (outcome === 'merged' ? 'I merged it' : 'Record answer'))
   expect(confirm?.disabled).toBe(false)
   await act(async () => confirm!.click())
-  expect(store.decideFlowReview).toHaveBeenCalledWith(execution.id, 1, 'candidate-one', outcome)
+  if (outcome === 'merged') {
+    expect(store.decideFlowReview).toHaveBeenCalledWith(execution.id, 1, 'candidate-one', outcome, 'main')
+    expect(request.mock.calls).toHaveLength(1)
+  } else expect(store.decideFlowReview).toHaveBeenCalledWith(execution.id, 1, 'candidate-one', outcome)
 })
 
 /**

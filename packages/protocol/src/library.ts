@@ -212,6 +212,8 @@ export interface LibraryEntry {
    * server, whose per-turn price is its tool schemas and not measurable here.
    */
   readonly catalogTokens?: number | null
+  /** Last explicit source checks in this host, one per installed runtime copy. */
+  readonly update?: readonly LibrarySkillUpdate[]
 }
 
 /** A directory the library looked in, and what it is to the runtime that owns it. */
@@ -345,15 +347,56 @@ export interface LibraryUsage {
  * backup.
  */
 
+/** A public repository revision and the path of one skill within it. */
+export interface LibrarySkillOrigin {
+  readonly url: string
+  readonly ref: string
+  readonly commit: string
+  readonly path: string
+}
+
+/** An explicit check of an installed skill's pinned source ref. */
+export interface LibrarySkillUpdate {
+  readonly name: string
+  readonly runtime: RuntimeId
+  readonly origin: LibrarySkillOrigin
+  readonly latest: string | null
+  readonly status: 'current' | 'behind' | 'unreachable' | 'gone'
+  readonly reason: string | null
+}
+
+export interface LibrarySourceResult extends LibrarySkillOrigin {
+  readonly repo: string
+  readonly skills: readonly {
+    readonly name: string
+    readonly dir: string
+    readonly sourcePath: string
+    readonly files: number
+    readonly runnable: number
+    readonly binary: number
+    readonly bytes: number
+    readonly bundle: string
+  }[]
+  readonly refused: readonly { readonly dir: string; readonly reason: string }[]
+}
+
 /** What the person asked for, before any path or diff exists. */
 export type LibraryIntent =
   /** Copy a skill that exists somewhere into one agent's own directory. */
   | {
       readonly kind: 'installSkill'
+      readonly origin?: LibrarySkillOrigin & { readonly bundle: string }
       readonly name: string
       /** The copy to install from — a bundle directory or a flat `.md` file. */
       readonly sourcePath: string
       readonly targetRuntime: RuntimeId
+    }
+  /** Review a freshly fetched revision of an installed repository skill. */
+  | {
+      readonly kind: 'updateSkill'
+      readonly name: string
+      readonly targetRuntime: RuntimeId
+      readonly origin: LibrarySkillOrigin & { readonly bundle: string }
     }
   /** A skill written in the app: full `SKILL.md` text, straight to agents. */
   | {
@@ -421,6 +464,18 @@ export interface LibraryPlannedOp {
   readonly preview?: string
   /** Bundle files beyond `SKILL.md` carried along, relative to the bundle. */
   readonly extraFiles?: readonly string[]
+  /** Incoming files, or added/changed/removed files for a repository update. */
+  readonly files?: readonly {
+    readonly path: string
+    readonly bytes: number
+    readonly runnable: boolean
+    readonly binary: boolean
+    readonly reason: string | null
+    readonly change?: 'added' | 'changed' | 'removed'
+  }[]
+  /** A repository update writes the whole reviewed bundle, dropping removed files. */
+  readonly replaceBundle?: boolean
+  readonly acknowledged?: boolean
   /** Why a `skip` or `refuse` will not run; advisory notes on runnable ops. */
   readonly reason?: string
   /**
@@ -447,6 +502,7 @@ export interface LibraryPlannedOp {
   readonly guardBundle?: string | null
   /** Skill definition and supporting bytes the operation will carry. */
   readonly sourceBundle?: string
+  readonly origin?: LibrarySkillOrigin & { readonly bundle: string }
   /** The op will file a copy of what it replaces or removes before acting. */
   readonly backup: boolean
 }

@@ -43,7 +43,7 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(frame.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(1)
         await expect(frame.getByText('Sign in to Alpha', { exact: true })).toBeVisible()
         await expect(frame.locator('[data-slot="notice-strip"]')).toHaveCount(0)
-        await frame.locator('[data-work-tool="details"]').click()
+        await frame.locator('[data-work-tool="changes"]').click()
         await expect(frame.locator('[data-slot="notice-strip"]')).toContainText('Alpha is not signed in.')
       } else if (scene === 'overview') {
         await expect(frame.locator('button[title^="Turns"]')).toHaveCount(0)

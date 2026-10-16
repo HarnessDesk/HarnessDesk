@@ -220,7 +220,7 @@ const AttachmentEditDialog = ({
       {preview && (
         <FormStack>
           <CodeText>{preview.path}</CodeText>
-          <DiffView diff={preview.diff} wrap />
+          <DiffView diff={preview.diff} />
         </FormStack>
       )}
     </Dialog>

@@ -155,27 +155,25 @@ test.describe('the layout system holds its own claims', () => {
     expect(await read(), 'a return to a first-line nudge is caught').toBeGreaterThan(1.5)
   })
 
-  test('a banner\'s icon and dismiss centre on the title\'s first line', async ({ page }) => {
+  test('a banner centres its tile on the copy and keeps the dismiss at the top', async ({ page }) => {
     const reading = await page.evaluate(() => {
       const banner = document.querySelector('[data-testid="banner-fixture"]') as HTMLElement
       // Not `[class*="title"]`: the alert root's own class list carries the
       // literal text `[&_[data-slot=alert-title]]:…` from its Tailwind
       // arbitrary-variant selector, which contains the substring "title" and
       // matches first, in tree order, ahead of the title element itself.
-      const title = banner.querySelector('[data-slot="alert-title"]') as HTMLElement
-      const icon = banner.querySelector('[data-slot="alert"] > span > svg') as HTMLElement
-      const dismiss = banner.querySelector('button[aria-label="Dismiss"]') as HTMLElement
-      const t = title.getBoundingClientRect()
+      const card = banner.querySelector('[data-slot="alert"]') as HTMLElement
+      const text = card.querySelector('[data-slot="alert-content"]') as HTMLElement
+      const icon = card.querySelector('[data-part="banner-icon"]') as HTMLElement
+      const dismiss = card.querySelector('button[aria-label="Dismiss"]') as HTMLElement
+      const t = text.getBoundingClientRect()
       const i = icon.getBoundingClientRect()
       const d = dismiss.getBoundingClientRect()
-      return {
-        titleCenter: (t.top + t.bottom) / 2,
-        iconCenter: (i.top + i.bottom) / 2,
-        dismissCenter: (d.top + d.bottom) / 2,
-      }
+      return { textCenter: (t.top + t.bottom) / 2, iconCenter: (i.top + i.bottom) / 2,
+        dismissTop: d.top, expectedTop: card.getBoundingClientRect().top + parseFloat(getComputedStyle(card).paddingTop) }
     })
-    expect(Math.abs(reading.iconCenter - reading.titleCenter), 'icon off the title line').toBeLessThanOrEqual(1.5)
-    expect(Math.abs(reading.dismissCenter - reading.titleCenter), 'dismiss off the title line').toBeLessThanOrEqual(1.5)
+    expect(Math.abs(reading.iconCenter - reading.textCenter), 'tile off the copy centre').toBeLessThanOrEqual(1.5)
+    expect(Math.abs(reading.dismissTop - reading.expectedTop), 'dismiss off the top inset').toBeLessThanOrEqual(1.5)
   })
 
   test('edge="end" lands the glyph, not the box, on the row\'s inset', async ({ page }) => {

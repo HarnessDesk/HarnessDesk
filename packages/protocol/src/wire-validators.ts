@@ -210,12 +210,21 @@ const seatListValidator: Validator<FlowSeat[]> = (value, path = '') => {
   return seats
 }
 
+const libraryOriginValidator = shape({ url: isString, ref: isString, commit: isString, path: isString, bundle: isString })
+
 const libraryIntentValidator: Validator<LibraryIntent> = taggedUnion('kind', {
   installSkill: shape({
     kind: literalUnion('installSkill'),
+    origin: optional(libraryOriginValidator),
     name: isString,
     sourcePath: isString,
     targetRuntime: isRuntimeId,
+  }) as Validator<LibraryIntent>,
+  updateSkill: shape({
+    kind: literalUnion('updateSkill'),
+    name: atMost(200),
+    targetRuntime: isRuntimeId,
+    origin: libraryOriginValidator,
   }) as Validator<LibraryIntent>,
   authorSkill: shape({
     kind: literalUnion('authorSkill'),
@@ -256,6 +265,24 @@ const libraryIntentValidator: Validator<LibraryIntent> = taggedUnion('kind', {
 const nullableString: Validator<string | null> = (value, path = '') =>
   value === null ? null : isString(value, path)
 
+const libraryFileList: Validator<NonNullable<LibraryPlannedOp['files']>> = (value, path = '') => {
+  // An update can drop an old 200-file bundle while adding its replacement.
+  if (!Array.isArray(value) || value.length > 400) throw new ValidationError(path, 'expected at most 400 file changes')
+  if (value.length > 200 && value.some(file => file?.change === undefined)) throw new ValidationError(path, 'expected at most 200 files')
+  return arrayOf(shape({
+    path: atMost(4096),
+    bytes: nonNegativeSafeInteger,
+    runnable: isBoolean,
+    binary: isBoolean,
+    change: (value, path) => value === undefined ? undefined : literalUnion('added', 'changed', 'removed')(value, path),
+    reason: (value, path) => value === null ? null : atMost(256)(value, path),
+  }))(value, path).map(file => {
+    if (file.change !== undefined) return file
+    const { change: _change, ...incoming } = file
+    return incoming
+  })
+}
+
 const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
   id: isString,
   kind: literalUnion('skill', 'mcp'),
@@ -265,12 +292,16 @@ const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
   targetRuntime: optional(isRuntimeId),
   preview: optional(isString),
   extraFiles: optional(arrayOf(isString)),
+  files: (value, path) => value === undefined ? undefined : libraryFileList(value, path),
+  replaceBundle: optional(isBoolean),
+  acknowledged: (value, path) => value === undefined ? undefined : isBoolean(value, path),
   reason: optional(isString),
   content: optional(isString),
   sourcePath: optional(isString),
   flat: optional(isBoolean),
   guardDigest: nullableString,
   guardBundle: (value, path) => value === undefined ? undefined : nullableString(value, path),
+  origin: optional(libraryOriginValidator),
   sourceBundle: (value, path) => value === undefined ? undefined : isString(value, path),
   backup: isBoolean,
 }) as Validator<LibraryPlannedOp>
@@ -1006,6 +1037,19 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/skills': shape({ runtime: isString, cwd: optional(isString) }),
   'runtime/skills/setEnabled': shape({ runtime: isString, name: isString, path: optional(isString), enabled: isBoolean }),
   'runtime/hooks': shape({ runtime: isString, cwd: optional(isString) }),
+  'library/sources/check': shape({
+    names: (value, path = '') => {
+      if (value === undefined) return undefined
+      if (!Array.isArray(value) || value.length > 200) throw new ValidationError(path, 'expected at most 200 names')
+      return arrayOf(atMost(200))(value, path)
+    },
+  }),
+  'library/source/file': shape({ sourcePath: atMost(4096), path: atMost(4096) }),
+  'library/source/fetch': shape({
+    url: isString,
+    ref: (value, path) => value === undefined ? undefined : isString(value, path),
+    path: (value, path) => value === undefined ? undefined : isString(value, path),
+  }),
   'library/read': shape({ cwd: optional(isString) }),
   'library/definition': shape({
     kind: isString,
@@ -1085,6 +1129,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'transcripts/search': shape({ query: isString, includeTools: optional(isBoolean) }),
   'backup/export': isObject,
   'backup/import': shape({ backup: isObject }),
+  'session/loadout': shape({ session: isString, runtime: optional(isString) }),
   'session/read': shape({ runtime: isString, sessionId: isString }),
   'session/create': shape({ runtime: isString, options: withoutHostOnly(shape({ cwd: isString })) }),
   'session/resume': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
@@ -1326,7 +1371,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'flow/check/attempts': goalShape({ run: isFilled, card: goalInteger(1) }),
   'flow/answer/continue': goalShape({ run: isFilled }),
   'flow/review/candidates': goalShape({ run: isFilled, card: goalInteger(1) }),
-  'flow/review/decide': goalShape({ run: isFilled, card: goalInteger(1), candidate: isFilled, verdict: isFilled }),
+  'flow/review/decide': goalShape({ run: isFilled, card: goalInteger(1), candidate: isFilled, verdict: isFilled, expectedBranch: optional(isFilled), merge: optional(isBoolean) }),
   'flow/update/preview': goalShape({ root: isString, id: isFilled }),
   'flow/update/apply': goalShape({ root: isString, token: isFilled }),
   'flow/customize/preview': goalShape({ root: isString, id: isFilled }),

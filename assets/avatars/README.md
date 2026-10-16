@@ -66,9 +66,9 @@ Three and not four: an intermediate 256 would have added 2.4 MB to a 14 MB repos
 save a browser a 1.5× reduction it does perfectly well on its own. Anything larger than
 384 is a re-cut from `source/`, not a checked-in file.
 
-Draw them square with a 6px corner rather than a circle: the app's avatars are squared
-tiles, and a chat where the avatar column disagrees with the account chips reads as two
-products.
+Keep the art inside the circle the tile is cut to. Faces are round by default and square
+only when a person picks it (Settings › Appearance › Faces), so anything drawn into a
+corner is lost on most desks. The 384 square is the canvas, not the shape anyone sees.
 
 ## The black one on a dark surface
 

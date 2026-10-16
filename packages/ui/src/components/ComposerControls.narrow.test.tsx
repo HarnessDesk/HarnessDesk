@@ -158,25 +158,29 @@ const options: readonly ConfigOption[] = [
   },
 ] as unknown as readonly ConfigOption[]
 
-const draw = (at: number, layout: 'draft' | 'live' = 'draft', populatedExtension = false): void => {
+const draw = (at: number, layout: 'draft' | 'live' = 'draft', populatedExtension = false, declaredOptions = options): void => {
   width = at
   const key = sessionKey(agent.id, sessionId('narrow-test'))
   const liveSession = {
     id: sessionId('narrow-test'), runtime: agent.id, cwd: '/repo', status: { type: 'idle' },
-    createdAt: 1, updatedAt: 1, turns: [], itemsLoaded: true, options,
+    createdAt: 1, updatedAt: 1, turns: [], itemsLoaded: true, options: declaredOptions,
   } as unknown as Session
-  const snapshot: AppSnapshot = {
+  let snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
     runtimes: [agent],
     activeRuntime: agent.id,
-    draftOptions: options,
+    draftOptions: declaredOptions,
     ...(layout === 'live' ? { activeSessionKey: key, sessions: new Map([[key, liveSession]]) } : {}),
   }
+  const listeners = new Set<() => void>()
   testStore = {
-    subscribe: () => () => {},
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
     getSnapshot: () => snapshot,
-    setOption: vi.fn(async () => {}),
+    setOption: vi.fn(async (id: string, value: string) => {
+      snapshot = { ...snapshot, draftOptions: snapshot.draftOptions!.map((option) => option.id === id ? { ...option, currentValue: value } as ConfigOption : option) }
+      for (const listener of listeners) listener()
+    }),
   } as unknown as AppStore
   const toolbar = (
     <ComposerTools data-composer-layout={layout} style={{ gap: `${toolbarGap}px` }}>
@@ -190,7 +194,7 @@ const draw = (at: number, layout: 'draft' | 'live' = 'draft', populatedExtension
   act(() => {
     root.render(
       <StoreProvider store={testStore}>
-        <PaneProvider scope={{ paneId: 'narrow-test', view: { kind: 'conversation', session: key }, sessionKey: key }}>
+        <PaneProvider scope={{ paneId: 'narrow-test', view: { kind: 'conversation', session: key }, sessionKey: layout === 'live' ? key : null }}>
           {toolbar}
         </PaneProvider>
       </StoreProvider>,
@@ -271,6 +275,35 @@ it('recomputes fold steps when one toolbar switches between draft and live at a 
   expect(model().textContent?.trim()).toBe('')
 })
 
+it('keeps a chosen permission mode label in a draft when the redundant permission slot is absent', async () => {
+  const mode: ConfigOption = {
+    id: 'mode', label: 'Mode', description: 'Session permission mode', category: 'mode', type: 'select',
+    currentValue: 'default', choices: [{ value: 'default', label: 'Manual' }, { value: 'acceptEdits', label: 'Accept edits' }],
+  }
+  // A draft has one more control than a live conversation. The permission
+  // mode must not pay for a second permission control that has nothing to say.
+  draw(foldThreshold('mode') - 1, 'draft', false, [...options.filter((option) => option.category !== '_permissions' && option.category !== 'mode'), mode])
+  const track = () => container.querySelector<HTMLElement>('[data-composer-track="mode"]')!
+  click(track().querySelector('button')!)
+  const acceptEdits = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((row) => row.textContent?.includes('Accept edits'))!
+  await act(async () => { acceptEdits.click() })
+  expect(testStore.setOption).toHaveBeenCalledWith('mode', 'acceptEdits')
+  expect(track().querySelector('button')?.textContent).toContain('Accept edits')
+  expect(track().hasAttribute('data-folded')).toBe(false)
+
+  // Folding past the absent Permissions slot must not count it again.
+  const modelAt = foldThreshold('model') - tokenValue('--hd-composer-track-permissions-folded') - toolbarGap
+  resize(modelAt)
+  expect(model().textContent).toContain('Small')
+  resize(modelAt - 1)
+  expect(model().textContent?.trim()).toBe('')
+  const allFoldedAt = modelAt - tokenValue('--hd-composer-track-model') + tokenValue('--hd-composer-track-model-folded')
+  resize(allFoldedAt)
+  expect(container.querySelector('[data-composer-track="model"]')?.hasAttribute('data-tight')).toBe(false)
+  resize(allFoldedAt - 1)
+  expect(container.querySelector('[data-composer-track="model"]')?.hasAttribute('data-tight')).toBe(true)
+})
+
 it('keeps the selected Mode fact whole at a 560px live toolbar width', () => {
   draw(560, 'live')
   const track = container.querySelector<HTMLElement>('[data-composer-track="mode"]')
@@ -316,7 +349,7 @@ it('keeps every control’s words, the model’s among them, while there is room
 })
 
 it('puts boolean auto-approval in the permission control', () => {
-  draw(700)
+  draw(700, 'live')
   const permission = triggers().find((trigger) => /what the agent may do/i.test(trigger.title))
   expect(permission).toBeDefined()
   click(permission!)

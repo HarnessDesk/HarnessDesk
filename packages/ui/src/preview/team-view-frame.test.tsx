@@ -30,10 +30,10 @@ it('scopes standalone Board and Findings controls independently without changing
   </StoreProvider>))
   const board = container.querySelector('[data-testid="board"]')!
   const findings = container.querySelector('[data-testid="findings"]')!
-  expect(board.querySelector('[data-topbar="verb"] button')?.getAttribute('aria-label')).toBe('New job')
-  expect(findings.querySelector('[data-topbar="verb"] button')?.getAttribute('aria-label')).toBe('Decide this run')
+  expect(board.querySelector('[data-slot="page-options"] > button')?.getAttribute('aria-label')).toBe('New job')
+  expect(findings.querySelector('[data-slot="page-options"] > button')?.getAttribute('aria-label')).toBe('Decide this run')
   expect(container.querySelector('[data-slot="view-bar"]')).toBeNull()
-  await act(async () => board.querySelector<HTMLButtonElement>('[data-topbar="view"] button')!.click())
+  await act(async () => board.querySelector<HTMLButtonElement>('[data-slot="page-options"] button[title="View"]')!.click())
   expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
   const list = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent === 'List')!
   await act(async () => list.click())

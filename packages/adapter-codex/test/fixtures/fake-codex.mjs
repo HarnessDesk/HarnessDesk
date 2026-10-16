@@ -85,7 +85,9 @@ const mcpChildren = new Map()
 const nativeServers = process.env.FAKE_CODEX_NATIVE_SERVERS ? JSON.parse(process.env.FAKE_CODEX_NATIVE_SERVERS) : null
 const projectNativeServers = process.env.FAKE_CODEX_PROJECT_NATIVE_SERVERS ? JSON.parse(process.env.FAKE_CODEX_PROJECT_NATIVE_SERVERS) : {}
 const nativeServersFor = (cwd) => [...(nativeServers ?? ['default']), ...(projectNativeServers[cwd] ?? [])]
+const mcpConfigByThread = new Map()
 const loadMcpChild = (threadId, config = {}) => {
+  mcpConfigByThread.set(threadId, config)
   const ledger = process.env['FAKE_CODEX_MCP_CHILDREN']
   if (!ledger) return
   for (const name of nativeServersFor(cwdByThread.get(threadId))) {
@@ -1965,6 +1967,14 @@ rl.on('line', (line) => {
       return
 
     case 'skills/list':
+      if (process.env.FAKE_CODEX_LOADOUT_SKILLS === 'fail') {
+        send({ id, error: { code: -32603, message: 'Skills catalogue unavailable.' } })
+        return
+      }
+      if (process.env.FAKE_CODEX_LOADOUT_SKILLS === 'empty') {
+        send({ id, result: { data: [] } })
+        return
+      }
       send({
         id,
         result: {
@@ -2111,6 +2121,28 @@ rl.on('line', (line) => {
       return
 
     case 'mcpServerStatus/list':
+      if (process.env.FAKE_CODEX_LOADOUT_MCP === 'thread') {
+        const names = params.threadId
+          ? nativeServersFor(cwdByThread.get(params.threadId)).filter(name => mcpConfigByThread.get(params.threadId)?.mcp_servers?.[name]?.enabled !== false)
+          : ['control-only']
+        send({ id, result: { data: names.map(name => ({ name, tools: { read: {} }, resources: [], resourceTemplates: [], authStatus: 'unsupported' })), nextCursor: null } })
+        return
+      }
+      if (['pages', 'page-failure', 'cursor-loop'].includes(process.env.FAKE_CODEX_LOADOUT_MCP)) {
+        if (params.cursor && process.env.FAKE_CODEX_LOADOUT_MCP === 'page-failure') {
+          send({ id, error: { code: -32603, message: 'Next server page unavailable.' } })
+          return
+        }
+        const from = params.cursor ? Number(params.cursor) : 0
+        const total = 502
+        const end = Math.min(from + 200, total)
+        send({ id, result: { data: Array.from({ length: end - from }, (_, i) => ({ name: `server-${from + i}`, tools: { read: {} }, resources: [], resourceTemplates: [], authStatus: 'unsupported' })), nextCursor: process.env.FAKE_CODEX_LOADOUT_MCP === 'cursor-loop' ? '200' : end < total ? String(end) : null } })
+        return
+      }
+      if (process.env.FAKE_CODEX_LOADOUT_MCP === 'fail') {
+        send({ id, error: { code: -32603, message: 'Server catalogue unavailable.' } })
+        return
+      }
       send({
         id,
         result: {

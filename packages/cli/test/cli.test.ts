@@ -47,7 +47,7 @@ test('preview prints attachment counts and indented refusal reasons with sanitiz
 })
 
 test('the executable command table covers exactly the declared client surface', () => {
-  assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'run show', 'run stop', 'run wait', 'library list', 'library show', 'card show', 'card handoff', 'card answer', 'card abandon', 'waiting'])
+  assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'session show', 'run show', 'run stop', 'run wait', 'library list', 'library show', 'card show', 'card handoff', 'card answer', 'card abandon', 'waiting'])
   const methods = new Set(COMMANDS.flatMap(command => [...command.methods]))
   for (const command of COMMANDS) for (const method of command.methods) { const tier = clientTierFor(method, 'action' in command ? { action: command.action } : undefined); assert.ok(tier === 'read' || tier === command.tier, `${command.name}: ${method}`) }
   for (const method of methods) assert.ok(Object.hasOwn(CLIENT_METHODS, method), method)
@@ -95,7 +95,6 @@ test('exit codes preserve client boundary and compatibility refusals', () => {
   assert.equal(errorExit(new Error('error')), 1)
 })
 
-
 test('flow arguments accept one target and repeated inputs and seats, with strict flag ownership', () => {
   assert.deepEqual(parseArgs(['flow', 'preview', './demo.yaml', '--seat', 'writer=fake/high', '--seat', 'reviewer=fake,fake', '--input', 'brief=@brief.md', '--input', 'title=Demo', '--unattended']), {
     command: 'flow preview', target: './demo.yaml', seat: ['writer=fake/high', 'reviewer=fake,fake'], input: ['brief=@brief.md', 'title=Demo'], unattended: true,
@@ -105,7 +104,6 @@ test('flow arguments accept one target and repeated inputs and seats, with stric
   for (const args of [['flow', 'preview'], ['flow', 'start', 'demo', '--raw'], ['flow', 'preview', 'demo', '--yes'], ['open', '.', 'extra'], ['flows', '--seat', 'writer=fake']]) assert.throws(() => parseArgs(args), /usage/i)
 })
 
-
 test('run wait timeout is a finite non-negative number of seconds within timer range', () => {
   assert.equal(parseArgs(['run', 'show', 'demo']).target, 'demo')
   assert.equal(parseArgs(['run', 'wait', 'demo', '--timeout', '0.1']).timeout, '0.1')
@@ -113,12 +111,10 @@ test('run wait timeout is a finite non-negative number of seconds within timer r
   assert.throws(() => parseArgs(['run', 'show', 'demo', '--timeout', '1']), /usage/i)
 })
 
-
 test('run stop takes its required reason only from the flag', () => {
   assert.deepEqual(parseArgs(['run', 'stop', 'r-demo', '--reason', 'Changed', '--yes']), { command: 'run stop', target: 'r-demo', reason: 'Changed', yes: true })
   for (const args of [['run', 'stop', 'r-demo'], ['run', 'stop', 'r-demo', 'Changed'], ['run', 'stop', 'r-demo', '--reason', '  ']]) assert.throws(() => parseArgs(args), /usage/i)
 })
-
 
 test('card arguments bind team, card and outcome positionally; text stays in named flags', () => {
   assert.deepEqual(parseArgs(['card', 'answer', 'g', '1', 'shipped', '--context-file', '-']), { command: 'card answer', team: 'g', card: '1', outcome: 'shipped', contextFile: '-' })
@@ -262,7 +258,6 @@ test('any other error is printed the same way: its first line as it is, every la
   assert.equal(errorText('a string\nthrown'), 'a string\n  | thrown')
 })
 
-
 test('card answer documents a missing card as an exit-4 refusal', () => {
   const command = COMMANDS.find(command => command.name === 'card answer')!
   assert.match(command.exits[4]!, /missing.*`cardMissing`/)
@@ -272,7 +267,7 @@ const libraryEntry = (kind: 'skill' | 'mcp', name: string, reach: readonly objec
   kind, name, description, reach, copies,
 })
 
-const libraryDesk = async (t: any, entries: readonly object[], definitions: Readonly<Record<string, unknown>> = {}, skills: Readonly<Record<string, unknown>> = {}) => {
+const libraryDesk = async (t: any, entries: readonly object[], definitions: Readonly<Record<string, unknown>> = {}, skills: Readonly<Record<string, unknown>> = {}, responses: Readonly<Record<string, unknown>> = {}) => {
   const directory = await mkdtemp('/tmp/hd-cli-library-')
   await chmod(directory, 0o700)
   const homePath = join(directory, 'home')
@@ -293,12 +288,16 @@ const libraryDesk = async (t: any, entries: readonly object[], definitions: Read
     ws.on('message', raw => {
       const request = JSON.parse(raw.toString()) as { id: number; method: string; params: Record<string, unknown> }
       calls.push({ method: request.method, params: request.params })
-      const result = request.method === 'client/hello' ? hello
-        : request.method === 'library/read' ? library
-          : request.method === 'library/usage' ? usage
-            : request.method === 'library/definition' ? definitions[String(request.params['path'])] ?? null
-              : null
-      ws.send(JSON.stringify({ id: request.id, ok: true, result }))
+      const response = responses[request.method]
+      const result = typeof response === 'function' ? response(request.params) : Object.hasOwn(responses, request.method) ? response : request.method === 'client/hello' ? hello
+        : request.method === 'client/subscribe' ? { baseline: 0 }
+          : request.method === 'library/read' ? library
+            : request.method === 'library/usage' ? usage
+              : request.method === 'library/definition' ? definitions[String(request.params['path'])] ?? null
+                : new WireCallError('methodFailed', `Unexpected stub method: ${request.method}`)
+      if (result instanceof WireCallError) ws.send(JSON.stringify({ id: request.id, ok: false, error: { code: result.code, message: result.message } }))
+      else ws.send(JSON.stringify({ id: request.id, ok: true, result }))
+      if (request.method === 'client/subscribe') for (const notification of (responses['baseline'] as object[] ?? [])) ws.send(JSON.stringify(notification))
     })
   }))
   await new Promise<void>(resolve => server.listen(socketPath, resolve))
@@ -326,8 +325,10 @@ const runCli = async (t: any, args: readonly string[]) => {
   const stdout: string[] = [], stderr: string[] = []
   t.mock.method(process.stdout, 'write', (chunk: string | Uint8Array) => { stdout.push(String(chunk)); return true })
   t.mock.method(process.stderr, 'write', (chunk: string | Uint8Array) => { stderr.push(String(chunk)); return true })
-  const code = await main(args)
-  return { code, stdout: stdout.join(''), stderr: stderr.join('') }
+  try {
+    const code = await main(args)
+    return { code, stdout: stdout.join(''), stderr: stderr.join('') }
+  } finally { t.mock.restoreAll() }
 }
 
 test('library show rejects --text with --json before connecting to a desk', async t => {
@@ -473,4 +474,151 @@ test('library show reports missing names with exit 1 and ambiguous names with ex
   assert.match(ambiguous.stderr, /both a skill and an MCP server/)
   assert.match(ambiguous.stderr, /--kind/)
   assert.equal(ambiguousRig.calls.at(-1)?.method, 'library/read')
+})
+
+test('session show parses only its own flags and ambiguity exits 2', () => {
+  assert.deepEqual(parseArgs(['session', 'show', 'demo', '--runtime', 'runtime-a', '--epochs', '--all', '--json']), {
+    command: 'session show', target: 'demo', runtime: 'runtime-a', epochs: true, all: true, json: true,
+  })
+  for (const args of [['session', 'show'], ['session', 'show', 'demo', '--project', '.'], ['runs', '--epochs'], ['status', '--runtime', 'x']]) assert.throws(() => parseArgs(args), /Usage/)
+  assert.equal(errorExit(new WireCallError('ambiguous', 'Choose an agent.')), 2)
+})
+
+const loadoutFixture = () => {
+  const items = Array.from({ length: 25 }, (_, i) => ({ name: `skill-${i}\x1b[31m`, group: null, origin: 'repo', pathLabel: './.agents/skills/demo', digest: i === 2 ? null : 'abcdefgh12345678', tokens: i === 1 ? 3100 : null, count: null, enabled: true }))
+  const epoch = { version: 1, runtime: 'runtime-a', session: 'demo', seat: null, epoch: 0, observedAt: 1000, build: 'fake', approximate: true, source: 'scripted',
+    skills: { reported: true, items, more: 4 }, mcp: { reported: true, items: [], more: 0 },
+    memory: { reported: false, reason: 'This agent does not report its memory files.\x1b]52;c;secret\x07' }, agents: { reported: false, reason: 'No response yet.' } }
+  return { session: 'demo', runtime: 'runtime-a', seat: null, epochs: [epoch, { ...epoch, epoch: 1, observedAt: 2000, skills: { ...epoch.skills, items: items.slice(1) } }] }
+}
+
+test('session show prints latest reports with bounded rows, sanitized text, estimates and epoch differences', async t => {
+  const records = loadoutFixture()
+  await libraryDesk(t, [], {}, {}, { 'session/loadout': records })
+  const result = await runCli(t, ['session', 'show', 'demo', '--runtime', 'runtime-a', '--epochs'])
+  assert.equal(result.code, 0, result.stderr)
+  assert.match(result.stdout, /Agent 1.*demo/)
+  assert.match(result.stdout, /epoch 1.*1970-01-01T00:00:02/)
+  assert.match(result.stdout, /skills  28 reported · ~3.1K tokens reported/)
+  assert.match(result.stdout, /skill-2.*no digest/)
+  assert.match(result.stdout, /skill-1.*repo.*abcdefgh/)
+  assert.match(result.stdout, /and 8 more/)
+  assert.match(result.stdout, /mcp  0 reported/)
+  assert.match(result.stdout, /memory  not reported — This agent does not report its memory files\./)
+  assert.match(result.stdout, /epoch 0.*initial/)
+  assert.match(result.stdout, /epoch 1.*skills/)
+  assert.doesNotMatch(result.stdout, /[\x00-\x09\x0b-\x1f\x7f-\x9f]|secret/)
+})
+
+test('session show --all prints every retained item and JSON preserves complete epochs', async t => {
+  const records = loadoutFixture()
+  await libraryDesk(t, [], {}, {}, { 'session/loadout': records })
+  const human = await runCli(t, ['session', 'show', 'demo', '--all'])
+  assert.equal(human.code, 0, human.stderr)
+  assert.match(human.stdout, /skill-24/)
+  assert.match(human.stdout, /and 4 more/)
+  const json = await runCli(t, ['session', 'show', 'demo', '--json'])
+  assert.equal(json.code, 0, json.stderr)
+  assert.deepEqual(JSON.parse(json.stdout), records)
+})
+
+test('session show includes the Seat role and the run whose seat operation recorded it', async t => {
+  const records = { ...loadoutFixture(), seat: 'seat-demo' }
+  await libraryDesk(t, [], {}, {}, {
+    'session/loadout': records,
+    'evidence/seat': { id: 'seat-demo', role: 'writer\x1b[31m', board: 'team-demo' },
+    'flow/executions': [{ id: 'run-demo' }],
+    'flow/execution': { id: 'run-demo', operations: [{ kind: 'seat', seat: 'seat-demo' }] },
+  })
+  const human = await runCli(t, ['session', 'show', 'demo'])
+  assert.equal(human.code, 0, human.stderr)
+  assert.match(human.stdout, /Agent 1.*demo.*Seat seat-demo.*role writer.*run run-demo/)
+  assert.doesNotMatch(human.stdout, /\x1b/)
+})
+
+test('session show resolves a closed Seat without any current or past Team member', async t => {
+  await libraryDesk(t, [], {}, {}, {
+    'session/loadout': { ...loadoutFixture(), seat: 'seat-demo' },
+    'goal/list': [{ goal: { id: 'team-demo' }, members: [], pastMembers: [] }],
+    'evidence/seat': { id: 'seat-demo', role: 'writer\x1b[31m', board: 'team-demo' },
+    'flow/executions': [{ id: 'run-demo' }],
+    'flow/execution': { id: 'run-demo', operations: [{ kind: 'seat', seat: 'seat-demo' }] },
+  })
+  const human = await runCli(t, ['session', 'show', 'demo'])
+  assert.equal(human.code, 0, human.stderr)
+  assert.match(human.stdout, /Seat seat-demo.*role writer.*run run-demo/)
+  assert.doesNotMatch(human.stdout, /\x1b/)
+})
+
+const runLoadoutFixture = () => ({
+  id: 'run-demo', goal: 'team-demo', flow: 'demo', state: 'settled', revision: null, continues: null,
+  startedAt: 0, endedAt: 1000, reason: null, end: null, rounds: [], overrides: {},
+  document: { format: 'legacy', flow: { name: 'Demo', roles: [], rules: [] } },
+  operations: [
+    { kind: 'seat', seat: 'seat-demo' }, { kind: 'seat', seat: 'seat-demo' },
+    { kind: 'turn', seat: 'ignored' }, { kind: 'seat', seat: null },
+    { kind: 'seat', seat: 'seat-missing' }, { kind: 'seat', seat: 'seat-no-record' },
+  ],
+})
+
+test('run show prints each distinct Seat report, closed roster members, allowlist readback and missing records', async t => {
+  const run = runLoadoutFixture()
+  const rig = await libraryDesk(t, [], {}, {}, {
+    'client/subscribe': { baseline: 1 }, baseline: [{ method: 'flow/execution-changed', params: { execution: run } }],
+    'flow/execution': run,
+    'evidence/board': { seats: [], records: [] }, 'finding/list': { rows: [] }, 'finding/run': { run: run.id, goal: run.goal, rounds: [] },
+    'goal/read': { members: [{ id: 'seat-no-record', role: 'helper', agent: null, session: { runtime: 'runtime-b', sessionId: 'no-record' } }],
+      pastMembers: [{ id: 'seat-demo', role: 'writer\x1b[31m', agent: { name: 'Jane Doe\x1b[31m' }, session: { runtime: 'runtime-a', sessionId: 'demo' } }] },
+    'session/loadout': (params: Record<string, unknown>) => params['session'] === 'no-record' ? new WireCallError('notFound', 'No record') : loadoutFixture(),
+    'attachment/seat': (params: Record<string, unknown>) => params['seat'] === 'seat-demo' ? { skillsMode: 'allowlist', mcpMode: 'runtime-defaults', results: [
+      { identity: { name: 'demo' }, status: 'loaded', reason: null },
+      { identity: { name: 'pending\x1b[31m' }, status: 'not-loaded', reason: 'Not approved.\n\x1b]52;c;secret\x07' },
+    ] } : null,
+  })
+  const result = await runCli(t, ['run', 'show', run.id])
+  assert.equal(result.code, 0, result.stderr)
+  assert.match(result.stdout, /writer  Seat seat-demo  Jane Doe/)
+  assert.equal(result.stdout.match(/Seat seat-demo/g)?.length, 1)
+  assert.match(result.stdout, /skills  28 reported · ~3.1K tokens reported/)
+  assert.match(result.stdout, /memory  not reported/)
+  assert.match(result.stdout, /1 loaded · 1 not loaded/)
+  assert.match(result.stdout, /pending  Not approved\./)
+  assert.match(result.stdout, /Seat seat-missing[^\n]*\nnot recorded/)
+  assert.match(result.stdout, /Seat seat-no-record[^\n]*\nnot recorded/)
+  assert.doesNotMatch(result.stdout, /skill-24|[\x00-\x09\x0b-\x1f\x7f-\x9f]|secret|Seat ignored/)
+  assert.deepEqual(rig.calls.filter(call => call.method === 'session/loadout').map(call => call.params), [
+    { runtime: 'runtime-a', session: 'demo' }, { runtime: 'runtime-b', session: 'no-record' },
+  ])
+})
+
+test('run show --json is byte-for-byte the execution and never reads Seat loadouts', async t => {
+  const run = runLoadoutFixture()
+  const rig = await libraryDesk(t, [], {}, {}, { 'flow/execution': run })
+  const result = await runCli(t, ['run', 'show', run.id, '--json'])
+  assert.equal(result.code, 0, result.stderr)
+  assert.equal(result.stdout, JSON.stringify(run) + '\n')
+  assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'flow/execution'])
+})
+
+test('run show labels empty epochs not recorded and retains attachment readback without a roster conversation', async t => {
+  const run = { ...runLoadoutFixture(), operations: [{ kind: 'seat', seat: 'seat-demo' }, { kind: 'seat', seat: 'seat-missing' }] }
+  await libraryDesk(t, [], {}, {}, {
+    'client/subscribe': { baseline: 0 }, 'flow/execution': run,
+    'evidence/board': { seats: [], records: [] }, 'finding/list': { rows: [] }, 'finding/run': { run: run.id, goal: run.goal, rounds: [] },
+    'goal/read': { members: [{ id: 'seat-demo', role: 'writer', agent: null, session: { runtime: 'runtime-a', sessionId: 'demo' } }], pastMembers: [] },
+    'session/loadout': { ...loadoutFixture(), epochs: [] },
+    'attachment/seat': { skillsMode: 'runtime-defaults', mcpMode: 'allowlist', results: [{ identity: { name: 'docs' }, status: 'loaded', reason: null }] },
+  })
+  const result = await runCli(t, ['run', 'show', run.id])
+  assert.equal(result.code, 0, result.stderr)
+  assert.match(result.stdout, /writer  Seat seat-demo  Agent 1\nnot recorded\n1 loaded · 0 not loaded/)
+  assert.match(result.stdout, /Seat seat-missing\nnot recorded\n1 loaded · 0 not loaded/)
+})
+
+test('the library stub names an unexpected method in a CLI failure', async t => {
+  const rig = await libraryDesk(t, [])
+  const result = await runCli(t, ['session', 'show', 'demo'])
+  assert.equal(result.code, 1)
+  assert.match(result.stderr, /methodFailed: Unexpected stub method: session\/loadout/)
+  assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'session/loadout'])
 })

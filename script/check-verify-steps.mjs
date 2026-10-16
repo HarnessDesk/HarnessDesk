@@ -55,6 +55,7 @@ export const DESCRIBED_AS = new Map([
   ['build', /(?:\bruns|,)\s+the build\b/i],
   ['node tests', /every test suite/i],
   ['flow-host-evidence tests', /flow-host-evidence/i],
+  ['host-retention tests', /host-retention/i],
   ['intake tests', /intake test files/i],
   ['cli e2e tests', /command line's end-to-end file/i],
   ['gate tests', /gate scripts/i],

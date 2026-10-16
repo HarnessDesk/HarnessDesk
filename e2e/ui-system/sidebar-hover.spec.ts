@@ -155,7 +155,7 @@ test('settled gives up on an animation whose timeline never advances', async ({ 
 })
 
 for (const theme of ['light', 'dark'] as const) {
-test(`workspace hover substitutes its pin and label width fixed (${theme})`, async ({ page }, testInfo) => {
+test(`workspace hover keeps its pin fact on hover and label width fixed (${theme})`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
@@ -168,7 +168,8 @@ test(`workspace hover substitutes its pin and label width fixed (${theme})`, asy
     const title = group.locator('[data-slot="sidebar-menu-label"]')
     await opener.blur()
     await page.mouse.move(1400, 0)
-    await expect(pin).toBeVisible()
+    await expect(pin).toHaveCount(0)
+    await expect(opener).toHaveAttribute('title', /Pinned/)
 
     for (const width of [260, 200, 480]) {
       await setWidth(page, width)
@@ -180,7 +181,7 @@ test(`workspace hover substitutes its pin and label width fixed (${theme})`, asy
       const add = group.getByRole('button', { name: 'New session in HarnessDesk', exact: true })
       await expect(add).toBeVisible()
       const after = await settled(title)
-      if (width === 260) {
+      if (width === 260 && testInfo.project.use.screenshot !== 'off') {
         await group.screenshot({ path: testInfo.outputPath('workspace-hover.png') })
         await testInfo.attach('workspace-geometry', {
           body: JSON.stringify({ label: after, add: await settled(add) }),
@@ -191,13 +192,13 @@ test(`workspace hover substitutes its pin and label width fixed (${theme})`, asy
       expect(after.left).toBe(before.left)
       expect(after.right).toBe(before.right)
       expect(after.top).toBe(before.top)
-      // The action shares the trailing slot with the badge, so it may cover
-      // the pin while hovered; the pin returns when the pointer leaves.
-      await expect(pin).toBeHidden()
+      // Pinning stays in the title and menu while actions use the empty rail.
+      await expect(pin).toHaveCount(0)
       expect(await unobstructed(add)).toBe(true)
       await opener.blur()
       await page.mouse.move(1400, 0)
-      await expect(pin).toBeVisible()
+      await expect(pin).toHaveCount(0)
+    await expect(opener).toHaveAttribute('title', /Pinned/)
     }
     await opener.focus()
     await page.keyboard.press('Shift+F10')
@@ -244,7 +245,7 @@ test(`workspace hover substitutes its pin and label width fixed (${theme})`, asy
         expect(after.right).toBe(before.right)
         expect(await open.getAttribute('title')).toBe(title)
         expect(await unobstructed(action)).toBe(true)
-        if (width === 260) {
+        if (width === 260 && testInfo.project.use.screenshot !== 'off') {
           await row.screenshot({ path: testInfo.outputPath('session-hover.png') })
           await testInfo.attach('session-geometry', {
             body: JSON.stringify({ label: after, action: await settled(action), height: (await open.boundingBox())!.height }),

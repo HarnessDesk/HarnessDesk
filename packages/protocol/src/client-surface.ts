@@ -9,6 +9,8 @@ export type ClientTopic = 'runs' | 'cards' | 'teams' | 'waiting' | 'notices' | '
 export const CLIENT_METHODS = {
   'client/hello': 'read',
   'client/subscribe': 'read',
+  'session/loadout': 'read',
+  'attachment/seat': 'read',
   'goal/list': 'read',
   'goal/read': 'read',
   'team/intent': 'answer',
@@ -23,6 +25,7 @@ export const CLIENT_METHODS = {
   'finding/run': 'read',
   'finding/list': 'read',
   'evidence/board': 'read',
+  'evidence/seat': 'read',
   'insight/goal': 'read',
   'library/read': 'read',
   'library/definition': 'read',

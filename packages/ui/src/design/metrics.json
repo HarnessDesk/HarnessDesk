@@ -231,22 +231,6 @@
     "pad": "0 0 0 0",
     "radius": 6
   },
-  "banner/alert/variant/default": {
-    "h": 60,
-    "text": 14,
-    "weight": "400",
-    "line": 20,
-    "pad": "10 12 10 12",
-    "radius": 10
-  },
-  "banner/alert/variant/soft": {
-    "h": 60,
-    "text": 14,
-    "weight": "400",
-    "line": 20,
-    "pad": "10 12 10 12",
-    "radius": 10
-  },
   "button/button/size/chip": {
     "h": 24,
     "text": 12,
@@ -837,7 +821,7 @@
     "weight": "400",
     "line": 20,
     "pad": "0 0 0 0",
-    "radius": 8
+    "radius": 9999
   },
   "message/bubble/variant/ghost": {
     "h": 20,
@@ -854,6 +838,22 @@
     "line": 20,
     "pad": "16 16 16 16",
     "radius": 16
+  },
+  "notices/alert/variant/default": {
+    "h": 60,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "10 12 10 12",
+    "radius": 10
+  },
+  "notices/alert/variant/soft": {
+    "h": 60,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "10 12 10 12",
+    "radius": 10
   },
   "popup-inbox/div/variant/default": {
     "h": 28,

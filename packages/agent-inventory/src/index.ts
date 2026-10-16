@@ -22,6 +22,9 @@ import {
  * would be a test hook, and a second `createHash` somewhere else would be a
  * second answer about trailing whitespace.
  */
+export { classifySkillFiles } from './skill-risk.js'
+export { parseGithubSource } from './github-source.js'
+export { knownRoots } from './locations.js'
 export { bundleDigest, digestOf } from './digest.js'
 export { unifiedDiff } from './diff.js'
 export { LibraryManifest, type ManifestEntry } from './manifest.js'
@@ -35,8 +38,12 @@ export {
   type McpServerSpec,
 } from './mcp.js'
 export {
+  currentSkillBundleDigest,
   applyLibrary,
   isSafePathSegment,
+  isSafeSkillRelativePath,
+  validSkillName,
+  MAX_BUNDLE_BYTES,
   MAX_BUNDLE_FILES,
   planLibrary,
   type WriteAgent,

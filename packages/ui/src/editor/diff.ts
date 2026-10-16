@@ -543,3 +543,87 @@ export const wholeTextDiff = (before: string, after: string): string => {
   }
   return [`@@ -1,${n} +1,${m} @@`, ...out].join('\n')
 }
+
+export interface WordPart {
+  readonly text: string
+  readonly changed: boolean
+}
+
+/** Word/punctuation LCS, bounded for generated or minified lines. No text is discarded. */
+export const changedWords = (before: string, after: string): readonly [WordPart[], WordPart[]] => {
+  const tokens = (text: string) => text.match(/[\p{L}\p{N}_]+|\s+|[^\p{L}\p{N}_\s]/gu) ?? []
+  const a = tokens(before), b = tokens(after)
+  let start = 0, endA = a.length, endB = b.length
+  while (start < endA && start < endB && a[start] === b[start]) start++
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB-- }
+  const left: WordPart[] = [], right: WordPart[] = []
+  const push = (parts: WordPart[], text: string, changed: boolean) => {
+    if (!text) return
+    const last = parts.at(-1)
+    if (last?.changed === changed) parts[parts.length - 1] = { text: last.text + text, changed }
+    else parts.push({ text, changed })
+  }
+  const common = a.slice(0, start).join('')
+  push(left, common, false); push(right, common, false)
+  const n = endA - start, m = endB - start
+  if ((n + 1) * (m + 1) > 250_000) {
+    push(left, a.slice(start, endA).join(''), true)
+    push(right, b.slice(start, endB).join(''), true)
+  } else {
+    const lengths = new Uint32Array((n + 1) * (m + 1))
+    const at = (i: number, j: number) => lengths[i * (m + 1) + j]!
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
+      lengths[i * (m + 1) + j] = a[start + i] === b[start + j] ? 1 + at(i + 1, j + 1) : Math.max(at(i + 1, j), at(i, j + 1))
+    }
+    let i = 0, j = 0
+    while (i < n || j < m) {
+      if (i < n && j < m && a[start + i] === b[start + j]) {
+        push(left, a[start + i++]!, false); push(right, b[start + j++]!, false)
+      } else if (i < n && (j === m || at(i + 1, j) >= at(i, j + 1))) push(left, a[start + i++]!, true)
+      else push(right, b[start + j++]!, true)
+    }
+  }
+  const suffix = a.slice(endA).join('')
+  push(left, suffix, false); push(right, suffix, false)
+  return [left, right]
+}
+
+export interface PresentedDiffLine extends DiffLine { readonly words?: readonly WordPart[] }
+
+/** Pair removal/addition blocks by position; a no-newline annotation belongs to its preceding line. */
+export const presentDiffLines = (lines: readonly DiffLine[], hideWhitespace: boolean, highlightWords = true): PresentedDiffLine[] => {
+  const result: PresentedDiffLine[] = []
+  for (let index = 0; index < lines.length;) {
+    const first = index
+    if (lines[index]!.kind !== 'remove') { result.push(lines[index++]!); continue }
+    const removed: number[] = [], added: number[] = []
+    const annotation = (row: number) => lines[row]?.kind === 'meta' && lines[row]?.text === '\\ No newline at end of file'
+    while (lines[index]?.kind === 'remove' || annotation(index)) {
+      if (lines[index]!.kind === 'remove') removed.push(index)
+      index++
+    }
+    while (lines[index]?.kind === 'add' || annotation(index)) {
+      if (lines[index]!.kind === 'add') added.push(index)
+      index++
+    }
+    const hidden = new Set<number>()
+    const words = new Map<number, readonly WordPart[]>()
+    for (let pair = 0; pair < Math.min(removed.length, added.length); pair++) {
+      const oldIndex = removed[pair]!, newIndex = added[pair]!
+      const before = lines[oldIndex]!.text, after = lines[newIndex]!.text
+      if (hideWhitespace && before.replace(/\s/g, '') === after.replace(/\s/g, '')) {
+        hidden.add(oldIndex); hidden.add(newIndex)
+        if (annotation(oldIndex + 1)) hidden.add(oldIndex + 1)
+        if (annotation(newIndex + 1)) hidden.add(newIndex + 1)
+      } else if (highlightWords) {
+        const [left, right] = changedWords(before, after)
+        words.set(oldIndex, left); words.set(newIndex, right)
+      }
+    }
+    for (let row = first; row < index; row++) if (!hidden.has(row)) {
+      const parts = words.get(row)
+      result.push(parts ? { ...lines[row]!, words: parts } : lines[row]!)
+    }
+  }
+  return result
+}

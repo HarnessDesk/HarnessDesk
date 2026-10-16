@@ -56,6 +56,7 @@ test('opening in a folder without runtime board tools sends a session-linked not
     resumeSession: async (id: string) => ({ id, settings: () => ({}), options: () => ({ cwd: root }) }),
   } as unknown as AgentRuntime
   const ctx = contextWith({
+    loadouts: { observe: () => {} },
     sessionIndex: { reopen: () => {}, record: (session: unknown) => indexed.push(session) },
     sessionWorktrees: { prepare: async () => ({}) },
     runtimes: { resolve: () => runtime, ensureStarted: async () => {} },
@@ -957,4 +958,31 @@ test('the most recent workspace answers with an empty git status, repo and check
   assert.equal(recent[0]?.git, null, 'a stalled git status answers null once the bound is reached')
   assert.equal(recent[0]?.repo, null, 'a stalled repoOf answers null once the bound is reached')
   assert.equal(recent[0]?.checkoutRoot, null, 'a stalled topLevel answers null once the bound is reached')
+})
+
+test('library/source/fetch delegates only to the host source reader', async () => {
+  const calls: unknown[] = []
+  const result = { commit: 'a'.repeat(40), skills: [], refused: [] }
+  const ctx = { librarySources: () => ({ fetch: async (params: unknown) => { calls.push(params); return result } }) } as unknown as HostContext
+  const params = { url: 'https://github.com/acme-dev/skills', ref: 'main', path: 'tools' }
+  assert.equal(await dispatch(ctx, 'library/source/fetch' as never, params as never), result)
+  assert.deepEqual(calls, [params])
+})
+
+test('library/source/file delegates only to the host source reader', async () => {
+  const calls: unknown[] = []
+  const result = { path: 'note.md', bytes: 4, text: 'Read', truncated: false }
+  const ctx = { librarySources: () => ({ file: async (params: unknown) => { calls.push(params); return result } }) } as unknown as HostContext
+  const params = { sourcePath: '/library/sources/demo', path: 'note.md' }
+  assert.equal(await dispatch(ctx, 'library/source/file' as never, params as never), result)
+  assert.deepEqual(calls, [params])
+})
+
+test('library/sources/check delegates the optional names to host update checks', async () => {
+  const calls: unknown[] = []
+  const agents: unknown[] = []
+  const result: unknown[] = []
+  const ctx = { runtimes: { inventory: () => agents }, libraryUpdates: () => ({ check: async (...args: unknown[]) => { calls.push(args); return result } }) } as unknown as HostContext
+  assert.equal(await dispatch(ctx, 'library/sources/check' as never, { names: ['demo'] } as never), result)
+  assert.deepEqual(calls, [[agents, ['demo']]])
 })

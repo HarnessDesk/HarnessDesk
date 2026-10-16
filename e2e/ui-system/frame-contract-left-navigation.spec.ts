@@ -32,7 +32,7 @@ for (const theme of WALL_THEMES) {
       expect(row.slots).toBe(1)
     }
     const seat = column.locator('[data-left-seat]')
-    expect((await seat.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+    expect((await seat.locator('..').boundingBox())!.height).toBe(FRAME.sidebar.footerHeight)
     await expect(seat.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-pressed', 'false')
     const start = column.getByRole('button', { name: 'New session', exact: true })
     await expect(start.locator('..').locator('[data-left-trailing] button')).toHaveCount(1)
@@ -111,9 +111,11 @@ for (const theme of WALL_THEMES) {
   })
 }
 
-test('D8 Search stays in the window top row when the column is hidden', async ({ page }) => {
+test('D8 the hidden-column lead restores the column that owns Search', async ({ page }) => {
   await openFrame(page, 'frame-wall=conversation&frame-sidebar-hidden=1', 'light')
   await expect(page.locator('[data-left-column]:visible')).toHaveCount(0)
   const top = page.locator('[data-slot="top-bar"]:visible').first()
-  await expect(top.getByRole('button', { name: 'Search everything', exact: true })).toBeVisible()
+  await expect(top.getByRole('button', { name: 'Search everything', exact: true })).toHaveCount(0)
+  await top.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+  await expect(page.locator('[data-left-column]:visible').getByRole('button', { name: 'Search everything', exact: true })).toBeVisible()
 })

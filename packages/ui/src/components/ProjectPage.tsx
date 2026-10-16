@@ -1,5 +1,5 @@
 import { useDestinationActive } from '../panels/destination-page'
-import { PageExplanation, MenuItem } from '../design'
+import { PageExplanation, MenuItem, Button, Toolbar } from '../design'
 import { FolderOpenIcon, TrashIcon } from './Icons'
 import { DestinationBar } from '../panels/destination-page'
 import { useEffect, useState } from 'react'
@@ -93,14 +93,15 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
 
   return (
     <>
-      <DestinationBar place={name} parents={[
-        { label: 'Settings', run: () => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } }) },
-        { label: 'Workspaces', run: onBack },
-      ]} state={current ? <Chip state="ready" label="Current" /> : undefined} more={close => <>
+      <DestinationBar place={name} more={close => <>
         {!current && <MenuItem icon={<FolderOpenIcon size={16} />} label="Open" onSelect={() => { void store.openWorkspace(root); close() }} />}
         {!current && listed && <MenuItem icon={<TrashIcon size={16} />} label="Forget" title="Drop it from the list. The folder is untouched."
           onSelect={() => { void store.forgetWorkspace(root); onBack(); close() }} />}
       </>} />
+      <Toolbar>
+        <Button variant="ghost" size="sm" onClick={onBack}>Back to Workspaces</Button>
+        {current && <Chip state="ready" label="Current" />}
+      </Toolbar>
       <PageExplanation>{shortPath(root, snapshot.home)}</PageExplanation>
       <Section
         title="Agents"

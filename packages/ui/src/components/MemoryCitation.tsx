@@ -191,7 +191,7 @@ const DirtyMemoryRow = ({ root, path }: { readonly root: string; readonly path: 
           </span>
         }
       />
-      {destinationActive && viewing && diff !== null && <DiffView diff={diff} wrap />}
+      {destinationActive && viewing && diff !== null && <DiffView diff={diff} />}
     </>
   )
 }

@@ -1,8 +1,9 @@
+import { EDIT_TEAM_START_POLICY } from '../preview/front-door-edit-fixture'
 import { expect, it } from 'vitest'
 import type { FlowEntry, FlowPolicy } from '@harnessdesk/protocol'
 import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
 import { CONTEST_START_POLICY } from './contest-start-fixture'
-import { pickerSections, shapeSummary, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from './team-start'
+import { withReviewHandoff, pickerSections, shapeSummary, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from './team-start'
 
 const entry = (id: string, over: Partial<FlowEntry> = {}): FlowEntry => ({
   id, name: id, origin: 'builtin', path: `${id}.yml`, description: 'First sentence. More details.',
@@ -120,4 +121,16 @@ it('uses the approved fresh-desk order and puts project flows in their own secti
 it('ranks actual starts, breaks ties by the fresh order, and searches names and summaries', () => {
   expect(pickerSections(shapes, { alignment: 8, review: 4, comparison: 4 }, '').most.map(one => one.id)).toEqual(['alignment', 'comparison', 'review', 'fix-and-review'])
   expect(pickerSections([entry('one', { name: 'Read code', summary: 'Security specialists.' }), entry('two')], {}, 'SECURITY').most.map(one => one.id)).toEqual(['one'])
+})
+
+
+it('restores the separate publication handoff after changing the review outcome option', () => {
+  const automatic = withReviewHandoff(EDIT_TEAM_START_POLICY, 'merge')
+  const waiting = withReviewHandoff(automatic, 'wait')
+  expect(waiting.roles.find(role => role.id === 'fixer')).toMatchObject({ grant: 'edit' })
+  expect(waiting.roles.find(role => role.id === 'referee')).toMatchObject({ kind: 'person' })
+  expect(waiting.rules.find(rule => rule.then.role === 'referee')?.then).toMatchObject({
+    title: 'Approve publishing the reviewed change',
+    detail: EDIT_TEAM_START_POLICY.rules.find(rule => rule.then.role === 'referee')!.then.detail,
+  })
 })

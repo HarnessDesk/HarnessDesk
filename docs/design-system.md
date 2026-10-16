@@ -185,8 +185,8 @@ Four radii carry the whole interface, and a fifth name says "pill". `sm` is a sm
 | `--hd-radius-xl` | `16px` |
 | `--hd-radius-full` | `9999px` |
 | `--hd-radius-matted` | `calc(14px - 2px)` |
-| `--hd-face-radius` | `6px` |
-| `--hd-face-radius-lg` | `10px` |
+| `--hd-face-radius` | `9999px` |
+| `--hd-face-radius-lg` | `9999px` |
 | `--hd-border-width` | `1px` |
 
 ### Type
@@ -238,7 +238,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-usage-meter-reading` | `64px` |
 | `--hd-usage-meter-reset` | `88px` |
 | `--hd-table-face` | `32px` |
-| `--hd-table-face-radius` | `calc(6px * 4 / 3)` |
+| `--hd-table-face-radius` | `calc(9999px * 4 / 3)` |
 | `--hd-table-lead-gap` | `12px` |
 | `--hd-table-name-size` | `14px` |
 | `--hd-table-fact-size` | `12px` |
@@ -279,6 +279,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-composer-max` | `320px` |
 | `--hd-composer-line` | `20px` |
 | `--hd-composer-radius` | `28px` |
+| `--hd-notice-bar` | `3px` |
 | `--hd-composer-shell-shadow` | `0 4px 20px rgba(0, 0, 0, 0.035)` |
 | `--hd-composer-shell-shadow-focus` | `0 4px 20px rgba(0, 0, 0, 0.035)` |
 | `--hd-composer-track-add` | `32px` |
@@ -409,6 +410,17 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-active` | `rgba(9, 12, 17, 0.09)` |
 | `--hd-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
 
+### Diff grounds
+
+Diff rows sit inside the darker code fill. Resolve their state washes against the page as opaque colours so a gutter does not composite the same alpha twice, and each state's ink keeps its AA pairing.
+
+| token | value |
+| --- | --- |
+| `--hd-code-add-fill` | `color-mix(in srgb, rgb(65, 189, 111) 12%, rgb(255, 255, 255))` |
+| `--hd-code-remove-fill` | `color-mix(in srgb, rgb(228, 68, 62) 12%, rgb(255, 255, 255))` |
+| `--hd-code-add-word-fill` | `color-mix(in srgb, rgb(65, 189, 111) 28%, rgb(255, 255, 255))` |
+| `--hd-code-remove-word-fill` | `color-mix(in srgb, rgb(228, 68, 62) 28%, rgb(255, 255, 255))` |
+
 ### Density scopes
 
 A page-sized decision about how big a control is, named so a component can opt into it without redefining a system token in its own stylesheet. `[data-hd-density='comfortable']` is the settings and usage window: every control inside it stands at 36px instead of the app's working 26px, because those are pages a person reads rather than works in. The rule lives at the foot of this file, because it has to be a selector rather than a value.
@@ -437,7 +449,11 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 | --- | --- |
 | `--hd-nav-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-nav-h-group` | `calc(20px + 4px * 2 + 2px)` |
-| `--hd-left-row-h` | `32px` |
+| `--hd-sidebar-highlight-h` | `32px` |
+| `--hd-sidebar-row-pitch` | `calc(32px + 2px)` |
+| `--hd-sidebar-group-space` | `20px` |
+| `--hd-bar-h-lg` | `48px` |
+| `--hd-left-row-h` | `calc(32px + 2px)` |
 | `--hd-left-row-gap` | `0px` |
 | `--hd-left-menu-gap` | `8px` |
 | `--hd-frame-icon-button` | `28px` |
@@ -534,7 +550,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-card-fill` | `` |
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
-| `--hd-left-row-h` | `32px` |
+| `--hd-left-row-h` | `calc(32px + 2px)` |
 | `--hd-left-row-gap` | `0px` |
 | `--hd-left-menu-gap` | `8px` |
 | `--hd-nav-radius` | `10px` |
@@ -553,7 +569,7 @@ A table scope owns its density, including list and settings examples. Restating 
 | `--hd-table-edge` | `12px` | `12px` |
 | `--hd-table-end-gap` | `12px` | `8px` |
 | `--hd-table-face` | `32px` | `24px` |
-| `--hd-table-face-radius` | `calc(6px * 4 / 3)` | `6px` |
+| `--hd-table-face-radius` | `calc(9999px * 4 / 3)` | `9999px` |
 | `--hd-table-fact-size` | `12px` | `12px` |
 | `--hd-table-head-h` | `40px` | `32px` |
 | `--hd-table-head-ink` | `rgb(49, 49, 49)` | `rgb(49, 49, 49)` |
@@ -805,6 +821,14 @@ having written the judgement down.
 
 **Why** — A hover card that wore a dialog's shadow would claim the window's attention for something the pointer merely passed over.
 
+### `success`
+
+**Use** — A result the person asked for has completed: moved to the Trash, a Library write, or a choice applied.
+
+**Not** — For a default state or a limit working as designed. Those stay neutral.
+
+**Why** — Completion deserves confirmation; colouring ordinary conditions green would hide that result.
+
 ### `warning`
 
 **Use** — The person must act now — sign in, approve, free a limit — and the thing cannot go on without them. Chip, Badge, Note and Banner all read it this way.
@@ -895,11 +919,11 @@ having written the judgement down.
 
 ### `one step`
 
-**Use** — A destination is named once by its permanent top bar, using the subject step: 14px medium. Settings uses a visible h1 in the page role above its description instead; its bar has no title. The wordmark keeps its own type role.
+**Use** — A standalone page names itself once in its body with Text as="h1" role="page", on the content column beside its chooser or primary verb. Settings sections use their own name without a breadcrumb. Named subjects keep their title menu in the bar; canvases have no body title. The wordmark keeps its own type role.
 
 **Not** — Repeating a destination title in both its bar and page body, or another type size for a detail destination.
 
-**Why** — A retained destination shares the same shell and title position as work. Its content starts at the Page gutter.
+**Why** — The content column anchors the page name at every width. Its title row scrolls away with the body; the fixed bar keeps its height and controls.
 
 ### `GroupLabel`
 
@@ -1028,6 +1052,12 @@ rather than passed. The rest of this page is judgement; this part is enforced.
 
 ## Primitives
 
+### `NoticeHost`
+
+`packages/ui/src/design/primitives/Banner.tsx`
+
+Placement owners set the size once for all notices in their slot.
+
 ### `BannerAction`
 
 `packages/ui/src/design/primitives/Banner.tsx`
@@ -1036,6 +1066,32 @@ A button in a banner's action row.
 
 One filled button per card. A banner that offers two equal-looking choices
 makes the user read both before they can ignore it.
+
+### `Notice`
+
+`packages/ui/src/design/primitives/Notice.tsx`
+
+A fact, optional earned detail, and the actions it calls for.
+Hosts choose standard padding (12px, 16px left) or compact (8px, 12px left).
+Labelled actions keep text-button width, including the ghost `icon` kind.
+
+### `NoticeStatus`
+
+`packages/ui/src/design/primitives/Notice.tsx`
+
+Quiet status in the same tile, copy and control layout.
+
+### `NoticeRow`
+
+`packages/ui/src/design/primitives/Notice.tsx`
+
+A row in a compact notice panel.
+
+### `NoticeList`
+
+`packages/ui/src/design/primitives/Notice.tsx`
+
+The shared plate for Inbox or queued-message rows; placement stays with its host.
 
 ## Patterns
 
@@ -1642,7 +1698,7 @@ Plugin sections join Details' flow; hidden native layers keep their existing box
 
 `packages/ui/src/design/patterns/FixedShell.tsx`
 
-Five stable regions: folding and closing affect geometry, never body identity.
+Stable regions: folding and closing affect geometry, never body identity.
 
 ### `ShellNoticeHost`
 
@@ -1771,7 +1827,7 @@ absent in Settings. Its compact cells use the shared switcher appearance.
 
 `packages/ui/src/design/patterns/LeftColumn.tsx`
 
-The account row closes the column without a separator hairline above it.
+A quiet account row closes the column beneath a full-width hairline.
 
 ### `LeftColumnExplorerHead`
 
@@ -1955,6 +2011,8 @@ later. The promise's own value can name the ending.
 `packages/ui/src/design/patterns/Page.tsx`
 
 A page's column — the one way a page sets its width and its margins.
+The content column anchors a standalone page's title at every measure;
+the title and its chooser or verb scroll together under the fixed bar.
 
 A screen says what kind of page it is and passes its blocks; it does not
 write a max-width, a padding or an outer margin of its own. `reading` is the
@@ -1970,7 +2028,7 @@ Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
 four edges. A surface that brings its own geometry — a terminal, a diff,
 a graph — bleeds instead of taking a page.
 
-Blocks inside sit one stack gap (`--hd-card-gap`) apart; a `Section` brings
+Blocks inside sit one stack gap (`--hd-page-stack`) apart; a `Section` brings
 its own larger step. A Team's Findings drew its
 facts against the sidebar, a button across the window and a switch in the
 middle of it because nothing told the page what width it was.
@@ -2015,7 +2073,10 @@ Complete supporting notes that belong to a page group.
 
 `packages/ui/src/design/patterns/PageOptions.tsx`
 
-Current choices, search and read actions in the first body block; long menu choices wrap within the page.
+Current choices, search and read actions in the first body block. A title
+uses the page role on the content edge, with the primary choice and verb
+on the right. Search and secondary choices follow at the page stack gap;
+long titles and menu choices wrap within the page.
 
 ### `PageRecordViews`
 
@@ -2052,7 +2113,8 @@ is a CSS custom property, visible to descendants of whichever element
 carries it, not to a sibling), and `dock` is the element to measure —
 typically the strip holding the bars and the composer together. A screen
 wires the two refs to its own markup; the observing and the `setProperty`
-call are this hook's alone.
+call are this hook's alone. Observe the border box so padding and border
+changes update the same full height that offsetHeight measures.
 
 ### `ReadingMeasure`
 
@@ -2374,14 +2436,13 @@ built for.
 A person's face: the picture they chose, or the house mark when they have
 not.
 
-It is the avatar above — the plate and the hairline the account marks wear —
-in the face shape, because a person is not an account: account marks are
-rings, a face is whatever the person chose for faces (`--hd-face-radius`,
-squared unless they picked round; the avatars were drawn as squared tiles,
-`assets/avatars/README.md`), and it is the same corner the agents' marks
-beside it wear.
-The corner steps up the radius scale with the size, so the seat's 24px and
-the profile page's 44px read as one object at two sizes.
+It is the avatar above, filled with its plate and hairline, in the face
+shape, because a person is not an account: account marks are hollow rings,
+a face is whatever the person chose for faces (`--hd-face-radius`, round
+unless they picked square), and it is the same corner the agents' marks
+beside it wear. When faces are square the corner steps up the radius scale
+with the size, so the seat's 24px and the profile page's 44px read as one
+object at two sizes.
 
 Without a `size` it fills the box it is put in and takes that box's corner:
 a room's message rows draw a tile for every sender, and a person's face
@@ -2627,5 +2688,5 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
-| `pageMeasureInScreen` | 20 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2080 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `pageMeasureInScreen` | 19 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
+| `screenLayout` | 2068 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |

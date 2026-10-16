@@ -145,16 +145,13 @@ const quotaWarning = () => usageReport(CLAUDE, [lane({
   resetsAt: Date.now() + 6.5 * 24 * 3_600_000,
 })])
 
-it('marks a low quota window beside the account on a page, with the notice text on hover and for assistive technology', () => {
+it('keeps a low quota warning in the quiet account trigger tooltip', () => {
   const report = quotaWarning()
   const workbench = emptyWorkbench()
   mount({ preferencesLoaded: true, usage: [report], workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'library', section: 'skill' } } } })
   const warning = conditionFor(CLAUDE, [report], () => claude.presentation.name, Date.now())!
-  const dot = row().querySelector('[data-slot="dot"][data-tone="warning"]')
-  expect(dot).not.toBeNull()
-  expect(dot?.getAttribute('title')).toBe(`${warning.title}. ${warning.detail}`)
-  expect(dot?.getAttribute('aria-label')).toBe(dot?.getAttribute('title'))
-  expect(dot?.getAttribute('role')).toBe('img')
+  expect(row().title).toContain(`${warning.title}. ${warning.detail}`)
+  expect(row().querySelector('[data-slot="dot"]')).toBeNull()
   expect(row().textContent).not.toContain('will run out before it refills')
 })
 
@@ -197,18 +194,18 @@ const click = (element: Element): void => {
   })
 }
 
-it('is the desk, wearing the default agent — not the account, and not the conversation on screen', () => {
+it('shows the desk identity and names the default agent on hover', () => {
   mount()
   const seat = row()
   expect(seat.textContent).toContain('HarnessDesk')
   expect(seat.textContent).not.toContain('Shane-Claude')
   expect(seat.textContent).not.toContain('olivia')
-  // The badge is Claude's, the default, while a Codex conversation is focused.
-  expect(seat.querySelector('.brand-claude')).not.toBeNull()
+  // The default agent is named on hover, while the footer keeps only identity.
+  expect(seat.querySelector('.brand-claude')).toBeNull()
   expect(seat.querySelector('.brand-codex')).toBeNull()
-  // The account is one hover away, and the tooltip names the pen in full.
+  // The tooltip names the default account in full.
   expect(seat.getAttribute('title')).toBe('New sessions run as Claude · Shane-Claude')
-  expect(seat.querySelector('[role="img"]')?.getAttribute('data-state')).toBe('ready')
+  expect(seat.querySelector('[data-slot="dot"]')).toBeNull()
 })
 
 it('marks the default in the menu, chooses on a seat’s press, and signs out of the default agent', () => {
@@ -486,50 +483,44 @@ it('Escape closes the menu and says so, so a sidebar floating under it stays', (
   expect(event.defaultPrevented).toBe(true)
 })
 
-it('dims the badge and colours the dot when the default has no account', () => {
+it('keeps the signed-out account mark and readiness in the menu', () => {
   mount({ accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: signedOut } })
   const seat = row()
   expect(seat.textContent).toContain('HarnessDesk')
-  const badge = seat.querySelector('[data-off]')
+  click(seat)
+  const badge = document.querySelector('[role="menu"] [data-off]')
   expect(badge?.querySelector('.brand-claude')).not.toBeNull()
   expect(seat.querySelector('[data-tint]')).toBeNull()
-  expect(seat.querySelector('[role="img"]')?.getAttribute('data-state')).toBe('signin')
+  expect(seat.querySelector('[data-slot="dot"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Needs sign-in')
   expect(seat.getAttribute('title')).toBe('New sessions run as Claude')
 })
 
-it('draws no empty seat on the badge before the default agent has answered', () => {
+it('keeps the footer quiet before the default agent has answered', () => {
   // Accounts not loaded yet: readiness guesses signin, but nothing says nobody is signed in.
   mount({ accountsByRuntime: { [CODEX]: signedIn('shane@example.com') } })
   const seat = row()
-  expect(seat.querySelector('.brand-claude')).not.toBeNull()
+  expect(seat.querySelector('.brand-claude')).toBeNull()
   expect(seat.querySelector('[data-off]')).toBeNull()
 })
 
-it('keeps the readiness light neutral before the default agent has answered', () => {
+it('does not guess a signed-out account before the default agent has answered', () => {
   mount({ accountsByRuntime: { [CODEX]: signedIn('shane@example.com') } })
   const light = row().querySelector('[role="img"]')
   // Neutral: no state, and a name that claims none.
-  expect(light?.hasAttribute('data-state')).toBe(false)
-  expect(light?.getAttribute('aria-label')).toBe('Claude')
+  expect(light).toBeNull()
+  click(row())
+  expect(document.querySelector('[role="menu"] [data-off]')).toBeNull()
 })
 
-it('opens the account’s card from the badge, and the card offers no switch to what already is the default', () => {
-  vi.useFakeTimers()
-  mount()
-  const trigger = row().querySelector('[data-slot="hover-card-trigger"]')
-  if (!trigger) throw new Error('the badge is not a card trigger')
-  act(() => {
-    trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
-    trigger.dispatchEvent(new MouseEvent('mouseenter'))
-  })
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
-  const card = document.querySelector('[data-popup-kind="info-card"]')
-  expect(card).not.toBeNull()
-  expect(card?.textContent).toContain('Shane-Claude')
-  expect(card?.textContent).toContain('olivia@acme.dev')
-  expect(card?.textContent).not.toContain('Run new sessions as this')
+it('keeps account identity in the menu and gives the default no redundant switch action', () => {
+  mount({ accountsByRuntime: { [CLAUDE]: signedIn('dev@example.com') } })
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')!
+  expect(identityOf(current)).toBe('dev@example.com')
+  expect(current.textContent).toContain('dev')
+  expect(current.textContent).not.toContain('Run new sessions as this')
+  expect(row().querySelector('[data-slot="hover-card-trigger"]')).toBeNull()
 })
 
 const keeper = runtime(runtimeId('cline'), 'Cline', 'cline')
@@ -543,11 +534,12 @@ it('an agent that keeps its own credential wears no ring and is not dimmed for i
     healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' }, [keeper.id]: { state: 'ready' } },
   })
   const seat = row()
-  expect(seat.querySelector('[role="img"]')?.getAttribute('data-state')).toBe('ready')
-  const badge = seat.querySelector('[data-slot="hover-card-trigger"] > span')
+  expect(seat.querySelector('[data-slot="dot"]')).toBeNull()
+  click(seat)
+  const badge = document.querySelector('[role="menu"] [data-menu-icon] > span')
   expect(badge?.hasAttribute('data-off')).toBe(false)
   expect(badge?.hasAttribute('data-tint')).toBe(false)
-  click(seat)
+  if (!document.querySelector('[role="menu"]')) click(seat)
   const current = document.querySelector('[role="menuitem"][data-current]')
   if (!current) throw new Error('no current seat')
   click(current)
@@ -555,48 +547,37 @@ it('an agent that keeps its own credential wears no ring and is not dimmed for i
   // Ready says nothing on the row; the tooltip still answers.
   expect(item?.textContent).not.toContain('Ready')
   expect(item && identityOf(item)).toBe('Ready')
-  const disc = item?.querySelector('[data-menu-icon] > [data-shape="round"]')
+  const disc = item?.querySelector('[data-menu-icon] [data-shape="round"]')
   expect(disc?.hasAttribute('data-off')).toBe(false)
   expect(disc?.hasAttribute('data-tint')).toBe(false)
   // and an account that is signed in still wears its ring
   const claudeItem = [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent?.includes('Shane-Claude'))
-  expect(claudeItem?.querySelector('[data-menu-icon] > [data-shape="round"]')?.getAttribute('data-tint')).toBeTruthy()
+  expect(claudeItem?.querySelector('[data-menu-icon] [data-shape="round"]')?.getAttribute('data-tint')).toBeTruthy()
 })
 
-it('a card that was open when the menu took the seat does not come back when the menu closes', () => {
+it('keeps the footer free of a hover card while its menu opens and closes', () => {
   vi.useFakeTimers()
   mount()
-  const trigger = row().querySelector('[data-slot="hover-card-trigger"]')
-  if (!trigger) throw new Error('the badge is not a card trigger')
-  act(() => {
-    trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
-    trigger.dispatchEvent(new MouseEvent('mouseenter'))
-  })
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
-  expect(document.querySelector('[data-popup-kind="info-card"]')).not.toBeNull()
   click(row())
   expect(document.querySelector('[role="menu"]')).not.toBeNull()
   expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
   click(row())
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
+  act(() => vi.advanceTimersByTime(1000))
   expect(document.querySelector('[role="menu"]')).toBeNull()
   expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
 })
 
-it('the badge card exposes facts while scoped Usage stays in account More', () => {
-  vi.useFakeTimers()
-  mount()
-  const trigger = row().querySelector('[data-slot="hover-card-trigger"]')!
-  act(() => { trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' })); trigger.dispatchEvent(new MouseEvent('mouseenter')); vi.advanceTimersByTime(1000) })
-  const card = document.querySelector('[data-popup-kind="info-card"]')!
-  expect(card).not.toBeNull()
-  expect(card.querySelector('button,a,input,[role="menuitem"],[role="switch"]')).toBeNull()
+it('keeps usage facts and scoped Usage in the account menu', () => {
+  const { onOpenUsage } = mount({ usage: [quotaWarning()] })
   click(row())
-  expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
+  const usage = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent?.includes('Usage remaining'))!
+  expect(usage).toBeDefined()
+  click(usage)
+  expect(document.querySelector('[data-usage-details]')).not.toBeNull()
+  const openUsage = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent?.includes('Open usage'))!
+  expect(openUsage).toBeDefined()
+  click(openUsage)
+  expect(onOpenUsage).toHaveBeenCalledWith(CLAUDE)
 })
 
 it('account More folds agents without usage into one note and exposes no empty usage action', () => {
@@ -625,15 +606,15 @@ it('separates usage facts from the closing Settings and sign-out actions', () =>
   expect(after?.matches('[data-menu-separator]')).toBe(true)
   expect(after?.nextElementSibling?.querySelector('[data-menu-label]')?.textContent?.trim()).toBe('Settings')
 })
-it('is you once you have chosen: your name and your face, with the pen still beside them', () => {
+it('shows your chosen name and face without the default agent mark', () => {
   mount({ profile: { name: 'Jane', avatar: 'wizard' } })
   const seat = row()
   expect(seat.textContent).toContain('Jane')
   expect(seat.textContent).not.toContain('HarnessDesk')
   expect(seat.querySelector('img')?.getAttribute('src')).toMatch(/\/wizard\.png$/)
   expect(seat.querySelector('.brand-harnessdesk')).toBeNull()
-  // The default agent's badge is untouched: you are beside the pen, not it.
-  expect(seat.querySelector('.brand-claude')).not.toBeNull()
+  // The account mark remains in the menu.
+  expect(seat.querySelector('.brand-claude')).toBeNull()
 })
 
 it('draws the house mark until a face is chosen', () => {
@@ -789,7 +770,7 @@ it('tells two addresses with one local part on one agent apart by their domains'
   // Under the heading each account retains its tint; the heading adds no gutter.
   expect(group?.querySelectorAll('[role="menuitem"] .brand-codex').length).toBe(0)
   expect(group?.querySelectorAll('.brand-codex').length).toBe(0)
-  expect(group?.querySelectorAll('[data-menu-icon] > [data-shape="round"]').length).toBe(2)
+  expect(group?.querySelectorAll('[data-menu-icon] [data-shape="round"]').length).toBe(2)
   // An agent with one account is still one row, wearing its mark.
   const claudeRow = seats.find((seat) => seat.textContent?.includes('Shane-Claude'))
   expect(claudeRow?.closest('[role="group"]')).toBeNull()
@@ -803,6 +784,35 @@ it('says what is wrong with a seat that has no figure, in the figure’s place',
   if (!current) throw new Error('no current seat')
   click(current)
   expect(seatNamed('shane@example.com')?.textContent).toContain('Unavailable')
+})
+
+it.each([true, false])('shows unavailable readiness ahead of cached usage when current is %s', current => {
+  mount({
+    activeRuntime: current ? CODEX : CLAUDE,
+    accountsByRuntime: { [CODEX]: signedIn('jane@example.com'), [CLAUDE]: signedIn('dev@example.com') },
+    accountPrefs: {},
+    healthByRuntime: { [CODEX]: { state: 'unavailable', reason: 'crashed', message: 'exited' }, [CLAUDE]: { state: 'ready' } },
+    usage: [{ ...usageReport(CODEX, [lane({ id: 'weekly', usedPercent: 40 })]), account: 'jane@example.com' }],
+  })
+  click(row())
+  if (!current) {
+    const selected = document.querySelector('[role="menuitem"][data-current]')!
+    click(selected)
+  }
+  const seat = seatNamed('jane@example.com')
+  expect(seat?.querySelector('[data-menu-trailing]')?.textContent).toContain('Unavailable')
+  expect(seat?.querySelector('[data-menu-trailing]')?.textContent).not.toContain('60%')
+  // The reading remains available in the existing usage fold.
+  expect(document.body.textContent).toContain('60%')
+})
+
+it('shows sign-in readiness ahead of cached usage for the default agent', () => {
+  mount({ activeRuntime: CODEX, accountsByRuntime: { [CODEX]: signedOut, [CLAUDE]: signedIn('dev@example.com') },
+    usage: [usageReport(CODEX, [lane({ id: 'weekly', usedPercent: 40 })])] })
+  click(row())
+  const selected = document.querySelector('[role="menuitem"][data-current]')!
+  expect(selected.querySelector('[data-menu-trailing]')?.textContent).toContain('Needs sign-in')
+  expect(selected.querySelector('[data-menu-trailing]')?.textContent).not.toContain('60%')
 })
 
 it('keeps an agent that has not answered yet, without calling it signed out', () => {

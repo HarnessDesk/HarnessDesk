@@ -190,7 +190,8 @@ server's flow-host-evidence and intake test files and the command line's
 end-to-end file in runs of their own, at a wider per-file timeout than the rest (Node 22 caps `--test-timeout` per
 file, cumulatively, where these legitimately run long; it is a per-test
 default on newer Node),
-the UI typecheck,
+the host-retention test file alone at the ordinary timeout (its heap and CPU
+workload runs without competing server fixtures), the UI typecheck,
 the layering rule, the half-applied-fixes check, the tracked-secrets scan, the reachable-methods check, the
 third-party notices check, the design-system gates, the UI-system architecture gate, interface drift, the
 command-line reference check, the recorded-claims link, the doc-paths check, the gate-against-CI check below,
@@ -199,10 +200,19 @@ CONTRIBUTING.md name every step the gate runs.
 
 CI deliberately excludes the Codex protocol drift check, which needs a real
 `codex` binary the runner lacks. The local gate and CI are held to the same
-commands by `script/check-verify-drift.mjs`: every other command `pnpm verify`
+commands by `script/check-verify-drift.mjs`, which also checks the tier trigger
+and proof wiring: every other command `pnpm verify`
 runs must also be in the workflow, and the one exception is recorded, with its
 reason, in that script's `NOT_IN_CI`. Run it **unpiped**: `pnpm verify | tail`
 reports the exit status of `tail`, which has hidden a red run before now.
+
+Browser CI is bounded on ordinary pull requests: edited specs are mandatory,
+with inferred coverage capped at four shards using the PR geometry matrix.
+The summary lists deferred specs. Pushes to `main`, `batch/` pull requests,
+`full-ci` pull requests and manual dispatches run every spec in both themes.
+Required check names stay fixed; the separate `CI tier: full` check proves the
+full tier to `script/land-safe.mjs`, which refuses bounded evidence. See
+CONTRIBUTING.md for the selection budget and its limits.
 
 ## Writing plugins
 

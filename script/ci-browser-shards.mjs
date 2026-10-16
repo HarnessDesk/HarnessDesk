@@ -22,8 +22,8 @@
 // themes; `durations.pr.json` measures the PR theme matrix without coverage,
 // using built pages where supported and the dev server elsewhere. Refresh the
 // full table from the last five push runs of `main` that ran the whole suite,
-// and the PR table from one `workflow_dispatch` run of `ci.yml` with `matrix=pr`
-// on a branch. A stale table shows up as a shard much slower than its plan.
+// and the PR table from bounded pull-request runs of `ci.yml`
+// (several selections may be needed to cover the suite). A stale table shows up as a shard much slower than its plan.
 // A spec neither table knows counts as a typical one in its own regime.
 //
 //   gh run view <id> --log > run.log

@@ -1,3 +1,4 @@
+import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
 import type { ClientTier, ClientTopic, FlowExecutionSummary } from './client-surface.js'
@@ -76,6 +77,8 @@ import type {
   LibraryPlan,
   LibraryPlannedOp,
   LibraryUsage,
+  LibrarySourceResult,
+  LibrarySkillUpdate,
 } from './library.js'
 import type { AgentEvent } from './events.js'
 import type { BackgroundTask } from './tasks.js'
@@ -1050,6 +1053,23 @@ export interface HostMethods {
     }
     result: null
   }
+  /** Read one bounded file from a fetched skill before acknowledging its files. */
+  /** Explicit ref-only check; never fetches objects or writes an installed skill. */
+  'library/sources/check': {
+    params: { readonly names?: readonly string[] }
+    result: readonly LibrarySkillUpdate[]
+  }
+
+  'library/source/file': {
+    params: { readonly sourcePath: string; readonly path: string }
+    result: { readonly path: string; readonly bytes: number; readonly text: string | null; readonly truncated: boolean }
+  }
+  /** Fetch public repository skill bytes at one resolved commit into the host's cache. */
+  'library/source/fetch': {
+    params: { readonly url: string; readonly ref?: string; readonly path?: string }
+    result: LibrarySourceResult
+  }
+
   /**
    * The library: every skill and MCP server on this machine, and which agents
    * can see each one. Assembled per call rather than cached — it reads the
@@ -1341,6 +1361,10 @@ export interface HostMethods {
   'backup/import': {
     params: { readonly backup: unknown }
     result: BackupReport
+  }
+  'session/loadout': {
+    params: { readonly session: string; readonly runtime?: RuntimeId }
+    result: ConversationLoadouts
   }
   'session/read': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
@@ -2026,8 +2050,10 @@ export interface HostMethods {
   'flow/answer/continue': { params: { readonly run: string }; result: FlowExecution }
   /** Observed predecessor subjects a person review card may choose from. */
   'flow/review/candidates': { params: { readonly run: string; readonly card: number }; result: readonly ReviewCandidate[] }
-  /** Records a person's structured review and answers the same person card with its verdict. */
-  'flow/review/decide': { params: { readonly run: string; readonly card: number; readonly candidate: string; readonly verdict: string }; result: FlowExecution }
+  /** Records a person's structured review and answers the same person card with its verdict.
+   * `merge` performs the selected merge on the host before verifying and recording `merged`.
+   */
+  'flow/review/decide': { params: { readonly run: string; readonly card: number; readonly candidate: string; readonly verdict: string; readonly expectedBranch?: string; readonly merge?: boolean }; result: FlowExecution }
   /** What updating this project flow to the Agent format would write, previewed before anything is touched. */
   'flow/update/preview': { params: { readonly root: string; readonly id: string }; result: FlowUpdatePreview }
   /** Applies a previously previewed update, exactly as shown. */

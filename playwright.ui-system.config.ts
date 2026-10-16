@@ -66,10 +66,9 @@ const workers =
  * rule rewrites a colour or a border alpha, none a size or a position), so a box
  * measured in the dark theme is the box measured in the light one, and a pull
  * request pays for the second measurement without learning anything from it.
- * With `UI_SYSTEM_MATRIX=pr` (CI sets it for a pull request whose diff does not
- * touch a theme, a stylesheet of the shared build or the suite itself; see
+ * With `UI_SYSTEM_MATRIX=pr` (the bounded pull-request tier; see
  * `script/ci-changes.mjs`) the frame specs below skip the cases whose title names
- * the dark theme. Push to `main`, a manual run and every other command read both,
+ * the dark theme. The full tier (main, batch branches, full-ci and manual runs) reads both,
  * and the colour contracts listed here read both in every run.
  *
  * Skipped by default is wrong for a new spec, so the list is the other way
@@ -81,7 +80,7 @@ const workers =
  * not listed.
  */
 export const COLOUR_SPECS = [
-  'frame-contract-conversation', 'frame-contract-left-headings', 'frame-contract-left-surfaces', 'frame-contract-menus',
+  'frame-contract-conversation', 'frame-contract-left-headings', 'frame-contract-left-rows', 'frame-contract-left-surfaces', 'frame-contract-menus',
   'frame-contract-palette', 'frame-contract-reconcile', 'frame-contract-teams', 'frame-contract-tools',
   'frame-contract-top-bar', 'frame-final-columns', 'frame-final-selection', 'frame-final-tiles',
   'frame-fix9', 'frame-fix10', 'frame-owner5d',

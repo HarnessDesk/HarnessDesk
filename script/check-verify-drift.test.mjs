@@ -34,3 +34,23 @@ for (const suffix of ['', ' $UNIT_DEAL']) {
 test('a folded block cannot receive the single-line UNIT_DEAL allowance', () => {
   assert.deepEqual(missingFromCI([unit], ciCommands(`steps:\n  - run: >\n      ${command} $UNIT_DEAL\n`)), [command])
 })
+
+test('CI keeps the tier selection, label trigger and visible landing proof wired together', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { tierProblems } = await import('./check-verify-drift.mjs')
+  assert.equal(typeof tierProblems, 'function')
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+  assert.deepEqual(tierProblems(workflow), [])
+  for (const token of [
+    'types: [opened, synchronize, reopened, labeled, unlabeled]',
+    'CI_HEAD_BRANCH: ${{ github.head_ref }}',
+    'CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}',
+    'tier: ${{ steps.paths.outputs.tier }}',
+    'name: UI integration inputs',
+    'name: "CI tier: ${{ needs.changes.outputs.tier }}"',
+    'UI_SYSTEM_MATRIX: ${{ needs.changes.outputs.matrix }}',
+  ]) {
+    assert.ok(workflow.includes(token), token)
+    assert.ok(tierProblems(workflow.replaceAll(token, '# removed')).length > 0, token)
+  }
+})

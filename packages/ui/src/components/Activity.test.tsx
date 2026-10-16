@@ -42,6 +42,15 @@ it('leaves empty audit counts and the workspace name out of the footer', async (
   expect(onFoot).toHaveBeenLastCalledWith('', '')
 })
 
+it('keeps an unmatched Events filter empty instead of drawing an empty card', async () => {
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadAudit: async () => ROWS } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}>
+    <Activity query="no matching event" onFoot={() => {}} hideEmpty />
+  </StoreProvider>))
+  expect(container.textContent).toBe('')
+})
+
 it('heads each day of the log with the inspector’s one group line', async () => {
   const snapshot = emptySnapshot()
   const store = {

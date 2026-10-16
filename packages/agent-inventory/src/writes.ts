@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs'
 import { cp, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
 import { shortPath } from '@harnessdesk/protocol'
 import type {
   LibraryIntent,
+  LibrarySkillOrigin,
   LibraryKind,
   LibraryOpResult,
   LibraryPlan,
@@ -14,6 +15,10 @@ import type {
   RuntimeId,
 } from '@harnessdesk/protocol'
 
+import { parseGithubSource } from './github-source.js'
+import { isSafePathSegment, isSafeSkillRelativePath, validSkillName } from './skill-paths.js'
+export { isSafePathSegment, isSafeSkillRelativePath, validSkillName } from './skill-paths.js'
+import { classifySkillFiles } from './skill-risk.js'
 import { bundleDigest, digestOf } from './digest.js'
 import { unifiedDiff } from './diff.js'
 import {
@@ -75,22 +80,8 @@ export interface WriteContext {
 
 /** Caps on what an install will carry: past these, a bundle is a project. */
 export const MAX_BUNDLE_FILES = 200
-const MAX_BUNDLE_BYTES = 20 * 1024 * 1024
+export const MAX_BUNDLE_BYTES = 20 * 1024 * 1024
 
-/**
- * Whether a string could ever be one path segment: never empty, never a
- * climb (`.` or `..`), and never carrying a separator or a NUL a filesystem
- * would refuse outright. Exported so a caller with its own length policy —
- * a skill or MCP server's name here, an Agent backup's path segment in
- * `agent-files.ts` — states that policy as one extra check on top of this,
- * rather than a second near-identical rule that quietly disagrees with this
- * one at an edge nobody is looking at.
- */
-export const isSafePathSegment = (name: string): boolean =>
-  name !== '' && name !== '.' && name !== '..' && !name.includes('/') && !name.includes('\\') && !name.includes('\0')
-
-/** A name is a path segment, short enough for a skill or MCP server's own name. */
-const validName = (name: string): boolean => isSafePathSegment(name) && name.length <= 128
 
 interface Definition {
   /** The bundle directory or the flat file itself. */
@@ -100,8 +91,9 @@ interface Definition {
 }
 
 /** Never wait for a special file or allocate from a file's untrusted size. */
-const readSkillFile = (path: string, limit: number): { bytes: Buffer; mode: number } => {
+const readSkillFile = (path: string, limit: number, budget?: { remaining: number }): { bytes: Buffer; mode: number } => {
   const before = lstatSync(path)
+  if (budget && before.size > budget.remaining) throw new Error('The digest read budget is exhausted.')
   if (!before.isFile()) throw new Error(`${basename(path)} is not a regular file, so this bundle was not read.`)
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
@@ -113,7 +105,12 @@ const readSkillFile = (path: string, limit: number): { bytes: Buffer; mode: numb
     const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, limit + 1))
     let bytes = 0
     for (;;) {
-      const count = readSync(fd, buffer, 0, Math.min(buffer.length, limit - bytes + 1), bytes)
+      if (budget?.remaining === 0) {
+        if (fstatSync(fd).size !== bytes) throw new Error('The digest read budget is exhausted.')
+        break
+      }
+      const count = readSync(fd, buffer, 0, Math.min(buffer.length, limit - bytes + 1, budget?.remaining ?? Infinity), bytes)
+      if (budget) budget.remaining -= count
       if (count === 0) break
       bytes += count
       if (bytes > limit) throw new Error('The bundle holds more than 20 MB — too large to carry as a skill.')
@@ -126,15 +123,15 @@ const readSkillFile = (path: string, limit: number): { bytes: Buffer; mode: numb
 }
 
 /** Read a copy's definition wherever its spelling put it. */
-const readDefinition = (path: string): Definition | null => {
+const readDefinition = (path: string, budget?: { remaining: number }): Definition | null => {
   try {
     const stats = statSync(path)
     if (stats.isDirectory()) {
-      const text = readSkillFile(join(path, 'SKILL.md'), MAX_BUNDLE_BYTES).bytes.toString('utf8')
+      const text = readSkillFile(join(path, 'SKILL.md'), MAX_BUNDLE_BYTES, budget).bytes.toString('utf8')
       return { container: path, flat: false, text }
     }
     if (stats.isFile()) {
-      return { container: path, flat: true, text: readSkillFile(path, MAX_BUNDLE_BYTES).bytes.toString('utf8') }
+      return { container: path, flat: true, text: readSkillFile(path, MAX_BUNDLE_BYTES, budget).bytes.toString('utf8') }
     }
   } catch (error) {
     // A missing definition is hollow; a failed read does not make its bytes disposable.
@@ -184,7 +181,7 @@ const bundleExtras = (
       if (!stats.isFile()) return `${relative} is not a regular file, so this bundle was not read.`
       files.push(relative)
       bytes += stats.size
-      if (files.length > MAX_BUNDLE_FILES) {
+      if (files.length + 1 > MAX_BUNDLE_FILES) {
         return `The bundle holds more than ${MAX_BUNDLE_FILES} files — too large to carry as a skill.`
       }
       if (bytes > MAX_BUNDLE_BYTES) {
@@ -208,10 +205,26 @@ const writableSkillFiles = (files: readonly SkillFile[], extras: readonly string
   files.filter((file) => file.path === 'SKILL.md' ||
     (extras.includes(file.path) && isSafeSkillRelativePath(file.path)))
 
+/** Only differences belong in an update's review, including files it drops. */
+const skillFileChanges = (before: readonly SkillFile[], after: readonly SkillFile[]): NonNullable<LibraryPlannedOp['files']> => {
+  const old = new Map(before.map(file => [file.path, file]))
+  const next = new Map(after.map(file => [file.path, file]))
+  return [...new Set([...old.keys(), ...next.keys()])].sort().flatMap(path => {
+    const left = old.get(path)
+    const right = next.get(path)
+    if (left && right && left.bytes.equals(right.bytes) && ((left.mode ?? 0) & 0o111) === ((right.mode ?? 0) & 0o111)) return []
+    const change = !right ? 'removed' : !left ? 'added' : 'changed'
+    return [{ ...classifySkillFiles([right ?? left!])[0]!, change }]
+  })
+}
+
+const sameSkillSource = (before: LibrarySkillOrigin | undefined, after: LibrarySkillOrigin | undefined): boolean =>
+  before !== undefined && after !== undefined && before.url === after.url && before.ref === after.ref && before.path === after.path
+
 /** Updates retain unshipped extras; the resulting union must remain readable. */
 const updatedSkillBundleRefusal = (retained: readonly SkillFile[], incoming: readonly SkillFile[]): string | undefined => {
   const extras = new Map([...retained, ...incoming].filter((file) => file.path !== 'SKILL.md').map((file) => [file.path, file.bytes]))
-  if (extras.size > MAX_BUNDLE_FILES) {
+  if (extras.size + 1 > MAX_BUNDLE_FILES) {
     return `The bundle holds more than ${MAX_BUNDLE_FILES} files — too large to carry as a skill.`
   }
   let bytes = 0
@@ -221,7 +234,7 @@ const updatedSkillBundleRefusal = (retained: readonly SkillFile[], incoming: rea
 }
 
 /** Snapshot the same bounded, link-skipping extras that an install carries. */
-const skillFiles = (text: string, sourcePath?: string): readonly SkillFile[] => {
+const skillFiles = (text: string, sourcePath?: string, budget?: { remaining: number }): readonly SkillFile[] => {
   const files: SkillFile[] = [{ path: 'SKILL.md', bytes: Buffer.from(text) }]
   if (sourcePath === undefined) return files
   const walked = bundleExtras(sourcePath)
@@ -231,7 +244,7 @@ const skillFiles = (text: string, sourcePath?: string): readonly SkillFile[] => 
     const full = join(sourcePath, path)
     const stats = lstatSync(full)
     if (stats.isSymbolicLink()) continue
-    const content = readSkillFile(full, MAX_BUNDLE_BYTES - bytes)
+    const content = readSkillFile(full, MAX_BUNDLE_BYTES - bytes, budget)
     bytes += content.bytes.length
     files.push({ path, ...content })
   }
@@ -239,10 +252,10 @@ const skillFiles = (text: string, sourcePath?: string): readonly SkillFile[] => 
 }
 
 /** A flat definition has the same single-file identity as a bare bundle. */
-const currentSkillFiles = (path: string): readonly SkillFile[] | null => {
-  const existing = readDefinition(path)
+const currentSkillFiles = (path: string, budget?: { remaining: number }): readonly SkillFile[] | null => {
+  const existing = readDefinition(path, budget)
   try {
-    return existing === null ? null : skillFiles(existing.text, existing.flat ? undefined : existing.container)
+    return existing === null ? null : skillFiles(existing.text, existing.flat ? undefined : existing.container, budget)
   } catch (error) {
     throw new SkillBundleReadError(path, error)
   }
@@ -255,8 +268,15 @@ class SkillBundleReadError extends Error {
   }
 }
 
-const currentSkillBundleDigest = (path: string): string | null => {
-  const files = currentSkillFiles(path)
+/** Links omitted by the bundle reader must never disappear in a full update. */
+const checkUpdateTree = (path: string): void => {
+  const stats = lstatSync(path, { throwIfNoEntry: false })
+  if (stats?.isSymbolicLink()) throw new SkillBundleReadError(path, new Error('This copy contains a link; resolve it before updating.'))
+  if (stats?.isDirectory()) for (const name of readdirSync(path)) checkUpdateTree(join(path, name))
+}
+
+export const currentSkillBundleDigest = (path: string, budget?: { remaining: number }): string | null => {
+  const files = currentSkillFiles(path, budget)
   return files === null ? null : bundleDigest(files)
 }
 
@@ -284,6 +304,7 @@ const dirHasEntries = (path: string): boolean => {
 
 interface PlanState {
   readonly agents: readonly WriteAgent[]
+  readonly libraryDir: string
   readonly manifest: LibraryManifest
   readonly home: string
   readonly cwd: string | undefined
@@ -300,7 +321,7 @@ const push = (state: PlanState, op: Omit<LibraryPlannedOp, 'id'>): void => {
     const guardBundle = currentFiles === null ? null : bundleDigest(currentFiles)
     const source = op.flat === true ? undefined : op.sourcePath
     const files = op.content === undefined ? undefined : skillFiles(op.content, source)
-    if (op.action === 'update' && op.flat !== true && files !== undefined) {
+    if (op.action === 'update' && !op.replaceBundle && op.flat !== true && files !== undefined) {
       const reason = updatedSkillBundleRefusal(currentFiles ?? [], writableSkillFiles(files, op.extraFiles))
       if (reason !== undefined) {
         refuse(state, 'skill', op.name, op.targetPath, reason, op.targetRuntime)
@@ -311,7 +332,7 @@ const push = (state: PlanState, op: Omit<LibraryPlannedOp, 'id'>): void => {
     state.counter += 1
     state.ops.push({
       id: `op-${state.counter}`, ...op, guardBundle,
-      ...(files !== undefined ? { sourceBundle: bundleDigest(files) } : {}),
+      ...(files !== undefined ? { sourceBundle: bundleDigest(files), files: op.replaceBundle ? skillFileChanges(currentFiles ?? [], files) : classifySkillFiles(files) } : {}),
       ...(difference !== undefined ? { reason: [op.reason, difference].filter(Boolean).join(' ') } : {}),
     })
   } else {
@@ -397,11 +418,12 @@ const insideRootsReal = (path: string, roots: readonly string[]): boolean => {
 
 const planInstallSkill = (
   state: PlanState,
-  intent: { name: string; sourcePath: string; targetRuntime: RuntimeId },
+  intent: { name: string; sourcePath: string; targetRuntime: RuntimeId; origin?: LibrarySkillOrigin & { bundle: string }; replaceBundle?: boolean },
   content?: string,
   extras?: { files: readonly string[]; sourcePath: string },
 ): void => {
   const { name, targetRuntime } = intent
+  const updating = intent.replaceBundle === true
   const brand = brandOf(state, targetRuntime)
   if (brand === null) {
     refuse(state, 'skill', name, '', 'This agent is not on the roster any more.', targetRuntime)
@@ -424,7 +446,8 @@ const planInstallSkill = (
   let files: readonly string[] = extras?.files ?? []
   let sourcePath = extras?.sourcePath
   if (text === undefined) {
-    const skillRoots = knownRoots('skill', state.home, state.cwd)
+    checkFetchedOrigin(intent.sourcePath, intent.origin, state.libraryDir)
+    const skillRoots = [...knownRoots('skill', state.home, state.cwd), ...(intent.origin ? [join(state.libraryDir, 'sources')] : [])]
     if (!insideRootsReal(intent.sourcePath, skillRoots)) {
       refuse(state, 'skill', name, '', 'The source is not in any directory this library reads.', targetRuntime)
       return
@@ -472,9 +495,16 @@ const planInstallSkill = (
     return
   }
 
+  if (updating && !sameSkillSource(state.manifest.find('skill', targetPath, name)?.origin, intent.origin)) {
+    refuse(state, 'skill', name, targetPath, 'Only an installed repository skill can be updated from the same source.', targetRuntime)
+    return
+  }
+
+  if (updating) checkUpdateTree(targetPath)
+
   if (existing !== null) {
     const current = digestOf(existing.text)
-    if (currentSkillBundleDigest(targetPath) === bundleDigest(skillFiles(text, existing.flat ? undefined : sourcePath))) {
+    if (!updating && currentSkillBundleDigest(targetPath) === bundleDigest(skillFiles(text, existing.flat ? undefined : sourcePath))) {
       push(state, {
         kind: 'skill',
         name,
@@ -488,7 +518,7 @@ const planInstallSkill = (
       return
     }
     const who = ownership(state.manifest, 'skill', targetPath, name, current)
-    if (who !== 'ours') {
+    if (who !== 'ours' && !updating) {
       refuse(
         state,
         'skill',
@@ -505,17 +535,25 @@ const planInstallSkill = (
     push(state, {
       kind: 'skill',
       name,
-      action: 'update',
+      action: updating && who !== 'ours' ? 'replace' : 'update',
+      ...(updating ? { replaceBundle: true } : {}),
+      ...(intent.origin ? { origin: intent.origin } : {}),
       targetPath,
       targetRuntime,
       preview: unifiedDiff(existing.text, text, { fromLabel: label, toLabel: label }),
       guardDigest: current,
-      backup: false,
+      backup: updating && who !== 'ours',
+      ...(updating && who !== 'ours' ? { reason: 'This copy has been edited since install; the edited copy is backed up before replacement.' } : {}),
       content: text,
       ...(existing.flat ? { flat: true } : {}),
       ...(!existing.flat && files.length > 0 ? { extraFiles: files } : {}),
-      ...(!existing.flat && sourcePath !== undefined ? { sourcePath } : {}),
+      ...((!existing.flat || intent.origin) && sourcePath !== undefined ? { sourcePath } : {}),
     })
+    return
+  }
+
+  if (updating) {
+    refuse(state, 'skill', name, targetPath, 'The installed copy no longer has a definition to update.', targetRuntime)
     return
   }
 
@@ -523,6 +561,7 @@ const planInstallSkill = (
     kind: 'skill',
     name,
     action: hollow ? 'replace' : 'create',
+    ...(intent.origin ? { origin: intent.origin } : {}),
     targetPath: bundleTarget,
     targetRuntime,
     preview: unifiedDiff('', text, {
@@ -544,7 +583,7 @@ const planSyncSkill = (
 ): void => {
   const { name } = intent
   const skillRoots = knownRoots('skill', state.home, state.cwd)
-  if (!insideRootsReal(intent.sourcePath, skillRoots)) {
+  if (insideRoots(intent.sourcePath, [join(state.libraryDir, 'sources')]) || !insideRootsReal(intent.sourcePath, skillRoots)) {
     refuse(state, 'skill', name, '', 'The winning copy is not in any directory this library reads.')
     return
   }
@@ -1029,6 +1068,7 @@ export const planLibrary = async (
   context: WriteContext,
 ): Promise<LibraryPlan> => {
   const state: PlanState = {
+    libraryDir: context.libraryDir,
     agents,
     manifest: await LibraryManifest.load(context.libraryDir),
     home: context.home ?? homedir(),
@@ -1038,7 +1078,7 @@ export const planLibrary = async (
   }
 
   for (const intent of intents) {
-    if (!validName(intent.name)) {
+    if (!validSkillName(intent.name)) {
       refuse(state, intent.kind.endsWith('Mcp') ? 'mcp' : 'skill', intent.name, '', 'Not a name a directory can carry.')
       continue
     }
@@ -1047,6 +1087,12 @@ export const planLibrary = async (
         case 'installSkill':
           planInstallSkill(state, intent)
           break
+        case 'updateSkill': {
+          const source = parseGithubSource(intent.origin.url, intent.origin.ref, intent.origin.path)
+          const sourcePath = join(state.libraryDir, 'sources', source.repo.replace('/', '__'), intent.origin.commit, source.path)
+          planInstallSkill(state, { ...intent, sourcePath, replaceBundle: true })
+          break
+        }
         case 'authorSkill':
           planAuthorSkill(state, intent)
           break
@@ -1113,23 +1159,6 @@ const withLock = async <T>(key: string, fn: () => Promise<T>): Promise<T> => {
  * One op, performed. Throws with the sentence the result should carry;
  * `applyLibrary` catches per op.
  */
-/**
- * A skill bundle relative path must stay strictly inside the bundle: no
- * traversal or `.` segments, no empty segments, no NUL, no absolute paths
- * (POSIX or Windows), no drive letters (C:), and no UNC prefixes
- * (\\server\share). A bundle may be authored on either platform, so both
- * `/` and `\` are read as separators — the one difference from
- * `isSafePathSegment`'s own callers, which is why this splits on both before
- * handing each piece to that same one rule, rather than folding its own
- * near-copy of it back in.
- */
-export const isSafeSkillRelativePath = (relative: string): boolean => {
-  if (isAbsolute(relative) || /^[A-Za-z]:[\\/]/.test(relative) || relative.startsWith('\\\\') || relative.startsWith('//')) {
-    return false
-  }
-  return relative.split(/[/\\]/).every(isSafePathSegment)
-}
-
 /** A leaf link can be replaced, but no directory on the way may be followed. */
 const checkSkillWriteParents = (root: string, path: string): void => {
   for (let at = dirname(path); insideRoots(at, [root]); at = dirname(at)) {
@@ -1166,11 +1195,40 @@ const writeSkillFile = async (path: string, bytes: Buffer, mode?: number): Promi
   }
 }
 
+/** A fetched source must still match its recorded bundle. */
+const checkFetchedOrigin = (source: string | undefined, origin: LibraryPlannedOp['origin'], libraryDir: string): void => {
+  const root = join(libraryDir, 'sources')
+  const inSources = source !== undefined && (insideRoots(source, [root]) || insideRootsReal(source, [root]))
+  if (!inSources && origin === undefined) return
+  if (!inSources || origin === undefined || !/^[a-f0-9]{40}$/i.test(origin.commit)) {
+    throw new Error('A fetched source needs its repository origin and full commit hash; other sources cannot carry an origin.')
+  }
+  parseGithubSource(origin.url, origin.ref, origin.path)
+  if (lstatSync(root).isSymbolicLink() || !insideRootsReal(source!, [root])) throw new Error('The fetched copy changed — fetch again.')
+  const inspect = (dir: string): void => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name)
+      const stats = lstatSync(path)
+      if (stats.isSymbolicLink() || name.toLowerCase() === '.git' || /[\x00-\x1f\x7f]/.test(name)) throw new Error('The fetched copy changed — fetch again.')
+      if (stats.isDirectory()) inspect(path)
+    }
+  }
+  if (!lstatSync(source!).isDirectory()) throw new Error('The fetched copy changed — fetch again.')
+  inspect(source!)
+  if (currentSkillBundleDigest(source!) !== origin.bundle) {
+    throw new Error('The fetched copy changed — fetch again.')
+  }
+}
+
 const applyOne = async (
   op: LibraryPlannedOp,
   manifest: LibraryManifest,
   context: Required<Pick<WriteContext, 'libraryDir'>> & { home: string; cwd: string | undefined },
 ): Promise<LibraryOpResult> => {
+  checkFetchedOrigin(op.sourcePath, op.origin, context.libraryDir)
+  if (op.origin && (op.kind !== 'skill' || op.content !== readDefinition(op.sourcePath!)?.text)) {
+    throw new Error('The fetched copy changed — fetch again.')
+  }
   const roots = knownRoots(op.kind, context.home, context.cwd)
   if (!insideRoots(op.targetPath, roots)) {
     throw new Error('The target is not in any directory this library manages.')
@@ -1182,6 +1240,7 @@ const applyOne = async (
     !insideRootsReal(op.sourcePath, [
       ...knownRoots('skill', context.home, context.cwd),
       join(context.libraryDir, 'backups'),
+      ...(op.origin ? [join(context.libraryDir, 'sources')] : []),
     ])
   ) {
     throw new Error('The source is not in any directory this library reads.')
@@ -1194,6 +1253,10 @@ const applyOne = async (
 
   if (op.kind === 'skill') {
     if (op.guardBundle === undefined) throw new Error('Plan again.')
+    if (op.replaceBundle && !sameSkillSource(manifest.find('skill', op.targetPath, op.name)?.origin, op.origin)) {
+      throw new Error('Only an installed repository skill can be updated from the same source.')
+    }
+    if (op.replaceBundle) checkUpdateTree(op.targetPath)
     const currentFiles = currentSkillFiles(op.targetPath)
     const currentBundle = currentFiles === null ? null : bundleDigest(currentFiles)
     if (currentBundle !== op.guardBundle) {
@@ -1245,14 +1308,25 @@ const applyOne = async (
       throw new Error('The source changed since the preview — plan again.')
     }
     const toWrite = writableSkillFiles(files, op.extraFiles)
-    if (op.action !== 'replace' && op.flat !== true) {
+    const changes = op.replaceBundle ? skillFileChanges(currentFiles ?? [], toWrite) : undefined
+    const incoming = changes?.filter(file => file.change !== 'removed') ?? classifySkillFiles(toWrite)
+    if (op.origin && op.acknowledged !== true && incoming.some(file => file.runnable || file.binary)) {
+      throw new Error('This skill carries files that can run or are binary. Read the list and acknowledge it before installing.')
+    }
+    if (changes && (changes.length !== op.files?.length || changes.some((file, index) => {
+      const reviewed = op.files?.[index]
+      return !reviewed || (['path', 'change', 'bytes', 'runnable', 'binary'] as const).some(key => file[key] !== reviewed[key])
+    }))) {
+      throw new Error('The update file list changed since the preview — plan again.')
+    }
+    if (op.action !== 'replace' && !op.replaceBundle && op.flat !== true) {
       const reason = updatedSkillBundleRefusal(currentFiles ?? [], toWrite)
       if (reason !== undefined) throw new Error(reason)
     }
     const writeRoot = op.flat === true ? dirname(op.targetPath) : op.targetPath
     // Check every destination before the first write. A replacement removes
     // the old tree, so only its parent directory survives that operation.
-    if (op.action === 'replace') checkSkillWriteParents(dirname(op.targetPath), op.targetPath)
+    if (op.action === 'replace' || op.replaceBundle) checkSkillWriteParents(dirname(op.targetPath), op.targetPath)
     else for (const file of toWrite) {
       checkSkillWriteParents(writeRoot, op.flat === true ? op.targetPath : join(op.targetPath, file.path))
     }
@@ -1261,7 +1335,7 @@ const applyOne = async (
       await mkdir(dirname(backupPath), { recursive: true })
       await cp(op.targetPath, backupPath, { recursive: true })
     }
-    if (op.action === 'replace' && existsNow) {
+    if ((op.action === 'replace' || op.replaceBundle) && existsNow) {
       await rm(op.targetPath, { recursive: true, force: true })
     }
 
@@ -1284,6 +1358,7 @@ const applyOne = async (
         bundle: currentSkillBundleDigest(op.targetPath)!,
         at: Date.now(),
         ...(op.sourcePath !== undefined ? { source: op.sourcePath } : {}),
+        ...(op.origin ? { origin: { url: op.origin.url, ref: op.origin.ref, commit: op.origin.commit, path: op.origin.path } } : {}),
       })
       await saveManifest.save()
     })
@@ -1404,7 +1479,7 @@ export const applyLibrary = async (
       results.push({ id: op.id, outcome: 'skipped', ...(op.reason !== undefined ? { detail: op.reason } : {}) })
       continue
     }
-    if (!validName(op.name) || basename(op.targetPath) === '') {
+    if (!validSkillName(op.name) || basename(op.targetPath) === '') {
       results.push({ id: op.id, outcome: 'failed', detail: 'Not a name a directory can carry.' })
       continue
     }

@@ -29,6 +29,7 @@ import { Composer } from './Composer'
 import {
   BranchIcon,
   BrainIcon,
+  PencilIcon, ForkIcon, ArchiveIcon,
   UndoIcon,
   AgentIcon,
   CheckIcon,
@@ -53,6 +54,7 @@ import {
   Banner,
   Button,
   Chip,
+  Dot, Dialog, Field, FormStack, Input, ActionError,
   ConfirmDialog,
   ComposerDock,
   ConversationEmptyState,
@@ -60,7 +62,7 @@ import {
   MenuItem,
   MenuLabel,
   MenuToggle,
-  PaneColumn, ReadingMeasure,
+  PaneColumn, ReadingMeasure, Page,
   Popover,
   Separator,
   Spinner,
@@ -529,6 +531,15 @@ export const Conversation = ({
     setPinned(true)
   }, [])
 
+  const [renaming, setRenaming] = useState(false)
+  const [rename, setRename] = useState('')
+  const [renameError, setRenameError] = useState<string | null>(null)
+  const renameSubject = async () => {
+    if (!rename.trim() || !key) return
+    try { await store.renameSession(rename.trim(), key); setRenaming(false) }
+    catch (cause) { setRenameError(cause instanceof Error ? cause.message : String(cause)) }
+  }
+
   const activeFile = mainContent && key ? editorConversation(snapshot.editorState, `session:${key}`).active : null
   const filePlace = activeFile && session?.cwd && activeFile.startsWith(`${session.cwd}/`)
     ? activeFile.slice(session.cwd.length + 1) : activeFile
@@ -536,7 +547,12 @@ export const Conversation = ({
     lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
     place: filePlace ? sanitizeText(filePlace) : <HeaderTitle session={session} />,
     parent: filePlace ? { label: titleOf(session), run: () => store.setWindowMode('conversation') } : undefined,
-    state: session && !sessionCannotRun ? <Chip tone={STATUS_PILL_TONE[status]}>{STATUS_LABEL[status]}</Chip> : undefined,
+    state: session ? <Dot tone={STATUS_PILL_TONE[status]} pulse={status === 'running'} title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} /> : undefined,
+    placeMenu: session ? close => <>
+      <MenuItem icon={<PencilIcon />} label="Rename" onSelect={() => { setRename(session.title ?? ''); setRenameError(null); setRenaming(true); close() }} />
+      <MenuItem icon={<ForkIcon />} label="Fork" disabled={isRecordConversation(snapshot.goals.values(), key) ? RECORD_REASON : sessionUnavailable(snapshot, session) ?? false} onSelect={() => { void store.forkSession(key); close() }} />
+      <MenuItem icon={<ArchiveIcon />} label="Archive" onSelect={() => { void store.archiveSession(session.id, session.runtime, titleOf(session)); close() }} />
+    </> : undefined,
     tools: <WorkTools draft={!session} />,
     terminal: true,
     more: session ? () => null : () => <MenuItem icon={<FolderOpenIcon size={16} />} label="Choose a project folder…" onSelect={onChooseProject} />,
@@ -548,6 +564,13 @@ export const Conversation = ({
 
   return (
     <div className={styles.conversation} ref={conversationRoot}>
+      {renaming && <Dialog title="Rename conversation" onClose={() => setRenaming(false)} footer={<>
+        <Button disabled={!rename.trim()} onClick={() => void renameSubject()}>Rename</Button>
+        <Button variant="quiet" onClick={() => setRenaming(false)}>Cancel</Button>
+      </>}><FormStack><Field label="Name">{control => <Input {...control} value={rename} onChange={event => setRename(event.target.value)} autoFocus
+        onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void renameSubject() } }} />}</Field></FormStack>
+        {renameError && <ActionError>{renameError}</ActionError>}
+      </Dialog>}
       {(header || teamMenuOwner) && session && <ConversationMenu owner={teamMenuOwner} folderActions={teamMenuOwner
         ? close => pane && <PaneProvider scope={pane}><GitControl menu menuClose={close} onCreateBranch={setCreatingBranchRoot} onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} /></PaneProvider> : undefined} />}
 
@@ -579,7 +602,7 @@ export const Conversation = ({
           >
             {session.worktreeWarning && <Banner tone="neutral" compact>{session.worktreeWarning}</Banner>}
             {!hasRealTurn && emptyState}
-            <div ref={transcriptContent} data-transcript-content>
+            <div ref={transcriptContent} data-transcript-content><Page width="reading" gutter="none">
             {session.deskCopy && <ReadingMeasure><Text as="div" role="prose" ink="secondary">HarnessDesk’s copy — {snapshot.runtimes.find(entry => entry.id === session.runtime)?.presentation.name ?? 'The agent'}’s own record is unavailable.</Text></ReadingMeasure>}
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
@@ -626,7 +649,7 @@ export const Conversation = ({
                 </div>
               )
             })}
-            </div>
+            </Page></div>
           </PaneColumn>
         ) : session && session.itemsLoaded && session.updatedAt > session.createdAt ? (
           // An existing conversation whose messages could not be restored —

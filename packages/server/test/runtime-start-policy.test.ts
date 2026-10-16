@@ -29,22 +29,31 @@ const makeHost = (dir: string, runtimes: readonly AgentRuntime[]) => {
 }
 class HeldRuntime extends FakeRuntime {
   starts = 0
+  began!: () => void
+  entered = new Promise<void>(resolve => { this.began = resolve })
   release!: () => void
   barrier = new Promise<void>(resolve => { this.release = resolve })
-  override async start() { this.starts++; this.setHealth({ state: 'starting' }); await this.barrier; await super.start() }
+  override async start() { this.starts++; this.setHealth({ state: 'starting' }); this.began(); await this.barrier; await super.start() }
 }
 
 test('launch returns before the default is ready and never starts the other runtime', async t => {
+  const load = StateStore.prototype.load
+  t.mock.method(StateStore.prototype, 'load', async function(this: StateStore) {
+    // Initialization can take longer than the old 300 ms race on a busy disk.
+    await new Promise(resolve => setTimeout(resolve, 400))
+    return load.call(this)
+  })
   const dir = await mkdtemp(join(tmpdir(), 'hd-start-policy-'))
   const defaultRuntime = new HeldRuntime({ id: runtimeId('default') })
   const other = new HeldRuntime({ id: runtimeId('other') })
   const host = makeHost(dir, [other, defaultRuntime])
   await writeFile(join(dir, 'state.json'), JSON.stringify({ preferences: { activeRuntime: 'default' }, workspaces: [] }))
   t.after(async () => { defaultRuntime.release(); other.release(); await host.dispose(); await rm(dir, { recursive: true, force: true }) })
-  const start = host.start()
-  assert.equal(await Promise.race([start.then(() => 'returned'), new Promise(resolve => setTimeout(() => resolve('blocked'), 300))]), 'returned')
+  await host.start()
+  await defaultRuntime.entered
   assert.equal(defaultRuntime.starts, 1)
   assert.equal(other.starts, 0)
+  assert.equal(defaultRuntime.health().state, 'starting', 'launch returned while readiness is still held')
   defaultRuntime.release()
   await waitFor(() => defaultRuntime.health().state === 'ready')
 })

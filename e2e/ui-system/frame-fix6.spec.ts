@@ -110,7 +110,9 @@ const openFrame = async (page: Page, query: string, theme: 'light' | 'dark', wid
       const folder = toolbar.locator('[data-composer-track="work-in"] [data-slot="text"][data-role="row"]')
       await expect(folder).toHaveText(state.folder)
       await expect(folder).toHaveAttribute('title', `/work/${state.folder}`)
-      await expect(toolbar.locator('[data-composer-track="permissions"] [data-slot="text"][data-role="row"]')).toHaveText('Workspace write')
+      const permissions = toolbar.locator('[data-composer-track="permissions"]')
+      if (await permissions.getAttribute('data-folded') !== null) await expect(permissions.locator('button')).toHaveAccessibleName(/Workspace write/)
+      else await expect(permissions.locator('[data-slot="text"][data-role="row"]')).toHaveText('Workspace write')
       const mode = toolbar.locator('[data-composer-track="mode"]')
       if (await mode.getAttribute('data-folded') !== null) {
         await expect(mode.locator('button')).toHaveAccessibleName(/Default/)

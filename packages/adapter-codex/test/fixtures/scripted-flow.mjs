@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -126,7 +126,11 @@ export function scriptedFlow(raw, { send, notify }) {
               const latest = existsSync(script.state) ? JSON.parse(readFileSync(script.state, 'utf8')) : { passes: {}, done: [] }
               latest.passes[marker] = pass + 1
               latest.done.push(key)
-              writeFileSync(script.state, `${JSON.stringify(latest)}\n`)
+              // Other fake processes read this file while completing sibling
+              // attempts. Publish the whole snapshot, never a truncated JSON.
+              const temporary = `${script.state}.${process.pid}.tmp`
+              writeFileSync(temporary, `${JSON.stringify(latest)}\n`)
+              renameSync(temporary, script.state)
               const item = { id: `rig-answer-${intent}`, type: 'agentMessage', text: `Verdict: ${outcome}` }
               notify('item/started', { threadId, turnId, item })
               notify('item/completed', { threadId, turnId, item })

@@ -1,6 +1,7 @@
 import { measureDestination, expectPageJourney } from './frame-page-contract'
 import { expect, test } from '@playwright/test'
 import { openFrame, resolvedPx } from './frame-contract-helpers'
+import { revealPreviewConversation } from './sidebar-preview-actions'
 
 
 // Contract runs measure the preview; the final wall owns images and recordings.
@@ -17,13 +18,15 @@ test('E4 Agents named history', async ({ page }) => {
   const bar = page.locator('[data-slot="top-bar"]:visible')
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
   await page.getByRole('button', { name: /Code reviewer/ }).first().click()
-  await expect(bar.getByRole('button', { name: 'Agents ›', exact: true })).toBeVisible()
+  const body = page.locator('[data-page-destination="agents"]:visible')
+  await expect(body.getByRole('button', { name: 'Back to Agents', exact: true })).toBeVisible()
   await page.keyboard.press('Meta+[')
-  await expect(bar.getByRole('button', { name: 'New Agent…', exact: true })).toBeVisible()
+  await expect(body.getByRole('button', { name: 'New Agent…', exact: true })).toBeVisible()
   await page.keyboard.press('Meta+]')
-  await expect(bar).toContainText('Code reviewer')
-  await bar.getByRole('button', { name: 'Agents ›', exact: true }).click()
-  await expect(bar.getByRole('button', { name: 'New Agent…', exact: true })).toBeVisible()
+  await expect(body.getByRole('heading', { level: 1 })).toHaveText('Code reviewer')
+  await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
+  await body.getByRole('button', { name: 'Back to Agents', exact: true }).click()
+  await expect(body.getByRole('button', { name: 'New Agent…', exact: true })).toBeVisible()
 })
 
 // Until Task 9 joins the shared preview assembly, load the lane-owned preview
@@ -36,8 +39,10 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
     await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
     const bar = page.locator('[data-slot="top-bar"]:visible')
     if (detail) {
-      await expect(bar.getByRole('button', { name: 'Agents ›', exact: true })).toBeVisible()
-      await expect(bar.getByRole('button', { name: /^Start a conversation as / })).toBeVisible()
+      const body = page.locator('[data-page-destination="agents"]:visible')
+      await expect(body.getByRole('button', { name: 'Back to Agents', exact: true })).toBeVisible()
+      await expect(body.getByRole('button', { name: /^Start a conversation as / })).toBeVisible()
+      await expect(bar.getByRole('button', { name: /^Start a conversation as / })).toHaveCount(0)
     }
   })
 }
@@ -61,7 +66,7 @@ for (const width of [1440, 720]) test(`E4 Agents column opens draft session and 
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
   await reveal()
-  await column.getByRole('button', { name: /Worktree Management/ }).first().click()
+  await (await revealPreviewConversation(column, 'Worktree Management')).click()
   await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
@@ -107,8 +112,9 @@ test('R10 Agents source notes keep middle-truncated paths content-sized', async 
 test('R10 Release checker keeps the roster face and drops the redundant origin line', async ({ page }) => {
   await openFrame(page, 'frame-wall=agents&frame-detail=agent&frame-agent-case=release', 'light', 1440)
   const bar = page.locator('[data-slot="top-bar"]:visible')
-  const face = bar.locator('[data-topbar-mark] [data-slot="icon-tile"]')
-  await expect(bar.locator('[data-topbar="place"]')).toContainText('Release checker')
+  const face = page.locator('[data-page-destination="agents"]:visible [data-slot="toolbar"] [data-slot="icon-tile"]')
+  await expect(page.locator('[data-page-destination="agents"]:visible h1')).toHaveText('Release checker')
+  await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
   await expect(face).toContainText('RC')
   const explanations = page.locator('[data-page-destination="agents"]:visible [data-slot="page"] > p[data-role="prose"]')
   await expect(explanations).toHaveCount(1)

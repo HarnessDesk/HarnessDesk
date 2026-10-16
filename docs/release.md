@@ -113,7 +113,12 @@ commit, so a push after the approving review is never merged unreviewed; that
 same commit is what it hands to the merge. `--any-head` instead lands whatever
 head is green now and says so in a warning; naming neither is an error. The
 script reads check-runs for the PR's head SHA, requires `Build, typecheck, test`, `UI system browser integration`
-and `UI system native integration` to have completed successfully, and checks
+and `UI system native integration` to have completed successfully. It also
+requires the newest `CI tier: full` check to have succeeded in the same workflow
+check suite as those required checks. An ordinary pull request's bounded run
+cannot land: add `full-ci` (which starts a new full run), or land reviewed work
+through a `batch/` pull request, which always runs full CI. Manual dispatches
+and pushes to `main` also run the full suite. The script checks
 that both the head and base branch tip stayed put
 before it asks GitHub to squash-merge that exact head. This avoids the stale
 result `gh pr checks` can show immediately after a push. Use it for every

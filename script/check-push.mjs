@@ -198,7 +198,7 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
   const notes = [
     ...(dirty.length ? [`${dirty.length} path${dirty.length === 1 ? ' is' : 's are'} not committed (${dirty.slice(0, 3).join(', ')}${dirty.length > 3 ? ', …' : ''}): these checks read your files, which are not what a push sends. Commit first for an answer about the commit.`] : []),
     `Checked against the merge base${behind ? `; ${base} has ${behind} newer commit${behind === 1 ? '' : 's'}` : ''}. CI checks your branch merged into the base as it is then${behind ? ': merge it in to see the same tree' : ''}.`,
-    ...(shared.length ? [`Shared inputs changed (${shared.join(', ')}): CI installs and exercises the full graph, in both themes of every spec; the checks below that read them still run.`] : []),
+    ...(shared.length ? [`Shared inputs changed (${shared.join(', ')}): CI installs the full graph; its browser tier determines the selection and themes. The checks below that read them still run.`] : []),
   ]
   const leave = paths.length === 0 ? 'No changed files; CI remains the full gate.' : ''
   const steps = []
@@ -242,8 +242,15 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
     // The specs import compiled host fixtures; CI builds before it runs them, and so does this.
     consumers.some(step => step.status === 'run') || !browserReason || (!nodeReason && selected.length) ? '' : nodeReason || 'No selected step reads a Node build.')
   for (const step of consumers) if (step.status === 'run') step.needs = [build.name]
-  for (const entry of node.tests) add(`Node tests: ${entry.name}`, 'node', ['--test', '--test-timeout=120000', ...entry.files],
-    nodeReason || (!entry.direct && totalTests > 60 ? `${totalTests} test files across changed packages and dependants exceed the local limit of 60; CI runs dependent tests.` : ''), { needs: [build.name] })
+  for (const entry of node.tests) {
+    const reason = nodeReason || (!entry.direct && totalTests > 60 ? `${totalTests} test files across changed packages and dependants exceed the local limit of 60; CI runs dependent tests.` : '')
+    const retention = entry.files.filter(file => file === 'packages/server/dist/test/host-retention.test.js')
+    const ordinary = entry.files.filter(file => !retention.includes(file))
+    if (ordinary.length) add(`Node tests: ${entry.name}`, 'node', ['--test', '--test-timeout=120000', ...ordinary], reason, { needs: [build.name] })
+    // Match CI and verify: this real-Flow measurement must not compete with
+    // hundreds of server fixtures for its unchanged workload deadline.
+    if (retention.length) add(`Node tests: ${entry.name} retention`, 'node', ['--test', '--test-timeout=120000', ...retention], reason, { needs: [build.name] })
+  }
   if (node.tests.length === 0) add('Node-package tests', 'node', [], nodeReason || 'No changed package or dependant has compiled Node tests.')
   add('Node end-to-end tests', 'node', [], 'CI runs the separate Node end-to-end files; their wider deadlines exceed the local budget.')
 

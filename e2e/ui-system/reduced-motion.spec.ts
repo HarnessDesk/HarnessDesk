@@ -18,12 +18,39 @@ import { expect, test, type Page } from '@playwright/test'
 const label = 'Draft the 2.5 migration notes after reviewing the sidebar target behavior'
 
 test('a Diff hunk jump lands in the same task with motion reduced', async ({ page }) => {
+  // File sections now navigate their own hunks. Keep two in the target file,
+  // alongside another file, so the test exercises the right table's scroller.
+  const patch = [
+    'diff --git a/src/new.ts b/src/new.ts',
+    '--- /dev/null', '+++ b/src/new.ts', '@@ -0,0 +1 @@', '+export const opened = true',
+    'diff --git a/src/existing.ts b/src/existing.ts',
+    '--- a/src/existing.ts', '+++ b/src/existing.ts',
+    '@@ -8,2 +8,2 @@', '-const label = "Before"', '+const label = "After"', ' render(label)',
+    '@@ -20 +20 @@', '-const count = 1', '+const count = 2',
+  ].join('\n')
+  await page.route('**/src/design/explorer/main.tsx*', async route => {
+    const response = await route.fetch(), source = await response.text()
+    const reactUrl = /from ['"]([^'"\n]*\/react\.js[^'"\n]*)['"]/.exec(source)?.[1]
+    if (!reactUrl) throw new Error('explorer React module import was not found')
+    await route.fulfill({ response, body: `${source}
+      import fixtureReact from ${JSON.stringify(reactUrl)};
+      import { DiffView } from '/src/editor/index.ts';
+      document.getElementById('root').hidden = true;
+      const frame = document.createElement('div');
+      frame.setAttribute('data-testid', 'hunk-jump-sample');
+      document.body.append(frame);
+      createRoot(frame).render(fixtureReact.createElement(DiffView, { diff: ${JSON.stringify(patch)} }));
+    ` })
+  })
   await page.goto('/design.html?view=code')
   expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
-  const diff = page.getByTestId('diff-sample')
+  const diff = page.getByTestId('hunk-jump-sample')
   await expect(diff).toBeVisible()
-  await diff.locator('table').evaluate((table) => {
+  await expect(diff.locator('table')).toHaveCount(2)
+  const table = diff.locator('table').filter({ hasText: '@@ -20 +20 @@' })
+  await table.evaluate((table) => {
     const scroller = table.parentElement!
+    scroller.setAttribute('data-hunk-scroll', '')
     scroller.style.height = '60px'
     scroller.style.overflowY = 'auto'
     scroller.scrollTop = 0
@@ -31,7 +58,7 @@ test('a Diff hunk jump lands in the same task with motion reduced', async ({ pag
   await page.evaluate(() => {
     const original = HTMLElement.prototype.scrollIntoView
     HTMLElement.prototype.scrollIntoView = function (options) {
-      const scroller = document.querySelector<HTMLElement>('[data-testid="diff-sample"] table')!.parentElement!
+      const scroller = document.querySelector<HTMLElement>('[data-hunk-scroll]')!
       const before = scroller.scrollTop
       original.call(this, options)
       if (!scroller.contains(this)) return
@@ -133,7 +160,7 @@ test('a scripted transcript jump lands in the same task with motion reduced', as
 
 test('a focused row yields its fixed priority slot immediately before the next frame', async ({ page }) => {
   await page.goto('/preview.html')
-  const row = page.locator('[data-region="session-row"] [data-left-row]').filter({
+  const row = page.locator('[data-frame-id="sidebar-column"] [data-region="session-row"] [data-left-row]').filter({
     has: page.locator(`button[aria-label="Actions for ${label}"]`),
   })
   const priority = row.locator('[data-left-mark]')
@@ -281,14 +308,13 @@ test('a sidebar collapsed with motion reduced is hidden at once, with nothing in
 test('a floating sidebar put away with motion reduced is hidden at once, with nothing in it to Tab to', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 900 })
   await page.goto('/design.html?view=panels')
-  // At this width the right panel covers main, including the sidebar toggle.
-  // Collapse the panel through its visible control before opening the sidebar.
-  const hidePanel = page.getByRole('button', { name: 'Toggle right panel', exact: true })
-  await expect(hidePanel).toBeVisible()
-  await hidePanel.click()
+  // An admitted narrow pane covers the sidebar toggle. Close it if this
+  // catalogue specimen has one, then open the floating sidebar itself.
+  const hidePanel = page.getByRole('button', { name: 'Close pane', exact: true })
+  if (await hidePanel.isVisible()) await hidePanel.click()
   const show = page.locator('button[aria-label="Show sidebar"]').filter({ visible: true }).first()
-  await expect(show).toBeAttached()
-  await show.evaluate((node: HTMLButtonElement) => node.click())
+  await expect(show).toBeVisible()
+  await show.click()
   await expect(page.getByRole('dialog', { name: 'Sidebar', exact: true })).toBeVisible()
   await watchPutAway(page)
   await page.keyboard.press('Escape')

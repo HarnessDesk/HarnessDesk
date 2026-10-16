@@ -267,7 +267,7 @@ it('routes a sidebar tool and split file to the fixed right panel', () => {
   selectCodex()
   store.openFile('/repo/README.md', { split: 'row' })
   expect(store.getSnapshot().layout.root.kind).toBe('pane')
-  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.tool).toBe('changes')
+  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.tool).toBe('files')
 })
 
 it('revealing an old file restores its draft rather than borrowing the focused Team', () => {
@@ -281,5 +281,5 @@ it('revealing an old file restores its draft rather than borrowing the focused T
   store.revealView(first.id)
   expect(store.workSubject()).toBe(owner)
   expect(store.getSnapshot().workbench.toolOwners[first.id]).toBe(owner)
-  expect(store.getSnapshot().workbench.frameTools[owner!]).toEqual({ tool: 'changes', mode: 'file', open: true })
+  expect(store.getSnapshot().workbench.frameTools[owner!]).toEqual({ tool: 'files', mode: 'file', open: true })
 })

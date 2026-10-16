@@ -10,16 +10,9 @@ on:
   push:
     branches: [main]
   pull_request:
-  # A run on demand covers everything, as `main` does. `matrix: pr` asks for the
-  # pull-request theme matrix instead, to reproduce what a pull request ran.
-  # (GitHub offers a manual run only for a workflow that is on the default branch.)
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  # Runs started by hand always prove the full suite.
   workflow_dispatch:
-    inputs:
-      matrix:
-        description: Which themes the browser geometry contracts read
-        type: choice
-        options: [full, pr]
-        default: full
 
 # A superseded run has nothing to tell us; cancel it rather than queue behind it.
 concurrency:
@@ -36,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      tier: ${{ steps.paths.outputs.tier }}
       browser: ${{ steps.paths.outputs.browser }}
       native: ${{ steps.paths.outputs.native }}
       server_specs: ${{ steps.paths.outputs.server_specs }}
@@ -57,7 +51,7 @@ jobs:
           node-version: 22
       # What each spec ran on the last full run of main (script/ui-impact.mjs). Caches made on
       # main are readable from a pull request; the newest one is the nearest to its base.
-      # Without one, or when it cannot speak for a file, a pull request runs every spec.
+      # Without a usable map, the bounded tier samples the whole suite within its budget.
       - name: Restore the impact map of main
         if: github.event_name == 'pull_request'
         uses: actions/cache/restore@v6
@@ -70,8 +64,8 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           UI_IMPACT_MAP: ui-impact-map.json
-          # Only a run started by hand names its matrix; any other event leaves it to the selection.
-          UI_SYSTEM_MATRIX_REQUEST: ${{ inputs.matrix }}
+          CI_HEAD_BRANCH: ${{ github.head_ref }}
+          CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           list="$RUNNER_TEMP/ci-changed-paths"
           theme=false
@@ -107,6 +101,21 @@ jobs:
           # Keep [1] even when skipped, so the matrix is always well formed.
           unit_shards=$(node -e 'console.log(JSON.stringify(Array.from({ length: Math.max(1, Number(process.argv[1])) }, (_, i) => i + 1)))' "$unit_count")
           echo "unit_shards=$unit_shards" >> "$GITHUB_OUTPUT"
+
+  # A separate check names the tier without changing branch protection's check
+  # names. land-safe matches this proof to the required checks' check-suite id.
+  ci-tier:
+    name: "CI tier: ${{ needs.changes.outputs.tier }}"
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report the CI tier
+        env:
+          CI_TIER: ${{ needs.changes.outputs.tier }}
+        run: |
+          case "$CI_TIER" in full|bounded) ;; *) exit 1 ;; esac
+          echo "CI tier: $CI_TIER" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # One job ran every step below in turn, and took as long as all of them added
   # together: the longest wait on every push, and the one that kept `package`
@@ -156,17 +165,22 @@ jobs:
       # here, never widen it. The four flow-host-evidence end-to-end files,
       # the server's intake test files and the command line's end-to-end file
       # legitimately need more than this, so they run in their own job below
-      # instead of sharing this one; everything else fits inside it.
+      # instead of sharing this one. Retention keeps this deadline, but runs
+      # alone below so concurrent fixtures cannot consume its workload guard.
       #
       # The exclusion is a `find`, not a second glob, because node's own
       # glob matching has no negation syntax. It names each carved-out step
       # by the very path glob that step is given (`-path`, not `-name`): a
       # bare name also dropped `packages/protocol`'s `intake-wire.test.js`,
       # which the server-only step below never picks up, so it ran nowhere.
-      # Still the same glob as before, minus the files the next three steps
+      # Still the same glob as before, minus the files the dedicated steps
       # cover, so a package that gains tests is covered here the day it does.
       - name: Node tests
-        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js')"
+        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js')"
+      # The same heap/CPU budgets and workload deadline, with no competing
+      # server fixtures on this runner while the 20 real Flow runs settle.
+      - name: Host retention tests
+        run: node --test --test-timeout=120000 "packages/server/dist/test/host-retention.test.js"
 
   node-e2e:
     name: Node end-to-end tests
@@ -721,12 +735,14 @@ jobs:
     steps:
       - name: Require browser success or an intentional skip
         env:
+          CI_TIER: ${{ needs.changes.outputs.tier }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           BROWSER: ${{ needs.changes.outputs.browser }}
           SHARDS_RESULT: ${{ needs.ui-system-browser.result }}
           SERVER_RESULT: ${{ needs.ui-system-server.result }}
           BUILD_RESULT: ${{ needs.ui-system-build.result }}
         run: |
+          echo "CI tier: $CI_TIER"
           if [ "$CHANGES_RESULT" != "success" ]; then
             echo "UI integration input selection did not succeed ($CHANGES_RESULT)."
             exit 1

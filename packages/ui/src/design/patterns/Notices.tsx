@@ -1,10 +1,10 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
-import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, ChevronIcon, CrossIcon, InfoIcon, ShieldAlertIcon, TrashIcon } from '../../components/Icons'
+import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, ChevronIcon, CheckIcon, CrossIcon, InfoIcon, ShieldAlertIcon, TrashIcon } from '../../components/Icons'
 import { ContextMenu, MenuItem, type MenuPoint } from './Menu'
 import { Popover } from './Popover'
 import { InboxMenu } from './InboxMenu'
-import type { BannerTone } from '../primitives/Banner'
+import { NoticeHost, type BannerTone } from '../primitives/Banner'
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
 import { revealMotion } from '../ui/motion'
@@ -92,6 +92,7 @@ export type NoticeMessage = {
 const TONE_ICON: Record<NoticeTone, (props: { size: number }) => ReactNode> = {
   neutral: BellIcon,
   info: InfoIcon,
+  success: CheckIcon,
   warning: AlertIcon,
   danger: ShieldAlertIcon,
 }
@@ -298,9 +299,9 @@ const ComposerNoticeRow = ({ message, onDismiss, onMute }: { message: NoticeMess
 
 /** The composer notices, stacked over the composer they are about. */
 export const ComposerNoticeStack = ({ children }: { children: ReactNode }) => (
-  <div className={styles.composerStack} data-slot="composer-notices">
+  <NoticeHost size="compact"><div className={styles.composerStack} data-slot="composer-notices">
     {children}
-  </div>
+  </div></NoticeHost>
 )
 
 /**
@@ -525,7 +526,8 @@ export const showToast = (
     ...(message.action ? { action: { label: message.action.label, onClick: message.action.onSelect } } : {}),
   }
   const id = message.tone === 'danger' ? toast.error(message.title, options)
-    : message.tone === 'warning' ? toast.warning(message.title, options) : toast(message.title, options)
+    : message.tone === 'warning' ? toast.warning(message.title, options)
+    : message.tone === 'success' ? toast.success(message.title, options) : toast(message.title, options)
   // Absolute Undo deadlines do not pause when the person hovers a toast.
   if (how.expiresAt !== undefined) setTimeout(() => toast.dismiss(id), Math.max(0, how.expiresAt - Date.now()))
 }

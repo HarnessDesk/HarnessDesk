@@ -1,5 +1,6 @@
 import { selectRunView } from './run-frame-actions'
 import { selectTeamDestination, selectTeamPage } from './team-frame-actions'
+import { closeFloatingTeamRail } from './team-frame-actions'
 import { expect, test, type Page, type Locator } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
@@ -128,6 +129,7 @@ for (const theme of ['light', 'dark'] as const) {
       const pane = await run(page, theme)
       await page.setViewportSize({ width: 390, height: 900 })
       await nodesInCanvas(pane)
+      await closeFloatingTeamRail(page.locator('body'))
       const scroll = pane.locator('[data-slot="run-scroll"]')
       const graph = pane.locator('[data-slot="flow-graph"]')
       const row = graph.locator('[data-step-row="you"]')

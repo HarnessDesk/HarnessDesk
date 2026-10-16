@@ -79,17 +79,24 @@ for (const theme of ['light', 'dark'] as const) {
     const panels = ['panel-activity', 'panel-agents', 'panel-trajectory', 'panel-changes', 'panel-background-tasks', 'panel-seat-attachments']
     for (const id of panels) {
       const frame = page.locator(`[data-frame-id="${id}"]`)
-      const readings = await frame.locator('[data-slot="inspector-row"]').evaluateAll(rows => rows.map(row => {
+      // Turn changes now use collapsible patch headings rather than PanelRow.
+      const patch = id === 'panel-changes'
+      const rows = frame.locator(patch ? '[data-slot="patch-header"]' : '[data-slot="inspector-row"]')
+      if (patch) await expect(rows).toHaveCount(2)
+      const readings = await rows.evaluateAll(rows => rows.map(row => {
+        const patch = row.getAttribute('data-slot') === 'patch-header'
         const box = row.getBoundingClientRect()
         const style = getComputedStyle(row)
         const mark = row.querySelector('[data-slot="inspector-row-mark"]')
-        const title = row.querySelector('[data-role="row"]')
+        const title = row.querySelector(patch ? 'button[aria-expanded]' : '[data-role="row"]')
         const trailing = row.lastElementChild
         const middle = (node: Element) => { const rect = node.getBoundingClientRect(); return rect.y + rect.height / 2 }
         return {
           align: style.alignItems, inset: parseFloat(style.paddingLeft), height: box.height,
           minimum: title?.parentElement?.querySelector('[data-role=meta]') ? 40 : 32,
           markSize: mark?.getBoundingClientRect().width,
+          face: !!mark?.querySelector('[data-shape="face"]'),
+          tileRadius: mark?.querySelector('[data-slot="icon-tile"]') ? getComputedStyle(mark.querySelector('[data-slot="icon-tile"]')!).borderRadius : undefined,
           markRadius: mark ? getComputedStyle(mark).borderRadius : undefined,
           nameSize: title ? getComputedStyle(title).fontSize : null,
           nameWeight: title ? getComputedStyle(title).fontWeight : null,
@@ -104,9 +111,10 @@ for (const theme of ['light', 'dark'] as const) {
         expect(row.height, id).toBeGreaterThanOrEqual(row.minimum)
         if (row.markSize !== undefined) {
           expect(row.markSize, id).toBe(24)
-          expect(row.markRadius, id).toBe('6px')
+          expect(row.markRadius, id).toBe(row.face ? '9999px' : '6px')
+          if (row.tileRadius !== undefined) expect(row.tileRadius, id).toBe(row.face ? '9999px' : '6px')
         }
-        expect(row.nameSize, id).toBe('13px')
+        expect(row.nameSize, id).toBe(patch ? '12px' : '13px')
         expect(row.nameWeight, id).toBe('400')
         expect(row.markOffset, id).toBeLessThanOrEqual(1)
         expect(row.trailingOffset, id).toBeLessThanOrEqual(1)

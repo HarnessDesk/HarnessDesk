@@ -7,6 +7,103 @@ the rule is the last line of its section.
 
 ---
 
+## Browser CI is bounded on a pull request and complete before landing — 2026-10-15
+
+A measured UI pull request took 79 minutes end to end: sixteen browser shards
+ran for 14–27 minutes and waited 5–29 minutes for runners. Browser work used
+about 340 of 373 runner-minutes. A widely rendered stylesheet can reach nearly
+all 224 specs, so an impact map alone cannot bound that cost.
+
+Ordinary pull requests keep edited specs and the most specific impact selections
+within four shards, using the existing light geometry matrix and duration
+estimates. The summary names every deferred spec. Mandatory edited specs can
+exceed the time estimate, but never the four-runner cap. Other CI jobs keep
+their existing checks and required names.
+
+This trades early coverage of indirect and dark geometry regressions for a
+bounded feedback cycle. A full run on a `batch/` branch or a pull request labelled
+`full-ci` reads every spec in both themes before landing. Main pushes and manual
+dispatches also run everything. No suite is removed; deferred coverage moves to
+that full tier. The visible tier check belongs to the same workflow check suite
+as the required checks, so an old full result cannot stand in for a newer
+bounded run.
+
+**Rule:** bounded green is feedback, and only full green is landing evidence.
+
+## The sidebar keeps its rhythm quiet and its marks for attention — 2026-10-15
+
+The owner chose five changes so a long conversation list reads calmly and a
+mark means "needs you":
+
+- Rows have a 34px pitch: a centred 32px highlight with a 2px gap.
+- Group headers have about 20px of air above them, using the shared spacing
+  scale rather than another row's worth of space.
+- A project shows at most five rows, including Teams, with **Show more** and
+  **Show less**. A selected row beyond the first five takes the fifth slot;
+  an expanded project stays expanded for the UI session. Pinned loose
+  conversations remain uncapped above the projects.
+- Trailing marks are reserved for attention or errors. Running activity,
+  branch, worktree and pin facts remain on hover and in the existing menus;
+  running rows have no spinner.
+- The footer has a full-width hairline and a transparent account row, with
+  no pill around the identity. Readiness and usage live in the account menu.
+
+The extra air separates titles without making every group a large section;
+the five-row fold keeps one busy project from consuming the list. Keeping
+the selected row and an expanded project visible preserves the person's
+place. Quiet activity and a plain footer leave attention marks with one
+meaning: something needs the person.
+
+**The rule:** keep the 34px pitch, short project lists and plain footer;
+only attention or an error earns a trailing state mark.
+
+---
+
+## Diffs wrap and highlight changed words
+
+*Owner decision, 2026-10-15; issue #1671.*
+
+A change at the end of a long line must be visible in the narrow Changes pane
+without finding an unadvertised sideways scroll. The same defaults apply at
+full width: wrap long lines and highlight the changed words within paired
+removed/added lines, over their existing red/green grounds. Both are personal
+choices in the diff header's view-options menu, persisted with other UI
+preferences through the host's app state. Hide whitespace changes starts off.
+Multi-file patches keep paths, counts and line numbers and offer collapse /
+expand plus a hideable file list that can group paths by folder. Unified rows
+remain the patch layout; a side-by-side layout is a separate extension.
+
+## Composer clearance observes the box it measures
+
+The floating dock's clearance is its `offsetHeight`, including padding and
+borders. Its shared observer watches the border box so spacing changes also
+refresh that value. A content-box observer missed an 84px padding increase
+without updating the transcript reserve. The Side by side browser contract
+waits for the measured reserve, then checks both scroll position and the final
+answer's visible bounds as the dock grows and shrinks.
+
+## Round is someone, square is a thing
+
+Faces are round and filled by default: an agent, a runtime, a Team's member, a
+sender in a chat and your own seat. Square stays a setting (Settings ›
+Appearance › Faces) and is the shape of things — a plugin, a skill, a file, a
+section. An account is neither: a hollow ring, its colour on the edge and its
+agent's mark inside.
+
+Faces were square by default, which left two problems that a picture of the
+Teams board showed at once. Overlapped squares hide most of every face behind
+them, so a card with four agents read as a cropped strip; overlapped circles
+are the shape a stack is read in. And a square agent face in a list looked like
+the square tile of a plugin or a file beside it, so the one distinction the
+shapes exist to carry was the one they blurred. Round faces bring a second
+collision, with the account's ring, which is why the ring lost its plate: in
+the seat, your filled face and the hollow account it runs as never read as two
+faces. A desk that chose square keeps it; only the default moved.
+
+**The rule:** someone is a filled face at `--hd-face-radius`; an account is a
+hollow ring; a thing is square. A new mark picks its shape by what it is, never
+by the screen it is on.
+
 ## A Team start admits only the project the person selected
 
 Starting a Team is an explicit choice of its project folder, as opening that
@@ -3178,3 +3275,45 @@ drops "restart a conversation to pick up a change", which is false of a key
 nobody reads; the account page's note says the key stored here comes after it.
 The field stays open, because a key saved now is the one used the day the
 store's is removed. Where the flag is not set, the sentences are unchanged.
+
+
+## One notice, one layout (supersedes #1222's first-line rule)
+
+Decided 2026-10-15. First-line pinning left a tile floating above wrapped copy;
+the owner found it awkward, and eleven notice treatments disagreed on six
+axes. Rule C puts tile, copy and controls on one centre for a single line.
+With wrapped copy the tile centres on the complete text block, actions stay
+beside it and the dismiss stays at the top-right. Three or more actions, or
+a container under about 400px, put actions below at the right.
+
+The shared notice uses the composer's neutral plate, edge, radius and soft
+shadow. Danger adds a 3px left bar and red tile; success confirms a completed
+requested action through a green tile only. Title and earned detail stack.
+Hosts own standard (14px) or compact (13px) size; floating toasts alone take
+the notice shadow. Content callers supply no presentation overrides.
+
+Part 1 supplies the primitive, family API, success contract and one Notice
+board. Existing host wrappers keep their signatures and presentation until
+part 2 moves screens and enforces the new caller boundary. JobsBar narration,
+Approvals, dialogs and field validation remain separate. The #1211 decision,
+one notice, one outlet, still holds; this changes anatomy, never routing.
+
+## New Team writes at edit access and hands publishing to the person
+
+The first-time walkthrough in issue #1669 found that Write and review asked
+for `publish`, which none of the shipping runtimes can enforce. On 2026-10-15
+the owner chose B + D: the shipped writer and every repair run at `edit`,
+Automatic passes over preferences without the required control, and an
+independent reviewer reads the committed change. Approval opens a person card
+naming the reviewed revision and the writer's branch context. The person
+approves and performs the push and pull request publication before merging.
+The writer may commit locally but cannot push or open a pull request.
+
+Implementer's declared maximum stays `publish` for Flows that explicitly grant
+it. This changes the shipped shape's grant, not the permission ladder or a
+runtime's controls. Option C, allowing an asked-only limit with confirmation,
+was not chosen: New Team still requires an enforced limit, including read-back,
+for every agent it opens, in later rounds and after recovery too. An explicit
+runtime choice that cannot enforce that access remains refused beside its row,
+with a way to choose a compatible agent. Automatic uses the same strict plan,
+so an earlier incompatible preference cannot block a later compatible one.

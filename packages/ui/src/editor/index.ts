@@ -51,10 +51,13 @@ export {
   type EditorState, type EditorDocuments, type EditorLiveDocuments, type EditorLineTarget, type EditorLineTargets, type OpenEditorTabOptions,
 } from './state'
 export { explorerChanges, explorerRows, explorerPath, type ExplorerEntry, type ExplorerChange, type ExplorerTreeRow, type ExplorerLetter } from './explorer-tree'
-export { Explorer } from './Explorer'
+export { Explorer, ExplorerFolder } from './Explorer'
 export { FileTabs } from './FileTabs'
 export { EditorMain } from './EditorMain'
 
 export { requestAskInChat } from './ask'
 
 export { sameFileDocument, isDirtyDocument } from './document'
+
+export { DEFAULT_DIFF_PREFS, readDiffPrefs, type DiffPrefs } from './diff-prefs'
+export { DiffFilesView } from './DiffFilesView'

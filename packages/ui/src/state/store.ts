@@ -1,3 +1,4 @@
+import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
 import { destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
@@ -262,6 +263,8 @@ import {
   settle as settleWorkbench,
   terminals as terminalsIn,
   toggleDock as toggleDockIn,
+  toggleWorkRail as toggleWorkRailIn,
+  swapWorkPane as swapWorkPaneIn,
   undock as undockIn,
   unzoom as unzoomIn,
   visibleInspector,
@@ -349,6 +352,12 @@ export { emptySnapshot } from './snapshot'
 const FORGOTTEN_FOLDERS_KEPT = 2000
 
 export type UnheldCeilings = 'seat' | 'refuse'
+
+interface TerminalOpenOptions {
+  readonly cwd?: string
+  readonly command?: readonly string[]
+  readonly size?: TerminalSize
+}
 
 export class AppStore {
   #windowModeChanged = false
@@ -2798,6 +2807,19 @@ export class AppStore {
         const promoted = focusedPane(this.#snapshot.layout)
         if (draftSubject && promoted.id === draftPane?.id && promoted.view.kind === 'conversation' && promoted.view.session === key) {
           const before = this.#snapshot.workbench
+          const promotedSubject = `session:${key}`
+          // Only this confirmed draft-to-session transition may change a
+          // pending shell's owner. Ordinary navigation keeps its captured work.
+          for (const origin of this.#terminalOpeningOrigins) {
+            if (origin.subject === draftSubject && origin.pane?.id === draftPane.id && origin.pane.view === draftPane.view) {
+              origin.subject = promotedSubject
+              origin.pane = promoted
+              if (origin.door && this.#terminalDoorsOpening.get(draftSubject) === origin.door) {
+                this.#terminalDoorsOpening.delete(draftSubject)
+                this.#terminalDoorsOpening.set(promotedSubject, origin.door)
+              }
+            }
+          }
           const { [draftSubject]: intent, ...frameTools } = before.frameTools
           const { [draftSubject]: scope, ...frameSubjects } = before.frameSubjects
           if (intent || scope) {
@@ -3313,6 +3335,7 @@ export class AppStore {
   #dropRemoved(key: SessionKey, deleted: boolean): void {
     // Reads already in flight cannot recreate what the host has confirmed gone.
     this.#sessionRemovalRevisions.set(key, (this.#sessionRemovalRevisions.get(key) ?? 0) + 1)
+    this.#cancelTerminalOpenings(`session:${key}`)
     const { runtime, id } = splitSessionKey(key)
     this.#historyPageChanges?.set(key, null)
     this.#historyExcluded.add(key)
@@ -3924,27 +3947,37 @@ export class AppStore {
    * dock behind them.
    */
   #dockEpoch = 0
+  #terminalDoorsOpening = new Map<string, symbol>()
+  #terminalOpeningOrigins = new Set<{ subject: string | null; pane: ReturnType<typeof findPane>; door: symbol | undefined; cancelled: boolean }>()
+
+  #cancelTerminalOpenings(subject?: string): void {
+    for (const origin of this.#terminalOpeningOrigins) {
+      if (subject === undefined || origin.subject === subject) origin.cancelled = true
+    }
+    if (subject === undefined) this.#terminalDoorsOpening.clear()
+    else this.#terminalDoorsOpening.delete(subject)
+  }
 
   /**
-   * Opens a sandboxed terminal in the dock below the composer, in the
+   * Opens a sandboxed terminal in the retained cache, in the
    * focused conversation's directory and under its permissions when there is
-   * one, else in the workspace. Each terminal is a tab in the dock; the new
-   * one takes the screen. The process is the runtime's; the dock only draws
-   * it.
+   * one, else in the workspace. Work subjects show the selected terminal in
+   * their pane. The process is the runtime's; closing its pane only hides it.
    */
-  async openTerminal(
-    options: {
-      readonly cwd?: string
-      readonly command?: readonly string[]
-      readonly size?: TerminalSize
-    } = {},
-  ): Promise<void> {
+  openTerminal(options: TerminalOpenOptions = {}): Promise<void> {
+    return this.#openTerminal(options)
+  }
+
+  async #openTerminal(options: TerminalOpenOptions, door?: symbol): Promise<void> {
     if (this.#snapshot.windowHeight < FRAME.bottomPanel.min * 2) {
       this.resultNotice('warning', 'The terminal needs a window at least 240px tall.')
       return
     }
     const runtime = this.#snapshot.activeRuntime
     const sessionKeyNow = this.#snapshot.activeSessionKey
+    const terminalSubject = this.workSubject()
+    const terminalPane = findPane(this.#snapshot.layout, this.#snapshot.layout.focused)
+    const openingDoor = door !== undefined && terminalSubject !== null && this.#terminalDoorsOpening.get(terminalSubject) === door
     const cwd = options.cwd ?? terminalCwdForSnapshot(this.#snapshot)
     const candidate = sessionKeyNow ? this.#snapshot.sessions.get(sessionKeyNow) : undefined
     const session = this.#snapshot.workbench.navigation.current.kind === 'work' && candidate?.cwd === cwd
@@ -3954,6 +3987,8 @@ export class AppStore {
       return
     }
     const epoch = this.#dockEpoch
+    const origin = { subject: terminalSubject, pane: terminalPane, door: openingDoor ? door : undefined, cancelled: false }
+    this.#terminalOpeningOrigins.add(origin)
     try {
       if (!session && cwd !== this.#snapshot.workspace?.path) {
         // A page can name the main checkout while only a linked worktree
@@ -3966,7 +4001,7 @@ export class AppStore {
         } finally {
           await this.#settleWorkspaceOpen()
         }
-        if (epoch !== this.#dockEpoch) return
+        if (origin.cancelled || epoch !== this.#dockEpoch) return
       }
       const { terminalId, runtime: provider } = await this.transport.request('terminal/open', {
         runtime,
@@ -3975,12 +4010,11 @@ export class AppStore {
         ...(session ? { sessionId: session.id } : {}),
         ...(options.command ? { command: options.command } : {}),
       })
-      if (epoch !== this.#dockEpoch) {
+      if (origin.cancelled || epoch !== this.#dockEpoch) {
         void this.transport.request('terminal/close', { terminalId }).catch(() => {})
         return
       }
-      this.#setWorkbench(
-        dockIn(this.#snapshot.workbench, 'bottom', {
+      let opened = dockIn(this.#snapshot.workbench, 'bottom', {
           kind: 'terminal',
           terminalId,
           // The panel names whoever actually hosts the process, so its
@@ -3989,10 +4023,21 @@ export class AppStore {
           cwd,
           ...(sessionKeyNow && session ? { session: sessionKeyNow } : {}),
           ...(options.command ? { command: options.command } : {}),
-        }),
-      )
+        })
+      const subject = origin.subject
+      if (subject && origin.pane) {
+        const mount = dockViews(opened.bottom).find(one => one.view.kind === 'terminal' && one.view.terminalId === terminalId)!
+        const currentIntent = opened.frameTools[subject]
+        opened = { ...opened, toolOwners: { ...opened.toolOwners, [mount.id]: subject },
+          frameSubjects: { ...opened.frameSubjects, [subject]: { paneId: origin.pane.id, view: origin.pane.view } },
+          frameTools: { ...opened.frameTools, [subject]: { ...(openingDoor && (currentIntent?.tool !== 'terminal' || !currentIntent.open)
+            ? currentIntent ?? { tool: 'terminal', mode: 'terminal', open: false } : chooseTool(currentIntent, 'terminal')), selectedTerminal: mount.id } } }
+      }
+      this.#setWorkbench(opened)
     } catch (error) {
       this.resultNotice('error', describe(error))
+    } finally {
+      this.#terminalOpeningOrigins.delete(origin)
     }
   }
 
@@ -4039,15 +4084,20 @@ export class AppStore {
     if (mount) this.closeView(mount)
   }
 
-  /** Closes every terminal, and the processes in them. */
-  closeTerminalDock(): void {
-    this.#dockEpoch += 1
+  /** Closes one subject's shells, or every shell when no subject is supplied. */
+  closeTerminalDock(subject?: string): void {
+    if (subject === undefined) this.#dockEpoch += 1
+    this.#cancelTerminalOpenings(subject)
     let workbench = this.#snapshot.workbench
     for (const view of terminalsIn(workbench)) {
-      this.#release(view)
       const mount = mountOfTerminal(workbench, view.terminalId)
+      const owner = mount ? workbench.toolOwners[mount] : undefined
+      if (subject !== undefined && owner !== undefined && owner !== subject) continue
+      this.#release(view)
       if (mount) workbench = undockIn(workbench, mount)
     }
+    workbench = { ...workbench, frameTools: Object.fromEntries(Object.entries(workbench.frameTools).map(([owner, intent]) =>
+      [owner, intent.tool === 'terminal' && (subject === undefined || owner === subject) ? { ...intent, open: false, expanded: false } : intent])) }
     this.#setWorkbench(workbench)
   }
 
@@ -4289,6 +4339,23 @@ export class AppStore {
       return
     }
     const intent = chooseTool(before.frameTools[subject], tool, mode, toggle)
+    if (tool === 'terminal' && intent.open && !dockViews(before.bottom).some(one => one.view.kind === 'terminal' && (!before.toolOwners[one.id] || before.toolOwners[one.id] === subject))) {
+      const pane = findPane(before.main, before.main.focused)!
+      this.#setWorkbench({ ...before, frameTools: { ...before.frameTools, [subject]: intent },
+        frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
+      if (!this.#terminalDoorsOpening.has(subject)) {
+        const door = Symbol('terminal-door')
+        this.#terminalDoorsOpening.set(subject, door)
+        // One request owns cleanup, including refusal before allocation. The
+        // token follows promotion and cannot clear a reused subject's request.
+        void this.#openTerminal({}, door).finally(() => {
+          for (const [owner, pending] of this.#terminalDoorsOpening) {
+            if (pending === door) this.#terminalDoorsOpening.delete(owner)
+          }
+        })
+      }
+      return
+    }
     if (intent.open && mode === tool && (tool === 'changes' || tool === 'activity')
       && !dockViews(before.right).some(one => before.toolOwners[one.id] === subject && one.view.kind === tool)) {
       this.showViewIn('right', { kind: tool })
@@ -4312,6 +4379,12 @@ export class AppStore {
     const before = this.#snapshot.workbench
     const current = before.frameTools[subject] ?? { tool: 'details', mode: 'details', open: false } as const
     this.chooseWorkTool(current.tool, current.mode, true)
+  }
+  toggleWorkRail(): void {
+    this.#setWorkbench(toggleWorkRailIn(this.#snapshot.workbench))
+  }
+  swapWorkPane(): void {
+    this.#setWorkbench(swapWorkPaneIn(this.#snapshot.workbench))
   }
 
   /** Mounts a view in an area, bringing it forward if it is already somewhere. */
@@ -4370,7 +4443,14 @@ export class AppStore {
     const mounted = this.#snapshot.workbench
     const found = DOCKS.flatMap((area) => dockViews(mounted[area])).find((entry) => entry.id === id)
     if (found) this.#release(found.view)
-    this.#setWorkbench(undockIn(mounted, id))
+    let next = undockIn(mounted, id)
+    const owner = mounted.toolOwners[id]
+    const intent = owner ? next.frameTools[owner] : undefined
+    if (found?.view.kind === 'terminal' && owner && intent?.tool === 'terminal'
+      && !dockViews(next.bottom).some(one => one.view.kind === 'terminal' && next.toolOwners[one.id] === owner)) {
+      next = { ...next, frameTools: { ...next.frameTools, [owner]: { ...intent, open: false, expanded: false } } }
+    }
+    this.#setWorkbench(next)
   }
 
   /**
@@ -5419,8 +5499,8 @@ export class AppStore {
     return this.transport.request('flow/review/candidates', { run, card })
   }
 
-  async decideFlowReview(run: string, card: number, candidate: string, verdict: string): Promise<FlowExecution> {
-    const execution = await this.transport.request('flow/review/decide', { run, card, candidate, verdict })
+  async decideFlowReview(run: string, card: number, candidate: string, verdict: string, expectedBranch?: string, merge?: boolean): Promise<FlowExecution> {
+    const execution = await this.transport.request('flow/review/decide', { run, card, candidate, verdict, ...(expectedBranch ? { expectedBranch } : {}), ...(merge ? { merge } : {}) })
     const flowExecutions = new Map(this.#snapshot.flowExecutions)
     flowExecutions.set(execution.id, execution)
     this.#patch({ flowExecutions })
@@ -7001,6 +7081,7 @@ export class AppStore {
         listPrefs,
         teamsPrefs: readTeamsPrefs(preferences['teamsPrefs']),
         editorPrefs,
+        diffPrefs: readDiffPrefs(preferences['diffPrefs']),
         browserPrefs,
         spendChartMode,
         usageOff,
@@ -7666,6 +7747,13 @@ export class AppStore {
     void this.#writePreference({ accountPrefs }, 'The account name')
   }
 
+  /** Shared diff choices, applied immediately and saved with the person's other preferences. */
+  setDiffPrefs(patch: Partial<AppSnapshot['diffPrefs']>): void {
+    const diffPrefs = { ...this.#snapshot.diffPrefs, ...patch }
+    this.#patch({ diffPrefs })
+    void this.#writePreference({ diffPrefs }, 'The diff settings')
+  }
+
   /**
    * How the code editor draws itself. Applied locally first so a font-size
    * change lands on the mounted view in the same frame as the press, then
@@ -8043,11 +8131,12 @@ export class AppStore {
     const title = kind === 'runtime:config' && settings.length > 0
       ? `${name} ignored ${settings.length} ${settings.length === 1 ? 'setting' : 'settings'} in its config file`
       : runtime ? `${name}: ${detail?.summary ?? event.message}` : event.message
+    const tone = event.level === 'error' ? 'danger' : event.level === 'warning' ? 'warning' : 'info'
     const inbox = repeatedInInbox(this.#snapshot.inbox, {
       id: key, contentKey: key, kind, title,
       ...(event.id ? { lastEvent: event.id } : {}),
       ...(event.count ? { count: event.count } : {}),
-      tone: event.level === 'error' ? 'danger' : event.level === 'warning' ? 'warning' : 'info',
+      tone,
       ...(detail?.details ? { body: detail.details } : {}),
       ...(kind === 'runtime:config' && settings.length > 0 ? { body: [detail?.summary ?? event.message, `${name} runs without these settings.`, detail?.details].filter(Boolean).join(' ') } : {}),
       ...(detail?.file ? { file: detail.file } : {}),
@@ -8059,7 +8148,7 @@ export class AppStore {
     // Send only this occurrence. Another window may already have read, cleared or muted it.
     const { read: _read, ...entry } = inbox[0]!
     const revision = ++this.#noticeRevision
-    void this.transport.request('app/inbox/keepInfo', { entry: { ...entry, contentKey: key, kind, count: event.count ?? entry.count ?? 1 } }).then(preferences => this.#applyNoticePreferences(preferences, revision)).catch(() => {})
+    void this.transport.request('app/inbox/keepInfo', { entry: { ...entry, tone, contentKey: key, kind, count: event.count ?? entry.count ?? 1 } }).then(preferences => this.#applyNoticePreferences(preferences, revision)).catch(() => {})
   }
 
   dismissNotice(id: string): void {

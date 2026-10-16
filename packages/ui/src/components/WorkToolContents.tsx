@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { SessionKey } from '@harnessdesk/protocol'
 import { usePane, useSnapshot, useStore, PaneProvider } from '../state/context'
-import { SummaryList, SummaryItem, Text, ToolBody, ToolBodySections, ToolSection, ToolProse, ToolFooterSuppressed } from '../design'
-import { ChangesView, TrajectoryView } from './Details'
-import { Activity } from './Activity'
+import { FixedPanelBody, SummaryList, SummaryItem, Text, ToolBody, ToolBodyControls, ToolBodySections, ToolSection, ToolProse, ToolFooterSuppressed, Tabs, TabsList, TabsTrigger } from '../design'
+import { ChangesView, TrajectoryCard } from './Details'
 import { BackgroundTasksView } from './BackgroundTasks'
+import { GitPane } from './GitPane'
+import { MountProvider, useMount } from '../panels/mount'
 import { DiffView } from '../editor'
 import { teamSeats, hasConversation } from '../lib/team-seats'
 import { goalRunOf } from '../lib/goal-run'
@@ -35,14 +36,23 @@ const TeamChanges = ({ room }: { room: string }) => {
       : <><SummaryList surface="panel"><SummaryItem label="Branch" kind="path">{sanitizeText(branch ?? '')}</SummaryItem>
           <SummaryItem label="From" kind="path">{sanitizeText(from ?? '')}</SummaryItem>
           <SummaryItem label="To" kind="path">{sanitizeText(to ?? '')}</SummaryItem></SummaryList>
-        <DiffView diff={shown.diff} wrap /></>}
+        <DiffView diff={shown.diff} /></>}
   </ToolSection></ToolBody>
 }
 export const WorkChangesView = () => {
-  const pane = usePane()
-  return pane?.view.kind === 'room' ? <TeamChanges room={pane.view.room} /> : <ToolBody><ToolBodySections><ToolSection label="Changes"><ChangesView /></ToolSection></ToolBodySections></ToolBody>
+  const pane = usePane(), mount = useMount(), snapshot = useSnapshot()
+  const [view, setView] = useState('changes')
+  const room = pane?.view.kind === 'room' ? pane.view.room : null
+  const root = room ? snapshot.goals.get(room)?.goal.root ?? null
+    : (pane?.sessionKey ? snapshot.sessions.get(pane.sessionKey)?.cwd : null) ?? snapshot.workspace?.path ?? null
+  return <FixedPanelBody>
+    <ToolBodyControls><Tabs value={view} onValueChange={value => setView(value ?? 'changes')}><TabsList aria-label="Changes view">
+      <TabsTrigger value="changes">Changes</TabsTrigger><TabsTrigger value="history" disabled={!root}>History</TabsTrigger>
+    </TabsList></Tabs></ToolBodyControls>
+    {view === 'history' && root ? <MountProvider scope={{ area: mount?.area ?? 'right', id: mount?.id ?? pane?.paneId ?? 'changes-history', view: { kind: 'git', root }, fixed: true }}><GitPane /></MountProvider>
+      : room ? <TeamChanges room={room} /> : <ToolBody><ToolBodySections><ToolSection label="Changes"><ChangesView /></ToolSection></ToolBodySections></ToolBody>}
+  </FixedPanelBody>
 }
-const ignoreFoot = () => {}
 export const WorkActivityView = () => {
   const pane = usePane(), snapshot = useSnapshot()
   const room = pane?.view.kind === 'room' ? pane.view.room : null
@@ -54,11 +64,10 @@ export const WorkActivityView = () => {
   const taskKeys = [...new Set([...runningKeys, ...keys.filter(key => (snapshot.tasks.get(key)?.length ?? 0) > 0)])]
   return <ToolBody><ToolBodySections><ToolFooterSuppressed>
     {taskKeys.map(key => <PaneProvider key={key} scope={{ ...pane, paneId: pane?.paneId ?? '', view: { kind: 'conversation', session: key }, sessionKey: key }}>
-      <ToolSection label="Background work"><BackgroundTasksView /></ToolSection>
+      <BackgroundTasksView card />
     </PaneProvider>)}
-    <ToolSection label="Events"><Activity query="" sessionKeys={keys} onFoot={ignoreFoot} /></ToolSection>
     {keys.map(key => <PaneProvider key={key} scope={{ ...pane, paneId: pane?.paneId ?? '', view: { kind: 'conversation', session: key }, sessionKey: key }}>
-      <ToolSection label="Trajectory"><TrajectoryView /></ToolSection>
+      <TrajectoryCard />
     </PaneProvider>)}
   </ToolFooterSuppressed></ToolBodySections></ToolBody>
 }

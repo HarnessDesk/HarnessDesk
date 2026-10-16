@@ -132,7 +132,25 @@ test('without an agent judge the referee offers both attempts and records the pe
   assert.equal((await board(d, run.goal)).some(one => one.role === 'judge'), false)
   const offered = await d.host.call('flow/review/candidates', { run: run.id, card: referee.id })
   assert.deepEqual(new Set(offered.map(one => one.at)), new Set(heads))
-  await d.host.call('flow/review/decide', { run: run.id, card: referee.id, candidate: offered.find(one => one.at === heads[1])!.id, verdict: 'merged' })
+  const chosen = offered.find(one => one.at === heads[1])!
+  const destination = await git(d.root, 'branch', '--show-current')
+  const answer = { run: run.id, card: referee.id, candidate: chosen.id, verdict: 'merged' }
+  const onDestination = { ...answer, expectedBranch: destination }
+  const onWrongBranch = { ...answer, expectedBranch: 'another-branch' }
+  await assert.rejects(d.host.call('flow/review/decide', answer), /destination branch|verify/i)
+  await assert.rejects(d.host.call('flow/review/decide', onDestination), /not.*reach|not.*merged/i)
+  await assert.rejects(d.host.call('team/intent', { room: run.goal, id: referee.id, action: 'done', outcome: 'merged' }), /verif/i)
+  assert.equal((await board(d, run.goal)).find(one => one.id === referee.id)?.state, 'open')
+  assert.equal((await execution(d, run.id)).state, 'running')
+  await d.host.call('git/merge', { root: d.root, ref: chosen.at, expectedBranch: destination })
+  await assert.rejects(d.host.call('flow/review/decide', onWrongBranch), /branch changed/i)
+  await d.host.call('flow/review/decide', onDestination)
+  const receipt = JSON.parse((await board(d, run.goal)).find(one => one.id === referee.id)!.handoff!).comparisonMerge
+  assert.equal(receipt.card, chosen.card)
+  assert.equal(receipt.revision, chosen.at)
+  assert.equal(receipt.branch, destination)
+  assert.equal(receipt.commit, await git(d.root, 'rev-parse', 'HEAD'))
+  await git(d.root, 'merge-base', '--is-ancestor', chosen.at, `refs/heads/${destination}`)
   assert.equal((await board(d, run.goal)).find(one => one.id === referee.id)?.outcome, 'merged')
   assert.equal((await settled(d, run.id)).state, 'settled')
 })

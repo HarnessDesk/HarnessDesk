@@ -639,7 +639,7 @@ const Preview = () => {
         <Dial
           label="faces"
           value={snapshot.faces}
-          options={['square', 'round'] as const}
+          options={['round', 'square'] as const}
           onChange={(next) => store.setFaces(next)}
         />
         <Dial
