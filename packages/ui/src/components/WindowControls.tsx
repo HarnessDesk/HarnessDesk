@@ -15,7 +15,6 @@ import styles from './WindowControls.module.css'
  * never leave the row the eye expects them on.
  *
  * When the standing sidebar's own history folds, main carries the arrows alone.
- * Search belongs to the shell's fixed tools.
  */
 export const WindowControls = ({ sidebarRow = false, history = true }: { sidebarRow?: boolean; history?: boolean } = {}) => {
   const store = useStore()
