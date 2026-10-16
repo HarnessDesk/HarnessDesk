@@ -197,7 +197,7 @@ const SURFACES = [
     id: 'seat-rows',
     title: 'Seats in the left bar',
     about:
-      'Three Seats of one role, one per agent, all titled by the role — at compact density the agent is a chip on the title line, drawn only where rows from more than one agent share a title.',
+      'Three Seats of one role, one per runtime, all titled by the role — at compact density the runtime is a chip on the title line, drawn only where rows from more than one runtime share a title.',
     render: SeatRowsSurface,
   },
   {

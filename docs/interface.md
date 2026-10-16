@@ -758,7 +758,7 @@ Agent’s role name and Seat; its runtime name comes from `RuntimeInfo.presentat
 Library’s **Declared by** filter selects Agent roles, while **Loaded by**,
 **Install for**, and **Which runtimes load it** describe runtimes.
 
-A signed-out agent’s empty conversation offers one normal Sign in button.
+A signed-out runtime’s empty conversation offers one normal Sign in button.
 Its composer does not repeat the sign-in notice while the page already explains
 it; an existing transcript keeps that notice and its action. In Editor mode,
 the notice returns to the strip while the conversation panel is hidden.
