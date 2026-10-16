@@ -44,10 +44,10 @@ type Token = Word | { kind: 'op'; op: string; start: number }
 
 /**
  * Splits a shell line into words and the operators between them, or gives up.
- * It reads quotes, backslashes and `;` `&&` `||` `|` `&` even where they touch
- * a word, and returns null for whatever it would have to guess at — an
- * unterminated quote, a command substitution, a subshell — so a caller that
- * cannot be sure keeps the line as it was.
+ * It reads quotes, backslashes, line continuations and `;` `&&` `||` `|` `&`
+ * even where they touch a word, and returns null for whatever it would have to
+ * guess at — an unterminated quote, a command substitution, a subshell, a
+ * redirection — so a caller that cannot be sure keeps the line as it was.
  */
 const shellTokens = (line: string): Token[] | null => {
   const tokens: Token[] = []
@@ -59,6 +59,7 @@ const shellTokens = (line: string): Token[] | null => {
     if (/\s/.test(ch)) { close(); if (ch === '\n') tokens.push({ kind: 'op', op: ';', start: i }); continue }
     if (ch === '\\') {
       if (i + 1 >= line.length) return null
+      if (line[i + 1] === '\n') { i++; continue } // a line continuation joins, and is not part of the word
       const w = open(i); w.raw += ch + line[++i]; w.value += line[i]; continue
     }
     if (ch === "'") {
@@ -71,6 +72,7 @@ const shellTokens = (line: string): Token[] | null => {
       for (; j < line.length && line[j] !== '"'; j++) {
         const c = line[j]!
         if (c === '`' || (c === '$' && line[j + 1] === '(')) return null
+        if (c === '\\' && line[j + 1] === '\n') { j++; continue }
         if (c === '\\' && /["\\$`]/.test(line[j + 1] ?? '')) { w.value += line[++j]; continue }
         if (c === '$') w.expands = true
         w.value += c
@@ -78,10 +80,11 @@ const shellTokens = (line: string): Token[] | null => {
       if (j >= line.length) return null
       w.raw += line.slice(i, j + 1); i = j; continue
     }
-    if (ch === '`' || ch === '(' || ch === ')') return null
+    // A redirection can stand anywhere, even before the program (`2>/dev/null pnpm dev`).
+    if (ch === '`' || ch === '(' || ch === ')' || ch === '<' || ch === '>') return null
     if (ch === '$' && line[i + 1] === '(') return null
     if (ch === '#' && !at.word) break
-    if (ch === ';' || ch === '|' || (ch === '&' && !/[<>]$/.test(at.word?.raw ?? ''))) {
+    if (ch === ';' || ch === '|' || ch === '&') {
       close()
       const op = (ch === '|' || ch === '&') && line[i + 1] === ch ? ch + line[++i] : ch
       tokens.push({ kind: 'op', op, start: i + 1 - op.length }); continue
@@ -97,7 +100,10 @@ const isWord = (token: Token | undefined, value?: string): token is Word =>
   token?.kind === 'word' && !token.expands && (value === undefined || token.value === value)
 
 /** The line as it came, cut to fit a title. */
-const cut = (line: string) => (line.length <= LABEL_MAX ? line : `${line.slice(0, LABEL_MAX - 1).trimEnd()}…`)
+const cut = (line: string) => {
+  const chars = Array.from(line) // by code point, so an emoji at the edge is not split
+  return chars.length <= LABEL_MAX ? line : `${chars.slice(0, LABEL_MAX - 1).join('').trimEnd()}…`
+}
 
 /**
  * The title a background task is listed under. Codex names a shell session
@@ -131,7 +137,7 @@ export const taskLabel = (command: string): string => {
     from += 3
   }
   if (from) line = line.slice(tokens[from]!.start).trim()
-  if (line.length <= LABEL_MAX) return line
+  if (Array.from(line).length <= LABEL_MAX) return line
   const end = tokens.findIndex((token, i) => i >= from && token.kind === 'op')
   const segment = tokens.slice(from, end < 0 ? undefined : end)
   let at = 0
@@ -141,7 +147,7 @@ export const taskLabel = (command: string): string => {
   const name = program.value.split('/').at(-1) || program.value
   const argument = segment.slice(at + 1).find((token): token is Word => token.kind === 'word' && !token.value.startsWith('-'))
   const short = argument ? `${name} ${argument.raw}` : name
-  return `${short.length > LABEL_MAX ? short.slice(0, LABEL_MAX - 1).trimEnd() : short}…`
+  return Array.from(short).length > LABEL_MAX ? cut(short) : `${short}…`
 }
 
 /** How often the live list is re-read while something is running. */

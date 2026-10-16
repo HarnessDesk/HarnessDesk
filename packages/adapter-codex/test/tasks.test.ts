@@ -212,5 +212,17 @@ test('a task title never names a command that is not the one running', () => {
   const unterminated = '/bin/zsh -lc "rg -n pattern /work/storefront/packages/ui/src'
   assert.equal(taskLabel(unterminated), cutTo48(unterminated))
   assert.equal(taskLabel('bash -c "x" extra'), 'bash -c "x" extra')
-  for (const label of [substitution, assignments, unterminated].map(taskLabel)) assert.notEqual(label, '…')
+  // A redirection can stand anywhere, before the program too; it is not read, so the line stays.
+  const leading = '2>/dev/null pnpm dev --host 0.0.0.0 --port 3000 --strictPort'
+  assert.equal(taskLabel(leading), cutTo48(leading))
+  const attached = 'pnpm dev --host 0.0.0.0 --port 3000 --strictPort>/tmp/dev.log 2>&1'
+  assert.equal(taskLabel(attached), cutTo48(attached))
+  assert.equal(taskLabel('/bin/zsh -lc "pnpm dev 2>&1"'), 'pnpm dev 2>&1')
+  // A line continuation joins, outside quotes and inside double quotes alike.
+  assert.equal(taskLabel('pn\\\npm dev --host 0.0.0.0 --port 3000 --strictPort --open'), 'pnpm dev…')
+  assert.equal(taskLabel('/bin/zsh -lc "pn\\\npm dev --host 0.0.0.0 --port 3000 --strictPort --open"'), 'pnpm dev…')
+  // A cut counts code points, so an emoji at the edge stays whole.
+  const emoji = `echo ${'x'.repeat(41)}🚀🚀🚀 and more after it`
+  assert.equal(taskLabel(emoji), `echo ${'x'.repeat(41)}🚀…`)
+  for (const label of [substitution, assignments, unterminated, leading, attached].map(taskLabel)) assert.notEqual(label, '…')
 })
