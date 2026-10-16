@@ -122,10 +122,18 @@ const fact = (label: string): string => {
   return value?.querySelector('[data-slot="middle-truncate"] .sr-only')?.textContent ?? value?.textContent ?? ''
 }
 
+const expectFolder = (name: string, path: string): void => {
+  const value = [...container.querySelectorAll('[data-slot="summary-item"]')]
+    .find(one => one.querySelector('dt')?.textContent === 'Folder')
+    ?.querySelector('[data-slot="summary-value"] span[title]')
+  expect(value?.textContent).toBe(name)
+  expect(value?.getAttribute('title')).toBe(path)
+}
+
 it('names an armed draft in Details as a branch off its source folder', () => {
   rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) })
   expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
-  expect(fact('Folder')).toContain(ROOT)
+  expectFolder('storefront', ROOT)
   expect(container.querySelector('[data-slot="summary-note"]')?.textContent).toContain('Source folder; the worktree is made when the message goes')
   expect(chip()?.getAttribute('aria-label')).toBe('Folder actions')
 })
@@ -146,17 +154,15 @@ it('names the branch of the worktree a conversation runs in, though its agent re
   rig({ ...inTree, worktrees: worktrees(false) })
 
   expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
-  expect(fact('Folder')).toContain(TREE)
-  expect(fact('Folder')).toContain(TREE)
+  expectFolder('checkout-retry', TREE)
   expect(chip()?.title).toBe('Folder actions')
-  expect(fact('Folder')).toContain(TREE)
 })
 
 it('reports the fresh branch and folder for the main checkout', () => {
   rig({ activeSessionKey: KEY, sessions: new Map([[KEY, conversation(ROOT)]]), worktrees: worktrees(true) })
 
   expect(fact('Branch')).toBe('main')
-  expect(fact('Folder')).toContain(ROOT)
+  expectFolder('storefront', ROOT)
   expect(chip()?.title).toBe('Folder actions')
 })
 
@@ -167,7 +173,7 @@ it('names the worktree a draft is pointed at, not the folder the window has open
 
   expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
   expect(chip()?.title).toBe('Folder actions')
-  expect(fact('Folder')).toContain(TREE)
+  expectFolder('checkout-retry', TREE)
 })
 
 it("offers to bring back, or remove, a worktree HarnessDesk made", () => {
@@ -181,7 +187,7 @@ it("offers to bring back, or remove, a worktree HarnessDesk made", () => {
 it('offers neither for a worktree it did not make, though it still says it is one', () => {
   rig({ ...inTree, worktrees: worktrees(false) })
 
-  expect(fact('Folder')).toContain(TREE)
+  expectFolder('checkout-retry', TREE)
   const rows = menu()
   expect(rows).not.toContain('Bring it back to the main checkout…')
   expect(rows).not.toContain('Remove this worktree…')
@@ -192,7 +198,7 @@ it('names the worktree a draft is armed to cut, not the folder it will be cut fr
   rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) })
 
   expect(container.querySelector('[data-slot="summary-note"]')?.textContent).toContain('Source folder; the worktree is made when the message goes')
-  expect(fact('Folder')).toContain(ROOT)
+  expectFolder('storefront', ROOT)
   expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
 })
 
@@ -233,7 +239,7 @@ it('names the branch a draft is pointed at from the draft, though the worktree l
   rig({ draftPlace: { kind: 'existing', path: TREE, branch: 'harnessdesk/checkout-retry' }, worktrees: [] })
 
   expect(chip()?.title).toBe('Folder actions')
-  expect(fact('Folder')).toContain(TREE)
+  expectFolder('checkout-retry', TREE)
   expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
 })
 

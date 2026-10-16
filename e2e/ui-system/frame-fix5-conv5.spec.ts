@@ -46,13 +46,17 @@ const openFrame = async (page: Page, query: string, theme: 'light' | 'dark', wid
 
 {
 
-  for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720]).entries()) test(`R11.1 selected project appears in the new conversation pitch and folder control [item ${[item0, item1].join('-')}]`, async ({ page }) => {
+  for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720]).entries()) test(`R11.1 new conversation keeps its task prompt and selected folder control [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=draft&frame-fix5-storefront=1', theme, width)
-    await expect(page.getByText('Describe what you want done in storefront.', { exact: true })).toBeVisible()
+    await expect(page.getByText('Describe a task, then choose the folder it runs in.', { exact: true })).toBeVisible()
     await expect(page.locator('[data-composer-track="work-in"]')).toContainText('storefront')
+    await expect(page.locator('[data-composer-track="work-in"] button[title="/work/storefront"]')).toHaveAccessibleName('storefront')
     await openFrame(page, 'frame-wall=draft&frame-fix5-long-folder=1', theme, width)
-    const folder = page.locator('[data-composer-track="work-in"] [data-slot="text"][title*="this-is-a-very-long"]')
+    const longName = 'this-is-a-very-long-storefront-folder-name'
+    const folderControl = page.locator('[data-composer-track="work-in"]').getByRole('button', { name: longName, exact: true })
+    await expect(folderControl).toHaveAttribute('title', `/work/${longName}`)
+    const folder = folderControl.locator('[data-slot="text"]')
     const truncation = await folder.evaluate(element => ({
       textOverflow: getComputedStyle(element).textOverflow,
       whiteSpace: getComputedStyle(element).whiteSpace,

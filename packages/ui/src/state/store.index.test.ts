@@ -107,6 +107,7 @@ it('creates and forks with returned rows without a list request', async () => {
   request.mockClear()
   request.mockImplementation((async (method: HostMethodName) => {
     if (method === 'session/create') return session('new')
+    if (method === 'runtime/sessionDefaults') return []
     if (method === 'session/fork') return session('fork')
     return null
   }) as never)

@@ -15,6 +15,12 @@ const render = (input: UsageReport) => {
   return host
 }
 describe('plan card windows', () => {
+  it('shows adapter plan presentation with its raw type in the title', () => {
+    const host = render({ ...report, plan: 'self_serve_business_prolite', planLabel: 'Business Pro Lite' })
+    expect(host.textContent).toContain('Business Pro Lite')
+    expect(host.textContent).not.toContain('Self Serve')
+    expect(host.querySelector('[title="self_serve_business_prolite"]')?.textContent).toContain('Business Pro Lite')
+  })
   it('names the only window in the headline and draws its meter once', () => {
     const host = render(report)
     expect(host.textContent).toContain('left · Weekly')

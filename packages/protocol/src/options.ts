@@ -76,6 +76,8 @@ export interface OptionChoice {
 }
 
 interface OptionBase {
+  /** Adapter recommendation for new conversations only; never a live-session override. */
+  readonly recommendedValue?: OptionValue
   /** Stable within a runtime. Opaque to the interface beyond display and round-tripping. */
   readonly id: string
   readonly label: string
@@ -198,3 +200,10 @@ const KNOWN: ReadonlySet<string> = new Set(['mode', 'model', 'thought_level', 'o
 
 export const normaliseCategory = (category: OptionCategory | undefined): OptionCategory =>
   category && KNOWN.has(category) ? category : 'other'
+
+
+/** Valid adapter recommendations; disabled or obsolete suggestions never ride a start. */
+export const recommendedOptionValues = (options: readonly ConfigOption[]): Record<string, OptionValue> =>
+  Object.fromEntries(options.flatMap(option => option.recommendedValue !== undefined
+    && refuseOptionValue(option, option.recommendedValue) === null
+    ? [[option.id, option.recommendedValue]] : []))

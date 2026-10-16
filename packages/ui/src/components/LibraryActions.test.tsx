@@ -587,3 +587,78 @@ it('separates a change time from its path so both facts remain readable', async 
   expect(desc.textContent).toBe(`${date} · ~/skills/review/SKILL.md`)
   expect(desc.querySelector('[title]')?.getAttribute('title')).toBe(path)
 })
+
+const updateOp = (over: Partial<LibraryPlan['ops'][number]> = {}): LibraryPlan['ops'][number] => ({
+  id: 'update', kind: 'skill', name: 'code-review', action: 'update', targetPath: '/home/jane/.alpha/skills/code-review', targetRuntime: runtimeId('one'),
+  sourcePath: '/home/jane/.harnessdesk/library/sources/review', origin: { url: 'https://github.com/acme-dev/skills', ref: 'main', commit: 'abcdef1234', path: 'review', bundle: 'bundle' },
+  replaceBundle: true, guardDigest: 'old', backup: false,
+  preview: '--- SKILL.md\n+++ SKILL.md\n@@ -1 +1 @@\n-Old definition\n+New definition',
+  files: [
+    { path: 'SKILL.md', bytes: 120, runnable: false, binary: false, reason: null, change: 'changed' },
+    { path: 'scripts/check.sh', bytes: 42, runnable: true, binary: false, reason: 'starts with #!', change: 'added' },
+    { path: 'scripts/old.sh', bytes: 30, runnable: true, binary: false, reason: 'starts with #!', change: 'removed' },
+  ], ...over,
+})
+const mountUpdatePlan = async (ops: LibraryPlan['ops']) => {
+  const applied = vi.fn()
+  const request = vi.fn(async (method: string) => method === 'library/plan' ? plan(ops) : method === 'library/source/file' ? { text: '#!/bin/sh\n# New script', truncated: false } : ops.map(op => ({ id: op.id, outcome: 'done' })))
+  await render(storeWith(request), <PlanDialog title="Update code-review" intents={[]} columns={columns} onClose={() => {}} onApplied={applied} />)
+  return { request, applied }
+}
+it('reviews Added, Changed and Removed files, reads only incoming bytes and opens the definition diff by default', async () => {
+  const { request } = await mountUpdatePlan([updateOp()])
+  expect(document.body.textContent).toContain('Changed · 120 B')
+  expect(document.body.textContent).toContain('Added · 42 B')
+  expect(document.body.textContent).toContain('Removed · 30 B')
+  expect(document.body.querySelector('[aria-expanded="true"]')).toBeTruthy()
+  expect(document.body.textContent).toContain('New definition')
+  expect([...document.body.querySelectorAll('button')].filter(b => b.textContent === 'Read')).toHaveLength(1)
+  await click(buttonNamed('Read'))
+  expect(request).toHaveBeenCalledWith('library/source/file', { sourcePath: '/home/jane/.harnessdesk/library/sources/review', path: 'scripts/check.sh' })
+  expect(document.body.textContent).toContain('# New script')
+  expect(document.body.textContent).not.toMatch(/backed up/i)
+})
+it('shows an edited-copy reason once above the files, verbatim, and backs up only when planned', async () => {
+  const reason = 'This copy has been edited since install; the edited copy is backed up before replacement.'
+  await mountUpdatePlan([updateOp({ action: 'replace', backup: true, reason })])
+  expect(document.body.textContent?.split(reason)).toHaveLength(2)
+  const text = document.body.textContent!
+  expect(text.indexOf(reason)).toBeLessThan(text.indexOf('SKILL.md'))
+  expect(text).toContain('The current copy is backed up before this happens.')
+})
+it.each(['added', 'changed'] as const)('requires acknowledgement for a %s script and sends it only on operations that need it', async change => {
+  const incoming = updateOp({ files: [{ path: 'run.sh', bytes: 20, runnable: true, binary: false, reason: 'starts with #!', change }] })
+  const removed = updateOp({ id: 'removed', files: [{ path: 'old.sh', bytes: 20, runnable: true, binary: false, reason: 'starts with #!', change: 'removed' }] })
+  const { request } = await mountUpdatePlan([incoming, removed])
+  expect(buttonNamed('Apply 2 changes')?.disabled).toBe(true)
+  await click(checkboxNamed('I read the file that can run'))
+  expect(buttonNamed('Apply 2 changes')?.disabled).toBe(false)
+  await click(buttonNamed('Apply 2 changes'))
+  expect(request).toHaveBeenCalledWith('library/apply', { ops: [{ ...incoming, acknowledged: true }, removed] })
+})
+it('a removed script alone needs no acknowledgement, no Read and no backup claim', async () => {
+  const op = updateOp({ files: [{ path: 'old.sh', bytes: 20, runnable: true, binary: false, reason: 'starts with #!', change: 'removed' }] })
+  const { request } = await mountUpdatePlan([op])
+  expect(document.body.querySelector('[role="checkbox"]')).toBeNull()
+  expect(buttonNamed('Read')).toBeUndefined()
+  expect(buttonNamed('Apply 1 change')?.disabled).toBe(false)
+  expect(document.body.textContent).not.toMatch(/backed up/i)
+  await click(buttonNamed('Apply 1 change'))
+  expect(request).toHaveBeenCalledWith('library/apply', { ops: [op] })
+})
+
+it('opens every update definition diff and leaves each independently collapsible', async () => {
+  await mountUpdatePlan([updateOp(), updateOp({ id: 'second', name: 'another', preview: '--- SKILL.md\n+++ SKILL.md\n@@ -1 +1 @@\n-Old\n+Second definition' })])
+  expect(document.body.querySelectorAll('[aria-expanded="true"]')).toHaveLength(2)
+  expect(document.body.textContent).toContain('New definition')
+  expect(document.body.textContent).toContain('Second definition')
+  await click([...document.body.querySelectorAll('button')].find(b => b.getAttribute('aria-expanded') === 'true'))
+  expect(document.body.querySelectorAll('[aria-expanded="true"]')).toHaveLength(1)
+})
+
+it('says an update refusal reason once above its file list', async () => {
+  const reason = 'The installed copy changed while the update was being planned.'
+  await mountUpdatePlan([updateOp({ action: 'refuse', reason })])
+  expect(document.body.textContent?.split(reason)).toHaveLength(2)
+  expect(document.body.textContent!.indexOf(reason)).toBeLessThan(document.body.textContent!.indexOf('SKILL.md'))
+})

@@ -12,6 +12,20 @@ import { Cdp, closeDesk, launchDesk, sleep, STORE, waitForSnapshot } from '../..
 import { removeTemporaryDirectory } from '../../script/lib/temporary-directory.mjs'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
 
+// Retain only process identities/state, never command-line arguments or env.
+// This distinguishes a surviving app from a zombie at CI's orphan sweep.
+const nativeProcesses = () => new Map(execFileSync('/bin/ps', [
+  '-axo', 'pid=,ppid=,pgid=,stat=,comm=',
+], { encoding: 'utf8' }).split('\n').flatMap(line => {
+  const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(line)
+  if (!match) return []
+  const [, pid, parent, group, state, command] = match
+  const name = command.split('/').at(-1).replace(/^\((.*)\)$/, '$1')
+  if (!/^(?:Electron(?: Helper.*)?|node)$/.test(name)) return []
+  return [[Number(pid), { pid: Number(pid), parent: Number(parent), group: Number(group), state, name }]]
+}))
+const initialProcesses = nativeProcesses()
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const output = join(root, 'output/native-ui-system')
 const rig = mkdtempSync(join(tmpdir(), 'harnessdesk-ui-system-'))
@@ -51,6 +65,7 @@ const chosenTheme = (() => {
 })()
 const environment = {
   ...process.env,
+  HD_DESK_TRACE: '1',
   HD_SHOTS_HOME: rigHome,
   HD_SHOTS_WORK: rigWork,
   HARNESSDESK_LOG_LEVEL: 'error',
@@ -110,6 +125,7 @@ try {
 
   let relaunch
   let about
+  let relaunchError
   try {
   // `launchDesk` returns as soon as the renderer store exists. Preferences are
   // loaded immediately afterwards, so wait for hydration instead of sampling
@@ -215,8 +231,16 @@ try {
   } finally {
     aboutCdp.close()
   }
+  } catch (error) {
+    relaunchError = error
+    throw error
   } finally {
-    await closeDesk(desk)
+    try {
+      await closeDesk(desk)
+    } catch (cleanupError) {
+      if (relaunchError) throw new AggregateError([relaunchError, cleanupError], 'relaunch and desk cleanup failed')
+      throw cleanupError
+    }
   }
 
 const screenshots = readdirSync(frames).filter((file) => file.endsWith('.png')).sort()
@@ -246,4 +270,7 @@ const report = {
     // run red or, worse, broadening the cleanup target.
     removeTemporaryDirectory(rig)
   }
+  const remaining = [...nativeProcesses().values()].filter(one =>
+    one.pid !== process.pid && !initialProcesses.has(one.pid))
+  process.stderr.write(`native smoke remaining process states: ${JSON.stringify(remaining)}\n`)
 }

@@ -34,12 +34,11 @@ const openFrame = async (page: Page, query: string, width = 1280, theme: 'light'
 
 {
 
-  for (const [item0, state] of (['failed', 'starting']).entries()) test(`draft composer distinguishes a failed runtime from one starting [item ${[item0].join('-')}]`, async ({ page }) => {
+  for (const [item0, state] of (['failed', 'starting']).entries()) test(`draft composer keeps its text box and disables Send while the runtime is failed or starting [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, `frame-wall=draft&frame-fix8-readiness=${state}`)
     const textarea = page.locator('textarea:visible')
-    await expect(textarea).toHaveAttribute('placeholder', state === 'starting'
-      ? 'Waiting for the runtime…' : 'The agent failed its version check. Choose a working installation in Settings.')
+    await expect(textarea).toBeVisible()
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
 
 

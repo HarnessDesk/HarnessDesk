@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { closeDesk, connectDesk, selectMainPage, waitForDebugger, waitForSnapshot } from './lib/desk.mjs'
 
@@ -143,4 +144,110 @@ test('connectDesk cleans up when a renderer target appears but its store never m
   assert.equal(cdpClosed, true)
   assert.equal(sinkEnded, true)
   assert.deepEqual(child.signals, ['SIGTERM'])
+})
+
+// Run cleanup outside node:test: a returned promise is insufficient evidence
+// that Node can exit. Inherited output pipes kept the old implementation alive.
+for (const mode of ['normal-helper', 'stubborn-helper', 'exited-launcher', 'discovery-failure', 'connected', 'slow-disposal']) {
+  test(`desk cleanup permits natural process termination: ${mode}`, {
+    skip: process.platform === 'win32' ? 'POSIX process groups' : false,
+    timeout: 15_000,
+  }, async t => {
+    const { spawn } = await import('node:child_process')
+    const { once } = await import('node:events')
+    const runner = spawn(process.execPath, [fileURLToPath(new URL('./fixtures/desk-exit.mjs', import.meta.url)), mode], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+    t.after(async () => {
+      const closed = once(unrelated, 'close')
+      unrelated.kill('SIGKILL')
+      await closed
+    })
+    let stdout = ''
+    let stderr = ''
+    let group
+    let runtime
+    runner.stdout.on('data', chunk => {
+      stdout += chunk
+      group = Number(/group:(\d+)/.exec(stdout)?.[1]) || group
+      runtime = Number(/runtime:(\d+)/.exec(stdout)?.[1]) || runtime
+    })
+    runner.stderr.on('data', chunk => { stderr += chunk })
+    const timer = setTimeout(() => runner.kill('SIGKILL'), 12_000)
+    t.after(() => {
+      clearTimeout(timer)
+      // Always reclaim this fixture's group, including when testing old code.
+      if (group) {
+        try { process.kill(-group, 'SIGKILL') } catch (error) {
+          if (error.code !== 'ESRCH') throw error
+        }
+      }
+      if (runtime) {
+        try { process.kill(-runtime, 'SIGKILL') } catch (error) {
+          if (error.code !== 'ESRCH') throw error
+        }
+      }
+    })
+    const [code, signal] = await once(runner, 'close')
+    assert.equal(signal, null, `${stdout}\n${stderr}`)
+    assert.equal(code, 0, `${stdout}\n${stderr}`)
+    assert.equal(unrelated.exitCode, null)
+    assert.equal(unrelated.signalCode, null)
+    assert.doesNotThrow(() => process.kill(unrelated.pid, 0))
+    if (mode === 'normal-helper') assert.doesNotMatch(stderr, /escalating/)
+    else assert.match(stderr, /escalating.*stdoutOpen.*true/)
+    if (mode === 'slow-disposal') assert.match(stdout, /detached-runtime-survived/)
+    assert.match(stdout, /cleanup-complete/)
+    assert.match(stdout, /"stdoutClosed":true,"stderrClosed":true,"logFinished":true/)
+  })
+}
+
+test('cleanup reports CDP failures after still terminating the child and finishing its log', async () => {
+  const child = new EventEmitter()
+  child.exitCode = null
+  child.signalCode = null
+  child.kill = signal => {
+    queueMicrotask(() => {
+      child.signalCode = signal
+      child.emit('exit', null, signal)
+    })
+  }
+  let logFinished = false
+  await assert.rejects(closeDesk({
+    child,
+    cdp: { close: async () => { throw new Error('CDP close failed') } },
+    sink: { writableEnded: false, end: done => { logFinished = true; done() } },
+  }), error => error instanceof AggregateError && error.errors[0].message === 'CDP close failed')
+  assert.equal(child.signalCode, 'SIGTERM')
+  assert.equal(logFinished, true)
+})
+
+test('cleanup fails if SIGKILL does not close the child instead of reporting success', { timeout: 12_000 }, async () => {
+  const child = new EventEmitter()
+  child.exitCode = null
+  child.signalCode = null
+  const signals = []
+  child.kill = signal => { signals.push(signal); return true }
+  let logFinished = false
+  await assert.rejects(closeDesk({
+    child,
+    sink: { writableEnded: false, end: done => { logFinished = true; done() } },
+  }), error => error instanceof AggregateError && /did not close/.test(error.errors[0].message))
+  assert.deepEqual(signals, ['SIGTERM', 'SIGKILL'])
+  assert.equal(logFinished, true)
+  assert.equal(child.listenerCount('exit'), 0)
+})
+
+test('connection failure retains its cause when cleanup also fails', async () => {
+  await assert.rejects(connectDesk({
+    child: { exitCode: 1 },
+    cdp: null,
+    sink: { writableEnded: false, end: done => done(new Error('log flush failed')) },
+    discoveryAttempts: 0,
+    browserUrl: 'ws://owned',
+    port: 1,
+  }), error => error instanceof AggregateError
+    && /no renderer appeared/.test(error.errors[0].message)
+    && /log flush failed/.test(error.errors[1].errors[0].message))
 })

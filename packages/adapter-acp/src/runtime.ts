@@ -1,3 +1,4 @@
+import { recommendAcpOptions } from './recommendations.js'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -2377,7 +2378,7 @@ export class AcpRuntime implements AgentRuntime {
         probe = AcpSession.probe(this, opened, where)
         this.#rememberProbe(probe.id)
         this.#sessions.set(probe.id, probe)
-        return await this.#draftOptions(probe, values)
+        return recommendAcpOptions(await this.#draftOptions(probe, values), this.#catalogDefault)
       } finally {
         try { if (probe) this.#restReadLater(probe) } finally {
           this.#optionReads--
@@ -2408,17 +2409,17 @@ export class AcpRuntime implements AgentRuntime {
           )
         }
       }
-      return options
+      return recommendAcpOptions(options, this.#catalogDefault)
     }
     if (!values || Object.keys(values).length === 0) {
-      if (this.#probeOptions && !this.#opening && !this.#probe) return this.#probeOptions
+      if (this.#probeOptions && !this.#opening && !this.#probe) return recommendAcpOptions(this.#probeOptions, this.#catalogDefault)
     }
     return this.#useProbe(cwd, async (probe) => {
       this.#probeOptions = await this.#draftOptions(probe, { ...this.#draftValues, ...values })
       this.#draftValues = Object.fromEntries(this.#probeOptions
         .filter(option => !option.disabled)
         .map(option => [option.id, option.currentValue]))
-      return this.#probeOptions
+      return recommendAcpOptions(this.#probeOptions, this.#catalogDefault)
     })
   }
 
@@ -4058,14 +4059,18 @@ class AcpSession implements AgentSession {
       // The agent says where its control belongs; an unfamiliar or absent
       // category lands under "More", which is what `other` means.
       const category = acpCategory(option.id, option.category)
-      const metadata = option._meta?.['harnessdesk'] as { modelStatus?: unknown; collaboration?: { planValue?: unknown; actValue?: unknown } } | undefined
+      const metadata = option._meta?.['harnessdesk'] as { modelStatus?: unknown; recommendedValue?: unknown; collaboration?: { planValue?: unknown; actValue?: unknown } } | undefined
       const modelStatus = metadata?.modelStatus
+      const recommendation = metadata?.recommendedValue
       const split = metadata?.collaboration
       const collaboration = typeof split?.planValue === 'string' && typeof split.actValue === 'string'
         && option.options?.some(choice => choice.value === split.planValue)
         && option.options.some(choice => choice.value === split.actValue)
         ? { planValue: split.planValue, actValue: split.actValue } : undefined
-      const report = typeof modelStatus === 'string' && modelStatus ? { modelStatus } : {}
+      const report = {
+        ...(typeof modelStatus === 'string' && modelStatus ? { modelStatus } : {}),
+        ...(typeof recommendation === 'string' || typeof recommendation === 'boolean' ? { recommendedValue: recommendation } : {}),
+      }
       if (option.type === 'toggle' || option.type === 'boolean') {
         options.push({
           type: 'boolean',

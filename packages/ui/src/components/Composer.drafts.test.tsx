@@ -7,6 +7,7 @@ import { runtimeId, sessionId, sessionKey, type RuntimeInfo, type Session, type 
 import { PaneProvider, StoreProvider, useSnapshot } from '../state/context'
 import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
 import { panes, sessionOf } from '../state/layout'
+import { focusedMount } from '../state/workbench'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { Composer } from './Composer'
 import { RoomMessagesHeld } from './RoomMessaging'
@@ -111,11 +112,11 @@ const draw = (key: SessionKey | null, held = false): void => {
   })
 }
 
-const drawNewSessionDraft = (onChooseProject = () => {}): void => {
+const drawNewSessionDraft = (onChooseProject: () => void | Promise<boolean> = () => {}): void => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: null }, sessionKey: null }}>
+        <PaneProvider scope={{ paneId: focusedMount(currentSnapshot.workbench), view: { kind: 'conversation', session: null }, sessionKey: null }}>
           <Composer onChooseProject={onChooseProject} />
         </PaneProvider>
       </StoreProvider>,
@@ -466,16 +467,107 @@ it('shows room Board-only on the own composer and retains its individual draft w
   expect(textarea().value).toBe('Review the retry budget')
 })
 
-it('offers an enabled folder action inside a new composer without a project', () => {
-  currentSnapshot = { ...snapshot, workspace: null }
-  const choose = vi.fn()
-  drawNewSessionDraft(choose)
-  const open = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Open a folder…')!
-  expect(open).toBeDefined()
-  expect(open.disabled).toBe(false)
-  act(() => open.click())
-  expect(choose).toHaveBeenCalledOnce()
-  currentSnapshot = snapshot
-  drawNewSessionDraft(choose)
-  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Open a folder…')).toBe(false)
+describe('first-run drafts (#1720)', () => {
+  const send = () => container.querySelector<HTMLButtonElement>('[data-slot="composer-send"]')!
+  it('keeps an enabled, focused text box and a folder control in the toolbar', () => {
+    currentSnapshot = { ...snapshot, workspace: null }
+    const choose = vi.fn()
+    drawNewSessionDraft(choose)
+    expect(textarea().disabled).toBe(false)
+    expect(document.activeElement).toBe(textarea())
+    const folder = container.querySelector<HTMLButtonElement>('[data-composer-track="work-in"] button')!
+    expect(folder.textContent).toBe('Choose folder')
+    act(() => folder.click())
+    expect(choose).toHaveBeenCalledOnce()
+    currentSnapshot = snapshot
+    drawNewSessionDraft(choose)
+    expect(container.querySelector('[data-composer-track="work-in"]')?.textContent).toContain('w')
+    const chosen = container.querySelector<HTMLButtonElement>('[data-composer-track="work-in"] button[title="/w"]')!
+    expect(chosen).not.toBeNull()
+    act(() => chosen.click())
+    expect(choose).toHaveBeenCalledTimes(2)
+  })
+  it('waits for a folder before sending once to that folder', async () => {
+    currentSnapshot = { ...snapshot, workspace: null }
+    let picked!: (chosen: boolean) => void
+    const choose = vi.fn(() => new Promise<boolean>(resolve => { picked = resolve }))
+    vi.mocked(store.queue).mockImplementation(async () => {
+      expect(store.getSnapshot().workspace?.path).toBe('/chosen')
+      return true
+    })
+    drawNewSessionDraft(choose)
+    type('Build the task')
+    expect(send().disabled).toBe(false)
+    act(() => { send().click(); send().click() })
+    expect(choose).toHaveBeenCalledOnce()
+    expect(store.queue).not.toHaveBeenCalled()
+    expect(textarea().value).toBe('Build the task')
+    await act(async () => {
+      currentSnapshot = { ...snapshot, workspace: { path: '/chosen', name: 'chosen' } as AppSnapshot['workspace'] }
+      picked(true)
+    })
+    expect(store.queue).toHaveBeenCalledExactlyOnceWith([{ type: 'text', text: 'Build the task' }], null)
+    expect(textarea().value).toBe('')
+  })
+  it('consumes a sent draft even when choosing a folder replaces its composer', async () => {
+    currentSnapshot = { ...snapshot, workspace: null }
+    let picked!: (chosen: boolean) => void
+    const choose = () => new Promise<boolean>(resolve => { picked = resolve })
+    vi.mocked(store.queue).mockResolvedValue(true)
+    drawNewSessionDraft(choose)
+    type('Send this task exactly once')
+    act(() => send().click())
+    draw(null)
+    currentSnapshot = snapshot
+    await act(async () => picked(true))
+    expect(store.queue).toHaveBeenCalledOnce()
+    drawNewSessionDraft()
+    expect(textarea().value).toBe('')
+  })
+  it('holds one pending send across a composer replacement while the picker settles', async () => {
+    currentSnapshot = { ...snapshot, workspace: null }
+    let picked!: (chosen: boolean) => void
+    const choose = () => new Promise<boolean>(resolve => { picked = resolve })
+    vi.mocked(store.queue).mockResolvedValue(true)
+    drawNewSessionDraft(choose)
+    type('Send one task across the picker')
+    act(() => send().click())
+    draw(null)
+    currentSnapshot = snapshot
+    drawNewSessionDraft()
+    await act(async () => send().click())
+    await act(async () => picked(true))
+    expect(store.queue).toHaveBeenCalledOnce()
+    draw(null)
+    drawNewSessionDraft()
+    expect(textarea().value).toBe('')
+  })
+  it('leaves a newer draft intact when its predecessor finishes choosing a folder', async () => {
+    currentSnapshot = { ...snapshot, workspace: null }
+    let picked!: (chosen: boolean) => void
+    const choose = () => new Promise<boolean>(resolve => { picked = resolve })
+    vi.mocked(store.queue).mockResolvedValue(true)
+    drawNewSessionDraft(choose)
+    type('Send the first task')
+    act(() => send().click())
+    draw(null)
+    currentSnapshot = snapshot
+    drawNewSessionDraft()
+    type('Keep the next task')
+    await act(async () => picked(true))
+    expect(textarea().value).toBe('Keep the next task')
+    draw(null)
+    drawNewSessionDraft()
+    expect(textarea().value).toBe('Keep the next task')
+  })
+  it('keeps text and sends nothing when the folder picker is cancelled', async () => {
+    currentSnapshot = { ...snapshot, workspace: null }
+    const choose = vi.fn(async () => false)
+    drawNewSessionDraft(choose)
+    type('Keep this task')
+    await act(async () => send().click())
+    expect(choose).toHaveBeenCalledOnce()
+    expect(store.queue).not.toHaveBeenCalled()
+    expect(textarea().value).toBe('Keep this task')
+  })
 })

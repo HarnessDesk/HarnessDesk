@@ -160,7 +160,7 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
    exemptions are for compound anatomy whose state is already exercised by
    the named interactive board but is not expressed as CVA axes. */
 const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
-  'TeamsBoard', 'alert-dialog', 'avatar', 'avatar-stack', 'bar', 'board',
+  'BoardCard', 'TeamsBoard', 'alert-dialog', 'avatar', 'avatar-stack', 'bar', 'board',
   'breadcrumb', 'card', 'chart', 'checkbox', 'composer',
   'data-table', 'delta', 'dialog', 'disclosure-chevron', 'dropdown-menu', 'empty-state', 'field', 'group-label',
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
@@ -185,6 +185,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   LibraryMatrix: ['default'],
   PageControls: ['default'],
   TeamsBoard: ['light', 'dark'],
+  BoardCard: ['light', 'dark'],
   PageRecords: ['default'],
   PageOptions: ['default'],
   SettingsChoices: ['default'],
@@ -314,6 +315,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   LibraryMatrix: ['populated', 'empty', 'long-title'],
   PageControls: ['default', 'disabled'],
   TeamsBoard: ['working','needs-you','empty','collapsed','expanded'],
+  BoardCard: ['default', 'warning'],
   PageRecords: ['default', 'populated', 'long-title', 'folded-state'],
   PageOptions: ['default', 'loading', 'folded-state'],
   SettingsChoices: ['populated', 'unknown', 'selected'],
@@ -473,6 +475,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   LibraryMatrix: 'packages/ui/src/components/Library.tsx',
   PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   TeamsBoard: 'packages/ui/src/components/TeamsWindow.tsx',
+  BoardCard: 'packages/ui/src/design/patterns/TeamsBoard.tsx',
   PageRecords: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   SettingsChoices: 'packages/ui/src/components/SettingsYou.tsx',
@@ -537,6 +540,7 @@ Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sideba
 Object.assign(PATTERN_CONSUMER, { ComposerTrack: 'packages/ui/src/components/ComposerControls.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  BoardCard: 'packages/ui/src/design/explorer/board-card-example.tsx',
   CommandPalette: 'packages/ui/src/preview/frames-transcript.tsx',
   SignInRail: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   DashboardBands: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -729,6 +733,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'PageOptions': ['PageOptions'],
   'PageRecords': ['PageRecordViews', 'PageRecords'],
   'TeamsBoard': ['TeamsBoard','TeamsBoardColumn','TeamsBoardCard','TeamsBoardToolbar','TeamsBoardWrapped'],
+  'BoardCard': ['BoardCard'],
   'PaneColumn': ['PaneColumn', 'ReadingMeasure', 'useComposerHeightVar'],
   'PlanCard': ['PlanCard'],
   'Popover': ['Popover', 'PopoverGroupLabel', 'PopoverSurface', 'dismissOverlays', 'useDismissOverlays', 'useEscapeSurface'],
@@ -933,6 +938,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['FlowStepRow', 'flow-graph', 'Shared Flow and main Run Timeline step rows with kind, recorded state, time and run count'],
   ['SignInRail', 'sign-in-rail', 'Sign-in navigation on the shared sidebar ground'],
   ['TeamsBoard', 'teams-page', 'Attention columns, Team cards and folded receipts, composed from the shared card and text primitives'],
+  ['BoardCard', 'board-card', 'Compact opening card with identity, attention detail and optional middle and footer slots'],
   ['PageRecords', 'page-records', 'Responsive grouped records with aligned facts and isolated row actions'],
   ['PageControls', 'page-controls', 'Labelled page fields, complete explanations and shortcut keys'],
   ['LibraryMatrix', 'library-matrix', 'Availability columns, inline copies and per-agent catalogue costs'],
