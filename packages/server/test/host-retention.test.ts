@@ -5,7 +5,6 @@ import { randomBytes } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { performance } from 'node:perf_hooks'
 import { pipeline } from 'node:stream/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
@@ -122,25 +121,33 @@ seed: { role: worker, title: Finish synthetic work }
 rules: []
 `
 
-test('settled synthetic Flow runs stay within the retained-heap and main-thread budgets', { timeout: 120_000 }, async t => {
+test('settled synthetic Flow runs stay within the retained-heap and main-thread CPU budgets', { timeout: 120_000 }, async t => {
   if (!global.gc) {
     // CI's ordinary runner needs no flags; only this bounded child exposes GC.
     const env = { ...process.env }
     delete env['NODE_TEST_CONTEXT']
-    const result = await exec(process.execPath, ['--expose-gc', '--test', '--test-reporter=tap', '--test-name-pattern=settled synthetic', fileURLToPath(import.meta.url)], { timeout: 110_000, env })
+    const result = await exec(process.execPath, ['--expose-gc', '--test', '--test-reporter=tap', '--test-name-pattern=settled synthetic', fileURLToPath(import.meta.url)], { timeout: 110_000, env }).catch(error => {
+      t.diagnostic(String(error.stdout ?? '')) // Preserve the child's budget failure in CI's parent log.
+      throw error
+    })
     assert.match(result.stdout, /heapPerRun/, 'the isolated child actually ran the measurement')
     t.diagnostic(result.stdout.trim())
     return
   }
   const d = await desk(t)
   const samples: { runs: number; seats: number; heap: number }[] = []
-  const starts = new Map<number, number>()
-  let longestTaskMs = 0
+  const starts = new Map<number, NodeJS.CpuUsage>()
+  let longestTaskCpuMs = 0
   const tasks = createHook({
-    before(id) { starts.set(id, performance.now()) },
+    // CPU consumed by this thread excludes time descheduled on a busy runner
+    // and work in other threads. The 500 ms work budget stays the same.
+    before(id) { starts.set(id, process.threadCpuUsage()) },
     after(id) {
       const began = starts.get(id)
-      if (began !== undefined) longestTaskMs = Math.max(longestTaskMs, performance.now() - began)
+      if (began !== undefined) {
+        const cpu = process.threadCpuUsage(began)
+        longestTaskCpuMs = Math.max(longestTaskCpuMs, (cpu.user + cpu.system) / 1000)
+      }
       starts.delete(id)
     },
   })
@@ -180,8 +187,8 @@ test('settled synthetic Flow runs stay within the retained-heap and main-thread 
   const first = samples[0]!, last = samples.at(-1)!
   const heapPerRun = (last.heap - first.heap) / (last.runs - first.runs)
   const heapPerSeat = heapPerRun / 2
-  t.diagnostic(JSON.stringify({ samples, heapPerRun, heapPerSeat, longestTaskMs }))
+  t.diagnostic(JSON.stringify({ samples, heapPerRun, heapPerSeat, longestTaskCpuMs }))
   assert.ok(heapPerRun < 256 * 1024, `retained heap ${heapPerRun} bytes/run exceeds 256 KiB/run (128 KiB/closed seat)`)
-  assert.ok(longestTaskMs < 500, `main-thread task ${longestTaskMs} ms exceeds 500 ms`)
+  assert.ok(longestTaskCpuMs < 500, `main-thread task ${longestTaskCpuMs} CPU ms exceeds 500 ms`)
   assert.ok(d.host.registry.all().every(record => !record.live && !record.session.itemsLoaded && record.watched.size === 0), 'every closed body was unloaded')
 })

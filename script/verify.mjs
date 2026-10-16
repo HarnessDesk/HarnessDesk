@@ -79,21 +79,28 @@ step('node tests', () =>
     // ceiling, never widen it. The four flow-host-evidence end-to-end files,
     // the server's intake test files and the command line's end-to-end file
     // legitimately need more than this, so they run in their own invocations
-    // below instead of sharing this one; everything else fits inside it.
+    // below instead of sharing this one. Retention keeps this deadline, but
+    // runs alone so concurrent fixtures cannot consume its workload guard.
     //
     // The exclusion is a `find`, not a second glob, because node's own glob
     // matching has no negation syntax. It names each carved-out run by the
     // very path glob that run is given (`-path`, not `-name`): a bare name
     // also dropped `packages/protocol`'s `intake-wire.test.js`, which the
     // server-only run below never picks up, so it ran nowhere. Still the same
-    // glob CI runs, minus the files the next three steps cover, so a package
+    // glob CI runs, minus the files the dedicated steps cover, so a package
     // that gains tests is covered here the day it does — a hand-kept list of
     // packages once left one out. It matches what was built rather than what
     // exists, which is why `build:node` ends by pruning dist of every output
     // whose source is gone (script/prune-dist.mjs).
-    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js')",
+    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js')",
   ]),
   // What it reads is what the build writes: over the dist a failed build left, it ran and printed ok (#208).
+  { needs: 'build' },
+)
+// Keep the 20 real Flow runs and their deadlines; give the measurement the
+// process to itself rather than co-scheduling hundreds of server fixtures.
+step('host-retention tests', () =>
+  run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/host-retention.test.js']),
   { needs: 'build' },
 )
 step('flow-host-evidence tests', () =>
