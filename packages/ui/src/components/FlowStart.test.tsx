@@ -434,7 +434,7 @@ it('renders provider warnings, held-ceiling refusals, and additional provider re
   expect(container.textContent).toContain('Same provider as the writer')
   expect(container.textContent).toContain('cannot enforce read-only access')
   // Delta's alsoPassed reason renders beside its primary one; Alpha's alone would not prove it.
-  expect(container.textContent).toMatch(/Choose another agent that supports this access\. — Same provider as the writer/)
+  expect(container.textContent).toMatch(/Choose another runtime that supports this access\. — Same provider as the writer/)
   expect(container.textContent).not.toContain('Can’t confirm a different provider from the writer')
   expect(container.textContent).toContain('Picked')
   expect(container.textContent).toContain(warning)
@@ -880,7 +880,7 @@ it('explains an edit refusal next to Writes and offers a compatible runtime', as
     { id: 'alpha', presentation: { name: 'Runtime Alpha' }, ceilings: {} } as never,
     { id: 'beta', presentation: { name: 'Runtime Beta' }, ceilings: { edit: { settings: [], how: 'Workspace guard' } } } as never,
   ])
-  expect(container.textContent).toContain('Runtime Alpha cannot enforce editing and local commits without publishing. Choose another agent that supports this access.')
+  expect(container.textContent).toContain('Runtime Alpha cannot enforce editing and local commits without publishing. Choose another runtime that supports this access.')
   expect(container.querySelector('select[aria-label="Runtime for Writes"]')).not.toBeNull()
   expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Use Runtime Beta')).toBe(true)
 })

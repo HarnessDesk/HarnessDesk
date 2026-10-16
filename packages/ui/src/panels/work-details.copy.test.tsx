@@ -1,3 +1,4 @@
+import type { Session } from '@harnessdesk/protocol'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
@@ -12,7 +13,7 @@ it('labels the displayed identity as Runtime until the seated Agent’s name is 
   const host = document.createElement('div'), root = createRoot(host), store = previewStore()
   document.body.append(host)
   const saved = store.getSnapshot().sessions.get(PREVIEW_SESSION_KEY)!
-  const session = { ...saved, settings: { ...saved.settings, agent: 'reviewer' } }
+  const session: Session = { ...saved, settings: { ...saved.settings, cwd: saved.cwd ?? '/work/storefront', model: saved.settings?.model ?? 'fixture-model', agent: 'reviewer' } }
   const draw = () => act(() => root.render(<StoreProvider store={store}><ConversationDetails session={session} /></StoreProvider>))
   try {
     draw()
