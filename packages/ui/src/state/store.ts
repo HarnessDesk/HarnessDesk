@@ -180,6 +180,7 @@ import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
 import { BrowserTileRegistry, browserProfileKey, type BrowserTileMount } from '../lib/browser-tiles'
 import { focusTile, fromStored, toStored, type SideBySideState } from '../lib/side-by-side'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
+import { TeamInbox } from '../lib/team-inbox'
 import { kept as keptInInbox, repeated as repeatedInInbox, markedRead, readInbox, type InboxEntry } from '../lib/inbox'
 import {
   classifyNotice,
@@ -966,6 +967,7 @@ export class AppStore {
     // migration stays visible as Goal-specific recovery state without making
     // the rest of the desk unusable.
     await this.loadGoals().catch(() => undefined)
+    await this.#teamInbox.hydrate(this, () => this.#patch({}))
     // The header strip is up from the first frame, so what every plan has left
     // is loaded once here rather than on the first ⌘U. Cached readings answer
     // most of these without anyone being asked again.
@@ -8008,6 +8010,7 @@ export class AppStore {
   }
 
   #noticeRevision = 0
+  readonly #teamInbox = new TeamInbox((patch, base) => this.#writeNoticePreference(patch, base, 'The inbox'))
 
   #applyNoticePreferences(preferences: Readonly<Record<string, unknown>>, revision: number): void {
     if (!preferences || revision !== this.#noticeRevision) return
@@ -8438,6 +8441,7 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
+    next.inbox = this.#teamInbox.reconcile(next, this.#snapshot)
     next.foldersGone = roomFoldersGone(next.foldersGone, this.#snapshot.teams, patch.teams)
     if (patch.windowMode !== undefined || patch.workbench !== undefined) {
       next.workbench = settleConversationTool(next.workbench, effectiveWindowMode(next.windowMode, next.workbench) === 'editor')

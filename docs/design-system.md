@@ -1067,12 +1067,19 @@ A button in a banner's action row.
 One filled button per card. A banner that offers two equal-looking choices
 makes the user read both before they can ignore it.
 
+### `inlineNoticeTitle`
+
+`packages/ui/src/design/primitives/Notice.tsx`
+
+Inline notice hosts give a plain title a sentence stop before earned detail.
+
 ### `Notice`
 
 `packages/ui/src/design/primitives/Notice.tsx`
 
 A fact, optional earned detail, and the actions it calls for.
 Hosts choose standard padding (12px, 16px left) or compact (8px, 12px left).
+Inline hosts use the shared sentence-stop formatter before earned detail.
 Labelled actions keep text-button width, including the ghost `icon` kind.
 
 ### `NoticeStatus`

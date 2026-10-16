@@ -8,6 +8,7 @@ import type { DesktopBridge } from '../lib/desktop'
 import { MountProvider } from '../panels/mount'
 import { StoreProvider, useSnapshot } from '../state/context'
 import { AppStore } from '../state/store'
+import { PREVIEW_GOAL } from '../preview/goal-fixture'
 import { findView, focusedMount } from '../state/workbench'
 import { BrowserPane } from './BrowserPane'
 import { SideBySide } from './SideBySide'
@@ -21,7 +22,7 @@ it('two tiles borrow separate live profiles, route browser keys and agent focus,
   const keys = [sessionKey('assistant', 'alpha'), sessionKey('assistant', 'beta')]
   const lanes = ['alpha', 'beta'].map(name => ({ id: name, goal: 'demo', seat: name, cwd: `/workspace/${name}`, browserProfile: `lane-${name}`, state: 'active' } as Lane))
   const members = lanes.map(lane => ({ id: lane.seat, board: 'demo', checkout: { cwd: lane.cwd }, session: { runtime: 'assistant', sessionId: lane.id }, closed: null } as SeatRecord))
-  const goal = { goal: { id: 'demo', root: '/workspace', revision: 1 }, board: { id: 'demo', members: keys }, members } as unknown as GoalView
+  const goal: GoalView = { ...PREVIEW_GOAL, goal: { ...PREVIEW_GOAL.goal, id: 'demo', root: '/workspace', revision: 1, origin: { kind: 'person' } }, board: { ...PREVIEW_GOAL.board, id: 'demo', root: '/workspace', members: keys, intents: [], channel: [] }, members }
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
     if (method === 'goal/list') return [goal]

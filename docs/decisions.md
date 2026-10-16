@@ -3428,3 +3428,23 @@ before Apply; ordinary local installs retain their existing confirmation.
 The acknowledgement travels only on the operations whose files need it.
 This keeps the review attached to the bundle the host planned and checks again
 at apply, rather than treating a skill's definition as its entire contents.
+## Pace forecasts earn composer space; Team waits also reach the Inbox
+
+On 2026-10-15 the owner chose A + B for issue #1675 D3: a pace warning above
+the composer waits until work has started in the desk and less than 15% of the
+binding window remains. The named threshold is
+`COMPOSER_PACE_REMAINING_PERCENT`; a turn in a held desk conversation supplies
+the existing work fact, excluding history previews, without a new persisted
+flag. The Dashboard retains the forecast at every remaining share. The Notice
+primitive supplies the sentence stop between an inline title and its detail. Exhausted quota keeps its
+existing behavior.
+
+For D6 the owner chose yes: person cards, picks, approvals and questions waiting
+in a Team also reach the bell's Inbox. The store reconciles live entries from
+the existing Needs-you selector when `team/changed`, `goal/changed`,
+`flow/execution-changed`, `approval/requested` or `approval/resolved` updates
+the held facts, and when initial reads hydrate those same facts. A Team and
+Run plus conversation and card or approval identify the row; repeated snapshots preserve its read
+state. Answering or moving past a step clears it, as does ending or wrapping
+the Run. Its destination opens the Team's existing view. Needs you itself keeps
+its current presentation.
