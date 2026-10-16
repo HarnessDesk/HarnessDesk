@@ -6,17 +6,23 @@ import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } })
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`B6 Board facts and canvas retain the existing content gap in ${theme}`, async ({ page }) => {
+  test(`B6 Board body controls and canvas retain the existing content gap in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list')
     const pane = page.locator('[data-frame-id="board-list-page"]')
     const bar = pane.locator('[data-slot="top-bar"]').locator('xpath=ancestor::*[@data-slot="bar"][1]')
+    const controls = pane.locator('[data-slot="page-options"]')
     const board = pane.locator('[data-slot="board"]')
     await expect(bar).toBeVisible()
+    await expect(controls).toBeVisible()
+    await expect(controls.getByRole('button', { name: 'New job', exact: true })).toHaveCount(1)
+    await expect(controls.getByRole('button', { name: 'View', exact: true })).toHaveCount(1)
+    await expect(bar.getByRole('button', { name: /^(New job|View)$/ })).toHaveCount(0)
     await expect(board).toBeVisible()
     await page.evaluate(() => document.fonts.ready)
-    await expect.poll(async () => (await board.boundingBox())!.y - ((await bar.boundingBox())!.y + (await bar.boundingBox())!.height)).toBe(FRAME.page.canvasGutter)
+    await expect.poll(async () => (await controls.boundingBox())!.y - ((await bar.boundingBox())!.y + (await bar.boundingBox())!.height)).toBe(0)
+    await expect.poll(async () => (await board.boundingBox())!.y - ((await controls.boundingBox())!.y + (await controls.boundingBox())!.height)).toBe(FRAME.page.canvasGutter)
   })
   for (const width of [1440, 1000, 900, 760, 640, 560]) {
     test(`board columns keep their width in a ${width}px pane in ${theme}`, async ({ page }) => {
@@ -84,7 +90,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list')
     const pane = page.locator('[data-frame-id="board-list-page"]')
-    const view = pane.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true })
+    const view = pane.getByRole('button', { name: 'View', exact: true })
     await view.click()
     await page.getByRole('menuitem', { name: 'List', exact: true }).click()
     await expect(pane.locator('[data-slot="board-list"]')).toBeVisible()

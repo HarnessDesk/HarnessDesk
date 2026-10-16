@@ -28,6 +28,7 @@ import {
   resizeDockSplit,
   splitDock,
   toggleDock,
+  swapWorkPane,
   undock,
   zoomArea,
   type Workbench as Model,
@@ -137,10 +138,10 @@ const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<A
   const apply = (next: Model): void => {
     const subject = fixedSubject(next.main)
     const views = dockViews(next.right)
-    const last = activeView(next.right)
+    const last = activeView(next.right) ?? activeView(next.bottom)
     const tool = last && toolOf(last.view.kind)
     if (compatibility && subject && tool) next = { ...next, frameTools: { ...next.frameTools,
-      [subject]: { tool, mode: last!.view.kind, open: !next.right.collapsed } },
+      [subject]: { ...next.frameTools[subject], tool, mode: last!.view.kind, open: !(tool === 'terminal' ? next.bottom : next.right).collapsed } },
       toolOwners: { ...next.toolOwners, ...Object.fromEntries(views.map(one => [one.id, subject])) },
       frameSubjects: { ...next.frameSubjects, [subject]: { paneId: next.main.focused, view: next.main.root.kind === 'pane' ? next.main.root.view : { kind: 'conversation', session: null } } },
     }
@@ -171,6 +172,13 @@ const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<A
       settle(resizeDockSplit(snapshot.workbench, area, id, ratio)),
     togglePanel: (area: never) => settle(toggleDock(snapshot.workbench, area)),
     zoomPanel: (area: never, scope: never) => settle(zoomArea(snapshot.workbench, area, scope)),
+    toggleWorkPanel: () => {
+      const subject = fixedSubject(snapshot.layout)!
+      const next = snapshot.workbench
+      const current = next.frameTools[subject]!
+      settle({ ...next, right: { ...next.right, collapsed: current.open }, bottom: current.tool === 'terminal' ? { ...next.bottom, collapsed: current.open } : next.bottom, frameTools: { ...next.frameTools, [subject]: { ...current, open: !current.open, expanded: false } } })
+    },
+    swapWorkPane: () => settle(swapWorkPane(snapshot.workbench)),
     /* The main area's two halves of one press, in one write: the zoom hides
        the other *areas*, the expansion hides the other *panes*. A rig that
        implemented only the first would have passed through the bug where
@@ -250,6 +258,10 @@ it('a fixed work tool has a retained body without a dock tab', () => {
   expect(container.querySelector('[data-testid="view-changes"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="dock-panel-tabs"]')).toBeNull()
   expect(container.querySelector('[aria-label^="Move or split"]')).toBeNull()
+  expect(container.querySelector('[data-frame-region="rail"]')).not.toBeNull()
+  expect(container.querySelector('[data-work-pane-header]')?.textContent).toContain('Changes')
+  expect(container.querySelector('[aria-label="Swap pane into main"]')).not.toBeNull()
+  expect(container.querySelector('[aria-label="Close pane"]')).not.toBeNull()
 })
 
 it('terminal process documents have no split action at any width', () => {
@@ -357,7 +369,6 @@ it('each seam reports the size it drives, in the units that area uses', () => {
   expect(seams).toEqual([
     { label: 'Resize the sidebar', orientation: 'vertical' },
     { label: 'Resize the right panel', orientation: 'vertical' },
-    { label: 'Resize the bottom panel', orientation: 'horizontal' },
   ])
 })
 
@@ -432,18 +443,6 @@ it('a seam dragged past its limit stops at the limit, and commits that', () => {
   expect(harness.snapshot.workbench.sidebar.size).toBe(360)
 })
 
-it('the bottom panel grows upward, and its seam commits a height', () => {
-  const harness = rig((start) => dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo' }))
-  render(harness.store)
-  const seam = seamAt('Resize the bottom panel')
-
-  // Dragging up grows a panel anchored to the bottom edge — the direction the
-  // seam is given, and the one thing about it a pointer test can get wrong.
-  point(seam, 'pointerdown', 0, 400)
-  point(seam, 'pointermove', 0, 340)
-  point(seam, 'pointerup', 0, 340)
-  expect(harness.snapshot.workbench.bottom.size).toBe(300)
-})
 
 it('an arrow key resizes a panel for good, not just for a frame', () => {
   const harness = rig()
@@ -566,7 +565,8 @@ it('one terminal process uses one panel bar for its shell tabs', () => {
   expect(tabs()).toEqual(['api'])
   expect(container.querySelector('[data-terminal-shell-tabs]')).not.toBeNull()
   expect(container.querySelectorAll('[data-terminal-mount]')).toHaveLength(1)
-  expect(container.querySelectorAll('[data-slot="dock-panel-bar"]')).toHaveLength(1)
+  expect(container.querySelectorAll('[data-terminal-shell-tabs]')).toHaveLength(1)
+  expect(container.querySelectorAll('[data-work-pane-header]')).toHaveLength(1)
   expect(container.querySelector('[data-slot="dock-panel-tabs"]')).toBeNull()
 })
 
@@ -944,7 +944,7 @@ it('leaves a zoom this build would no longer have asked for, in one press', () =
 it('a work tool has no second draggable panel strip', () => {
   const { store } = rig(start => dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' }))
   render(store)
-  expect(container.querySelector('[data-slot="dock-panel-bar"]')).toBeNull()
+  expect(container.querySelector('[data-slot="dock-panel-bar"]:not([data-work-pane-header])')).toBeNull()
   expect(container.querySelector('[data-slot="dock-panel-tabs"]')).toBeNull()
   expect(container.querySelector('[draggable="true"][data-tool-mount]')).toBeNull()
 })
@@ -1000,13 +1000,6 @@ it('an area drag that loses its pointer capture ends there, and keeps where it g
   expect(windowResizing()).toBeNull()
 })
 
-it('a bottom-area seam drags along its height (#230)', () => {
-  const { seam, box, shown, requested, min, span } = areaGestureRig('column')
-  point(seam, 'pointerdown', 500, 300)
-  // Thirty-three pixels of the 330px span is a tenth; the four hundred across are not its axis.
-  point(seam, 'pointermove', 900, 267)
-  expect((parseFloat(shown()) - min) / span).toBeCloseTo(0.6, 5)
-})
 
 it('an area drag marks the window as resizing for as long as it lasts, however it ends (#230)', () => {
   const { seam } = areaGestureRig('row')
@@ -1128,15 +1121,15 @@ it('a second pointer on the retained area seam does not take the drag, and the w
   expect(resizePanel).toHaveBeenCalledTimes(1)
 })
 
-it('a second pointer on an area seam leaves no suppression behind (#252)', () => {
-  const harness = rig((start) => dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo' }))
+it('a second pointer on a pane seam leaves no suppression behind (#252)', () => {
+  const harness = rig(start => dock(start, 'right', { kind: 'changes' }))
   render(harness.store)
-  const seam = seamAt('Resize the bottom panel')
+  const seam = seamAt('Resize the right panel')
 
   // The control again, on this seam: one pointer, marked for the drag and
   // given back at the end of it.
   pointFrom(seam, 'pointerdown', 1, 0, 400)
-  expect(windowResizing()).toBe('horizontal')
+  expect(windowResizing()).toBe('vertical')
   pointFrom(seam, 'pointerup', 1, 0, 400)
   expect(windowResizing()).toBeNull()
 
@@ -1199,7 +1192,7 @@ it.each([[['sidebar']], [['bottom']], [undefined]] as const)('never instantiates
 })
 
 
-it.each([['sidebar', 'Resize the sidebar', FRAME.sidebar.max, FRAME.sidebar.width], ['right', 'Resize the right panel', 600, FRAME.rightPanel.width], ['bottom', 'Resize the bottom panel', 400, FRAME.bottomPanel.height]] as const)('double-click restores the %s FRAME default through the real seam', (area, label, initial, reset) => {
+it.each([['sidebar', 'Resize the sidebar', FRAME.sidebar.max, FRAME.sidebar.width], ['right', 'Resize the right panel', 600, FRAME.rightPanel.width]] as const)('double-click restores the %s FRAME default through the real seam', (area, label, initial, reset) => {
   const harness = rig(start => resizeDock(dock(dock(start, 'right', { kind: 'changes' }), 'bottom', { kind: 'terminal', terminalId: 'reset-pty', runtime: 'fixture' as never, cwd: '/work/storefront' }), area, initial))
   render(harness.store)
   act(() => seamAt(label).dispatchEvent(new MouseEvent('dblclick', { bubbles: true })))
@@ -1297,7 +1290,7 @@ for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plug
   Object.assign(harness.store.getSnapshot(), { workspace })
   Object.assign(harness.store.getSnapshot().workbench.navigation, { current: { kind: 'work', view: { kind: 'conversation', session: null } } })
   render(harness.store)
-  expect(shell.dataset.bottomOpen).toBe('true')
+  expect(shell.dataset.rightOpen).toBe('true')
   expect(shell.style.getPropertyValue('--frame-bottom-size')).toBe(height)
   expect(container.querySelector('[data-testid="view-terminal"]')).toBe(terminal)
   expect(terminal.closest('[inert]')).toBeNull()
@@ -1307,10 +1300,12 @@ for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plug
   expect(harness.actions.openTerminal).toHaveBeenCalledWith({ cwd: '/synthetic/shell' })
 })
 
-it('keeps the terminal visible on a review page with its own folder', () => {
+it('a page with its chosen folder keeps the terminal pane beside its body', () => {
   const harness = rig(start => ({ ...dock(start, 'bottom', { kind: 'terminal', terminalId: 'review-pty', runtime: 'fixture' as never, cwd: '/synthetic/shell' }),
     navigation: { ...start.navigation, current: { kind: 'changes-review', root: '/synthetic/review', returnTo: { kind: 'conversation', session: null } } } }))
   act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<div>Review</div>} /></StoreProvider>))
-  expect(container.querySelector('[data-slot="fixed-shell"]')?.getAttribute('data-bottom-open')).toBe('true')
+  expect(container.querySelector('[data-slot="fixed-shell"]')?.getAttribute('data-right-open')).toBe('true')
   expect(container.querySelector('[data-testid="view-terminal"]')?.closest('[inert]')).toBeNull()
+  expect(container.querySelector('[data-slot="destination-pages"]')?.textContent).toBe('Review')
+  expect(container.querySelector('[data-slot="fixed-shell"]')?.getAttribute('data-rail-open')).toBe('false')
 })

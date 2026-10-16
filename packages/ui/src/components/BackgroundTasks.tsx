@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { isFinishedTask, type BackgroundTask } from '@harnessdesk/protocol'
 
-import { Button, CodeBlock, EmptyState, Spinner, Text } from '../design'
+import { Button, CodeBlock, EmptyState, Spinner, Text, ToolSection } from '../design'
 import { splitTasks, taskElapsed, taskKindWord, tasksCount, taskStateWord, taskTooltip } from '../lib/tasks'
 import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, BackgroundIcon, CheckIcon, StopIcon } from './Icons'
@@ -24,9 +24,8 @@ import { PanelBody, PanelFrame, PanelRow } from './Panel'
  * A panel has the room. Each task is a card: the sentence the agent named it
  * with, the kind and the state in words, a clock, a stop while it runs — and
  * then the command under a prompt mark and the output beneath, scrollable,
- * staying there after the turn. It leads the Activity tool, with the focused
- * conversation's completed tasks retained beside running work across the app.
- * Activity's tool button wears a dot while any task runs.
+ * staying there after the turn. The conversation's rail keeps its own tasks;
+ * older Background tasks routes retain the standalone panel.
  *
  * Nothing here is derived: the host relays the runtime's own list, every
  * control is a request, and the rows redraw from the event that answers —
@@ -36,7 +35,7 @@ import { PanelBody, PanelFrame, PanelRow } from './Panel'
 
 const EMPTY: readonly BackgroundTask[] = []
 
-export const BackgroundTasksView = () => {
+export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
   const store = useStore()
   const key = useSessionKey()
   const session = useActiveSession()
@@ -69,34 +68,23 @@ export const BackgroundTasksView = () => {
 
   const agent = runtime.presentation.name
 
-  return (
-    <PanelFrame testId="background-tasks-panel">
-      <ToolBodyControls>
-        <Text role="meta" truncate className="min-w-0 flex-1">
-          {tasks.length > 0 ? tasksCount(split) : 'Background tasks'}
-        </Text>
-        {finished.length > 0 && (
-          <Button
-            variant="ghost"
-            size="xs"
-            title="Forget the finished tasks. Anything still running keeps running."
-            onClick={() => void store.clearTasks(key ?? undefined)}
-          >
-            Clear
-          </Button>
-        )}
-      </ToolBodyControls>
-
-      <PanelBody>
-        {tasks.length === 0 ? (
-          !session ? (
+  const clear = finished.length > 0 ? (
+    <Button variant="ghost" size="xs"
+      title="Forget the finished tasks. Anything still running keeps running."
+      onClick={() => void store.clearTasks(key ?? undefined)}>
+      Clear
+    </Button>
+  ) : null
+  const body = <>
+    {tasks.length === 0 ? (
+      !session ? (
             <EmptyState
               tight
               icon={<BackgroundIcon />}
               title="No conversation"
               description="Open a conversation to see what its agent is running in the background."
             />
-          ) : !runtime.capabilities.backgroundTasks ? (
+      ) : !runtime.capabilities.backgroundTasks ? (
             // An agent without the concept, said plainly: an empty list would
             // suggest the work was lost, and it was never kept.
             <EmptyState
@@ -105,15 +93,15 @@ export const BackgroundTasksView = () => {
               title="Nothing to list"
               description={`${agent} keeps no list of work that outlives a turn.`}
             />
-          ) : (
+      ) : (
             <EmptyState
               tight
               icon={<BackgroundIcon />}
               title="Nothing in the background"
               description={`When ${agent} starts work that keeps going after a turn — a watcher, a long test run — it is listed here with its output.`}
             />
-          )
-        ) : (
+      )
+    ) : (
           <div className="flex flex-col gap-3">
             {running.map((task) => (
               <TaskCard
@@ -127,10 +115,12 @@ export const BackgroundTasksView = () => {
               <TaskCard key={task.id} task={task} now={now} />
             ))}
           </div>
-        )}
-      </PanelBody>
-    </PanelFrame>
-  )
+    )}
+  </>
+  return card ? <ToolSection label="Background tasks" value={tasks.length > 0 ? tasksCount(split) : undefined} action={clear}>{body}</ToolSection>
+    : <PanelFrame testId="background-tasks-panel"><ToolBodyControls>
+      <Text role="meta" truncate className="min-w-0 flex-1">{tasks.length > 0 ? tasksCount(split) : 'Background tasks'}</Text>{clear}
+    </ToolBodyControls><PanelBody>{body}</PanelBody></PanelFrame>
 }
 
 /** The mark that says how a task is going: turning, done, or news. */
@@ -183,7 +173,7 @@ const TaskCard = ({
         trail={
           onStop && task.stoppable ? (
             <Button
-              variant="ghost"
+              variant="destructive"
               size="xs"
               aria-label={`Stop ${task.label}`}
               title="Stop this task"

@@ -230,6 +230,14 @@ const summarise = (turns: readonly Turn[]) => {
   }
 }
 
+/** The rail reads the same completed-turn timing as the expanded ledger. */
+export const trajectorySummary = (turns: readonly Turn[]): string => {
+  const overview = summarise(turns)
+  if (overview.wall === null) return ''
+  const largest = overview.segments.find(segment => measuredWords[segment.kind])
+  return largest ? `${formatMs(overview.wall)} · ${measuredText(largest.ms, [largest])}` : overview.headline
+}
+
 type DisplayRow = {
   item: AgentItem
   items: readonly AgentItem[]

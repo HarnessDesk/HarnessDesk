@@ -51,10 +51,33 @@ it.each(['conversation', 'room'] as const)('default Activity reads only the moun
   const root = createRoot(container); roots.push(root)
   const Activity = views.get('activity')!.component
   await act(async () => root.render(<StoreProvider store={store}><PaneProvider scope={{ paneId: 'owner', view: kind === 'room' ? { kind: 'room', room: 'overview-team' } : { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: kind === 'room' ? null : PREVIEW_SESSION_KEY }}><Activity /></PaneProvider></StoreProvider>))
-  const events = container.querySelector('[data-slot="tool-section"][aria-label="Events"]')!
-  for (const index of keys.keys()) expect(events.textContent).toContain(`Subject event ${index}`)
-  expect(events.textContent).not.toContain('Foreign event')
+  expect(container.querySelector('[data-slot="tool-section"][aria-label="Events"]')).toBeNull()
+  const trajectories = [...container.querySelectorAll('[data-slot="tool-section"][aria-label="Trajectory"]')]
+  for (const trajectory of trajectories) {
+    await act(async () => trajectory.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!.click())
+    const eventFilter = [...trajectory.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(one => one.textContent === 'Events')!
+    await act(async () => eventFilter.click())
+  }
+  for (const index of keys.keys()) expect(container.textContent).toContain(`Subject event ${index}`)
+  expect(container.textContent).not.toContain('Foreign event')
   expect(container.querySelector('[data-slot="content-footer"]')).toBeNull()
   expect(container.querySelectorAll('[data-slot="tool-body"]')).toHaveLength(1)
   expect(container.querySelectorAll('[data-slot="tool-scroll"]')).toHaveLength(1)
+})
+
+it.each(['conversation', 'room'] as const)('Changes opens git history in the mounted %s folder', async kind => {
+  const seed = kind === 'room' ? overviewTeamStore('running').getSnapshot() : previewStore().getSnapshot()
+  const store = previewStore(seed)
+  const request = vi.spyOn(store.transport, 'request')
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container); roots.push(root)
+  const Changes = views.get('changes')!.component
+  await act(async () => root.render(<StoreProvider store={store}><PaneProvider scope={{ paneId: 'owner', view: kind === 'room' ? { kind: 'room', room: 'overview-team' } : { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: kind === 'room' ? null : PREVIEW_SESSION_KEY }}><Changes /></PaneProvider></StoreProvider>))
+  const history = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(one => one.textContent === 'History')!
+  expect(history).toBeDefined()
+  await act(async () => history.click())
+  const folder = kind === 'room' ? seed.goals.get('overview-team')!.goal.root : seed.sessions.get(PREVIEW_SESSION_KEY)!.cwd
+  expect(request).toHaveBeenCalledWith('git/log', expect.objectContaining({ root: folder }))
+  expect(container.querySelector('[aria-label="Repository history"]')).not.toBeNull()
+  expect(container.querySelector('[aria-label="Search history"]')).not.toBeNull()
 })

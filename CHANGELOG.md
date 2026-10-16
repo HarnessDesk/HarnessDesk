@@ -7,6 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **One bar, with cards beside the work.** Sessions and Teams share the same
+  title menu and tool doors. Conversation facts, plans, background tasks and
+  folded Trajectory stay in a separate rail; Terminal, Changes, Browser and
+  Files open in a full-height pane that can swap with main. Git history lives
+  with Changes, page controls start in the page body, and narrow windows float
+  the rail while a tool takes main's place.
+
 - **Diffs show the changed words.** Long lines wrap by default, modified words
   carry a stronger tint, and the view-options menu remembers wrapping, word
   highlighting, whitespace filtering and multi-file navigation choices.

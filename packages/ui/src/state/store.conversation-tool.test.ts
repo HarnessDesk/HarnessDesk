@@ -119,8 +119,31 @@ it('reload preserves the exact prior panel even after an Editor tool selection',
   await fresh.loadPreferences()
   expect(intent(fresh)).toMatchObject({ tool: 'conversation', open: true })
   fresh.setWindowMode('conversation')
-  expect(fresh.getSnapshot().workbench.frameTools[subject]).toEqual(prior)
+  // The legacy Details selection made during Editor migrates to an open rail;
+  // the independent rail preference survives restoring the prior file pane.
+  expect(fresh.getSnapshot().workbench.frameTools[subject]).toEqual({ ...prior, railOpen: true })
   expect(fresh.getSnapshot().workbench.right.root).toMatchObject({ active: layout.right.root.active })
+})
+it('reload restores an expanded prior file pane while keeping the rail changed during Editor', async () => {
+  const original = fixture()
+  original.openFile('/repo/first.ts'); original.openFile('/repo/second.ts')
+  original.toggleWorkRail(); original.swapWorkPane()
+  const prior = intent(original), subject = original.workSubject()!
+  const selected = dockViews(original.getSnapshot().workbench.right).find(one => one.view.kind === 'file' && one.view.path === '/repo/second.ts')!
+  expect(prior).toEqual({ tool: 'files', mode: 'file', open: true, railOpen: false, expanded: true })
+  original.setWindowMode('editor')
+  original.toggleWorkRail()
+  original.openFile('/repo/first.ts')
+  const layout = JSON.parse(JSON.stringify(original.getSnapshot().workbench))
+  const fresh = fixture()
+  vi.spyOn(fresh.transport, 'request').mockImplementation((async (method: string) => method === 'app/state/get' ? {
+    windowMode: 'editor', layouts: { [fresh.getSnapshot().workspace!.path]: layout },
+  } : null) as never)
+  await fresh.loadPreferences()
+  expect(intent(fresh)?.beforeEditor).toEqual({ ...prior, mount: selected.id })
+  fresh.setWindowMode('conversation')
+  expect(fresh.getSnapshot().workbench.frameTools[subject]).toEqual({ ...prior, railOpen: true })
+  expect(fresh.getSnapshot().workbench.right.root).toMatchObject({ active: selected.id })
 })
 it.each(['closed', 'details', 'file', 'browser'] as const)('leaving Editor clears hidden Browser focus while preserving a restored visible Browser (%s prior)', async prior => {
   const store = fixture()

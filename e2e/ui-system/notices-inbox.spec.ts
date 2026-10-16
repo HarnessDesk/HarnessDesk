@@ -19,14 +19,14 @@ for (const scene of ['startup', 'inbox', 'conversation', 'settings']) {
       const box = await dot.boundingBox()
       expect(box?.width).toBe(box?.height)
     }
-    if (!before && scene === 'conversation') await expect(frame.getByText('Context was compacted to make room for more of this conversation.')).toBeVisible()
+    if (!before && scene === 'conversation') await expect(frame.locator('[data-slot="workbench-main"]').getByText('Context was compacted to make room for more of this conversation.')).toBeVisible()
     if (process.env.NOTICE_FRAME_DIR) {
       await page.screenshot({ fullPage: scene === 'settings', path: `${process.env.NOTICE_FRAME_DIR}/${process.env.NOTICE_FRAME_PREFIX ?? 'after'}-${scene}-${process.env.NOTICE_FRAME_THEME ?? 'light'}.png` })
     }
     if (before) return
     await expect(page.locator('[data-sonner-toast]')).toHaveCount(0)
     if (scene === 'startup') await expect(page.locator('[data-slot="inbox-button"][data-unread]')).toHaveCount(1)
-    if (scene === 'conversation') await expect(frame.getByText('Context was compacted to make room for more of this conversation.')).toBeVisible()
+    if (scene === 'conversation') await expect(frame.locator('[data-slot="workbench-main"]').getByText('Context was compacted to make room for more of this conversation.')).toBeVisible()
     if (scene === 'inbox') {
       const inbox = page.locator('[role="menu"]')
       await expect(inbox.getByText('×3')).toBeVisible()

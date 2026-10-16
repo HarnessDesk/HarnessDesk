@@ -18,7 +18,7 @@ for (const theme of ['light', 'dark'] as const) test(`Ask quotes Source, Changes
   const composer = page.locator('[data-frame-region="right"] textarea')
   await composer.fill('Please inspect this')
   const transcript = await page.locator('[data-live-transcript]').textContent()
-  await page.locator('[data-work-tool="details"]').click()
+  await page.locator('[data-work-tool="changes"]').click()
   const selected = await select(main.locator('.cm-line').first())
   const action = page.getByRole('button', { name: 'Ask in chat ⌘L', exact: true })
   await expect(action).toBeVisible()

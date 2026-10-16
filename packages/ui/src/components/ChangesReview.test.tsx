@@ -248,9 +248,9 @@ describe('the review workspace', () => {
     try {
       mount(()=>true);await flush()
       request.mockImplementation((method:string)=>method==='git/status' ? Promise.resolve({...STATUS, files:STATUS.files.map(file=>({...file,staged:true}))}) : new Promise(()=>{}))
-      const views=container.querySelector<HTMLButtonElement>('[title="Destination views"]')
+      const views=container.querySelector<HTMLButtonElement>('[title="Changes views"]')
       if(views) await act(async()=>views.click())
-      const staged=document.querySelector<HTMLButtonElement>('[data-team-page="staged"]')!
+      const staged=[...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(node => node.textContent === 'Staged')!
       expect(staged).toBeTruthy();await act(async()=>staged.click())
       expect(container.querySelectorAll('[data-level="hunk"]')).toHaveLength(0)
       expect(container.textContent).not.toContain('Revise this hunk')
@@ -295,9 +295,9 @@ describe('which view a file is in (#180)', () => {
       expect(working).toContain('conflict.txt')
       expect(working).not.toContain('ready.txt')
 
-      const views = container.querySelector<HTMLButtonElement>('[title="Destination views"]')
+      const views = container.querySelector<HTMLButtonElement>('[title="Changes views"]')
       if (views) await act(async () => views.click())
-      const tab = document.querySelector<HTMLButtonElement>('[data-team-page="staged"]')
+      const tab = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(node => node.textContent === 'Staged')
       expect(tab, 'the Staged tab').toBeTruthy()
       act(() => {
         tab?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))

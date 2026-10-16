@@ -4,7 +4,7 @@ import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 
 import { countChanges, splitByFile, splitHunks, type DiffHunk, DiffView } from '../editor'
 import { inView } from '../lib/git-view'
-import { Button, Card, ChangeStats, CodeText, EmptyState, Note, Page, PatchHeader, Section, Separator, SummaryList, SummaryItem, MiddleTruncate, Text, ToolbarGap } from '../design'
+import { Button, Card, ChangeStats, CodeText, EmptyState, Note, Page, PageOptions, PatchHeader, Section, Separator, SummaryList, SummaryItem, MiddleTruncate, Text, ToolbarGap } from '../design'
 import { useStore } from '../state/context'
 import { DestinationBar, useDestinationPage } from '../panels/destination-page'
 import { ReviewFilter, ReviewIndex } from '../panels/review-index'
@@ -138,11 +138,11 @@ const ReviewBody = ({ root, returnTo }: ReviewProps) => {
 
   return (
     <>
-      <DestinationBar place="Changes" {...(!empty ? { tab: staged ? 'staged' : 'working', tabs: [
-        { value: 'working', label: 'Working tree', run: () => setStaged(false) },
-        { value: 'staged', label: 'Staged', run: () => setStaged(true) },
-      ] } : {})} />
+      <DestinationBar place="Changes" />
       <Page width="canvas" measure="wide" topInset="page">
+        {!empty && <PageOptions choices={[{ id: 'view', label: 'Changes views', value: staged ? 'staged' : 'working', mode: 'menu',
+          items: [{ value: 'working', label: 'Working tree' }, { value: 'staged', label: 'Staged' }],
+          change: value => setStaged(value === 'staged') }]} />}
         {empty ? <EmptyState variant="inline" title="No changes yet" /> : <>
           <ReviewFilter query={query} change={setQuery} />
           <SummaryList><SummaryItem label={git?.branch ? <>on <MiddleTruncate>{git.branch}</MiddleTruncate></> : null}>

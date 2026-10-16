@@ -21,7 +21,7 @@ for (const theme of ['light', 'dark'] as const) {
       const geometry = await heading.evaluate(node => {
         const box = node.getBoundingClientRect()
         const css = getComputedStyle(node)
-        const explanation = node.nextElementSibling!.getBoundingClientRect()
+        const explanation = node.closest('[data-slot="page-options"]')!.nextElementSibling!.getBoundingClientRect()
         return { left: box.left, bottom: box.bottom, explanationLeft: explanation.left, explanationTop: explanation.top, size: css.fontSize }
       })
       expect(geometry.left).toBe(geometry.explanationLeft)

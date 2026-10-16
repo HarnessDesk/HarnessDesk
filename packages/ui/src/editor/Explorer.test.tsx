@@ -36,10 +36,25 @@ const rig = () => {
     setEditorExpandedFolders: vi.fn((subject, expanded) => mutate(subject, state => ({ ...state, expanded }))),
     setEditorExplorerFilter: vi.fn((subject, filter) => mutate(subject, state => ({ ...state, filter }))),
   } as unknown as AppStore
-  const render = async (session = a, withCode = false) => { expect(editor.Explorer).toBeTypeOf('function'); await act(async () => mount.render(<StoreProvider store={store}><editor.Explorer session={session} />{withCode && <CodeView dark={false} look={editor.editorLook(snapshot.editorPrefs)} value={'first line\nsecond line'} path="test.ts" onChange={() => {}} />}</StoreProvider>)) }
+  const render = async (session = a, withCode = false, onOpen?: (path: string) => void) => { expect(editor.Explorer).toBeTypeOf('function'); await act(async () => mount.render(<StoreProvider store={store}><editor.Explorer session={session} onOpen={onOpen} />{withCode && <CodeView dark={false} look={editor.editorLook(snapshot.editorPrefs)} value={'first line\nsecond line'} path="test.ts" onChange={() => {}} />}</StoreProvider>)) }
   const button = (name: string) => [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.getAttribute('aria-label') === name || node.textContent === name)!
   return { request, store, render, button, patch, snapshot: () => snapshot }
 }
+it('can open a scoped file in the tool pane without entering Editor mode', async () => {
+  const r = rig(), onOpen = vi.fn()
+  await r.render(a, false, onOpen)
+  await act(async () => r.button('a.ts').click())
+  expect(onOpen).toHaveBeenCalledWith('/worktree/src/a.ts')
+  expect(r.store.openEditorFile).not.toHaveBeenCalled()
+})
+it('Editor owns Go to file when its sidebar and the Files pane both have a tree', async () => {
+  const r = rig()
+  await act(async () => mount.render(<StoreProvider store={r.store}>
+    <editor.Explorer session={a} /><editor.Explorer session={a} onOpen={() => {}} />
+  </StoreProvider>))
+  await act(async () => window.dispatchEvent(new CustomEvent('harnessdesk:go-to-file')))
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+})
 it('uses retained session cwd/runtime, defaults Changed, single previews and double keeps', async () => {
   const r = rig(); await r.render()
   expect(r.request).toHaveBeenCalledWith('workspace/browse', { mode: 'entries', root: '/worktree/src', path: '/worktree/src', runtime: 'agent-a' })

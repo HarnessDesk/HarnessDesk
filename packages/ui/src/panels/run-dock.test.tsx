@@ -10,7 +10,7 @@ import { runDockStore } from '../preview/frames-run-dock'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { views } from './views'
 import { RunDockProvider, RunDetailsView, useRunDock } from './run-dock'
-import { TopBarProvider, TopBarOutlet } from './top-bar'
+import { TopBarProvider, WorkViewControlsOutlet, TopBarOutlet } from './top-bar'
 import { RECORD_REASON } from '../lib/team-record'
 import './builtins'
 
@@ -74,12 +74,12 @@ it('selecting Timeline or Flow changes main only, while selecting a row explicit
       flow={<div data-fixture-flow>Recorded Flow</div>} inspector={{input:fixture,seats:[]}} />
   }
   const choose = (label: string) => {
-    act(() => container.querySelector<HTMLButtonElement>('[data-topbar="view"] button')!.click())
+    act(() => container.querySelector<HTMLButtonElement>('[data-slot="page-options"] button[title="View"]')!.click())
     act(() => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === label)!.click())
   }
   try {
     act(() => root.render(<StoreProvider store={store}><TopBarProvider><RunDockProvider><PaneProvider scope={scope('dock-team')}>
-      <TopBarOutlet owner="dock-team" fallback={{place:'Recorded Run',more:()=>null}} /><Producer />
+      <WorkViewControlsOutlet owner="dock-team" /><TopBarOutlet owner="dock-team" fallback={{place:'Recorded Run',more:()=>null}} /><Producer />
     </PaneProvider></RunDockProvider></TopBarProvider></StoreProvider>))
     choose('Flow')
     expect(container.querySelector('[data-fixture-flow]')).not.toBeNull()
@@ -148,11 +148,11 @@ it.each([
   const container=document.createElement('div'),root=createRoot(container)
   try {
     act(()=>root.render(<StoreProvider store={store}><TopBarProvider>
-      <TopBarOutlet owner="" fallback={{place:'Recorded Run',more:()=>null}} />
+      <WorkViewControlsOutlet owner="" /><TopBarOutlet owner="" fallback={{place:'Recorded Run',more:()=>null}} />
       <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={()=>{}} onStop={onStop}
         stopRefusal={_kind==='record'?RECORD_REASON:undefined} inspector={{input:{...fixture,execution:{...fixture.execution,state}},seats:[]}} />
     </TopBarProvider></StoreProvider>))
-    const stop=container.querySelector<HTMLButtonElement>('[data-topbar="verb"] button')!
+    const stop=container.querySelector<HTMLButtonElement>('[data-slot="page-options"] > button')!
     expect(stop.textContent).toBe('Stop run…')
     expect(stop.disabled).toBe(true)
     expect(stop.title).toBe(reason)
@@ -165,10 +165,10 @@ it('the permanent Stop verb calls the parent’s existing consent opener', () =>
   const container=document.createElement('div'),root=createRoot(container)
   try {
     act(()=>root.render(<StoreProvider store={store}><TopBarProvider>
-      <TopBarOutlet owner="" fallback={{place:'Recorded Run',more:()=>null}} />
+      <WorkViewControlsOutlet owner="" /><TopBarOutlet owner="" fallback={{place:'Recorded Run',more:()=>null}} />
       <RunWorkspace model={runTimeline(fixture)} number={1} selectedRow={null} onSelect={()=>{}} onStop={onStop} inspector={{input:fixture,seats:[]}} />
     </TopBarProvider></StoreProvider>))
-    act(()=>container.querySelector<HTMLButtonElement>('[data-topbar="verb"] button')!.click())
+    act(()=>container.querySelector<HTMLButtonElement>('[data-slot="page-options"] > button')!.click())
     expect(onStop).toHaveBeenCalledOnce()
   } finally {act(()=>root.unmount());container.remove()}
 })

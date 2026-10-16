@@ -168,7 +168,7 @@ const sectionText = (label: string): string =>
 
 it('heads the page as the roadmap says', () => {
   mount()
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Agents')
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
   expect(container.querySelector('[data-slot="page-title"]')).toBeNull()
   expect(container.textContent).toContain('Who does the work: a brief, the most it may do, and the seats it prefers.')
 })
@@ -476,7 +476,7 @@ it('names no folder for a roster still read for the workspace open before', () =
 it('the supplied Agent route is authoritative and its parent records the list route', () => {
   const onFocus = vi.fn()
   mount({}, { readAgentAttachments: vi.fn(async () => ({ declarations: [], support: [] })), readAgentNotes: vi.fn(async () => ({ text: null })) }, { focus: ROSTER[0]!.id, onFocus })
-  const parent = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Agents ›')
+  const parent = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Back to Agents')
   expect(parent).toBeTruthy()
   act(() => parent!.click())
   expect(onFocus).toHaveBeenCalledWith(null)

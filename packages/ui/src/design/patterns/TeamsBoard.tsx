@@ -6,6 +6,7 @@ import { Card } from '../ui/card'
 import { SegmentMeter } from '../ui/chart'
 import { Menu, MenuItem } from './Menu'
 import { Popover } from './Popover'
+import { PageOptions } from './PageOptions'
 import { CaretIcon, FlagIcon, PlusIcon } from '../../components/Icons'
 import styles from './TeamsBoard.module.css'
 
@@ -15,11 +16,13 @@ export const TeamsBoardToolbar = ({create,disabled,project,projects,changeProjec
  readonly projects:readonly {readonly id:string;readonly label:string}[]; readonly changeProject:(id:string)=>void
  readonly search:string; readonly changeSearch:(value:string)=>void
 }) => <div data-slot="teams-board-toolbar" className={styles.toolbar}>
- <Button variant="ghost" disabled={disabled} title={disabled?'Open a project folder first.':undefined} onClick={create}><PlusIcon/>New Team</Button>
+ <PageOptions title="Teams" action={{label:'New Team',icon:<PlusIcon/>,disabled:disabled?'Open a project folder first.':false,run:create}}/>
+ <div className={styles.filters}>
  <Popover title="Filter Teams by project" label={<>{projects.find(one=>one.id===project)?.label ?? 'All projects'}<CaretIcon/></>} icons="none" triggerVariant={{variant:'ghost',size:'sm'}}>
   {close=><Menu close={close}>{[{id:'',label:'All projects'},...projects].map(one=><MenuItem key={one.id} label={one.label} selected={one.id===project} onSelect={()=>{changeProject(one.id);close()}}/>)}</Menu>}
  </Popover>
  <Input className={styles.search} type="search" aria-label="Search Teams" placeholder="Search Teams" value={search} onChange={event=>changeSearch(event.target.value)}/>
+ </div>
 </div>
 
 /** Fixed attention columns retain their order and stack together in a narrow pane. */

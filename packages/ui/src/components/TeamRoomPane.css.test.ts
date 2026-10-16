@@ -26,16 +26,14 @@ describe('the canonical Team row', () => {
     expect(barCss).toMatch(/\.fixed\s*\{[^}]*flex:\s*none/s)
     expect(source).toContain('useTopBar(mainOwner')
   })
-  it('measures the shared title floor rather than using a private header container', () => {
-    expect(barSource).toContain("getPropertyValue('--hd-bar-title-min')")
-    expect(barSource).toContain('observer?.observe(node)')
-    expect(css).not.toContain('hd-header')
+  it('keeps the title intrinsic and places state before it', () => {
+    expect(barCss).toContain('width: max-content')
+    expect(barCss).toContain('max-width: var(--hd-bar-title-max)')
+    expect(barSource.indexOf('data-topbar="state"')).toBeLessThan(barSource.indexOf('data-topbar-title'))
   })
-  it('folds state before worded destinations while retaining destination markers', () => {
-    expect(barSource).toContain('fold === 0')
-    expect(barSource).toContain('fold < 2')
-    expect(barSource).toContain('data-team-page={tab.value}')
-    expect(barSource).toContain('teamPage={one.value}')
+  it('moves Team destinations into the body and keeps their markers', () => {
+    expect(barSource).not.toContain('<TabsList')
+    expect(source).toContain('data-team-page={tab.value}')
   })
 })
 describe('watched conversation layout', () => {
@@ -52,7 +50,7 @@ describe('appearance ownership', () => {
   it('has no Team rail beside content or local tabs at any width', () => {
     expect(source).not.toContain('<aside')
     expect(source).not.toContain('className={styles.railEdge}')
-    expect(source).not.toContain('<TabsList')
+    expect(source).toContain('<TabsList aria-label="Team views"')
     expect(css).not.toContain('hd-room-rail')
   })
 })
@@ -69,8 +67,8 @@ describe('Seats and responsive tools', () => {
   })
   it('uses the shared measured fold and leaves the four fixed tool doors standing', () => {
     expect(source).not.toContain('useNarrowLayout<HTMLElement>(608)')
-    expect(barSource).toContain('new ResizeObserver(measure)')
-    expect(barSource).toContain('fold === 2')
+    expect(barSource).not.toContain('new ResizeObserver(measure)')
+    expect(barSource).toContain('data-fold="0"')
     expect(barSource).toContain('data-topbar="tools"')
   })
 })
@@ -80,6 +78,6 @@ it('keeps member face tiles in Seats rather than collapsing a header roster', ()
   expect(css).not.toContain('.barFacts')
 })
 it('updates a destination once through the canonical click handler', () => {
-  expect(barSource).toContain('if (!tab.disabled) tab.run()')
+  expect(source).toContain('if(!tab.disabled)tab.run()')
   expect(barSource).not.toContain('<Tabs onValueChange=')
 })

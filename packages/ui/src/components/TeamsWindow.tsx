@@ -136,7 +136,7 @@ const TeamsList = ({onNew}: TeamsPageProps) => {
  const card=(item:ReturnType<typeof teamBoardItem>)=><TeamsBoardCard key={item.row.id} id={item.row.id}
   title={plain(item.title)} brief={say(item.row).sentence} summary={plain(item.summary)} attention={item.column==='needs-you'} unread={item.row.unread}
   path={item.path} faces={faces(item.row)} project={folderName(item.row.project)} age={<StateTime since={item.createdAt}/>} open={()=>open(item.row)}/>
- return <MinuteClock><Page width="wide" fill topInset="compact">
+ return <MinuteClock><Page width="wide" fill>
   <DestinationBar place="Teams" more={close=><MenuItem icon={<ResetIcon/>} label="Refresh Teams" onSelect={()=>{void store.loadGoals();close()}}/>}/>
   <TeamsBoardToolbar create={onNew} disabled={!snapshot.workspace} project={project} projects={projects} changeProject={setProject} search={search} changeSearch={setSearch}/>
   {snapshot.goalProblem && <Banner tone="warning" title="Teams could not be refreshed">{words(snapshot.goalProblem)}</Banner>}

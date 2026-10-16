@@ -29,9 +29,9 @@ const draw = (width: number, sidebarRow = false, settings = false) => {
   act(() => root.render(<StoreProvider store={store}><WindowControls {...{ sidebarRow }} /></StoreProvider>))
   return { container, back, forward }
 }
-it('keeps Search beside the sidebar toggle when the narrow column is hidden', () => {
+it('keeps navigation beside the sidebar toggle when the narrow column is hidden', () => {
   const { container } = draw(720)
-  expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Show sidebar', 'Search everything'])
+  expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Show sidebar', 'Back', 'Forward'])
 })
 
 it.each([720, 1440])('keeps only the sidebar toggle in the Settings lead at %i', width => {
@@ -39,35 +39,23 @@ it.each([720, 1440])('keeps only the sidebar toggle in the Settings lead at %i',
   expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Show sidebar'])
 })
 
-it('keeps Search in the window lead while a wide column is hidden', () => {
+it('keeps navigation in the window lead while a wide column is hidden', () => {
   const { container } = draw(1440)
   expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual([
-    'Show sidebar', 'Search everything', 'Back', 'Forward',
+    'Show sidebar', 'Back', 'Forward',
   ])
 })
 
-it('opens the search palette from the hidden-column Search button', () => {
-  const { container } = draw(1440)
-  let opened = 0
-  const listen = () => { opened += 1 }
-  window.addEventListener('harnessdesk:search', listen)
-  try {
-    container.querySelector<HTMLButtonElement>('button[aria-label="Search everything"]')!.click()
-    expect(opened).toBe(1)
-  } finally {
-    window.removeEventListener('harnessdesk:search', listen)
-  }
-})
 it('keeps sidebar back and forward reachable in the floating column', () => {
   const { container, back, forward } = draw(720, true)
-  expect(container.querySelectorAll('button')).toHaveLength(4)
+  expect(container.querySelectorAll('button')).toHaveLength(3)
   act(() => container.querySelector<HTMLButtonElement>('[aria-label="Back"]')!.click())
   act(() => container.querySelector<HTMLButtonElement>('[aria-label="Forward"]')!.click())
   expect(back).toHaveBeenCalledOnce()
   expect(forward).toHaveBeenCalledOnce()
 })
-it('keeps Search at every hidden-column width and crosses the FRAME window threshold exactly', () => {
-  expect(draw(1440).container.querySelectorAll('button')).toHaveLength(4)
-  expect(draw(FRAME.fold.sidebarFloats).container.querySelectorAll('button')).toHaveLength(4)
-  expect(draw(FRAME.fold.sidebarFloats - 1).container.querySelectorAll('button')).toHaveLength(2)
+it('keeps navigation at every hidden-column width across the FRAME window threshold', () => {
+  expect(draw(1440).container.querySelectorAll('button')).toHaveLength(3)
+  expect(draw(FRAME.fold.sidebarFloats).container.querySelectorAll('button')).toHaveLength(3)
+  expect(draw(FRAME.fold.sidebarFloats - 1).container.querySelectorAll('button')).toHaveLength(3)
 })

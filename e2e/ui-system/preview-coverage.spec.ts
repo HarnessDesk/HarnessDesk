@@ -54,10 +54,36 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/design.html?view=panel-controls&theme=${theme}`)
     const terminal = page.locator('[data-frame-id="supported-terminal-toggle"]')
+    const terminalResources = () => terminal.evaluate(async element => {
+      const path = '/src/state/workbench.ts'
+      const { dockViews } = await import(/* @vite-ignore */ path)
+      const key = Object.keys(element).find(name => name.startsWith('__reactFiber$'))
+      let fiber: any = key && (element as unknown as Record<string, unknown>)[key]
+      while (fiber) {
+        const store = fiber.memoizedProps?.store
+        if (store?.getSnapshot) {
+          const { workbench } = store.getSnapshot()
+          return [...dockViews(workbench.bottom), ...dockViews(workbench.right)]
+            .filter(one => one.view.kind === 'terminal')
+            .map(one => ({ mount: one.id, terminal: one.view.terminalId }))
+        }
+        fiber = fiber.return
+      }
+      throw new Error('Terminal specimen store missing')
+    })
     await terminal.getByRole('button', { name: 'Open terminal', exact: true }).click()
     await expect(terminal).toContainText('1 terminal resources')
+    await expect(terminal.getByRole('button', { name: 'Close terminal', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    const resources = await terminalResources()
+    expect(resources).toHaveLength(1)
     await terminal.getByRole('button', { name: 'Close terminal', exact: true }).click()
-    await expect(terminal).toContainText('0 terminal resources')
+    await expect(terminal.getByRole('button', { name: 'Open terminal', exact: true })).toHaveAttribute('aria-pressed', 'false')
+    await expect(terminal).toContainText('1 terminal resources')
+    expect(await terminalResources()).toEqual(resources)
+    await terminal.getByRole('button', { name: 'Open terminal', exact: true }).click()
+    await expect(terminal.getByRole('button', { name: 'Close terminal', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(terminal).toContainText('1 terminal resources')
+    expect(await terminalResources()).toEqual(resources)
     const panel = page.locator('[data-frame-id="supported-work-actions"]')
     await expect(panel.getByRole('menuitem', { name: 'To the main area', exact: true })).toHaveCount(0)
     await expect(panel.getByRole('menuitem', { name: 'To the sidebar', exact: true })).toHaveCount(0)
@@ -461,7 +487,8 @@ test('coverage does not spend visibility probes on unrelated DOM leaves', async 
 
 test('a published destination bar credits only its active visible registration', async ({ page }) => {
   await page.goto('/preview.html?frame-wall=library')
-  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toHaveText('Library')
+  await expect(page.locator('[data-page-destination="library"]:visible h1')).toHaveText('Library')
+  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toHaveCount(0)
   const before = await collectCoverage(page)
   expect(before.covered).toContain('panels/destination-page.tsx#DestinationBar')
   expect(before.covered).toContain('panels/library-bar.tsx#LibraryBar')
@@ -545,7 +572,7 @@ test.describe('preview coverage', () => {
       await page.goto(`/preview.html${query}`)
       if (query === '?board-list') {
         const board = page.locator('[data-frame-id="board-list-page"]')
-        await board.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
+        await board.getByRole('button', { name: 'View', exact: true }).click()
         await page.getByRole('menuitem', { name: 'List', exact: true }).click()
         await expect(board.locator('[data-slot="board-list"]')).toBeVisible()
       }
@@ -626,7 +653,8 @@ test.describe('preview coverage', () => {
     test(`coverage page 9`, async () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto('/preview.html?frame-wall=conversation&frame-details-case=active')
-      await page.locator('[data-slot="top-bar"]:visible [data-work-tool="details"]').click()
+      const rail = page.locator('[data-slot="top-bar"]:visible [data-work-rail-toggle]')
+      if (await rail.getAttribute('aria-pressed') !== 'true') await rail.click()
       await expect(page.locator('[data-slot="tool-body"]:visible [aria-label="Conversation facts"]')).toBeVisible()
       const conversationDetailsCoverage = await collectCoverage(page)
       expect(conversationDetailsCoverage.covered).toContain('panels/work-details.tsx#ConversationDetails')
@@ -641,6 +669,16 @@ test.describe('preview coverage', () => {
       const workChangesCoverage = await collectCoverage(page)
       expect(workChangesCoverage.covered).toContain('components/WorkToolContents.tsx#WorkChangesView')
       for (const component of workChangesCoverage.covered) covered.add(component)
+      await page.goto('/preview.html?frame-wall=conversation&frame-explorer=git')
+      await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Files', exact: true }).click()
+      const files = page.locator('[data-frame-region="right"]')
+      await expect(files.locator('[data-explorer-head]')).toContainText('Changed 4')
+      await expect(files.getByRole('button', { name: 'app', exact: true })).toBeVisible()
+      await expect(files.getByRole('button', { name: 'Go to file', exact: true })).toBeVisible()
+      const filesCoverage = await collectCoverage(page)
+      expect(filesCoverage.covered).toContain('panels/FilesPane.tsx#FilesPane')
+      expect(filesCoverage.covered).toContain('editor/index.ts#Explorer')
+      for (const component of filesCoverage.covered) covered.add(component)
       await page.goto('/preview.html?frame-wall=conversation&frame-editor-mode=source')
       await expect(page.locator('[data-slot="editor-main"] .cm-content')).toBeVisible()
       const editorCoverage = await collectCoverage(page)
@@ -726,7 +764,7 @@ test.describe('preview coverage', () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto('/preview.html?board-list')
       const boardFrame = page.locator('[data-frame-id="board-list-page"]')
-      await boardFrame.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
+      await boardFrame.getByRole('button', { name: 'View', exact: true }).click()
       await page.getByRole('menuitem', { name: 'List', exact: true }).click()
       await expect(boardFrame.getByRole('table', { name: 'Jobs', exact: true })).toBeVisible()
       for (const component of (await collectCoverage(page)).covered) covered.add(component)

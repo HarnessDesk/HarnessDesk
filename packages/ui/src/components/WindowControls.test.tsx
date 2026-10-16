@@ -32,7 +32,7 @@ it('leaves right-panel controls to WorkTools and renders the wide navigation lea
   } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><WindowControls /></StoreProvider>))
   expect(container.querySelector('[aria-label*="right panel"]')).toBeNull()
-  expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Show sidebar', 'Search everything', 'Back', 'Forward'])
+  expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Show sidebar', 'Back', 'Forward'])
 })
 
 it('has no right-panel toggle while a zoom on another area hides the panel', () => {

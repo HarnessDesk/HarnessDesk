@@ -21,8 +21,8 @@ import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
-import { MainDestination, DestinationBody, Page, TopBar } from '..'
-import { DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../../components/Icons'
+import { MainDestination, DestinationBody, Page, TopBar, TopBarToolButton } from '..'
+import { GlobeIcon, SquareMenuIcon, FilePlusIcon, PencilIcon, StopIcon, ExpandIcon, ResetIcon } from '../../components/Icons'
 
 const MAINDESTINATION_CATALOG_VARIANTS = ['light', 'dark'] as const
 const MAINDESTINATION_CATALOG_SIZES = ['default'] as const
@@ -3043,17 +3043,38 @@ export const MainDestinationBoard = () => {
 
 export const TopBarBoard = () => {
   const [tab, setTab] = useState('findings')
+  const [filter, setFilter] = useState('all')
+  const [railOpen, setRailOpen] = useState(true)
+  const [tool, setTool] = useState<string | null>(null)
   const tabs = ['Overview', 'Run', 'Board', 'Chat', 'Findings', 'Runs'].map(label => ({
     value: label.toLowerCase(), label, count: label === 'Findings' ? 12 : undefined,
-    run: () => setTab(label.toLowerCase()),
   }))
+  const doors = [
+    { value: 'terminal', label: 'Terminal', Icon: TerminalIcon },
+    { value: 'changes', label: 'Changes', Icon: FilePlusIcon },
+    { value: 'browser', label: 'Browser', Icon: GlobeIcon },
+    { value: 'files', label: 'Files', Icon: FolderIcon },
+  ]
   return <div data-catalog-variants={TOPBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={TOPBAR_CATALOG_SIZES.join(' ')} data-catalog-states={TOPBAR_CATALOG_STATES.join(' ')}>{[1440, 720].map(width => <section key={width} style={{ width, maxWidth: '100%' }}>
-    <TopBar place="Checkout retry · 長いチーム名" tab={tab} tabs={tabs} state={<Chip tone="warning">Needs you</Chip>}
-      verb={{ label: 'Decide this run', run: () => {} }}
-      tools={<><Button variant="ghost" size="icon-sm" title="Details"><PlanIcon /></Button><Button variant="ghost" size="icon-sm" title="Changes"><DiffIcon /></Button><Button variant="ghost" size="icon-sm" title="Activity"><HistoryIcon /></Button><Button variant="ghost" size="icon-sm" title="Browser"><GlobeIcon /></Button><Button variant="ghost" size="icon-sm" title="Toggle panel"><PanelIcon /></Button></>}
-      view={{ narrowed: width === 720, content: close => <Menu close={close}><MenuItem label="All" onSelect={close} /><MenuItem label="Open" onSelect={close} /><MenuItem label="Blocking" onSelect={close} /></Menu> }}
-      more={close => <MenuItem icon={<CommentIcon />} label="Wrap…" onSelect={close} />} />
-    <TopBar place="A session without layout choices" verb={{ label: 'New job', icon: <PlusIcon />, run: () => {} }} view={{ disabled: 'This view has no layout choices', content: () => null }} more={() => null} />
+    <TopBar place="Checkout retry · 長いチーム名" state={<Dot tone="warning" title="Needs you" aria-label="Needs you" />}
+      placeMenu={close => <>
+        <MenuItem icon={<PencilIcon />} label="Rename" onSelect={close} />
+        <MenuItem icon={<RetryIcon />} label="Run again…" onSelect={close} />
+        <MenuItem icon={<CommentIcon />} label="Wrap…" onSelect={close} />
+        <MenuItem icon={<StopIcon />} label="Stop run…" onSelect={close} />
+      </>}
+      tools={<>
+        <TopBarToolButton data-work-rail-toggle aria-label="Toggle rail" title="Toggle rail" aria-expanded={railOpen} aria-pressed={railOpen} onClick={() => setRailOpen(value => !value)}><SquareMenuIcon /></TopBarToolButton>
+        <span data-work-tools-divider aria-hidden="true" />
+        {doors.map(({ value, label, Icon }) => <TopBarToolButton key={value} data-work-tool={value} aria-label={label} title={label} aria-pressed={tool === value} onClick={() => setTool(current => current === value ? null : value)}><Icon /></TopBarToolButton>)}
+      </>}
+      more={close => <MenuItem icon={<ExpandIcon />} label="Fill the window" onSelect={close} />} />
+    <Page width="reading"><PageOptions action={{ label: 'Decide this run', run: () => {} }} choices={[
+      { id: 'page', label: 'Team views', value: tab, mode: 'menu', showCount: true, items: tabs, change: setTab },
+      { id: 'filter', label: 'Findings filter', value: filter, mode: 'menu', items: ['All', 'Open', 'Blocking'].map(label => ({ value: label.toLowerCase(), label })), change: setFilter },
+    ]} /></Page>
+    <TopBar place="Teams" more={close => <MenuItem icon={<ResetIcon />} label="Refresh Teams" onSelect={close} />} />
+    <Page width="wide"><PageOptions action={{ label: 'New Team', icon: <PlusIcon />, disabled: 'Open a project folder first.', run: () => {} }} /></Page>
   </section>)}</div>
 }
 
@@ -3125,7 +3146,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'tool-body', title: 'ToolBody', about: 'Real-length content in both themes.', render: ToolBodyBoard },
   { id: 'tool-footer', title: 'ToolFooter', about: 'Real-length content in both themes.', render: ToolFooterBoard },
   { id: 'main-destination', title: 'Retained main destinations', about: 'Work and page inputs survive switching the active main region.', render: MainDestinationBoard },
-  { id: 'top-bar', title: 'The top bar', about: 'Nine slots in both fold stages, with long names and CJK.', render: TopBarBoard },
+  { id: 'top-bar', title: 'The top bar', about: 'Subject and page bars keep one shape, with body choices, long names and CJK.', render: TopBarBoard },
   { id:'git-comparison-dialogs', title:'Git comparison questions', about:'Merge or compare recorded revisions through the shared Git dialogs.', render:GitComparisonDialogsBoard },
   { id: 'comparison-decision', title:'Comparison decision', about:'A recommendation and the person decision above the composer.', render:ComparisonDecisionBoard },
   { id: 'comparison-summary', title:'Comparison summary', about:'The merged receipt in the same Side by side body.', render:ComparisonSummaryBoard },
@@ -3368,7 +3389,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'team-bar',
     title: 'The Team bar',
-    about: 'One title, status, measured segmented page tabs and participant tools, including narrow panes and Side by side.',
+    about: 'One subject title and tools row above Team views in the body, with an independent card rail, narrow panes and Side by side.',
     render: TeamBarBoard,
   },
   {

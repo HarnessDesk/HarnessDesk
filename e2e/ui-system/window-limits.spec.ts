@@ -76,15 +76,14 @@ const open = async (page: Page, width = 1440) => {
   await expect(page.locator('[data-slot="work-tools"]')).toBeVisible()
 }
 
-test('the narrow panel floats within the window and only sidebar makes main inert', async ({ page }) => {
+test('the narrow pane replaces main within the window and returns to Chat', async ({ page }) => {
   for (const width of [720, 600, 480, 360]) {
     await open(page, width)
     await expect(shell(page)).toHaveAttribute('data-panel-floats', 'true')
     await expect(shell(page)).toHaveAttribute('data-left-floats', 'true')
     await insideWindow(rightPanel(page), width, 'floating right tool')
-    expect(await main(page).evaluate(node => node.closest('[inert]') !== null)).toBe(false)
-    await page.getByPlaceholder('Filter steps').focus()
-    await page.keyboard.press('Escape')
+    expect(await main(page).evaluate(node => node.closest('[inert]') !== null)).toBe(true)
+    await page.getByRole('button', { name: 'Return to main', exact: true }).click()
     await expect(page.locator('[data-slot="work-tools"]')).toBeHidden()
     await widthRestsAt(main(page), width, 'conversation retains the window')
     const show = page.getByRole('button', { name: 'Show sidebar', exact: true })
@@ -108,17 +107,20 @@ test('sidebar stands at exactly 1000 and floats at 999 independently of requeste
   await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
   await page.setViewportSize({ width: 1000, height: 900 })
   await expect(shell(page)).toHaveAttribute('data-left-floats', 'false')
-  await expect(shell(page)).toHaveAttribute('data-panel-floats', 'true')
+  await expect(shell(page)).toHaveAttribute('data-panel-floats', 'false')
   await widthRestsAt(main(page), 1000 - SIDEBAR - FRAME.rightPanel.min, 'standing sidebar yields only at the tool minimum')
   await page.setViewportSize({ width: 999, height: 900 })
   await expect(shell(page)).toHaveAttribute('data-left-floats', 'true')
   await expect(page.getByRole('dialog', { name: 'Sidebar' })).toHaveCount(0)
+  await expect(main(page)).toBeHidden()
+  await widthRestsAt(rightPanel(page), 999, 'pane replaces main at the narrow boundary')
+  await page.getByRole('button', { name: 'Return to main', exact: true }).click()
   await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Sidebar' })).toBeVisible()
-  await widthRestsAt(main(page), MIN_READING + 2 * SEAM, 'floating sidebar takes no column')
+  await widthRestsAt(main(page), 999 - FRAME.infoCard.width, 'floating sidebar takes no column beside the standing card rail')
 })
 
-test('right folds at 1280 independently of sidebar and restores requested width after passive clamping', async ({ page }) => {
+test('right keeps its column above 1000 and restores requested width after passive clamping', async ({ page }) => {
   await open(page)
   await dragSeamTo(page, 0)
   await widthRestsAt(rightPanel(page), FRAME.rightPanel.max, 'requested maximum')
@@ -128,8 +130,8 @@ test('right folds at 1280 independently of sidebar and restores requested width 
   await widthRestsAt(rightPanel(page), 1280 - SIDEBAR - MIN_READING - 2 * SEAM, 'effective clamp')
   expect(await widthOf(main(page))).toBeGreaterThanOrEqual(MIN_READING)
   await page.setViewportSize({ width: 1279, height: 900 })
-  await expect(shell(page)).toHaveAttribute('data-panel-floats', 'true')
-  await widthRestsAt(rightPanel(page), 1279 - SIDEBAR - MIN_READING - 2 * SEAM, 'float preserves the reading floor')
+  await expect(shell(page)).toHaveAttribute('data-panel-floats', 'false')
+  await widthRestsAt(rightPanel(page), 1279 - SIDEBAR - MIN_READING - 2 * SEAM, 'pane preserves the reading floor')
   await page.setViewportSize({ width: 1440, height: 900 })
   await widthRestsAt(rightPanel(page), FRAME.rightPanel.max, 'wide restores request')
   expect(await widthOf(main(page))).toBeGreaterThanOrEqual(MIN_READING)
@@ -164,9 +166,8 @@ test('a live sidebar seam preserves main480 and restores the requested right wid
   await widthRestsAt(rightPanel(page), FRAME.rightPanel.max, 'requested right maximum')
   await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
   const left = page.locator('[data-frame-region="left"]')
-  const firstTool = page.locator('[data-work-tool="details"]')
+  const paneHeader = page.locator('[data-work-pane-header]')
   const more = page.getByRole('button', { name: 'More', exact: true })
-  const moreX = (await more.boundingBox())!.x
   const handle = page.getByRole('separator', { name: 'Resize the sidebar', exact: true })
   const box = (await handle.boundingBox())!
   const start = box.x + box.width / 2
@@ -174,11 +175,12 @@ test('a live sidebar seam preserves main480 and restores the requested right wid
   await page.mouse.down()
   await page.mouse.move(start + FRAME.sidebar.max - FRAME.sidebar.width, 400, { steps: 8 })
   await widthRestsAt(left, FRAME.sidebar.max, 'live sidebar maximum')
-  console.log('Live sidebar geometry', JSON.stringify({ left: await widthOf(left), right: await widthOf(rightPanel(page)), main: await widthOf(main(page)) }))
   expect(await widthOf(main(page)), 'standing main keeps its reading floor during the drag').toBeGreaterThanOrEqual(FRAME.main.min)
   await widthRestsAt(rightPanel(page), 1440 - FRAME.sidebar.max - MIN_READING - 2 * SEAM, 'right follows live sidebar')
-  expect((await firstTool.boundingBox())!.x - (await page.locator('[data-slot="work-tools"]').boundingBox())!.x).toBe(FRAME.bar.pad)
-  expect((await more.boundingBox())!.x).toBe(moreX)
+  expect((await paneHeader.boundingBox())!.x).toBe((await rightPanel(page).boundingBox())!.x + SEAM)
+  const moreBox = (await more.boundingBox())!, barBox = (await page.locator('[data-frame-region="top"]').boundingBox())!
+  expect(moreBox.x + moreBox.width).toBeLessThanOrEqual(barBox.x + barBox.width)
+  expect(barBox.x + barBox.width).toBe((await rightPanel(page).boundingBox())!.x)
   await page.mouse.up()
   expect(await widthOf(main(page))).toBeGreaterThanOrEqual(FRAME.main.min)
   const landed = (await handle.boundingBox())!

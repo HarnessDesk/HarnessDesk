@@ -13,8 +13,8 @@ for (const theme of ['light', 'dark'] as const) {
     const frame = page.locator('[data-frame-id="settings-sheet"]')
     for (const [section, title] of [['library', 'Library'], ['plugins', 'Plugins'], ['extensions', 'Extensions'], ['skills', 'Skills'], ['general', 'General']] as const) {
       await dial.selectOption(section)
-      if (section === 'library' || section === 'plugins') await expect(frame.locator('[data-topbar-title]')).toHaveText(title)
-      else await expect(frame.locator('[data-page-destination="settings"]:not([hidden]) h1')).toHaveText(title)
+      await expect(frame.locator('[data-topbar-title]')).toHaveCount(0)
+      await expect(frame.locator('[data-page-destination]:not([hidden]) h1')).toHaveText(title)
       await expect(dial).toHaveValue(section)
     }
   })

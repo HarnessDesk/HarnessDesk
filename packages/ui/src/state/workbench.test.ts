@@ -498,20 +498,20 @@ describe('protecting the reading column', () => {
     expect(width - 360 - effectiveRightWidth(work, width, 360) - 2 * SEAM).toBeGreaterThanOrEqual(480)
     expect(work.right.size).toBe(640)
   })
-  test.each([1279, 1000, 999, 720])('a panel floats at %i without moving the sidebar boundary', width => {
-    expect(rightPanelOverlays(right(640), width)).toBe(true)
+  test.each([1279, 1000, 999, 720])('a pane replaces main below 1000 at %i without moving the sidebar boundary', width => {
+    expect(rightPanelOverlays(right(640), width)).toBe(width < 1000)
     expect(sidebarCannotHaveColumn(right(640), width)).toBe(width < 1000)
   })
   test.each([1279, 1100, 1000, 999, 720])('a floating panel at %i protects the reading floor down to the tool minimum and remembers its requested width', width => {
     const work = right(640)
     const sidebar = width < 1000 ? 0 : 256
-    expect(effectiveRightWidth(work, width, sidebar)).toBe(Math.max(FRAME.rightPanel.min, width - sidebar - 480 - 2 * SEAM))
+    expect(effectiveRightWidth(work, width, sidebar)).toBe(width < 1000 ? width : Math.max(FRAME.rightPanel.min, width - sidebar - 480 - 2 * SEAM))
     expect(work.right.size).toBe(640)
     expect(effectiveRightWidth(work, 1440, 256)).toBe(640)
   })
   test.each([480, 360])('an open tool remains drawable at %i when the viewport cannot fit the reading floor', width => {
     const work = right(640)
-    expect(effectiveRightWidth(work, width, 0)).toBe(FRAME.rightPanel.min)
+    expect(effectiveRightWidth(work, width, 0)).toBe(width)
     expect(work.right.size).toBe(640)
   })
   test('hidden caches consume no room and widening restores preferences', () => {
@@ -601,8 +601,8 @@ describe('noticeArea — which area the strip above the panes rides', () => {
   test('the nonmodal right float leaves notices on main', () => {
     const placed = dock(emptyWorkbench(), 'right', CHANGES)
     const right: Workbench = { ...placed, right: { ...placed.right, size: 280 }, frameTools: { [fixedSubject(placed.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
-    expect(noticeArea(right, 679)).toBe('main')
-    expect(noticeArea(right, 700)).toBe('main')
+    expect(noticeArea(right, 679)).toBe('right')
+    expect(noticeArea(right, 700)).toBe('right')
     expect(noticeArea({ ...collapseDock(right, 'right', true), frameTools: { [fixedSubject(right.main)!]: { tool: 'changes', mode: 'changes', open: false } } }, 679)).toBe('main')
     expect(noticeArea(emptyWorkbench(), 679)).toBe('main')
   })
@@ -654,8 +654,8 @@ describe('mainNoticeHost — which pane in the split tree carries the strip', ()
     expect(mainNoticeHost(zoomed, 1440)).toBeNull()
     const placed = dock(emptyWorkbench(), 'right', CHANGES)
     const overlaidRight: Workbench = { ...placed, right: { ...placed.right, size: 280 }, frameTools: { [fixedSubject(placed.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
-    expect(mainNoticeHost(overlaidRight, 679)).toBe(overlaidRight.main.expanded ?? overlaidRight.main.focused)
-    expect(mainNoticeHost(overlaidRight, 700)).not.toBeNull()
+    expect(mainNoticeHost(overlaidRight, 679)).toBeNull()
+    expect(mainNoticeHost(overlaidRight, 700)).toBeNull()
   })
 })
 
@@ -836,8 +836,9 @@ describe('the window buttons', () => {
     // The panel covers main only when fewer than 400px remain beside it.
     const placed = dock(emptyWorkbench(), 'right', GIT)
     const right: Workbench = { ...placed, right: { ...placed.right, size: 280 }, frameTools: { [fixedSubject(placed.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
-    expect(cornerArea(right, false, 679)).toBe('main')
-    expect(cornerArea(right, false, 700)).toBe('main')
+    expect(cornerArea(right, false, 679)).toBe('right')
+    expect(cornerArea(right, false, 700)).toBe('right')
+    expect(noticeArea(right, 700)).toBe('right')
     // A collapsed or empty right panel lays nothing over the middle.
     expect(cornerArea({ ...right, right: { ...right.right, collapsed: true }, frameTools: { [fixedSubject(right.main)!]: { tool: 'changes', mode: 'changes', open: false } } }, false, 679)).toBe('main')
     expect(cornerArea(emptyWorkbench(), false, 679)).toBe('main')
@@ -1207,10 +1208,11 @@ describe('FRAME fixed boundaries and height limits', () => {
     expect(sidebarCannotHaveColumn(work, FRAME.fold.sidebarFloats - 1)).toBe(true)
   })
   test('right float equality is fixed independently of requested width', () => {
+    expect(FRAME.fold.panelFloats).toBe(1000)
     const initial = emptyWorkbench(), subject = fixedSubject(initial.main)!
     const work = { ...dock(initial, 'right', CHANGES), frameTools: { [subject]: { tool: 'changes' as const, mode: 'changes' as const, open: true } } }
-    expect(rightPanelOverlays(work, 1280)).toBe(false)
-    expect(rightPanelOverlays(work, 1279)).toBe(true)
+    expect(rightPanelOverlays(work, 1000)).toBe(false)
+    expect(rightPanelOverlays(work, 999)).toBe(true)
   })
   test('FRAME defaults and dynamic bottom maximum replace old dock numbers', () => {
     expect(emptyWorkbench().sidebar.size).toBe(FRAME.sidebar.width)

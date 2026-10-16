@@ -18,7 +18,8 @@ it('keeps transcript animations bound to shared global keyframes', () => {
   // running dot and its animation are retired; hd-pulse remains a general
   // global motion utility, as hd-blink and hd-spin do below.
   expect(conversationTsx).not.toMatch(/animate-\[hd-pulse_/)
-  expect(conversationTsx).toMatch(/state:\s*session\s*&&\s*!sessionCannotRun\s*\?\s*<Chip tone=\{STATUS_PILL_TONE\[status\]\}>\{STATUS_LABEL\[status\]\}<\/Chip>/)
+  expect(conversationTsx).toContain('state: session ? <Dot tone={STATUS_PILL_TONE[status]}')
+  expect(conversationTsx).toContain("pulse={status === 'running'}")
   expect(conversationTsx).not.toMatch(/dotTone=|dotPulse=/)
   // The still-writing caret converged onto the same pulsing `Dot` a sign-in
   // row already wears, so `hd-blink` now names no direct consumer either —

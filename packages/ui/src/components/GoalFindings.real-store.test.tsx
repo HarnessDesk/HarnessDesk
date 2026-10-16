@@ -8,7 +8,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { PaneProvider, StoreProvider } from '../state/context'
-import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
+import { WorkViewControlsOutlet, TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { AppStore } from '../state/store'
 import { GoalFindings } from './GoalFindings'
 
@@ -106,7 +106,7 @@ const notify = (store: AppStore, notification: WireNotification): void => {
 
 const FindingsFrame = ({ store }: { store: AppStore }) => <StoreProvider store={store}><TopBarProvider>
   <PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: 'g1' }, sessionKey: null }}>
-    <TopBarOutlet owner="main" fallback={{ place: 'Ship it', more: () => null }} />
+    <WorkViewControlsOutlet owner="main" /><TopBarOutlet owner="main" fallback={{ place: 'Ship it', more: () => null }} />
     <GoalFindings goal="g1" />
   </PaneProvider>
 </TopBarProvider></StoreProvider>
@@ -123,7 +123,7 @@ it('B6 keeps the no-decision verb in the shell and removes body filter tabs on t
   act(() => root.render(<FindingsFrame store={store} />))
   await buttonSaying('finding-1')
   expect(container.querySelector('[data-slot="view-bar"]')).toBeNull()
-  const decide = container.querySelector<HTMLButtonElement>('[data-topbar="verb"] button[aria-label="Decide this run"]')
+  const decide = container.querySelector<HTMLButtonElement>('[data-slot="page-options"] > button[aria-label="Decide this run"]')
   expect(decide).not.toBeNull()
   expect(decide!.disabled).toBe(true)
   expect(decide!.title).toBe('This Run has no decision waiting')

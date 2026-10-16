@@ -81,6 +81,14 @@ for (const destination of WALL_DESTINATIONS) {
         for (const bar of await page.locator('[data-slot="top-bar"]:visible').all()) {
           await settleFrameBar(bar)
           const title = bar.locator('[data-topbar-title]')
+          const bodyTitle = page.locator('[data-page-destination]:visible h1')
+          const destination = page.locator('[data-page-destination]:visible')
+          if (await destination.count()) {
+            await expect(title).toHaveCount(0)
+            const canvas = await destination.locator('[data-slot="page"]').first().getAttribute('data-width') === 'canvas'
+            await expect(bodyTitle).toHaveCount(canvas ? 0 : 1)
+            continue
+          }
           await expectTitleRoom(title)
           const ink = (await title.boundingBox())!, place = (await bar.locator('[data-topbar="place"]').boundingBox())!
           expect(ink.x + ink.width).toBeLessThanOrEqual(place.x + place.width)

@@ -7,15 +7,15 @@ import { editorConversation, effectiveExplorerFilter } from './state'
 import { explorerChanges, explorerPath, explorerRows, type ExplorerEntry } from './explorer-tree'
 
 /** Session metadata owns both the folder and runtime; a selected workspace is never a substitute. */
-export const Explorer = ({ session }: { readonly session: SessionKey }) => {
+export const Explorer = ({ session, onOpen }: { readonly session: SessionKey; readonly onOpen?: (path: string) => void }) => {
   const snapshot = useSnapshot()
   const conversation = snapshot.sessions.get(session)
   const root = conversation?.cwd ? explorerPath(conversation.cwd, conversation.cwd) : null
   const runtime = conversation?.runtime ?? splitSessionKey(session).runtime
-  return root ? <ExplorerFolder key={`${session}:${runtime}:${root}`} subject={`session:${session}`} root={root} runtime={runtime} />
+  return root ? <ExplorerFolder key={`${session}:${runtime}:${root}`} subject={`session:${session}`} root={root} runtime={runtime} onOpen={onOpen} />
     : <LeftColumnBody><LeftColumnEmpty>This conversation's folder is not available yet.</LeftColumnEmpty></LeftColumnBody>
 }
-const ExplorerFolder = ({ subject, root, runtime }: { subject: string; root: string; runtime: RuntimeId }) => {
+export const ExplorerFolder = ({ subject, root, runtime, onOpen }: { subject: string; root: string; runtime: RuntimeId; onOpen?: (path: string) => void }) => {
   const store = useStore(), snapshot = useSnapshot()
   const state = editorConversation(snapshot.editorState, subject)
   const [listings, setListings] = useState<ReadonlyMap<string, readonly ExplorerEntry[]>>(new Map())
@@ -58,10 +58,13 @@ const ExplorerFolder = ({ subject, root, runtime }: { subject: string; root: str
     for (const path of state.expanded) if (!listings.has(path) && !errors.has(path)) browse(path)
   }, [state.expanded, listings, errors, browse])
   useEffect(() => {
+    // A pane tree has its own Find file action; the Editor sidebar owns the
+    // window command so two retained trees cannot open two dialogs.
+    if (onOpen) return
     const open = () => setFinding(true)
     window.addEventListener('harnessdesk:go-to-file', open)
     return () => window.removeEventListener('harnessdesk:go-to-file', open)
-  }, [])
+  }, [onOpen])
   const changes = explorerChanges(root, git)
   const filter = git ? effectiveExplorerFilter(state.filter, changes.size > 0) : 'all'
   const rows = explorerRows(root, listings, state.expanded, filter, changes)
@@ -77,15 +80,15 @@ const ExplorerFolder = ({ subject, root, runtime }: { subject: string; root: str
         trailing={row.letter ? { kind: 'mark', icon: row.letter, label: `${row.name}: ${changes.get(row.path)?.status ?? 'added'}` } : undefined}
         onClick={() => row.kind === 'directory'
           ? store.setEditorExpandedFolders(subject, state.expanded.includes(row.path) ? state.expanded.filter(path => path !== row.path) : [...state.expanded, row.path])
-          : store.openEditorFile(subject, row.path)}
-        onDoubleClick={() => { if (row.kind === 'file') store.openEditorFile(subject, row.path, { keep: true }) }} />)}
+          : onOpen ? onOpen(row.path) : store.openEditorFile(subject, row.path)}
+        onDoubleClick={() => { if (row.kind === 'file') { if (onOpen) onOpen(row.path); else store.openEditorFile(subject, row.path, { keep: true }) } }} />)}
       {rows.length === 0 && !errors.has(root) && <LeftColumnEmpty>{!listings.has(root) && !errors.has(root) ? 'Loading files…' : filter === 'changed' ? 'No changed files.' : 'No files in this folder.'}</LeftColumnEmpty>}
       {[...errors].map(([path, message]) => <LeftColumnEmpty key={path}>{path.split('/').pop()}: {message}{' '}
         <Button variant="muted" size="sm" onClick={() => browse(path)}>Retry</Button></LeftColumnEmpty>)}
     </LeftColumnBody>
     <LeftColumnExplorerFoot onClick={() => setFinding(true)} />
     {finding && <GoToFile root={root} runtime={runtime} onClose={() => setFinding(false)} onChoose={path => {
-      store.openEditorFile(subject, path, { keep: true }); setFinding(false)
+      if (onOpen) onOpen(path); else store.openEditorFile(subject, path, { keep: true }); setFinding(false)
     }} />}
   </>
 }
