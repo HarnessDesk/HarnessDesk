@@ -1,6 +1,7 @@
 import type { GoalView } from '@harnessdesk/protocol'
 
 import { cardsForWire } from '../team.js'
+import { folderGoneAt } from '../path-identity.js'
 
 /**
  * The one seam between what `GoalPlane.view` answers (raw — its board is
@@ -10,4 +11,4 @@ import { cardsForWire } from '../team.js'
  * of them a caller used to read it.
  */
 export const goalViewForWire = (view: GoalView): GoalView =>
-  ({ ...view, board: { ...view.board, intents: cardsForWire(view.board.intents) } })
+  ({ ...view, board: { ...view.board, folderGone: folderGoneAt(view.board.root), intents: cardsForWire(view.board.intents) } })

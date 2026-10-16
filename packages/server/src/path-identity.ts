@@ -1,8 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { realpathSync } from 'node:fs'
+import { realpathSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const computations = new AsyncLocalStorage<{ paths: Map<string, string> | null }>()
+import { errnoOf, NOTHING_HERE } from './errno.js'
+
+interface PathComputation {
+  paths: Map<string, string> | null
+  gone: Map<string, boolean | undefined> | null
+}
+const computations = new AsyncLocalStorage<PathComputation>()
 
 /**
  * One read computation shares folder identities, including after an await.
@@ -13,8 +19,8 @@ const computations = new AsyncLocalStorage<{ paths: Map<string, string> | null }
  */
 export const withCanonicalPaths = <T>(read: () => T): T => {
   if (computations.getStore()?.paths) return read()
-  const scope: { paths: Map<string, string> | null } = { paths: new Map() }
-  const clear = () => { scope.paths = null }
+  const scope: PathComputation = { paths: new Map(), gone: new Map() }
+  const clear = () => { scope.paths = null; scope.gone = null }
   return computations.run(scope, () => {
     try {
       const result = read()
@@ -53,3 +59,19 @@ export const canonicalPath = (path: string): string => {
 
 export const sameCanonicalPath = (left: string, right: string): boolean =>
   left === right || canonicalPath(left) === canonicalPath(right)
+
+/** One existence check per root in a list/event, refreshed by the next read. */
+export const folderGoneAt = (root: string): boolean | undefined => {
+  if (!root) return undefined
+  const cache = computations.getStore()?.gone
+  if (cache?.has(root)) return cache.get(root)
+  let gone: boolean | undefined
+  try {
+    gone = !statSync(realpathSync.native(root)).isDirectory()
+  } catch (error) {
+    // Permission or I/O failures do not prove a folder was deleted.
+    if (NOTHING_HERE.has(errnoOf(error))) gone = true
+  }
+  cache?.set(root, gone)
+  return gone
+}
