@@ -60,7 +60,7 @@ const shellTokens = (line: string): Token[] | null => {
   const close = () => { if (at.word) tokens.push(at.word); at.word = null }
   for (let i = 0; i < line.length; i++) {
     const ch = line[i]!
-    if (/\s/.test(ch)) { close(); if (ch === '\n') tokens.push({ kind: 'op', op: ';', start: i }); continue }
+    if (/\s/.test(ch)) { close(); if (ch === '\n') tokens.push({ kind: 'op', op: '\n', start: i }); continue }
     if (ch === '\\') {
       if (i + 1 >= line.length) return null
       if (line[i + 1] === '\n') { i++; continue } // a line continuation joins, and is not part of the word
@@ -147,10 +147,11 @@ export const taskLabel = (command: string): string => {
   }
   let from = 0
   for (;;) {
-    if (tokens[from]?.kind === 'op' && (tokens[from] as { op: string }).op === ';') { from++; continue } // a comment line before
+    // A line break before the command, as a comment line leaves; a written `;` there is a syntax error, and is kept.
+    if (tokens[from]?.kind === 'op' && (tokens[from] as { op: string }).op === '\n') { from++; continue }
     const [cd, dir, after] = tokens.slice(from, from + 3)
     if (!isWord(cd, 'cd') || !isWord(dir) || dir.value.startsWith('-')) break
-    if (after?.kind !== 'op' || (after.op !== '&&' && after.op !== ';') || !tokens[from + 3]) break
+    if (after?.kind !== 'op' || !['&&', ';', '\n'].includes(after.op) || tokens[from + 3]?.kind !== 'word') break
     from += 3
   }
   if (from && tokens[from]) line = line.slice(tokens[from]!.start).trim()
@@ -161,7 +162,7 @@ export const taskLabel = (command: string): string => {
   let at = 0
   while (segment[at]?.kind === 'word' && /^[A-Za-z_][A-Za-z0-9_]*=/.test((segment[at] as Word).raw)) at++
   const program = segment[at]
-  if (!isWord(program) || !program.value) return cut(line)
+  if (!isWord(program) || !program.value.trim()) return cut(line)
   const name = program.value.split('/').at(-1) || program.value
   const argument = segment.slice(at + 1).find((token): token is Word => token.kind === 'word' && !token.value.startsWith('-'))
   const short = argument ? `${name} ${argument.raw}` : name

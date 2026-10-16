@@ -254,4 +254,14 @@ test('a task title is cut where a person sees a character end, and stays on one 
   // A comment ends at its line, and the command on the next line is the one that runs.
   assert.equal(taskLabel('# start the server\npnpm dev --host 0.0.0.0 --port 3000 --strictPort'), 'pnpm dev --host 0.0.0.0 --port 3000 --strictPort')
   assert.equal(taskLabel('pnpm dev # the port is set in the config'), 'pnpm dev # the port is set in the config')
+  // A written `;` before a command is a syntax error, not a line break: the line is kept as it came.
+  assert.equal(taskLabel(';printf ok'), ';printf ok')
+  assert.equal(taskLabel('cd /tmp;; printf ok'), 'cd /tmp;; printf ok')
+  assert.equal(taskLabel('cd /tmp\nprintf ok'), 'printf ok')
+  // A program word that is only whitespace names nothing: the line is kept, cut.
+  const blank = "' ' --flag value-long-enough-to-push-the-line-past-the-limit"
+  assert.equal(taskLabel(blank), `${blank.slice(0, 47).trimEnd()}…`)
+  const newline = '"\n" --flag value-long-enough-to-push-the-line-past-the-limit'
+  assert.notEqual(taskLabel(newline).trim(), '…')
+  assert.ok(!taskLabel(newline).startsWith('\n…'), taskLabel(newline))
 })
