@@ -357,10 +357,12 @@ conversation keeps its own menu and first-prompt label. A ready agent's history
 can recover a missing folder in the background, and opening a conversation can
 recover it too. A conversation in `/` still belongs to the `/` project.
 
-A folder that no longer exists is not listed as a project. Its conversations
-are kept and stay findable through search and the archive; a pinned conversation
-still appears in Pinned with its gone-folder mark. One line counts the gone
-folders, and its menu can forget them without deleting their conversations.
+A folder that no longer exists, or was replaced by a file, is not listed as a
+project. Its conversations are kept and stay findable through search and the
+archive; a pinned conversation still appears in Pinned with its gone-folder mark. One line counts the gone
+folders, including roots known only from Teams. Its menu can forget them without
+deleting conversations or Teams. Missing-folder Teams stay reachable through
+search and the Teams page; their boards, Goals and receipts are kept.
 
 A conversation is named by its title or the first thing you asked, passing
 over an agent's summary of its compacted history. A Team's Seat with no words

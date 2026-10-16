@@ -416,6 +416,8 @@ export interface TeamState {
   readonly members: readonly SessionKey[]
   /** The project the room belongs to. */
   readonly root: string
+  /** Host measurement at list/change time; absent when existence is unknown. Never persisted. */
+  readonly folderGone?: boolean
   /**
    * `root` with every symlink resolved, so the list can file a room reached
    * through a link with its project even when that folder is no longer open
