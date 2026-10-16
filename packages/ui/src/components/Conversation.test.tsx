@@ -128,6 +128,8 @@ const rig = (
     seatRecord: vi.fn(async () => null),
     readSeatAttachments: vi.fn(async () => null),
     loadAccounts: vi.fn(),
+    agentCatalog: vi.fn(async () => []),
+    addAgent: vi.fn(async () => null),
     // The front door the ready empty pane opens, once its own project (this
     // session's folder) is known — an empty catalogue is enough to mount it.
     openFrontDoor: vi.fn(),
@@ -1039,4 +1041,131 @@ it('a refused local file entry consumes the link instead of falling through to b
   const event = new MouseEvent('click', { bubbles: true, cancelable: true })
   act(() => link.dispatchEvent(event))
   expect(event.defaultPrevented).toBe(true)
+})
+
+const installedTemplate = (key: string, name: string) => ({
+  key, name, available: true, registered: false,
+  requires: { command: key, found: true },
+})
+
+it('offers two installed runtimes and registers each through the Add page path', async () => {
+  const { store } = rig(null)
+  vi.mocked(store.agentCatalog).mockResolvedValue([
+    installedTemplate('beta', 'Beta'), installedTemplate('gamma', 'Gamma'),
+  ])
+  vi.mocked(store.addAgent).mockImplementation(async ({ template }) => runtimeId(template!))
+  render(store, null)
+  await act(async () => {})
+  expect(store.agentCatalog).toHaveBeenCalledTimes(1)
+  const offer = () => container.querySelector('[aria-label="Installed on this Mac"]')!
+  expect(offer()?.textContent).toContain('Beta')
+  expect(offer()?.textContent).toContain('Gamma')
+  await act(async () => offer().querySelector<HTMLButtonElement>('button[aria-label="Add Beta"]')!.click())
+  expect(store.addAgent).toHaveBeenCalledWith({ template: 'beta' })
+  expect(offer().textContent).not.toContain('Beta')
+  expect(offer().textContent).toContain('Gamma')
+  render(store, null)
+  expect(store.agentCatalog).toHaveBeenCalledTimes(1)
+  await act(async () => offer().querySelector<HTMLButtonElement>('button[aria-label="Add Gamma"]')!.click())
+  expect(store.addAgent).toHaveBeenCalledWith({ template: 'gamma' })
+  expect(offer()).toBeNull()
+})
+
+it.each(['nothing installed', 'already added', 'bridge only'])('offers nothing when detection finds %s', async (kind) => {
+  const { store } = rig(null)
+  vi.mocked(store.agentCatalog).mockResolvedValue(kind === 'nothing installed' ? [] : [{
+    ...installedTemplate('beta', 'Beta'),
+    registered: kind === 'already added',
+    requires: { command: 'beta', found: kind !== 'bridge only' },
+  }])
+  render(store, null)
+  await act(async () => {})
+  expect(store.agentCatalog).toHaveBeenCalledTimes(1)
+  expect(container.querySelector('[aria-label="Installed on this Mac"]')).toBeNull()
+})
+
+it('names the present history sources rather than only the pane runtime', () => {
+  const runtimes = ['Alpha', 'Beta', 'Gamma'].map((name) => ({
+    ...harness.runtime(runtimeId(name.toLowerCase()), name),
+    presentation: { name, ...(name === 'Gamma' ? {} : { historySource: `${name} CLI` }) },
+  }))
+  render(rig(null, new Map(), { runtimes, activeRuntime: runtimes[0]!.id }).store, null)
+  const text = container.querySelector('[data-slot="conversation-empty-state"]')!.textContent
+  expect(text).toContain('Sessions you start in Alpha CLI and Beta CLI appear in the sidebar too.')
+  expect(text).not.toContain('Gamma CLI')
+  expect(text).not.toContain('Codex')
+  expect(text).not.toContain('only runtime')
+})
+
+it('omits history copy when no present runtime reads history through', () => {
+  render(rig(null).store, null)
+  expect(container.textContent).not.toContain('Sessions you start in')
+})
+
+it('draws before detection answers and ignores an answer after its deadline', async () => {
+  vi.useFakeTimers()
+  try {
+    const { store } = rig(null)
+    let finish!: (value: Awaited<ReturnType<AppStore['agentCatalog']>>) => void
+    vi.mocked(store.agentCatalog).mockReturnValue(new Promise(resolve => { finish = resolve }))
+    render(store, null)
+    expect(container.textContent).toContain('What should we build?')
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_000) })
+    await act(async () => finish([installedTemplate('beta', 'Beta')]))
+    expect(container.querySelector('[aria-label="Installed on this Mac"]')).toBeNull()
+  } finally { vi.useRealTimers() }
+})
+
+it('keeps a refused add available for retry', async () => {
+  const { store } = rig(null)
+  vi.mocked(store.agentCatalog).mockResolvedValue([installedTemplate('beta', 'Beta')])
+  render(store, null)
+  await act(async () => {})
+  const add = () => container.querySelector<HTMLButtonElement>('button[aria-label="Add Beta"]')!
+  await act(async () => add().click())
+  expect(add().disabled).toBe(false)
+  expect(store.addAgent).toHaveBeenCalledTimes(1)
+})
+
+it('keeps a successful add hidden after the empty pane remounts without rescanning', async () => {
+  const { store } = rig(null)
+  vi.mocked(store.agentCatalog).mockResolvedValue([installedTemplate('beta', 'Beta')])
+  vi.mocked(store.addAgent).mockResolvedValue(runtimeId('beta'))
+  render(store, null)
+  await act(async () => {})
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Add Beta"]')!.click())
+  act(() => root.render(null))
+  render(store, null)
+  await act(async () => {})
+  expect(store.agentCatalog).toHaveBeenCalledTimes(1)
+  expect(container.querySelector('[aria-label="Installed on this Mac"]')).toBeNull()
+})
+
+it('does not offer a registered runtime even when the scan has a stale unregistered row', async () => {
+  const { store } = rig(null)
+  vi.mocked(store.agentCatalog).mockResolvedValue([installedTemplate('codex', 'Alpha')])
+  render(store, null)
+  await act(async () => {})
+  expect(container.querySelector('[aria-label="Installed on this Mac"]')).toBeNull()
+})
+
+it('offers installed alternatives even while the selected runtime needs sign-in', async () => {
+  const info = harness.runtime('alpha', 'Alpha')
+  const { store } = rig(null, new Map(), {
+    runtimes: [{ ...info, capabilities: { ...info.capabilities, account: true } }],
+    activeRuntime: info.id,
+    accountsByRuntime: { [info.id]: { accounts: [], signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }] } },
+  })
+  vi.mocked(store.agentCatalog).mockResolvedValue([installedTemplate('beta', 'Beta')])
+  render(store, null)
+  await act(async () => {})
+  expect(container.textContent).toContain('Sign in to Alpha')
+  expect(container.querySelector('button[aria-label="Add Beta"]')).not.toBeNull()
+})
+
+it('lists a shared history source once for multiple accounts', () => {
+  const runtimes = ['one', 'two'].map(id => ({ ...harness.runtime(id, 'Alpha'), presentation: { name: 'Alpha', historySource: 'Alpha CLI' } }))
+  render(rig(null, new Map(), { runtimes, activeRuntime: runtimes[0]!.id }).store, null)
+  expect(container.querySelector('[data-slot="conversation-empty-state"]')!.textContent)
+    .toContain('Sessions you start in Alpha CLI appear in the sidebar too.')
 })

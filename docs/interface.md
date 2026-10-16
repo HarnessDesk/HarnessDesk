@@ -745,6 +745,15 @@ on this viewer.
 
 ## The composer
 
+An empty conversation offers agents already installed on this Mac, with one
+compact **name — Add** button per runtime beside **Installed on this Mac**.
+The pane draws before the background scan answers; the scan runs once per
+window and the offer is omitted when nothing new is found. Adding uses the
+same registration as Settings › Runtimes › Add a runtime. The new runtime
+becomes available in the composer, and its offer disappears. The history
+sentence names the present runtimes' declared history sources, once per source;
+it is omitted when none reads history through.
+
 A signed-out agent’s empty conversation offers one normal Sign in button.
 Its composer does not repeat the sign-in notice while the page already explains
 it; an existing transcript keeps that notice and its action. In Editor mode,

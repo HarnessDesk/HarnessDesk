@@ -12,6 +12,14 @@ foundation layer; `app.css` is bundled last and keeps only the brand globals.
 Use them. A raw `font-size: 12.5px` or literal colour in a component is how the
 app ended up with ten sizes and no scale.
 
+## Installed runtimes in an empty conversation
+
+The first-run offer composes `InlineParts`, meta `Text` and small outline
+`Button`s. Each runtime's name and Add action occupy one button, with no
+second line or explanatory paragraph. The group wraps with the system's chip
+gap when needed. The preview specimen is `packages/ui/src/preview/first-run.tsx`, exercised
+through `preview.html` by `e2e/ui-system/first-run.spec.ts` in both themes.
+
 ## The typographic scale
 
 ### The faces
