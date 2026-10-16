@@ -2,16 +2,23 @@ import { useRef, useState } from 'react'
 
 import type { FlowPolicy } from '@harnessdesk/protocol'
 
-import { Card, Field, Input, Note, Row, RowButton, Rows, SectionHead, FlowCanvas, FLOW_CANVAS_RUN_CARD_HEIGHT, type FlowCanvasNodeChange } from '../design'
-import { boundedPosition, defaultGraphPosition, readGraphPositions, ROLE_KIND_WORDS, type GraphPoint } from '../lib/shapes'
+import { Button, Card, Field, Input, Note, Row, RowButton, Rows, SectionHead, FlowCanvas, FlowCanvasSurface, FLOW_CANVAS_RUN_CARD_HEIGHT, type FlowCanvasNodeChange } from '../design'
+import { boundedPosition, defaultGraphPosition, readGraphPositions, roleRemovable, ROLE_KIND_WORDS, type GraphPoint } from '../lib/shapes'
 
 /** The ordered editor's roles and rules on the shared canvas. Only position edits leave this view. */
 export interface ShapeGraphProps {
   readonly policy: FlowPolicy
   readonly selected: string | null
+  readonly selectedRule?: string | null
   readonly onSelect: (role: string | null) => void
   readonly onPositions: (positions: Readonly<Record<string, { readonly x: number; readonly y: number }>>) => void
   readonly onEditRule: (rule: string) => void
+  /** The page owns policy changes; the graph only reports a proposed connection. */
+  readonly onConnect?: (connection: { readonly source: string; readonly target: string }) => void
+  readonly canvasOnly?: boolean
+  readonly onRemoveRule?: (id: string) => void
+  readonly onRemoveRole?: (id: string) => void
+  readonly onAddStep?: () => void
 }
 
 const roleWord = (policy: FlowPolicy, id: string): string => {
@@ -22,7 +29,7 @@ const roleWord = (policy: FlowPolicy, id: string): string => {
   return role.outcomes.join(', ') || 'no outcomes yet'
 }
 
-export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule }: ShapeGraphProps) => {
+export const ShapeGraph = ({ policy, selected, selectedRule, onSelect, onPositions, onEditRule, onConnect, canvasOnly = false, onRemoveRule, onRemoveRole, onAddStep }: ShapeGraphProps) => {
   const { positions: saved, invalid } = readGraphPositions(policy)
   const [draft, setDraft] = useState<Readonly<Record<string, GraphPoint>>>({})
   const cancelled = useRef(false)
@@ -42,6 +49,8 @@ export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule
     for (const change of changes) {
       if (change.type === 'select') {
         if (change.selected) onSelect(change.id)
+      } else if (change.type === 'remove') {
+        if (roleRemovable(policy, change.id)) onRemoveRole?.(change.id)
       } else if (change.type === 'position') {
         if (cancelled.current) {
           if (!change.dragging) cancelled.current = false
@@ -59,27 +68,36 @@ export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule
   const indexOf = new Map(policy.roles.map((role, index) => [role.id, index]))
 
   return (
-    <div>
+    <FlowCanvasSurface>
       {invalid && <Note tone="warn">Some saved positions could not be read and were ignored; the file itself is unchanged.</Note>}
       {/* Reserve the default column's pitch so a six-step plan does not open at half size. */}
-      <div className="min-h-96" style={{ height: defaultGraphPosition(policy.roles.length).y + FLOW_CANVAS_RUN_CARD_HEIGHT }} onKeyDownCapture={event => {
+      <FlowCanvasSurface style={canvasOnly ? undefined : { height: defaultGraphPosition(policy.roles.length).y + FLOW_CANVAS_RUN_CARD_HEIGHT }} onKeyDownCapture={event => {
         if (event.key === 'Escape' && Object.keys(draft).length) {
           event.preventDefault(); event.stopPropagation()
           cancelled.current = true
           setDraft({})
         }
       }}>
-        <FlowCanvas label="Shape graph" positionOnly
+        <FlowCanvas label="Shape graph" positionOnly={!onConnect} onConnect={onConnect}
+          actions={onAddStep ? <Button size="sm" variant="outline" onClick={onAddStep}>+ Add a step</Button> : undefined}
           nodes={policy.roles.map((role, index) => ({ id: role.id, position: Object.hasOwn(draft, role.id) ? draft[role.id]! : positionOf(role.id, index),
             selected: selected === role.id, data: { name: role.id, kind: role.kind, roleLine: roleWord(policy, role.id) } }))}
           edges={policy.rules.filter(rule => indexOf.has(rule.on) && indexOf.has(rule.then.role)).map(rule => ({
             id: rule.id, source: rule.on, target: rule.then.role,
+            selected: selectedRule === rule.id,
             label: rule.when?.every?.join(' / ') ?? rule.when?.any?.join(' / '),
           }))}
-          onNodesChange={move} onEdgesChange={changes => { const rule = changes.find(change => change.type === 'select' && change.selected); if (rule) onEditRule(rule.id) }} />
-      </div>
+          onNodesChange={move} onEdgesChange={changes => {
+            for (const change of changes) {
+              if (change.type === 'select' && change.selected) onEditRule(change.id)
+              // The canvas also reports incident edges when deleting a node.
+              // Refusing that node must preserve all rules still naming it.
+              else if (change.type === 'remove' && (!selected || roleRemovable(policy, selected))) onRemoveRule?.(change.id)
+            }
+          }} />
+      </FlowCanvasSurface>
 
-      <section aria-label="Every step, for when a node is off screen">
+      {!canvasOnly && <><section aria-label="Every step, for when a node is off screen">
         {/* No heading here: the Graph tab this view lives behind already says "Steps". */}
         <Rows>
           {policy.roles.map((role) => (
@@ -136,7 +154,7 @@ export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule
             </span>
           </Card>
         </section>
-      )}
-    </div>
+      )}</>}
+    </FlowCanvasSurface>
   )
 }

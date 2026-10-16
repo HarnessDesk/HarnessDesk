@@ -35,6 +35,9 @@ export interface TeamListRow {
  readonly unread: boolean
  readonly hidden: boolean
 }
+/** The project keeps finished work reachable until it is wrapped. */
+export const teamInSidebar = (row: TeamListRow | undefined): boolean => Boolean(row && (row.active || row.ready))
+
 export interface TeamListGroup { readonly project: string; readonly rows: readonly TeamListRow[] }
 
 const strings = (raw: unknown): Record<string,string> => Object.fromEntries(

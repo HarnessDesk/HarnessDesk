@@ -99,7 +99,7 @@ const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) 
   const style = getComputedStyle(toolbar)
   const layout = toolbar.dataset.composerLayout
   const tracks = ['add', ...(layout === 'live' ? [] : ['work-in']), 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
-    .filter((track) => track !== 'permissions' || toolbar.querySelector('[data-composer-track="permissions"]'))
+    .filter((track) => !['permissions', 'mode'].includes(track) || toolbar.querySelector(`[data-composer-track="${track}"]`))
   const measuredWidths = wideTrackMeasurements.get(toolbar) ?? new Map<string, number>()
   for (const trackName of tracks) {
     const track = toolbar.querySelector<HTMLElement>(`[data-composer-track="${trackName}"]`)
@@ -115,9 +115,13 @@ const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) 
   const wideWidths = new Map(tracks.map((trackName) => {
     const tokenWidth = px(style.getPropertyValue(trackToken(trackName, 'wide')), style)
     const measured = measuredWidths.get(trackName) ?? 0
+    // Content-sized tracks use the actual selected words. A token is the
+    // fallback before the first layout, not a minimum reservation that hides
+    // a draft pick while the toolbar still has room.
+    const contentSized = ['model', 'permissions', 'mode', 'work-in'].includes(trackName)
     const width = trackName === 'extension' && extension?.childElementCount === 0
       ? px(style.getPropertyValue('--hd-composer-track-extension-empty'), style)
-      : Math.max(tokenWidth, measured)
+      : contentSized && measured > 0 ? measured : Math.max(tokenWidth, measured)
     return [trackName, width]
   }))
   const gap = px(style.columnGap) || px(style.gap)
@@ -467,11 +471,6 @@ export const PermissionControl = () => {
   const options = slots.permissions
   const stale = useStaleDefaults('permissions')
 
-  // Some agents declare permissions through their Mode control. Keep its
-  // vocabulary and slot, without claiming it has no permission setting.
-  const permissionMode = slots.mode.some((option) => /\bpermissions?\b/i.test(`${option.label} ${option.description ?? ''}`))
-  if (options.length === 0 && permissionMode && stale.length === 0) return null
-
   if (options.length === 0) {
     return (
       <ComposerTrack name="permissions" folded={folded} tight={tight}>
@@ -488,7 +487,7 @@ export const PermissionControl = () => {
   const preset = matchPreset(runtime ?? '', all, presets)
   const tone = riskTone(options)
   const first = options[0]
-  const current = first?.type === 'select' ? currentLabel(first) : first?.label
+  const current = first?.type === 'select' ? (selectedChoice(first)?.label ?? (first.currentValue === first.collaboration?.planValue ? 'Permissions' : currentLabel(first))) : first?.label
 
   return (
     <ComposerTrack name="permissions" folded={folded} tight={tight} contentSized={!folded && !tight}>
@@ -496,7 +495,8 @@ export const PermissionControl = () => {
         <Popover
           fullWidth
           tightTrigger={tight}
-          title={folded && current ? `${current} — what the agent may do` : 'What the agent may do'}
+          aria-label={`Permissions${current && current !== 'Permissions' ? ` — ${current}` : ''}`}
+          title={folded && current ? `Permissions — ${current} — what the agent may do` : 'Permissions — what the agent may do'}
           drop="up"
           align="left"
           tone={tone}
@@ -629,7 +629,7 @@ export const ModelControl = () => {
   }
 
   return (
-    <ComposerTrack name="model" folded={folded} tight={tight}>
+    <ComposerTrack name="model" folded={folded} tight={tight} contentSized={!folded && !tight}>
       <InToolbar refer={ref}>
         {dialog}
         <Popover
@@ -843,6 +843,7 @@ export const ModeControl = () => {
   const stale = useStaleDefaults('mode')
   const mode = modes[0]
   if (!mode) {
+    if (stale.length === 0) return null
     return (
       <ComposerTrack name="mode" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
@@ -863,15 +864,16 @@ export const ModeControl = () => {
       <InToolbar refer={ref}>
         {singleValue ? (
           tight ? null : showFoldedMark ? (
-            <Chip tone="neutral" title={label}>
+            <Chip tone="neutral" title={`Collaboration mode — ${label}`}>
               <ZapIcon size={13} />
               <span className="sr-only">{label}</span>
             </Chip>
-          ) : <Chip tone="neutral">{label}</Chip>
+          ) : <Chip tone="neutral" title="Collaboration mode">{label}</Chip>
         ) : <Popover
           fullWidth
           tightTrigger={tight}
-          title={folded ? `${label} — ${mode.description ?? mode.label}` : mode.description ?? mode.label}
+          aria-label={`Collaboration mode — ${label}`}
+          title={`Collaboration mode — ${label}`}
           drop="up"
           align="left"
           label={

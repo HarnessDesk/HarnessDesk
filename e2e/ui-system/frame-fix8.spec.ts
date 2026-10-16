@@ -182,7 +182,7 @@ test('command strip waits for approval before saying it is running', async ({ pa
     expect(box!.x).toBeGreaterThanOrEqual(0)
     expect(box!.x + box!.width).toBeLessThanOrEqual(width)
     await row.click()
-    await page.getByRole('button', { name: /^ci(?: — what the agent may do)?$/ }).click()
+    await page.getByRole('button', { name: 'Permissions — ci' }).click()
     await expect(page.getByRole('menuitemradio', { name: 'ci Checks files using the project configuration.', exact: true })).toHaveAttribute('aria-checked', 'true')
 
 

@@ -1235,7 +1235,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
 
         {messagesHeld && <ComposerChips><HoldingMessagesChip /></ComposerChips>}
 
-        <ComposerText
+        {!session && !snapshot.workspace ? <ComposerTools><Button variant="secondary" onClick={onChooseProject}><FolderOpenIcon size={16} />Open a folder…</Button></ComposerTools> : <ComposerText
           ref={textarea}
           value={text}
           rows={1}
@@ -1256,7 +1256,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
             if (chipForPaste(event.clipboardData.getData('text/plain'))) event.preventDefault()
           }}
           spellCheck
-        />
+        />}
 
         <ComposerTools data-composer-layout={session ? 'live' : 'draft'}>
           <Input

@@ -3,7 +3,9 @@
  *
  * Every scrolling region in the app takes its bar from here. A shared scroll
  * listener marks a region briefly after it moves; the thumb is transparent
- * at rest and visible only while that mark is present.
+ * at rest and visible only while that mark is present. A region marked
+ * data-scroll-affordance keeps its thumb visible to announce overflow before
+ * a gesture; Board uses this for its horizontal column row.
  *
  * ## The shape
  *
@@ -75,7 +77,8 @@
     scrollbar-color: transparent transparent;
   }
 
-  body [data-scrolling] {
+  body [data-scrolling],
+  body [data-scroll-affordance] {
     scrollbar-color: var(--hd-scrollbar-fill) transparent; /* desk: the private scrollbar contract moved into public foundation names */
   }
 }
@@ -113,11 +116,13 @@
   background-clip: padding-box;
 }
 
-[data-scrolling]::-webkit-scrollbar-thumb {
+[data-scrolling]::-webkit-scrollbar-thumb,
+[data-scroll-affordance]::-webkit-scrollbar-thumb {
   background: var(--hd-scrollbar-fill); /* desk: the private scrollbar contract moved into public foundation names */
 }
 
-[data-scrolling]::-webkit-scrollbar-thumb:hover {
+[data-scrolling]::-webkit-scrollbar-thumb:hover,
+[data-scroll-affordance]::-webkit-scrollbar-thumb:hover {
   border-width: var(--hd-scrollbar-inset-hover); /* desk: the private scrollbar contract moved into public foundation names */
   background: var(--hd-scrollbar-fill-hover); /* desk: the private scrollbar contract moved into public foundation names */
   background-clip: padding-box;

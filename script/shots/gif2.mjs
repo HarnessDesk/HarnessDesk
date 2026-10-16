@@ -302,8 +302,8 @@ try {
     return Boolean(hit)
   }
 
-  /** Opens the non-default start kind from the sidebar's secondary start menu. */
-  const openStartingKind = async (kind) => {
+  /** The sidebar's Team door opens the same persistent form as every other door. */
+  const openNewTeam = async () => {
     const opened = await cdp.eval(`(() => {
       const trigger = document.querySelector('button[title="More ways to start"]')
       if (!trigger) return false
@@ -311,16 +311,10 @@ try {
       return true
     })()`)
     if (!opened) throw new Error('no More ways to start control in the sidebar')
-    if (!(await click(`${kind}…`))) throw new Error(`no ${kind}… choice in More ways to start`)
-    const chooser = '[role="dialog"][aria-label="What are you starting?"]'
-    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(chooser)}) !== null`), Boolean)
-    const selected = await cdp.eval(`(() => {
-      const root = document.querySelector(${q(chooser)})
-      return [...(root?.querySelectorAll('[role="radio"]') ?? [])]
-        .some((one) => one.getAttribute('aria-checked') === 'true' && (one.textContent ?? '').trim().startsWith(${q(kind)}))
-    })()`)
-    if (!selected) throw new Error(`${kind} was not selected in the New session dialog`)
-    return chooser
+    if (!(await click('New Team…'))) throw new Error('no New Team… choice in More ways to start')
+    const form = '[role="dialog"][aria-label="New Team"]'
+    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(form)}) !== null`), Boolean)
+    return form
   }
 
   /** Types into an input found by its label — `shoot.mjs`'s own `fill`, copied for the same reason as `click`. */
@@ -328,7 +322,6 @@ try {
     cdp.eval(`(() => {
     const tag = [...document.querySelectorAll('label')].find((one) => one.textContent.trim() === ${q(label)})
     let input = (tag && document.getElementById(tag.getAttribute('for'))) || document.querySelector('[aria-label=' + JSON.stringify(${q(label)}) + ']')
-    if (!input) input = [...document.querySelectorAll('input, textarea')].find((one) => one !== document.querySelector('[aria-label="What finishes this?"]'))
     if (!input) return false
     const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
     Object.getOwnPropertyDescriptor(proto, 'value').set.call(input, ${q(value)})
@@ -476,16 +469,10 @@ try {
     })()`)
   }
 
-  // The tile begins at the catalogue, after the short New session → Team path
-  // has reached its useful destination. Starting the camera one click earlier
-  // left a few empty-conversation frames at the loop seam.
+  // Begin at the persistent New Team picker, rather than recording the
+  // sidebar menu opening at the loop seam.
   if (SCENARIO === 'front-door') {
-    const chooser = await openStartingKind('Team')
-    if (!(await click('Continue', chooser))) throw new Error('no Continue button in the Team chooser')
-    await waitForSnapshot(
-      () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start a team"]') !== null`),
-      Boolean,
-    )
+    await openNewTeam()
   }
 
   const startedAt = Date.now()
@@ -600,33 +587,45 @@ try {
     // The README tile is the front door, not a running flow: catalogue,
     // chosen shipped shape, and its held dry run. The normal scene continues
     // into the Goal only as an acceptance check; the recording must stop while
-    // the person can still read what Start would create.
-    const catalogue = '[role="dialog"][aria-label="Start a team"]'
+    // the person can still read what Start Team would create.
+    const catalogue = '[role="dialog"][aria-label="New Team"]'
     await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(catalogue)}) !== null`), Boolean)
-    // Let the catalogue be read before the chosen shape replaces it.
+    // Let the picker be read before its chosen Flow's form and preview load.
     await sleep(4000)
-    // Choosing a row deliberately replaces this tall catalogue with a brief
-    // loading shell. It is not a meaningful beat; remove only those transition
-    // frames, keeping the continuous capture before and after it intact.
+    // Omit the asynchronous policy-loading transition, keeping the continuous
+    // capture before and after it intact in this same dialog.
     const beforeChoice = collected.length
     if (!(await click('Independent review', catalogue))) {
       throw new Error('no "Independent review" shape in the front door catalogue')
     }
-    const dryRun = '[role="dialog"][aria-label="Start Independent review"]'
-    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(dryRun)}) !== null`), Boolean)
+    const dryRun = '[role="dialog"][aria-label="New Team"]'
     await waitForSnapshot(
-      () => cdp.eval(`[...document.querySelectorAll('label')].some((one) => one.textContent.trim() === 'Task')`),
+      () => cdp.eval(`document.querySelector(${q(`${dryRun} select[aria-label^="Agent for "]:not(:disabled)`)}) !== null`),
       Boolean,
     )
     collected.splice(beforeChoice)
-    if (!(await fill('Task', 'Add 502 to the retryable status set'))) throw new Error('no Task field in the front door')
-    if (!(await fill('What finishes this?', 'Ship it once every specialist approves'))) {
-      throw new Error('no sentence field in the front door')
+    if (!(await fill('What should they do?', 'Add 502 to the retryable status set'))) throw new Error('no task field in New Team')
+    if (!(await fill('Done when · optional', 'Ship it once every specialist approves'))) {
+      throw new Error('no Done when field in New Team')
     }
     await waitForSnapshot(
       () => cdp.eval(`(() => {
         const button = [...document.querySelectorAll(${q(`${dryRun} button`)})]
-          .find((one) => one.textContent?.trim() === 'Start')
+          .find((one) => one.textContent?.trim() === 'Start Team')
+        return Boolean(button) && !button.disabled
+      })()`),
+      Boolean,
+    )
+    if (!(await click('Details', dryRun))) throw new Error('no Details control in New Team')
+    if (!(await click('Dry run', dryRun))) throw new Error('no enabled Dry run button in New Team')
+    await waitForSnapshot(
+      () => cdp.eval(`document.querySelector(${q(`${dryRun} section[aria-label="Dry run"] section[aria-label="Seats this would open"]`)}) !== null`),
+      Boolean,
+    )
+    await waitForSnapshot(
+      () => cdp.eval(`(() => {
+        const button = [...document.querySelectorAll(${q(`${dryRun} button`)})]
+          .find((one) => one.textContent?.trim() === 'Start Team')
         return Boolean(button) && !button.disabled
       })()`),
       Boolean,
@@ -635,14 +634,15 @@ try {
     // leave the seats, their agents, and the held grants in view.
     await cdp.eval(`(() => {
       const body = document.querySelector(${q(`${dryRun} [data-slot="modal-dialog-body"]`)})
-      if (!body) return false
-      body.scrollTop = Math.min(226, body.scrollHeight - body.clientHeight)
+      const report = body?.querySelector('section[aria-label="Dry run"]')
+      if (!report) return false
+      report.scrollIntoView({ block: 'start' })
       return true
     })()`)
     await retildify()
     // A settled, enabled dry run is the answer this tile exists to show.
     await sleep(2600)
-    // The catalogue dialog is the subject, so the one fixed crop follows its
+    // The persistent dialog is the subject, so the crop includes its actual
     // final dry-run geometry with only a small breathing margin. It is chosen
     // once for the whole recording, then every source frame is downscaled to
     // the README tile; nothing is enlarged or framed.
@@ -650,24 +650,22 @@ try {
       const dialog = document.querySelector(${q(dryRun)})
       if (!dialog) return null
       const rect = dialog.getBoundingClientRect()
-      // A 768 × 480 CSS window comes from the 2× frame and is only ever
-      // reduced to the 960 × 600 tile.  It intentionally frames the useful
-      // upper part of the tall modal (title, inputs, and dry-run seats),
-      // rather than preserving a wide empty field around the whole dialog.
-      const width = 659
-      const height = 412
-      // A crop that starts inside the sidebar turns the wordmark into a stray
-      // fragment. Start after that rail whenever a close dialog crop permits
-      // it; the scrim, not a clipped bit of chrome, is the backdrop here.
-      const sidebarRight = Math.max(
-        160,
-        document.querySelector('nav[aria-label="Workspace actions"]')?.parentElement
-          ?.getBoundingClientRect().right ?? 0,
-      )
+      const aspect = 960 / 600
+      const margin = 12
+      let width = Math.max(rect.width + margin * 2, (rect.height + margin * 2) * aspect)
+      let height = width / aspect
+      // If a close crop cannot contain the whole dialog, preserve the whole
+      // viewport rather than cutting its title or seat labels.
+      if (width > innerWidth || height > innerHeight) { width = innerWidth; height = innerHeight }
       const centeredLeft = rect.left + rect.width / 2 - width / 2
-      const left = Math.max(0, Math.min(innerWidth - width, Math.max(sidebarRight, centeredLeft)))
-      const top = Math.max(0, Math.min(innerHeight - height, rect.top + 12))
+      const centeredTop = rect.top + rect.height / 2 - height / 2
+      const left = Math.max(0, Math.min(innerWidth - width, centeredLeft))
+      const top = Math.max(0, Math.min(innerHeight - height, centeredTop))
       const scale = ${DEVICE_SCALE}
+      const sidebarRight = document.querySelector('[data-left-column]')?.getBoundingClientRect().right ?? 0
+      if (left > 0 && left < sidebarRight) return {
+        width: Math.round(innerWidth * scale), height: Math.round(innerHeight * scale), left: 0, top: 0,
+      }
       return {
         width: Math.round(width * scale), height: Math.round(height * scale),
         left: Math.round(left * scale), top: Math.round(top * scale),
@@ -675,27 +673,30 @@ try {
     })()`)
     if (!frontDoorCrop) throw new Error('the front-door dry run has no crop target')
   } else if (SCENARIO === 'flow') {
-    // Beat 1: the real front door from More ways to start → Team…, the
+    // Beat 1: the real front door from More ways to start → New Team…, the
     // "Fix and review" shape this file wrote into `.harnessdesk/flows`, and
-    // its dry run held on screen before Start is clicked.
-    const chooser = await openStartingKind('Team')
-    if (!(await click('Continue', chooser))) throw new Error('no Continue button in the Team chooser')
-    await waitForSnapshot(
-      () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start a team"]') !== null`),
-      Boolean,
-    )
-    if (!(await click('Fix and review', '[role="dialog"][aria-label="Start a team"]'))) {
+    // its dry run held on screen before Start Team is clicked. The staged
+    // legacy Flow fixture still needs its own migration before this take runs.
+    const form = await openNewTeam()
+    if (!(await click('Fix and review', form))) {
       throw new Error('no "Fix and review" shape in the catalogue — is .harnessdesk/flows/fix-and-review.yml there?')
     }
-    await waitForSnapshot(
-      () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start Fix and review"]') !== null`),
-      Boolean,
-    )
-    if (!(await fill('What to fix', 'Retry the checkout call on a 502'))) throw new Error('no "What to fix" field')
-    if (!(await fill('What finishes this?', 'Checkout hardening'))) throw new Error('no sentence field')
+    if (!(await fill('What should they do?', 'Retry the checkout call on a 502'))) throw new Error('no task field in New Team')
+    if (!(await fill('Done when · optional', 'Checkout hardening'))) throw new Error('no Done when field in New Team')
     await waitForSnapshot(
       () => cdp.eval(`(() => {
-        const button = [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Start')
+        const button = [...document.querySelectorAll(${q(`${form} button`)})].find((one) => one.textContent?.trim() === 'Start Team')
+        return Boolean(button) && !button.disabled
+      })()`),
+      Boolean,
+    )
+    if (!(await click('Details', form))) throw new Error('no Details control in New Team')
+    if (!(await click('Dry run', form))) throw new Error('no enabled Dry run button in New Team')
+    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(`${form} section[aria-label="Dry run"]`)}) !== null`), Boolean)
+    await waitForSnapshot(
+      () => cdp.eval(`(() => {
+        const button = [...document.querySelectorAll(${q(`${form} button`)})]
+          .find((one) => one.textContent?.trim() === 'Start Team')
         return Boolean(button) && !button.disabled
       })()`),
       Boolean,
@@ -703,9 +704,10 @@ try {
     // Held: the dialog's own dry run — seats with human names, the round
     // trace — visible and unstarted.
     await sleep(3000)
-    if (!(await click('Start', '[role="dialog"][aria-label="Start Fix and review"]'))) {
-      throw new Error('no enabled Start button in the New Goal dialog')
+    if (!(await click('Start Team', form))) {
+      throw new Error('no enabled Start Team button in New Team')
     }
+    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(form)}) === null`), Boolean)
     await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Checkout hardening')`), Boolean)
     room = await cdp.eval(`(() => {
       for (const view of ${STORE}.getSnapshot().goals.values()) {
@@ -833,7 +835,7 @@ try {
   // The flow tiles are deliberately unlike the hero: their README cells supply
   // the frame, so the camera crops close with no backdrop, shadow, or rounding.
   const outputFilter = SCENARIO === 'front-door'
-    ? `fps=${FPS},crop=${frontDoorCrop.width}:${frontDoorCrop.height}:${frontDoorCrop.left}:${frontDoorCrop.top},scale=960:600:flags=lanczos`
+    ? `fps=${FPS},crop=${frontDoorCrop.width}:${frontDoorCrop.height}:${frontDoorCrop.left}:${frontDoorCrop.top},scale=960:600:flags=lanczos:force_original_aspect_ratio=decrease,pad=960:600:(ow-iw)/2:(oh-ih)/2:${backdrop},setsar=1`
     : SCENARIO === 'flow'
     ? `fps=${FPS},crop=960:600:${WIDTH - 960}:0`
     : padFilter

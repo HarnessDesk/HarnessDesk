@@ -2,6 +2,10 @@ import type { ReactNode } from 'react'
 import { Button } from '../ui/button'
 import { NoticeHost, NoticeListShell, NoticeShell, type BannerTone } from './Banner'
 
+/** Inline notice hosts give a plain title a sentence stop before earned detail. */
+export const inlineNoticeTitle = (title: ReactNode, detail: ReactNode): ReactNode =>
+  typeof title === 'string' && title.trim() && detail && !/[.!?…:;。！？：；]$/.test(title.trimEnd()) ? `${title.trimEnd()}.` : title
+
 /** Content only: hosts own size and placement, the notice owns presentation. */
 export type NoticeAction = {
   readonly label: string
@@ -31,6 +35,7 @@ const NoticeContent = ({ actions, tone = 'neutral', ...props }: NoticeProps, kin
 
 /** A fact, optional earned detail, and the actions it calls for.
  * Hosts choose standard padding (12px, 16px left) or compact (8px, 12px left).
+ * Inline hosts use the shared sentence-stop formatter before earned detail.
  * Labelled actions keep text-button width, including the ghost `icon` kind.
  */
 export const Notice = (props: NoticeProps) => NoticeContent(props, 'card')

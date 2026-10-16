@@ -1396,7 +1396,7 @@ it('a stale check is offered again and an approved command starts without anothe
   expect(question()).toBeNull()
 })
 
-it('the board is derived: no card or column takes a drop, no column takes a title, and an empty one says so', async () => {
+it('the board is derived: no card or column takes a drop, and an empty rail can open without offering a title', async () => {
   const { store } = rig([intent({ state: 'open' })])
   await render(store)
   expect(container.querySelector('[data-slot="board"]')?.hasAttribute('data-derived')).toBe(true)
@@ -1406,6 +1406,9 @@ it('the board is derived: no card or column takes a drop, no column takes a titl
   await act(async () => {})
   expect(store.teamIntent).not.toHaveBeenCalled()
   expect(container.querySelector('[data-slot="board-add"]')).toBeNull()
+  expect(column('Working').hasAttribute('data-collapsed')).toBe(true)
+  act(() => column('Working').querySelector<HTMLButtonElement>('button')!.click())
+  expect(column('Working').hasAttribute('data-collapsed')).toBe(false)
   expect(column('Working').querySelector('[data-slot="board-empty"]')?.textContent).toBe('Nothing here')
 })
 
@@ -1689,6 +1692,18 @@ it('an attempt question already open stops recording an answer when the Team wra
   expect(store.decideFlowReview).not.toHaveBeenCalled()
 })
 
+it('folds four empty states around three completed cards without hiding their work', async () => {
+  const intents = [1, 2, 3].map(id => intent({ id, state: 'done', title: `Completed job ${id}` }))
+  const evidence: BoardEvidence = { room: ROOM, stamp: 1, checks: [], refused: [], unreadable: null,
+    cards: [1, 2, 3].map(id => cardEvidence(id, [checkView({ card: id })])) }
+  const { store } = rig(intents, {}, evidence)
+  await render(store)
+  expect(container.querySelectorAll('[data-slot="board-column"][data-collapsed]')).toHaveLength(4)
+  expect(column('Ready').hasAttribute('data-collapsed')).toBe(false)
+  expect(column('Ready').querySelectorAll('[data-slot="board-card"]')).toHaveLength(3)
+  expect(container.querySelectorAll('button[aria-label$="0 — Open column"]')).toHaveLength(4)
+})
+
 it('keeps an empty Board quiet with one add-work control in its toolbar',async()=>{
  const {store}=rig([])
  await render(store)
@@ -1699,6 +1714,8 @@ it('keeps an empty Board quiet with one add-work control in its toolbar',async()
  expect(container.textContent?.split('Nothing on the board yet')).toHaveLength(2)
  expect(container.querySelectorAll('button[aria-label^="New job"]')).toHaveLength(1)
  expect(container.querySelector('[aria-label="Board summary"]')).toBeNull()
+ expect(container.querySelectorAll('[data-slot="empty-state"]')).toHaveLength(1)
+ expect(container.querySelectorAll('[data-slot="board-column"]')).toHaveLength(0)
 })
 
 it('lists every job, including completed work awaiting evidence, with Needs you first', async () => {

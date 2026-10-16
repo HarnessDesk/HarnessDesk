@@ -88,7 +88,6 @@ import { shortPath } from '../lib/paths'
 import { NewSessionDefaults } from './SettingsAgents'
 import { ProjectPage } from './ProjectPage'
 import { LaneSettings } from './LaneSettings'
-import { TriggerSettings } from './TriggerSettings'
 import { moveSettingsNavigationFocus } from './settings-navigation-focus'
 import { filterSettingsGroups, settingsGroups } from './settings-navigation'
 
@@ -1471,7 +1470,6 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
       <Section title="Lanes">
         <LaneSettings root={snapshot.workspace?.path} />
       </Section>
-      <TriggerSettings focus={focus} />
     </>
   )
 }

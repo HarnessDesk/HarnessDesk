@@ -26,6 +26,34 @@ test('option recommendations survive observation writes and reloads, including f
   assert.deepEqual(restored.get('demo').sessionOptions, options)
 })
 
+test('mixed permission collaboration survives cache updates and reload without extra fields', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-collaboration-cache-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'runtime-cache.json')
+  const collaboration = { planValue: 'plan', actValue: 'manual', extra: 'synthetic-extra' }
+  const option: ConfigOption = {
+    id: 'mode', label: 'Mode', type: 'select', category: '_permissions', currentValue: 'plan',
+    choices: [{ value: 'manual', label: 'Manual' }, { value: 'plan', label: 'Plan' }],
+    collaboration,
+  }
+  const expected = { ...option, collaboration: { planValue: 'plan', actValue: 'manual' } }
+  const cache = new RuntimeCache(path, error => { throw error })
+  cache.update('one', { options: [option], sessionOptions: [option] })
+  assert.deepEqual(cache.get('one').options, [expected])
+  assert.deepEqual(cache.get('one').sessionOptions, [expected])
+  await cache.flush()
+  assert.ok(!(await readFile(path, 'utf8')).includes('synthetic-extra'))
+  const again = new RuntimeCache(path, error => { throw error })
+  await again.load()
+  assert.deepEqual(again.get('one').options, [expected])
+  assert.deepEqual(again.get('one').sessionOptions, [expected])
+  // Loading also projects the nested metadata rather than trusting disk fields.
+  await writeFile(path, JSON.stringify({ version: 1, runtimes: { one: { options: [option], sessionOptions: [option] } } }))
+  await again.load()
+  assert.deepEqual(again.get('one').options, [expected])
+  assert.deepEqual(again.get('one').sessionOptions, [expected])
+})
+
 test('atomic queued observations survive reload and exclude extra account fields and sign-in payloads', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-display-cache-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

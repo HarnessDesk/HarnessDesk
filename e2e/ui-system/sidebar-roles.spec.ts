@@ -57,14 +57,14 @@ test('sidebar destinations use the frame label scale and retain the approved wor
   await page.goto('/preview.html')
   const sidebar = page.locator('[data-frame-id="sidebar-column"] [data-left-column]')
   const rows = sidebar.locator('[aria-label="Main sections"] [data-slot="sidebar-menu-button"]')
-  await expect(rows).toHaveCount(5)
+  await expect(rows).toHaveCount(6)
   expect(await rows.evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))))
-    .toEqual(['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+    .toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
   const styles = await rows.evaluateAll(nodes => nodes.map(node => {
     const css = getComputedStyle(node)
     return { size: css.fontSize, weight: css.fontWeight }
   }))
-  expect(styles).toEqual(Array.from({ length: 5 }, () => ({ size: `${FRAME.rail.label}px`, weight: '400' })))
+  expect(styles).toEqual(Array.from({ length: 6 }, () => ({ size: `${FRAME.rail.label}px`, weight: '400' })))
   await expect(sidebar.locator('[data-region="sidebar-header"] [data-role="wordmark"]')).toHaveCount(1)
 })
 

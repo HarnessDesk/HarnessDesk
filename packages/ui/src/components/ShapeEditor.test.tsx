@@ -2,12 +2,14 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { parseClientMessage, type AgentEntry, type FlowPolicy, type FrontDoorPreview, type HostMethodName } from '@harnessdesk/protocol'
+import { parseClientMessage, type AgentEntry, type AuthoringDocument, type FlowPolicy, type FrontDoorPreview, type HostMethodName } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
 import { ShapeEditor } from './ShapeEditor'
 import { canvasDOM } from '../test/flow-canvas-dom'
+import { DestinationPageScope } from '../panels/destination-page'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 
 /**
  * The ordered editor: every step and rule edit renders through the one host
@@ -880,4 +882,274 @@ it('renaming a role carries its completion declaration and rule reference into s
   const saved = JSON.parse((document.body.querySelector('textarea') as HTMLTextAreaElement).value) as FlowPolicy
   expect(saved.complete).toEqual({ reviewer: ['done'], chair: ['merged', 'dropped'] })
   expect(saved.rules[0]?.then.role).toBe('chair')
+})
+
+it('offers the same editor as a page with canvas tools and a current-source New Team handoff', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const spy = fakeHost(store)
+  const onStartTeam = vi.fn()
+  act(() => root.render(<StoreProvider store={store}><DestinationPageScope owner="flows" active><ShapeEditor root="/repo" context={{ kind: 'project', root: '/repo' }} presentation="page" onClose={vi.fn()} onStarted={vi.fn()} onStartTeam={onStartTeam} /></DestinationPageScope></StoreProvider>))
+  await settle()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  expect(button('Step')).toBeTruthy()
+  expect(button('Rule')).toBeTruthy()
+  expect(button('Undo').disabled).toBe(true)
+  act(() => button('Step').click())
+  await settle()
+  act(() => menuItem('Agent').click())
+  await settle()
+  expect(button('Undo').disabled).toBe(false)
+  const edited = (spy.mock.calls.filter(call => call[0] === 'authoring/shape/render').at(-1)![1] as { policy: FlowPolicy }).policy
+  expect(edited.roles.at(-1)?.kind).toBe('agent')
+  act(() => button('Start a Team').click())
+  expect(onStartTeam).toHaveBeenCalledWith(JSON.stringify(edited))
+  act(() => button('Undo').click())
+  await settle()
+  const undone = JSON.parse((spy.mock.calls.filter(call => call[0] === 'authoring/start/preview').at(-1)![1] as { source: string }).source) as FlowPolicy
+  expect(undone.roles).toHaveLength(1)
+  act(() => button('Dry run').click())
+  await settle()
+  expect(document.querySelector('[role="dialog"][aria-label="Dry run"]')).not.toBeNull()
+})
+
+it('saving a built-in Flow creates a writable copy without asserting the built-in digest', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const spy = fakeHost(store)
+  const policy: FlowPolicy = { version: 2, name: 'Review', inputs: [], messaging: 'board-only', wait: 240, roles: [{ id: 'review', kind: 'person', outcomes: ['done'] }], rules: [], seed: { role: 'review', title: 'Review' } }
+  act(() => root.render(<StoreProvider store={store}><DestinationPageScope owner="flows" active><ShapeEditor root="/repo" context={{ kind: 'project', root: '/repo' }} presentation="page" document={{ target: { kind: 'flow', root: '/repo', origin: 'builtin', id: 'review' }, source: JSON.stringify(policy), digest: 'builtin-digest', exists: true, writable: false, displayPath: 'Built in', issues: [] }} onClose={vi.fn()} onStarted={vi.fn()} /></DestinationPageScope></StoreProvider>))
+  await settle()
+  act(() => button('Save…').click())
+  await settle()
+  expect(spy.mock.calls.find(call => call[0] === 'authoring/save/preview')?.[1]).toEqual(expect.objectContaining({ expected: null, target: { kind: 'flow', root: '/repo', origin: 'user', id: 'review' } }))
+})
+
+it('closes page-owned save and dry-run dialogs when another destination becomes active', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  const context = { kind: 'project' as const, root: '/repo' }
+  const renderPage = (active: boolean) => act(() => root.render(<StoreProvider store={store}><DestinationPageScope owner="flows" active={active}><ShapeEditor root="/repo" context={context} presentation="page" onClose={vi.fn()} onStarted={vi.fn()} /></DestinationPageScope></StoreProvider>))
+  renderPage(true)
+  await settle()
+  act(() => button('Save…').click())
+  await settle()
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  renderPage(false)
+  await settle()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  renderPage(true)
+  await settle()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('retires an inactive page preview before defaults can replace another New Team preview, then checks again on resume', async () => {
+  const policy: FlowPolicy = {
+    version: 2, name: 'Page draft', inputs: [{ id: 'topic', label: 'Topic', default: 'page-default' }],
+    roles: [{ id: 'review', kind: 'person', outcomes: ['done'] }], rules: [], seed: { role: 'review', title: '{{topic}}' }, messaging: 'board-only', wait: 240,
+  }
+  const other: FlowPolicy = { ...policy, name: 'Active Team', inputs: [] }
+  const source = JSON.stringify(policy), otherSource = JSON.stringify(other)
+  const context = { kind: 'project' as const, root: '/repo' }
+  const store = new AppStore('ws://localhost:0/')
+  const held: ((preview: FrontDoorPreview) => void)[] = []
+  const previews = vi.spyOn(store, 'previewFrontDoor')
+  let releasePageReplies = false
+  const spy = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: unknown) => {
+    if (method === 'agent/list') return []
+    if (method === 'authoring/start/preview') {
+      const input = params as { source: string; vars: Readonly<Record<string, string>> }
+      if (input.source === source && !releasePageReplies) return new Promise<FrontDoorPreview>(resolve => held.push(resolve))
+      return previewFor(JSON.parse(input.source) as FlowPolicy, { vars: input.vars })
+    }
+    return null
+  }) as never)
+  const renderPage = (active: boolean) => act(() => root.render(<StoreProvider store={store}><DestinationPageScope owner="flows" active={active}><ShapeEditor root="/repo" context={context} presentation="page" initialSource={source} onClose={vi.fn()} onStarted={vi.fn()} onStartTeam={vi.fn()} /></DestinationPageScope></StoreProvider>))
+  renderPage(true)
+  await settle()
+  expect(held).toHaveLength(1)
+  expect(previews).toHaveBeenCalledWith(expect.objectContaining({ source }), { publish: false })
+  renderPage(false)
+  await act(async () => {
+    store.openFrontDoor(context)
+    await store.previewFrontDoor({ context, source: otherSource, vars: {} })
+  })
+  expect(store.getSnapshot().frontDoor?.preview?.source).toBe(otherSource)
+  await act(async () => held[0]!(previewFor(policy)))
+  expect.soft(spy.mock.calls.filter(call => call[0] === 'authoring/start/preview')).toHaveLength(2)
+  expect.soft(store.getSnapshot().frontDoor?.preview?.source).toBe(otherSource)
+  renderPage(true)
+  expect(button('Start a Team').disabled).toBe(true)
+  await settle()
+  expect(held).toHaveLength(2)
+  releasePageReplies = true
+  await act(async () => held[1]!(previewFor(policy)))
+  expect(button('Start a Team').disabled).toBe(false)
+})
+
+it('page rules keep first-match precedence editable through each rule’s move actions', async () => {
+  const policy: FlowPolicy = {
+    version: 2, name: 'Precedence', inputs: [], roles: [{ id: 'review', kind: 'person', outcomes: ['done'] }],
+    rules: [{ id: 'first', on: 'review', when: { every: ['done'] }, then: { role: 'review', title: 'First' } }, { id: 'fallback', on: 'review', then: { role: 'review', title: 'Fallback' } }],
+    seed: { role: 'review', title: 'Review' }, messaging: 'board-only', wait: 240,
+  }
+  const store = new AppStore('ws://localhost:0/')
+  const spy = fakeHost(store)
+  act(() => root.render(<StoreProvider store={store}><DestinationPageScope owner="flows" active><ShapeEditor root="/repo" context={{ kind: 'project', root: '/repo' }} presentation="page" initialSource={JSON.stringify(policy)} onClose={vi.fn()} onStarted={vi.fn()} /></DestinationPageScope></StoreProvider>))
+  await settle()
+  const rules = document.querySelector<HTMLElement>('section[aria-label="Rules"][data-slot="tool-section"]')!
+  expect(rules.textContent).toContain('first match fires')
+  act(() => rules.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!.click())
+  act(() => byAriaLabel('Rule first actions').click())
+  await settle()
+  act(() => menuItem('Move down').click())
+  await settle()
+  const changed = (spy.mock.calls.filter(call => call[0] === 'authoring/shape/render').at(-1)![1] as { policy: FlowPolicy }).policy
+  expect(changed.rules.map(rule => rule.id)).toEqual(['fallback', 'first'])
+  expect(changed.rules.find(rule => rule.id === 'first')?.when).toEqual({ every: ['done'] })
+})
+
+const savedPageFixture = () => {
+  const policy: FlowPolicy = { version: 2, name: 'Race', inputs: [], roles: [{ id: 'review', kind: 'person', outcomes: ['done'] }], rules: [], seed: { role: 'review', title: 'Review' }, messaging: 'board-only', wait: 240 }
+  const source = JSON.stringify(policy)
+  const document: AuthoringDocument = { target: { kind: 'flow', root: '/repo', origin: 'project', id: 'race' }, source, digest: 'original', displayPath: '.harnessdesk/flows/race.yml', exists: true, writable: true, issues: [] }
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  vi.spyOn(store, 'previewAuthoringSave').mockResolvedValue({ token: 'save', edits: [], issues: [], resuming: false })
+  vi.spyOn(store, 'applyAuthoringSave').mockResolvedValue({ state: 'applied', written: ['.harnessdesk/flows/race.yml'], message: 'Saved.' })
+  const mount = () => act(() => root.render(<StoreProvider store={store}><TopBarProvider><DestinationPageScope owner="flows" active><TopBarOutlet owner="flows" fallback={{ place: 'Flows', more: () => null }} /><ShapeEditor root="/repo" context={{ kind: 'project', root: '/repo' }} presentation="page" document={document} onClose={vi.fn()} onStarted={vi.fn()} /></DestinationPageScope></TopBarProvider></StoreProvider>))
+  const save = async () => { act(() => button('Save…').click()); await settle(); act(() => button('Save').click()); await settle() }
+  return { policy, source, document, store, mount, save }
+}
+
+it('refuses an unseen post-save file revision as an overwrite or Delete target until reviewed', async () => {
+  const fixture = savedPageFixture()
+  const changed = { ...fixture.document, source: JSON.stringify({ ...fixture.policy, name: 'External change' }), digest: 'unseen' }
+  vi.spyOn(fixture.store, 'readAuthoring').mockResolvedValue(changed)
+  fixture.mount()
+  await settle()
+  await fixture.save()
+  expect(document.body.textContent).toContain('The saved file changed before it could be read')
+  expect(button('Save…').disabled).toBe(true)
+  act(() => button('Race').click())
+  await settle()
+  expect(menuItem('Delete…').getAttribute('aria-disabled')).toBe('true')
+  act(() => menuItem('Delete…').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  await settle()
+  act(() => button('Review saved file').click())
+  await settle()
+  expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe(changed.source)
+  expect(button('Save…').disabled).toBe(false)
+})
+
+it('an older save readback cannot replace the document adopted by a newer duplicate', async () => {
+  const fixture = savedPageFixture()
+  let first!: (document: AuthoringDocument) => void
+  const copy: AuthoringDocument = { ...fixture.document, target: { kind: 'flow', root: '/repo', origin: 'project', id: 'race-copy' }, digest: 'copy', displayPath: '.harnessdesk/flows/race-copy.yml' }
+  vi.spyOn(fixture.store, 'readAuthoring').mockImplementationOnce(() => new Promise(resolve => { first = resolve })).mockResolvedValueOnce(copy)
+  fixture.mount()
+  await settle()
+  await fixture.save()
+  act(() => button('Race').click())
+  await settle()
+  act(() => menuItem('Duplicate').click())
+  await settle()
+  act(() => button('Save').click())
+  await settle()
+  expect(document.querySelector('section[aria-label="Source"]')?.textContent).toContain('race-copy.yml')
+  await act(async () => first({ ...fixture.document, digest: 'first-save' }))
+  expect(document.querySelector('section[aria-label="Source"]')?.textContent).toContain('race-copy.yml')
+})
+
+it('Undo after two overlapping policy edits removes only the most recent edit', async () => {
+  const fixture = savedPageFixture()
+  fixture.mount()
+  await settle()
+  const renders: { policy: FlowPolicy; resolve: (result: { source: string; issues: [] }) => void }[] = []
+  vi.spyOn(fixture.store, 'renderShape').mockImplementation(policy => new Promise(resolve => { renders.push({ policy, resolve }) }))
+  const addAgent = async () => { act(() => button('Step').click()); await settle(); act(() => menuItem('Agent').click()); await settle() }
+  await addAgent()
+  await addAgent()
+  expect(renders).toHaveLength(2)
+  expect(renders[1]!.policy.roles).toHaveLength(3)
+  await act(async () => renders[1]!.resolve({ source: JSON.stringify(renders[1]!.policy), issues: [] }))
+  await act(async () => renders[0]!.resolve({ source: JSON.stringify(renders[0]!.policy), issues: [] }))
+  act(() => button('Undo').click())
+  await settle()
+  expect(renders).toHaveLength(3)
+  expect(renders[2]!.policy.roles).toHaveLength(2)
+  expect(renders[2]!.policy.roles.at(-1)?.id).toBe('agent')
+  await act(async () => renders[2]!.resolve({ source: JSON.stringify(renders[2]!.policy), issues: [] }))
+})
+
+it('retains an unfinished ordered draft while away and renders it afresh before resuming Start', async () => {
+  const fixture = savedPageFixture()
+  const context = { kind: 'project' as const, root: '/repo' }
+  const preview = vi.spyOn(fixture.store, 'previewFrontDoor')
+  const renderPage = (active: boolean) => act(() => root.render(<StoreProvider store={fixture.store}><DestinationPageScope owner="flows" active={active}><ShapeEditor root="/repo" context={context} presentation="page" document={fixture.document} onClose={vi.fn()} onStarted={vi.fn()} /></DestinationPageScope></StoreProvider>))
+  renderPage(true)
+  await settle()
+  const renders: { policy: FlowPolicy; resolve: (result: { source: string; issues: [] }) => void }[] = []
+  vi.spyOn(fixture.store, 'renderShape').mockImplementation(policy => new Promise(resolve => { renders.push({ policy, resolve }) }))
+  act(() => button('Step').click())
+  await settle()
+  act(() => menuItem('Agent').click())
+  await settle()
+  expect(renders).toHaveLength(1)
+  renderPage(false)
+  const previewsBefore = preview.mock.calls.length
+  act(() => button('Rule').click())
+  await settle()
+  expect(renders).toHaveLength(1)
+  await act(async () => renders[0]!.resolve({ source: JSON.stringify(renders[0]!.policy), issues: [] }))
+  expect(preview).toHaveBeenCalledTimes(previewsBefore)
+  renderPage(true)
+  await settle()
+  expect(button('Start a Team').disabled).toBe(true)
+  expect(renders).toHaveLength(2)
+  expect(renders[1]!.policy.roles.map(role => role.id)).toEqual(['review', 'agent'])
+  expect(renders[1]!.policy.rules).toEqual([])
+  await act(async () => renders[1]!.resolve({ source: JSON.stringify(renders[1]!.policy), issues: [] }))
+  expect(button('Start a Team').disabled).toBe(false)
+})
+
+it('Undo after a settled File draft and ordered edit restores the exact File bytes', async () => {
+  const fixture = savedPageFixture()
+  const exactSource = `\n  ${JSON.stringify(fixture.policy, null, 2)}\n\n`
+  const spy = vi.spyOn(fixture.store, 'previewFrontDoor')
+  act(() => root.render(<StoreProvider store={fixture.store}><DestinationPageScope owner="flows" active><ShapeEditor root="/repo" context={{ kind: 'project', root: '/repo' }} presentation="page" initialSource={exactSource} onClose={vi.fn()} onStarted={vi.fn()} /></DestinationPageScope></StoreProvider>))
+  await settle()
+  act(() => button('Step').click())
+  await settle()
+  act(() => menuItem('Agent').click())
+  await settle()
+  act(() => button('Undo').click())
+  await settle()
+  expect(spy.mock.calls.at(-1)?.[0].source).toBe(exactSource)
+  act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(tab => tab.textContent === 'File')!.click())
+  await settle()
+  expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe(exactSource)
+})
+
+it('Undo after fixing an invalid File with an ordered edit restores its unparsed text', async () => {
+  const fixture = savedPageFixture()
+  fixture.mount()
+  await settle()
+  act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(tab => tab.textContent === 'File')!.click())
+  await settle()
+  const invalidSource = '# keep this unfinished draft\nroles: [ unfinished'
+  act(() => {
+    const field = document.querySelector('textarea') as HTMLTextAreaElement
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(field, invalidSource)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+  expect(button('Start a Team').disabled).toBe(true)
+  act(() => button('Step').click())
+  await settle()
+  act(() => menuItem('Agent').click())
+  await settle()
+  expect(button('Start a Team').disabled).toBe(false)
+  act(() => button('Undo').click())
+  await settle()
+  expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe(invalidSource)
+  expect(button('Start a Team').disabled).toBe(true)
 })

@@ -86,12 +86,17 @@
 .footerNavigation {
   display: flex;
   align-items: center;
-  gap: var(--hd-space-2);
+  gap: var(--hd-space-1); /* desk: retain the screen wrapper's 4px grouping in the canonical footer */
   min-width: 0;
 }
 
-.footerNavigation > [data-slot='button'] {
+.footerNavigation > [data-slot='button']:only-child {
   margin-inline-start: calc(-1 * var(--hd-space-3));
+}
+
+/* A shorter start reason must not unwrap the alternative and move the footer. */
+@media (max-width: 760px) {
+  .footerNavigation { flex-direction: column; align-items: flex-start; }
 }
 
 .footerAside {

@@ -20,7 +20,7 @@ import { useStore } from '../state/context'
  */
 export interface ShapeSaveProps {
   readonly input: AuthoringSaveInput
-  readonly onSaved: (result: AuthoringSaveResult) => void
+  readonly onSaved: (result: AuthoringSaveResult, target: AuthoringSaveInput['target']) => void
   readonly onClose: () => void
 }
 
@@ -82,7 +82,9 @@ export const ShapeSave = ({ input, onSaved, onClose }: ShapeSaveProps) => {
     try {
       const result = await store.applyAuthoringSave(preview.token)
       if (result.state === 'applied') {
-        onSaved(result)
+        onSaved(result, original.kind === 'agent'
+          ? { kind: 'agent', origin: scope, id }
+          : { kind: 'flow', origin: scope, id, root: root! })
         return
       }
       setProblem(result.message)

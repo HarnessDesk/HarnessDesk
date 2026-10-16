@@ -136,6 +136,7 @@ export class FlowCatalog {
       let summary: string | null = null
       let source: string | null = null
       let frontDoor: FlowEntry['frontDoor'] = null
+      let policy: FlowEntry['policy'] = null
       if (!problem && winner!.tree) {
         try {
           source = await readFlow(winner!.tree, winner!.rel)
@@ -148,6 +149,7 @@ export class FlowCatalog {
           // Read once, here, rather than by a second bulk call: this parse
           // already exists to learn the entry's own name and description.
           if (parsed.document?.format === 'agents') {
+            policy = parsed.document.flow
             const front = readShapeLayout(parsed.document.flow).layout.frontDoor
             if (front) frontDoor = { order: front.order ?? null, contexts: front.contexts ?? null }
           }
@@ -157,7 +159,7 @@ export class FlowCatalog {
         }
       }
       result.push({
-        entry: { id: winner!.id, origin: winner!.origin, path: winner!.path, name, description, summary, format, problem, frontDoor,
+        entry: { id: winner!.id, origin: winner!.origin, path: winner!.path, name, description, summary, format, problem, frontDoor, policy,
           shadows: shadows.map((shadow) => ({ origin: shadow.origin, path: shadow.path })) },
         source,
       })

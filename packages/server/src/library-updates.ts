@@ -43,19 +43,25 @@ export class LibraryUpdates {
 
   async read(agents: readonly InventoryAgent[], params: { readonly cwd?: string }): Promise<Library> {
     const library = await readLibrary(agents, { ...params, home: this.home })
-    if (this.#checks.size === 0) return library
     const manifest = await LibraryManifest.load(this.libraryDir)
-    return {
-      ...library,
-      entries: library.entries.map(entry => {
-        if (entry.kind !== 'skill') return entry
-        const update = entry.copies.flatMap(copy => copy.readBy.flatMap(runtime => {
-          const checked = this.#checks.get(JSON.stringify([copy.path, runtime]))
-          const origin = manifest.find('skill', copy.path, entry.name)?.origin
-          return !copy.hollow && checked && JSON.stringify(checked.origin) === JSON.stringify(origin) ? [checked] : []
-        }))
-        return update.length ? { ...entry, update } : entry
-      }),
-    }
+    let changed = false
+    const entries = library.entries.map(entry => {
+      if (entry.kind !== 'skill') return entry
+      const copies = entry.copies.map(copy => {
+        const origin = !copy.hollow && manifest.find('skill', copy.path, entry.name)?.origin
+        if (!origin) return copy
+        const { url, ref, commit, path } = origin
+        return { ...copy, origin: { url, ref, commit, path } }
+      })
+      const update = entry.copies.flatMap(copy => copy.readBy.flatMap(runtime => {
+        const checked = this.#checks.get(JSON.stringify([copy.path, runtime]))
+        const origin = manifest.find('skill', copy.path, entry.name)?.origin
+        return !copy.hollow && checked && JSON.stringify(checked.origin) === JSON.stringify(origin) ? [checked] : []
+      }))
+      if (!update.length && copies.every((copy, index) => copy === entry.copies[index])) return entry
+      changed = true
+      return { ...entry, copies, ...(update.length ? { update } : {}) }
+    })
+    return changed ? { ...library, entries } : library
   }
 }

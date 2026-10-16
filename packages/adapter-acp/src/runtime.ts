@@ -4059,8 +4059,14 @@ class AcpSession implements AgentSession {
       // The agent says where its control belongs; an unfamiliar or absent
       // category lands under "More", which is what `other` means.
       const category = acpCategory(option.id, option.category)
-      const modelStatus = (option._meta?.['harnessdesk'] as { modelStatus?: unknown } | undefined)?.modelStatus
-      const recommendation = (option._meta?.['harnessdesk'] as { recommendedValue?: unknown } | undefined)?.recommendedValue
+      const metadata = option._meta?.['harnessdesk'] as { modelStatus?: unknown; recommendedValue?: unknown; collaboration?: { planValue?: unknown; actValue?: unknown } } | undefined
+      const modelStatus = metadata?.modelStatus
+      const recommendation = metadata?.recommendedValue
+      const split = metadata?.collaboration
+      const collaboration = typeof split?.planValue === 'string' && typeof split.actValue === 'string'
+        && option.options?.some(choice => choice.value === split.planValue)
+        && option.options.some(choice => choice.value === split.actValue)
+        ? { planValue: split.planValue, actValue: split.actValue } : undefined
       const report = {
         ...(typeof modelStatus === 'string' && modelStatus ? { modelStatus } : {}),
         ...(typeof recommendation === 'string' || typeof recommendation === 'boolean' ? { recommendedValue: recommendation } : {}),
@@ -4087,6 +4093,7 @@ class AcpSession implements AgentSession {
           ...(option.description ? { description: option.description } : {}),
           ...(option.disabled ? { disabled: option.disabled } : {}),
           ...(option.confirm ? { confirm: acpConfirm(option.confirm) } : {}),
+          ...(collaboration ? { collaboration } : {}),
           currentValue: String(option.currentValue),
           choices: (option.options ?? []).map((choice) => ({
             value: choice.value,

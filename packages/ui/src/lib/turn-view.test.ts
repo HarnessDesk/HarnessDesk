@@ -313,12 +313,11 @@ describe('describeTurnWork', () => {
     )
   })
 
-  test('a command that exits non-zero is trouble, whatever its status says', () => {
-    // summariseTurn counts this as a failure; the fold line above it used to
-    // stay untinted and fold a turn whose tests had just gone red.
+  test('a successful turn counts a non-zero command without marking the turn as trouble', () => {
+    // The failed command stays in the receipt without judging the completed turn.
     const work = [item('command', 'c', { command: 'pnpm test', status: 'completed', exitCode: 1, actions: [] })]
     const line = describeTurnWork(done(work), work, started)
-    expect(line.trouble).toBe(true)
+    expect(line.trouble).toBe(false)
     expect(line.receipt).toBe('ran 1 command')
     expect(line.failed).toBe(1)
   })
@@ -348,7 +347,7 @@ describe('describeTurnWork', () => {
       item('toolCall', 'b', { status: 'completed', error: 'no network' }),
     ]
     const line = describeTurnWork(done(work), work, started)
-    expect(line.trouble).toBe(true)
+    expect(line.trouble).toBe(false)
     expect(line.receipt).toBe('ran 1 command, called 1 tool')
     expect(line.declined).toBe(1)
     expect(line.failed).toBe(1)

@@ -800,8 +800,8 @@ export const TeamRoomPane = ({
     publicationOn: goal?.goal.findingPublication !== false,
     report: report?.goal === room ? report : null,
   }), [heldClient, room, intents, entries, seats, members, displayMembers, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
-  const overviewTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, { sessions: snapshot.sessions, waitingSeats }) : null,
-  [heldClient, flowExecution, snapshot.sessions, waitingSeats])
+  const overviewTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, { sessions: snapshot.sessions, evidence: snapshot.boardEvidence.get(room), waitingSeats }) : null,
+  [heldClient, flowExecution, snapshot.sessions, snapshot.boardEvidence, room, waitingSeats])
   const comparisonTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, {
     sessions: snapshot.sessions, evidence: snapshot.boardEvidence.get(room), waitingSeats,
   }) : null, [heldClient, flowExecution, snapshot.sessions, snapshot.boardEvidence, waitingSeats, room])

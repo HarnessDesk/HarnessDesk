@@ -436,7 +436,8 @@ test('the Intake acceptance rig owns a disposable home and never runs the live g
   assert.doesNotMatch(script, /process\.env\['HOME'\]/)
   // Cleanup runs whether the walkthrough finished or threw.
   const body = script.slice(script.indexOf('let desk'))
-  assert.match(body, /finally\s*\{[\s\S]*rmSync\(rig, \{ recursive: true, force: true \}\)/)
+  assert.match(script, /import \{ removeTemporaryDirectory \} from '\.\.\/lib\/temporary-directory\.mjs'/)
+  assert.match(body, /finally\s*\{[\s\S]*removeTemporaryDirectory\(rig\)/)
   // The live gate is refused, not skipped as green, when its one required
   // input is absent — never a synthetic pass.
   const live = script.slice(script.indexOf("if (mode === 'live')"), script.indexOf("if (mode !== 'rig')"))

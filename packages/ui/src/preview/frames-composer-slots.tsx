@@ -1,3 +1,4 @@
+import { ComposerPermissionsContent } from './composer-permissions-content'
 import { ComposerStalenessContent } from './composer-staleness-content'
 import { ComposerSlotsContent } from './composer-slots-content'
 import { useTheme } from '../state/theme'
@@ -7,6 +8,7 @@ export const ComposerSlotsFrames = () => {
   useTheme()
   return (
   <Frame id="composer-slots" title="Composer — fixed slots">
+    <ComposerPermissionsContent />
     <ComposerSlotsContent />
     <ComposerStalenessContent />
   </Frame>
