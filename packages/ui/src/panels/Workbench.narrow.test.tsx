@@ -410,7 +410,7 @@ it('Escape a context menu inside it takes closes the menu and leaves the sidebar
   expect(store.closeFloatingSidebar).not.toHaveBeenCalled()
 })
 
-it('a nonmodal right float leaves the conversation usable while open and after close', () => {
+it('a narrow pane replaces main until it closes', () => {
   /* In a narrow window the panel takes the conversation's width, over it, and
      the conversation stayed reachable underneath: Tab from the panel walked
      into its composer and header. Found in review, measured in a real engine. */
@@ -425,7 +425,7 @@ it('a nonmodal right float leaves the conversation usable while open and after c
 
   const narrow = rig({ narrowWindow: true }, docked)
   render(narrow.store)
-  expect(conversation()?.closest('[inert]')).toBeNull()
+  expect(conversation()?.closest('[inert]')).not.toBeNull()
   expect(shell().getAttribute('data-panel-floats')).toBe('true')
 
   narrow.patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
@@ -446,7 +446,7 @@ it('returns focus to the conversation target, or its composer when that target i
 
   opener!.focus()
   patch({ narrowWindow: true, windowWidth: 679 })
-  expect(opener?.closest('[inert]')).toBeNull()
+  expect(opener?.closest('[inert]')).not.toBeNull()
   view!.focus()
   patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
   expect(document.activeElement).toBe(opener)
@@ -583,17 +583,17 @@ it('does not restore a saved node after its pane switches to another view', () =
   expect(document.activeElement).not.toBe(document.body)
 })
 
-it('the right float uses exact1280 equality while main remains usable', () => {
+it('the pane replaces main below the 1000px narrow boundary', () => {
   const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
-  const wide = rig({ windowWidth: 1280 }, docked)
+  const wide = rig({ windowWidth: 1000 }, docked)
   render(wide.store)
   expect(seam('Resize the right panel')).not.toBeNull()
   expect(shell().getAttribute('data-panel-floats')).toBe('false')
   expect(content().closest('[inert]')).toBeNull()
-  wide.patch({ windowWidth: 1279 })
+  wide.patch({ windowWidth: 999 })
   expect(seam('Resize the right panel')).toBeNull()
   expect(shell().getAttribute('data-panel-floats')).toBe('true')
-  expect(content().closest('[inert]')).toBeNull()
+  expect(content().closest('[inert]')).not.toBeNull()
 })
 it('clamps the standing right seam to preserve main480 with sidebar360', () => {
   const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })

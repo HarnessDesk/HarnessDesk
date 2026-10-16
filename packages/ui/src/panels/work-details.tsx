@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { Session } from '@harnessdesk/protocol'
-import { SummaryList, SummaryItem, ToolBody, ToolSection, Checklist, ChecklistItem, ToolProse } from '../design'
+import { SummaryList, SummaryItem, ToolBody, ToolBodySections, ToolFooterSuppressed, ToolSection, Checklist, ChecklistItem, ToolProse } from '../design'
 import { useSnapshot, useRuntime } from '../state/context'
 import { useSeatAgent } from '../state/seat-agent'
 import { seatCeilingOf } from '../lib/ceilings'
@@ -9,7 +9,8 @@ import { describeContext } from '../lib/context-usage'
 import { sessionPlan, todoState } from '../lib/todos'
 import { worktreeBranch } from '../lib/worktree-branch'
 import { sanitizeText } from '../lib/sanitize'
-import { AgentsView } from '../components/Details'
+import { AgentsView, TrajectoryCard } from '../components/Details'
+import { BackgroundTasksView } from '../components/BackgroundTasks'
 import { Slot } from '../slots/registry'
 export const ConversationDetails = ({ session, placeAction }: { session: Session | null; placeAction?: ReactNode }) => {
   const snapshot = useSnapshot(), runtime = useRuntime(), seated = useSeatAgent(session)
@@ -25,7 +26,7 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
   const agentName = seated?.name ?? snapshot.runtimes.find(one => one.id === session?.runtime)?.presentation.name ?? runtime.presentation.name
   const shown = session ? seatCeilingOf(session.settings, [...snapshot.flowRuns.values()].flat(), String(session.runtime), String(session.id)) : null
   const context = describeContext(session?.usage, agentName), todos = sessionPlan(session) ?? []
-  return <ToolBody>
+  return <ToolBody><ToolBodySections><ToolFooterSuppressed>
     <ToolSection label={session ? 'Conversation' : 'Starts in'}>
       <SummaryList surface="panel" aria-label="Conversation facts">
         <SummaryItem label="Agent">{agentName}</SummaryItem>
@@ -51,5 +52,6 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
         : <ToolProse variant="note">No plan yet.</ToolProse>}
       {session && <AgentsView />}
     </ToolSection>
-  </ToolBody>
+    {session && <><BackgroundTasksView card /><TrajectoryCard /></>}
+  </ToolFooterSuppressed></ToolBodySections></ToolBody>
 }

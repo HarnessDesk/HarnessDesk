@@ -96,12 +96,13 @@ const mount = async (
 const button = (label: string): HTMLButtonElement | undefined =>
   [...document.body.querySelectorAll('button')].find((node) => node.textContent?.includes(label))
 
-it('shows Add a runtime under only its Runtimes crumb', async () => {
+it('shows Add a runtime with its return action in the body', async () => {
   await mount()
 
   const place = container.querySelector('[data-topbar="place"]')!
-  expect([...place.querySelectorAll('button')].map((node) => node.textContent?.trim())).toEqual(['Runtimes ›'])
-  expect(place.querySelector('[data-topbar-title]')?.textContent).toBe('Add a runtime')
+  expect(place.querySelector('button')).toBeNull()
+  expect(button('Back to Runtimes')).toBeTruthy()
+  expect(place.querySelector('[data-topbar-title]')).toBeNull()
 })
 
 /** A form field, by the visible label `Field` points at it — the name a person reads. */
@@ -1269,12 +1270,13 @@ it('unanswered extra account menus name the credential homes that distinguish th
   expect(names).toEqual(['Alpha actions · /tmp/alpha-2', 'Alpha actions · /tmp/alpha-3'])
 })
 
-it('a runtime destination bar keeps its 16px presentation mark', async () => {
+it('a runtime page keeps its presentation mark in the first body row', async () => {
   await mountList()
   await act(async () => line('Alpha').click())
-  const title = container.querySelector('[data-topbar-title]')!
-  expect(title.querySelector('[data-slot="text"]')?.textContent).toBe('Alpha')
-  expect(title.closest('[data-topbar="place"]')?.querySelector('[data-topbar-mark] svg[width="16"]')).not.toBeNull()
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
+  expect(container.querySelector('[data-slot="rows"] [data-slot="row-title"]')?.textContent).toBe('Alpha')
+  expect(container.querySelector('[data-slot="toolbar"] svg[width="16"]')).not.toBeNull()
+  expect(container.querySelector('[data-topbar-mark]')).toBeNull()
 })
 
 it.each(['template','registry'] as const)('a submitted %s add finishes without catalogue reads after hiding its owner',async(kind)=>{
@@ -1346,7 +1348,7 @@ it('keeps Add a runtime reachable in a populated Settings body with a quiet bar'
   store.agentCatalog = async () => []
   store.acpRegistry = async () => ({ agents: [], fetchedAt: 1 })
   await act(async () => root.render(<StoreProvider store={store}><RuntimesSection onSignIn={() => {}} /></StoreProvider>))
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('')
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
   const add = button('Add a runtime')
   expect(add, 'a populated runtime list still has its entry action outside the quiet bar').toBeDefined()
   expect(add!.closest('[data-slot="top-bar"]')).toBeNull()

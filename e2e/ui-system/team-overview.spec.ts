@@ -180,7 +180,7 @@ for (const theme of ['light', 'dark'] as const) {
     await waiting.getByRole('button', { name: 'Build and review', exact: true }).click()
     await expect(page.locator('#team-overview-live-waiting-evidence [data-slot="run-view"]').first()).toBeVisible()
     const reason = '"Review the change" (#2) answered revise; no rule continues from it, so this waits for you'
-    const run = page.locator('#team-overview-live-unrouted [aria-label="Run"]')
+    const run = page.locator('#team-overview-live-unrouted [data-slot="team-overview"] [aria-label="Run"]')
     await expect(run.locator('[data-slot="room-run-reason"]')).toHaveText(reason)
     expect((await run.textContent())?.split(reason)).toHaveLength(2)
 

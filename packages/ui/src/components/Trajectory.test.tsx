@@ -6,7 +6,7 @@ import { turnId, wrapContext, type AgentItem, type Session, type Turn } from '@h
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { Trajectory } from './Trajectory'
+import { Trajectory, trajectorySummary } from './Trajectory'
 import styles from './Trajectory.module.css'
 import sheet from './Trajectory.module.css?raw'
 
@@ -74,6 +74,14 @@ const TURN = {
 
 const rows = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[data-slot="inspector-row"]')]
 const leads = (): string[] => rows().map((row) => row.firstElementChild?.textContent ?? '')
+
+it('keeps the folded card summary to elapsed time and the largest measured kind', () => {
+  const turn = { ...TURN, status: 'completed', durationMs: 6 * 60_000, items: [
+    item('command-time', { type: 'command', command: 'test', durationMs: 60_000 }),
+    item('tool-time', { type: 'toolCall', tool: 'read', durationMs: 30_000 }),
+  ] } as unknown as Turn
+  expect(trajectorySummary([turn])).toBe('6m · 1m in commands')
+})
 
 it('leaves the footer empty when the current filter has no steps', async () => {
   const onFoot = vi.fn()

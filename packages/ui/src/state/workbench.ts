@@ -348,7 +348,7 @@ export const normalizeFixedWorkbench = (before: Workbench, retireRunSteps = fals
     seen.add(one.id); return true
   })
   // Old docked transcripts remain retained compatibility payloads; migration never closes a session.
-  const tools = mounted.filter(one => toolOf(one.view.kind) !== null || one.view.kind === 'conversation' || (!retireRunSteps && one.view.kind === 'run-steps'))
+  const tools = mounted.filter(one => one.view.kind !== 'terminal' && (toolOf(one.view.kind) !== null || one.view.kind === 'conversation' || (!retireRunSteps && one.view.kind === 'run-steps')))
   const terminal = mounted.filter(one => one.view.kind === 'terminal')
   const legacyRoutes = mounted.filter(one => one.view.kind === 'board' || (retireRunSteps && one.view.kind === 'run-steps')).map(one => one.view)
   const makeStack = (previous: Dock, entries: readonly Mounted[]): Dock => {
@@ -357,7 +357,7 @@ export const normalizeFixedWorkbench = (before: Workbench, retireRunSteps = fals
     return { ...previous, root: { kind: 'stack', id: old?.id ?? emptyStack().id, views: entries, active } }
   }
   const owners = { ...before.toolOwners }
-  if (subject) for (const one of tools) if (owners[one.id] === undefined) owners[one.id] = subject
+  if (subject) for (const one of [...tools, ...terminal]) if (owners[one.id] === undefined) owners[one.id] = subject
   const frameTools = { ...before.frameTools }
   if (subject && frameTools[subject] === undefined) {
     const shown = (['right', 'bottom', 'sidebar'] as const).flatMap(area =>
@@ -831,11 +831,15 @@ export const activate = (workbench: Workbench, area: DockId, id: MountedId): Wor
   if (!holding) return workbench
   // Only the stack holding it changes. A split panel has one active tab per
   // stack, and bringing a tab forward in one half must not disturb the other.
-  return patchDock(reveal(workbench, area), area, {
+  const next = patchDock(reveal(workbench, area), area, {
     ...current,
     root: mapStacks(current.root, (stack) => (stack.id === holding.id ? { ...stack, active: id } : stack)),
     collapsed: false,
   })
+  const owner = workbench.toolOwners[id]
+  const intent = owner ? workbench.frameTools[owner] : undefined
+  return owner && intent && holding.views.find(one => one.id === id)?.view.kind === 'terminal'
+    ? { ...next, frameTools: { ...next.frameTools, [owner]: { ...intent, selectedTerminal: id } } } : next
 }
 
 /**
@@ -901,17 +905,17 @@ const isTerminal = (view: PaneView): view is TerminalView => view.kind === 'term
 export const terminals = (workbench: Workbench): readonly TerminalView[] =>
   dockViews(workbench.bottom).map((entry) => entry.view).filter(isTerminal)
 
-/**
- * The terminal on screen, if the bottom panel is showing one.
- *
- * "On screen" is plural now that a panel can be split, so this asks every
- * visible stack before falling back — a shell in the right-hand half of a
- * split bottom panel is as visible as one in the left.
- */
-export const activeTerminal = (workbench: Workbench): TerminalView | null => {
-  const shown = visibleViews(workbench.bottom).find((entry) => isTerminal(entry.view))
-  return shown ? (shown.view as TerminalView) : (terminals(workbench)[0] ?? null)
+/** The current subject's selected shell, with a fallback for older saved layouts
+ * and a selected shell that has since closed. Other subjects keep their own choice. */
+export const activeTerminalMount = (workbench: Workbench): (Mounted & { readonly view: TerminalView }) | undefined => {
+  const subject = fixedSubject(workbench.main)
+  const owned = dockViews(workbench.bottom).filter((entry): entry is Mounted & { readonly view: TerminalView } =>
+    isTerminal(entry.view) && (!workbench.toolOwners[entry.id] || workbench.toolOwners[entry.id] === subject))
+  const selected = subject ? workbench.frameTools[subject]?.selectedTerminal : undefined
+  const current = activeView(workbench.bottom)
+  return owned.find(one => one.id === selected) ?? owned.find(one => one.id === current?.id) ?? owned[0]
 }
+export const activeTerminal = (workbench: Workbench): TerminalView | null => activeTerminalMount(workbench)?.view ?? null
 
 /** The mount holding a given process, for the verbs that speak in terminal ids. */
 export const mountOfTerminal = (workbench: Workbench, terminalId: string): MountedId | null =>
@@ -1021,6 +1025,32 @@ export const rightPanelDrawn = (workbench: Workbench): boolean => {
   return subject !== null && workbench.frameTools[subject]?.open === true && areaVisible(workbench, 'right')
 }
 
+/** The card rail is a subject preference, independent of its tool pane. */
+export const workRailOpen = (workbench: Workbench): boolean => {
+  const subject = fixedSubject(workbench.main)
+  return subject !== null && workbench.frameTools[subject]?.railOpen !== false
+}
+export const toggleWorkRail = (workbench: Workbench): Workbench => {
+  const subject = fixedSubject(workbench.main)
+  if (!subject) return workbench
+  const intent = workbench.frameTools[subject] ?? { tool: 'details', mode: 'details', open: false }
+  return { ...workbench, frameTools: { ...workbench.frameTools, [subject]: { ...intent, railOpen: !workRailOpen(workbench) } } }
+}
+export const workPaneExpanded = (workbench: Workbench): boolean => {
+  const subject = fixedSubject(workbench.main)
+  return rightPanelDrawn(workbench) && subject !== null && workbench.frameTools[subject]?.expanded === true
+}
+/** Swapping changes placement only; the subject and resource mounts stay put. */
+export const swapWorkPane = (workbench: Workbench): Workbench => {
+  const subject = fixedSubject(workbench.main)
+  const intent = subject ? workbench.frameTools[subject] : undefined
+  if (!subject || !intent?.open) return workbench
+  return { ...workbench, frameTools: { ...workbench.frameTools, [subject]: { ...intent, expanded: !intent.expanded } } }
+}
+
+export const workRailFloats = (workbench: Workbench, windowWidth: number, standingSidebar: number): boolean =>
+  workRailOpen(workbench) && windowWidth - standingSidebar - (rightPanelDrawn(workbench) && !rightPanelOverlays(workbench, windowWidth) ? effectiveRightWidth(workbench, windowWidth, standingSidebar) : 0) < FRAME.main.min + FRAME.infoCard.width
+
 /**
  * Whether the sidebar has to give up its column: a window under
  * `FRAME.fold.sidebarFloats`, or one where it, a drawn right panel and `MIN_READING` do
@@ -1034,7 +1064,7 @@ export const rightPanelDrawn = (workbench: Workbench): boolean => {
 export const sidebarCannotHaveColumn = (_workbench: Workbench, windowWidth: number): boolean =>
   windowWidth < FRAME.fold.sidebarFloats
 
-/** A fixed nonmodal float leaves main usable below the equality boundary. */
+/** Below the narrow boundary a pane replaces main and keeps its return control. */
 export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): boolean =>
   windowWidth < FRAME.fold.panelFloats && rightPanelDrawn(workbench)
 
@@ -1044,6 +1074,7 @@ const frameReadingFloor = (windowWidth: number, standingSidebar = 0, seam = 1): 
 /** Requested preferences survive viewport changes; only drawing is clamped. */
 export const effectiveRightWidth = (workbench: Workbench, windowWidth: number, standingSidebar: number): number => {
   if (!rightPanelDrawn(workbench)) return 0
+  if (rightPanelOverlays(workbench, windowWidth)) return Math.max(0, windowWidth - standingSidebar)
   const max = Math.max(0, windowWidth - standingSidebar - frameReadingFloor(windowWidth, standingSidebar, SEAM) - 2 * SEAM)
   return Math.max(0, Math.min(workbench.right.size, FRAME.rightPanel.max, max, Math.max(0, windowWidth - standingSidebar - FRAME.page.canvasGutter)))
 }
@@ -1066,6 +1097,7 @@ export const effectiveBottomHeight = (workbench: Workbench, windowHeight: number
 export const noticeArea = (workbench: Workbench, windowWidth: number): 'main' | 'right' | 'bottom' | 'sidebar' => {
   const zoom = workbench.zoom
   if (zoom !== null && zoom.area !== 'main') return zoom.area
+  if (rightPanelOverlays(workbench, windowWidth) || workPaneExpanded(workbench)) return 'right'
   return 'main'
 }
 
@@ -1190,8 +1222,8 @@ export const areaVisible = (workbench: Workbench, area: AreaId): boolean => {
  * same rule), so its tab strip, not the hidden conversation's header, is the
  * row under the buttons.
  */
-export const cornerArea = (_workbench: Workbench, sidebarShown: boolean, _windowWidth = Number.POSITIVE_INFINITY): AreaId =>
-  sidebarShown ? 'sidebar' : 'main'
+export const cornerArea = (workbench: Workbench, sidebarShown: boolean, windowWidth = Number.POSITIVE_INFINITY): AreaId =>
+  sidebarShown ? 'sidebar' : rightPanelOverlays(workbench, windowWidth) ? 'right' : 'main'
 
 // ---------------------------------------------------------- narrow windows
 

@@ -61,7 +61,8 @@ Object.assign(store, { closeTerminal: (terminalId: string) => {
   if (entry) store.closeView(entry.id)
 } })
 
-store.showViewIn(panelView.kind === 'terminal' ? 'bottom' : 'right', panelView as never)
+if (panelView.kind === 'terminal') void store.openTerminal()
+else store.showViewIn('right', panelView as never)
 
 ;(window as Window & { __narrowOverlayStore?: typeof store }).__narrowOverlayStore = store
 

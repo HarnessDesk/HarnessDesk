@@ -34,14 +34,25 @@ test('keyboard focus and menu Escape still open the labelled card', async ({ pag
   await expect(page.locator('[data-slot="hover-card-content"]')).toBeVisible()
 })
 
-test('the review scenes select Details and open the folder actions menu', async ({ page }) => {
+test('the review scenes reopen the rail and open the folder actions menu', async ({ page }) => {
   const source = readFileSync('script/shots/shoot.mjs', 'utf8')
   const helper = source.match(/const openGitMenu = async \(\) => \{([\s\S]*?)\n  \}/)?.[1]
   expect(helper).toBeDefined()
   const selectors = [...helper!.matchAll(/press\(\{ selector: '([^']+)'/g)].map(match => match[1]!)
   expect(selectors).toHaveLength(2)
+  const visibility = helper!.match(/const shown = await cdp\.json\(`([^`]+)`\)/)?.[1]
+  expect(visibility).toBeDefined()
+  const railShown = () => page.evaluate(expression => Boolean(window.eval(expression)), visibility!)
   await page.goto('/preview.html?frame-wall=conversation')
-  await page.locator(selectors[0]!).click()
+  const railToggle = page.locator(selectors[0]!)
+  await expect(railToggle).toHaveAttribute('aria-pressed', 'true')
+  expect(await railShown()).toBe(true)
+  await railToggle.click()
+  await expect(railToggle).toHaveAttribute('aria-pressed', 'false')
+  expect(await railShown()).toBe(false)
+  await railToggle.click()
+  await expect(railToggle).toHaveAttribute('aria-pressed', 'true')
+  expect(await railShown()).toBe(true)
   const branch = page.locator('[aria-label="Conversation facts"] [data-slot="summary-item"]')
     .filter({ has: page.locator('dt', { hasText: /^Branch$/ }) })
   const branchValue = branch.locator('[data-slot="middle-truncate"]')

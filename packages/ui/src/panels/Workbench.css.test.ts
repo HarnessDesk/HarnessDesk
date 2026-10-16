@@ -61,13 +61,12 @@ describe('the dim over a narrow window', () => {
     expect(floating).toMatch(/visibility:\s*visible/)
   })
 
-  it('the fixed right float begins below the top bar and ends above the terminal, with no window foot', () => {
-    expect(shellCss).toMatch(/\.shell\[data-panel-floats='true'\] \.right\s*\{[^}]*top:\s*var\(--hd-bar-h\)/)
-    expect(shellCss).toContain('bottom: var(--frame-bottom)')
+  it('a narrow pane owns the full height with its own header', () => {
+    expect(shellCss).toMatch(/\.shell\[data-panel-floats='true'\] \.right\s*\{[^}]*top:\s*0/)
+    expect(shellCss).toMatch(/\.shell\[data-panel-floats='true'\] \.right\s*\{[^}]*bottom:\s*0/)
   })
-  it('reserves the capped right column when the panel floats', () => {
-    expect(shellCss).toMatch(/\.shell\[data-panel-floats='true'\]\s*\{[^}]*grid-template-columns:\s*var\(--frame-left\) minmax\(0, 1fr\) var\(--frame-right\)/)
-    expect(shellCss).toMatch(/\.shell\[data-left-floats='true'\]\[data-panel-floats='true'\]\s*\{[^}]*grid-template-columns:\s*0 minmax\(0, 1fr\) var\(--frame-right\)/)
+  it('a replacing pane takes no second column from main', () => {
+    expect(shellCss).toMatch(/\.shell\[data-panel-floats='true'\]\s*\{[^}]*grid-template-columns:\s*var\(--frame-left\) minmax\(0, 1fr\) 0 0/)
   })
   it('does not hide main or disable its bar dragging for a nonmodal right float', () => {
     expect(css).not.toContain('data-right-panel-overlay')

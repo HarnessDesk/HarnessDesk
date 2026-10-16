@@ -919,11 +919,11 @@ having written the judgement down.
 
 ### `one step`
 
-**Use** — A destination is named once by its permanent top bar, using the subject step: 14px medium. Settings uses a visible h1 in the page role above its description instead; its bar has no title. The wordmark keeps its own type role.
+**Use** — A standalone page names itself once in its body with Text as="h1" role="page", on the content column beside its chooser or primary verb. Settings sections use their own name without a breadcrumb. Named subjects keep their title menu in the bar; canvases have no body title. The wordmark keeps its own type role.
 
 **Not** — Repeating a destination title in both its bar and page body, or another type size for a detail destination.
 
-**Why** — A retained destination shares the same shell and title position as work. Its content starts at the Page gutter.
+**Why** — The content column anchors the page name at every width. Its title row scrolls away with the body; the fixed bar keeps its height and controls.
 
 ### `GroupLabel`
 
@@ -1698,7 +1698,7 @@ Plugin sections join Details' flow; hidden native layers keep their existing box
 
 `packages/ui/src/design/patterns/FixedShell.tsx`
 
-Five stable regions: folding and closing affect geometry, never body identity.
+Stable regions: folding and closing affect geometry, never body identity.
 
 ### `ShellNoticeHost`
 
@@ -1971,6 +1971,8 @@ later. The promise's own value can name the ending.
 `packages/ui/src/design/patterns/Page.tsx`
 
 A page's column — the one way a page sets its width and its margins.
+The content column anchors a standalone page's title at every measure;
+the title and its chooser or verb scroll together under the fixed bar.
 
 A screen says what kind of page it is and passes its blocks; it does not
 write a max-width, a padding or an outer margin of its own. `reading` is the
@@ -1986,7 +1988,7 @@ Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
 four edges. A surface that brings its own geometry — a terminal, a diff,
 a graph — bleeds instead of taking a page.
 
-Blocks inside sit one stack gap (`--hd-card-gap`) apart; a `Section` brings
+Blocks inside sit one stack gap (`--hd-page-stack`) apart; a `Section` brings
 its own larger step. A Team's Findings drew its
 facts against the sidebar, a button across the window and a switch in the
 middle of it because nothing told the page what width it was.
@@ -2031,7 +2033,10 @@ Complete supporting notes that belong to a page group.
 
 `packages/ui/src/design/patterns/PageOptions.tsx`
 
-Current choices, search and read actions in the first body block; long menu choices wrap within the page.
+Current choices, search and read actions in the first body block. A title
+uses the page role on the content edge, with the primary choice and verb
+on the right. Search and secondary choices follow at the page stack gap;
+long titles and menu choices wrap within the page.
 
 ### `PageRecordViews`
 
@@ -2068,7 +2073,8 @@ is a CSS custom property, visible to descendants of whichever element
 carries it, not to a sibling), and `dock` is the element to measure —
 typically the strip holding the bars and the composer together. A screen
 wires the two refs to its own markup; the observing and the `setProperty`
-call are this hook's alone.
+call are this hook's alone. Observe the border box so padding and border
+changes update the same full height that offsetHeight measures.
 
 ### `ReadingMeasure`
 
@@ -2642,5 +2648,5 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
-| `pageMeasureInScreen` | 20 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2089 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `pageMeasureInScreen` | 19 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
+| `screenLayout` | 2084 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |

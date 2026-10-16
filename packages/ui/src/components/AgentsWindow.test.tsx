@@ -166,10 +166,10 @@ it('the roster records a named route through its caller', () => {
   act(() => row.click())
   expect(onFocus).toHaveBeenCalledWith('code-reviewer')
 })
-it('a named Agent uses the reading page and the parent crumb in the shared bar', () => {
+it('a named Agent uses the reading page and a return action in its first body row', () => {
   const { onFocus } = mount('code-reviewer')
   expect(container.querySelector('[data-slot="page"]')?.getAttribute('data-width')).toBe('reading')
-  const parent = [...container.querySelectorAll('button')].find(button => button.textContent === 'Agents ›')!
+  const parent = [...container.querySelectorAll('button')].find(button => button.textContent === 'Back to Agents')!
   expect(parent).toBeTruthy()
   act(() => parent.click())
   expect(onFocus).toHaveBeenCalledWith(null)
@@ -197,8 +197,10 @@ for (const refused of [false, true]) it(`a ${refused ? 'refused' : 'successful'}
     <DestinationPageScope owner="destination:agents" active><AgentsWindow focus="code-reviewer" onFocus={() => {}} /></DestinationPageScope>
     <TopBarOutlet owner="destination:agents" fallback={{ place: 'Agents', more: () => null }} />
   </TopBarProvider></StoreProvider>))
-  const start = container.querySelector<HTMLButtonElement>('[data-topbar="verb"] button')!
+  const start = container.querySelector<HTMLButtonElement>('[data-slot="toolbar"] button')!
   expect(start).toBeTruthy()
+  expect(start.textContent).toContain('Start a conversation')
+  expect(container.querySelector('[data-slot="top-bar"] [data-topbar="verb"] button')).toBeNull()
   await act(async () => { start.click() })
   expect(returnToWork).not.toHaveBeenCalled()
   if (refused) {

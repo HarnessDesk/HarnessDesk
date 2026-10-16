@@ -1,6 +1,7 @@
 /* FixedShell owns geometry. This screen retains native layer/focus and sidebar motion boundaries. */
 .shell[data-lights='sidebar'] .sidebar,
 .shell[data-lights='main'] [data-frame-region='top'] { --titlebar-inset: var(--hd-titlebar-lights); }
+.shell[data-lights='right'] [data-work-pane-header] { --titlebar-inset: var(--hd-titlebar-lights); }
 .sidebar { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
 .sidebar > * { flex: none; width: 100%; height: 100%; min-height: 0; }
 .sidebar:where([data-hidden]) { visibility: hidden; transition: visibility 0s linear var(--hd-duration-slow); }
@@ -56,7 +57,7 @@
 .scrim {
   position: absolute;
   inset: 0;
-  z-index: var(--hd-z-drawer);
+  z-index: calc(var(--hd-z-drawer) + 1); /* desk: D1 keeps the floating sidebar scrim above its tool pane. */
   /* Hidden once it has faded, not as it starts to: until then it is still
      drawn over the conversation, and a press on it must land on it. A press
      straight after Escape reached the composer it was still dimming. */

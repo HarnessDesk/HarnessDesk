@@ -15,7 +15,7 @@ export const FRAME = {
   rightPanel: { width: 400, min: 320, max: 640 },
   bottomPanel: { height: 240, min: 120 },
   main: { min: 480 },
-  fold: { panelFloats: 1280, sidebarFloats: 1000 },
+  fold: { panelFloats: 1000, sidebarFloats: 1000 },
   page: { reading: 736, wide: 1320, gutter: 24, canvasGutter: 8 },
   rail: { rowHeight: 32, rowPitch: 34, settingsRowHeight: 32, inset: 8, icon: 16, gap: 8, label: 13, settingsLabel: 14, line: 20, groupWeight: 400 },
   menu: { min: 200, max: 340, padding: 6, radius: 10, rowHeight: 30, rowRadius: 4 },

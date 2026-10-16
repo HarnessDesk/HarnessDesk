@@ -111,7 +111,7 @@ it('fixed panel hiding keeps its full box instead of shrinking it to tabs (revie
     .find(rule => rule[1]?.trim() === selector)?.[2]
   // Read the individual geometry rule, not the shared visibility selector list.
   const hiddenRight = declarations(".shell[data-right-open='false'] .right")
-  const hiddenBottom = declarations(".shell[data-bottom-open='false'] .bottom")
+  const hiddenBottom = declarations(".bottom")
   expect(hiddenRight).toContain('width: var(--frame-right-retained)')
   expect(hiddenBottom).toContain('left: var(--frame-left)')
   expect(hiddenBottom).toContain('right: 0')
@@ -121,7 +121,7 @@ it('fixed panel hiding keeps its full box instead of shrinking it to tabs (revie
   }
   expect(flat(host)).not.toContain('[data-collapsed]')
   expect(workbench).not.toContain('DockPanelTabs')
-  for (const area of ['right', 'bottom']) {
+  for (const area of ['right']) {
     expect(fixedShellCss).toContain(`.shell[data-${area}-open='false'] .${area}`)
   }
   expect(fixedShellCss).toContain('visibility: hidden; pointer-events: none;')

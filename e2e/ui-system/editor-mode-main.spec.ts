@@ -36,7 +36,7 @@ for (const theme of ['light', 'dark'] as const) test(`file tabs retain drafts an
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(active).toHaveCount(0)
   await expect(tabs.getByRole('tab', { name: 'README.md', exact: true })).toBeVisible()
-  await page.locator('[data-topbar="place"] > button').click()
+  await page.getByRole('button', { name: 'Conversation mode', exact: true }).click()
   await expect(main).toHaveCount(0)
   await expect(page.locator('[data-slot="composer"]:visible')).toBeVisible()
   expect(errors).toEqual([])

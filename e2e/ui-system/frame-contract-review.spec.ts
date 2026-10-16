@@ -17,11 +17,13 @@ test('E9 Changes review content uses the shared page gutter inside its canvas', 
   expect(Math.round(firstBlock.x - canvasBox.x)).toBe(FRAME.page.gutter)
 })
 
-test('E9 Changes review starts with a single filter field', async ({ page }) => {
+test('E9 Changes review starts with its body view choice before the filter', async ({ page }) => {
   await openFrame(page, 'frame-wall=changes-review', 'light')
   const measured = page.locator('[data-page-destination="changes-review"]:visible [data-page-measure="wide"]')
   const firstRow = measured.locator(':scope > *').first()
-  await expect(firstRow.getByRole('searchbox', { name: 'Filter files', exact: true })).toBeVisible()
+  await expect(firstRow.getByTitle('Changes views', { exact: true })).toBeVisible()
+  await expect(measured.getByRole('searchbox', { name: 'Filter files', exact: true })).toHaveCount(1)
+  await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('tab')).toHaveCount(0)
   await expect(firstRow.locator('[data-slot="row-title"]')).toHaveCount(0)
 })
 
@@ -41,13 +43,10 @@ test('R10 nav4 Changes review uses page top gutter and Escape returns to work', 
   await page.getByRole('button', { name: 'Open review', exact: true }).click()
   const review = page.locator('[data-page-destination="changes-review"]:visible')
   await expect(review).toHaveCount(1)
-  const topBar = (await page.locator('[data-slot="top-bar"]:visible').boundingBox())!
+  const topBar = (await page.locator('[data-slot="top-bar"]:visible').locator('..').boundingBox())!
   const firstBlock = (await review.locator('[data-page-measure="wide"] > *').first().boundingBox())!
   const topOffset = firstBlock.y - (topBar.y + topBar.height)
-  // The gutter is drawn from where a 28px switcher track ends; the track is 32 now and centred in the same bar,
-  // so its bottom edge sits 2px lower while the page content has not moved.
-  const trackGrowth = (topBar.height - 28) / 2
-  expect(Math.round(topOffset + trackGrowth)).toBe(FRAME.page.gutter)
+  expect(Math.round(topOffset)).toBe(FRAME.page.gutter - FRAME.page.canvasGutter + 1)
   await page.keyboard.press('Escape')
   await expect(review).toHaveCount(0)
   await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
@@ -80,7 +79,15 @@ test('E8 review More contains only Terminal and opens the reviewed folder', asyn
   await expect(menu.getByRole('menuitem')).toHaveCount(0)
   await expect(menu.getByRole('menuitemradio')).toHaveCount(1)
   await menu.getByRole('menuitemradio', { name: /Terminal/ }).click()
-  await expect(page.locator('[data-frame-region="bottom"]:visible')).toBeVisible()
+  const pane = page.locator('[data-frame-region="right"]')
+  await expect(pane.locator('[data-terminal-id]').first()).toBeVisible()
+  const box = (await pane.boundingBox())!
+  expect(box.y).toBe(0)
+  expect(box.height).toBe(900)
+  const header = pane.locator('[data-work-pane-header]')
+  await expect(header).toContainText('Terminal')
+  expect((await header.boundingBox())!.height).toBe(FRAME.bar.height)
+  await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-bottom-open', 'false')
 })
 
 // E8 semantic scenes use the assembled dispatcher and the existing review scroll.

@@ -160,7 +160,7 @@ test('a scripted transcript jump lands in the same task with motion reduced', as
 
 test('a focused row yields its fixed priority slot immediately before the next frame', async ({ page }) => {
   await page.goto('/preview.html')
-  const row = page.locator('[data-region="session-row"] [data-left-row]').filter({
+  const row = page.locator('[data-frame-id="sidebar-column"] [data-region="session-row"] [data-left-row]').filter({
     has: page.locator(`button[aria-label="Actions for ${label}"]`),
   })
   const priority = row.locator('[data-left-mark]')
@@ -308,14 +308,13 @@ test('a sidebar collapsed with motion reduced is hidden at once, with nothing in
 test('a floating sidebar put away with motion reduced is hidden at once, with nothing in it to Tab to', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 900 })
   await page.goto('/design.html?view=panels')
-  // At this width the right panel covers main, including the sidebar toggle.
-  // Collapse the panel through its visible control before opening the sidebar.
-  const hidePanel = page.getByRole('button', { name: 'Toggle right panel', exact: true })
-  await expect(hidePanel).toBeVisible()
-  await hidePanel.click()
+  // An admitted narrow pane covers the sidebar toggle. Close it if this
+  // catalogue specimen has one, then open the floating sidebar itself.
+  const hidePanel = page.getByRole('button', { name: 'Close pane', exact: true })
+  if (await hidePanel.isVisible()) await hidePanel.click()
   const show = page.locator('button[aria-label="Show sidebar"]').filter({ visible: true }).first()
-  await expect(show).toBeAttached()
-  await show.evaluate((node: HTMLButtonElement) => node.click())
+  await expect(show).toBeVisible()
+  await show.click()
   await expect(page.getByRole('dialog', { name: 'Sidebar', exact: true })).toBeVisible()
   await watchPutAway(page)
   await page.keyboard.press('Escape')

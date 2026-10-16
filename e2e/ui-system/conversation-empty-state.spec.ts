@@ -34,7 +34,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.goto(`/preview.html?notices=conversation-${scene}-after`)
       const frame = page.locator(`[data-frame-id="notices-conversation-${scene}-after"]`)
       const empty = frame.locator('[data-slot="conversation-empty-state"]')
-      const notice = frame.getByText('A tool was unavailable when this conversation opened.', { exact: true })
+      const notice = frame.locator('[data-slot="workbench-main"]').getByText('A tool was unavailable when this conversation opened.', { exact: true })
       await expect(empty).toContainText(scene === 'restore' ? 'Nothing to show' : 'What should we build?')
       await expect(notice).toBeVisible()
       await expect.poll(() => page.locator('html').evaluate(el => el.style.colorScheme)).toBe(theme)

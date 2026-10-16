@@ -1,9 +1,8 @@
 import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
 import { Button } from '../design'
-import { FRAME } from '../design/frame'
 import { useSidebarHistory } from '../lib/use-sidebar-history'
-import { ArrowLeftIcon, ArrowRightIcon, SearchIcon, SidebarIcon } from './Icons'
+import { ArrowLeftIcon, ArrowRightIcon, SidebarIcon } from './Icons'
 import styles from './WindowControls.module.css'
 
 /**
@@ -15,10 +14,10 @@ import styles from './WindowControls.module.css'
  * does not — put away, or floating over a narrow window — so the controls
  * never leave the row the eye expects them on.
  *
- * When the column is away, Search stays beside the toggle in the title row.
  * When the standing sidebar's own history folds, main carries the arrows alone.
+ * Search belongs to the shell's fixed tools.
  */
-export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean }) => {
+export const WindowControls = ({ sidebarRow = false, history = true }: { sidebarRow?: boolean; history?: boolean } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const settings = snapshot.workbench.navigation.current.kind === 'settings'
@@ -27,7 +26,7 @@ export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean })
   const historyInMain = useSidebarHistory(placement === 'column', settings)
   if (!sidebarRow && placement === 'column' && !historyInMain) return null
   const historyOnly = !sidebarRow && placement === 'column'
-  const navigation = !settings && (sidebarRow || historyInMain || snapshot.windowWidth >= FRAME.fold.sidebarFloats)
+  const navigation = history && !settings
   return (
     <span className={styles.group}>
       {!historyOnly && <Button
@@ -37,15 +36,6 @@ export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean })
         aria-label={shown ? 'Hide sidebar' : 'Show sidebar'}
       >
         <SidebarIcon size={14} />
-      </Button>}
-      {!settings && !shown && <Button
-        variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
-        onClick={() => window.dispatchEvent(new CustomEvent('harnessdesk:search'))}
-        title="Search everything (⌘K)"
-        aria-label="Search everything"
-        aria-keyshortcuts="Meta+K"
-      >
-        <SearchIcon size={14} />
       </Button>}
       {navigation && <span>
         <Button
