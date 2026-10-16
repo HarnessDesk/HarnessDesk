@@ -239,6 +239,8 @@ export const Review = () => {
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (effectiveTool !== 'hand' || event.button !== 0) return
+    // The toolbar floats over the board; capturing its press would swallow the click.
+    if ((event.target as Element).closest('[data-slot="flow-canvas-toolbar"]')) return
     drag.current = { x: event.clientX, y: event.clientY, moved: false }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
