@@ -229,6 +229,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
   const alive = useRef(active)
   alive.current = active
   const generation = useRef(0)
+  const checkGeneration = useRef(0)
   const store = useStore()
   const snapshot = useSnapshot()
   const [library, setLibrary] = useState<Library | null>(null)
@@ -271,6 +272,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
   const [declaredBy, setDeclaredBy] = useState<ReadonlyMap<string, readonly { readonly id: string; readonly origin: AgentOrigin; readonly label: string }[]> | null>(null)
 
   const cwd = snapshot.workspace?.path
+  useEffect(() => () => { checkGeneration.current++ }, [active, cwd])
 
   const load = useCallback(async () => {
     if (!alive.current) return
@@ -297,15 +299,15 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
 
   const checkUpdates = async () => {
     if (!library || checking) return
-    const ticket = generation.current
-    const current = () => alive.current && ticket === generation.current
+    const ticket = checkGeneration.current
+    const current = () => alive.current && ticket === checkGeneration.current
     setChecking(true)
     setCheckFailed(null)
     try {
       const updates = await store.transport.request('library/sources/check', {})
       if (!current()) return
       await load()
-      if (!alive.current || generation.current !== ticket + 1) return
+      if (!current()) return
       const unavailable = updates.filter(one => one.status === 'gone' || one.status === 'unreachable')
       const behind = updates.filter(one => one.status === 'behind')
       showToast({ id: 'library-updates', ...(unavailable.length > 0

@@ -2268,3 +2268,29 @@ it('closing a sheet during a fetch cannot open a late plan', async () => {
   await act(async () => finish({ ...updateOrigin, commit: 'fresh', skills: [{ dir: updateOrigin.path, bundle: 'bundle' }], refused: [] }))
   expect(request.mock.calls.some(([m]) => m === 'library/plan')).toBe(false)
 })
+
+it('Rescan during a pending check still refreshes the checked library and reports its result', async () => {
+  const request = await mount(library([entry('code-review', ['reaches'])]))
+  const original = request.getMockImplementation()!
+  let finish!: (value: unknown) => void
+  request.mockImplementation(async (method, params) => method === 'library/sources/check' ? new Promise(resolve => { finish = resolve }) : original(method, params))
+  await pressUpdateCheck()
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(n => n.textContent === 'Rescan')!.click())
+  await act(async () => finish([skillUpdate('behind')]))
+  expect(request.mock.calls.filter(([m]) => m === 'library/read')).toHaveLength(3)
+  expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: '1 updates available' }))
+})
+
+it('Rescan cannot suppress a pending check failure', async () => {
+  const request = await mount(library([]))
+  const original = request.getMockImplementation()!
+  let fail!: (error: Error) => void
+  request.mockImplementation(async (method, params) => method === 'library/sources/check' ? new Promise((_resolve, reject) => { fail = reject }) : original(method, params))
+  await pressUpdateCheck()
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(n => n.textContent === 'Rescan')!.click())
+  await act(async () => fail(new Error('The repository did not answer.')))
+  expect(container.textContent).toContain('The repository did not answer.')
+  expect(toast).not.toHaveBeenCalled()
+})
