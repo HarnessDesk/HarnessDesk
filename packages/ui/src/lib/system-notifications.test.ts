@@ -47,3 +47,12 @@ it('reads stored switches defensively', () => {
   expect(readSystemNotifications('nonsense')).toEqual({})
   expect(readSystemNotifications({ turns: false, junk: 'yes' })).toEqual({ turns: false })
 })
+
+
+it('names runtimes for conversation events that do not require a saved Agent role', () => {
+  expect(SYSTEM_NOTIFICATION_KINDS.filter(one => ['turns', 'approvals', 'needsYou'].includes(one.kind)).map(one => one.detail)).toEqual([
+    'A runtime finished while you were elsewhere.',
+    'A runtime wants to run a command, edit files, or widen its sandbox.',
+    'A runtime asked you a question.',
+  ])
+})

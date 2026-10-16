@@ -36,7 +36,7 @@ const mount = (load: () => Promise<QuestionWait>, save: (value: QuestionWait) =>
 }
 
 const radios = (): HTMLButtonElement[] =>
-  [...document.body.querySelectorAll<HTMLButtonElement>('[aria-label="How long an agent’s question waits when nobody is here"] [role="radio"]')]
+  [...document.body.querySelectorAll<HTMLButtonElement>('[aria-label="How long a runtime’s question waits when nobody is here"] [role="radio"]')]
 const chosen = (): string[] => radios().filter((one) => one.getAttribute('aria-checked') === 'true').map((one) => one.textContent ?? '')
 
 it('reads this machine’s wait, five minutes by default, and offers stopping right away up to waiting until you are back', async () => {

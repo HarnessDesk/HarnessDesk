@@ -474,14 +474,14 @@ export const ImportDialog = ({
         }
       }
     }
-    const label = columns.find((one) => one.id === target)?.label ?? 'the agent'
+    const label = columns.find((one) => one.id === target)?.label ?? 'the runtime'
     onPlan(`Import into ${label}`, intents)
   }
 
   return (
     <Dialog
-      title="Import between agents"
-      description="Pick where to import from, and which agent should get it. Nothing changes until a preview is confirmed."
+      title="Import between runtimes"
+      description="Pick where to import from, and which runtime should get it. Nothing changes until a preview is confirmed."
       size="lg"
       tall
       onClose={onClose}
@@ -505,7 +505,7 @@ export const ImportDialog = ({
         <Text as="p" role="muted">
           {library.locations.some((one) => one.runtime === target)
             ? 'Nothing to import — everything the source loads already reaches the target, or cannot be carried faithfully (those rows say so in the table).'
-            : `Nothing can be carried to ${columns.find((one) => one.id === target)?.label ?? 'this agent'} yet — this build does not know where it keeps skills or servers.`}
+            : `Nothing can be carried to ${columns.find((one) => one.id === target)?.label ?? 'this runtime'} yet — this build does not know where it keeps skills or servers.`}
         </Text>
       ) : (
         <>
@@ -617,7 +617,7 @@ export const ResolveDialog = ({
       }
    >
       <Text as="p" role="muted">
-        The copies of this skill disagree, so which one an agent runs depends on scan order. Pick
+        The copies of this skill disagree, so which one a runtime runs depends on scan order. Pick
         the copy that should win; every other copy is rewritten to match it, and each one replaced
         is backed up first.
       </Text>
@@ -713,13 +713,13 @@ export const AuthorDialog = ({
         </Field>
         <Field
           label="Description"
-          hint="Every agent carries this line on every turn — it is how the skill gets chosen, and what it costs."
+          hint="Every runtime carries this line on every turn — it is how the skill gets chosen, and what it costs."
        >
           {(control) => (
             <Input
               {...control}
               value={description}
-              placeholder="When should an agent reach for this?"
+              placeholder="When should a runtime reach for this?"
               onChange={(event) => setDescription(event.target.value)}
             />
           )}
@@ -731,7 +731,7 @@ export const AuthorDialog = ({
               variant="editor" controlSize="compact"
               value={body}
               rows={6}
-              placeholder="What the agent should do when this skill fires."
+              placeholder="What the runtime should do when this skill fires."
               onChange={(event) => setBody(event.target.value)}
             />
           )}

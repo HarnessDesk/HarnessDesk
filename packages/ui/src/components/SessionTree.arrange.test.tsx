@@ -311,7 +311,7 @@ it('keeps display controls to two flyouts and the project fold actions', () => {
   const menu = document.querySelector('[role="menu"]')!
   const labels = [...menu.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]')]
     .map((item) => item.querySelector('[data-menu-label]')?.textContent?.trim())
-  expect(labels).toEqual(['Sort projects', 'Show agents', 'Collapse all', 'Expand all'])
+  expect(labels).toEqual(['Sort projects', 'Show runtimes', 'Collapse all', 'Expand all'])
   expect(menu.querySelectorAll(':scope > [role="menuitem"]')).toHaveLength(4)
   expect(menu.querySelector('[role="separator"]')).not.toBeNull()
   expect(container.querySelector('[data-filtered]')).toBeNull()
@@ -340,18 +340,18 @@ it('sorts projects through its flyout and leaves stored density without a menu',
   expect(store.setListPrefs).not.toHaveBeenCalledWith(expect.objectContaining({ density: expect.anything() }))
 })
 
-it('shows every runtime in the Show agents flyout and filters by the chosen runtime', async () => {
+it('shows every runtime in the Show runtimes flyout and filters by the chosen runtime', async () => {
   const more = { ...runtime, id: 'other', presentation: { name: 'Other Agent' } } as RuntimeInfo
   const { snapshot, store } = rig()
   const nextSnapshot = { ...snapshot, runtimes: [runtime, more] } as AppSnapshot
   const storeWithRuntimes = { ...store, getSnapshot: () => nextSnapshot } as unknown as AppStore
   act(() => root.render(<StoreProvider store={storeWithRuntimes}><SessionListControls /></StoreProvider>))
   act(() => container.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  await openControlSubmenu('Show agents')
+  await openControlSubmenu('Show runtimes')
   const menus = [...document.querySelectorAll<HTMLElement>('[role="menu"]')]
   const labels = [...menus[1]!.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
     .map((item) => item.querySelector('[data-menu-label]')?.textContent?.trim())
-  expect(labels).toEqual(['All agents', 'Agent', 'Other Agent'])
+  expect(labels).toEqual(['All runtimes', 'Agent', 'Other Agent'])
   const other = [...menus[1]!.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
     .find((item) => item.querySelector('[data-menu-label]')?.textContent?.trim() === 'Other Agent')!
   act(() => other.dispatchEvent(new MouseEvent('click', { bubbles: true })))

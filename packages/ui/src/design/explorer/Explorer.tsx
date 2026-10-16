@@ -141,7 +141,7 @@ const SURFACES = [
     id: 'dashboard',
     title: 'Dashboard',
     about:
-      "The shipped Dashboard — what is left on each plan, what it cost and where it went — as ⌘U opens it, on the preview's four agents. It is a window of its own, so it sits in a window-sized frame here.",
+      "The shipped Dashboard — what is left on each plan, what it cost and where it went — as ⌘U opens it, on the preview's four runtimes. It is a window of its own, so it sits in a window-sized frame here.",
     render: DashboardSurface,
   },
   {
@@ -155,7 +155,7 @@ const SURFACES = [
     id: 'conversation',
     title: 'Conversation',
     about:
-      'The shipped conversation — header, transcript and composer — on the preview\'s Worktree Management session: a question, the agent\'s thinking, one command, one file change, and the answer. It does not yet show an approval, a refused or failed tool call, a plan, attachments, a compaction or a turn still running: the fixture has no session in those states, and this tab shows the fixture.',
+      'The shipped conversation — header, transcript and composer — on the preview\'s Worktree Management session: a question, the runtime\'s thinking, one command, one file change, and the answer. It does not yet show an approval, a refused or failed tool call, a plan, attachments, a compaction or a turn still running: the fixture has no session in those states, and this tab shows the fixture.',
     render: ConversationSurface,
   },
   {
@@ -183,7 +183,7 @@ const SURFACES = [
     id: 'composer-fixed-slots',
     title: 'Composer — fixed slots',
     about:
-      'The shipped composer controls in draft and live layouts, across agent shapes and at composer, 560px and 360px widths. Refused slots retain their reason; empty More and Extension slots, and the empty Context ring, stay visible where their positions depend on them.',
+      'The shipped composer controls in draft and live layouts, across runtime shapes and at composer, 560px and 360px widths. Refused slots retain their reason; empty More and Extension slots, and the empty Context ring, stay visible where their positions depend on them.',
     render: ComposerSlotsSurface,
   },
   {

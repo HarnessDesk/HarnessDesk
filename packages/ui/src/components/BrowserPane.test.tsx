@@ -338,7 +338,7 @@ describe('BrowserPane', () => {
     const harness = { ...base, store: { ...base.store, getSnapshot: () => snapshot } as unknown as AppStore }
     mount(browserView('https://a.test/'), harness)
     // Still marked — something here can drive a page, and the tab says so.
-    expect(container.querySelectorAll('[title="Agents drive this tab"]')).toHaveLength(1)
+    expect(container.querySelectorAll('[title="Runtimes drive this tab"]')).toHaveLength(1)
     expect(container.textContent).not.toContain('OpenAI Codex')
   })
 

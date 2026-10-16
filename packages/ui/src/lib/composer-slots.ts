@@ -64,7 +64,7 @@ export const staleDefaults = (
     const reason = !option ? 'This setting is no longer offered.'
       : option.disabled || choice?.disabled
         || (option.type === 'select' && !choice ? 'This value is no longer offered.'
-          : option.currentValue !== value ? 'The agent returned a different value.' : null)
+          : option.currentValue !== value ? 'The runtime returned a different value.' : null)
     if (!reason) return []
     const metadata = earlier ?? option
     return [{ id, label: metadata?.label ?? id, ...(metadata?.category ? { category: metadata.category } : {}),

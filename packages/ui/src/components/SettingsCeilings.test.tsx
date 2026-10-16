@@ -95,13 +95,13 @@ it('lists signed-in and used agents first and folds all other ceiling rows once'
     sessions: new Map([[sessionKey(open.runtime, open.id), open]]), history: [history], historyIdentity: [identity],
   } })
   await act(async () => {})
-  expect(ceilingTitles()).toEqual(['signed', 'open', 'history', 'identity', 'Other agents · 1'])
+  expect(ceilingTitles()).toEqual(['signed', 'open', 'history', 'identity', 'Other runtimes · 1'])
   const disclosure = otherAgents()!
   expect(disclosure).not.toBeNull()
   expect(disclosure.getAttribute('aria-expanded')).toBe('false')
   act(() => disclosure.click())
   expect(disclosure.getAttribute('aria-expanded')).toBe('true')
-  expect(ceilingTitles()).toEqual(['signed', 'open', 'history', 'identity', 'Other agents · 1', 'unused'])
+  expect(ceilingTitles()).toEqual(['signed', 'open', 'history', 'identity', 'Other runtimes · 1', 'unused'])
   act(() => disclosure.click())
   expect(ceilingTitles()).not.toContain('unused')
 })
@@ -113,17 +113,17 @@ it('keeps a used account sibling with its agent, counting unused agents rather t
     accountsByRuntime: { [slot.id]: { accounts: [{ kind: 'plan', label: 'dev@example.com' }], signInMethods: [] } },
   } })
   await act(async () => {})
-  expect(ceilingTitles()).toEqual(['Base', 'Base account', 'Other agents · 1'])
+  expect(ceilingTitles()).toEqual(['Base', 'Base account', 'Other runtimes · 1'])
   act(() => otherAgents()!.click())
-  expect(ceilingTitles()).toEqual(['Base', 'Base account', 'Other agents · 1', 'Unused', 'Unused account'])
+  expect(ceilingTitles()).toEqual(['Base', 'Base account', 'Other runtimes · 1', 'Unused', 'Unused account'])
 })
 
 it('offers one disclosure when no agents are in use and none when all are in use', async () => {
   mount({ evidence: { accountsByRuntime: {} } })
   await act(async () => {})
-  expect(ceilingTitles()).toEqual(['Other agents · 2'])
+  expect(ceilingTitles()).toEqual(['Other runtimes · 2'])
   act(() => otherAgents()!.click())
-  expect(ceilingTitles()).toEqual(['Other agents · 2', 'Alpha', 'Beta'])
+  expect(ceilingTitles()).toEqual(['Other runtimes · 2', 'Alpha', 'Beta'])
   mount()
   await act(async () => {})
   expect(ceilingTitles()).toEqual(['Alpha', 'Beta'])

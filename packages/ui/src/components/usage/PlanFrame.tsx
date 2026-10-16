@@ -47,7 +47,7 @@ export const PlanFrame = ({
   onOpenPlanSettings?: () => void
   children: ReactNode
 }) => {
-  const agent = info?.presentation.name ?? 'Agent'
+  const agent = info?.presentation.name ?? 'Runtime'
   const plan = planLabel(report.plan)
   return (
     <SurfaceCard as="article" data-shape={shape}>

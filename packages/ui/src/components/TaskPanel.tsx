@@ -130,7 +130,7 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
         className={styles.label}
         title={
           todo.edited
-            ? `You reworded this. The agent wrote “${todo.source}”, and is told your wording with your next message.`
+            ? `You reworded this. The runtime wrote “${todo.source}”, and is told your wording with your next message.`
             : 'Click to reword this task'
         }
         onClick={open}

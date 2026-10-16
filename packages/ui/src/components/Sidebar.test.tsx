@@ -393,6 +393,8 @@ describe('sidebar destinations', () => {
     expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(5)
     expect(rows.map((one) => one.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim())).toEqual([undefined, '1', undefined, '2', '1'])
     expect(group.querySelectorAll('[data-left-trailing]')).toHaveLength(5)
+    expect(rows[1]?.parentElement?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('1 Agents')
+    expect(rows[4]?.parentElement?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('1 Runtimes need attention')
   })
 
   it('fills the active row when its destination window is open', () => {

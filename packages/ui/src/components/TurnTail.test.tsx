@@ -42,7 +42,7 @@ it('keeps a wrapped answer readable while disabling its retry dispatch', async (
   const queue = vi.fn()
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, queue } as unknown as AppStore
   await act(async () => root.render(<StoreProvider store={store}><TurnTail turn={{ id: turnId('answer'), items: [], status: 'completed' } as unknown as Turn} session={{ turns: [] } as unknown as Session} answer="The work is finished." /></StoreProvider>))
-  const retry = container.querySelector<HTMLButtonElement>('button[aria-label="Ask the agent to try again"]')!
+  const retry = container.querySelector<HTMLButtonElement>('button[aria-label="Ask the runtime to try again"]')!
   expect(retry.disabled).toBe(true)
   expect(retry.title).toBe('This Team is wrapped')
   act(() => retry.click())
@@ -83,7 +83,7 @@ it('says a silent turn ended with nothing, in the same drawing, without interrup
   const alert = await render({ id: turnId('t1'), items: [], status: 'completed', diff: null } as Turn)
 
   expect(alert?.getAttribute('role')).toBe('status')
-  expect(alert?.textContent).toBe('The agent finished this turn without any output.')
+  expect(alert?.textContent).toBe('The runtime finished this turn without any output.')
 })
 
 it('leaves only actions and time visible, with the turn figures on the time tooltip', () => {

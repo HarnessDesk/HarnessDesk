@@ -134,7 +134,7 @@ export const useImportOffer = (): { readonly message: NoticeMessage; readonly di
     message: {
       id: OFFER.key,
       title: 'Skills and servers to share',
-      body: `Your other agents have ${whatWasFound(items)} this machine could use. Nothing is copied until you confirm it.`,
+      body: `Your other runtimes have ${whatWasFound(items)} this machine could use. Nothing is copied until you confirm it.`,
       action: {
         label: 'Review in Library',
         onSelect: () => {

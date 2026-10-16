@@ -100,7 +100,7 @@ const FileChangeBody = ({ approval }: { approval: Extract<Approval, { type: 'fil
   <>
     {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
     {approval.changes.length === 0 && (
-      <ApprovalReason className={styles.reason}>The agent wants to write changes to disk.</ApprovalReason>
+      <ApprovalReason className={styles.reason}>The runtime wants to write changes to disk.</ApprovalReason>
     )}
     {approval.changes.map((change) => (
       <div key={change.path} className={styles.fileBlock}>

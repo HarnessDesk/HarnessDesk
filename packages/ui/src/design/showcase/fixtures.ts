@@ -195,7 +195,7 @@ export const COLUMNS: Column[] = [
 ]
 
 export const SETUP_STEPS = [
-  { label: 'Add an agent', hint: 'Claude Code' },
+  { label: 'Add a runtime', hint: 'Claude Code' },
   { label: 'Pick a workspace' },
   { label: 'Set approvals' },
   { label: 'Run a session' },

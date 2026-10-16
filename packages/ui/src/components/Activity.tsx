@@ -101,7 +101,7 @@ export const Activity = ({ query, onFoot, sessionKeys, hideEmpty = false }: { qu
 
   const infoOf = (runtime: string) =>
     snapshot.runtimes.find((entry) => entry.id === runtime) ?? null
-  const nameOf = (runtime: string): string => infoOf(runtime)?.presentation.name ?? 'Agent'
+  const nameOf = (runtime: string): string => infoOf(runtime)?.presentation.name ?? 'Runtime'
 
   const needle = query.trim().toLowerCase()
   const shown = useMemo(
@@ -147,7 +147,7 @@ export const Activity = ({ query, onFoot, sessionKeys, hideEmpty = false }: { qu
   if (rows === null) return <PanelEmpty>Loading…</PanelEmpty>
   if (hideEmpty && shown.length === 0) return null
   if (rows.length === 0) {
-    return <PanelEmpty>Nothing recorded yet. Activity appears here as agents work.</PanelEmpty>
+    return <PanelEmpty>Nothing recorded yet. Activity appears here as runtimes work.</PanelEmpty>
   }
   if (shown.length === 0) return <PanelEmpty>Nothing matches that filter.</PanelEmpty>
 

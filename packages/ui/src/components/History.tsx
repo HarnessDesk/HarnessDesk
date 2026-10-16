@@ -126,17 +126,17 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
   useEffect(() => { if (!destinationActive) { setDeleting(null) } }, [destinationActive])
 
   return <>
-    <PageExplanation>Conversations imported from your agents. Open one to preview it; send a message to add it to the sidebar.</PageExplanation>
+    <PageExplanation>Conversations imported from your runtimes. Open one to preview it; send a message to add it to the sidebar.</PageExplanation>
     {hasSearchableHistory && <>
       <PageControls search={{label:'Search history titles',placeholder:'Search titles',value:query,change:setQuery}}
-        choices={[{id:'agent',title:'Agent',value:agent,options:[{value:'',label:'All agents'},...snapshot.runtimes.map(info=>({value:info.id,label:info.presentation.name}))],change:setAgent},
+        choices={[{id:'agent',title:'Runtime',value:agent,options:[{value:'',label:'All runtimes'},...snapshot.runtimes.map(info=>({value:info.id,label:info.presentation.name}))],change:setAgent},
           {id:'project',title:'Project',value:project,options:[{value:'',label:'All projects'},...projectOptions.map(root=>({value:root,label:folderName(root)}))],change:setProject}]}/>
       <Rows><Row title="Show hidden" control={<Switch aria-label="Show hidden" checked={hidden} onCheckedChange={setHidden}/>}/></Rows>
     </>}
     {problem && <Note tone="bad" action={<Button variant="outline" size="sm" onClick={() => setRetry(was => was + 1)}>Retry</Button>}>{problem}</Note>}
     {!loading && !problem && rows.length === 0 && (hasSearchableHistory
       ? <EmptyState variant="inline" align="start" title="Nothing matches these filters." />
-      : <EmptyState title="Nothing imported yet" description="Import history from an agent’s settings page."
+      : <EmptyState title="Nothing imported yet" description="Import history from a runtime’s settings page."
           stretchChildren children={<Rows>{importable.map(info => <RowButton key={info.id} kind="record" mark={<RuntimeFace runtime={info} size="navigation" />}
             title={info.presentation.name} onClick={() => onOpenAgent(info.id)} />)}</Rows>} />)}
     {rows.length > 0 && <Table aria-rowcount={rows.length + 1} rows="bare" density="comfortable" inset="row" viewport={{ref:scroll, 'data-history-scroll':true, onScroll:event => {
@@ -151,7 +151,7 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
           const info = snapshot.runtimes.find(info => info.id === row.runtime)
           const title = sessionLabel(row.title, row.preview)
           const deletable = info?.capabilities.deleteHistory === 'trash'
-          const deleteReason = !info ? 'This conversation’s agent is unavailable.' : info.capabilities.deleteHistory === 'erase'
+          const deleteReason = !info ? 'This conversation’s runtime is unavailable.' : info.capabilities.deleteHistory === 'erase'
             ? `${info.presentation.name} erases it for good, so delete it there` : !deletable ? `${info.presentation.name} keeps no way to delete one.` : undefined
           return <TableRow aria-rowindex={index + 2} key={`${row.runtime}:${row.id}`} interactive onClick={() => open(row)}>
             <TableCell lead={info && <RuntimeFace runtime={info} size="navigation" />}><Text as="span" role="row">
@@ -164,7 +164,7 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
               <DropdownMenu icons="none">
                 <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${title} actions`} />} />
                 <DropdownMenuContent align="end">
-                  {!row.hidden && <DropdownMenuItem title="The agent’s own files stay as they are." onClick={() => {
+                  {!row.hidden && <DropdownMenuItem title="The runtime’s own files stay as they are." onClick={() => {
                     void store.removeSession(row.id, row.runtime).then(() => setRetry(was => was + 1))
                   }} label={"Hide from HarnessDesk"} />}
                   <DropdownMenuItem variant="destructive" disabled={!deletable} title={deleteReason} closeOnClick={deletable} onClick={() => { if (deletable) setDeleting(row) }} label={"Delete everywhere…"} />

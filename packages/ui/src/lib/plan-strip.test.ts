@@ -224,7 +224,7 @@ describe('the token', () => {
       sessionRuntime: runtimeId('a'),
     })
     expect(view.rest?.title).toBe(
-      '5 other agents — 1 out of quota, 1 running low, least left 11%, 1 needs sign-in',
+      '5 other runtimes — 1 out of quota, 1 running low, least left 11%, 1 needs sign-in',
     )
   })
 })

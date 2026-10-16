@@ -82,7 +82,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(surface.locator('[data-composer-track="model"]')).not.toHaveAttribute('data-tight')
     await surface.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(surface.locator('[data-send-count]')).toHaveText('Messages sent: 1')
-    await surface.getByRole('button', { name: 'Use the agent’s current value', exact: true }).click()
+    await surface.getByRole('button', { name: 'Use the runtime’s current value', exact: true }).click()
     await expect(surface).not.toContainText('Saved Model: Model A')
     await expect(model.getByLabel('Stale saved default')).toHaveCount(0)
     // Clearing the new-session default never silently changes this conversation.

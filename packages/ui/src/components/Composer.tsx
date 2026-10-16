@@ -669,7 +669,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (images.length > 0 && !acceptsImages) {
       store.notice(
         'warning',
-        `${agentName} does not accept images. Remove ${images.length === 1 ? 'the image' : 'them'} or pick an agent that does.`,
+        `${agentName} does not accept images. Remove ${images.length === 1 ? 'the image' : 'them'} or pick a runtime that does.`,
       )
       return
     }
@@ -699,7 +699,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         // Same rule as a context chip that will not resolve: a message quietly
         // missing what its chip promised misleads the agent, and guessing the
         // runtime here is how the wrong conversation gets summarised.
-        store.notice('warning', `${reference.name}: no agent recorded for this conversation.`)
+        store.notice('warning', `${reference.name}: no runtime recorded for this conversation.`)
         return
       }
       const summary = await store.summariseSession(reference.path, reference.runtime)

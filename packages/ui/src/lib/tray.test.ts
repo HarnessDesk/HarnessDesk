@@ -166,7 +166,7 @@ describe('describeTray', () => {
     expect(summary.agents.map((agent) => agent.brand)).toEqual(['claudecode', null])
   })
 
-  it('has nothing to say in the menu bar when no agent reports a figure', () => {
+  it('has nothing to say in the menu bar when no runtime reports a figure', () => {
     expect(tray().title).toBe('')
     expect(tray().agents).toEqual([])
   })

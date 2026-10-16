@@ -125,5 +125,5 @@ it('filters the mounted session, sorts newest first and sanitizes agent text', a
   expect(text.indexOf('Newest')).toBeLessThan(text.indexOf('Older'))
   expect(text).not.toContain('\u001b')
   expect(text).not.toContain('fixture-agent')
-  expect(text).toContain('Agent')
+  expect(text).toContain('Runtime')
 })

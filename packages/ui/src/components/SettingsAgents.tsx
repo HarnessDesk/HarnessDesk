@@ -849,8 +849,8 @@ const AgentAccounts = ({
           }}
         >
           {removing.slot?.home
-            ? `It may be signed in already. Its sign-in at ${shortPath(removing.slot.home, snapshot.home)} is forgotten; conversations stay with the agent.`
-            : 'It may be signed in already. Its sign-in is forgotten; conversations stay with the agent.'}
+            ? `It may be signed in already. Its sign-in at ${shortPath(removing.slot.home, snapshot.home)} is forgotten; conversations stay with the runtime.`
+            : 'It may be signed in already. Its sign-in is forgotten; conversations stay with the runtime.'}
         </ConfirmDialog>
       )}
     </>
@@ -1250,7 +1250,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
       <Rows>
         <Row
           title="A command of your own"
-          desc="Any agent that speaks the protocol: name it and say how to start it."
+          desc="Any runtime that speaks the protocol: name it and say how to start it."
           control={
             <Button variant="secondary" size="sm" onClick={() => setCustomOpen(true)}>
               <PlusIcon size={13} />
@@ -1352,7 +1352,7 @@ const AccountDetail = ({
           />
           <Row
             title="Ring"
-            desc="Tells this account apart from another one of the same agent."
+            desc="Tells this account apart from another one of the same runtime."
             control={
               <RingPicker
                 info={info}
@@ -1462,7 +1462,7 @@ const AccountDetail = ({
           }}
         >
           {info.slot?.removable
-            ? 'Its sign-in is forgotten. Conversations stay with the agent.'
+            ? 'Its sign-in is forgotten. Conversations stay with the runtime.'
             : `${info.presentation.name} forgets this sign-in. Signing in again is the only way back.`}
         </ConfirmDialog>
       )}
@@ -1607,7 +1607,7 @@ export const NewSessionDefaults = ({
         <Row key={one.id} title={<>{`Saved ${one.label}: ${one.valueLabel}`} <Chip tone="warning">Stale</Chip></>}
           desc={one.reason} data-composer-option-slot={slotForCategory(one.category)}
           control={<Button variant="secondary" size="sm" onClick={() => void store.clearNewSessionDefault(info.id, one.id).then(setOptions)}>
-            Use the agent’s current value
+            Use the runtime’s current value
           </Button>} />
       ))}</Rows>}
       {listed.length === 0 ? (
@@ -1963,7 +1963,7 @@ const AgentDetail = ({
           <Rows>
             <Row
               title="Remove from HarnessDesk"
-              desc="Its account, configuration and history stay where the agent keeps them."
+              desc="Its account, configuration and history stay where the runtime keeps them."
               control={
                 <Button variant="secondary" size="sm" onClick={() => setConfirmingRemove(true)}>
                   Remove…
@@ -1976,7 +1976,7 @@ const AgentDetail = ({
       {destinationActive && confirmingRemove && (
         <ConfirmDialog
           title={`Remove ${info.presentation.name}?`}
-          confirmLabel="Remove agent"
+          confirmLabel="Remove runtime"
           tone="destructive"
           onCancel={() => setConfirmingRemove(false)}
           onConfirm={() => {
@@ -1987,7 +1987,7 @@ const AgentDetail = ({
           }}
         >
           It leaves the picker. A build HarnessDesk downloaded for it is deleted; everything the
-          agent keeps itself is untouched.
+          runtime keeps itself is untouched.
         </ConfirmDialog>
       )}
     </>
@@ -2100,7 +2100,7 @@ export const RuntimesSection = ({
           <PlusIcon size={13} />Add a runtime
         </Button>
       </Toolbar>
-<PageExplanation>What your Agents run on: the agent programs HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
+<PageExplanation>What your Agents run on: the runtimes HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
 
       {/* Two agents fit on a screen and need no help being found; the filters
           arrive with the third, which is where scrolling starts. */}

@@ -662,7 +662,7 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
         const repeatsInReviewLoop = seat.reviews && flow.rules.some(rule => rule.on === seat.role && rule.then.role === flow.seed.role)
         const alternative = alternativeFor(seat)
         return <Row key={`${role.id}-${seat.index}`} title={<span className={styles.roleTitle}>{label}{repeatsInReviewLoop && <Chip tone="neutral" size="sm">Fresh each round</Chip>}</span>} desc={!seatTaken(seat.plan) ? firstReason(seat.plan, snapshot.runtimes) ?? undefined : undefined}
-          mark={picked ? <RuntimeMark runtime={snapshot.runtimes.find(one => one.id === picked.runtime) ?? { id: picked.runtime, presentation: { name: 'Selected agent' } }} size={16} /> : <AgentIcon size={16} />}
+          mark={picked ? <RuntimeMark runtime={snapshot.runtimes.find(one => one.id === picked.runtime) ?? { id: picked.runtime, presentation: { name: 'Selected runtime' } }} size={16} /> : <AgentIcon size={16} />}
           control={<div className={styles.roleControls}>
             <TeamSeatControls label={label} seat={configured} automaticName={automaticName} disabled={disabled} onChange={next => { if (next) chooseSeat(seat, next) }} />
             {alternative && <Button variant="secondary" size="sm" disabled={disabled} onClick={() => chooseSeat(seat, { runtime: alternative.id })}>Use {alternative.presentation.name}</Button>}
@@ -722,10 +722,10 @@ const TeamSeatControls = ({ label, seat, automaticName, disabled, optional, onCh
   const model = models.find(one => one.id === seat?.model) ?? models.find(one => one.isDefault)
   const selectedRuntime = snapshot.runtimes.find(one => one.id === seat?.runtime)
   return <>
-    <NativeSelect className={styles.agentSelect} aria-label={`Agent for ${label}`} title={selectedRuntime?.presentation.name ?? automaticName ?? undefined} disabled={disabled} value={seat?.runtime ?? ''} onChange={event => onChange(event.target.value ? { runtime: event.target.value } : undefined)}>
+    <NativeSelect className={styles.agentSelect} aria-label={`Runtime for ${label}`} title={selectedRuntime?.presentation.name ?? automaticName ?? undefined} disabled={disabled} value={seat?.runtime ?? ''} onChange={event => onChange(event.target.value ? { runtime: event.target.value } : undefined)}>
       {optional && <option value="">You</option>}
       {!optional && !seat && <option value="">{automaticName ? `Automatic · ${automaticName}` : 'Automatic · Nothing can run'}</option>}
-      {seat && !snapshot.runtimes.some(one => one.id === seat.runtime) && <option value={seat.runtime}>Selected agent</option>}
+      {seat && !snapshot.runtimes.some(one => one.id === seat.runtime) && <option value={seat.runtime}>Selected runtime</option>}
       {snapshot.runtimes.map(one => <option key={one.id} value={one.id}>{one.presentation.name}</option>)}
     </NativeSelect>
     {(!optional || seat) && <><NativeSelect aria-label={`Model for ${label}`} disabled={disabled || !seat} value={seat?.model ?? ''} onChange={event => seat && onChange({ ...seat, model: event.target.value || undefined, effort: undefined })}>

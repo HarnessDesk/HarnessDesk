@@ -88,7 +88,7 @@ const renderTeam = async (flow: FlowPolicy, seats: readonly FlowPreviewSeat[], r
 
 it('gives the selected agent name a tooltip in the seat controls', async () => {
   await renderTeam(TEAM_START_POLICIES.comparison, [seat('judge', true)], [{ id: 'gamma', presentation: { name: 'Gamma' } } as never])
-  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')?.title).toBe('Gamma')
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Runtime for Judge"]')?.title).toBe('Gamma')
 })
 
 it('shows what Automatic resolves to, or that no agent can run', async () => {
@@ -106,8 +106,8 @@ it('shows what Automatic resolves to, or that no agent can run', async () => {
   }
   await renderTeam(TEAM_START_POLICIES['fix-and-review'], [resolved, unavailable], [{ id: 'codex', presentation: { name: 'Codex' } } as never])
 
-  const writes = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Writes"]')!
-  const reviews = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Reviews"]')!
+  const writes = container.querySelector<HTMLSelectElement>('select[aria-label="Runtime for Writes"]')!
+  const reviews = container.querySelector<HTMLSelectElement>('select[aria-label="Runtime for Reviews"]')!
   expect(writes.value).toBe('')
   expect(writes.selectedOptions[0]?.textContent).toBe('Automatic · Codex')
   expect(reviews.value).toBe('')
@@ -152,7 +152,7 @@ it.each([false, true])('keeps the attempt check editable when empty, including a
   expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toBeUndefined()
   expect(container.textContent).toContain('Leave empty to let the judge read the attempts directly.')
   const judge = () => {
-    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')!
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Runtime for Judge"]')!
     select.value = current.roles.some(role => role.id === 'judge') ? '' : 'gamma'
     select.dispatchEvent(new Event('change', { bubbles: true }))
   }
@@ -201,7 +201,7 @@ it('keeps a saved custom check’s success and incoming guards through clearing,
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
   const toggle = () => act(() => {
-    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')!
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Runtime for Judge"]')!
     select.value = current.roles.some(role => role.id === 'judge') ? '' : 'gamma'
     select.dispatchEvent(new Event('change', { bubbles: true }))
   })
@@ -434,7 +434,7 @@ it('renders provider warnings, held-ceiling refusals, and additional provider re
   expect(container.textContent).toContain('Same provider as the writer')
   expect(container.textContent).toContain('cannot enforce read-only access')
   // Delta's alsoPassed reason renders beside its primary one; Alpha's alone would not prove it.
-  expect(container.textContent).toMatch(/Choose another agent that supports this access\. — Same provider as the writer/)
+  expect(container.textContent).toMatch(/Choose another runtime that supports this access\. — Same provider as the writer/)
   expect(container.textContent).not.toContain('Can’t confirm a different provider from the writer')
   expect(container.textContent).toContain('Picked')
   expect(container.textContent).toContain(warning)
@@ -862,7 +862,7 @@ it.each(['judge', 'reviewer'].flatMap(roleId => [{ repeated: false, disabled: fa
   await act(async () => { root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{
     flow, template: flow, disabled, preview: { ...emptyPreview(), seats: repeated ? [refused, { ...refused, index: 1 }] : [refused] }, roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy,
   }} /></StoreProvider>) })
-  expect(container.textContent).toContain('Runtime Alpha can be asked to stay read-only here but cannot be held to it. Choose another agent, or start from /race.')
+  expect(container.textContent).toContain('Runtime Alpha can be asked to stay read-only here but cannot be held to it. Choose another runtime, or start from /race.')
   const use = [...container.querySelectorAll('button')].find(button => button.textContent === 'Use Runtime Beta')!
   if (!offered) { expect(use).toBeUndefined(); return }
   expect(use).toBeTruthy()
@@ -880,7 +880,7 @@ it('explains an edit refusal next to Writes and offers a compatible runtime', as
     { id: 'alpha', presentation: { name: 'Runtime Alpha' }, ceilings: {} } as never,
     { id: 'beta', presentation: { name: 'Runtime Beta' }, ceilings: { edit: { settings: [], how: 'Workspace guard' } } } as never,
   ])
-  expect(container.textContent).toContain('Runtime Alpha cannot enforce editing and local commits without publishing. Choose another agent that supports this access.')
-  expect(container.querySelector('select[aria-label="Agent for Writes"]')).not.toBeNull()
+  expect(container.textContent).toContain('Runtime Alpha cannot enforce editing and local commits without publishing. Choose another runtime that supports this access.')
+  expect(container.querySelector('select[aria-label="Runtime for Writes"]')).not.toBeNull()
   expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Use Runtime Beta')).toBe(true)
 })

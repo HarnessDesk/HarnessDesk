@@ -587,15 +587,15 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
 
   const filterData: PageOption['items'] = [
     { value: 'all', label: FILTER_WORDS.all, count: counts?.total },
-    { value: 'problems', label: FILTER_WORDS.problems, count: problemCount, title: 'Anything wrong: reaches no agent, empty on disk, or copies that differ.' },
+    { value: 'problems', label: FILTER_WORDS.problems, count: problemCount, title: 'Anything wrong: reaches no runtime, empty on disk, or copies that differ.' },
     { value: 'partial', label: FILTER_WORDS.partial, count: counts?.partial },
     { value: 'unreachable', label: FILTER_WORDS.unreachable, count: counts?.unreachable },
     { value: 'hollow', label: FILTER_WORDS.hollow, count: counts?.hollow },
     { value: 'differs', label: FILTER_WORDS.differs, count: counts?.differs },
-    { value: 'off', label: FILTER_WORDS.off, count: counts?.off, title: 'Installed in an agent and turned off in its own settings, so nothing loads it there.' },
+    { value: 'off', label: FILTER_WORDS.off, count: counts?.off, title: 'Installed in a runtime and turned off in its own settings, so nothing loads it there.' },
     ...(kind === 'skill' ? [{ value: 'unused', label: FILTER_WORDS.unused, count: unusedCount,
       disabled: usage === null ? 'Counting activations in the stored conversations…' : false as const,
-      title: usage === null ? undefined : `Reaches at least one agent, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.` }] : []),
+      title: usage === null ? undefined : `Reaches at least one runtime, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.` }] : []),
   ]
   const libraryChoices: readonly PageOption[] = [
     { id: 'view', label: 'How to show the library', value: view,
@@ -603,7 +603,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
       mode: 'menu',
       change: value => { setView(value as 'list' | 'matrix'); setOpen(null) } },
     { id: 'filter', label: 'Filter the library', value: filter, mode: 'menu',
-      items: filterData.filter(item => counts === null || item.value === 'all' || item.value === filter || (item.count ?? 0)> 0).map(item => ({ ...item, disabled: counts === null ? 'Reading every agent’s directories…' : item.disabled })),
+      items: filterData.filter(item => counts === null || item.value === 'all' || item.value === filter || (item.count ?? 0)> 0).map(item => ({ ...item, disabled: counts === null ? 'Reading every runtime’s directories…' : item.disabled })),
       change: value => setFilter(value as Filter) },
     { id: 'agent', label: 'Declared by', value: agentFilter, mode: 'menu',
       items: [{ value: '', label: 'Any agent' }, ...(snapshot.agents ?? []).map(entry => ({ value: `${entry.origin}:${entry.id}`, label: entry.definition?.name ?? entry.id }))], change: setAgentFilter },
@@ -613,7 +613,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
       <LibraryBar kind={kind} counts={kindCounts} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
         author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} rescan={() => void load()}
         choices={libraryChoices} search={{ label: 'Search library', value: query, change: setQuery }} />
-      <PageExplanation>Every skill and MCP server your agents can load, wherever each one keeps them.</PageExplanation>
+      <PageExplanation>Every skill and MCP server your runtimes can load, wherever each one keeps them.</PageExplanation>
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
 
       {kind === 'skill' && (hollowCopies.length> 0 || overloaded.length> 0) && (
@@ -629,7 +629,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
             })}>Clean up…</Button>}
           >
             {hollowCopies.length} {hollowCopies.length === 1 ? 'directory holds' : 'directories hold'} a
-            skill’s name and no definition — an agent that scans them lists the name and loads nothing.
+            skill’s name and no definition — a runtime that scans them lists the name and loads nothing.
           </Banner>}
           {overloaded.map(({ column, total, neverFired }) => <Banner
             key={column.id}
@@ -654,7 +654,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
       )}
 
       {loading && library === null ? (
-        <EmptyState variant="inline" title="Reading every agent’s directories…" />
+        <EmptyState variant="inline" title="Reading every runtime’s directories…" />
       ) : rows.length === 0 ? (
         /*
          * An empty list is two different situations and the old sentence
@@ -702,7 +702,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
             title={kind === 'skill' ? 'No skills on this machine yet' : 'No MCP servers declared yet'}
             description={
               kind === 'skill'
-                ? 'A skill is a folder with a SKILL.md in it that an agent reads before it starts. Write one here, or bring across the ones an agent already has.'
+                ? 'A skill is a folder with a SKILL.md in it that a runtime reads before it starts. Write one here, or bring across the ones a runtime already has.'
                 : 'Nothing was found in any configuration file this build knows how to read.'
             }
           >
@@ -738,7 +738,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
               marks it explains are met at the top. */}
           <Legend rows={rows} />
           <LibraryMatrix
-            caption={`Each row is one entry; each column is one agent. A dot means the agent loads it.${kind === 'skill' && usage !== null ? ` Fired-counts come from the ${usage.sessionsScanned} conversations this desk stores — what ran elsewhere is not counted.` : ''}`}
+            caption={`Each row is one entry; each column is one runtime. A dot means the runtime loads it.${kind === 'skill' && usage !== null ? ` Fired-counts come from the ${usage.sessionsScanned} conversations this desk stores — what ran elsewhere is not counted.` : ''}`}
             columns={columns.map(column => ({ id: column.id, label: column.head, mark: column.info && <RuntimeMark runtime={column.info} size={13} />,
               help: [column.label, attachmentSupportWords(column.info)].filter(Boolean).join(' — ') }))}
             rows={ordered.map(entry => ({ id: `${entry.kind}:${entry.name}`, name: entry.title ?? entry.name, description: entry.description ?? undefined,
@@ -748,9 +748,9 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
               expanded: open === entry.name ? <EntryDetail entry={entry} columns={columns} usage={usage} scanOrder={scanOrder} hosts={hosts} home={library?.home} onFlow={setFlow} onRead={() => setReading(entry.name)} /> : undefined,
             }))}
             footer={kind === 'skill' ? { label: `Advertised each turn${filter !== 'all' || query.trim() !== '' ? ' (these rows)' : ''}`,
-              title: 'Name and description at ≈3.6 characters per token — the catalogue line an agent carries for every skill it loads, fired or not. How each agent advertises varies; this prices the standard line.',
+              title: 'Name and description at ≈3.6 characters per token — the catalogue line a runtime carries for every skill it loads, fired or not. How each runtime advertises varies; this prices the standard line.',
               values: Object.fromEntries(columns.map((column, index) => [column.id, rows.reduce((sum, entry) => entry.reach[index]?.state === 'reaches' ? sum + (entry.catalogTokens ?? 0) : sum, 0)])) } : undefined}
-            fired={kind === 'skill' && usage !== null ? { label: 'Fired here, ever', title: 'Of the rows on screen, how many this agent loaded in a conversation this desk stores. Conversations held elsewhere are not counted.',
+            fired={kind === 'skill' && usage !== null ? { label: 'Fired here, ever', title: 'Of the rows on screen, how many this runtime loaded in a conversation this desk stores. Conversations held elsewhere are not counted.',
               values: Object.fromEntries(columns.map(column => [column.id, rows.filter(entry => usage.skills[entry.name]?.byRuntime?.[column.id] !== undefined).length])) } : undefined}
           />
         </>
@@ -777,7 +777,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
          */
         <details>
           <Text as="summary" role="meta">
-            {gaps.length} columns are read from disk rather than from their agents — show why
+            {gaps.length} columns are read from disk rather than from their runtimes — show why
           </Text>
           {gaps.map((gap, index) => {
             const runtime = columns.find((one) => one.id === gap.runtime)
@@ -929,7 +929,7 @@ const EntryDetail = ({
                           size="sm"
                           variant="outline"
                           emphasis
-                          title="More than one copy sits where this agent looks; by scan order — project scope over user, per this build’s location table — this one loads. The agent itself was not asked."
+                          title="More than one copy sits where this runtime looks; by scan order — project scope over user, per this build’s location table — this one loads. The runtime itself was not asked."
                         >
                           loads for {order.wins.join(', ')}
                         </Chip>
@@ -939,7 +939,7 @@ const EntryDetail = ({
                           tone="neutral"
                           size="sm"
                           variant="outline"
-                          title="Another copy sits earlier in this agent’s scan order, so this one is never loaded there."
+                          title="Another copy sits earlier in this runtime’s scan order, so this one is never loaded there."
                         >
                           shadowed for {order.shadowed.join(', ')}
                         </Chip>
@@ -980,15 +980,15 @@ const EntryDetail = ({
                       )}
                     </Toolbar></>} desc={<Text role="meta">
                       {copy.hollow
-                        ? 'No definition inside it — an agent that scans this directory lists the name and loads nothing.'
+                        ? 'No definition inside it — a runtime that scans this directory lists the name and loads nothing.'
                         : copy.readBy.length === 0
                           ? entry.kind === 'mcp'
-                            ? 'No agent reads this file.'
-                            : 'No agent reads this directory.'
+                            ? 'No runtime reads this file.'
+                            : 'No runtime reads this directory.'
                           : `Read by ${copy.readBy
                               .map((id) => columns.find((one) => one.id === id)?.label ?? id)
                               .join(', ')}.`}
-                      {copy.readOnly && ' Shipped by the agent.'}
+                      {copy.readOnly && ' Shipped by the runtime.'}
                     </Text>} />
                 )
               })}
@@ -1022,7 +1022,7 @@ const EntryDetail = ({
                       onClick={() =>
                         onFlow({
                           type: 'plan',
-                          title: `Install ${entry.name} for ${installable.length} agents`,
+                          title: `Install ${entry.name} for ${installable.length} runtimes`,
                           intents: installable.map((column) => ({
                             kind: 'installSkill' as const,
                             name: entry.name,
@@ -1041,7 +1041,7 @@ const EntryDetail = ({
                       onClick={() =>
                         onFlow({
                           type: 'plan',
-                          title: `Add ${entry.name} to ${installable.length} agents`,
+                          title: `Add ${entry.name} to ${installable.length} runtimes`,
                           intents: installable.map((column) => ({
                             kind: 'installMcp' as const,
                             name: entry.name,

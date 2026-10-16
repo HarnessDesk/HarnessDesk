@@ -241,7 +241,7 @@ const AddRouteDialog = ({ onClose }: { onClose: () => void }) => {
         <Note key="error" tone="bad">{error}</Note>
       ) : (
         <Note key="note">
-          Web search, subagents and reasoning display need the agent’s own models. A custom
+          Web search, subagents and reasoning display need the runtime’s own models. A custom
           endpoint runs plain conversations.
         </Note>
       )}
@@ -648,7 +648,7 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
       <ClientAnswersSection />
 
       {groups.length > 0 && (
-        <Section title="Approvals" description="What a new session starts with. An agent that decides this per conversation says so.">
+        <Section title="Approvals" description="What a new session starts with. A runtime that decides this per conversation says so.">
           {/* Each runtime's head is a sub-head of this section — a step
               tighter than a section's — so twelve runtimes read as twelve
               groups of one section rather than twelve sections. */}
@@ -667,7 +667,7 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
 
       <Section
         title={withCount('Rules', rules?.length ?? 0)}
-        description="They answer a request before it reaches you, for every agent alike; a question an agent asks you directly always comes through."
+        description="They answer a request before it reaches you, for every runtime alike; a question a runtime asks you directly always comes through."
         action={
           <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
             <PlusIcon size={13} />
@@ -853,7 +853,7 @@ const PresetsRows = () => {
       </Rows>
       {elsewhere > 0 && (
         <Note>
-          {elsewhere} more saved for other agents; they appear when one of them is selected.
+          {elsewhere} more saved for other runtimes; they appear when one of them is selected.
         </Note>
       )}
       {destinationActive && saving && options && <SavePresetDialog options={options} onClose={() => setSaving(false)} />}
@@ -931,7 +931,7 @@ const ModelsSection = () => {
               size="sm"
               variant="outline"
               disabled={snapshot.catalogRefreshing}
-              title="Ask the agent for its models again"
+              title="Ask the runtime for its models again"
               onClick={() => void store.refreshCatalog()}
             >
               <RetryIcon size={13} />
@@ -1027,7 +1027,7 @@ const HooksList = () => {
   return (
     <>
       <SectionHead name={withCount('Hooks', hooks.length)} />
-      <Note>Run by {runtime.presentation.name} around the agent’s work, configured on disk.</Note>
+      <Note>Run by {runtime.presentation.name} around the runtime’s work, configured on disk.</Note>
       <Rows>
         {hooks.map((hook) => (
           <Row
@@ -1204,7 +1204,7 @@ export const SkillsSection = ({name,onSkill,onUse}: {readonly name:string|null;r
 <PageExplanation>{
           declared
             ? `What ${runtime.presentation.name} can be asked to run: its skills and its own commands.`
-            : `Instruction bundles ${runtime.presentation.name} found for this project. Mention one with @, or let the agent choose.`
+            : `Instruction bundles ${runtime.presentation.name} found for this project. Mention one with @, or let the runtime choose.`
         }</PageExplanation>
 
       {snapshot.skills.length === 0 ? (
@@ -1273,12 +1273,12 @@ const PLACEMENTS = [
   {
     value: 'window',
     name: 'In a separate window',
-    why: 'A window of its own. Agents can still read and click the page.',
+    why: 'A window of its own. Runtimes can still read and click the page.',
   },
   {
     value: 'system',
     name: 'In your default browser',
-    why: 'Agents can open a page there, but not read or click it.',
+    why: 'Runtimes can open a page there, but not read or click it.',
   },
 ] as const
 
@@ -1301,7 +1301,7 @@ const BrowserSection = () => {
 
   return (
     <>
-      <PageExplanation>Where the pages agents open appear, and what those pages may keep.</PageExplanation>
+      <PageExplanation>Where the pages runtimes open appear, and what those pages may keep.</PageExplanation>
 
       <SectionHead name="Pages open" />
       <Rows role="radiogroup" aria-label="Pages open">
@@ -1357,12 +1357,12 @@ const BrowserSection = () => {
               title="Keep its profile between runs"
               desc={
                 prefs.keepExternalProfile
-                  ? 'Logins survive a restart. The profile is the agent’s own, never yours.'
+                  ? 'Logins survive a restart. The profile is the runtime’s own, never yours.'
                   : 'A fresh profile each time; nothing survives the session.'
               }
               control={
                 <Switch
-                  aria-label="Keep the agent’s browser profile"
+                  aria-label="Keep the runtime’s browser profile"
                   checked={prefs.keepExternalProfile}
                   onCheckedChange={(next) => store.setBrowserPrefs({ keepExternalProfile: next })}
                 />
@@ -1491,7 +1491,7 @@ export const GeneralSectionRows = () => (
     <Rows>
       <Row
         title="Diagnostics"
-        desc="Versions, agent health, plugin state and the recent log, scrubbed."
+        desc="Versions, runtime health, plugin state and the recent log, scrubbed."
         control={<DiagnosticsButton />}
       />
     </Rows>

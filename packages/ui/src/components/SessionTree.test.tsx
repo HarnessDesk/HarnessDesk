@@ -2398,12 +2398,12 @@ it.each(['trash', 'erase', false, 'unavailable'] as const)('offers Archive, Remo
   const menu = document.querySelector('[role="menu"]')!
   const item = (label: string) => [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.querySelector('[data-menu-label]')?.textContent?.trim() === label)!
   expect(item('Archive').title).toBe('Hide it from the sidebar; find it in Archive')
-  expect(item('Remove from HarnessDesk').title).toBe(disposition === 'unavailable' ? 'This conversation’s agent keeps its own copy' : 'Agent keeps its own copy')
+  expect(item('Remove from HarnessDesk').title).toBe(disposition === 'unavailable' ? 'This conversation’s runtime keeps its own copy' : 'Agent keeps its own copy')
   const deletion = item('Delete everywhere…')
   expect(deletion).toBeDefined()
   expect(deletion.getAttribute('aria-disabled') === 'true').toBe(disposition !== 'trash')
   expect(deletion.title).toBe(disposition === 'erase' ? 'Agent erases it for good, so delete it there'
-    : disposition === false ? 'Agent keeps no way to delete one.' : disposition === 'unavailable' ? 'This conversation’s agent is unavailable.' : '')
+    : disposition === false ? 'Agent keeps no way to delete one.' : disposition === 'unavailable' ? 'This conversation’s runtime is unavailable.' : '')
   if (disposition !== 'trash' && disposition !== 'erase') {
     expect(deletion.querySelector('[data-menu-hint]')?.textContent).toBe(deletion.title)
   }
