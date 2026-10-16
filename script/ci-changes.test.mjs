@@ -8,10 +8,10 @@ import { fileURLToPath } from 'node:url'
 
 import { browserPlan, planChange, themeDiff, themeInputs } from './ci-changes.mjs'
 import { specFiles } from './ci-browser-shards.mjs'
-import { mergeRecords } from './ui-impact.mjs'
+import { mergeRecords, readMap } from './ui-impact.mjs'
 
 const script = fileURLToPath(new URL('./ci-changes.mjs', import.meta.url))
-const check = (paths, expected, event = 'pull_request', env = {}) => {
+const cliPlan = (paths, event = 'pull_request', env = {}) => {
   const directory = mkdtempSync(join(tmpdir(), 'ci-changes-'))
   try {
     const list = join(directory, 'paths')
@@ -21,14 +21,47 @@ const check = (paths, expected, event = 'pull_request', env = {}) => {
     })
     assert.equal(result.status, 0, result.stderr)
     const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
-    assert.equal(output.browser, expected[0])
-    assert.equal(output.native, String(expected[1]))
-    assert.deepEqual(JSON.parse(output.server_specs), ['e2e/ui-system/front-door-edit.spec.ts', 'e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/project-composer-terminal.spec.ts', 'e2e/ui-system/run-ending.spec.ts', 'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts'])
     return output
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
 }
+
+// check-push consumes the shared planner, independently of CI's tier policy.
+const check = (paths, expected, event = 'pull_request', env = {}) => {
+  const output = plan(paths, env, event)
+  assert.equal(output.browser, expected[0])
+  assert.equal(output.native, String(expected[1]))
+  assert.deepEqual(JSON.parse(output.server_specs), ['e2e/ui-system/front-door-edit.spec.ts', 'e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/project-composer-terminal.spec.ts', 'e2e/ui-system/run-ending.spec.ts', 'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts'])
+  return output
+}
+
+for (const paths of [
+  ['packages/ui/src/App.tsx'], ['packages/server/src/host.ts'],
+  ['packages/desktop/electron/main.mjs'], ['e2e/ui-system/row-box.spec.ts'],
+  ['package.json'], ['docs/a b.md'], ['docs/line\nbreak.md'], [], null,
+]) {
+  test(`bounded CI runs core only for ${JSON.stringify(paths)}`, () => {
+    const run = cliPlan(paths)
+    assert.deepEqual([run.browser, run.native, run.tier], ['none', 'false', 'bounded'])
+    assert.deepEqual([run.browser_specs, run.shard_count, run.shards, run.record], ['[]', '0', '[1]', 'false'])
+    assert.match(run.summary, /Browser suite and native smoke run in the full tier \(batch\/ or full-ci\)/)
+    assert.match(run.summary, /Local check-push specs:/)
+    assert.doesNotMatch(run.summary, /[\n\r]/)
+  })
+}
+
+test('bounded CI lists the local reached specs without changing local selection', () => {
+  const paths = ['e2e/ui-system/row-box.spec.ts', 'packages/server/src/host.ts']
+  const local = plan(paths)
+  const ci = cliPlan(paths)
+  assert.equal(local.browser, 'all')
+  assert.equal(local.native, 'true')
+  const specs = JSON.parse(local.browser_specs)
+  assert.ok(specs.includes('e2e/ui-system/row-box.spec.ts'))
+  assert.ok(specs.includes('e2e/ui-system/front-door-edit.spec.ts'))
+  assert.ok(ci.summary.endsWith(`Local check-push specs: ${specs.join(', ')}.`), ci.summary)
+})
 
 for (const path of [
   'packages/ui/src/App.tsx', 'packages/protocol/src/wire.ts',
@@ -158,21 +191,13 @@ test('import scan still refuses an unresolved source helper', async () => {
   })
 })
 
-// What the browser job runs, and how it is sized (the plan of `browserPlan`).
+// Local browser selection and sizing still use the shared plan unchanged.
 const plan = (paths, env = {}, event = 'pull_request') => {
-  const directory = mkdtempSync(join(tmpdir(), 'ci-plan-'))
-  try {
-    const list = join(directory, 'paths')
-    writeFileSync(list, paths.length ? `${paths.join('\0')}\0` : '')
-    const result = spawnSync(process.execPath, [script, list], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', CI_HEAD_BRANCH: '', CI_LABELS: '', ...env },
-    })
-    assert.equal(result.status, 0, result.stderr)
-    const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
-    return output
-  } finally {
-    rmSync(directory, { recursive: true, force: true })
-  }
+  const output = planChange(fileURLToPath(new URL('../', import.meta.url)), {
+    event, paths, headBranch: env.CI_HEAD_BRANCH ?? '', labels: JSON.parse(env.CI_LABELS || '[]'),
+    map: env.UI_IMPACT_MAP ? readMap(env.UI_IMPACT_MAP) : null,
+  })
+  return Object.fromEntries(Object.entries(output).map(([key, value]) => [key, String(value)]))
 }
 
 test('a pull request without a map samples the suite in the PR matrix within four shards', () => {
@@ -413,13 +438,13 @@ test('suite-only selection reads the source behind compiled package imports on a
   })
 })
 
-test('the shared change plan prints the same fields, in the same order, as the CI CLI', () => {
+test('the shared change plan and CI CLI keep the same output contract', () => {
   const real = fileURLToPath(new URL('../', import.meta.url))
   const paths = ['docs/architecture.md']
-  const output = check(paths, ['none', false])
+  const output = cliPlan(paths)
   const shared = planChange(real, { event: 'pull_request', paths })
-  assert.deepEqual(Object.fromEntries(Object.entries(shared).map(([key, value]) => [key, String(value)])), output)
   assert.deepEqual(Object.keys(shared), Object.keys(output))
+  for (const key of ['server_specs', 'matrix', 'tier']) assert.equal(String(shared[key]), output[key], key)
 })
 
 test('theme diff selection matches the unchanged CI grep pipeline', () => {
@@ -495,10 +520,18 @@ for (const options of [
 
 test('CLI reads full-tier branch and label metadata without evaluating branch text', () => {
   for (const env of [{ CI_HEAD_BRANCH: 'batch/reviewed' }, { CI_LABELS: '["full-ci"]' }]) {
-    const run = plan(['docs/architecture.md'], env)
-    assert.deepEqual([run.tier, run.browser, run.matrix, run.browser_specs], ['full', 'all', 'full', 'all'])
+    const run = cliPlan(['packages/ui/src/App.tsx'], 'pull_request', env)
+    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.browser_specs, run.record], ['full', 'all', 'true', 'full', 'all', 'true'])
+    assert.equal(run.summary, plan(['packages/ui/src/App.tsx'], env).summary)
   }
 })
+
+for (const event of ['push', 'workflow_dispatch']) {
+  test(`CLI keeps full CI for ${event}`, () => {
+    const run = cliPlan(['docs/architecture.md'], event)
+    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.browser_specs], ['full', 'all', 'true', 'full', 'all'])
+  })
+}
 
 test('an added spec absent from duration tables is mandatory beside a broad change', async () => {
   await fixture((root, put) => {

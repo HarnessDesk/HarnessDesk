@@ -54,7 +54,7 @@ let refused: Partial<Record<HostMethodName, string>>
 
 beforeEach(() => {
   store = new AppStore('ws://localhost:0/')
-  answers = {}
+  answers = { 'runtime/sessionDefaults': [] }
   refused = {}
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
     if (refused[method]) throw new Error(refused[method])

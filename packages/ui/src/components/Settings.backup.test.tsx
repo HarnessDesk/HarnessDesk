@@ -84,7 +84,8 @@ const BACKUP: BackupFile = {
 }
 
 it('uses the action labels alone for export, restore and diagnostics', () => {
-  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), transport: { request: vi.fn() } } as unknown as AppStore
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, transport: { request: vi.fn() } } as unknown as AppStore
   renderGeneral(store)
   for (const label of ['Export…', 'Restore…', 'Save bundle…']) {
     expect(button(label).querySelector('svg'), `${label} has a redundant icon`).toBeNull()

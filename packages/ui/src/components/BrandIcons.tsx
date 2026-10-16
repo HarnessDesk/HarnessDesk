@@ -50,6 +50,39 @@ import ollama from '@lobehub/icons-static-svg/icons/ollama.svg?raw'
 import groq from '@lobehub/icons-static-svg/icons/groq.svg?raw'
 import huggingface from '@lobehub/icons-static-svg/icons/huggingface.svg?raw'
 
+import codexColour from '@lobehub/icons-static-svg/icons/codex-color.svg?raw'
+import claudecodeColour from '@lobehub/icons-static-svg/icons/claudecode-color.svg?raw'
+import geminicliColour from '@lobehub/icons-static-svg/icons/geminicli-color.svg?raw'
+import antigravityColour from '@lobehub/icons-static-svg/icons/antigravity-color.svg?raw'
+import openclawColour from '@lobehub/icons-static-svg/icons/openclaw-color.svg?raw'
+import kiroColour from '@lobehub/icons-static-svg/icons/kiro-color.svg?raw'
+import devinColour from '@lobehub/icons-static-svg/icons/devin-color.svg?raw'
+import traeColour from '@lobehub/icons-static-svg/icons/trae-color.svg?raw'
+import ampColour from '@lobehub/icons-static-svg/icons/amp-color.svg?raw'
+import codebuddyColour from '@lobehub/icons-static-svg/icons/codebuddy-color.svg?raw'
+import junieColour from '@lobehub/icons-static-svg/icons/junie-color.svg?raw'
+import poolsideColour from '@lobehub/icons-static-svg/icons/poolside-color.svg?raw'
+import qoderColour from '@lobehub/icons-static-svg/icons/qoder-color.svg?raw'
+import claudeColour from '@lobehub/icons-static-svg/icons/claude-color.svg?raw'
+import deepseekColour from '@lobehub/icons-static-svg/icons/deepseek-color.svg?raw'
+import geminiColour from '@lobehub/icons-static-svg/icons/gemini-color.svg?raw'
+import gemmaColour from '@lobehub/icons-static-svg/icons/gemma-color.svg?raw'
+import googleColour from '@lobehub/icons-static-svg/icons/google-color.svg?raw'
+import metaColour from '@lobehub/icons-static-svg/icons/meta-color.svg?raw'
+import mistralColour from '@lobehub/icons-static-svg/icons/mistral-color.svg?raw'
+import qwenColour from '@lobehub/icons-static-svg/icons/qwen-color.svg?raw'
+import kimiColour from '@lobehub/icons-static-svg/icons/kimi-color.svg?raw'
+import zhipuColour from '@lobehub/icons-static-svg/icons/zhipu-color.svg?raw'
+import minimaxColour from '@lobehub/icons-static-svg/icons/minimax-color.svg?raw'
+import doubaoColour from '@lobehub/icons-static-svg/icons/doubao-color.svg?raw'
+import cohereColour from '@lobehub/icons-static-svg/icons/cohere-color.svg?raw'
+import perplexityColour from '@lobehub/icons-static-svg/icons/perplexity-color.svg?raw'
+import microsoftColour from '@lobehub/icons-static-svg/icons/microsoft-color.svg?raw'
+import langchainColour from '@lobehub/icons-static-svg/icons/langchain-color.svg?raw'
+import snowflakeColour from '@lobehub/icons-static-svg/icons/snowflake-color.svg?raw'
+import openrouterColour from '@lobehub/icons-static-svg/icons/openrouter-color.svg?raw'
+import huggingfaceColour from '@lobehub/icons-static-svg/icons/huggingface-color.svg?raw'
+
 import { type Brand, brandForModel, brandForRuntime } from '../lib/brands'
 import { ServerIcon, ModelIcon } from './Icons'
 
@@ -57,9 +90,19 @@ import { ServerIcon, ModelIcon } from './Icons'
  * The marks of the companies whose agents and models appear in the interface,
  * drawn from lobe-icons (https://github.com/lobehub/lobe-icons, MIT). The
  * collection is the one place a logo comes from, the way Lucide is the one
- * place a glyph comes from: every mark is the same 24-grid, filled on
- * `currentColor`, so it sits in a row beside Lucide's strokes at the same size
- * and in the same colour without a palette of its own.
+ * place a glyph comes from: every mark is the same 24-grid, sized like a
+ * Lucide glyph so it sits in a row beside the strokes.
+ *
+ * A mark is drawn in its maker's own colours wherever the collection has
+ * them, because a logo is recognised by its colour before its shape: a row
+ * of agents in one ink reads as a row of glyphs. The one-colour drawing on
+ * `currentColor` is kept beside it for two cases. A maker the collection has
+ * no colour file for (Cursor, OpenAI, Grok…) is drawn in ink as before. And
+ * a mark that sits on an identity's own ground — a tinted face, an account's
+ * ring, a signed-out seat — takes that ground's ink, because two colours in
+ * one disc fight and the tint is the one that carries meaning there. The
+ * switch is a stylesheet rule on `[data-tint]`, `[data-color]` and
+ * `[data-off]` (styles/app.css), so every face gets it without being told.
  *
  * Which mark applies to what is decided in `lib/brands.ts`; this module only
  * draws. The files are inlined at build time (`?raw`) — nothing is fetched, as
@@ -123,6 +166,57 @@ const FILES: Record<Brand, string> = {
   huggingface,
 }
 
+const COLOUR_FILES: Partial<Record<Brand, string>> = {
+  codex: codexColour,
+  claudecode: claudecodeColour,
+  geminicli: geminicliColour,
+  antigravity: antigravityColour,
+  openclaw: openclawColour,
+  kiro: kiroColour,
+  devin: devinColour,
+  trae: traeColour,
+  amp: ampColour,
+  codebuddy: codebuddyColour,
+  junie: junieColour,
+  poolside: poolsideColour,
+  qoder: qoderColour,
+  claude: claudeColour,
+  deepseek: deepseekColour,
+  gemini: geminiColour,
+  gemma: gemmaColour,
+  google: googleColour,
+  meta: metaColour,
+  mistral: mistralColour,
+  qwen: qwenColour,
+  kimi: kimiColour,
+  zhipu: zhipuColour,
+  minimax: minimaxColour,
+  doubao: doubaoColour,
+  cohere: cohereColour,
+  perplexity: perplexityColour,
+  microsoft: microsoftColour,
+  langchain: langchainColour,
+  snowflake: snowflakeColour,
+  openrouter: openrouterColour,
+  huggingface: huggingfaceColour,
+}
+
+/**
+ * The two colour files that are not drawn for a page.
+ *
+ * Codex's is its app icon: a full-bleed white square behind the cloud, which
+ * is invisible on white and a white tile on dark. Without it the cloud's `>_`
+ * is a cut-out that shows the ground, as the one-colour file's does. Kimi's
+ * K is white, for a dark tile, and vanishes on a light ground; on `currentColor`
+ * it is the ink beside its blue dot. Each fix must still find what it removes
+ * — the test file says so — so a new release of the collection that redraws
+ * either file fails there instead of shipping a white square.
+ */
+export const COLOUR_FIXES: Partial<Record<Brand, (markup: string) => string>> = {
+  codex: (markup) => markup.replace(/<path d="M19\.503 0H4\.496[^"]*" fill="#fff"><\/path>/, ''),
+  kimi: (markup) => markup.replace(/fill="#fff"/g, 'fill="currentColor"'),
+}
+
 /** The paths between the file's `<svg>` tags, with its `<title>` gone — the wrapper labels. */
 const pathsOf = (file: string): string =>
   file
@@ -145,13 +239,26 @@ const pathsOf = (file: string): string =>
  * only the strict reading of "unique in the document" is not. A render-time
  * id would fix that half too, at the cost of making every mark stateful.
  */
-const withOwnIds = (markup: string, brand: Brand): string =>
+const withOwnIds = (markup: string, owner: string): string =>
   markup
-    .replace(/id="([^"]*)"/g, (_, id: string) => `id="brand-${brand}-${id}"`)
-    .replace(/url\(#([^)]*)\)/g, (_, id: string) => `url(#brand-${brand}-${id})`)
+    .replace(/id="([^"]*)"/g, (_, id: string) => `id="brand-${owner}-${id}"`)
+    .replace(/url\(#([^)]*)\)/g, (_, id: string) => `url(#brand-${owner}-${id})`)
 
+/**
+ * The drawing for each brand: its colours and its one-colour twin, or the
+ * one-colour drawing alone. The one-colour drawing keeps the even-odd rule
+ * the wrapper always gave it; the colour file brings its own fill rules and
+ * is left to them. Which of the two shows is the stylesheet's call (see the
+ * module comment), and the twins' ids are kept apart as well as the brands'.
+ */
 const PATHS: Record<Brand, string> = Object.fromEntries(
-  (Object.keys(FILES) as Brand[]).map((brand) => [brand, withOwnIds(pathsOf(FILES[brand]), brand)]),
+  (Object.keys(FILES) as Brand[]).map((brand) => {
+    const mono = withOwnIds(pathsOf(FILES[brand]), brand)
+    const file = COLOUR_FILES[brand]
+    if (!file) return [brand, `<g fill-rule="evenodd">${mono}</g>`]
+    const colour = withOwnIds((COLOUR_FIXES[brand] ?? ((markup: string) => markup))(pathsOf(file)), `${brand}-colour`)
+    return [brand, `<g data-ink="colour">${colour}</g><g data-ink="mono" fill-rule="evenodd">${mono}</g>`]
+  }),
 ) as Record<Brand, string>
 
 /**
@@ -185,7 +292,6 @@ export const BrandMark = ({ brand, size = 16, label, className, ...rest }: Brand
     width={size}
     height={size}
     fill="currentColor"
-    fillRule="evenodd"
     className={['brand', `brand-${brand}`, className].filter(Boolean).join(' ')}
     focusable="false"
     {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}

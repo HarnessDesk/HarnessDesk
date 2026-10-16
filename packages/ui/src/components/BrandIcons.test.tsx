@@ -1,13 +1,16 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
+import codexColour from '@lobehub/icons-static-svg/icons/codex-color.svg?raw'
+import kimiColour from '@lobehub/icons-static-svg/icons/kimi-color.svg?raw'
+
 import { BRANDS } from '../lib/brands'
-import { BrandMark } from './BrandIcons'
+import { BrandMark, COLOUR_FIXES } from './BrandIcons'
 
 /**
  * Every brand mark comes from lobe-icons through this one wrapper, on the
- * same terms as a Lucide glyph: inline, on currentColor, sized by a prop,
- * hidden from readers unless labelled. These tests hold that line for all of
+ * same terms as a Lucide glyph: inline, sized by a prop, hidden from readers
+ * unless labelled, with a one-colour drawing on currentColor always there. These tests hold that line for all of
  * them at once, so a new key in `BRANDS` without a file fails here, not in
  * someone's sidebar.
  */
@@ -85,5 +88,37 @@ describe('BrandMark', () => {
     expect(paths('openai')).not.toBe(paths('codex'))
     expect(paths('claude')).not.toBe(paths('claudecode'))
     expect(paths('gemini')).not.toBe(paths('geminicli'))
+  })
+
+  it('draws a maker in its own colours beside its one-colour twin', () => {
+    const markup = renderToStaticMarkup(<BrandMark brand="claude" />)
+    expect(markup).toContain('<g data-ink="colour">')
+    expect(markup).toContain('<g data-ink="mono" fill-rule="evenodd">')
+    expect(markup).toContain('fill="#D97757"')
+  })
+
+  it('draws a maker the collection has no colours for in ink alone', () => {
+    const markup = renderToStaticMarkup(<BrandMark brand="cursor" />)
+    expect(markup).not.toContain('data-ink')
+    expect(markup).toContain('<g fill-rule="evenodd">')
+  })
+
+  it('keeps the two drawings of one brand apart in their ids', () => {
+    const markup = renderToStaticMarkup(<BrandMark brand="openclaw" />)
+    expect(markup).toContain('id="brand-openclaw-a"')
+    expect(markup).toMatch(/id="brand-openclaw-colour-/)
+  })
+
+  it('takes the app-icon tile off Codex and gives Kimi its K in ink', () => {
+    // Each fix has to find what it removes: a release of the collection that
+    // redraws either file fails here rather than shipping a white square.
+    expect(COLOUR_FIXES.codex!(codexColour)).not.toBe(codexColour)
+    expect(COLOUR_FIXES.kimi!(kimiColour)).not.toBe(kimiColour)
+    const colourOf = (brand: 'codex' | 'kimi') =>
+      /<g data-ink="colour">([\s\S]*?)<\/g><g data-ink="mono"/.exec(renderToStaticMarkup(<BrandMark brand={brand} />))?.[1] ?? ''
+    expect(colourOf('codex')).toMatch(/<path/)
+    expect(colourOf('codex')).not.toContain('#fff')
+    expect(colourOf('kimi')).not.toContain('#fff')
+    expect(colourOf('kimi')).toContain('fill="currentColor"')
   })
 })

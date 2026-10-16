@@ -217,9 +217,16 @@ export const launchDesk = async ({ app, home, port = 0, userDataDir, logPath, ex
         HARNESSDESK_HOME: home,
         HARNESSDESK_LOG_LEVEL: env.HARNESSDESK_LOG_LEVEL ?? 'error',
       },
+      // The npm Electron launcher is a Node wrapper. Own its descendants too:
+      // killing just that wrapper can leave Electron holding our output pipes.
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   )
+  const processGroup = process.platform !== 'win32' ? child.pid : undefined
+  if (env.HD_DESK_TRACE === '1') {
+    process.stderr.write(`desk launch ownership: ${JSON.stringify({ pid: child.pid, processGroup })}\n`)
+  }
   const sink = logPath ? createWriteStream(logPath, { flags: 'a' }) : null
   child.stdout.on('data', (chunk) => sink?.write(chunk))
   child.stderr.on('data', (chunk) => sink?.write(chunk))
@@ -228,11 +235,15 @@ export const launchDesk = async ({ app, home, port = 0, userDataDir, logPath, ex
   try {
     browserUrl = await waitForDebugger(child)
   } catch (error) {
-    await closeDesk({ child, sink })
+    try {
+      await closeDesk({ child, sink, processGroup })
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'desk launch and cleanup failed')
+    }
     throw error
   }
   const ownedPort = Number(new URL(browserUrl).port)
-  return connectDesk({ child, sink, port: ownedPort, browserUrl, ...(executable ? { discoveryAttempts: 300 } : {}) })
+  return connectDesk({ child, sink, processGroup, port: ownedPort, browserUrl, ...(executable ? { discoveryAttempts: 300 } : {}) })
 }
 
 /** Read the endpoint from this child's stderr, never from a guessed port. */
@@ -266,6 +277,7 @@ export const waitForDebugger = (child, timeoutMs = 30_000) => new Promise((resol
  */
 export const connectDesk = async ({
   child,
+  processGroup,
   sink = null,
   port,
   browserUrl,
@@ -300,50 +312,105 @@ export const connectDesk = async ({
       // The store is what everything below talks to; a renderer that has not
       // finished booting has none yet.
       for (let ready = 0; ready < storeAttempts; ready += 1) {
-        if (await cdp.eval('Boolean(window.__hdStore)').catch(() => false)) return { child, cdp, sink, port, browserUrl }
+        if (await cdp.eval('Boolean(window.__hdStore)').catch(() => false)) return { child, cdp, sink, port, browserUrl, processGroup }
         await sleepImpl(1000)
       }
       throw new Error('the renderer came up without a store')
     }
     throw new Error(`no renderer appeared on port ${port} in ${discoveryAttempts}s`)
   } catch (error) {
-    await closeDesk({ child, cdp, sink })
+    try {
+      await closeDesk({ child, cdp, sink, processGroup })
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'desk connection and cleanup failed')
+    }
     throw error
   }
 }
 
-export const closeDesk = async ({ child, cdp, sink }) => {
-  try {
-    cdp?.close()
-  } catch {
-    /* already gone */
-  }
-  if (child && child.exitCode === null && child.signalCode === null) {
+/** Wait for stdio EOF as well as exit: descendants can inherit both pipes. */
+const deskClosed = (child) =>
+  (child.exitCode !== null || child.signalCode !== null)
+  && (!child.stdout || child.stdout.destroyed)
+  && (!child.stderr || child.stderr.destroyed)
 
-  /** Wait for the process, not just the grace period. Electron can still be
-   * writing its profile between `kill` and the `exit` event; deleting the
-   * isolated home in that interval races those final writes. */
-  const waitForExit = (timeout) => new Promise((resolve) => {
+const waitForDeskClose = (child, timeout) => {
+  if (deskClosed(child)) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const event = child.stdout || child.stderr ? 'close' : 'exit'
     const done = () => {
       clearTimeout(timer)
+      child.off(event, done)
       resolve(true)
     }
     const timer = setTimeout(() => {
-      child.off('exit', done)
+      child.off(event, done)
       resolve(false)
     }, timeout)
-    child.once('exit', done)
+    child.once(event, done)
   })
+}
 
-    child.kill('SIGTERM')
-    if (!(await waitForExit(2500))) {
-      child.kill('SIGKILL')
-      await waitForExit(2500)
+export const closeDesk = async ({ child, cdp, sink, processGroup }) => {
+  const errors = []
+  try {
+    await cdp?.close()
+  } catch (error) {
+    errors.push(error)
+  }
+  try {
+    if (child) {
+      // Only launchDesk creates this group (detached spawn on POSIX). Never
+      // discover processes by name, or signal the caller's own process group.
+      const signal = (name) => {
+        if (processGroup !== undefined) {
+          if (processGroup !== child.pid || processGroup === process.pid) {
+            throw new Error('refusing to signal an unowned desk process group')
+          }
+          try {
+            process.kill(-processGroup, name)
+          } catch (error) {
+            if (error.code !== 'ESRCH') throw error
+          }
+        } else if (child.exitCode === null && child.signalCode === null) {
+          child.kill(name)
+        }
+      }
+      // Subscribe before signalling, including on the SIGKILL path.
+      const graceful = waitForDeskClose(child, 5000)
+      // Ask the launcher to forward TERM to the shell first. Its normal quit
+      // disposes runtimes in their own groups; signalling the whole family at
+      // once would interrupt that ownership chain before disposal can finish.
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
+      const closed = await graceful
+      if (!closed) {
+        process.stderr.write(`desk cleanup: escalating to SIGKILL ${JSON.stringify({
+          pid: child.pid, processGroup, exitCode: child.exitCode, signalCode: child.signalCode,
+          stdoutOpen: Boolean(child.stdout && !child.stdout.destroyed),
+          stderrOpen: Boolean(child.stderr && !child.stderr.destroyed),
+          resources: process.getActiveResourcesInfo(),
+        })}\n`)
+      }
+      // Even an exited launcher may have left descendants with ignored stdio.
+      // Signal only the group this launch owns, including after launcher exit.
+      const killed = waitForDeskClose(child, 2500)
+      if (processGroup !== undefined || !closed) signal('SIGKILL')
+      if (!(await killed)) throw new Error(`desk ${child.pid} did not close its process and output pipes after SIGKILL`)
+      // Closed launch pipes cannot prove that separate runtime groups are
+      // gone: escalation may have interrupted the shell's runtime disposal.
+      if (!closed) throw new Error(`desk ${child.pid} required SIGKILL; runtime disposal could not be confirmed`)
     }
+  } catch (error) {
+    errors.push(error)
   }
-  if (sink && !sink.writableEnded) {
-    await new Promise((resolve) => sink.end(resolve))
+  try {
+    if (sink && !sink.writableEnded) {
+      await new Promise((resolve, reject) => sink.end(error => error ? reject(error) : resolve()))
+    }
+  } catch (error) {
+    errors.push(error)
   }
+  if (errors.length) throw new AggregateError(errors, 'desk cleanup failed')
 }
 
 /** `window.__hdStore`, spelled once. */

@@ -52,7 +52,8 @@ jobs:
           node-version: 22
       # What each spec ran on the last full run of main (script/ui-impact.mjs). Caches made on
       # main are readable from a pull request; the newest one is the nearest to its base.
-      # Without a usable map, the bounded tier samples the whole suite within its budget.
+      # Bounded CI reports the local check-push selection, then defers browser/native
+      # work to the full tier. Without a usable map, local selection samples the suite.
       - name: Restore the impact map of main
         if: github.event_name == 'pull_request'
         uses: actions/cache/restore@v6
@@ -76,8 +77,8 @@ jobs:
             if ! git diff --no-renames --name-only -z HEAD^1 HEAD > "$list"; then
               rm -f "$list"
             fi
-            # A pull request reads the browser geometry contracts in one theme
-            # (playwright.ui-system.config.ts) unless its UI diff names a theme.
+            # Retain theme metadata for the shared local planner. Bounded CI runs
+            # no browsers; full CI reads every spec in both themes.
             if git diff --no-renames -U0 HEAD^1 HEAD -- packages/ui | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' | grep -Eiq 'dark|theme'; then
               theme=true
             fi
@@ -574,10 +575,9 @@ jobs:
         # As many shards as the work needs, from one to sixteen: each carries
         # about 1,500 recorded dev-server seconds of tests. Static runs finish
         # earlier; script/ci-browser-shards.mjs still sizes the shards from those
-        # times and script/ci-changes.mjs counts them. A change that reaches one
-        # spec gets one shard, a pull request that touches the UI thirteen, and
-        # `main` all sixteen. Always at least [1], so the matrix is well formed
-        # on the runs that skip this job.
+        # times and script/ci-changes.mjs counts them. Only the full tier runs
+        # browser shards (main, batch/, full-ci or manual dispatch). Bounded CI
+        # keeps [1] with browser=none so the skipped matrix stays well formed.
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     env:
       # What this run is: its theme matrix and the specs it covers. The shards

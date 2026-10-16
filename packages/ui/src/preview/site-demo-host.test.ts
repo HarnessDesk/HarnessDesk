@@ -45,7 +45,7 @@ it('offers both release DMGs in follow-up and hand-off answers', () => {
     for (const answer of answers) {
       expect(answer).toContain('Apple silicon')
       expect(answer).toContain('Intel')
-      for (const arch of ['arm64', 'x64']) expect(answer).toContain(`https://github.com/HarnessDesk/HarnessDesk/releases/download/v0.4.0/HarnessDesk-0.4.0-${arch}.dmg`)
+      for (const arch of ['arm64', 'x64']) expect(answer).toMatch(new RegExp(`https://github\\.com/HarnessDesk/HarnessDesk/releases/download/v(\\d+\\.\\d+\\.\\d+)/HarnessDesk-\\1-${arch}\\.dmg`))
     }
   } finally { host.close() }
 })

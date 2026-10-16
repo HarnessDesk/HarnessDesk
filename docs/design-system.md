@@ -1228,6 +1228,15 @@ the room's composer rather than covering the conversation everyone else in
 it is reading. It has exactly one filled act, the plain approve, like any
 footer in the app; every other answer is quiet, and its number still works.
 
+### `BoardCard`
+
+`packages/ui/src/design/patterns/BoardCard.tsx`
+
+A compact opening card, exported publicly as CompactBoardCard: identity,
+optional attention detail, middle and footer.
+Title and detail props preserve a caller's hover text, slots and description ids.
+Supply aria-describedby for the detail and any facts inside the footer slot.
+
 ### `ChannelSignal`
 
 `packages/ui/src/design/patterns/ChannelMessage.tsx`
@@ -1344,7 +1353,10 @@ The reading page in the same Side by side body, once the person has merged.
 
 `packages/ui/src/design/patterns/ComposerTrack.tsx`
 
-A token-sized position in the composer toolbar.
+A token-sized position in the composer toolbar. Drafts keep their folder
+picker here, beside worktree choices, on the row's common centre line.
+No folder choice adds a row or changes the text well's height; folder
+names may shorten, and their full paths stay in titles.
 
 ### `ConfirmDialog`
 
@@ -1449,7 +1461,7 @@ A borrowed reading's activity summary belongs to that account, in one band.
 
 `packages/ui/src/design/patterns/DashboardBands.tsx`
 
-Paid plus the three chart measures, using the shared stat and button contracts.
+Paid plus named chart measures such as Usage cost; the shared quiet button's pressed fill shows selection without a repeated chip.
 
 ### `DialogFormScope`
 
