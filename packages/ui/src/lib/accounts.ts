@@ -1,4 +1,4 @@
-import { tintForRuntimeBrand } from '../design'
+import { tintForRuntimeBrand } from '../design/identity'
 import { brandForRuntime } from './brands'
 
 import type { Account, AccountStatus, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'

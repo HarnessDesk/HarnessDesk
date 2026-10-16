@@ -2188,7 +2188,8 @@ the file review, both using the method-aware placeholder repository fixture.
 ## Runtime brand identity and registry browsing
 
 A runtime brand keeps one tint from the design system's `tintForRuntimeBrand`
-palette. `runtimeTint` resolves its presentation brand with the same rule as
+palette. Pure selectors read it through the DOM-free `design/identity` entrypoint.
+`runtimeTint` resolves its presentation brand with the same rule as
 its glyph; account preferences colour account rings, not brand tiles. Templates,
 registered runtimes and Library loading faces use that same answer. Library
 uses `AvatarStack overlap={false}` with the spacing token so every mark stays
