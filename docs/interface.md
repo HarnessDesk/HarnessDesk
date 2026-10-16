@@ -292,11 +292,11 @@ made by an agent or terminal also restore the choice. This applies to the
 composer and project menu too. With no project open, the empty composer
 offers **Open a folder…**. It and **Open folder…** use the same folder picker
 as the + beside Projects, and both are reachable by keyboard.
-New Team opens a searchable shape picker, then one
-form for the task, roles and optional Done when. Just a Team opens a shared
-board without fixed steps. **Most used** appears only for shapes that have
-actually been started on this desk; unused shapes remain under **More shapes**.
-Change returns to the picker and keeps the draft.
+New Team opens the shared dialog with its task, searchable Flow picker, roles
+and optional Done when. Just a Team opens a shared board without fixed steps.
+**Most used** appears only for Flows that have actually been started on this
+desk; the rest stay under **More Flows**. Changing the Flow stays in the dialog
+and keeps each draft.
 
 **Agents**, **Dashboard** and **Plugins** each have a full row under New
 session: the same icon, label and trailing badge grammar as the conversation
@@ -452,8 +452,11 @@ fold has Open usage, scoped to that agent; an agent needing an account has Sign
 in. Then come Settings and signing out of the default agent. Dashboard in the
 sidebar opens on everything.
 
-The quota forecast, "&lt;agent&gt; will run out before it refills", stays above a
-visible composer and on the Dashboard. Every other page carries the same title
+The quota forecast, "&lt;agent&gt; will run out before it refills", stays on the
+Dashboard. Above a visible composer it appears only after a desk conversation
+has a turn (a history preview does not count) and the binding plan window has
+less than 15% remaining. The shared Notice primitive supplies a sentence stop
+between an inline title and its detail. Every other page carries the same title
 and detail in the account trigger's tooltip. Dismissing or silencing the notice
 also removes that warning from the tooltip for the same occurrence or kind.
 
@@ -752,6 +755,15 @@ on this viewer.
 
 ## The composer
 
+An empty conversation offers agents already installed on this Mac, with one
+compact **name — Add** button per runtime beside **Installed on this Mac**.
+The pane draws before the background scan answers; the scan runs once per
+window and the offer is omitted when nothing new is found. Adding uses the
+same registration as Settings › Runtimes › Add a runtime. The new runtime
+becomes available in the composer, and its offer disappears. The history
+sentence names the present runtimes' declared history sources, once per source;
+it is omitted when none reads history through.
+
 A signed-out agent’s empty conversation offers one normal Sign in button.
 Its composer does not repeat the sign-in notice while the page already explains
 it; an existing transcript keeps that notice and its action. In Editor mode,
@@ -795,8 +807,15 @@ in [extending.md](extending.md).
   a chip beside the model name in its menu. This status comes only from the
   agent’s report; an effort level or model name never supplies it. Reports
   are observations and are left out of saved preset preferences.
-  When the agent declares that its mode controls permissions, that mode stands
-  on its own: no missing-permissions placeholder takes room beside it.
+  **Permissions** has one slot for every agent, filled with its own permission
+  levels. **Collaboration mode** is separate: plan first or act directly. When
+  an agent mixes planning into its permission list, adapter metadata splits the
+  list into those two controls; both still send the agent's existing option id
+  and values. Choosing Act returns to the adapter-declared acting value;
+  Permissions displays that acting level while Plan is selected. An
+  agent without collaboration modes has no collaboration control. Draft picks
+  retain their selected label while the toolbar has room. A missing-permissions
+  placeholder appears only when no permission option is declared.
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
 - **A conversation that cannot be read returns its pane to a fresh draft.**
@@ -905,6 +924,22 @@ yours, not an account's; presets are edited
 where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.
+
+Library's More menu offers **Import**, **Add from GitHub…**, and **Rescan**.
+The first two wait until the Library has been read. Add from GitHub accepts a
+public repository or folder URL and an optional branch, tag or commit. Found
+skills show their folder, file count and counts of files that can run or are
+binary; only skills with neither kind start checked. Refused folders keep the
+host's reason. Choose at least one skill and one agent with a skills location
+to review the install.
+
+The install plan lists every file, including local installs, with its size and
+any Can run or Binary mark. A runnable file keeps its reason under its path.
+Fetched files with either mark can be read as plain text; binary content is
+not displayed and a capped read says it shows the first 256 KB. A fetched plan
+with incoming runnable or binary files requires one acknowledgement before
+Apply. It acknowledges only the operations that need it; local installs ask
+for none. Each operation keeps its own result or refusal after Apply.
 
 The Library’s List view compares Skill (or Server), State and Loaded by in
 three labelled columns. Descriptions wrap, a warning names a needed fix, and
@@ -1016,19 +1051,9 @@ citation's own retained detail — from here, or from a receipt's Citations
 row — is read-only: opening one starts no turn and grants nothing, and a
 missing source Goal or Git revision says so honestly beside the text that was
 retained.
-The page also lists the project's checks, its flows and its Triggers. A
-project's Triggers section names each declared source as a sentence, with its
-trigger id, concurrency and last firing below. The switch shows whether it
-is on; Changed, Refused and Paused keep their own toned chips. Turning one
-on opens the exact arming review before anything
-runs, which also names the forge repository it binds and, for an issue
-trigger that reads comments, whose comments fire it. An arm that changed or
-was refused stays switched on until turned off, with *Review* to arm it again,
-and a source stopped at a gap shows *Watch from now*. Below the folder list,
-"Triggers on this Mac" is this machine's own pause — which holds the work
-triggers started and continues it on resume — and daily cap for every armed
-trigger, with what is reserved and charged today. See
-[multi-agent.md](multi-agent.md#9-intake-bounded-work-a-project-can-open-on-its-own).
+The page also lists the project's checks. Flows and Triggers live in the
+Flows destination, beside Teams in the left column; workspace preferences
+do not read either catalogue.
 
 The runtime page also draws the controls the runtime declares for new sessions.
 Codex includes an optional CLI profile there: choosing one reads its bounded
@@ -1049,18 +1074,18 @@ that read is pending or unavailable, the board says so rather than claiming
 that nothing was checked. The whole of it is in
 [multi-agent.md](multi-agent.md), under *The Board*.
 
-**As the board narrows.** Open columns keep at least 220px. Ready folds first,
-then To do, into named rails with their counts; each rail opens in place and
-offers a keyboard Fold control only when it can return to a rail. The scroll
-body reserves its gutter so a scrollbar appearing cannot move the fold
-thresholds. When the columns and rails no longer fit,
-or below 760px of content width, Needs you and Working share the first row,
-In review and To do the second; Ready stays a rail. Below 600px of content width
-the pane uses the compact list, grouped by state with Needs you first. Content
-width is the scroll body's client width, after its reserved scrollbar gutter;
-column fit also subtracts its insets. The pane measures itself, including space
-lost to a sidebar or dock, and restores the selected
-view when it widens. Set aside keeps its own lane while it contains work.
+**As the board narrows.** Occupied columns keep their full width and scroll
+horizontally when they do not fit. Empty columns start as narrow rails with
+their names and zero counts; each rail opens in place and offers a keyboard
+Fold control. The Board tab counts every card, including completed work, so a
+finished Team's three Ready cards are visible beside its four empty rails.
+An overflowing board keeps its scrollbar visible before any scrolling gesture.
+When every column is empty, the board shows one “Nothing on the board yet” line.
+Below 600px of content width the pane uses the compact list, grouped by state
+with Needs you first. Content width is the scroll body's client width, after its
+reserved scrollbar gutter. The pane measures itself, including space lost to
+a sidebar or dock, and restores the selected view when it widens. Set aside
+keeps its own lane while it contains work.
 
 **As a list.** Board · List switches the same jobs into a framed table. Filter
 jobs by words or state; All starts pressed, and the default order puts Needs
@@ -1124,6 +1149,14 @@ and Don't show this again. Settings › Notifications offers Inbox only or Off.
 When a standing condition ends and later returns, its Inbox row is unread again;
 an older read or clear from another window affects only the occurrence that
 window saw.
+
+A Team step waiting for the person also appears in the Inbox, with the Team
+name, the step or approval, and **Open the Team**. The row follows the same
+held facts as Needs you: answering, closing its round, or ending the Run removes
+it. Repeated run or board events do not make a read row unread again. Active
+Runs are read when the desk connects, so waiting steps arrive without opening
+their Team. Read state survives preference and Team hydration; clearing the
+Inbox suppresses the same live occurrence, including after reopening the desk.
 
 Conversation warnings, context compaction and model changes stay as quiet
 transcript lines outside the work fold. Errors keep one inline explanation and
@@ -1316,18 +1349,37 @@ trigger Goal's receipt keeps that same origin and stop reason.
 
 ## Flows
 
-A project's page lists its own Flows section beside Agents and Checks, read
-lazily — only once that page is open, never on the plain Workspaces list —
-from the layered catalogue (project, then your Mac, then what ships), each
-row saying its origin in words, never a wire id. An old-format project file
-carries **Update…**; a shipped or your-Mac file carries **Customize…**;
-either opens a dialog showing the whole before/after diff of every file it
-would write, through the same diff viewer an Agent's own ceiling update
-uses, before one confirming write. A project's own current-format file
-additionally carries **Edit shape…**, opening the same ordered editor and
-graph the front door's *Your own shape* uses, seeded from that file. A broken
-entry stays listed, disabled, with its own parser refusal on screen — never
-hidden.
+**Flows**, after Teams in the left column, opens a wide page of cards. Its
+heading, **New Flow** and an origin filter (All, Built in, or a project) share
+the first body row; search follows below and the bar keeps its tools. A card
+names the Flow and its origin, draws its actual steps and rules as a mini
+graph, carries its short summary and counts recorded Runs of
+that policy. Shared user and built-in entries appear once; a project's own
+file keeps its project identity. A broken entry stays visible with its
+parser refusal. **Just a Team** has no steps: it opens the same New Team
+dialog with a shared board and chat.
+
+Opening a Flow puts the editable graph in main. Its title menu holds Rename,
+Duplicate and Delete; deletion moves a writable file to the Trash only if it
+still has the bytes last read. The rail toggle and overflow are the only
+other bar controls. Floating canvas tools add a step or rule, undo an edit,
+and switch among **Graph**, **Steps** and **File**. The other group holds
+**Dry run** and **Start a Team**. Dragging saves node positions in the policy;
+connecting nodes adds a real rule. The ordered form and source edit that same
+policy, using the host's existing parser and renderer.
+
+The rail's cards hold the selected step, Rules, Triggers, Runs and Source.
+**Edit step** reveals the existing role controls. **Save…** previews the
+whole-file diff before a confirming write, to the project or to you; shipped
+Flows are copied rather than changed. Save refreshes the file's digest before
+another save or deletion. Start a Team pre-fills the shared dialog with the
+current source, including unsaved edits.
+
+Triggers belong to their Flow. Their arming review still binds committed
+bytes, and a changed, refused or paused arm keeps its own explanation. The
+same card holds the machine-wide pause and daily cap. A saved trigger stays
+disarmed until it is committed and explicitly armed. See
+[multi-agent.md](multi-agent.md#9-intake-bounded-work-a-project-can-open-on-its-own).
 
 **New session → A flow** shows the same dry run FlowStart always has: every
 seat a role would open, every candidate this machine tried and why each was
@@ -1365,20 +1417,21 @@ Agent, seat and evidence actually are.
 
 ### The front door
 
-**New Team…** (⌘⇧N) opens a searchable two-column picker. The project's
-own shapes come first, then the four shapes this desk has started most,
-then the rest. A fresh desk starts with Write and review, Side by side,
-Independent review and Investigation. Cards use the file's optional short
-`summary`, falling back to the description's first sentence; the full
-description remains on hover. **Just a Team** opens a shared board with
-no fixed steps; **Build your own** opens the shape editor. **New session**
-(⌘N) still starts a solo session directly; the picker footer keeps that path
-for work that needs only one agent.
+**New Team…** (⌘⇧N) opens one dialog from every door: task, searchable Flow
+cards with mini graphs, the selected Flow's role controls, **Done when ·
+optional**, **Dry run** and **Start Team**. A door only pre-fills it with a
+Flow, project, branch, pull request or current source. The picker remains in
+the dialog while its role form is open; changing Flow preserves the task and
+each Flow's edits. Just a Team uses the same dialog and keeps partial creation
+and seating progress if a retry is needed.
 
-Choosing a shape opens one form: the task, each role's agent, model and
-effort, the shape's own options, and **Done when · optional**. Leaving Done
-when empty uses the task as the Team's completion sentence. **Change**
-returns to the picker and preserves the typed task and each shape's edits.
+The project's own Flows come first, then frequent starts and the rest. Cards
+use the file's short summary, falling back to its description. **Build your
+own** opens a new Flow page and retains the target, empty Team and entered
+fields for its later Start a Team action. Leaving Done when empty uses the
+task as the completion sentence. **New session** (⌘N) continues to start a
+solo session directly.
+
 **Details** holds the remaining inputs, instruction files and dry-run facts.
 Write and review has one fresh independent reviewer and a maximum of one,
 two or three reviews. Its writer may edit and commit locally. After approval,
@@ -1387,8 +1440,10 @@ branch context to you; you decide whether to push the branch, open a pull
 request and merge it after checks, or drop it.
 
 The form shows placeholder rows while it reads the chosen shape and checks
-its seats. When **Start** is disabled, one line by the action explains what is
+its seats. When **Start Team** is disabled, one line by the action explains what is
 needed, such as **Add a task first** or **Checking the seats and inputs…**.
+At narrow widths, the New session explanation and action stack consistently
+while the chosen Flow loads, keeping the footer in place.
 Starting a comparison opens its **Side by side** tiles; **Overview** stays one
 tab away. A saved page choice is preserved when revisiting a Team.
 
@@ -1421,17 +1476,10 @@ menu, a pull request's own row, ⌘K and an empty Goal's board each open it
 the same way, prefilled with what that place already knows — a branch, a
 pull request, the project itself.
 
-**Build your own**, the catalogue's last card, opens an ordered editor of
-the chosen shape (or a blank one, a single person step) instead of starting
-it: add a step or a rule, see the exact file update as you go, and the
-identical dry run below it. **Save…** writes it to the project or to you,
-previewed first; **Start** needs no save at all, running the shape exactly as
-edited. Its **Graph** tab uses the same pan-and-zoom canvas as a Run.
-Selecting a node selects its ordered step; selecting a rule opens its ordered
-edit. Dragging a node, or the Horizontal/Vertical fields beside a selected
-one, only changes its saved position. Escape cancels a drag. The graph cannot
-add connections or delete steps; those edits stay in the ordered editor. Wheel
-and touch swipes scroll the page; the canvas tools handle zooming.
+**Build your own** and a saved Flow's edit door open the Flow page, using
+the same canvas and ordered editor described above. A Flow need not be saved
+to start a Team. Source or input edits immediately retire the earlier dry-run
+token, and a late answer cannot enable Start for older bytes.
 
 **Every time…**, on a chosen shape or an Agent's own page, hands off to
 Intake: the source, its fields, the Goal grouping and budget, saved to the

@@ -58,6 +58,9 @@ export const BOARD_RAIL_WIDTH = 44
  * question and belongs in the system; which dnd library moves the cards is an
  * application question, and every column and card below is a plain element a
  * draggable wrapper can take over without this file knowing.
+ *
+ * A scrolling board keeps its token-backed scrollbar visible at rest. Empty
+ * states can use BoardColumn's controlled named rails, leaving room for work.
  */
 
 type BoardProps = React.ComponentProps<'div'> & {
@@ -89,6 +92,7 @@ const Board = ({ className, wrap = false, derived = false, ...props }: BoardProp
   <BoardContext.Provider value={derived}>
     <div
       data-slot="board"
+      data-scroll-affordance={wrap ? undefined : ''}
       {...(wrap ? { 'data-wrap': '' } : {})}
       {...(derived ? { 'data-derived': '' } : {})}
       className={cn(

@@ -136,7 +136,7 @@ const openInvestigation = async (page: Page, theme: 'light' | 'dark', width: num
 
 {
 
-  for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720]).entries()) test(`R12.2 the New Team footer stays in place between steps [item ${[item0, item1].join('-')}]`, async ({ page }) => {
+  for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720, 712]).entries()) test(`R12.2 the New Team footer stays in place while choosing a Flow [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'team-start=picker', theme, width)
     const dialog = page.getByRole('dialog')
@@ -146,10 +146,18 @@ const openInvestigation = async (page: Page, theme: 'light' | 'dark', width: num
     })
     const picker = await geometry()
     await page.getByRole('button', { name: 'Investigation', exact: true }).click()
+    await expect(dialog).toHaveAccessibleName('New Team')
+    await expect(dialog.getByRole('region', { name: 'Flow', exact: true })).toBeVisible()
     const form = await geometry()
     expect(form.height, `dialog height at ${width}px in ${theme}`).toBeCloseTo(picker.height, 1)
     expect(form.footerTop, `footer position at ${width}px in ${theme}`).toBeCloseTo(picker.footerTop, 1)
     expect(form.top, `dialog top at ${width}px in ${theme}`).toBeCloseTo(picker.top, 1)
+    await dialog.getByLabel('What should they do?', { exact: true }).fill('Trace the checkout failure')
+    await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled()
+    const ready = await geometry()
+    expect(ready.height, `ready dialog height at ${width}px in ${theme}`).toBeCloseTo(picker.height, 1)
+    expect(ready.footerTop, `ready footer position at ${width}px in ${theme}`).toBeCloseTo(picker.footerTop, 1)
+    expect(ready.top, `ready dialog top at ${width}px in ${theme}`).toBeCloseTo(picker.top, 1)
 
 
   })
@@ -157,19 +165,29 @@ const openInvestigation = async (page: Page, theme: 'light' | 'dark', width: num
 
 {
 
-  for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720]).entries()) test(`R12.3 Back puts its text on the footer edge and its plate past it [item ${[item0, item1].join('-')}]`, async ({ page }) => {
+  for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720]).entries()) test(`R12.3 the New session alternative keeps the footer edge and secondary type scale [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
     const dialog = await openInvestigation(page, theme, width)
+    await expect(dialog.locator('[data-slot="dialog-footer-navigation"]').getByRole('button', { name: /^New session/ })).toBeVisible()
     const alignment = await dialog.evaluate(element => {
       const footer = element.querySelector<HTMLElement>('[data-slot="dialog-footer"]')!
       const navigation = footer.querySelector<HTMLElement>('[data-slot="dialog-footer-navigation"]')!
-      const back = [...navigation.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Back')!
+      const explanation = navigation.querySelector<HTMLElement>('[data-role="muted"]')!
+      const alternative = navigation.querySelector<HTMLButtonElement>('button')!
+      const actions = footer.querySelector<HTMLElement>('[data-slot="dialog-footer-actions"]')!
       const range = document.createRange()
-      range.selectNodeContents(back)
-      return { text: range.getBoundingClientRect().left, edge: navigation.getBoundingClientRect().left, plate: back.getBoundingClientRect().left }
+      range.selectNodeContents(explanation)
+      const style = getComputedStyle(explanation)
+      return { text: range.getBoundingClientRect().left, edge: navigation.getBoundingClientRect().left,
+        plate: alternative.getBoundingClientRect().left, right: navigation.getBoundingClientRect().right, actions: actions.getBoundingClientRect().left,
+        fontSize: style.fontSize, textToken: style.getPropertyValue('--hd-text-sm').trim(),
+        lineHeight: style.lineHeight, lineToken: style.getPropertyValue('--hd-line-sm').trim() }
     })
-    expect(Math.abs(alignment.text - alignment.edge), `Back text edge at ${width}px in ${theme}`).toBeLessThanOrEqual(1)
-    expect(alignment.plate, `Back plate should outdent at ${width}px in ${theme}`).toBeLessThan(alignment.edge)
+    expect(Math.abs(alignment.text - alignment.edge), `alternative text edge at ${width}px in ${theme}`).toBeLessThanOrEqual(1)
+    expect(alignment.plate, `the grouped New session action stays inside its navigation at ${width}px in ${theme}`).toBeGreaterThanOrEqual(alignment.edge)
+    expect(alignment.right, `footer alternatives stay clear of proceeding actions at ${width}px in ${theme}`).toBeLessThanOrEqual(alignment.actions)
+    expect(alignment.fontSize).toBe(alignment.textToken)
+    expect(alignment.lineHeight).toBe(alignment.lineToken)
 
 
   })

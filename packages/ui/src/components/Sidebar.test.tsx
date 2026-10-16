@@ -64,7 +64,7 @@ const readyHealth: RuntimeHealth = {
   state: 'ready',
 }
 
-const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' | 'agents' | 'library' | 'dashboard' | 'plugins' | null = null, doors: Partial<Pick<Parameters<typeof Sidebar>[0], 'onOpenSettings' | 'onOpenLibrary' | 'onBrowseFolders'>> = {}, settings?: Parameters<typeof Sidebar>[0]['settings']) => {
+const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' | 'flows' | 'agents' | 'library' | 'dashboard' | 'plugins' | null = null, doors: Partial<Pick<Parameters<typeof Sidebar>[0], 'onOpenSettings' | 'onOpenLibrary' | 'onBrowseFolders'>> = {}, settings?: Parameters<typeof Sidebar>[0]['settings']) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -138,7 +138,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(document.querySelector('[data-slot="dialog"]')).toBeNull()
   })
 
-  it('the menu opens New Team directly and retains worktree choices', () => {
+  it('the menu opens New Team directly and retains worktree choices', async () => {
     mount()
     const trigger = container.querySelector<HTMLButtonElement>('button[title="More ways to start"]')!
     act(() => trigger.click())
@@ -147,8 +147,8 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(items).toEqual(['New session⌘N', 'Open folder…', 'New Team…⌘⇧N', 'New worktree…', 'topic'])
     expect(menu.lastElementChild?.getAttribute('role')).not.toBe('separator')
     const team = [...menu.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('New Team…'))!
-    act(() => team.click())
-    expect(document.querySelector('[aria-label="Search shapes"]')).not.toBeNull()
+    await act(async () => team.click())
+    expect(document.querySelector('[aria-label="Search Flows"]')).not.toBeNull()
   })
 
   it('says why New worktree… is unavailable, not what a worktree is', () => {
@@ -375,7 +375,7 @@ it('puts the unread Inbox beside the Settings gear in the seat row', () => {
  * remain present at the minimum sidebar width.
  */
 describe('sidebar destinations', () => {
-  it('renders five separate, labelled design-system rows without catalogue counts at 200px', () => {
+  it('renders six separate, labelled design-system rows without catalogue counts at 200px', () => {
     container.style.width = '200px'
     mount({
       agents: [{ id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } }],
@@ -387,12 +387,12 @@ describe('sidebar destinations', () => {
     } as unknown as Partial<AppSnapshot>)
     const group = container.querySelector('[aria-label="Main sections"]')!
     const rows = [...group.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
-    expect(rows).toHaveLength(5)
-    expect(rows.map((one) => one.getAttribute('aria-label'))).toEqual(['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard'])
-    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent)).toEqual(['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard'])
-    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(5)
-    expect(rows.map((one) => one.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim())).toEqual([undefined, undefined, undefined, undefined, '1'])
-    expect(group.querySelectorAll('[data-left-trailing]')).toHaveLength(5)
+    expect(rows).toHaveLength(6)
+    expect(rows.map((one) => one.getAttribute('aria-label'))).toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent)).toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(6)
+    expect(rows.map((one) => one.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim())).toEqual([undefined, undefined, undefined, undefined, undefined, '1'])
+    expect(group.querySelectorAll('[data-left-trailing]')).toHaveLength(6)
   })
 
   it('fills the active row when its destination window is open', () => {
@@ -477,14 +477,14 @@ it('offers paging when a short filtered list cannot produce a scroll event', () 
   expect(loadHistory).toHaveBeenCalledOnce()
 })
 
-it('has one top row and five page doors in the approved order', () => {
+it('has one top row and six page doors in the approved order', () => {
   mount()
   const header = container.querySelector('[data-region="sidebar-header"]')!
   expect(header.querySelectorAll('[data-slot="bar"]')).toHaveLength(2)
   const group = container.querySelector('[aria-label="Main sections"]')!
   expect([...group.querySelectorAll('[data-slot="sidebar-menu-button"]')]
     .map(node => node.getAttribute('aria-label')))
-    .toEqual(['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+    .toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
   expect(header.querySelector('[data-role="wordmark"]')?.textContent).toBe('HarnessDesk')
   expect(container.querySelector('button[aria-label="Settings"]')?.getAttribute('aria-pressed')).toBe('false')
 })

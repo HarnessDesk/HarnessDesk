@@ -144,6 +144,12 @@ export interface LibraryCopy {
   readonly digest: string | null
   /** Shipped by an agent rather than installed by anyone. Never a write target. */
   readonly readOnly: boolean
+  /**
+   * Where a skill installed from a public repository came from, as recorded
+   * when installed. Read from the manifest, never from the network. Absent
+   * for other installs, MCP entries and copies the manifest does not know.
+   */
+  readonly origin?: LibrarySkillOrigin
 }
 
 /** Whether one entry reaches one runtime, and on what evidence. */

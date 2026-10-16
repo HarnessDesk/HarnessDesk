@@ -4,6 +4,7 @@ import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, ChevronIcon, CheckIcon
 import { ContextMenu, MenuItem, type MenuPoint } from './Menu'
 import { Popover } from './Popover'
 import { InboxMenu } from './InboxMenu'
+import { inlineNoticeTitle } from '../primitives/Notice'
 import { NoticeHost, type BannerTone } from '../primitives/Banner'
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
@@ -287,7 +288,7 @@ const ComposerNoticeRow = ({ message, onDismiss, onMute }: { message: NoticeMess
       <Lead message={message} />
       <span className={styles.line} data-slot="notice-message-line">
         <span ref={lineRef} className={styles.lineText}>
-          <span className={styles.lineTitle} data-part="notice-title">{message.title}</span>
+          <span className={styles.lineTitle} data-part="notice-title">{inlineNoticeTitle(message.title, message.body)}</span>
           {message.body ? <span className={styles.lineBody} data-part="notice-detail"> {message.body}</span> : null}
         </span>
       </span>
@@ -334,7 +335,7 @@ export const NoticeStrip = ({
       <Lead message={message} size="sm" />
       <span className={styles.line} data-slot="notice-message-line">
         <span className={styles.lineText}>
-          <span className={styles.lineTitle} data-part="notice-title">{message.title}</span>
+          <span className={styles.lineTitle} data-part="notice-title">{inlineNoticeTitle(message.title, message.body)}</span>
           {message.body ? <span className={styles.lineBody} data-part="notice-detail"> {message.body}</span> : null}
         </span>
       </span>

@@ -26,7 +26,8 @@ const optionsFor = (shape: number): ConfigOption[] => {
     case 2: return [other]
     case 4: return []
     case 5: return [{
-      ...mode, description: 'Session permission mode', currentValue: 'accept-edits',
+      ...mode, category: '_permissions', description: 'Session permission mode', currentValue: 'accept-edits',
+      collaboration: { planValue: 'plan', actValue: 'accept-edits' },
       choices: [{ value: 'manual', label: 'Manual' }, { value: 'accept-edits', label: 'Accept edits' }, { value: 'plan', label: 'Plan' }, { value: 'auto', label: 'Auto' }],
     }, model, reasoning]
     default: return [mode, model, reasoning, permissions, other]

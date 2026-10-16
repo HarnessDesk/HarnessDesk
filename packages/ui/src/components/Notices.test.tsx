@@ -88,7 +88,7 @@ const runtime = (id: string, name: string): RuntimeInfo =>
     presentation: { name },
   }) as unknown as RuntimeInfo
 
-/** Half a day into a seven-day window and 40% spent: on course to run dry. */
+/** Half a day into a seven-day window and 86% spent: on course to run dry. */
 const racing = (id: string, resetsAt = RESETS_AT): UsageReport =>
   ({
     runtime: id,
@@ -98,7 +98,7 @@ const racing = (id: string, resetsAt = RESETS_AT): UsageReport =>
       {
         id: 'weekly',
         label: 'Weekly',
-        usedPercent: 40,
+        usedPercent: 86,
         windowMinutes: 10_080,
         resetsAt,
         usageKnown: true,
@@ -129,6 +129,7 @@ const makeStore = (over: Partial<AppSnapshot>) => {
     activeRuntime: info.id,
     runtimes: [info],
     preferencesLoaded: true,
+    sessions: new Map([[sessionKey('a', 'started'), { runtime: 'a', turns: [{ items: [] }] } as unknown as import('@harnessdesk/protocol').Session]]),
     ...over,
   }
   const listeners = new Set<() => void>()
@@ -209,6 +210,17 @@ const menuItem = (label: string): HTMLElement | null =>
   [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(
     (row) => row.textContent?.includes(label) ?? false,
   ) ?? null
+
+it('keeps pace warnings off a fresh composer, including when quota is low', () => {
+  mount({ usage: [racing('a')], sessions: new Map() })
+  expect(container.textContent).not.toContain('will run out before it refills')
+})
+
+it('keeps pace warnings off a working composer at 15 percent remaining', () => {
+  const report = racing('a')
+  mount({ usage: [{ ...report, lanes: report.lanes.map(lane => ({ ...lane, usedPercent: 85 })) }] })
+  expect(container.textContent).not.toContain('will run out before it refills')
+})
 
 it('offers a way out of a warning that is only a prediction', () => {
   mount({ usage: [racing('a')] })

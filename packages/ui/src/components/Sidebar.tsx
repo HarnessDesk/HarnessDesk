@@ -41,6 +41,7 @@ import {
 import { accountKey, accountName, accountIdentity, agentKey, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken } from '../lib/agents'
+import { FlowIcon } from './Icons'
 import { Explorer, effectiveWindowMode } from '../editor'
 import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
@@ -72,6 +73,7 @@ export const Sidebar = ({
   onOpenLibrary,
   onOpenAgents,
   onOpenTeams,
+  onOpenFlows,
   onOpenUsage,
   onBrowseFolders,
   onSignIn,
@@ -85,6 +87,7 @@ export const Sidebar = ({
   /** Opens the Agents window — the roster, never a Settings page. */
   onOpenAgents: () => void
   onOpenTeams: () => void
+  onOpenFlows?: () => void
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
   onBrowseFolders: () => void
@@ -95,7 +98,7 @@ export const Sidebar = ({
   settings?: { section: Section; onSection: (section: Section) => void; onBack: () => void }
   listFilter?: { value: string; onChange: (value: string) => void }
   sessionsOwner?: boolean
-  activeDestination?: 'teams' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
+  activeDestination?: 'teams' | 'flows' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -158,6 +161,7 @@ export const Sidebar = ({
   </Bar>
   const pageDoors = [
     { id: 'teams' as const, label: 'Teams', icon: <TeamIcon size={16} />, run: onOpenTeams, count: 0 },
+    { id: 'flows' as const, label: 'Flows', icon: <FlowIcon size={16} />, run: onOpenFlows ?? (() => store.openDestination({kind:'flows',root:null,id:null,origin:null})), count: 0 },
     { id: 'agents' as const, label: 'Agents', icon: <AgentIcon size={16} />, run: onOpenAgents, count: 0 },
     { id: 'library' as const, label: 'Library', icon: <LibraryIcon size={16} />, run: onOpenLibrary ?? (() => onOpenSettings('library')), count: 0 },
     { id: 'plugins' as const, label: 'Plugins', icon: <PluginIcon size={16} />, run: onOpenPlugins, count: 0 },
