@@ -36,6 +36,7 @@ import { TeamsPageFrames } from './frames-teams-page'
 import { CliInstallFrame } from './frames-cli-install'
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { GUIDES_MODES, useGuides, useGuidesMode } from '../design/explorer/guides'
 
 import { runtimeId, sessionId, sessionKey, type RuntimeId, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
@@ -545,6 +546,12 @@ export const Dial = <T extends string>({
   </label>
 )
 
+/** Lines over every frame — boxes, rails, gaps and overflow. Alt+G cycles it. */
+const GuidesDial = () => {
+  const [mode, setMode] = useGuidesMode()
+  return <Dial label="guides" value={mode} options={GUIDES_MODES} onChange={setMode} />
+}
+
 const SETTINGS_SECTIONS = [
   'profile',
   'general',
@@ -608,6 +615,7 @@ const Preview = () => {
       </section>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold">Screen preview</span>
+        <GuidesDial />
         <Dial
           label="theme"
           value={snapshot.theme}
@@ -1230,9 +1238,20 @@ const FindingsPreview = () => {
 
 const siteSceneParam = new URLSearchParams(window.location.search).get('site-scene') ?? ''
 const siteScene = isSceneName(siteSceneParam) ? siteSceneParam : null
+/* Guides draw over every route: each `Frame` is a page of its own, and a
+   route without frames is one page. Alt+G steps through the modes. */
+const PreviewGuides = () => {
+  useGuides(() => {
+    const frames = [...document.querySelectorAll('[data-frame-id]')].filter((one) => !one.parentElement?.closest('[data-frame-id]'))
+    return frames.length ? frames : [container.firstElementChild ?? container]
+  })
+  return null
+}
+
 installOverlayScrollbarTracking()
 createRoot(container).render(
   <StrictMode>
+    <PreviewGuides />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
         {siteScene

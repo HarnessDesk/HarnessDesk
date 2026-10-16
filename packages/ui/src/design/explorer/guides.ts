@@ -1,0 +1,537 @@
+import { useEffect, useSyncExternalStore } from 'react'
+
+/**
+ * Guides: the lines a designer draws over a screen to see whether anything was
+ * placed by eye.
+ *
+ * A page is one root — a preview `Frame`, or the explorer's current board —
+ * and every measurement stays inside it, so two specimens side by side never
+ * lend each other a rail. Within a root the guides answer four questions:
+ *
+ *   boxes     where every component, control and heading actually is;
+ *   rails     which edges line up (three or more edges at one coordinate draw
+ *             a line through the page) and which edges *nearly* do — an edge
+ *             0.5–3px off a rail is the signature of a value typed by hand;
+ *   gaps      what space separates neighbours, as a number on the gap;
+ *   overflow  what spills past its box, is clipped without an ellipsis, or
+ *             leaves its page.
+ *
+ * Hovering adds the redline: the element's four edges extended across the
+ * page, its padding, its size and type, and its distance to its parent.
+ *
+ * It is a drawing on one fixed canvas that takes no pointer events, so the
+ * screen under it behaves exactly as it does without it. Colours are read from
+ * the tokens at draw time, so the guides follow the theme being inspected.
+ */
+
+export type GuidesMode = 'off' | 'boxes' | 'lines' | 'all'
+export const GUIDES_MODES: readonly GuidesMode[] = ['off', 'boxes', 'lines', 'all']
+
+type Layer = 'grid' | 'boxes' | 'rails' | 'gaps' | 'overflow' | 'inspect'
+const LAYERS: Record<GuidesMode, readonly Layer[]> = {
+  off: [],
+  boxes: ['boxes', 'overflow', 'inspect'],
+  lines: ['grid', 'rails', 'overflow', 'inspect'],
+  all: ['grid', 'boxes', 'rails', 'gaps', 'overflow', 'inspect'],
+}
+
+/** What counts as a thing placed on the page. */
+const PLACED = [
+  '[data-slot]', 'h1', 'h2', 'h3', 'h4', 'button', 'a[href]', 'input', 'textarea', 'select',
+  '[role="menuitem"]', '[role="tab"]', '[data-menu-row]', 'img', 'svg',
+].join(',')
+const CONTROL = 'button, a[href], input, textarea, select, [role="switch"], [role="checkbox"], [role="tab"], [data-slot$="trigger"], [data-menu-row]'
+const TEXT = 'h1, h2, h3, h4, [data-slot="text"], [data-slot="row-title"], [data-slot="label"], [data-slot$="title"], [data-slot$="description"]'
+
+/** Past this many boxes a root is sampled, not drawn whole. */
+const PER_ROOT = 1500
+/** An edge this close to a rail, and not on it, was placed by eye. */
+const NEAR_MISS = 3
+const ON_RAIL = 0.5
+const RAIL_MIN = 3
+const GAP_MAX = 48
+const GRID = 4
+const GRID_MAJOR = 16
+
+type Box = { el: Element; r: DOMRect; kind: 'container' | 'control' | 'text' | 'glyph' }
+type Palette = Record<'accent' | 'control' | 'text' | 'pad' | 'danger' | 'warn' | 'gap' | 'grid' | 'ink' | 'paper', string>
+
+const readPalette = (): Palette => {
+  const probe = document.createElement('span')
+  probe.style.cssText = 'position:absolute;visibility:hidden'
+  document.body.append(probe)
+  const read = (token: string) => {
+    probe.style.color = `var(${token})`
+    return getComputedStyle(probe).color
+  }
+  const palette: Palette = {
+    accent: read('--hd-accent'),
+    control: read('--hd-tint-violet-edge'),
+    text: read('--hd-tint-amber-edge'),
+    pad: read('--hd-success'),
+    danger: read('--hd-danger'),
+    warn: read('--hd-warning'),
+    gap: read('--hd-tint-rose-edge'),
+    grid: read('--hd-border'),
+    ink: read('--hd-accent-foreground'),
+    paper: read('--hd-foreground'),
+  }
+  probe.remove()
+  return palette
+}
+
+/* Past a pixel: a screen-reader-only node is 1×1 and is not placed. */
+const visible = (r: DOMRect) => r.width > 1.5 && r.height > 1.5
+const meets = (a: DOMRect, b: DOMRect) => a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom
+const round = (n: number) => Math.round(n * 2) / 2
+
+const kindOf = (el: Element): Box['kind'] =>
+  el.matches('svg, img') ? 'glyph' : el.matches(CONTROL) ? 'control' : el.matches(TEXT) ? 'text' : 'container'
+
+/** An element is on the page only where every clipping ancestor lets it be. */
+const shown = (el: Element, r: DOMRect, root: Element) => {
+  if (el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false
+  for (let up = el.parentElement; up && up !== root.parentElement; up = up.parentElement) {
+    const style = getComputedStyle(up)
+    if (style.overflowX === 'visible' && style.overflowY === 'visible') continue
+    if (!meets(r, up.getBoundingClientRect())) return false
+  }
+  return true
+}
+
+const collect = (root: Element, view: DOMRect): Box[] => {
+  const out: Box[] = []
+  for (const el of root.querySelectorAll(PLACED)) {
+    if (el.closest('svg') && el.tagName.toLowerCase() !== 'svg') continue
+    // The preview's own caption names the page; it is not on it.
+    if (el.closest('[data-preview-caption]')) continue
+    const r = el.getBoundingClientRect()
+    if (!visible(r) || !meets(r, view) || !shown(el, r, root)) continue
+    out.push({ el, r, kind: kindOf(el) })
+    if (out.length >= PER_ROOT) break
+  }
+  return out
+}
+
+/**
+ * Edges that three or more boxes share, per axis. Starts count for every
+ * box; ends only for boxes whose end is placed (a control, a container) —
+ * a line of text ends wherever its words do.
+ */
+const railsOf = (boxes: Box[]) => {
+  const count = (values: number[]) => {
+    const seen = new Map<number, number>()
+    for (const v of values) seen.set(round(v), (seen.get(round(v)) ?? 0) + 1)
+    return [...seen].filter(([, n]) => n >= RAIL_MIN).map(([v]) => v)
+  }
+  const placed = boxes.filter((one) => one.kind !== 'glyph')
+  const ends = placed.filter((one) => one.kind !== 'text')
+  return {
+    x: count([...placed.map(({ r }) => r.left), ...ends.map(({ r }) => r.right)]),
+    y: count([...ends.map(({ r }) => r.top), ...ends.map(({ r }) => r.bottom)]),
+  }
+}
+
+const nearest = (value: number, rails: number[]) => {
+  let best: number | null = null
+  for (const rail of rails) if (best === null || Math.abs(rail - value) < Math.abs(best - value)) best = rail
+  return best
+}
+
+/**
+ * Starts that nearly share a rail. Only the horizontal axis is judged: items
+ * of different heights centred in one row differ at the top by design, and
+ * that is not a misplacement.
+ */
+type Miss = { box: Box; at: number; rail: number }
+const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
+  const out: Miss[] = []
+  for (const box of boxes) {
+    if (box.kind === 'glyph') continue
+    const edges = box.kind === 'control' ? [box.r.left, box.r.right] : [box.r.left]
+    for (const at of edges) {
+      const rail = nearest(at, rails.x)
+      if (rail === null) continue
+      const off = Math.abs(rail - at)
+      if (off > ON_RAIL && off <= NEAR_MISS) out.push({ box, at, rail })
+    }
+  }
+  return out
+}
+
+/**
+ * A box spills only when something drawn sticks out of it. Scroll extents
+ * alone also count a resize seam's invisible hit area, which is meant to
+ * reach past the line it sits on.
+ */
+const sticksOut = (el: Element, r: DOMRect) => {
+  let checked = 0
+  for (const kid of el.querySelectorAll('*')) {
+    if (++checked > 200) break
+    const k = kid.getBoundingClientRect()
+    if (!visible(k)) continue
+    if (k.right > r.right + 1 || k.left < r.left - 1 || k.bottom > r.bottom + 1) {
+      if (!kid.checkVisibility || kid.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return true
+    }
+  }
+  return false
+}
+
+type Spill = { el: Element; r: DOMRect; how: 'spills' | 'clipped' | 'ellipsis' | 'leaves page' }
+const spillsOf = (boxes: Box[], page: DOMRect): Spill[] => {
+  const out: Spill[] = []
+  for (const { el, r } of boxes) {
+    if (!(el instanceof HTMLElement)) continue
+    if (r.left < page.left - 0.5 || r.right > page.right + 0.5) { out.push({ el, r, how: 'leaves page' }); continue }
+    const wide = el.scrollWidth > el.clientWidth + 1
+    const tall = el.scrollHeight > el.clientHeight + 1
+    if (!wide && !tall) continue
+    const style = getComputedStyle(el)
+    const scrolls = /auto|scroll/.test(style.overflowX + style.overflowY)
+    if (scrolls) continue
+    if (style.textOverflow === 'ellipsis' && wide) out.push({ el, r, how: 'ellipsis' })
+    else if (/hidden|clip/.test(style.overflowX + style.overflowY)) out.push({ el, r, how: 'clipped' })
+    else if (el.clientWidth > 0 && sticksOut(el, r)) out.push({ el, r, how: 'spills' })
+  }
+  return out
+}
+
+type Gap = { x: number; y: number; w: number; h: number; size: number; axis: 'x' | 'y' }
+const gapsOf = (boxes: Box[]): Gap[] => {
+  const byParent = new Map<Element, DOMRect[]>()
+  for (const { el, r, kind } of boxes) {
+    if (kind === 'glyph' || !el.parentElement) continue
+    const list = byParent.get(el.parentElement) ?? []
+    list.push(r)
+    byParent.set(el.parentElement, list)
+  }
+  const out: Gap[] = []
+  for (const rects of byParent.values()) {
+    if (rects.length < 2) continue
+    for (let i = 1; i < rects.length; i++) {
+      const a = rects[i - 1]!
+      const b = rects[i]!
+      if (b.top >= a.bottom && Math.min(a.right, b.right) > Math.max(a.left, b.left)) {
+        const size = b.top - a.bottom
+        const x = (Math.max(a.left, b.left) + Math.min(a.right, b.right)) / 2
+        if (size > 0 && size <= GAP_MAX) out.push({ x: x - 1, y: a.bottom, w: 2, h: size, size, axis: 'y' })
+      } else if (b.left >= a.right && Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top)) {
+        const size = b.left - a.right
+        const y = (Math.max(a.top, b.top) + Math.min(a.bottom, b.bottom)) / 2
+        if (size > 0 && size <= GAP_MAX) out.push({ x: a.right, y: y - 1, w: size, h: 2, size, axis: 'x' })
+      }
+    }
+  }
+  return out
+}
+
+/** What a page's guides found, read by specs and by anyone at the console. */
+export type GuidesReport = { page: string; offLine: string[]; overflow: string[] }[]
+export const guidesReport: { current: GuidesReport } = { current: [] }
+if (typeof window !== 'undefined') (window as unknown as { __hdGuides: typeof guidesReport }).__hdGuides = guidesReport
+
+const describe = (el: Element) => {
+  const slot = el.getAttribute('data-slot')
+  const text = (el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 24)
+  return `${el.tagName.toLowerCase()}${slot ? `[${slot}]` : ''}${text ? ` "${text}"` : ''}`
+}
+
+const fmt = (n: number) => (Number.isInteger(round(n)) ? String(round(n)) : round(n).toFixed(1))
+
+const label = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number, fill: string, ink: string) => {
+  ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace'
+  const w = ctx.measureText(text).width + 6
+  const left = Math.min(Math.max(2, x), ctx.canvas.clientWidth - w - 2)
+  const top = Math.min(Math.max(2, y), ctx.canvas.clientHeight - 16)
+  ctx.fillStyle = fill
+  ctx.fillRect(left, top, w, 14)
+  ctx.fillStyle = ink
+  ctx.fillText(text, left + 3, top + 10.5)
+}
+
+const parentBox = (el: Element, root: Element) => {
+  for (let up = el.parentElement; up && up !== root.parentElement; up = up.parentElement) {
+    if (up === root || up.matches(PLACED)) {
+      const r = up.getBoundingClientRect()
+      if (visible(r)) return r
+    }
+  }
+  return root.getBoundingClientRect()
+}
+
+const placedAt = (target: Element | null, roots: Element[]) => {
+  for (let el = target; el; el = el.parentElement) {
+    const root = roots.find((one) => one.contains(el!))
+    if (!root) return null
+    if (el.closest('svg') && el.tagName.toLowerCase() !== 'svg') continue
+    if (el.matches(PLACED) || el === root) return { el, root }
+  }
+  return null
+}
+
+/**
+ * Draw guides over `roots` until the returned function is called. `roots` is
+ * read on every frame, so a list that changes — a board switched, a frame
+ * mounted — is followed without remounting.
+ */
+export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => void) => {
+  const layers = new Set(LAYERS[mode])
+  if (layers.size === 0) return () => {}
+  const canvas = document.createElement('canvas')
+  canvas.dataset.guides = mode
+  canvas.setAttribute('aria-hidden', 'true')
+  canvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:calc(var(--hd-z-toast) + 1)'
+  document.body.append(canvas)
+  const ctx = canvas.getContext('2d')!
+  let pointer: { x: number; y: number } | null = null
+  let frame = 0
+  let palette = readPalette()
+
+  const draw = () => {
+    frame = 0
+    const dpr = window.devicePixelRatio || 1
+    const width = window.innerWidth
+    const height = window.innerHeight
+    if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+      canvas.width = Math.round(width * dpr)
+      canvas.height = Math.round(height * dpr)
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, width, height)
+    const view = new DOMRect(0, 0, width, height)
+    const pages = roots().filter((root) => meets(root.getBoundingClientRect(), view))
+    const report: GuidesReport = []
+
+    for (const root of pages) {
+      const page = root.getBoundingClientRect()
+      const boxes = collect(root, view)
+      const entry: GuidesReport[number] = { page: root.getAttribute('data-frame-id') ?? root.getAttribute('data-alignment-board-id') ?? 'page', offLine: [], overflow: [] }
+      report.push(entry)
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(page.left - 1, page.top - 1, page.width + 2, page.height + 2)
+      ctx.clip()
+
+      if (layers.has('grid')) {
+        for (let x = page.left; x <= page.right; x += GRID) {
+          ctx.globalAlpha = Math.round(x - page.left) % GRID_MAJOR === 0 ? 0.35 : 0.12
+          ctx.fillStyle = palette.grid
+          ctx.fillRect(Math.round(x), page.top, 1, page.height)
+        }
+        for (let y = page.top; y <= page.bottom; y += GRID) {
+          ctx.globalAlpha = Math.round(y - page.top) % GRID_MAJOR === 0 ? 0.35 : 0.12
+          ctx.fillStyle = palette.grid
+          ctx.fillRect(page.left, Math.round(y), page.width, 1)
+        }
+        ctx.globalAlpha = 1
+      }
+
+      if (layers.has('boxes')) {
+        ctx.lineWidth = 1
+        for (const { r, kind } of boxes) {
+          ctx.globalAlpha = kind === 'container' ? 0.45 : kind === 'glyph' ? 0.3 : 0.8
+          ctx.strokeStyle = kind === 'control' ? palette.control : kind === 'text' ? palette.text : palette.accent
+          ctx.strokeRect(Math.round(r.left) + 0.5, Math.round(r.top) + 0.5, Math.max(0, Math.round(r.width) - 1), Math.max(0, Math.round(r.height) - 1))
+        }
+        ctx.globalAlpha = 1
+      }
+
+      let missCount = 0
+      if (layers.has('rails')) {
+        const rails = railsOf(boxes)
+        ctx.strokeStyle = palette.accent
+        ctx.globalAlpha = 0.35
+        ctx.setLineDash([4, 4])
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        for (const x of rails.x) { ctx.moveTo(Math.round(x) + 0.5, page.top); ctx.lineTo(Math.round(x) + 0.5, page.bottom) }
+        for (const y of rails.y) { ctx.moveTo(page.left, Math.round(y) + 0.5); ctx.lineTo(page.right, Math.round(y) + 0.5) }
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.globalAlpha = 1
+        const misses = missesOf(boxes, rails)
+        missCount = misses.length
+        entry.offLine = misses.map(({ box, at, rail }) => `${describe(box.el)} Δ${fmt(Math.abs(rail - at))}`)
+        ctx.strokeStyle = palette.danger
+        ctx.lineWidth = 2
+        for (const { box, at, rail } of misses) {
+          // A tick on the edge and an arrow to the rail it missed.
+          const y = box.r.top + Math.min(box.r.height, 16) / 2
+          ctx.beginPath()
+          ctx.moveTo(at, box.r.top); ctx.lineTo(at, box.r.top + Math.min(box.r.height, 16))
+          ctx.moveTo(at, y); ctx.lineTo(rail, y)
+          ctx.stroke()
+          label(ctx, `Δ${fmt(Math.abs(rail - at))}`, Math.max(at, rail) + 3, y - 7, palette.danger, palette.ink)
+        }
+      }
+
+      if (layers.has('gaps')) {
+        for (const gap of gapsOf(boxes)) {
+          ctx.fillStyle = palette.gap
+          ctx.fillRect(gap.x, gap.y, gap.w, gap.h)
+          if (gap.size >= 4) label(ctx, fmt(gap.size), gap.axis === 'y' ? gap.x + 4 : gap.x + gap.w / 2 - 8, gap.axis === 'y' ? gap.y + gap.h / 2 - 7 : gap.y - 15, palette.gap, palette.ink)
+        }
+      }
+
+      let spillCount = 0
+      if (layers.has('overflow')) {
+        const spills = spillsOf(boxes, page)
+        spillCount = spills.filter((one) => one.how !== 'ellipsis').length
+        entry.overflow = spills.filter((one) => one.how !== 'ellipsis').map(({ el, how }) => `${describe(el)} ${how}`)
+        ctx.lineWidth = 2
+        for (const { r, how } of spills) {
+          ctx.strokeStyle = how === 'ellipsis' ? palette.warn : palette.danger
+          ctx.setLineDash(how === 'clipped' ? [3, 2] : [])
+          ctx.strokeRect(r.left + 1, r.top + 1, r.width - 2, r.height - 2)
+          ctx.setLineDash([])
+          if (how !== 'ellipsis') label(ctx, how, r.left, r.bottom + 1, palette.danger, palette.ink)
+        }
+      }
+      ctx.restore()
+
+      // The page's own edge and its tally, outside the clip.
+      ctx.strokeStyle = palette.accent
+      ctx.lineWidth = 1
+      ctx.strokeRect(Math.round(page.left) + 0.5, Math.round(page.top) + 0.5, Math.round(page.width) - 1, Math.round(page.height) - 1)
+      const tally = [
+        layers.has('rails') ? `${missCount} off-line` : null,
+        layers.has('overflow') ? `${spillCount} overflow` : null,
+      ].filter(Boolean).join(' · ')
+      if (tally) label(ctx, tally, page.right - 160, page.top + 4, missCount + spillCount ? palette.danger : palette.accent, palette.ink)
+    }
+
+    guidesReport.current = report
+
+    if (layers.has('inspect') && pointer) {
+      const hit = placedAt(document.elementFromPoint(pointer.x, pointer.y), pages)
+      if (hit) {
+        const { el, root } = hit
+        const r = el.getBoundingClientRect()
+        const page = root.getBoundingClientRect()
+        // Its edges, carried across the page.
+        ctx.strokeStyle = palette.accent
+        ctx.globalAlpha = 0.7
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        for (const x of [r.left, r.right]) { ctx.moveTo(Math.round(x) + 0.5, page.top); ctx.lineTo(Math.round(x) + 0.5, page.bottom) }
+        for (const y of [r.top, r.bottom]) { ctx.moveTo(page.left, Math.round(y) + 0.5); ctx.lineTo(page.right, Math.round(y) + 0.5) }
+        ctx.stroke()
+        ctx.globalAlpha = 1
+        // Its padding.
+        const style = getComputedStyle(el)
+        const pad = ['Top', 'Right', 'Bottom', 'Left'].map((side) => parseFloat(style.getPropertyValue(`padding-${side.toLowerCase()}`)) || 0) as [number, number, number, number]
+        ctx.fillStyle = palette.pad
+        ctx.globalAlpha = 0.22
+        ctx.fillRect(r.left, r.top, r.width, pad[0])
+        ctx.fillRect(r.left, r.bottom - pad[2], r.width, pad[2])
+        ctx.fillRect(r.left, r.top + pad[0], pad[3], r.height - pad[0] - pad[2])
+        ctx.fillRect(r.right - pad[1], r.top + pad[0], pad[1], r.height - pad[0] - pad[2])
+        ctx.globalAlpha = 1
+        ctx.strokeStyle = palette.accent
+        ctx.lineWidth = 2
+        ctx.strokeRect(r.left, r.top, r.width, r.height)
+        // Its distance to its parent, each side.
+        if (el !== root) {
+          const p = parentBox(el, root)
+          ctx.strokeStyle = palette.danger
+          ctx.lineWidth = 1
+          const midX = r.left + r.width / 2
+          const midY = r.top + r.height / 2
+          const sides: [number, number, number, number, number][] = [
+            [midX, p.top, midX, r.top, r.top - p.top],
+            [midX, r.bottom, midX, p.bottom, p.bottom - r.bottom],
+            [p.left, midY, r.left, midY, r.left - p.left],
+            [r.right, midY, p.right, midY, p.right - r.right],
+          ]
+          for (const [x1, y1, x2, y2, d] of sides) {
+            if (d <= 0.25) continue
+            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
+            label(ctx, fmt(d), (x1 + x2) / 2 + 3, (y1 + y2) / 2 - 7, palette.danger, palette.ink)
+          }
+        }
+        const slot = el.getAttribute('data-slot')
+        const name = `${el.tagName.toLowerCase()}${slot ? `·${slot}` : ''}`
+        const type = `${style.fontSize}/${style.lineHeight} ${style.fontWeight}`
+        const padText = pad.every((one) => one === pad[0]) ? fmt(pad[0]) : pad.map(fmt).join(' ')
+        label(ctx, `${name}  ${fmt(r.width)}×${fmt(r.height)}  pad ${padText}  ${type}`, r.left, r.top - 16, palette.accent, palette.ink)
+      }
+    }
+  }
+
+  const schedule = () => { if (!frame) frame = requestAnimationFrame(draw) }
+  const onPointer = (event: PointerEvent) => { pointer = { x: event.clientX, y: event.clientY }; schedule() }
+  const onLeave = () => { pointer = null; schedule() }
+  let mutationTimer = 0
+  const mutations = new MutationObserver(() => {
+    if (mutationTimer) return
+    mutationTimer = window.setTimeout(() => {
+      mutationTimer = 0
+      palette = readPalette()
+      schedule()
+    }, 120)
+  })
+  mutations.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'data-hd-dark-theme', 'data-state', 'open'] })
+  window.addEventListener('scroll', schedule, true)
+  window.addEventListener('resize', schedule)
+  window.addEventListener('pointermove', onPointer, { passive: true })
+  document.documentElement.addEventListener('pointerleave', onLeave)
+  schedule()
+
+  return () => {
+    if (frame) cancelAnimationFrame(frame)
+    if (mutationTimer) clearTimeout(mutationTimer)
+    mutations.disconnect()
+    window.removeEventListener('scroll', schedule, true)
+    window.removeEventListener('resize', schedule)
+    window.removeEventListener('pointermove', onPointer)
+    document.documentElement.removeEventListener('pointerleave', onLeave)
+    canvas.remove()
+  }
+}
+
+/** The mode the page was opened with: `?guides=`, else the last one chosen here. */
+const initialGuidesMode = (): GuidesMode => {
+  const asked = new URLSearchParams(window.location.search).get('guides')
+  if (asked && (GUIDES_MODES as readonly string[]).includes(asked)) return asked as GuidesMode
+  try {
+    const kept = window.localStorage.getItem('hd-guides')
+    if (kept && (GUIDES_MODES as readonly string[]).includes(kept)) return kept as GuidesMode
+  } catch { /* storage refused: start off */ }
+  return 'off'
+}
+
+/* One mode per page: the dial that sets it and the layer that draws it are
+   often far apart in the tree (a preview route switch, a toolbar). */
+let current: GuidesMode | null = null
+const listeners = new Set<() => void>()
+const modeNow = () => (current ??= initialGuidesMode())
+const setGuidesMode = (next: GuidesMode) => {
+  current = next
+  try { window.localStorage.setItem('hd-guides', next) } catch { /* not kept */ }
+  for (const listener of listeners) listener()
+}
+const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }
+
+/** The page's guides mode and its setter, shared by every caller on the page. */
+export const useGuidesMode = () => [useSyncExternalStore(subscribe, modeNow), setGuidesMode] as const
+
+/**
+ * Draw guides over `roots` in the page's mode, and let Alt+G step through
+ * the modes. `roots` is read on every frame, so it may name elements that
+ * mount later.
+ */
+export const useGuides = (roots: () => Element[]) => {
+  const [mode] = useGuidesMode()
+  // `roots` is read per frame; a new closure each render must not remount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => mountGuides(roots, mode), [mode])
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!event.altKey || event.code !== 'KeyG' || event.metaKey || event.ctrlKey) return
+      event.preventDefault()
+      setGuidesMode(GUIDES_MODES[(GUIDES_MODES.indexOf(modeNow()) + 1) % GUIDES_MODES.length]!)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+}

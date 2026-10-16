@@ -1412,6 +1412,32 @@ it does not. A description written for a richer picture than the tab renders is
 the same misleading a drawing was, in words. The only check that has caught
 these is opening every tab in a browser.
 
+### Guides
+
+Both `/design.html` and `/preview.html` carry a **guides** dial — off, boxes,
+lines, all — also opened with `?guides=<mode>` and stepped with Alt+G. It is
+the designer's ruler laid over the screen, drawn by
+`design/explorer/guides.ts` on one canvas that takes no pointer events. Each
+preview `Frame`, or the explorer's current board, is one page, and nothing is
+measured across two.
+
+- **boxes** outlines every component (`data-slot`), control and heading —
+  containers in the accent, controls in violet, text in amber.
+- **rails** draws a dashed line wherever three or more starts (or the ends of
+  controls and containers) meet. A start that misses a rail by 0.5–3px is
+  marked `Δn` in red: a value typed by eye. Only the horizontal axis is
+  judged, because items of different heights centred in a row differ at the
+  top on purpose.
+- **gaps** writes the space between neighbours on the space itself.
+- **overflow** marks what is drawn past its box, what is clipped without an
+  ellipsis, and what leaves its page; an ellipsis is amber, not red.
+- Hovering carries the element's four edges across the page and shows its
+  padding, size, type and its distance to its parent on each side.
+
+The tally in each page's corner, and `window.__hdGuides` beside it, is what
+the lines found; `e2e/ui-system/guides.spec.ts` proves a two-pixel nudge is
+caught and that the drawing never takes a click.
+
 ### What the engine checks
 
 Some of the rules here are about the words a screen happens to hold, not

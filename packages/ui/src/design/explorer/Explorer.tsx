@@ -6,6 +6,7 @@ import { PropagationPage } from '../showcase/PropagationPage'
 import { Button, GroupLabel, Input, Segmented } from '..'
 import { CATALOG_ENTRIES } from '../catalog/manifest'
 import { BOARDS } from './boards'
+import { GUIDES_MODES, useGuides, useGuidesMode } from './guides'
 import { COMPOSITION_BOARDS } from './boards-compositions'
 
 /**
@@ -303,6 +304,8 @@ export const Explorer = () => {
   const [foundation, setFoundation] = useState<string>(FOUNDATIONS[0]?.id ?? 'current')
   const [dials, setDials] = useState<DialState>(DIAL_DEFAULTS)
   const bodyRef = useRef<HTMLDivElement>(null)
+  const [guides, setGuides] = useGuidesMode()
+  useGuides(() => (bodyRef.current ? [bodyRef.current] : []))
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0 })
@@ -437,6 +440,15 @@ export const Explorer = () => {
               value={foundation}
               onChange={setFoundation}
               options={FOUNDATIONS.map((one) => ({ value: one.id, label: one.title }))}
+            />
+          </div>
+          <div className={styles.dial}>
+            <span className={styles.switchLabel}>Guides</span>
+            <Segmented
+              label="Guides"
+              value={guides}
+              onChange={setGuides}
+              options={GUIDES_MODES.map((one) => ({ value: one, label: one }))}
             />
           </div>
           <div className={styles.dial}>
