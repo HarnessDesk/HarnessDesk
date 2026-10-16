@@ -1245,7 +1245,10 @@ export class AppStore {
   async loadDraftOptions(): Promise<void> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
-    const options = await this.newSessionDefaultsFor(runtime)
+    const options = await this.newSessionDefaultsFor(runtime).catch(error => {
+      if (this.#snapshot.activeRuntime === runtime) this.resultNotice('warning', describe(error))
+      return []
+    })
     if (this.#snapshot.activeRuntime !== runtime) return
     this.#patch({ draftOptions: options.length > 0 ? options : null, draftValues: this.#draftsByRuntime[runtime] ?? {} })
   }

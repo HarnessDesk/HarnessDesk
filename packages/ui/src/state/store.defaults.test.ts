@@ -450,3 +450,12 @@ it('does not start when a runtime ignores the recommended access value', async (
   await store.newSession({ runtime, cwd: '/workspace' })
   expect(request.mock.calls.some(([method]) => method === 'session/create')).toBe(false)
 })
+
+it('reports a refused recommendation during composer refresh without rejecting the refresh task', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { activeRuntime: runtime })
+  vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error('The runtime refused its recommendation.'))
+  const notice = vi.spyOn(store, 'resultNotice')
+  await expect(store.loadDraftOptions()).resolves.toBeUndefined()
+  expect(notice).toHaveBeenCalledWith('warning', 'The runtime refused its recommendation.')
+})
