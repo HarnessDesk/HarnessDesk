@@ -34,6 +34,7 @@ const modelsDisplay = (models: readonly ModelInfo[]): readonly ModelInfo[] => mo
 }))
 const optionsDisplay = (options: readonly ConfigOption[]): readonly ConfigOption[] => options.map(entry => ({
   id: entry.id, label: entry.label, type: entry.type, currentValue: entry.currentValue,
+  ...(entry.recommendedValue !== undefined ? { recommendedValue: entry.recommendedValue } : {}),
   ...(entry.description !== undefined ? { description: entry.description } : {}),
   ...(entry.category !== undefined ? { category: entry.category } : {}),
   ...(entry.disabled !== undefined ? { disabled: entry.disabled } : {}),

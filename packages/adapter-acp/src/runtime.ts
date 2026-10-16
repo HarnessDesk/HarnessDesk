@@ -820,7 +820,7 @@ const isChoiceGroup = (
  * treat as `other`. Anything else is `other` outright.
  */
 const acpCategory = (id: string, category: string | null | undefined): OptionCategory => {
-  if (id === 'auto_approve' || id === 'sandbox') return '_permissions'
+  if (id === 'auto_approve') return '_permissions'
   if (category === 'mode' || category === 'model' || category === 'thought_level' || category === 'other') {
     return category
   }

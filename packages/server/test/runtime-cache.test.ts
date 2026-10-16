@@ -3,8 +3,28 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import type { AccountStatus } from '@harnessdesk/protocol'
+import type { AccountStatus, ConfigOption } from '@harnessdesk/protocol'
 import { RuntimeCache } from '../src/runtime-cache.js'
+
+test('option recommendations survive observation writes and reloads, including false', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-recommendations-cache-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'runtime-cache.json')
+  const cache = new RuntimeCache(path, error => { throw error })
+  const options: ConfigOption[] = [
+    { id: 'model', label: 'Model', category: 'model', type: 'select', currentValue: 'large',
+      recommendedValue: 'small', choices: [{ value: 'small', label: 'Small' }, { value: 'large', label: 'Large' }] },
+    { id: 'auto_approve', label: 'Auto approve', type: 'boolean', currentValue: true, recommendedValue: false },
+    { id: 'plain', label: 'Plain', type: 'boolean', currentValue: false },
+  ]
+  cache.update('demo', { options, sessionOptions: options })
+  assert.deepEqual(cache.get('demo').options, options)
+  await cache.flush()
+  const restored = new RuntimeCache(path, error => { throw error })
+  await restored.load()
+  assert.deepEqual(restored.get('demo').options, options)
+  assert.deepEqual(restored.get('demo').sessionOptions, options)
+})
 
 test('atomic queued observations survive reload and exclude extra account fields and sign-in payloads', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-display-cache-'))
