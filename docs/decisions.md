@@ -3593,3 +3593,16 @@ attention-only filter caused the missing account; there was no runtime-id
 gate. Host reads already use runtime capabilities, and file-backed meters may
 report limits even when a runtime cannot meter directly, so those reports
 remain eligible too. The attention count still counts only plans needing it.
+## Agent and model logos in their makers' colours — 2026-10-16
+
+The owner compared the app with other agent desktops and found theirs read
+better because their logos are in colour; every glyph in those apps is still a
+one-colour line icon. The owner chose colour logos only, not a colour per
+project. `BrandMark` draws the lobe-icons colour file where one exists and keeps
+the one-colour drawing beside it. A stylesheet rule shows the one-colour drawing
+on `[data-tint]`, `[data-color]` and `[data-off]` grounds. That keeps a tinted
+face, an account ring or a signed-out seat in its identity's ink, and it costs
+a second inline drawing per mark rather than a prop at every call site. A maker
+with no colour file stays in ink. Codex's colour file loses its white app-icon
+square and Kimi's white K takes `currentColor`; tests require each fix to still
+find what it removes, so an upstream redraw fails a test instead of shipping.
