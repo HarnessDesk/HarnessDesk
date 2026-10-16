@@ -259,7 +259,8 @@ try {
         await overview.getByRole('button', { name: '2 done', exact: true }).click()
         await expect(overview.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
         await page.waitForFunction(goal => window.__hdStore.getSnapshot().goals.get(goal)?.activity !== 'working', run.goal)
-        await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toHaveCount(0, { timeout: 30000 })
+        // A finished Team stays in the sidebar, marked, until it is wrapped (#1675 D5).
+        await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toBeVisible({ timeout: 30000 })
         evidence.push({ template, checkMode, checks: checks.map(one => ({ command: one.fact.run, exitCode: one.fact.exit, at: one.fact.at })), rounds: handoff.execution.rounds.map(one => one.role), settledSidebar: true })
         assert.deepEqual(rendererErrors, [], 'the contest renderer had no uncaught errors')
         continue
@@ -392,7 +393,8 @@ try {
         const comments = JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).comments
         assert.equal(comments?.length ?? 0, 0, 'review before publication stays local')
       }
-      await expect(page.getByText(template === 'comparison' ? 'Completed rounds 4 of 4' : 'Completed rounds 3 of 7', { exact: true })).toBeVisible()
+      // A comparison counts its attempts rather than its routing rounds (#1675 D7).
+      await expect(page.getByText(template === 'comparison' ? /^2 attempts( · (Referee|You) picked)?$/ : 'Completed rounds 3 of 7', { exact: true })).toBeVisible()
       // The board settles before the final turn/activity event reaches the
       // sidebar. Capture the finished Goal only once both surfaces agree.
       await page.waitForFunction(({ goal, run }) => {
@@ -400,8 +402,8 @@ try {
         return snapshot.flowExecutions.get(run)?.state === 'settled' &&
           snapshot.goals.has(goal) && snapshot.goals.get(goal).activity !== 'working'
       }, { goal: run.goal, run: run.id })
-      // The rig uses the active list: a finished Team leaves that sidebar.
-      await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toHaveCount(0, { timeout: 30000 })
+      // A finished Team stays in the sidebar, marked, until it is wrapped (#1675 D5).
+      await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toBeVisible({ timeout: 30000 })
       evidence.at(-1).settledSidebar = true
       await photograph('13-finished-overview')
       await tab('Run')

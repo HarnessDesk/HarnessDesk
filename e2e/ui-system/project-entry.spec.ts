@@ -23,7 +23,7 @@ test('the empty composer and both sidebar entries open one folder picker with ke
 
 test('catalogue totals leave sidebar labels quiet', async ({ page }) => {
   await page.goto(preview)
-  for (const label of ['Agents', 'Plugins']) {
+  for (const label of ['Flows', 'Agents', 'Plugins']) {
     const row = page.getByRole('button', { name: label, exact: true }).locator('..')
     await expect(row.locator('[data-left-mark]')).toHaveCount(0)
   }
@@ -50,7 +50,7 @@ test('a finished Team whose project is gone stays hidden', async ({ page }) => {
 test('Most used earns its section from recorded starts', async ({ page }) => {
   await page.goto(`${preview}?scene=shapes`)
   await expect(page.getByRole('region', { name: 'Most used', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'More shapes', exact: true }).getByRole('button', { name: 'Write and review', exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'More Flows', exact: true }).getByRole('button', { name: 'Write and review', exact: true })).toBeVisible()
   await page.evaluate(() => localStorage.setItem('hd-team-shape-starts', JSON.stringify({ comparison: 1 })))
   await page.reload()
   const most = page.getByRole('region', { name: 'Most used', exact: true })
