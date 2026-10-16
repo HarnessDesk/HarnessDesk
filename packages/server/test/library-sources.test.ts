@@ -144,6 +144,8 @@ test('resolve HEAD, branch, slash branch, peeled tag, and full commit; copy byte
       assert.equal(skill.name, 'demo')
       assert.equal(skill.dir, 'tools/demo')
       assert.equal(skill.files, 2)
+      assert.equal(skill.runnable, 1)
+      assert.equal(skill.binary, 0)
       assert.equal(skill.bytes, Buffer.byteLength(BODY + 'echo demo\n'))
       assert.equal(await readFile(join(skill.sourcePath, 'SKILL.md'), 'utf8'), BODY)
       assert.equal((await lstat(join(skill.sourcePath, 'run.sh'))).mode & 0o777, 0o755)
@@ -250,7 +252,15 @@ test('fetched commit installs through the ordinary preview and persists its orig
     assert.equal(plan.ops[0]?.action, 'create')
     assert.deepEqual(plan.ops[0]?.origin, origin)
     assert.match(plan.ops[0]?.preview ?? '', /Read this/)
-    assert.equal((await applyLibrary(plan.ops, context))[0]?.outcome, 'done')
+    assert.deepEqual(skill.runnable, 0)
+    assert.deepEqual(skill.binary, 1)
+    assert.deepEqual(plan.ops[0]!.files, [
+      { path: 'SKILL.md', bytes: Buffer.byteLength(BODY), runnable: false, binary: false, reason: null },
+      { path: 'bytes.bin', bytes: 5, runnable: false, binary: true, reason: null },
+    ])
+    assert.equal((await applyLibrary(plan.ops, context))[0]?.outcome, 'failed')
+    await assert.rejects(lstat(plan.ops[0]!.targetPath), { code: 'ENOENT' })
+    assert.equal((await applyLibrary(plan.ops.map(op => ({ ...op, acknowledged: true })), context))[0]?.outcome, 'done')
     assert.deepEqual(await readFile(join(plan.ops[0]!.targetPath, 'bytes.bin')), Buffer.from('\0\u0001é\n'))
     const manifest = JSON.parse(await readFile(join(context.libraryDir, 'manifest.json'), 'utf8'))
     assert.deepEqual(manifest.entries[0].origin, { url: URL, ref: 'main', commit, path: 'demo' })
@@ -277,4 +287,88 @@ test('Git object checking refuses a .git tree before any skills are listed', asy
     await assert.rejects(sources(root, repo).fetch({ url: URL, ref: commit }), /public repository or requested commit could not be read/)
     assert.deepEqual(await readdir(join(root, 'library/sources')), [])
   })
+})
+
+test('fetched runnable files require acknowledgement even when the submitted list says otherwise', async () => {
+  await fixture(async (root, repo, commit) => {
+    const fetched = await sources(root, repo).fetch({ url: URL })
+    const skill = fetched.skills[0]!
+    const context = { home: join(root, 'home'), libraryDir: join(root, 'library') }
+    const origin = { url: fetched.url, ref: fetched.ref, commit, path: skill.dir, bundle: skill.bundle }
+    const plan = await planLibrary([{ id: runtimeId('claudecode'), brand: 'claudecode' }], [{ kind: 'installSkill', name: skill.name, sourcePath: skill.sourcePath, targetRuntime: runtimeId('claudecode'), origin }], context)
+    for (const acknowledged of [undefined, false]) {
+      const result = await applyLibrary(plan.ops.map(op => ({ ...op, files: [], ...(acknowledged === undefined ? {} : { acknowledged }) })), context)
+      assert.equal(result[0]?.outcome, 'failed')
+      assert.equal(result[0]?.detail, 'This skill carries files that can run or are binary. Read the list and acknowledge it before installing.')
+      await assert.rejects(lstat(plan.ops[0]!.targetPath), { code: 'ENOENT' })
+      await assert.rejects(lstat(join(context.libraryDir, 'manifest.json')), { code: 'ENOENT' })
+    }
+    assert.equal((await applyLibrary(plan.ops.map(op => ({ ...op, acknowledged: true })), context))[0]?.outcome, 'done')
+  })
+})
+
+test('a fetched plain reference installs without acknowledgement; changed source bytes still refuse', async () => {
+  await fixture(async (root, repo, commit) => {
+    const fetched = await sources(root, repo).fetch({ url: URL })
+    const skill = fetched.skills[0]!
+    const context = { home: join(root, 'home'), libraryDir: join(root, 'library') }
+    const origin = { url: fetched.url, ref: fetched.ref, commit, path: skill.dir, bundle: skill.bundle }
+    const plan = await planLibrary([{ id: runtimeId('claudecode'), brand: 'claudecode' }], [{ kind: 'installSkill', name: skill.name, sourcePath: skill.sourcePath, targetRuntime: runtimeId('claudecode'), origin }], context)
+    assert.equal((await applyLibrary(plan.ops, context))[0]?.outcome, 'done')
+    await writeFile(join(skill.sourcePath, 'references/note.md'), 'changed')
+    assert.equal((await applyLibrary(plan.ops.map(op => ({ ...op, acknowledged: true })), context))[0]?.outcome, 'failed')
+  }, { 'demo/SKILL.md': { body: BODY }, 'demo/references/note.md': { body: 'Read more.' } })
+})
+
+test('source file reads are bounded and describe binary bytes without text', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'hd-source-file-'))
+  try {
+    const libraryDir = join(root, 'library')
+    const sourcePath = join(libraryDir, 'sources/demo')
+    await mkdir(join(sourcePath, 'references'), { recursive: true })
+    await writeFile(join(sourcePath, 'references/note.md'), 'Read é.')
+    await writeFile(join(sourcePath, 'large.txt'), Buffer.alloc(256 * 1024 + 1, 97))
+    await writeFile(join(sourcePath, 'exact.txt'), Buffer.alloc(256 * 1024, 97))
+    await writeFile(join(sourcePath, 'bytes'), Buffer.from([0, 1, 2]))
+    await writeFile(join(sourcePath, 'bad-utf8'), Buffer.from([255]))
+    const reader = new LibrarySources(libraryDir)
+    const read = (path: string) => reader.file({ sourcePath, path })
+    assert.deepEqual(await read('references/note.md'), { path: 'references/note.md', bytes: 8, text: 'Read é.', truncated: false })
+    const large = await read('large.txt')
+    assert.equal(large.bytes, 256 * 1024 + 1)
+    assert.equal(typeof large.text, 'string')
+    assert.equal(Buffer.byteLength(large.text!), 256 * 1024)
+    assert.equal(large.truncated, true)
+    assert.equal((await read('exact.txt')).truncated, false)
+    assert.deepEqual(await read('bytes'), { path: 'bytes', bytes: 3, text: null, truncated: false })
+    assert.equal((await read('bad-utf8')).text, null)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('source file reads refuse outside roots, unsafe paths, links and non-files', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'hd-source-file-'))
+  try {
+    const libraryDir = join(root, 'library')
+    const sourcePath = join(libraryDir, 'sources/demo')
+    const outside = join(root, 'outside')
+    await mkdir(sourcePath, { recursive: true })
+    await mkdir(outside)
+    await writeFile(join(outside, 'note'), 'outside')
+    await writeFile(join(sourcePath, 'note'), 'inside')
+    await mkdir(join(sourcePath, 'folder'))
+    await symlink(join(outside, 'note'), join(sourcePath, 'file-link'))
+    await symlink(outside, join(sourcePath, 'dir-link'))
+    await symlink(outside, join(libraryDir, 'sources/source-link'))
+    const reader = new LibrarySources(libraryDir)
+    const read = async (path: string, from = sourcePath) => reader.file({ sourcePath: from, path })
+    assert.equal((await read('note')).text, 'inside')
+    for (const path of ['../outside/note', '/note', 'a//b', 'a/./b', 'C:\\note', '', 'note\0', 'folder', 'file-link', 'dir-link/note', 'missing']) {
+      await assert.rejects(read(path), { name: 'Error' }, path)
+    }
+    await assert.rejects(read('note', outside))
+    await assert.rejects(read('note', join(libraryDir, 'sources/source-link')))
+    await rm(join(libraryDir, 'sources'), { recursive: true })
+    await symlink(outside, join(libraryDir, 'sources'))
+    await assert.rejects(read('note', join(libraryDir, 'sources')))
+  } finally { await rm(root, { recursive: true, force: true }) }
 })

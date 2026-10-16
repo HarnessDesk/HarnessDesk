@@ -586,7 +586,14 @@ These only exist because no vendor owns the desk:
   copied into `library/sources/`; the ordinary plan/apply pair requires their
   origin and matching bundle digest, and the manifest remembers the repository,
   ref, commit and skill path. The source cache expires after seven untouched days.
-  There is no client command or screen for this method yet.
+  Plans list every incoming file (at most 200, including `SKILL.md`),
+  marking files that can run or are binary;
+  fetched source results include both counts. Apply reads and classifies the
+  bytes again, and requires acknowledgement before writing a fetched skill
+  that carries either kind of file. Local copies need no acknowledgement.
+  The host-only `library/source/file` reads a regular file inside a fetched
+  copy, returning at most 256 KB of text, or no text for binary files.
+  There is no client command or screen for these methods yet.
 - **One history, one search** across every backend, grouped by repository so
   a project is one row whichever agent worked in it.
 - **One permission policy and one audit log.**

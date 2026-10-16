@@ -4,8 +4,8 @@ import { lstat, mkdir, open, readdir, realpath, rm, utimes } from 'node:fs/promi
 import { constants } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 
-import { bundleDigest, isSafeSkillRelativePath, MAX_BUNDLE_BYTES, MAX_BUNDLE_FILES, parseGithubSource, validSkillName, internals } from '@harnessdesk/agent-inventory'
-import type { LibrarySourceResult } from '@harnessdesk/protocol'
+import { classifySkillFiles, bundleDigest, isSafeSkillRelativePath, MAX_BUNDLE_BYTES, MAX_BUNDLE_FILES, parseGithubSource, validSkillName, internals } from '@harnessdesk/agent-inventory'
+import type { HostResult, LibrarySourceResult } from '@harnessdesk/protocol'
 
 import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
@@ -38,6 +38,41 @@ export class LibrarySources {
     const next = this.#pending.then(() => this.#fetch(input))
     this.#pending = next.catch(() => {})
     return next
+  }
+
+  async file(input: { readonly sourcePath: string; readonly path: string }): Promise<HostResult<'library/source/file'>> {
+    if (!isSafeSkillRelativePath(input.path)) throw new Error('The file needs a skill relative path.')
+    const root = resolve(this.libraryDir, 'sources')
+    if ((await lstat(root)).isSymbolicLink()) throw new Error('The source directory cannot be a link.')
+    const realRoot = await realpath(root)
+    const source = await realpath(input.sourcePath)
+    if (!within(source, realRoot) || !(await lstat(source)).isDirectory()) throw new Error('The source is outside the fetched copies.')
+    const segments = input.path.split(/[/\\]/)
+    let path = source
+    for (const segment of segments) {
+      path = join(path, segment)
+      const stats = await lstat(path)
+      if (stats.isSymbolicLink()) throw new Error('The file path cannot contain a link.')
+    }
+    const before = await lstat(path)
+    if (!before.isFile() || !within(await realpath(path), source)) throw new Error('The path is not a regular file in this skill.')
+    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+    try {
+      const opened = await handle.stat()
+      if (!opened.isFile() || opened.ino !== before.ino || opened.dev !== before.dev || !within(await realpath(path), source)) {
+        throw new Error('The file changed while it was being read.')
+      }
+      const bytes = Buffer.alloc(Math.min(opened.size, 256 * 1024))
+      let count = 0
+      while (count < bytes.length) {
+        const read = await handle.read(bytes, count, bytes.length - count, count)
+        if (read.bytesRead === 0) break
+        count += read.bytesRead
+      }
+      const content = bytes.subarray(0, count)
+      const binary = classifySkillFiles([{ path: input.path, bytes: content }])[0]!.binary
+      return { path: input.path, bytes: opened.size, text: binary ? null : content.toString('utf8'), truncated: opened.size > count }
+    } finally { await handle.close() }
   }
 
   async #fetch(input: { readonly url: string; readonly ref?: string; readonly path?: string }): Promise<LibrarySourceResult> {
@@ -182,7 +217,8 @@ export class LibrarySources {
         await this.#write(destination, root, written)
         const definition = written.find(file => file.path === 'SKILL.md')!.bytes.toString('utf8')
         const name = internals.frontmatter(definition).name
-        skills.push({ name: name && validSkillName(name) ? name : basename(dir || source.repo), dir, sourcePath: destination, files: files.length, bytes, bundle: bundleDigest(written) })
+        const classified = classifySkillFiles(written)
+        skills.push({ runnable: classified.filter(file => file.runnable).length, binary: classified.filter(file => file.binary).length, name: name && validSkillName(name) ? name : basename(dir || source.repo), dir, sourcePath: destination, files: files.length, bytes, bundle: bundleDigest(written) })
       }
       const repoCache = join(root, source.repo.replace('/', '__'))
       const now = new Date()
