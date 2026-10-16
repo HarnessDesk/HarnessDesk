@@ -185,3 +185,32 @@ test('a task is titled by its command, without the shell that wraps it', () => {
   // Nothing to shorten to: the command as it came.
   assert.equal(taskLabel('   '), '   ')
 })
+
+test('a task title never names a command that is not the one running', () => {
+  const cutTo48 = (line: string) => `${line.slice(0, 47).trimEnd()}…`
+  // A leading `cd` goes only when its directory and the separator after it are read for sure.
+  assert.equal(taskLabel('cd /work;pwd;tail -f server.log'), 'pwd;tail -f server.log')
+  assert.equal(taskLabel('cd "/work/a\\"; echo pretend" && pnpm dev'), 'pnpm dev')
+  assert.equal(taskLabel('cd x'), 'cd x')
+  // A directory that expands is not read for sure, so its `cd` stays; the wrapper still goes.
+  assert.equal(taskLabel('zsh -lc "cd $HOME/app && pnpm test --watch --reporter verbose"'), 'cd $HOME/app…')
+  // A backslash outside quotes joins a word: the assignment stays one word.
+  assert.equal(taskLabel('FOO=some\\ value pnpm dev --host 0.0.0.0 --port 3000'), 'pnpm dev…')
+  // A separator touching a word still ends the command.
+  const long = 'sleep 100 && echo done-with-a-long-enough-tail-to-cut'
+  assert.equal(taskLabel(`zsh -c "ls; ${long}"`), 'ls…')
+  assert.equal(taskLabel(`a&&b ${long}`), 'a…')
+  assert.equal(taskLabel(`x;y ${long}`), 'x…')
+  // Only a leading assignment is skipped, and a line with no program left keeps itself.
+  const substitution = 'OUTPUT="$(node /work/scripts/a-script-with-a-long-name.mjs --flag)"'
+  assert.equal(taskLabel(substitution), cutTo48(substitution))
+  const assignments = 'FIRST_VARIABLE=one SECOND_VARIABLE=two THIRD_VARIABLE=three'
+  assert.equal(taskLabel(assignments), cutTo48(assignments))
+  // A quoted program path is read unquoted before its name is taken.
+  assert.equal(taskLabel('"/my path/bin" --a value-that-makes-this-line-long enough-to-cut'), 'bin value-that-makes-this-line-long…')
+  // What cannot be read for sure is shown as it came.
+  const unterminated = '/bin/zsh -lc "rg -n pattern /work/storefront/packages/ui/src'
+  assert.equal(taskLabel(unterminated), cutTo48(unterminated))
+  assert.equal(taskLabel('bash -c "x" extra'), 'bash -c "x" extra')
+  for (const label of [substitution, assignments, unterminated].map(taskLabel)) assert.notEqual(label, '…')
+})
