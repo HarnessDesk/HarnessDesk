@@ -110,6 +110,7 @@ try {
 
   let relaunch
   let about
+  let relaunchError
   try {
   // `launchDesk` returns as soon as the renderer store exists. Preferences are
   // loaded immediately afterwards, so wait for hydration instead of sampling
@@ -215,8 +216,16 @@ try {
   } finally {
     aboutCdp.close()
   }
+  } catch (error) {
+    relaunchError = error
+    throw error
   } finally {
-    await closeDesk(desk)
+    try {
+      await closeDesk(desk)
+    } catch (cleanupError) {
+      if (relaunchError) throw new AggregateError([relaunchError, cleanupError], 'relaunch and desk cleanup failed')
+      throw cleanupError
+    }
   }
 
 const screenshots = readdirSync(frames).filter((file) => file.endsWith('.png')).sort()
