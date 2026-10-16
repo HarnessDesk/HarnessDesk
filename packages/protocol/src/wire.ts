@@ -77,6 +77,7 @@ import type {
   LibraryPlan,
   LibraryPlannedOp,
   LibraryUsage,
+  LibrarySourceResult,
 } from './library.js'
 import type { AgentEvent } from './events.js'
 import type { BackgroundTask } from './tasks.js'
@@ -1051,6 +1052,12 @@ export interface HostMethods {
     }
     result: null
   }
+  /** Fetch public repository skill bytes at one resolved commit into the host's cache. */
+  'library/source/fetch': {
+    params: { readonly url: string; readonly ref?: string; readonly path?: string }
+    result: LibrarySourceResult
+  }
+
   /**
    * The library: every skill and MCP server on this machine, and which agents
    * can see each one. Assembled per call rather than cached — it reads the

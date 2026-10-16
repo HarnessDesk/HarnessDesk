@@ -204,8 +204,6 @@ import { PlansTable, ShapeFilters } from '../../components/usage/PlansTable'
 import type { SilentAgent } from '../../components/usage/shared'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
-import { dock, emptyWorkbench } from '../../state/workbench'
-import type { PaneView } from '../../state/layout'
 import { emptySideBySide, type SideBySideState } from '../../lib/side-by-side'
 import { SIDE_BY_SIDE_KEYS, SIDE_BY_SIDE_MEMBERS, sideBySideStore } from '../../preview/side-by-side-fixture'
 import { runtimeTint } from '../../lib/accounts'
@@ -333,38 +331,33 @@ const Rule = ({ children }: { children: React.ReactNode }) => (
 
 // --- panel controls ----------------------------------------------------------
 
-const panelControlsStore = (views: readonly PaneView[], collapsed = false): AppStore => {
-  const right = views.reduce((workbench, view) => dock(workbench, 'right', view), emptyWorkbench()).right
-  const snapshot = { ...emptySnapshot(), workbench: { ...emptyWorkbench(), right: { ...right, collapsed } } }
+const panelControlsStore = (sidebarCollapsed: boolean, history: boolean): AppStore => {
+  const snapshot = { ...emptySnapshot(), sidebarCollapsed, navCanBack: history, navCanForward: history }
   return { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
 }
 
 const PanelControlsBoard = () => {
-  const shown = panelControlsStore([{ kind: 'trajectory' }])
-  const putAwayOne = panelControlsStore([{ kind: 'trajectory' }], true)
-  const putAwayThree = panelControlsStore([
-    { kind: 'trajectory' },
-    { kind: 'changes' },
-    { kind: 'agents' },
-  ], true)
+  const shown = panelControlsStore(false, true)
+  const putAway = panelControlsStore(true, true)
+  const noHistory = panelControlsStore(true, false)
   return (
     <>
-      <Specimen measure="page" caption="The header toggle counts retained tools; work keeps Fill and close">
+      <Specimen measure="page" caption="Sidebar and history navigation; work keeps Fill and close">
         <div className={styles.matrix}>
-          <Case label="right panel shown — Hide the right panel, no badge">
-            <StoreProvider store={shown}><WindowControls /></StoreProvider>
+          <Case label="sidebar row — Hide sidebar and history">
+            <StoreProvider store={shown}><WindowControls sidebarRow /></StoreProvider>
           </Case>
-          <Case label="right panel put away — 1 view badge">
-            <StoreProvider store={putAwayOne}><WindowControls /></StoreProvider>
+          <Case label="sidebar put away — navigation in the main bar">
+            <StoreProvider store={putAway}><WindowControls /></StoreProvider>
           </Case>
-          <Case label="right panel put away — 3 views badge">
-            <StoreProvider store={putAwayThree}><WindowControls /></StoreProvider>
+          <Case label="sidebar put away — no history yet">
+            <StoreProvider store={noHistory}><WindowControls /></StoreProvider>
           </Case>
         </div>
       </Specimen>
       <TerminalToggleSpecimen /><MainWorkActionsSpecimen />
       <Rule>
-        The header examples mount WindowControls against retained tool snapshots; the work specimen keeps its actual Fill and close controls.
+        Navigation lives in the sidebar row while it stands, then moves to the main bar when it is put away. Unavailable history arrows stay visible and disabled; the work specimen keeps its actual Fill and close controls.
       </Rule>
     </>
   )
@@ -3141,7 +3134,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'panel-controls',
     title: 'Window · panel controls',
-    about: 'The right-panel visibility count and the panel split actions when a half would be too small.',
+    about: 'Sidebar and history navigation in the title row, with terminal and panel actions.',
     render: PanelControlsBoard,
   },
   {

@@ -83,7 +83,7 @@ anything, it read a projection the harness already publishes.
 | Agent | Source | What it reports |
 | --- | --- | --- |
 | DeepSeek Harness | `contextBreakdown` projection from `@deepseek-ai/dsh-token-meter` | system prompt, tool schemas, messages — plus the exact tool-schema count off `request/header` |
-| Claude Code | `Query.getContextUsage()` on the SDK control channel | not read yet; the SDK we pin predates the call |
+| Claude Code | `Query.getContextUsage({ detail: 'summary' })` on the SDK control channel | per-item loadout read at conversation start, with estimated sizes; it does not fill the ring's composition |
 | Codex | — | its protocol reports token *kinds* (cached, reasoning), never prompt segments |
 | Cursor | — | reports neither a window nor a composition |
 
@@ -201,8 +201,9 @@ baseline-adjusted percentage.
 ![The Codex context panel: 20% full, 55.2K of 272K tokens, last turn 54K in at 74% cached, 1.8K out, 600 thinking, 55.8K this session, and 5-hour and Weekly plan usage bars](images/ring-codex.png)
 
 **Claude Code** — the only agent that prices the session, and the highest
-cache share. The composition it *could* report (`Query.getContextUsage()`,
-free, no turn) is not wired up yet.
+cache share. Its per-item loadout is read at conversation start with summary
+detail and estimated sizes, without model token-count calls. That record does
+not feed the ring's composition.
 
 ![The Claude Code context panel: 12% full, 23K of 200K tokens, last turn 23K in at 87% cached, 40 out, 23.1K this session, cost $0.012](images/ring-claude-code.png)
 

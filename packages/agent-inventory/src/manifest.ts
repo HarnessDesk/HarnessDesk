@@ -2,14 +2,15 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import type { LibraryKind } from '@harnessdesk/protocol'
+import type { LibraryKind, LibrarySkillOrigin } from '@harnessdesk/protocol'
 
 /**
  * Provenance as a manifest, not a symlink.
  *
  * One JSON file records every copy the write path has ever produced: the
- * path it wrote, and the digest of the bundle as written. Those matching
- * means the copy is still ours and may be updated or removed; a changed
+ * path it wrote, the digest of the bundle as written, and (for fetched
+ * skills) the public repository, ref, commit and path it came from. A matching
+ * path and bundle mean the copy is still ours and may be updated or removed; a changed
  * definition or supporting file means a person edited it since,
  * and the install path must stand back. **Nothing without an entry here is
  * ever written over by an install.** The explicit resolve and remove flows
@@ -34,6 +35,7 @@ export interface ManifestEntry {
   readonly at: number
   /** Where the content came from, for the audit trail's benefit. */
   readonly source?: string
+  readonly origin?: LibrarySkillOrigin
 }
 
 interface ManifestFile {
@@ -74,7 +76,10 @@ export class LibraryManifest {
           typeof entry?.digest === 'string' &&
           (entry.bundle === undefined || typeof entry.bundle === 'string')
         ) {
-          manifest.#entries.set(keyOf(entry.kind, entry.path, entry.name), entry)
+          const { origin, ...rest } = entry
+          const validOrigin = origin && typeof origin.url === 'string' && typeof origin.ref === 'string' &&
+            typeof origin.commit === 'string' && /^[a-f0-9]{40}$/i.test(origin.commit) && typeof origin.path === 'string'
+          manifest.#entries.set(keyOf(entry.kind, entry.path, entry.name), { ...rest, ...(validOrigin ? { origin } : {}) })
         }
       }
     } catch {
