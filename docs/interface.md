@@ -954,8 +954,10 @@ where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.
 
-Library's More menu offers **Import**, **Add from GitHub…**, and **Rescan**.
-The first two wait until the Library has been read. Add from GitHub accepts a
+Library's More menu offers **Import**, **Add from GitHub…**, **Check for updates**,
+and **Rescan**.
+Import, Add from GitHub and Check for updates wait until the Library has been read.
+A check stays disabled while it runs. Add from GitHub accepts a
 public repository or folder URL and an optional branch, tag or commit. Found
 skills show their folder, file count and counts of files that can run or are
 binary; only skills with neither kind start checked. Refused folders keep the
@@ -969,6 +971,27 @@ not displayed and a capped read says it shows the first 256 KB. A fetched plan
 with incoming runnable or binary files requires one acknowledgement before
 Apply. It acknowledges only the operations that need it; local installs ask
 for none. Each operation keeps its own result or refusal after Apply.
+
+Check for updates asks once about skills installed from a repository, then reads
+the Library again. A toast reports available updates, an up-to-date result, no
+recorded sources, or sources that could not be checked. Nothing checks on open,
+on focus or on a timer. An update is a quiet row finding, after existing warnings;
+it does not change problem counts. A missing source branch is a warning and an
+unreachable source keeps its reason on hover.
+
+The skill sheet always shows each distinct recorded origin — repository, path,
+ref and pinned commit — even before a check. A newer commit adds an Update
+available banner with shortened revisions and Review update. A missing branch
+has no review action; an unreachable source is quiet text. Review fetches each
+behind source once and plans its runtime copies at the freshly fetched commit.
+A refused or missing folder keeps its reason in the banner and opens no plan.
+
+Update plans label each file Added, Changed or Removed. Read opens the new
+runnable or binary file; removed files have no Read action. The definition diff
+starts open. An edited-copy reason appears verbatim above the files, and only
+an operation that plans a backup says it will make one. Added or changed runnable
+or binary files use the existing acknowledgement; removed files need none.
+After Apply the ordinary Library read supplies the new state.
 
 The Library’s List view compares Skill (or Server), State and Loaded by in
 three labelled columns. Descriptions wrap, a warning names a needed fix, and

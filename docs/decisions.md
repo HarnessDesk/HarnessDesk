@@ -2257,7 +2257,6 @@ upstream in google-gemini/gemini-cli#29595; the card and the warning can go once
 **The rule:** when an agent can't prove who is asking, the desk explains the question and the choices and leaves the
 answer to the person; it answers for the agent only on a claim made by code the desk ships.
 
-
 ## A check retry is a fresh consent to one card, and a launch survives only in its recorded group
 
 The Flow pilot found a check that answered `no-pr` had no way back: reopening
@@ -2355,7 +2354,6 @@ measured.
 **The rule:** the interface language chooses its CJK fallback in the
 foundation; no component chooses a language's face itself.
 
-
 ## Wrapping ends dispatch, while the receipt keeps conversations readable
 
 Closing a Seat ends membership. It does not erase the conversation or turn it
@@ -2420,7 +2418,6 @@ data it opened with — a run's own view still says it is decidable — and stay
 on screen with its final action disabled and the reason beside it: closing it
 would throw away what was typed, and leaving it armed would offer what the host
 then refuses. This implements PR 18 of the approved Teams/Runs plan.
-
 
 ## The Flow's travelled route reads the Run's recorded causes
 
@@ -2861,7 +2858,6 @@ square tiles.
 **The rule:** a runtime is a face, and its corner comes from the Faces
 setting wherever its mark appears.
 
-
 ## Bare Settings rows keep their own block inset — 2026-10-05
 
 A row without a description, mark or face uses 8px block insets and the
@@ -2908,7 +2904,6 @@ SkillList/SkillRow, accepting the former crowded identity column.
 
 **The rule:** switch a comparison to its list form before trailing facts
 consume the width its identity and sentences need.
-
 
 ## Context authorship is recorded beside the transcript
 
@@ -3306,7 +3301,6 @@ nobody reads; the account page's note says the key stored here comes after it.
 The field stays open, because a key saved now is the one used the day the
 store's is removed. Where the flag is not set, the sentences are unchanged.
 
-
 ## One notice, one layout (supersedes #1222's first-line rule)
 
 Decided 2026-10-15. First-line pinning left a tile floating above wrapped copy;
@@ -3364,7 +3358,6 @@ for every agent it opens, in later rounds and after recovery too. An explicit
 runtime choice that cannot enforce that access remains refused beside its row,
 with a way to choose a compatible agent. Automatic uses the same strict plan,
 so an earlier incompatible preference cannot block a later compatible one.
-
 
 ## New conversations start carefully, with defaults in General
 
@@ -3547,3 +3540,20 @@ a fresh desk replaced its text box with a folder button. The owner chose:
 This replaces #1675 D4's standalone empty-composer button while preserving
 its shared-picker decision and #1673's registration behaviour. No new theme,
 scratch folder, agent registration or sign-in policy is introduced.
+
+## Updates are checked when asked and reviewed file by file — 2026-10-16
+
+The Library checks recorded repository origins only when the person asks.
+It shows the most actionable result on the row and the pinned and newer commits
+on the sheet. Recorded origins remain visible before a check. Review fetches
+each distinct source once and plans each runtime copy at the fetched commit,
+which can differ from the commit an earlier check saw.
+
+The existing plan lists added, changed and removed files, opens the definition
+diff, and reads incoming runnable or binary files. Those files use the same
+acknowledgement as an install; removed files need none. An edited copy carries
+the host's reason and its planned backup. Check results live only with the host,
+so a restart needs another explicit check; the ordinary read after Apply clears
+results whose recorded origin changed.
+
+**Rule:** nothing checks on a timer and nothing applies by itself.
