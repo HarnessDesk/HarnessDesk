@@ -1,0 +1,28 @@
+name: Full CI on label
+
+# CI does not run again when a label is added or removed: labels sort pull
+# requests, and re-running the whole suite for each one cancels the run that
+# was nearly done and queues every open pull request at once. The one label
+# that changes what CI proves is `full-ci`, so adding it starts one full run on
+# the pull request's head commit, where land-safe reads it.
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Start the full run
+    # A fork's token cannot start a workflow; land a fork's work through a batch/ branch.
+    if: github.event.label.name == 'full-ci' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch CI on the head branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: gh workflow run ci.yml --ref "$HEAD_REF"
