@@ -1,0 +1,1702 @@
+{
+  "conversation": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "conversation-left-open": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "draft": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"PlanNo plan yet.\" Δ1": 1,
+      "section[tool-section] \"Starts inAgentStorefront\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "conversation-details": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "conversation-changes": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "conversation-browser": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[hover-card-trigger] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"Code reviewer · Worktree\" Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1,
+      "span[tool-pane-document-tab] \"New tab\" spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "conversation-git": {
+    "offLine": {
+      "button[button] \"1\" Δ1": 1,
+      "button[button] Δ1": 3,
+      "button[button] Δ2": 2,
+      "button[hover-card-trigger] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "button[refused-action] Δ1": 1,
+      "button[refused-action] Δ3": 1,
+      "button[toggle-group-item] \"All branches\" Δ1": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"Code reviewer · Worktree\" Δ3": 1,
+      "span[text] \"Description\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[toggle-group-item] \"All branches\" row-gap 5px, column-gap 5px": 1,
+      "button[toggle-group-item] \"Current\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "span[chip] \"feat/worktree-list\" radius 5px": 1,
+      "span[chip] \"feature/inventory.reconc\" radius 5px": 1,
+      "span[chip] \"main\" radius 5px": 1,
+      "span[chip] \"origin/feature/inventory\" radius 5px": 1,
+      "span[chip] \"origin/main\" radius 5px": 1,
+      "span[chip] \"v0.4.0\" radius 5px": 1
+    }
+  },
+  "conversation-file": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[hover-card-trigger] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"Code reviewer · Worktree\" Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[toggle-group-item] \"All\" row-gap 5px, column-gap 5px": 1,
+      "button[toggle-group-item] \"Changed 0\" row-gap 5px, column-gap 5px": 1,
+      "button[toggle-group-item] \"Preview\" row-gap 5px, column-gap 5px": 1,
+      "button[toggle-group-item] \"Source\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "h1 \"Storefront\" font-size 21px": 1
+    }
+  },
+  "conversation-terminal": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[hover-card-trigger] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"Code reviewer · Worktree\" Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "conversation-tasks": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[hover-card-trigger] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"Code reviewer · Worktree\" Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "changes-review": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "div[page] \"Working treeon mainmain2\" padding-top 17px": 1
+    }
+  },
+  "conversation-update": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "conversation-disconnected": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "conversation-status-tasks": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "team-reconnecting": {
+    "offLine": {
+      "button[button] \"Open findings\" Δ0.5": 1,
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "div[list-row-trail] \"Open findings\" Δ0.5": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningF\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #1 Ret\" Δ1": 1,
+      "span[text] \"· 2m\" Δ2.5": 1,
+      "span[text] \"Build and review\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings3\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "plugin-unavailable": {
+    "offLine": {
+      "button Δ2": 1,
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "width-1100": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"Code reviewer · Worktree\" Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "width-720": {
+    "offLine": {
+      "button[button] \"Review\" Δ2.5": 1,
+      "button[button] Δ2": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[icon-tile] Δ2": 1,
+      "span[inline-parts] \"Fix the worktree list dr\" Δ3": 1,
+      "span[middle-truncate] \"/home/dev/code/HarnessDe\" Δ1": 1,
+      "span[text] \"Worked for 6m 0s\" Δ1": 1,
+      "span[text] Δ3": 1,
+      "span[tooltip-trigger] \"9:34 AM\" Δ2.5": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1
+    },
+    "offScale": {}
+  },
+  "team-overview": {
+    "offLine": {
+      "button[button] \"Open findings\" Δ0.5": 1,
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "div[list-row-trail] \"Open findings\" Δ0.5": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningF\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #1 Ret\" Δ1": 1,
+      "span[text] \"· 2m\" Δ2.5": 1,
+      "span[text] \"Build and review\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings3\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "team-run": {
+    "offLine": {
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "button[tabs-trigger] \"Run1\" Δ2.5": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningF\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #1 Ret\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings3\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "span[chip] \"Agent\" radius 5px": 4
+    }
+  },
+  "team-run-flow": {
+    "offLine": {
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningB\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #4 Ans\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "div[flow-step] \"Reviewerrequest-changes3\" spills": 1,
+      "div[flow-step] \"Verifypass2m\" spills": 1,
+      "div[flow-step] \"WriterAgentWorking14m · \" spills": 1,
+      "span[chip-words] \"approve\" clipped": 1,
+      "span[chip-words] \"pass\" clipped": 1,
+      "span[chip-words] \"request-changes\" clipped": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board4\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings0\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "span[chip] \"14m · ×2\" radius 5px": 1,
+      "span[chip] \"2m\" radius 5px": 1,
+      "span[chip] \"3m\" radius 5px": 1,
+      "span[chip] \"approve\" radius 5px": 1,
+      "span[chip] \"pass\" radius 5px": 1,
+      "span[chip] \"request-changes\" radius 5px": 1,
+      "span[chip] \"Working\" radius 5px": 1
+    }
+  },
+  "team-run-not-reached": {
+    "offLine": {
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "button[tabs-trigger] \"Run1\" Δ2.5": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningB\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #4 Ans\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board4\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings0\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "span[chip] \"Agent\" radius 5px": 2,
+      "span[chip] \"Check\" radius 5px": 1,
+      "span[chip] \"Person\" radius 5px": 1
+    }
+  },
+  "team-board": {
+    "offLine": {
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningF\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #1 Ret\" Δ1": 1,
+      "span[switcher-count] \"1\" Δ2.5": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings3\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "span[chip] \"reviewer\" radius 5px": 1,
+      "span[chip] \"writer\" radius 5px": 1
+    }
+  },
+  "team-board-list": {
+    "offLine": {
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningF\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #1 Ret\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"All 2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Board2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings3\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"In review 0\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Needs you 0\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Ready 0\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"To do 0\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Working 2\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "team-chat": {
+    "offLine": {
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Everyone\" Δ2": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningF\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #1 Ret\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings3\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "team-chat-side": {
+    "offLine": {
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningF\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #1 Ret\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"Retry the checkout call\" Δ3": 1,
+      "span[text] Δ3": 1,
+      "span[turn-work-live-words] \"Editing retry-request-wi\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings3\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "span[chip] \"A\" radius 5px": 1,
+      "span[chip] \"B\" radius 5px": 1
+    }
+  },
+  "team-findings": {
+    "offLine": {
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningF\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #1 Ret\" Δ1": 1,
+      "span[switcher-count] \"1\" Δ0.5": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings3\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "team-runs": {
+    "offLine": {
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningF\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #1 Ret\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings3\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Runs1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "team-receipt": {
+    "offLine": {
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 3,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "button[tabs-trigger] \"Overview\" Δ2.5": 1,
+      "section[tool-section] \"RunRunRun 1StatesettledF\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · Writer\" Δ1": 1,
+      "span[section-description] \"Recorded usage is read s\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"Review the change\" Δ1": 1
+    },
+    "overflow": {
+      "div[page] \"What finishedThe checkou\" spills": 1,
+      "div[retained-work] \"OverviewRun1Board2ChatFi\" clipped": 1,
+      "div[room-body] \"What finishedThe checkou\" spills": 1,
+      "div[team-room] \"OverviewRun1Board2ChatFi\" spills": 1,
+      "section[pane-surface] \"OverviewRun1Board2ChatFi\" spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"By agent\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"By seat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"By Team\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings0\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Receipt\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "team-details": {
+    "offLine": {
+      "button[button] \"Open findings\" Δ0.5": 1,
+      "button[button] Δ1": 2,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "div[list-row-trail] \"Open findings\" Δ0.5": 1,
+      "section[tool-section] \"RunRunRun 1StaterunningF\" Δ1": 1,
+      "section[tool-section] \"SeatsAlphaAlpha · #1 Ret\" Δ1": 1,
+      "span[text] \"· 2m\" Δ2.5": 1,
+      "span[text] \"Build and review\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board2\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Findings3\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview1\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Run1\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "teams": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"Wrapped · 1\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "agents-roster": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "div[workbench-rail] \"HarnessDeskNew sessionTe\" clipped": 1,
+      "div[workbench-rail] \"HarnessDeskNew sessionTe\" spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "agent-detail": {
+    "offLine": {
+      "button[button] \"Clear\" Δ2.5": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "div[workbench-rail] \"HarnessDeskNew sessionTe\" clipped": 1,
+      "div[workbench-rail] \"HarnessDeskNew sessionTe\" spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "agent-parse": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "div[row] \"\"admin\" is not a permiss\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "div[workbench-rail] \"HarnessDeskNew sessionTe\" clipped": 1,
+      "div[workbench-rail] \"HarnessDeskNew sessionTe\" spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "agent-refused": {
+    "offLine": {
+      "button[button] \"Sign in to Gamma\" Δ2.5": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "div[row] \"Gamma · ProGamma is sign\" Δ1": 1,
+      "div[row] \"Its own seats apply here\" Δ1": 1,
+      "span[row-ctl] \"Sign in to Gamma\" Δ2.5": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "div[workbench-rail] \"HarnessDeskNew sessionTe\" clipped": 1,
+      "div[workbench-rail] \"HarnessDeskNew sessionTe\" spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "agent-missing": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "div[workbench-rail] \"HarnessDeskNew sessionTe\" clipped": 1,
+      "div[workbench-rail] \"HarnessDeskNew sessionTe\" spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "library": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] \"Skills7\" Δ2.5": 1,
+      "button[popover-trigger] Δ3": 1,
+      "div[row] \"Updated code-reviewSep 3\" Δ1": 1,
+      "div[row] \"Updated project-checksSe\" Δ1": 1,
+      "span[icon-tile] Δ3": 1,
+      "span[text] \"7\" Δ2.5": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "span[chip] \"2 copies differ\" radius 5px": 1,
+      "span[chip] \"Empty on disk\" radius 5px": 1,
+      "span[chip] \"Where no agent looks\" radius 5px": 1
+    }
+  },
+  "plugins-installed": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "plugins-capabilities": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[chip-words] \"Own config only\" Δ2": 1,
+      "span[dot] Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "plugins-detail": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[switch-thumb] Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "plugins-failed": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "dashboard-overview": {
+    "offLine": {
+      "article[card] \"legacy-account-with-a-lo\" Δ1": 1,
+      "article[card] \"shane@harnessdesk.appBet\" Δ1": 1,
+      "button[button] \"Turns—known for 2 of 3 a\" Δ2.5": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "div[stat-label] \"Turns\" Δ2.5": 1,
+      "div[stat] \"Turns—known for 2 of 3 a\" Δ2.5": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"left\" Δ1": 1
+    },
+    "overflow": {
+      "span[chip-words] \"55% cached\" clipped": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Plans4 low\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "span[chip] \"55% cached\" radius 5px": 1,
+      "span[chip] \"Selected\" radius 5px": 1
+    }
+  },
+  "dashboard-plans": {
+    "offLine": {
+      "button[button] \"Refresh\" Δ2.5": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[tabs-trigger] \"Overview\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"No limit\" Δ2": 2
+    },
+    "overflow": {
+      "span[icon-tile] \"L\" spills": 1,
+      "span[icon-tile] \"R\" spills": 1,
+      "span[search] spills": 1,
+      "span[table-cell-lead] \"L\" spills": 1,
+      "span[table-cell-lead] \"R\" spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Plans4 low\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "dashboard-spend": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "button[tabs-trigger] \"Overview\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "div[day-columns] \"$100$50.00$0$0$50.00$100\" spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Plans4 low\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "section[chart-frame] \"$1,03722 of 30 days with\" background oklab(0.9701450.00004419680.0000194311/0.6)": 1
+    }
+  },
+  "dashboard-activity": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "button[tabs-trigger] \"Overview\" Δ1": 1,
+      "button[tabs-trigger] \"Projects\" Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"Jun\" Δ2": 1
+    },
+    "overflow": {
+      "div[stat-row] \"Last 12 months108.7MActi\" spills": 1,
+      "div[stat] \"Did the mostBeta\" spills": 1,
+      "div[stat] \"Tue, Sep 22, 20269.4M\" spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Plans4 low\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "section[chart-frame] \"Last 12 months108.7MActi\" background oklab(0.9701450.00004419680.0000194311/0.6)": 1
+    }
+  },
+  "dashboard-projects": {
+    "offLine": {
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[tabs-trigger] \"Overview\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1,
+      "td[table-cell] \"StorefrontTeam Storefron\" spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Plans4 low\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "dashboard-empty": {
+    "offLine": {
+      "button[button] \"Rescan\" Δ2": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "button[tabs-trigger] \"Overview\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "div[stat-row] \"Last 12 months0Active da\" spills": 1,
+      "div[stat-row] \"Paid—Set plan pricesValu\" spills": 1,
+      "div[stat] \"Paid—Set plan prices\" spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Plans\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
+      "section[chart-frame] \"—0 of 30 days with usage\" background oklab(0.9701450.00004419680.0000194311/0.6)": 1,
+      "section[chart-frame] \"Last 12 months0Active da\" background oklab(0.9701450.00004419680.0000194311/0.6)": 1,
+      "span[chip] \"Selected\" radius 5px": 1
+    }
+  },
+  "settings-general": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-appearance": {
+    "offLine": {
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "button[button] background rgb(124,58,237)": 1,
+      "button[button] background rgb(22,163,74)": 1,
+      "button[button] background rgb(225,29,72)": 1,
+      "button[button] background rgb(23,23,23)": 1,
+      "button[button] background rgb(234,88,12)": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-notifications": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-shortcuts": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "kbd[keycap] \"↵\" Δ1": 1,
+      "kbd[keycap] \"⌘\" Δ0.5": 1,
+      "kbd[keycap] \"L\" Δ1": 1,
+      "kbd[keycap] \"W\" Δ1.5": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-workspaces": {
+    "offLine": {
+      "button[button] \"Release ports\" Δ1.5": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[row-ctl] \"Release ports\" Δ1.5": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "span[chip] \"Current\" radius 5px": 1
+    }
+  },
+  "settings-archive": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {
+      "span[row-ctl] \"Restore\" spills": 3
+    },
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "span[chip] \"Worktree kept\" radius 5px": 1
+    }
+  },
+  "settings-history": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-storage": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-runtimes": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {
+      "span[icon-tile] \"R\" spills": 1,
+      "span[row-face] \"R\" spills": 1
+    },
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "span[chip] \"Default\" radius 5px": 1
+    }
+  },
+  "settings-models": {
+    "offLine": {
+      "button[button] \"Apply\" Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {
+      "span[row-ctl] \"Apply\" spills": 1,
+      "span[row-ctl] spills": 2
+    },
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "span[chip] \"Always thinks\" radius 5px": 1,
+      "span[chip] \"Default\" radius 5px": 1,
+      "span[chip] \"Not available\" radius 5px": 1
+    }
+  },
+  "settings-skills": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[switch-thumb] Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-extensions": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {
+      "span[icon-tile] \"R\" spills": 1,
+      "span[row-face] \"R\" spills": 1
+    },
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "span[chip] \"Default\" radius 5px": 1
+    }
+  },
+  "settings-permissions": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "button[toggle-group-item] \"Edit\" row-gap 5px, column-gap 5px": 3,
+      "button[toggle-group-item] \"Merge\" row-gap 5px, column-gap 5px": 3,
+      "button[toggle-group-item] \"Publish\" row-gap 5px, column-gap 5px": 3,
+      "button[toggle-group-item] \"Read only\" row-gap 5px, column-gap 5px": 3,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "span[chip] \"Asked\" radius 5px": 2,
+      "span[chip] \"Enforced\" radius 5px": 1
+    }
+  },
+  "settings-browser": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-profile": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "div[row] \"HarnessDeskShown at the \" Δ1": 1,
+      "div[row] \"NameLeave it empty to us\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {
+      "span[row-mark] spills": 1
+    },
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-runtime": {
+    "offLine": {
+      "button[button] \"Recycle\" Δ1": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"Alpha\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-account": {
+    "offLine": {
+      "button Δ1": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-project": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "settings-skill": {
+    "offLine": {
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"HarnessDesk\" Δ3": 1
+    },
+    "overflow": {},
+    "offScale": {
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+    }
+  },
+  "left-work": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"RunNo Run recorded.\" Δ1": 1,
+      "section[tool-section] \"SeatsAgentAlpha · Writer\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board0\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tooltip-trigger] \"Findings\" row-gap 5px, column-gap 5px": 1,
+      "button[tooltip-trigger] \"Run\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "left-start": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "left-account": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "left-inbox": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "left-session-menu": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[button] Δ3": 1,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"RunNo Run recorded.\" Δ1": 1,
+      "section[tool-section] \"SeatsAgentAlpha · Writer\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "button[tabs-trigger] \"Board0\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
+      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
+      "button[tooltip-trigger] \"Findings\" row-gap 5px, column-gap 5px": 1,
+      "button[tooltip-trigger] \"Run\" row-gap 5px, column-gap 5px": 1,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "menu-model": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "menu-permissions": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "menu-icons": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[icon-tile] Δ2": 1,
+      "span[inline-parts] \"Fix the worktree list dr\" Δ3": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"Worked for 6m 0s\" Δ1": 1,
+      "span[text] Δ3": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "menu-disabled": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "menu-wide": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "menu-metered": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "menu-select": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "menu-suggestions": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "menu-inbox": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  },
+  "menu-palette": {
+    "offLine": {
+      "button[button] Δ1": 1,
+      "button[button] Δ2": 2,
+      "button[popover-trigger] \"Inbox\" Δ2": 1,
+      "button[popover-trigger] Δ3": 1,
+      "section[tool-section] \"ConversationAgentCode re\" Δ1": 1,
+      "section[tool-section] \"PlanNo plan yet.Seat rec\" Δ1": 1,
+      "span[text] \"HarnessDesk\" Δ2": 1
+    },
+    "overflow": {
+      "span[inline-parts] \"Fix the worktree list dr\" spills": 1,
+      "span[inline-parts] spills": 1,
+      "span[search] spills": 1
+    },
+    "offScale": {
+      "button[button] row-gap 5px, column-gap 5px": 2,
+      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
+      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
+    }
+  }
+}

@@ -1,5 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 
+import { colorName, lengthName, offScaleOf, readTokens, type TokenTable } from './guides-tokens'
+
 /**
  * Guides: the lines a designer draws over a screen to see whether anything was
  * placed by eye.
@@ -14,10 +16,14 @@ import { useEffect, useSyncExternalStore } from 'react'
  *             0.5–3px off a rail is the signature of a value typed by hand;
  *   gaps      what space separates neighbours, as a number on the gap;
  *   overflow  what spills past its box, is clipped without an ellipsis, or
- *             leaves its page.
+ *             leaves its page;
+ *   scale     which values no token names — a padding, gap, radius, type
+ *             size or colour the system never decided.
  *
  * Hovering adds the redline: the element's four edges extended across the
- * page, its padding, its size and type, and its distance to its parent.
+ * page, its padding, its size and type — each named by the token behind it —
+ * and its distance to its parent. Shift pins the hovered element; hovering
+ * another then measures between the two.
  *
  * It is a drawing on one fixed canvas that takes no pointer events, so the
  * screen under it behaves exactly as it does without it. Colours are read from
@@ -27,12 +33,12 @@ import { useEffect, useSyncExternalStore } from 'react'
 export type GuidesMode = 'off' | 'boxes' | 'lines' | 'all'
 export const GUIDES_MODES: readonly GuidesMode[] = ['off', 'boxes', 'lines', 'all']
 
-type Layer = 'grid' | 'boxes' | 'rails' | 'gaps' | 'overflow' | 'inspect'
+type Layer = 'grid' | 'boxes' | 'rails' | 'gaps' | 'overflow' | 'scale' | 'inspect'
 const LAYERS: Record<GuidesMode, readonly Layer[]> = {
   off: [],
   boxes: ['boxes', 'overflow', 'inspect'],
-  lines: ['grid', 'rails', 'overflow', 'inspect'],
-  all: ['grid', 'boxes', 'rails', 'gaps', 'overflow', 'inspect'],
+  lines: ['grid', 'rails', 'overflow', 'scale', 'inspect'],
+  all: ['grid', 'boxes', 'rails', 'gaps', 'overflow', 'scale', 'inspect'],
 }
 
 /** What counts as a thing placed on the page. */
@@ -226,7 +232,7 @@ const gapsOf = (boxes: Box[]): Gap[] => {
 }
 
 /** What a page's guides found, read by specs and by anyone at the console. */
-export type GuidesReport = { page: string; offLine: string[]; overflow: string[] }[]
+export type GuidesReport = { page: string; offLine: string[]; overflow: string[]; offScale: string[] }[]
 export const guidesReport: { current: GuidesReport } = { current: [] }
 if (typeof window !== 'undefined') (window as unknown as { __hdGuides: typeof guidesReport }).__hdGuides = guidesReport
 
@@ -270,6 +276,37 @@ const placedAt = (target: Element | null, roots: Element[]) => {
 }
 
 /**
+ * The space between two boxes, as a designer measures it: the gap on each
+ * axis where they are apart, or each edge's inset where one holds the other.
+ */
+const measureBetween = (ctx: CanvasRenderingContext2D, a: DOMRect, b: DOMRect, palette: Palette) => {
+  ctx.strokeStyle = palette.danger
+  ctx.lineWidth = 1
+  const line = (x1: number, y1: number, x2: number, y2: number, d: number) => {
+    if (d <= 0.25) return
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
+    label(ctx, fmt(d), (x1 + x2) / 2 + 3, (y1 + y2) / 2 - 7, palette.danger, palette.ink)
+  }
+  const inside = (o: DOMRect, i: DOMRect) => i.left >= o.left && i.right <= o.right && i.top >= o.top && i.bottom <= o.bottom
+  if (inside(a, b) || inside(b, a)) {
+    const [o, i] = inside(a, b) ? [a, b] : [b, a]
+    const mx = i.left + i.width / 2
+    const my = i.top + i.height / 2
+    line(mx, o.top, mx, i.top, i.top - o.top)
+    line(mx, i.bottom, mx, o.bottom, o.bottom - i.bottom)
+    line(o.left, my, i.left, my, i.left - o.left)
+    line(i.right, my, o.right, my, o.right - i.right)
+    return
+  }
+  const y = (Math.max(a.top, b.top) + Math.min(a.bottom, b.bottom)) / 2
+  const x = (Math.max(a.left, b.left) + Math.min(a.right, b.right)) / 2
+  if (b.left >= a.right) line(a.right, y, b.left, y, b.left - a.right)
+  else if (a.left >= b.right) line(b.right, y, a.left, y, a.left - b.right)
+  if (b.top >= a.bottom) line(x, a.bottom, x, b.top, b.top - a.bottom)
+  else if (a.top >= b.bottom) line(x, b.bottom, x, a.top, a.top - b.bottom)
+}
+
+/**
  * Draw guides over `roots` until the returned function is called. `roots` is
  * read on every frame, so a list that changes — a board switched, a frame
  * mounted — is followed without remounting.
@@ -286,6 +323,9 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
   let pointer: { x: number; y: number } | null = null
   let frame = 0
   let palette = readPalette()
+  let tokens: TokenTable = readTokens()
+  let pinned: Element | null = null
+  let hovered: Element | null = null
 
   const draw = () => {
     frame = 0
@@ -305,7 +345,7 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
     for (const root of pages) {
       const page = root.getBoundingClientRect()
       const boxes = collect(root, view)
-      const entry: GuidesReport[number] = { page: root.getAttribute('data-frame-id') ?? root.getAttribute('data-alignment-board-id') ?? 'page', offLine: [], overflow: [] }
+      const entry: GuidesReport[number] = { page: root.getAttribute('data-frame-id') ?? root.getAttribute('data-alignment-board-id') ?? 'page', offLine: [], overflow: [], offScale: [] }
       report.push(entry)
       ctx.save()
       ctx.beginPath()
@@ -387,6 +427,22 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
           if (how !== 'ellipsis') label(ctx, how, r.left, r.bottom + 1, palette.danger, palette.ink)
         }
       }
+
+      let scaleCount = 0
+      if (layers.has('scale')) {
+        for (const { el, r, kind } of boxes) {
+          if (kind === 'glyph') continue
+          const found = offScaleOf(el, getComputedStyle(el), tokens)
+          if (!found.length) continue
+          scaleCount += found.length
+          entry.offScale.push(`${describe(el)} ${found.map(({ what, value }) => `${what} ${value}`).join(', ')}`)
+          // A corner flag: off scale is a question for the source, not a box to read.
+          ctx.fillStyle = palette.warn
+          ctx.beginPath()
+          ctx.moveTo(r.right, r.top); ctx.lineTo(r.right - 7, r.top); ctx.lineTo(r.right, r.top + 7)
+          ctx.closePath(); ctx.fill()
+        }
+      }
       ctx.restore()
 
       // The page's own edge and its tally, outside the clip.
@@ -396,14 +452,17 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
       const tally = [
         layers.has('rails') ? `${missCount} off-line` : null,
         layers.has('overflow') ? `${spillCount} overflow` : null,
+        layers.has('scale') ? `${scaleCount} off-scale` : null,
       ].filter(Boolean).join(' · ')
-      if (tally) label(ctx, tally, page.right - 160, page.top + 4, missCount + spillCount ? palette.danger : palette.accent, palette.ink)
+      if (tally) label(ctx, tally, page.right - 240, page.top + 4, missCount + spillCount ? palette.danger : scaleCount ? palette.warn : palette.accent, palette.ink)
     }
 
     guidesReport.current = report
+    if (window.parent !== window) window.parent.postMessage({ type: 'hd-guides-report', report }, window.location.origin)
 
     if (layers.has('inspect') && pointer) {
       const hit = placedAt(document.elementFromPoint(pointer.x, pointer.y), pages)
+      hovered = hit?.el ?? null
       if (hit) {
         const { el, root } = hit
         const r = el.getBoundingClientRect()
@@ -451,10 +510,45 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
         }
         const slot = el.getAttribute('data-slot')
         const name = `${el.tagName.toLowerCase()}${slot ? `·${slot}` : ''}`
-        const type = `${style.fontSize}/${style.lineHeight} ${style.fontWeight}`
-        const padText = pad.every((one) => one === pad[0]) ? fmt(pad[0]) : pad.map(fmt).join(' ')
-        label(ctx, `${name}  ${fmt(r.width)}×${fmt(r.height)}  pad ${padText}  ${type}`, r.left, r.top - 16, palette.accent, palette.ink)
+        const padText = pad.every((one) => one === pad[0]) ? lengthName(tokens, pad[0]) : pad.map((one) => lengthName(tokens, one)).join(' ')
+        const size = parseFloat(style.fontSize)
+        const sizeName = tokens.sizes.get(Math.round(size * 100) / 100)?.[0]?.replace(/^--hd-/, '') ?? `${fmt(size)}px`
+        const type = `${sizeName} ${fmt(size)}/${style.lineHeight === 'normal' ? 'normal' : fmt(parseFloat(style.lineHeight))} ${style.fontWeight}`
+        const radius = parseFloat(style.borderTopLeftRadius) || 0
+        const facts = [
+          `${name}  ${fmt(r.width)}×${fmt(r.height)}`,
+          `pad ${padText}`,
+          /flex|grid/.test(style.display) && parseFloat(style.rowGap || style.columnGap) ? `gap ${lengthName(tokens, parseFloat(style.columnGap) || parseFloat(style.rowGap))}` : null,
+          radius ? `radius ${radius >= 999 ? 'full' : lengthName(tokens, radius, false)}` : null,
+        ].filter(Boolean).join('  ')
+        const ink = [
+          `type ${type}`,
+          colorName(tokens, style.color) ? `ink ${colorName(tokens, style.color)}` : null,
+          colorName(tokens, style.backgroundColor, 'fill') ? `fill ${colorName(tokens, style.backgroundColor, 'fill')}` : null,
+        ].filter(Boolean).join('  ')
+        label(ctx, facts, r.left, r.top - 32, palette.accent, palette.ink)
+        label(ctx, ink, r.left, r.top - 16, palette.accent, palette.ink)
+        const off = offScaleOf(el, style, tokens)
+        if (off.length) label(ctx, `off scale: ${off.map(({ what, value }) => `${what} ${value}`).join(', ')}`, r.left, r.bottom + 2, palette.warn, palette.ink)
+
+        // Measure from the pinned element to this one.
+        if (pinned && pinned !== el && pinned.isConnected) {
+          const a = pinned.getBoundingClientRect()
+          ctx.strokeStyle = palette.danger
+          ctx.setLineDash([4, 3])
+          ctx.lineWidth = 1.5
+          ctx.strokeRect(a.left, a.top, a.width, a.height)
+          ctx.setLineDash([])
+          measureBetween(ctx, a, r, palette)
+        }
       }
+    }
+    if (pinned && pinned.isConnected && !(layers.has('inspect') && pointer)) {
+      const a = pinned.getBoundingClientRect()
+      ctx.strokeStyle = palette.danger
+      ctx.setLineDash([4, 3])
+      ctx.strokeRect(a.left, a.top, a.width, a.height)
+      ctx.setLineDash([])
     }
   }
 
@@ -462,11 +556,14 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
   const onPointer = (event: PointerEvent) => { pointer = { x: event.clientX, y: event.clientY }; schedule() }
   const onLeave = () => { pointer = null; schedule() }
   let mutationTimer = 0
-  const mutations = new MutationObserver(() => {
+  let retheme = false
+  const mutations = new MutationObserver((records) => {
+    if (records.some((one) => one.target === document.body || one.target === document.documentElement)) retheme = true
     if (mutationTimer) return
     mutationTimer = window.setTimeout(() => {
       mutationTimer = 0
       palette = readPalette()
+      if (retheme) { tokens = readTokens(); retheme = false }
       schedule()
     }, 120)
   })
@@ -474,6 +571,15 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
   window.addEventListener('scroll', schedule, true)
   window.addEventListener('resize', schedule)
   window.addEventListener('pointermove', onPointer, { passive: true })
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && pinned) { pinned = null; schedule(); return }
+    if (event.key !== 'Shift' || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+    const target = event.target as Element | null
+    if (target?.closest('input, textarea, [contenteditable="true"]')) return
+    pinned = hovered && hovered !== pinned ? hovered : null
+    schedule()
+  }
+  window.addEventListener('keydown', onKey)
   document.documentElement.addEventListener('pointerleave', onLeave)
   schedule()
 
@@ -484,6 +590,7 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
     window.removeEventListener('scroll', schedule, true)
     window.removeEventListener('resize', schedule)
     window.removeEventListener('pointermove', onPointer)
+    window.removeEventListener('keydown', onKey)
     document.documentElement.removeEventListener('pointerleave', onLeave)
     canvas.remove()
   }
@@ -534,4 +641,35 @@ export const useGuides = (roots: () => Element[]) => {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+  // A page embedded in the review board takes its mode from the board and
+  // answers "what is at this point" for a review note.
+  useEffect(() => {
+    if (window.parent === window) return
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.source !== window.parent) return
+      const data = event.data as { type?: string; mode?: GuidesMode; x?: number; y?: number; id?: string }
+      if (data.type === 'hd-guides' && data.mode && (GUIDES_MODES as readonly string[]).includes(data.mode)) setGuidesMode(data.mode)
+      if (data.type === 'hd-pick' && typeof data.x === 'number' && typeof data.y === 'number') {
+        const target = document.elementFromPoint(data.x, data.y)
+        const hit = target ? placedAt(target, roots()) : null
+        window.parent.postMessage({ type: 'hd-picked', id: data.id, element: hit ? describe(hit.el) : target ? describe(target) : null, path: hit ? slotPath(hit.el) : null }, window.location.origin)
+      }
+    }
+    window.addEventListener('message', onMessage)
+    // Say "ready" once, whatever the mode: a board holds a note's question
+    // until the window it asks can answer.
+    const hello = window.setTimeout(() => window.parent.postMessage({ type: 'hd-guides-report', report: guidesReport.current }, window.location.origin), 300)
+    return () => { window.removeEventListener('message', onMessage); clearTimeout(hello) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+}
+
+/** `page-section › row › row-title`: where an element sits, in the system's own names. */
+const slotPath = (el: Element) => {
+  const names: string[] = []
+  for (let up: Element | null = el; up && names.length < 5; up = up.parentElement) {
+    const slot = up.getAttribute('data-slot')
+    if (slot) names.unshift(slot)
+  }
+  return names.join(' › ')
 }

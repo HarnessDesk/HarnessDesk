@@ -1431,12 +1431,46 @@ measured across two.
 - **gaps** writes the space between neighbours on the space itself.
 - **overflow** marks what is drawn past its box, what is clipped without an
   ellipsis, and what leaves its page; an ellipsis is amber, not red.
+- **scale** flags, with an amber corner, a padding, gap, radius, type size or
+  colour that no `--hd-*` token resolves to (`design/explorer/guides-tokens.ts`
+  reads the live tokens, so a foundation is measured as itself).
 - Hovering carries the element's four edges across the page and shows its
-  padding, size, type and its distance to its parent on each side.
+  size, padding, gap and radius by token name (`pad space-3`), its type and
+  ink by token name, anything off scale, and its distance to its parent on
+  each side. Shift pins the hovered element; hovering another then measures
+  between the two. Escape lets go.
 
 The tally in each page's corner, and `window.__hdGuides` beside it, is what
 the lines found; `e2e/ui-system/guides.spec.ts` proves a two-pixel nudge is
 caught and that the drawing never takes a click.
+
+### The review board
+
+`/review.html` (served by `pnpm design`) lays every state of the app out as a
+real window, at its true size, on one canvas: the scenes in
+`packages/ui/src/review/scenes.ts`, each a frame-wall route of the preview
+plus the clicks that reach its state (`preview/scene-steps.ts`). It is where
+a screen is reviewed whole rather than in fragments.
+
+- **Move:** pinch or ⌘-scroll zooms at the pointer, scrolling or dragging
+  pans, Space holds the hand. Shift+1 fits everything, Shift+0 is 100%, Shift+2
+  fits the selected window, and a window's title or a rail entry flies to it.
+  Only windows in view and above 12% run live; the rest are named cards.
+- **Tools:** H moves the board, I hands the pointer to the windows, C pins a
+  note.
+- **Guides** switch over every window at once, light, dark or both side by
+  side, and each window's title carries its own tally.
+- **Notes** record the scene, theme, point and the element under it
+  (`span[row-title] "Release checker"`, with its slot path), and leave the board
+  as Markdown or JSON — an issue, a review comment, an agent's brief.
+
+The same scene list is the **guides standard**:
+`e2e/ui-system/guides-standard.spec.ts` measures every scene with its guides
+and holds the findings to `packages/ui/src/design/guides-standard.json`. A
+count may fall but not rise, and a finding not on the record fails;
+`UPDATE_GUIDES=1` re-records, which is a decision to accept what the board
+shows. A new state of the app belongs on the board — add its scene — and is
+held to the standard from then on.
 
 ### What the engine checks
 

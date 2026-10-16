@@ -1,0 +1,337 @@
+/* The review board's own chrome: a scene rail, a canvas, a notes column. It is
+   drawn from the system it reviews, so a broken token breaks it too. */
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--hd-sidebar-width) minmax(0, 1fr) var(--hd-popover-width-wide);
+  height: 100vh;
+  background: var(--hd-background);
+  color: var(--hd-foreground);
+  overflow: hidden;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--hd-space-3);
+  border-right: var(--hd-border-width) solid var(--hd-border);
+  overflow-y: auto;
+}
+
+.brand {
+  padding: var(--hd-space-2) var(--hd-space-2) var(--hd-space-3);
+  padding-top: calc(var(--hd-titlebar-height) - var(--hd-space-2));
+  font-size: var(--hd-text-lg);
+  font-weight: var(--hd-weight-semibold);
+  -webkit-app-region: drag;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-0-5);
+}
+
+.groupLabel {
+  padding: var(--hd-space-3) var(--hd-space-2) var(--hd-space-1);
+}
+
+.navRow {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.navName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navCount {
+  flex: none;
+  color: var(--hd-warning-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-4);
+  padding: var(--hd-space-3) var(--hd-space-4);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+}
+
+.dial {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
+.dialLabel {
+  color: var(--hd-secondary-foreground);
+  font-size: var(--hd-text-sm);
+}
+
+.totals {
+  display: flex;
+  gap: var(--hd-space-1-5);
+}
+
+.zoom {
+  margin-left: auto;
+  color: var(--hd-muted-foreground);
+  font-size: var(--hd-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The canvas. The board inside it is scaled by the camera; everything drawn
+   at a constant size on screen counter-scales itself. */
+.viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  /* Clip, not hidden: a focused field inside must not scroll the canvas. */
+  overflow: clip;
+  background: var(--hd-muted);
+  touch-action: none;
+  cursor: grab;
+}
+
+[data-review-tool='interact'] .viewport { cursor: default; }
+[data-review-tool='comment'] .viewport { cursor: crosshair; }
+
+.board {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.sectionTitle {
+  position: absolute;
+  transform-origin: 0 0;
+  white-space: nowrap;
+  font-size: var(--hd-heading);
+  line-height: var(--hd-line-heading);
+  font-weight: var(--hd-weight-semibold);
+  color: var(--hd-foreground);
+}
+
+.frame {
+  position: absolute;
+  box-shadow: var(--hd-shadow);
+  background: var(--hd-background);
+}
+
+.frame[data-selected] {
+  outline: calc(var(--hd-border-width) * 2) solid var(--hd-accent);
+}
+
+.frameTitle {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  padding-bottom: var(--hd-space-1-5);
+  transform-origin: 0 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-secondary-foreground);
+  cursor: pointer;
+}
+
+.frameTitle:hover {
+  color: var(--hd-foreground);
+}
+
+.frameTheme {
+  color: var(--hd-muted-foreground);
+}
+
+.frameTally {
+  color: var(--hd-warning-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.frameTally[data-clean] {
+  color: var(--hd-success-ink);
+}
+
+.window {
+  display: block;
+  border: 0;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--hd-card);
+  color: var(--hd-muted-foreground);
+}
+
+.placeholderName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hd-text-sm);
+}
+
+.catcher {
+  position: absolute;
+  inset: 0;
+}
+
+[data-review-tool='interact'] .catcher {
+  pointer-events: none;
+}
+
+.pin {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--hd-target-min);
+  height: var(--hd-target-min);
+  padding: 0 var(--hd-space-1-5);
+  border: 0;
+  border-radius: var(--hd-radius-full) var(--hd-radius-full) var(--hd-radius-full) 0;
+  transform-origin: 50% 100%;
+  background: var(--hd-accent);
+  color: var(--hd-accent-foreground);
+  font-size: var(--hd-text-xs);
+  font-weight: var(--hd-weight-semibold);
+  box-shadow: var(--hd-shadow);
+  cursor: pointer;
+}
+
+.pin[data-active] {
+  background: var(--hd-danger);
+}
+
+.pin[data-done] {
+  background: var(--hd-disabled-foreground);
+}
+
+[data-review-tool] [data-slot='flow-canvas-toolbar'] [aria-pressed='true'] {
+  background: var(--hd-active);
+}
+
+/* Notes. */
+.notes {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: var(--hd-border-width) solid var(--hd-border);
+  overflow-y: auto;
+}
+
+.notesHead {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  padding: var(--hd-space-3) var(--hd-space-3) var(--hd-space-2) var(--hd-space-4);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+}
+
+.notesTitle {
+  font-size: var(--hd-text);
+  font-weight: var(--hd-weight-medium);
+}
+
+.notesCount {
+  flex: 1;
+  color: var(--hd-muted-foreground);
+  font-size: var(--hd-text-sm);
+}
+
+.notesEmpty {
+  margin: 0;
+  padding: var(--hd-space-4);
+  color: var(--hd-secondary-foreground);
+  font-size: var(--hd-text-sm);
+}
+
+.noteList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.note {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-3) var(--hd-space-4);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+}
+
+.note[data-active] {
+  background: var(--hd-hover);
+}
+
+.note[data-done] .noteScene {
+  text-decoration: line-through;
+}
+
+.noteHead {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.noteNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: var(--hd-target-min);
+  height: var(--hd-target-min);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-accent);
+  color: var(--hd-accent-foreground);
+  font-size: var(--hd-text-xs);
+  font-weight: var(--hd-weight-semibold);
+}
+
+.noteScene {
+  min-width: 0;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+}
+
+.noteElement {
+  overflow-wrap: anywhere;
+  color: var(--hd-secondary-foreground);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
+}
+
+.noteActions {
+  display: flex;
+  justify-content: space-between;
+}

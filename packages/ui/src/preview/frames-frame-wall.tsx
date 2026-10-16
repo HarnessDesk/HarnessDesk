@@ -848,6 +848,11 @@ export const FrameWall = () => {
       next.showViewIn('right', { kind: 'plugin', contribution: contribution.id, label: contribution.label, mounts: contribution.mounts! })
     }
     if (query.get('frame-terminal') === '1') void next.openTerminal()
+    // The page's App reads its theme from this store, not the outer one: a
+    // `?theme=` that only reached the outer store left a destination on
+    // "system", which a capture's emulated scheme answered and an embedded
+    // review window, on a light desktop, did not.
+    if (requestedTheme === 'light' || requestedTheme === 'dark') next.setTheme(requestedTheme)
     return next
   }, [destination, location.search])
   useEffect(() => {

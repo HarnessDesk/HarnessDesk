@@ -1,3 +1,4 @@
+import './update-bridge'
 import { LibraryGithubFrames } from './frames-library-github'
 import { ProjectPolishFrame } from './frames-project-polish'
 import { FlowsDestinationFixture } from './flows-destination-fixture'
@@ -34,9 +35,10 @@ import { isSceneName } from '../../site-demo/scenes'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
 import { CliInstallFrame } from './frames-cli-install'
-import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { StrictMode, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { GUIDES_MODES, useGuides, useGuidesMode } from '../design/explorer/guides'
+import { requestedSteps, runSceneSteps } from './scene-steps'
 
 import { runtimeId, sessionId, sessionKey, type RuntimeId, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
@@ -1248,10 +1250,20 @@ const PreviewGuides = () => {
   return null
 }
 
+/* A scene from the review board names the clicks that reach its state. */
+const SceneSteps = () => {
+  useEffect(() => {
+    const steps = requestedSteps()
+    if (steps) void runSceneSteps(steps)
+  }, [])
+  return null
+}
+
 installOverlayScrollbarTracking()
 createRoot(container).render(
   <StrictMode>
     <PreviewGuides />
+    <SceneSteps />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
         {siteScene
