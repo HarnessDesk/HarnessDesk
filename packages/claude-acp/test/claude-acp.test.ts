@@ -188,10 +188,31 @@ test('the shared ACP adapter keeps Claude effort controls in the reasoning categ
     const effort = effortOf(session.options())
     assert.ok(effort)
     assert.equal(effort.category, 'thought_level')
-    assert.equal(session.options().find((option) => option.id === 'mode')?.category, 'mode')
+    assert.equal(session.options().find((option) => option.id === 'mode')?.category, '_permissions')
   } finally {
     await runtime.dispose()
   }
+})
+
+test('permission mode metadata splits planning without changing the values sent to the agent', async () => {
+  const runtime = make()
+  const tape = record(runtime)
+  await runtime.start()
+  try {
+    const draft = await runtime.defaultSessionOptions(WORKDIR, { mode: 'acceptEdits' })
+    const mode = draft.find((option) => option.id === 'mode') as ConfigOption & { collaboration?: unknown }
+    assert.equal(mode.category, '_permissions')
+    assert.deepEqual(mode.collaboration, { planValue: 'plan', actValue: 'acceptEdits' })
+    assert.equal(mode.currentValue, 'acceptEdits')
+    const session = await runtime.createSession({ cwd: WORKDIR, options: { mode: 'acceptEdits' } })
+    assert.match(await ask(runtime, session, 'first', tape), /mode=acceptEdits/)
+    await session.setOption('mode', 'plan')
+    assert.match(await ask(runtime, session, 'planning', tape), /mode=plan/)
+    const planned = session.options().find((option) => option.id === 'mode') as typeof mode
+    assert.deepEqual(planned.collaboration, { planValue: 'plan', actValue: 'default' })
+    await session.setOption('mode', 'default')
+    assert.match(await ask(runtime, session, 'acting', tape), /mode=default/)
+  } finally { await runtime.dispose() }
 })
 
 test('the bridge uses the official Claude ACP package contract', () => {

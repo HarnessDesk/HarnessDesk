@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 
 import type {
   AgentEntry,
@@ -284,6 +285,26 @@ export class AuthoringPlane {
   }
 
   // ------------------------------------------------------------------- reads
+
+  /** The same identity-pinned tree and write queue as saves; the file is recoverable in the Trash. */
+  async removeFlow(
+    target: Extract<WritableAuthoringTarget, { readonly kind: 'flow' }>, expected: string,
+    trash: ((path: string) => Promise<void>) | undefined,
+  ): Promise<void> {
+    if (!trash) throw new Error('Moving a Flow to the Trash needs the desktop app.')
+    if (this.#closed) throw new Error('HarnessDesk is closing, so nothing more is changed.')
+    const place = await this.#place(target)
+    if (place.scope === 'builtin') throw new Error('A built-in Flow cannot be removed.')
+    if (!place.tree.writable) throw new Error('HarnessDesk cannot change these files on this system.')
+    await this.#options.queue.run(place.tree.root, async () => {
+      const blocking = await this.#unfinishedIssues(place.tree.root, [place.rel])
+      if (blocking.length) throw new Error(`${blocking[0]!.text} ${blocking[0]!.fix}`)
+      const current = await place.tree.read(place.rel, FLOW_FILE_LIMIT)
+      if (current === null || digestOf(current) !== expected) throw new Error('The file changed. Reload before removing it.')
+      await trash(join(place.tree.root, place.rel))
+      this.#options.changed?.({ scope: place.scope as 'project' | 'user', root: place.project, agents: false })
+    })
+  }
 
   async read(target: AuthoringTarget): Promise<AuthoringDocument> {
     const place = await this.#place(target)

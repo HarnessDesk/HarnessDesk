@@ -22,7 +22,7 @@ const entries: readonly FlowEntry[] = Object.entries(TEAM_START_SOURCES).map(([i
   const frontDoor = (policy.layout as ShapeLayout | undefined)?.frontDoor
   return {
     id, name: header(source, 'name'), summary: header(source, 'summary'), description: header(source, 'description'),
-    origin: 'builtin', path: `${id}.yml`, format: 'agents', problem: null, shadows: [],
+    origin: 'builtin', path: `${id}.yml`, format: 'agents', problem: null, shadows: [], policy,
     frontDoor: frontDoor ? { order: frontDoor.order ?? null, contexts: frontDoor.contexts ?? null } : null,
   }
 })
@@ -38,7 +38,7 @@ export const teamStartStore = (): AppStore => {
     if (key === 'flowCatalog') return async () => entries
     if (key === 'flowSource') return async (_root: string, id: string) => TEAM_START_SOURCES[id] ?? ''
     if (key === 'renderShape') return async (policy: FlowPolicy) => ({ source: JSON.stringify(policy), issues: [] })
-    if (key === 'previewFrontDoor') return async (input: FrontDoorPreviewInput) => {
+    if (key === 'previewFrontDoor') return async (input: FrontDoorPreviewInput, options: { readonly publish?: boolean } = {}) => {
       const id = Object.entries(TEAM_START_SOURCES).find(([, source]) => source === input.source)?.[0]
       const policy: FlowPolicy = input.source.startsWith('{') ? JSON.parse(input.source) as FlowPolicy
         : TEAM_START_POLICIES[id as keyof typeof TEAM_START_POLICIES] ?? TEAM_START_POLICIES['fix-and-review']
@@ -73,7 +73,7 @@ export const teamStartStore = (): AppStore => {
         target: { label: 'this project', base: null, head: null, dirty: false, independence: 'unknown' as const } }
       const mutable = target as unknown as { patch: (partial: Partial<AppSnapshot>) => void }
       const front = target.getSnapshot().frontDoor
-      if (front) mutable.patch({ frontDoor: { ...front, preview } })
+      if (front && options.publish !== false) mutable.patch({ frontDoor: { ...front, preview } })
       return preview
     }
     const value = Reflect.get(target, key, receiver)

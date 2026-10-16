@@ -91,7 +91,6 @@ it('keeps moot controls greyed with their reason and omits empty Extension and M
   for (const reason of [
     'Only one agent is available',
     'This agent has no permission setting',
-    'This agent has no mode setting',
     'This agent has no model setting',
   ]) {
     const control = container.querySelector<HTMLButtonElement>(`button[title="${reason}"]`)
@@ -105,7 +104,7 @@ it('keeps moot controls greyed with their reason and omits empty Extension and M
 })
 
 const permissionMode: ConfigOption = {
-  id: 'mode', label: 'Mode', description: 'Session permission mode', category: 'mode', type: 'select',
+  id: 'mode', label: 'Mode', description: 'Session permission mode', category: '_permissions', type: 'select',
   currentValue: 'default',
   choices: [{ value: 'default', label: 'Manual' }, { value: 'acceptEdits', label: 'Accept edits' }],
 }
@@ -124,7 +123,7 @@ it.each([false, true])('omits the permission placeholder when the declared mode 
 })
 
 it('keeps the permission placeholder for a collaboration mode that declares no permissions', () => {
-  const state = { ...snapshot(), draftOptions: [{ ...permissionMode, description: 'How the agent works' }] }
+  const state = { ...snapshot(), draftOptions: [{ ...permissionMode, category: 'mode', description: 'How the agent works' }] }
   const store = { subscribe: () => () => {}, getSnapshot: () => state } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><PermissionControl /></StoreProvider>))
   expect(container.querySelector('[title="This agent has no permission setting"]')).not.toBeNull()
@@ -136,7 +135,7 @@ it('keeps a separate permission option alongside a permission mode', () => {
   const state = { ...snapshot(), draftOptions: [permission, permissionMode] }
   const store = { subscribe: () => () => {}, getSnapshot: () => state } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><PermissionControl /></StoreProvider>))
-  expect(container.querySelector('[title="What the agent may do"]')?.textContent).toContain('Ask first')
+  expect(container.querySelector('[title="Permissions — what the agent may do"]')?.textContent).toContain('Ask first')
 })
 
 it('shows a single declared mode as a fact instead of opening a one-choice menu', () => {
@@ -180,7 +179,7 @@ it('keeps visible Permissions hints only on Full access and Never ask', () => {
   const state = { ...snapshot(), draftOptions: [permissions] }
   const store = { subscribe: () => () => {}, getSnapshot: () => state } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><PermissionControl /></StoreProvider>))
-  act(() => container.querySelector<HTMLButtonElement>('[title="What the agent may do"]')!.click())
+  act(() => container.querySelector<HTMLButtonElement>('[title="Permissions — what the agent may do"]')!.click())
   const menu = document.querySelector<HTMLElement>('[role="menu"]')!
   expect(menu.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('none')
   expect(menu.querySelector('[data-menu-icon]')).toBeNull()

@@ -9,6 +9,8 @@ import { Settings } from '../components/Settings'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { TeamsWindow } from '../components/TeamsWindow'
 import { ChangesReview } from '../components/ChangesReview'
+import { FlowsWindow } from '../components/FlowsWindow'
+import { FlowPage } from '../components/FlowPage'
 export interface MainPageInput {
   readonly page: PageDestination
   readonly visit: (target: PageDestination) => void
@@ -18,6 +20,10 @@ export interface MainPageInput {
   readonly libraryImportIntent: number
 }
 export const MAIN_PAGE_ENTRIES: Partial<Record<PageDestination['kind'], (input: MainPageInput) => ReactNode>> = {
+  flows: ({page,visit}) => page.kind === 'flows'
+    ? page.root === null
+      ? <FlowsWindow onNew={root => visit({kind:'flows',root,id:null,origin:null})} onOpen={(root,id,origin) => visit({kind:'flows',root,id,origin})} />
+      : <FlowPage key={JSON.stringify(page)} root={page.root} id={page.id} origin={page.origin ?? undefined} start={page.start} onBack={() => visit({kind:'flows',root:null,id:null,origin:null})} /> : null,
   dashboard: input => <DashboardEntry {...input} />,
   agents: ({ page, visit }) => page.kind === 'agents'
     ? <AgentsWindow focus={page.id} onFocus={id => visit({ kind: 'agents', id })} /> : null,

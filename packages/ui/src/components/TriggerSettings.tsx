@@ -12,7 +12,7 @@ type Change = { readonly paused?: boolean; readonly dailyUsd?: number }
 const money = (usd: number | null): string => (usd === null ? 'Unknown' : `$${usd.toFixed(2)}`)
 
 /**
- * Workspaces › Triggers on this Mac: the one machine-wide pause and the
+ * Flows › Triggers on this Mac: the one machine-wide pause and the
  * daily cap every armed trigger reserves against.
  *
  * A read-back precedes every shown value — turning the pause switch or

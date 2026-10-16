@@ -13,14 +13,14 @@ for (const theme of ['light', 'dark'] as const) {
     const mode = surface.locator('[data-composer-track="mode"]')
     await expect(model).toContainText('Model A')
     await expect(model).toContainText('Low')
-    await expect(mode.locator('button')).toBeDisabled()
+    await expect(mode).toHaveCount(0)
     // Main's natural-width Mode/Permissions contract lets an empty extension
     // anchor follow the preceding label. Measure rendered controls, and keep
     // asserting that the extension has no action whose position could change.
     const extension = surface.locator('[data-composer-track="extension"]')
     await expect(extension.locator(':scope > *')).toHaveCount(0)
     const positions = () => surface.locator('[data-composer-track]').evaluateAll((nodes) => nodes
-      .filter((node) => node.childElementCount > 0)
+      .filter((node) => ['add', 'agent', 'permissions', 'send'].includes(node.getAttribute('data-composer-track') ?? ''))
       .map((node) => [node.getAttribute('data-composer-track'), Math.round(node.getBoundingClientRect().x)]))
     const before = await positions()
     await surface.locator('[data-replace-options]').click()

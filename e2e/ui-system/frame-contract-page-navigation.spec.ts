@@ -67,7 +67,7 @@ test(`E9 every destination More either stays absent or opens rows, and returns f
   await expect(page.locator('[data-page-destination="library"]:visible')).toHaveCount(1)
   await expect(more).toBeVisible()
   await more.click()
-  await expect(page.getByRole('menu').locator('[role^="menuitem"], [role="switch"]')).toHaveCount(3)
+  await expect(page.getByRole('menu').locator('[role^="menuitem"], [role="switch"]')).toHaveText(['Import', 'Add from GitHub…', 'Rescan', /Terminal/])
   await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
 })
 {

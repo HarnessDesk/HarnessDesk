@@ -40,7 +40,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(roles.getByText('Runtime 3 is signed out', { exact: true })).toBeVisible()
   })
 
-  test(`Team board keeps empty columns full width and scrolls at 1280 in ${theme}`, async ({ page }) => {
+  test(`Team board folds empty columns and scrolls when expanded at 1280 in ${theme}`, async ({ page }) => {
     await installFramePreviewFixture(page)
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.emulateMedia({ colorScheme: theme })
@@ -55,14 +55,27 @@ for (const theme of ['light', 'dark'] as const) {
         id: column.dataset.column,
         width: column.getBoundingClientRect().width,
         collapsed: column.hasAttribute('data-collapsed'),
+        empty: !column.querySelector('[data-slot="board-card"]'),
       })),
     }))
-    expect(geometry.columns.find(column => column.id === 'todo')?.collapsed).toBe(false)
-    expect(geometry.columns.find(column => column.id === 'ready')?.collapsed).toBe(false)
-    expect(geometry.columns.find(column => column.id === 'todo')?.width).toBeGreaterThanOrEqual(220)
-    expect(geometry.columns.find(column => column.id === 'ready')?.width).toBeGreaterThanOrEqual(220)
-    expect(geometry.columns.every(column => column.width >= 220 && !column.collapsed)).toBe(true)
-    expect(geometry.scrollWidth).toBeGreaterThan(geometry.width)
+    expect(geometry.columns.map(column => column.id)).toEqual(['needs', 'working', 'review', 'todo', 'ready'])
+    expect(geometry.columns.find(column => column.id === 'todo')?.collapsed).toBe(true)
+    expect(geometry.columns.find(column => column.id === 'ready')?.collapsed).toBe(true)
+    expect(geometry.columns.find(column => column.id === 'todo')?.width).toBe(44)
+    expect(geometry.columns.find(column => column.id === 'ready')?.width).toBe(44)
+    expect(geometry.columns.every(column => column.empty
+      ? column.width === 44 && column.collapsed
+      : column.width >= 220 && !column.collapsed)).toBe(true)
+
+    // Opening the empty rails restores the wide row this frame's scroll contract protects.
+    for (const column of await board.locator('[data-slot="board-column"]').all()) {
+      const rail = column.getByRole('button', { name: /0 — Open column/ })
+      if (await rail.count()) await rail.click()
+    }
+    await expect(board.locator('[data-slot="board-column"][data-collapsed]')).toHaveCount(0)
+    expect(await board.locator('[data-slot="board-column"]').evaluateAll(columns =>
+      columns.every(column => column.getBoundingClientRect().width >= 220))).toBe(true)
+    expect(await board.evaluate(element => element.scrollWidth)).toBeGreaterThan(geometry.width)
   })
 
   test(`Team Findings uses one empty state in ${theme}`, async ({ page }) => {

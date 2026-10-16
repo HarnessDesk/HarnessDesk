@@ -29,6 +29,8 @@ import {
 } from '../design'
 import { shortPath } from '../lib/paths'
 import { describeLimits } from '../lib/limits'
+import { composerPaceVisible } from '../lib/composer-usage'
+import { teamInboxAction } from '../lib/team-inbox'
 import { conditionFor } from '../lib/usage-alerts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
@@ -493,7 +495,7 @@ const standingOutlet = (snapshot: AppSnapshot, standing: Standing, mounts: reado
   if (standing.identity.kind === 'usage:pace' && place !== 'inbox') {
     const destination = snapshot.workbench.navigation.current
     if (destination.kind === 'dashboard') return 'strip'
-    if (destination.kind !== 'work' || !hasComposer) return null
+    if (destination.kind !== 'work' || !hasComposer || !composerPaceVisible(snapshot, standing.runtime)) return null
   }
   if (place === 'composer' && !hasComposer) return 'strip'
   return place
@@ -816,6 +818,7 @@ export const useInboxMessages = (): InboxMessage[] => {
       ...(entry.from ? { from: entry.from.name } : {}),
       ...(sender ? { mark: <RuntimeMark runtime={sender} size={14} /> } : {}),
       ...(go ? { go, goLabel: sessionGo ? 'Open the conversation' : entry.open === 'settings:library' ? 'Open the Library' : 'Sign in' } : {}),
+      ...teamInboxAction(entry, store),
       ...(entry.kind && entry.contentKey ? { actions: [
         ...(entry.file ? [{ label: 'Open the file', onSelect: () => void store.revealWorkspace(entry.file!) }] : []),
         ...(!snapshot.noticePolicy.muted.includes(entry.kind) ? [{ label: "Don't show this again", onSelect: () => store.setNoticeMuted(entry.kind!, true) }] : []),

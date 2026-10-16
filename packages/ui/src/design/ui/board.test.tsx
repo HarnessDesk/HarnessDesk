@@ -51,11 +51,13 @@ describe('Board', () => {
     expect(board.className).toContain('overflow-x-auto')
     expect(board.className).not.toContain('grid-cols-')
     expect(board.hasAttribute('data-wrap')).toBe(false)
+    expect(board.hasAttribute('data-scroll-affordance')).toBe(true)
   })
 
   it('wraps onto a second row when asked, and then never scrolls sideways', () => {
     const board = draw(<Board wrap>{columns}</Board>)
     expect(board.hasAttribute('data-wrap')).toBe(true)
+    expect(board.hasAttribute('data-scroll-affordance')).toBe(false)
     expect(board.className).toContain('grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]')
     // A wrapped board that could still scroll would hide a state anyway.
     expect(board.className).not.toContain('overflow-x-auto')

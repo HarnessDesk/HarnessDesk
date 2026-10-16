@@ -8,6 +8,10 @@ import type { HostContext, MethodsUnder } from './context.js'
  */
 export const authoringMethods = {
   'authoring/read': (ctx: HostContext, params) => ctx.authoring.read(params.target),
+  'authoring/flow/remove': async (ctx: HostContext, params) => {
+    await ctx.authoring.removeFlow(params.target, params.expected, ctx.options.trashPath)
+    return null
+  },
   'authoring/agent/patch': (ctx: HostContext, params) => ctx.authoring.patch(params.target, params.expected, params.edit),
   'authoring/save/preview': (ctx: HostContext, params) => ctx.authoring.preview({
     target: params.target,
