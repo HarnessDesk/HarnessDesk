@@ -140,6 +140,19 @@ board and the room had no header control at all.
 A view that needs an argument — a file, a preview — declares neither and keeps
 its own command, because "open *what*" is not a question a list can answer.
 
+### Menus and row focus
+
+Pointer hover and keyboard focus use the same row fill, eased on the fast
+motion step. A page row keeps its focus ring as well, since Tab travels the
+whole window. Inside a menu, arrow keys travel the plate and the fill is the
+focus mark; no ring surrounds the row. A refused menu row stays unlit under
+the pointer but remains reachable by the keyboard, with the fill and its
+reason visible. It cannot be activated.
+
+Menus and other floating surfaces share one entrance and exit motion,
+including the model picker, select, hover card and tooltip. Reduced motion
+follows the system preference.
+
 ### The window's edge rows
 
 `--hd-bar-h` (46px) is the height of every row that touches the top or bottom of

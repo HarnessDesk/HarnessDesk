@@ -13,9 +13,17 @@
 export const impactUnit = (id: string) => ({ annotation: { type: 'impact-unit', description: id } })
 
 /** The units this run of `spec` covers, or null for all of them. */
-export const unitsToRun = (spec: string): ReadonlySet<string> | null => {
+export const unitsToRun = (spec: string, known: readonly string[]): ReadonlySet<string> | null => {
   const raw = process.env.UI_SYSTEM_UNITS
   if (!raw) return null
-  const units = (JSON.parse(raw) as Record<string, string[]>)[spec]
-  return units ? new Set(units) : null
+  try {
+    const selection: unknown = JSON.parse(raw)
+    if (!selection || typeof selection !== 'object' || Array.isArray(selection)) return null
+    const units: unknown = (selection as Record<string, unknown>)[spec]
+    // A stale or malformed selection must broaden coverage, never silently omit tests.
+    if (!Array.isArray(units) || units.length === 0 || !units.every(unit => typeof unit === 'string' && known.includes(unit))) return null
+    return new Set(units as string[])
+  } catch {
+    return null
+  }
 }

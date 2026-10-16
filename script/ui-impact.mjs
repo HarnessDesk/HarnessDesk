@@ -294,10 +294,23 @@ export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseE
   const selected = new Set()
   // Specs that run whole whatever their units say: new or edited since the map, or named by a changed file.
   const whole = new Set()
+  const unitsOf = new Map()
+  for (const name of map.specs) {
+    const { spec, units } = splitUnits(name)
+    if (units.length > 0) unitsOf.set(spec, [...(unitsOf.get(spec) ?? []), name])
+  }
   const index = new Map(map.specs.map((name, position) => [name, position]))
   for (const name of allSpecs) {
     const position = index.get(name)
     if (position === undefined || map.hashes[position] !== specHash(name)) whole.add(name)
+  }
+  const covered = positions => {
+    const reached = new Set(positions.map(position => map.specs[position]))
+    for (const name of reached) {
+      // Coverage from another input or importer cannot account for this file's hook or setup work.
+      if (!splitUnits(name).units.length && !(unitsOf.get(name) ?? []).some(unit => reached.has(unit))) whole.add(name)
+    }
+    return positions
   }
   const reaching = (path, visiting) => {
     const entry = map.files[path]
@@ -308,12 +321,15 @@ export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseE
     // A test of the UI's units never ran in a browser: it is no importer to ask.
     const parents = new Set([...(importers(path) ?? [])].filter(parent => !TEST_FILE.test(parent)))
     const viaParents = () => [...parents].flatMap(parent => reaching(parent, visiting))
-    if (ran.length > 0) return dataExports(path) ? [...ran, ...viaParents()] : ran
+    if (ran.length > 0) {
+      const own = covered(ran)
+      return dataExports(path) ? [...own, ...viaParents()] : own
+    }
     // A script in which nothing ran and that hands nothing on (a component no spec rendered) is reached by no one.
     if (isScript(path) && (loaded.length === 0 || !dataExports(path))) return []
     // A sheet that is not scoped to a module of its own reaches everything that loaded it, wherever it was taken in.
     if (!isScript(path) && globalSheet(path)) return loadedAnywhere(path, new Set())
-    if (parents.size === 0) return loaded
+    if (parents.size === 0) return covered(loaded)
     return viaParents()
   }
   const loadedAnywhere = (path, visiting) => {
@@ -321,7 +337,7 @@ export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseE
     if (!entry || visiting.has(path)) return []
     visiting.add(path)
     const own = expand(entry.loaded, total)
-    if (own.length > 0) return own
+    if (own.length > 0) return covered(own)
     return [...(importers(path) ?? [])].filter(parent => !TEST_FILE.test(parent)).flatMap(parent => loadedAnywhere(parent, visiting))
   }
   const reach = path => {
@@ -363,11 +379,6 @@ export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseE
   }
   // A spec recorded unit by unit runs only the units reached, unless something reached it that no unit
   // accounts for (code its hooks ran outside any test): then it runs whole.
-  const unitsOf = new Map()
-  for (const name of map.specs) {
-    const { spec, units } = splitUnits(name)
-    if (units.length > 0) unitsOf.set(spec, [...(unitsOf.get(spec) ?? []), name])
-  }
   const narrowed = []
   for (const name of selected) {
     const { spec, units } = splitUnits(name)

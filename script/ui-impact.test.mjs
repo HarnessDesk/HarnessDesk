@@ -584,6 +584,44 @@ test('a unit is planned from only when its whole spec was recorded clean', () =>
   }
 })
 
+test('whole-spec coverage from any input survives another input reaching a unit', () => {
+  const root = fixture()
+  try {
+    const map = mergeRecords(root, [
+      record('e2e/ui-system/a.spec.ts', { loaded: everything, ran: ['/src/x.tsx', '/src/y.tsx'] }),
+      record('e2e/ui-system/a.spec.ts#one', { tests: 1, loaded: everything, ran: ['/src/x.tsx'] }),
+      record('e2e/ui-system/b.spec.ts', { loaded: everything, ran: [] }),
+    ])
+    const x = 'packages/ui/src/x.tsx', y = 'packages/ui/src/y.tsx'
+    assert.deepEqual(impactedSpecs(map, [x], context(root, map)).specs, ['a.spec.ts#one'])
+    for (const paths of [[x, y], [y, x]]) {
+      assert.deepEqual(impactedSpecs(map, paths, context(root, map)).specs, ['a.spec.ts'])
+    }
+    assert.deepEqual(impactedSpecs(map, [x], context(root, map, {
+      baseFiles: () => baseOf(map, files => { files[y] = 'new-on-main' }),
+    })).specs, ['a.spec.ts'], 'drift on main also keeps whole-spec coverage')
+    assert.deepEqual(impactedSpecs(map, [x, 'packages/ui/src/new.ts'], context(root, map, {
+      globbers: () => [y],
+    })).specs, ['a.spec.ts'], 'a changed glob also keeps whole-spec coverage')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('unit coverage through an importer cannot hide a module that ran outside a unit', () => {
+  const root = fixture()
+  try {
+    const map = mergeRecords(root, [
+      record('e2e/ui-system/a.spec.ts', { loaded: everything, ran: ['/src/x.tsx', '/src/shared.ts'] }),
+      record('e2e/ui-system/a.spec.ts#one', { tests: 1, loaded: everything, ran: ['/src/x.tsx'] }),
+      record('e2e/ui-system/b.spec.ts', { loaded: everything, ran: [] }),
+    ])
+    assert.deepEqual(impactedSpecs(map, ['packages/ui/src/shared.ts'], context(root, map)).specs, ['a.spec.ts'])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('one entry per spec: whole wins over its units, and units join', () => {
   assert.deepEqual(foldUnits(['a.spec.ts#two', 'b.spec.ts', 'a.spec.ts#one', 'c.spec.ts#x', 'c.spec.ts']), ['a.spec.ts#one,two', 'b.spec.ts', 'c.spec.ts'])
 })

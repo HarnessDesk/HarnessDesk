@@ -176,8 +176,6 @@ const sticksOut = (el: Element, r: DOMRect) => {
   let checked = 0
   for (const kid of el.querySelectorAll('*')) {
     if (++checked > 200) break
-    // A nudge the fix preview made is a correction shown, not a spill.
-    if (fixed.has(kid as HTMLElement)) continue
     const k = kid.getBoundingClientRect()
     if (!visible(k)) continue
     if (k.right > r.right + 1 || k.left < r.left - 1 || k.bottom > r.bottom + 1) {
@@ -611,7 +609,6 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
           if (kind === 'glyph') continue
           const found = offScaleOf(el, getComputedStyle(el), tokens)
           if (!found.length) continue
-          scaleCount += found.length
           entry.offScale.push(`${describe(el)} ${found.map(({ what, value }) => `${what} ${value}`).join(', ')}`)
           // A corner flag: off scale is a question for the source, not a box to read.
           ctx.fillStyle = palette.warn
@@ -619,6 +616,7 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
           ctx.moveTo(r.right, r.top); ctx.lineTo(r.right - 7, r.top); ctx.lineTo(r.right, r.top + 7)
           ctx.closePath(); ctx.fill()
         }
+        scaleCount = entry.offScale.length
       }
       ctx.restore()
 
@@ -746,17 +744,24 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
   const onLeave = () => { pointer = null; hovered = null; schedule() }
   let mutationTimer = 0
   let retheme = false
+  const observe = () => {
+    mutations.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'data-hd-dark-theme', 'data-state', 'open'] })
+    mutations.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-hd-dark-theme'] })
+  }
   const mutations = new MutationObserver((records) => {
-    if (records.some((one) => one.target === document.body || one.target === document.documentElement)) retheme = true
+    if (records.some((one) => one.type === 'attributes' && (one.target === document.body || one.target === document.documentElement))) retheme = true
     if (mutationTimer) return
     mutationTimer = window.setTimeout(() => {
       mutationTimer = 0
-      palette = readPalette()
-      if (retheme) { tokens = readTokens(); retheme = false }
+      if (retheme) {
+        // Sampling uses temporary DOM probes. Their writes are ours, not another page change.
+        mutations.disconnect()
+        try { palette = readPalette(); tokens = readTokens() } finally { observe(); retheme = false }
+      }
       schedule()
     }, 120)
   })
-  mutations.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'data-hd-dark-theme', 'data-state', 'open'] })
+  observe()
   window.addEventListener('scroll', schedule, true)
   window.addEventListener('resize', schedule)
   window.addEventListener('pointermove', onPointer, { passive: true })
@@ -812,12 +817,20 @@ const subscribe = (listener: () => void) => { listeners.add(listener); return ()
  * Turn the fix preview on or off, once the page has reached its state (a
  * scene's steps run first), and redraw the guides over the result. Returns
  * what was corrected.
+ * A newer request or unmount supersedes the pending pass; it returns null
+ * so its caller does not publish a stale correction count.
  */
 const settleFor = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-export const setFixPreview = async (on: boolean, roots: () => Element[]): Promise<string[]> => {
+let fixPreviewVersion = 0
+export const setFixPreview = async (on: boolean, roots: () => Element[]): Promise<string[] | null> => {
+  const version = ++fixPreviewVersion
   if (!on) { clearFixes(); window.dispatchEvent(new Event('resize')); return [] }
-  for (let i = 0; i < 100 && document.documentElement.dataset.sceneSteps === 'running'; i++) await settleFor(100)
+  for (let i = 0; i < 100 && document.documentElement.dataset.sceneSteps === 'running'; i++) {
+    await settleFor(100)
+    if (version !== fixPreviewVersion) return null
+  }
   await settleFor(300)
+  if (version !== fixPreviewVersion) return null
   const fixes = previewFixes(roots()).map(({ what }) => what)
   window.dispatchEvent(new Event('resize'))
   return fixes
@@ -839,8 +852,8 @@ export const useGuides = (roots: () => Element[]) => {
   // `?fix=1` opens the page with the fix preview on.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('fix') !== '1') return
-    void setFixPreview(true, roots).then((fixes) => { if (window.parent !== window) window.parent.postMessage({ type: 'hd-fixes', fixes }, window.location.origin) })
-    return () => clearFixes()
+    void setFixPreview(true, roots).then((fixes) => { if (fixes && window.parent !== window) window.parent.postMessage({ type: 'hd-fixes', fixes }, window.location.origin) })
+    return () => { void setFixPreview(false, roots) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => {
@@ -861,7 +874,7 @@ export const useGuides = (roots: () => Element[]) => {
       const data = event.data as { type?: string; mode?: GuidesMode; x?: number; y?: number; id?: string; key?: string; on?: boolean }
       if (data.type === 'hd-guides' && data.mode && (GUIDES_MODES as readonly string[]).includes(data.mode)) setGuidesMode(data.mode)
       // The board's "Fixed" switch: show this window as it would be once its findings are fixed.
-      if (data.type === 'hd-fix') void setFixPreview(!!data.on, roots).then((fixes) => window.parent.postMessage({ type: 'hd-fixes', fixes }, window.location.origin))
+      if (data.type === 'hd-fix') void setFixPreview(!!data.on, roots).then((fixes) => { if (fixes) window.parent.postMessage({ type: 'hd-fixes', fixes }, window.location.origin) })
       // Shift and Escape, pressed while the board has focus.
       if (data.type === 'hd-key' && (data.key === 'Shift' || data.key === 'Escape')) window.dispatchEvent(new KeyboardEvent('keydown', { key: data.key }))
       if (data.type === 'hd-pick' && typeof data.x === 'number' && typeof data.y === 'number') {
@@ -882,7 +895,7 @@ export const useGuides = (roots: () => Element[]) => {
     // Say "ready" once, whatever the mode: a board holds a note's question
     // until the window it asks can answer.
     const hello = window.setTimeout(() => window.parent.postMessage({ type: 'hd-guides-report', report: guidesReport.current }, window.location.origin), 300)
-    return () => { window.removeEventListener('message', onMessage); window.removeEventListener('wheel', onWheel); clearTimeout(hello) }
+    return () => { window.removeEventListener('message', onMessage); window.removeEventListener('wheel', onWheel); clearTimeout(hello); void setFixPreview(false, roots) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 }

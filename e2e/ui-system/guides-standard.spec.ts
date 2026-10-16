@@ -70,7 +70,7 @@ test.use({ viewport: { width: WINDOW.width, height: WINDOW.height }, screenshot:
 if (UPDATE) writeOnceEveryTestPasses(test, () => writeFileSync(TABLE, `${JSON.stringify(observed, null, 2)}\n`))
 
 // One unit per scene: a change that reaches three scenes measures those three (`impact-units.ts`).
-const units = UPDATE ? null : unitsToRun('guides-standard.spec.ts')
+const units = UPDATE ? null : unitsToRun('guides-standard.spec.ts', SCENES.map(scene => scene.id))
 
 for (const scene of SCENES.filter((one) => !units || units.has(one.id))) {
   test(`guides standard: ${scene.id}`, impactUnit(scene.id), async ({ page }) => {
