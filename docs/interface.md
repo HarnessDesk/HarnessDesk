@@ -953,6 +953,11 @@ with incoming runnable or binary files requires one acknowledgement before
 Apply. It acknowledges only the operations that need it; local installs ask
 for none. Each operation keeps its own result or refusal after Apply.
 
+Library omits reserved skill folders beginning with `_` and skills whose only
+on-disk definitions are empty. A usable copy elsewhere keeps the skill listed;
+empty copies remain available to the cleanup action. Descriptions render inline
+markdown through the sanitized reading path.
+
 The Library’s List view compares Skill (or Server), State and Loaded by in
 three labelled columns. Descriptions wrap, a warning names a needed fix, and
 only agents that load the entry appear as faces; Matrix and the entry’s sheet

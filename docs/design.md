@@ -2184,3 +2184,11 @@ the label. Read shows fetched bytes as plain text. The plan's acknowledgement
 belongs to incoming fetched files that can run or are binary, and gates Apply.
 `preview.html?library-github` shows selection; `?library-github=plan` shows
 the file review, both using the method-aware placeholder repository fixture.
+
+
+Skill descriptions are prose with sanitized inline markdown: backticks name
+code, while the surrounding sentence keeps the reading type. Inside a row
+button, a description keeps link text without a nested interactive link. New Team's
+runtime, model and effort controls compose the shared choice menus; a popup
+inside a dialog belongs to that dialog's stacking context and closes first
+on Escape.

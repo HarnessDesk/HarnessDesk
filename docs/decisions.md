@@ -3503,3 +3503,11 @@ Nested Escape belongs to the open picker before the dialog.
 A choice menu inside a dialog portals into that dialog's content. Its popup
 therefore shares the modal's stacking context instead of landing below the
 modal viewport; the existing focus and Escape policy still owns dismissal.
+
+Library does not list skill folders beginning with `_` or entries with only
+empty definitions on disk. This is the owner's choice for #1675: omit them,
+rather than select a broken entry first. The inventory keeps hollow-copy
+diagnostics for cleanup and still lists an entry with a usable copy elsewhere.
+Empty and whitespace-only definitions count as hollow. Descriptions in both
+list and matrix, and in the reading sheet, use sanitized markdown so backticks
+produce inline code.
