@@ -45,6 +45,7 @@ import {
 } from './attachments.js'
 
 import { SESSION_SOURCE, SESSION_SOURCE_CAPABILITY } from './session-source-wire.js'
+import { SESSION_LOADOUT, SESSION_LOADOUT_CAPABILITY } from './loadout-wire.js'
 
 const DEFAULT = 'default'
 const EFFORT_OPTION_ID = 'effort'
@@ -740,6 +741,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
         harnessdesk: {
           readCeiling: true,
           [SESSION_SOURCE_CAPABILITY]: true,
+          [SESSION_LOADOUT_CAPABILITY]: true,
           [TASKS_CAPABILITY]: true,
           [SESSION_DELETE_CAPABILITY]: 'trash',
           readableHistory: true,
@@ -911,6 +913,22 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     }
   }
   async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (method === SESSION_LOADOUT) {
+      const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : ''
+      if (!sessionId || !Object.hasOwn(this.sessions, sessionId)) throw RequestError.invalidParams('A known session id is required.')
+      try {
+        const usage = await this.sessions[sessionId]!.query.getContextUsage({ detail: 'summary' })
+        return {
+          ready: true,
+          skills: usage.skills?.skillFrontmatter.map(({ name, source, tokens }) => ({ name, source, tokens })) ?? null,
+          mcpTools: usage.mcpTools.map(({ name, serverName, tokens, isLoaded }) => ({ name, serverName, tokens, isLoaded })),
+          memoryFiles: usage.memoryFiles.map(({ path, type, tokens }) => ({ path, type, tokens })),
+          agents: usage.agents.map(({ agentType, source, tokens }) => ({ agentType, source, tokens })),
+        }
+      } catch (error) {
+        return { ready: false, reason: (error instanceof Error ? error.message : String(error)).split(/\r?\n/)[0] }
+      }
+    }
     if (method === SESSION_SOURCE) {
       const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : ''
       if (!sessionId) throw RequestError.invalidParams('A session id is required.')
@@ -1118,6 +1136,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       .onRequest(methods.agent.logout, (ctx) => agent.logout(ctx.params))
       .onRequest(methods.agent.session.prompt, (ctx) => agent.prompt(ctx.params))
       .onRequest(SESSION_SOURCE, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_SOURCE, ctx.params))
+      .onRequest(SESSION_LOADOUT, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_LOADOUT, ctx.params))
       .onRequest(SESSION_DELETE, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_DELETE, ctx.params))
       .onRequest(TASKS_LIST, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_LIST, ctx.params))
       .onRequest(TASKS_STOP, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_STOP, ctx.params))

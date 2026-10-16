@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { itemId, sessionId, CLIENT_METHODS, type FlowExecution, type FlowPreview, type GoalView } from '@harnessdesk/protocol'
+import { itemId, sessionId, runtimeId, CLIENT_METHODS, type HostResult, type FlowExecution, type FlowPreview, type GoalView } from '@harnessdesk/protocol'
 const { openClientDoor } = await import(new URL('../../../server/dist/src/client-door.js', import.meta.url).href) as typeof import('../../server/src/client-door.js')
 const { silent, start, stop } = await import(new URL('../../../server/dist/test/fixtures/harness.js', import.meta.url).href) as typeof import('../../server/test/fixtures/harness.js')
 const { makeRepo } = await import(new URL('../../../server/dist/test/fixtures/evidence-desk.js', import.meta.url).href) as typeof import('../../server/test/fixtures/evidence-desk.js')
@@ -891,11 +891,33 @@ test('status and run show replay the window stream, including check evidence, pa
     findingRun: import('@harnessdesk/protocol').FindingRunView
     expectedRows: string[]
   }
+  const goalChanged = replay.stream.find(notification => notification.method === 'goal/changed')
+  assert.ok(goalChanged)
+  const goal: HostResult<'goal/read'> = goalChanged.params.view
+  assert.ok(replay.execution.operations.some(operation => operation.kind === 'seat' && operation.seat === 'writer-seat'))
+  const loadout: HostResult<'session/loadout'> = {
+    session: sessionId('alpha'), runtime: runtimeId('demo'), seat: 'writer-seat',
+    epochs: [{
+      version: 1, session: sessionId('alpha'), runtime: runtimeId('demo'), seat: 'writer-seat',
+      epoch: 0, observedAt: 400, build: 'demo', approximate: true, source: 'scripted',
+      skills: { reported: true, items: [{ name: 'demo-skill', group: null, origin: 'agent', pathLabel: null, digest: null, tokens: 1200, count: null, enabled: true }], more: 0 },
+      mcp: { reported: true, items: [], more: 0 },
+      memory: { reported: false, reason: 'The agent does not report memory.' },
+      agents: { reported: true, items: [], more: 0 },
+    }],
+  }
+  const attachments: HostResult<'attachment/seat'> = {
+    version: 1, seat: 'writer-seat', agentDigest: 'demo-digest', runtime: 'demo', build: 'demo',
+    epoch: 0, observedAt: 400, skillsMode: 'allowlist', mcpMode: 'runtime-defaults', declarations: [], restored: false,
+    results: [{ identity: { kind: 'skill', name: 'pending-skill', digest: 'pending-digest', source: 'agent', pathLabel: 'skills/pending-skill' }, status: 'not-loaded', reason: 'Review this content before loading it.' }],
+  }
   const directory = await mkdtemp('/tmp/hd-door-'); await chmod(directory, 0o700)
   const home = await realpath(directory)
   const socket = join(directory, `${createHash('sha256').update(home).digest('hex').slice(0, 16)}.sock`)
   const server = createServer(), sockets = new WebSocketServer({ noServer: true })
   let stopped = false
+  let omittedMethod: string | undefined
+  const unexpectedMethods: string[] = []
   const currentRun = () => stopped ? { ...replay.execution, state: 'stopped', currentEndedAt: 500,
     end: { kind: 'stopped', by: 'person' }, reason: 'Pause the demo.' } : replay.execution
   server.on('upgrade', (req, socket, head) => sockets.handleUpgrade(req, socket, head, ws => {
@@ -907,8 +929,14 @@ test('status and run show replay the window stream, including check evidence, pa
         'flow/execution': currentRun(), 'evidence/board': replay.evidence,
         'finding/list': { rows: request.params.cursor ? replay.findings.slice(1) : replay.findings.slice(0, 1), next: request.params.cursor ? null : 'second-page' },
         'finding/run': replay.findingRun, 'insight/goal': null,
+        'goal/read': goal, 'session/loadout': loadout, 'attachment/seat': attachments,
       }
-      assert.ok(Object.hasOwn(results, request.method), request.method)
+      if (omittedMethod) delete results[omittedMethod]
+      if (!Object.hasOwn(results, request.method)) {
+        unexpectedMethods.push(request.method)
+        ws.send(JSON.stringify({ id: request.id, ok: false, error: { code: 'methodFailed', message: `Unexpected stub method: ${request.method}` } }))
+        return
+      }
       ws.send(JSON.stringify({ id: request.id, ok: true, result: results[request.method] }))
       if (request.method === 'client/subscribe') for (const notification of replay.stream) ws.send(JSON.stringify(notification))
     })
@@ -920,11 +948,19 @@ test('status and run show replay the window stream, including check evidence, pa
   assert.equal(await show.exit, 0, show.output().stderr)
   assert.equal(show.output().stdout, [
     'demo-run  Scripted demo  running  unattended  revision demo-revision  continues previous-run  This desk only',
-    ...replay.expectedRows, 'writer  override  demo', '',
+    ...replay.expectedRows, 'writer  override  demo',
+    'writer  Seat writer-seat', 'skills  1 reported · ~1.2K tokens', 'mcp  0 reported',
+    'memory  not reported — The agent does not report memory.', 'agents  0 reported',
+    '0 loaded · 1 not loaded', '  pending-skill  Review this content before loading it.', '',
   ].join('\n'))
   const sends = show.output().stderr.trim().split('\n').map(line => JSON.parse(line)).filter(e => e.direction === 'send')
   assert.deepEqual(sends.filter(e => e.message.method === 'finding/list').map(e => e.message.params), [
     { goal: 'demo-team', filter: 'all' }, { goal: 'demo-team', filter: 'all', cursor: 'second-page' },
+  ])
+  assert.deepEqual(sends.filter(e => ['goal/read', 'session/loadout', 'attachment/seat'].includes(e.message.method)).map(e => ({ method: e.message.method, params: e.message.params })), [
+    { method: 'goal/read', params: { goal: 'demo-team' } },
+    { method: 'session/loadout', params: { runtime: 'demo', session: 'alpha' } },
+    { method: 'attachment/seat', params: { seat: 'writer-seat' } },
   ])
   const status = launch(t, directory, home, ['status', '--team', 'demo-team', '--json'])
   assert.equal(await status.exit, 0, status.output().stderr)
@@ -936,4 +972,10 @@ test('status and run show replay the window stream, including check evidence, pa
   const ended = launch(t, directory, home, ['run', 'show', 'demo-run'])
   assert.equal(await ended.exit, 0, ended.output().stderr)
   assert.ok(ended.output().stdout.includes('Stopped by you  This desk only  Pause the demo.'))
+  assert.deepEqual(unexpectedMethods, [])
+  omittedMethod = 'session/loadout'
+  const unknown = launch(t, directory, home, ['run', 'show', 'demo-run'])
+  assert.equal(await unknown.exit, 1)
+  assert.match(unknown.output().stderr, /methodFailed: Unexpected stub method: session\/loadout/)
+  assert.deepEqual(unexpectedMethods, ['session/loadout'])
 })
