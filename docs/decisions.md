@@ -3660,3 +3660,21 @@ still come from its presentation and features from its capabilities.
 The Agents page, Team roles, Seats, sub-agents and Library’s Declared by
 filter keep their role meaning. This is a copy boundary; identifiers, wire
 methods, protocol fields and file names keep their existing spellings.
+
+
+## Rows share one highlight and floating surfaces share one motion
+
+The visual refinement in #1733 uses the row's hover fill for keyboard focus
+as well. A menu's arrow keys stay within its plate, so that fill is its whole
+focus mark; a page row keeps the window's focus ring too. A refused menu row
+remains in the keyboard path so its reason can be read, but it cannot run.
+Pointer hover leaves it unlit, preserving the distinction between an action
+and an explanation.
+
+The model picker and context menu now use `floatingMotion`, the same entrance
+and exit as the other floating surfaces, and row fill transitions use
+`--hd-duration-fast`. The shared primitives own this policy so individual
+menus cannot acquire a different highlight or cut in without motion.
+The menu-state preview shows rest, pointer and keyboard states in both themes;
+[the interface](interface.md#menus-and-row-focus) records the behavior and
+[the design guide](design.md) records its shared styling.

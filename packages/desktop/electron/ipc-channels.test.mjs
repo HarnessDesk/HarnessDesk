@@ -116,7 +116,7 @@ test('floating panels opt out of the window-drag region', () => {
   assert.match(popover, /<PopoverPopup[\s\S]{0,200}data-popup-kind=/, 'the portalled Popover plate uses the checked contract')
   assert.match(popover, /data-slot="popover-surface"[\s\S]{0,100}data-popup-kind=/, 'the inline Popover plate uses the checked contract')
   const menu = readFileSync(join(ui, 'design/patterns/Menu.tsx'), 'utf8')
-  assert.match(menu, /className=\{styles.surface\}[\s\S]{0,100}data-popup-kind=/, 'the context-menu plate uses the checked contract')
+  assert.match(menu, /className=\{cn\(styles.surface, floatingMotion\)\}[\s\S]{0,100}data-popup-kind=/, 'the context-menu plate uses the checked contract')
   assert.match(readFileSync(join(ui, 'design/index.ts'), 'utf8'), /import '\.\/ui\/popup.css'/, 'the shared contract is loaded by the public design entrypoint')
 
 })

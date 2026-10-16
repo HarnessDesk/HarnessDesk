@@ -443,6 +443,18 @@ A dialog, a confirm, a menu or a popover that holds focus never wears the
 focus ring round itself; the controls inside keep theirs. A dialog focuses its
 first field when it has one, and otherwise its own surface.
 
+A row has one highlight, its hover fill, eased in on `--hd-duration-fast`, and
+the keyboard reaches the same fill as the pointer — a menu row, a sidebar row
+and a page's `row` button alike. On a page the focus ring is drawn on top of
+it, because Tab travels the whole window. Inside a menu the arrows travel only
+the plate, so the fill is the whole mark and the row draws no ring. A refused
+menu row stays unlit under the pointer but takes the fill under the keyboard,
+which can rest there so its reason is read.
+
+Every floating surface — a menu, a popover such as the model picker, a
+select, a hover card, a tooltip — arrives and leaves on `floatingMotion`
+(`design/ui/motion.ts`); none cuts in.
+
 `Segmented` is not a button. It is a piece of a segmented control — a choice
 between two or three words, one of which is on — and using it for actions is
 what produced those thirty captions.
@@ -1411,6 +1423,66 @@ surface's description says what the tab shows *on this fixture* and names what
 it does not. A description written for a richer picture than the tab renders is
 the same misleading a drawing was, in words. The only check that has caught
 these is opening every tab in a browser.
+
+### Guides
+
+Both `/design.html` and `/preview.html` carry a **guides** dial — off, boxes,
+lines, all — also opened with `?guides=<mode>` and stepped with Alt+G. It is
+the designer's ruler laid over the screen, drawn by
+`design/explorer/guides.ts` on one canvas that takes no pointer events. Each
+preview `Frame`, or the explorer's current board, is one page, and nothing is
+measured across two.
+
+- **boxes** outlines every component (`data-slot`), control and heading —
+  containers in the accent, controls in violet, text in amber.
+- **rails** draws a dashed line wherever three or more starts (or the ends of
+  controls and containers) meet. A start that misses a rail by 0.5–3px is
+  marked `Δn` in red: a value typed by eye. Only the horizontal axis is
+  judged, because items of different heights centred in a row differ at the
+  top on purpose.
+- **gaps** writes the space between neighbours on the space itself.
+- **overflow** marks what is drawn past its box, what is clipped without an
+  ellipsis, and what leaves its page; an ellipsis is amber, not red.
+- **scale** flags, with an amber corner, a padding, gap, radius, type size or
+  colour that no `--hd-*` token resolves to (`design/explorer/guides-tokens.ts`
+  reads the live tokens, so a foundation is measured as itself).
+- Hovering carries the element's four edges across the page and shows its
+  size, padding, gap and radius by token name (`pad space-3`), its type and
+  ink by token name, anything off scale, and its distance to its parent on
+  each side. Shift pins the hovered element; hovering another then measures
+  between the two. Escape lets go.
+
+The tally in each page's corner, and `window.__hdGuides` beside it, is what
+the lines found; `e2e/ui-system/guides.spec.ts` proves a two-pixel nudge is
+caught and that the drawing never takes a click.
+
+### The review board
+
+`/review.html` (served by `pnpm design`) lays every state of the app out as a
+real window, at its true size, on one canvas: the scenes in
+`packages/ui/src/review/scenes.ts`, each a frame-wall route of the preview
+plus the clicks that reach its state (`preview/scene-steps.ts`). It is where
+a screen is reviewed whole rather than in fragments.
+
+- **Move:** pinch or ⌘-scroll zooms at the pointer, scrolling or dragging
+  pans, Space holds the hand. Shift+1 fits everything, Shift+0 is 100%, Shift+2
+  fits the selected window, and a window's title or a rail entry flies to it.
+  Only windows in view and above 12% run live; the rest are named cards.
+- **Tools:** H moves the board, I hands the pointer to the windows, C pins a
+  note.
+- **Guides** switch over every window at once, light, dark or both side by
+  side, and each window's title carries its own tally.
+- **Notes** record the scene, theme, point and the element under it
+  (`span[row-title] "Release checker"`, with its slot path), and leave the board
+  as Markdown or JSON — an issue, a review comment, an agent's brief.
+
+The same scene list is the **guides standard**:
+`e2e/ui-system/guides-standard.spec.ts` measures every scene with its guides
+and holds the findings to `packages/ui/src/design/guides-standard.json`. A
+count may fall but not rise, and a finding not on the record fails;
+`UPDATE_GUIDES=1` re-records, which is a decision to accept what the board
+shows. A new state of the app belongs on the board — add its scene — and is
+held to the standard from then on.
 
 ### What the engine checks
 

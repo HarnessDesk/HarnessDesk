@@ -11,6 +11,7 @@ import {
 import { cn } from '@/lib/utils'
 
 import { buttonEdge, buttonVariants } from '../ui/button'
+import { floatingMotion } from '../ui/motion'
 
 import { MenuPresentation, useMenuPresentation, type MenuIcons } from '../ui/menu-row'
 import styles from './Popover.module.css'
@@ -277,7 +278,7 @@ export const Popover = ({
               data-popup-kind={panelWidth === 'wide' ? 'wide-menu' : 'menu'}
               data-menu-icons={icons}
               aria-labelledby={triggerId}
-              className={styles.panel}
+              className={cn(styles.panel, floatingMotion)}
               initialFocus={false}
               finalFocus={() => {
                 const requested = externalReturnFocus.current
