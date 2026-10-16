@@ -691,6 +691,12 @@ by what their labels carry:
 A seated Agent’s brief starts as one closed **Agent brief** row in its
 conversation and in Side by side. Opening it shows the headings, lists and
 full standing order; other housekeeping notices stay on their plain rows.
+A completed turn keeps its work summary in neutral ink even when a sub-step
+failed; the count remains visible and each step keeps its own result in details.
+Board tools use plain action labels (for example, **Pick up a task** and
+**Check who is editing these files**), with their tool identifiers inside the
+opened row. The messaging notice says **Agents cannot message each other.
+You still can.** An agent's own verdict, including “Committed”, stays verbatim.
 
 Opening any step shows the command under a prompt mark, then what it printed;
 the sentence never has the command glued to it, because a sentence in monospace
@@ -1252,6 +1258,15 @@ refused without moving it.
 Workspaces › Lanes controls the machine-wide defaults for new isolated Seats:
 port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
+Opening **Wrap** prefills **What finished** from the Run's recorded results.
+Comparison attempts have one line each, identified by card number and title:
+**#1 · … — Merged**, **#2 · … — Not kept**. A referee's pick alone says **Kept**;
+only an observed merge says **Merged**. A verified merge receipt on the Run's
+person card takes precedence over the referee's pick, including when the person
+keeps the other attempt. A Not kept attempt starts with that
+disposition and an editable reason, rather than Finished. Summary, dispositions
+and reasons remain editable before reviewing and confirming the receipt.
+
 Wrapped Goals open an immutable receipt in the pane’s reading column. Its labelled
 card groups show What finished, titled Work, speaker-led prose Answers, and a final
 Record with findings status and wrap date. Cost is read separately from the
@@ -1444,6 +1459,11 @@ its seats. When **Start Team** is disabled, one line by the action explains what
 needed, such as **Add a task first** or **Checking the seats and inputs…**.
 At narrow widths, the New session explanation and action stack consistently
 while the chosen Flow loads, keeping the footer in place.
+
+A comparison's Overview counts its recorded attempts (for example,
+**2 attempts · Referee picked**) instead of presenting routing rounds as
+progress. An unrecorded pick is not claimed; a person's pick says **You picked**.
+
 Starting a comparison opens its **Side by side** tiles; **Overview** stays one
 tab away. A saved page choice is preserved when revisiting a Team.
 

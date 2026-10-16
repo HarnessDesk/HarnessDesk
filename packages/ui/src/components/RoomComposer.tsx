@@ -577,7 +577,7 @@ export const RoomComposer = ({
     },
     !messaging && {
       tone: 'muted',
-      text: 'Board-only is on: the agents cannot message each other. You still can.',
+      text: 'Agents cannot message each other. You still can.',
     },
   ]
   const notice = notices.find((one) => one !== false) || null

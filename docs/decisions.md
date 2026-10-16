@@ -3377,6 +3377,23 @@ and keeps those totals on their pages; the Flows row, added since, follows the
 same rule, so only Dashboard's attention count remains. Part 2 item 8 earns
 **Most used** only from recorded Flow starts; fresh desks list unused Flows
 under **More Flows**. These entries compose the existing controls and state marks.
+## Team runs use plain words and Wrap starts from the result — 2026-10-16
+
+Issue #1675, owner picks D7 A and D8 A. A completed attempt keeps neutral ink
+when one of its sub-steps failed: the failure count and the opened step retain
+the fact without judging the successful turn. Board tool headlines use one
+presentation table of plain actions, and their exact identifiers remain in
+details. The messaging notice explains the effect in plain words. An agent's
+own “Committed” verdict remains verbatim because it describes what it delivered.
+
+A comparison counts the attempts actually recorded in its Run and says who
+picked only once the pick is recorded. Wrap uses the same Run timeline's picks
+and verified person-card merge receipt to prefill an editable line for each
+attempt, with its card number distinguishing identical titles. A picked revision is Kept until a merge
+is observed; the person's merged attempt overrides the referee's pick, and
+the other attempt defaults to Not kept with an editable reason.
+The existing receipt protocol still records that disposition as dropped. The
+person reviews and can edit every field before confirming the wrap.
 
 ## The Library read carries where a skill came from, and the network is only asked when a person asks — 2026-10-16
 

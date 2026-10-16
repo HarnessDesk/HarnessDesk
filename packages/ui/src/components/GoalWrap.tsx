@@ -4,13 +4,12 @@ import type { GoalReceipt, GoalView, WrapChoices, WrapPreview } from '@harnessde
 
 import { Button, Dialog, Field, FormStack, Input, NativeSelect, Note, Row, Rows, Textarea } from '../design'
 import { isRecord, RECORD_REASON } from '../lib/team-record'
-import { useStore } from '../state/context'
+import { goalRunOf } from '../lib/goal-run'
+import { wrapDraft, type WrapDraft } from '../lib/wrap-draft'
+import { useSnapshot, useStore } from '../state/context'
 import { GoalReceipt as GoalReceiptView } from './GoalReceipt'
 
-export type WrapDraft = {
-  readonly summary: string
-  readonly cards: ReadonlyMap<number, { readonly resolution: 'finished' | 'dropped' | null; readonly reason: string }>
-}
+export type { WrapDraft } from '../lib/wrap-draft'
 
 export const choicesOf = (draft: WrapDraft): WrapChoices | null => {
   if (!draft.summary.trim()) return null
@@ -22,27 +21,19 @@ export const choicesOf = (draft: WrapDraft): WrapChoices | null => {
   return { summary: draft.summary.trim(), cards }
 }
 
-type Card = GoalView['board']['intents'][number]
-
-/** What a card starts as in the draft: finished when done, dropped (with its note) when abandoned, else unchosen. */
-const firstChoice = (intent: Card): { readonly resolution: 'finished' | 'dropped' | null; readonly reason: string } => ({
-  resolution: intent.state === 'done' ? 'finished' : intent.state === 'abandoned' ? 'dropped' : null,
-  reason: intent.state === 'abandoned' ? (intent.note ?? '') : '',
-})
-
 export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly onClose: () => void }) => {
   const store = useStore()
+  const snapshot = useSnapshot()
+  const initial = useMemo(() => wrapDraft(view, goalRunOf(view.goal.id, view, snapshot.flowExecutions), snapshot.boardEvidence.get(view.board.id)), [view, snapshot.flowExecutions, snapshot.boardEvidence])
   /* A Run that ends wraps its Team too, even under a person who has the receipt open for review: wrapping a Team that
      is wrapped is not a decision left to make, so the question stays and says so (#1317). `view` is the live Goal. */
   const record = isRecord(view)
-  const [edited, setDraft] = useState<WrapDraft>(() => ({ summary: '', cards: new Map(view.board.intents.map((intent) => [intent.id, firstChoice(intent)])) }))
-  /* The cards are the Goal's as they are now: one added while this is open —
-     the wrap is refused as unreviewed then — is one more to choose for, and
-     one gone from the board is no longer asked about. */
+  const [edited, setDraft] = useState<{ summary: string | null; cards: WrapDraft['cards'] }>({ summary: null, cards: new Map() })
+  /* Each default follows readable Run facts until the person edits that field. */
   const draft = useMemo<WrapDraft>(() => ({
-    summary: edited.summary,
-    cards: new Map(view.board.intents.map((intent) => [intent.id, edited.cards.get(intent.id) ?? firstChoice(intent)])),
-  }), [edited, view.board.intents])
+    summary: edited.summary ?? initial.summary,
+    cards: new Map(view.board.intents.map((intent) => [intent.id, edited.cards.get(intent.id) ?? initial.cards.get(intent.id)!])),
+  }), [edited, view.board.intents, initial.summary, initial.cards])
   const [preview, setPreview] = useState<WrapPreview | null>(null)
   const [busy, setBusy] = useState(false)
   const pending = useRef(false)
@@ -50,10 +41,10 @@ export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly 
   const choices = choicesOf(draft)
 
   const changeCard = (id: number, patch: Partial<{ resolution: 'finished' | 'dropped' | null; reason: string }>): void => {
-    const cards = new Map(draft.cards)
+    const cards = new Map(edited.cards)
     const intent = view.board.intents.find((one) => one.id === id)
-    cards.set(id, { ...(cards.get(id) ?? (intent ? firstChoice(intent) : { resolution: null, reason: '' })), ...patch })
-    setDraft({ ...draft, cards })
+    cards.set(id, { ...(draft.cards.get(id) ?? (intent ? initial.cards.get(intent.id)! : { resolution: null, reason: '' })), ...patch })
+    setDraft({ ...edited, cards })
     setPreview(null)
   }
   const review = async (): Promise<void> => {
@@ -98,11 +89,11 @@ export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly 
       {preview ? <GoalReceiptView receipt={preview.receipt} root={view.goal.root} /> : (
         <FormStack>
           <Field label="What finished">
-            {(control) => <Textarea {...control} aria-label="What finished" autoFocus value={draft.summary} onChange={(event) => { setDraft({ ...draft, summary: event.target.value }); setPreview(null) }} />}
+            {(control) => <Textarea {...control} aria-label="What finished" autoFocus value={draft.summary} onChange={(event) => { setDraft({ ...edited, summary: event.target.value }); setPreview(null) }} />}
           </Field>
           <Rows>
             {view.board.intents.map((intent) => {
-              const choice = draft.cards.get(intent.id) ?? firstChoice(intent)
+              const choice = draft.cards.get(intent.id)!
               return (
                 <Row
                   key={intent.id}
@@ -111,10 +102,10 @@ export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly 
                     <Input aria-label={`Reason for dropping ${intent.title}`} value={choice.reason} onChange={(event) => changeCard(intent.id, { reason: event.target.value })} />
                   ) : undefined}
                   control={
-                    <NativeSelect value={choice.resolution ?? ''} aria-label={`Disposition for ${intent.title}`} onChange={(event) => changeCard(intent.id, { resolution: event.target.value === '' ? null : event.target.value as 'finished' | 'dropped' })}>
+                    <NativeSelect value={choice.resolution ?? ''} aria-label={`Disposition for #${intent.id} · ${intent.title}`} onChange={(event) => changeCard(intent.id, { resolution: event.target.value === '' ? null : event.target.value as 'finished' | 'dropped' })}>
                       <option value="">Choose…</option>
                       <option value="finished">Finished</option>
-                      <option value="dropped">Dropped</option>
+                      <option value="dropped">{initial.notKept.has(intent.id) ? 'Not kept' : 'Dropped'}</option>
                     </NativeSelect>
                   }
                 />
