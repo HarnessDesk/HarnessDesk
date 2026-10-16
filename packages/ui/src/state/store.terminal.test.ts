@@ -26,6 +26,7 @@ let store: AppStore
 beforeEach(() => {
   store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'runtime/sessionDefaults') return []
     if (method === 'workspace/open') return { path: PROJECT, name: 'repo', lastOpenedAt: 1 }
     if (method === 'session/read' || method === 'session/resume') return conversation()
     if (method === 'terminal/open') return { terminalId: 'fixture-pty', runtime: RUNTIME }

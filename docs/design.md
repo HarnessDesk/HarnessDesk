@@ -2184,3 +2184,14 @@ the label. Read shows fetched bytes as plain text. The plan's acknowledgement
 belongs to incoming fetched files that can run or are binary, and gates Apply.
 `preview.html?library-github` shows selection; `?library-github=plan` shows
 the file review, both using the method-aware placeholder repository fixture.
+
+
+## New conversation defaults
+
+General's **New conversations** section uses the existing Settings Rows and
+menu controls for runtime, permission, model and effort. Recommended is a
+choice in each option menu; the adapter's actual recommendation is its hover
+title. General, runtime New sessions and Permissions › Approvals show a
+refused recommendation in the shared warning Banner while leaving
+the choice rows available for recovery. This section adds no control or token
+spelling of its own.

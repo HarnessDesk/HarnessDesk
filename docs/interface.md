@@ -881,6 +881,17 @@ level and does not declare this status.
 
 ## Settings
 
+**General › New conversations** sets the default runtime, permission level,
+model and reasoning effort. Runtime names and choices come from the adapters.
+With no saved pick, the composer uses the adapter's workspace-editing access
+and recommended model and effort. **Recommended** clears a saved option so it
+follows the adapter again. Picks persist per runtime and are shared with the
+composer; a conversation already open keeps its own settings. Data location,
+backup and diagnostics remain on General. If an adapter refuses its recommendation,
+General, the runtime's New sessions section and Permissions › Approvals show
+the reason and keep the runtime's choices available for an explicit pick;
+a new conversation waits until its start values can be validated.
+
 **Conversations › Storage** shows the database, snapshots, cached previews and
 managed worktrees as single-line rows with counts and sizes. Worktree sizes say
 **Measuring…** until the background read finishes. Kept worktrees of removed or

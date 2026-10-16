@@ -67,7 +67,7 @@ let answers: Partial<Record<HostMethodName, unknown>>
 
 beforeEach(() => {
   store = new AppStore('ws://localhost:0/')
-  answers = {}
+  answers = { 'runtime/sessionDefaults': [] }
   vi.spyOn(store.transport, 'request').mockImplementation(
     (async (method: HostMethodName) => answers[method] ?? null) as never,
   )
