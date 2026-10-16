@@ -125,16 +125,19 @@
     "offLine": {
       "button[button] Δ1": 1,
       "button[button] Δ2": 2,
+      "button[hover-card-trigger] Δ3": 1,
       "button[popover-trigger] \"Inbox\" Δ2": 1,
       "button[popover-trigger] Δ3": 1,
       "section[tool-section] \"Conversation Agent Code rev…\" Δ1": 1,
       "section[tool-section] \"Plan No plan yet. Seat reco…\" Δ1": 1,
+      "span[text] \"Code reviewer · Worktree Ma…\" Δ3": 1,
       "span[text] \"HarnessDesk\" Δ2": 1
     },
     "overflow": {
       "span[inline-parts] \"Fix the worktree list dropp…\" spills": 1,
       "span[inline-parts] spills": 1,
-      "span[search] spills": 1
+      "span[search] spills": 1,
+      "span[tool-pane-document-tab] \"New tab\" spills": 1
     },
     "offScale": {
       "button[button] row-gap 5px, column-gap 5px": 2,
