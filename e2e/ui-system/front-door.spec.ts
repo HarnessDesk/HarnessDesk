@@ -32,8 +32,8 @@ test('a chosen shape shows its seats and optional completion field before Start'
 
   await page.getByRole('button', { name: 'Write and review', exact: true }).click()
 
-  await expect(page.getByRole('combobox', { name: 'Agent for Writes' })).toBeVisible()
-  await expect(page.getByRole('combobox', { name: 'Agent for Reviews' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Runtime for Writes' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Runtime for Reviews' })).toBeVisible()
   await expect(page.getByLabel('Done when · optional')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
   await page.getByLabel('What should they do?').fill('Fix the cart total')

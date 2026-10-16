@@ -102,7 +102,7 @@ test('FIX4 ceiling chips keep a chip gap and distinguish asked from held once pe
   await openFrame(page, 'frame-wall=settings&frame-section=permissions&frame-settings-round4=1', 'light', 1440)
   const section = page.locator('[data-page-destination="settings"] section[aria-label="Ceilings"]')
   await expect(section).toBeVisible()
-  await section.getByRole('button', { name: /^Other agents · / }).click()
+  await section.getByRole('button', { name: /^Other runtimes · / }).click()
   const rows = section.locator('[data-slot="row"]')
   await expect(rows).toHaveCount(12)
   for (const [index, row] of (await rows.all()).entries()) {

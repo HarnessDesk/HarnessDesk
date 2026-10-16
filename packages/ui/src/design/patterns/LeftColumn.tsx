@@ -128,11 +128,11 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
       </span>}
     </div>
     {!props.settings && props.modeSwitch && <div data-mode-switch data-size="mode" role="group" aria-label="Window mode"
-      aria-disabled={props.modeSwitch.disabled} title={props.modeSwitch.disabled ? props.modeSwitch.disabledTitle : undefined}
+      aria-disabled={props.modeSwitch.disabled}
       className={`${switcherTrack} hd-no-drag`}>
       <Button variant="ghost" size="pattern" data-stretched className={switcherItem}
         aria-label="Conversation mode" aria-pressed={props.modeSwitch.value === 'conversation'} aria-keyshortcuts="Meta+G"
-        disabled={props.modeSwitch.disabled} title={props.modeSwitch.disabled ? props.modeSwitch.disabledTitle : 'Conversation mode (⌘G)'}
+        disabled={props.modeSwitch.disabled} title="Conversation mode (⌘G)"
         onClick={() => props.modeSwitch?.onChange('conversation')}><CommentIcon size={14} /></Button>
       <Button variant="ghost" size="pattern" data-stretched className={switcherItem}
         aria-label="Editor mode" aria-pressed={props.modeSwitch.value === 'editor'} aria-keyshortcuts="Meta+G"

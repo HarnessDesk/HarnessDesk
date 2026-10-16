@@ -531,13 +531,13 @@ describe('runway', () => {
       NOON,
     )
     expect(summary.headline).toBe('alpha is out of quota.')
-    expect(summary.detail).toBe('Back in 2d · 2 of 2 agents report usage')
+    expect(summary.detail).toBe('Back in 2d · 2 of 2 runtimes report usage')
   })
 
   it('counts them once there is more than one', () => {
     const out = (id: string): UsageReport =>
       report({ runtime: runtimeId(id), lanes: [lane({ id: 'w', usedPercent: 100, resetsAt: NOON + DAY })] })
-    expect(runway([out('a'), out('b')], nameFor, NOON).headline).toBe('2 agents are out of quota.')
+    expect(runway([out('a'), out('b')], nameFor, NOON).headline).toBe('2 runtimes are out of quota.')
   })
 
   it('says so plainly when nothing is close', () => {
@@ -546,7 +546,7 @@ describe('runway', () => {
   })
 
   it('does not pretend an unmetered roster is healthy', () => {
-    expect(runway([report({})], nameFor, NOON).headline).toBe('No agent here reports plan usage.')
+    expect(runway([report({})], nameFor, NOON).headline).toBe('No runtime here reports plan usage.')
     // Another sign-in's figures are not the agent's, so they are still not
     // "plan usage" here — but the line says what the card below is showing,
     // rather than contradicting it (#769, found launching the app).
@@ -558,7 +558,7 @@ describe('runway', () => {
       staleAfterMs: HOUR,
     }
     const borrowed = runway([report({ unverified: other })], nameFor, NOON)
-    expect(borrowed.headline).toBe("No agent here reports its own plan usage — a shows another sign-in's.")
+    expect(borrowed.headline).toBe("No runtime here reports its own plan usage — a shows another sign-in's.")
     expect(borrowed.metered).toBe(0)
     expect(borrowed.exhausted).toEqual([])
   })
@@ -589,11 +589,11 @@ describe('runway', () => {
       lanes: [lane({ id: 'w', usedPercent: 100 })],
       reached: 'w',
     })
-    expect(runway([ampOut, clineOut], nameFor, NOON).headline).toBe('2 agents are out of credits.')
+    expect(runway([ampOut, clineOut], nameFor, NOON).headline).toBe('2 runtimes are out of credits.')
     expect(runway([windowOut, report({ runtime: runtimeId('beta'), lanes: [lane({ id: 'w2', usedPercent: 100 })], reached: 'w2' })], nameFor, NOON).headline).toBe(
-      '2 agents are out of quota.',
+      '2 runtimes are out of quota.',
     )
-    expect(runway([ampOut, windowOut], nameFor, NOON).headline).toBe('2 agents are out of credits or quota.')
+    expect(runway([ampOut, windowOut], nameFor, NOON).headline).toBe('2 runtimes are out of credits or quota.')
   })
 
   it('treats a reached limit as out even when the lane reads fine', () => {
@@ -610,8 +610,8 @@ describe('spendHint', () => {
   it('says what the money band is made of, and never calls an agent’s own cost a list price', () => {
     expect(spendHint('listPrice')).toBe('what these tokens would have cost at public API rates. Not a bill.')
     expect(spendHint(undefined)).toBe(spendHint('listPrice'))
-    expect(spendHint('vendorMetered')).toBe('what the agents recorded these tokens cost.')
-    expect(spendHint('mixed')).toContain('what the agents recorded')
+    expect(spendHint('vendorMetered')).toBe('what the runtimes recorded these tokens cost.')
+    expect(spendHint('mixed')).toContain('what the runtimes recorded')
     expect(spendHint('mixed')).toContain('public API rates')
   })
 })
@@ -621,7 +621,7 @@ describe('costClause', () => {
     expect(costClause('listPrice')).toBe('what the work cost at public rates')
     expect(costClause(undefined)).toBe(costClause('listPrice'))
     expect(costClause('vendorMetered')).not.toContain('public rates')
-    expect(costClause('mixed')).toBe('what the work cost as the agents recorded it or at public rates')
+    expect(costClause('mixed')).toBe('what the work cost as the runtimes recorded it or at public rates')
   })
 })
 
@@ -630,8 +630,8 @@ describe('pricedNote', () => {
     expect(pricedNote(0, 'listPrice')).toBe('Every call in this window has a public price, so these figures are exact.')
     expect(pricedNote(0, undefined)).toBe(pricedNote(0, 'listPrice'))
     expect(pricedNote(0, 'vendorMetered')).not.toContain('public price')
-    expect(pricedNote(0, 'vendorMetered')).toContain('its agent recorded')
-    expect(pricedNote(0, 'mixed')).toContain("its agent's record or a public price")
+    expect(pricedNote(0, 'vendorMetered')).toContain('its runtime recorded')
+    expect(pricedNote(0, 'mixed')).toContain("its runtime's record or a public price")
   })
 
   it('names the rows that are short, whatever priced the rest', () => {

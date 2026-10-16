@@ -242,7 +242,7 @@ export const reasonWords = (reason: SeatReason, runtime: string, modelLabel?: Mo
     case 'openedOtherwise':
       return `${runtime} opened it ${reason.differences.map((one) => differenceWords(one, modelLabel)).join(', and ')}`
     case 'unheld': {
-      if (reason.required && reason.level === 'read') return `${runtime} can be asked to stay read-only here but cannot be held to it.${reason.detail ? ` ${reason.detail.replace(/[.!?]$/, '')}.` : ''} Choose another agent, or start from /race.`
+      if (reason.required && reason.level === 'read') return `${runtime} can be asked to stay read-only here but cannot be held to it.${reason.detail ? ` ${reason.detail.replace(/[.!?]$/, '')}.` : ''} Choose another runtime, or start from /race.`
       const access = { read: 'read-only access', edit: 'editing and local commits without publishing', publish: 'publishing changes', merge: 'merging changes' }[reason.level] ?? reason.level
       const detail = reason.detail ? `: ${reason.detail.replace(/[.!?]$/, '')}` : ''
       return `${runtime} cannot enforce ${access}${detail}. Choose another agent that supports this access.`

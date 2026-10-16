@@ -58,7 +58,7 @@ it.each(['light', 'dark'] as const)('boots focused Spend in %s and changes the c
   const before = host.innerHTML
   await press('Line')
   expect(host.innerHTML).not.toBe(before)
-  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By agent'].includes(node.textContent ?? ''))?.textContent).toBe('Line')
+  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By runtime'].includes(node.textContent ?? ''))?.textContent).toBe('Line')
   await press('7d')
   expect(host.textContent).toContain('Last 7 days')
   await act(async () => message({ type: 'theme', value: theme === 'light' ? 'dark' : 'light' }))
@@ -83,17 +83,17 @@ it.each(['light', 'dark'] as const)('boots focused Limits in %s and opens and cl
   expect(account.getAttribute('aria-expanded')).toBe('false')
 })
 
-it.each(['light', 'dark'] as const)('boots focused Activity in %s and changes to By agent with reduced motion', async theme => {
+it.each(['light', 'dark'] as const)('boots focused Activity in %s and changes to By runtime with reduced motion', async theme => {
   await act(async () => root.render(<SiteScene name="dashboard-activity" theme={theme} motion="reduce" />))
   expect([...host.querySelectorAll('section[aria-label]')].map(node => node.getAttribute('aria-label'))).toEqual(['When it ran'])
   expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
   expect(host.textContent).toContain('141.6B')
   const before = host.innerHTML
-  await press('By agent')
+  await press('By runtime')
   expect(host.innerHTML).not.toBe(before)
-  expect(host.querySelector('[aria-label="Tokens or cost per day, per agent, last 13 weeks"]')).not.toBeNull()
+  expect(host.querySelector('[aria-label="Tokens or cost per day, per runtime, last 13 weeks"]')).not.toBeNull()
   await act(async () => { message({ type: 'visible', value: false }); vi.advanceTimersByTime(60_000) })
-  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By agent'].includes(node.textContent ?? ''))?.textContent).toBe('By agent')
+  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By runtime'].includes(node.textContent ?? ''))?.textContent).toBe('By runtime')
   await press('Cost')
   expect(host.textContent).not.toContain('141.6B')
 })
@@ -114,7 +114,7 @@ it('changes the chart, breakdown, range, account detail and activity through rea
   const before = host.innerHTML
   await press('Line')
   expect(host.innerHTML).not.toBe(before)
-  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By agent'].includes(node.textContent ?? ''))?.textContent).toBe('Line')
+  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By runtime'].includes(node.textContent ?? ''))?.textContent).toBe('Line')
   const breakdown = host.querySelector('section[aria-label="Where it went"]')!
   await press('By model', breakdown)
   expect(breakdown.textContent).toContain('claude-opus-5-5')
@@ -137,8 +137,8 @@ it('changes the chart, breakdown, range, account detail and activity through rea
   expect(activity.querySelector('[aria-label="Tokens or calls by local weekday and hour, last 12 months"]')).not.toBeNull()
   await press('Calls', activity)
   expect(activity.textContent).toContain('Calls, last 12 months')
-  await press('By agent', activity)
-  expect(host.querySelector('[aria-label="Tokens or cost per day, per agent, last 13 weeks"]')).not.toBeNull()
+  await press('By runtime', activity)
+  expect(host.querySelector('[aria-label="Tokens or cost per day, per runtime, last 13 weeks"]')).not.toBeNull()
 })
 
 it('omits the cost footer and every unscanned year hatch', async () => {
@@ -157,9 +157,9 @@ it.each([undefined, 'reduce'] as const)('stays interactive without auto-cycling,
   await press('Line')
   await act(async () => { message({ type: 'visible', value: true }); vi.advanceTimersByTime(20_000) })
   await act(async () => { message({ type: 'visible', value: false }); vi.advanceTimersByTime(60_000) })
-  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By agent'].includes(node.textContent ?? ''))?.textContent).toBe('Line')
+  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By runtime'].includes(node.textContent ?? ''))?.textContent).toBe('Line')
   await press('Bars')
-  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By agent'].includes(node.textContent ?? ''))?.textContent).toBe('Bars')
+  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By runtime'].includes(node.textContent ?? ''))?.textContent).toBe('Bars')
   expect(host.querySelector('[data-scene-pointer]')).toBeNull()
 })
 

@@ -523,7 +523,7 @@ export const SkillSheet = ({
                         as="p"
                         role="meta"
                         className="m-0"
-                        title="What the agent reads every turn to decide whether to fire this skill — the line the catalogue estimate prices."
+                        title="What the runtime reads every turn to decide whether to fire this skill — the line the catalogue estimate prices."
                       >
                         Frontmatter
                       </Text>
@@ -547,7 +547,7 @@ export const SkillSheet = ({
 
           {/* The evidence. Everything the matrix knew, about this one thing. */}
           <DialogBody layout="reading" className="flex min-w-0 flex-col gap-4">
-            <Fact label="Which agents load it">
+            <Fact label="Which runtimes load it">
               <FormStack>
                 <div role="list" className="flex flex-col gap-1.5">
                 {entry.reach.map((reach, index) => {
@@ -619,7 +619,7 @@ export const SkillSheet = ({
                 {repeatedReachFacts.map(([sentence, fact]) => (
                   <Note key={sentence} ink="muted" {...(fact.warning ? { tone: 'warn' as const } : {})}>
                     {sentence === REACH_SENTENCE.unscanned
-                      ? 'Installed where these agents do not look'
+                      ? 'Installed where these runtimes do not look'
                       : sentence}
                   </Note>
                 ))}
@@ -628,8 +628,8 @@ export const SkillSheet = ({
                 <Text as="p" role="meta" ink="secondary" className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <span className="min-w-0">
                     {staleIn.length === 1
-                      ? `${columns.find((one) => one.id === staleIn[0]?.runtime)?.label ?? 'One agent'} lists the skills it read when it started.`
-                      : `${staleIn.length} agents list the skills they read when they started.`}
+                      ? `${columns.find((one) => one.id === staleIn[0]?.runtime)?.label ?? 'One runtime'} lists the skills it read when it started.`
+                      : `${staleIn.length} runtimes list the skills they read when they started.`}
                   </span>
                   <Button
                     variant="outline"
@@ -667,8 +667,8 @@ export const SkillSheet = ({
               {entry.reach.some((one) => one.basis === 'scanned') && (
                 <Text as="p" role="meta" className="m-0">
                   {entry.reach.every((one) => one.basis === 'scanned')
-                    ? 'Read from disk against this build’s table of where each agent looks — the agents themselves were not asked.'
-                    : 'Some rows are what the agent itself reported; the rest are read from disk.'}
+                    ? 'Read from disk against this build’s table of where each runtime looks — the runtimes themselves were not asked.'
+                    : 'Some rows are what the runtime itself reported; the rest are read from disk.'}
                 </Text>
               )}
             </Fact>
@@ -738,10 +738,10 @@ export const SkillSheet = ({
                         ? 'No definition inside — the name lists and nothing loads.'
                         : one.readBy.length === 0
                           ? entry.kind === 'mcp'
-                            ? 'No agent reads this file.'
-                            : 'No agent reads this directory.'
+                            ? 'No runtime reads this file.'
+                            : 'No runtime reads this directory.'
                           : `Read by ${one.readBy.map(labelOf).join(', ')}.`}
-                      {one.readOnly && ' Shipped by the agent.'}
+                      {one.readOnly && ' Shipped by the runtime.'}
                     </Text>
                   </div>
                 ))}
@@ -764,7 +764,7 @@ export const SkillSheet = ({
               <Fact label="What it costs, and whether it earns it">
                 <KeyValue variant="panel" className="m-0">
                   <KeyValueRow variant="panel" numeric label="Every turn">
-                    <span title="Name and description at ≈3.6 characters per token — the catalogue line an agent carries for every skill it loads, fired or not.">
+                    <span title="Name and description at ≈3.6 characters per token — the catalogue line a runtime carries for every skill it loads, fired or not.">
                       {entry.catalogTokens ? `≈${entry.catalogTokens} tok` : '—'}
                     </span>
                   </KeyValueRow>
@@ -928,15 +928,15 @@ export const SkillSheet = ({
             <Text role="meta" tone="warning" className="flex items-center gap-1.5">
               <AlertIcon size={12} />
               {refusedBy.length === 1
-                ? `${columns.find((one) => one.id === refusedBy[0]?.runtime)?.label ?? 'One agent'} would not load this one.`
-                : `${refusedBy.length} agents would not load this one.`}
+                ? `${columns.find((one) => one.id === refusedBy[0]?.runtime)?.label ?? 'One runtime'} would not load this one.`
+                : `${refusedBy.length} runtimes would not load this one.`}
             </Text>
           )}
           {installable.length === 0 && (
             <Text role="meta" className="flex items-center gap-1.5">
               <FileIcon size={12} />
               {entry.reach.every((one) => one.state === 'reaches')
-                ? 'Every agent already loads this.'
+                ? 'Every runtime already loads this.'
                 : digests.size > 1
                   ? 'Resolve the copies before installing anywhere else.'
                   : 'Nowhere left to install this.'}

@@ -3345,3 +3345,16 @@ for every agent it opens, in later rounds and after recovery too. An explicit
 runtime choice that cannot enforce that access remains refused beside its row,
 with a way to choose a compatible agent. Automatic uses the same strict plan,
 so an earlier incompatible preference cannot block a later compatible one.
+
+
+## Agent is a role; Runtime runs the conversation — 2026-10-16
+
+For issue #1675 D1, the owner chose B: an Agent is a saved role such as
+Implementer, Judge or Code reviewer. A Runtime is the program that runs a
+conversation. The composer, Settings group, Library loaders, account and
+history surfaces use runtime when they refer to `RuntimeInfo`. Runtime names
+still come from its presentation and features from its capabilities.
+
+The Agents page, Team roles, Seats, sub-agents and Library’s Declared by
+filter keep their role meaning. This is a copy boundary; identifiers, wire
+methods, protocol fields and file names keep their existing spellings.

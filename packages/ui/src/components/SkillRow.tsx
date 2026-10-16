@@ -57,8 +57,8 @@ export const findingFor = (
     const only = refused[0]
     const label =
       refused.length === 1
-        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one agent')
-        : `${refused.length} agents`
+        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one runtime')
+        : `${refused.length} runtimes`
     return { text: `Refused by ${label}`, tone: 'warn' }
   }
   const digests = new Set(entry.copies.filter((one) => !one.hollow).map((one) => one.digest))
@@ -70,8 +70,8 @@ export const findingFor = (
     const only = offColumns[0]
     const label =
       offColumns.length === 1
-        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one agent')
-        : `${offColumns.length} agents`
+        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one runtime')
+        : `${offColumns.length} runtimes`
     return { text: `Off in ${label}`, tone: 'quiet' }
   }
 
@@ -84,8 +84,8 @@ export const findingFor = (
     const only = staleColumns[0]
     const label =
       staleColumns.length === 1
-        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one agent')
-        : `${staleColumns.length} agents`
+        ? (columns.find((column) => column.id === only?.runtime)?.label ?? 'one runtime')
+        : `${staleColumns.length} runtimes`
     return { text: `Not read yet by ${label}`, tone: 'quiet' }
   }
 
@@ -95,7 +95,7 @@ export const findingFor = (
     // different from the one an absent skill needs.
     return {
       text: entry.copies.some((copy) => copy.readBy.length === 0)
-        ? 'Where no agent looks'
+        ? 'Where no runtime looks'
         : 'Loaded by nobody',
       tone: 'warn',
     }
@@ -187,7 +187,7 @@ export const SkillList = ({ children, kind = 'skill' }: { children: React.ReactN
     <NarrowList.Provider value={narrow ?? false}>
     {narrow === null ? null : narrow ? <ListRows>{children}</ListRows> : <Table variant="framed">
     <TableCaption variant="sr-only">
-      Each row is one entry; its state and the agents that load it appear in separate columns.
+      Each row is one entry; its state and the runtimes that load it appear in separate columns.
     </TableCaption>
     <TableHeader>
       <TableRow>

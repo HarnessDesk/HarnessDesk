@@ -163,7 +163,7 @@ const SessionRow = memo(({
       seatLabel: seatLabelsOf(snapshot).get(String(key)) ?? null,
     }
   }, sameSessionRowSlice)
-  const agentName = runtime?.presentation.name ?? 'This conversation’s agent'
+  const agentName = runtime?.presentation.name ?? 'This conversation’s runtime'
   /* The name the person just gave it, before the history list has caught up.
      A rename patches the open session and the indexed row at once;
      138 renames in a row left the sidebar saying "Untitled session" down the
@@ -286,7 +286,7 @@ const SessionRow = memo(({
           label="Delete everywhere…"
           danger
           disabled={runtime?.capabilities.deleteHistory !== 'trash'}
-          title={!runtime ? 'This conversation’s agent is unavailable.' : runtime.capabilities.deleteHistory === 'erase'
+          title={!runtime ? 'This conversation’s runtime is unavailable.' : runtime.capabilities.deleteHistory === 'erase'
             ? `${agentName} erases it for good, so delete it there` : runtime.capabilities.deleteHistory !== 'trash'
               ? `${agentName} keeps no way to delete one.` : undefined}
           onSelect={() => onDelete(summary)}
@@ -341,11 +341,11 @@ export const SessionListControls = ({ searching = false }: { searching?: boolean
                 onSelect={() => store.setListPrefs({ sort: 'name' })}
               />
             </Submenu>
-            <Submenu label="Show agents" value={prefs.agent === null ? 'All agents' : agentGroups(snapshot.runtimes).find(({ info }) => agentKey(info) === prefs.agent)?.info.presentation.name ?? 'All agents'} wide icons="none">
+            <Submenu label="Show runtimes" value={prefs.agent === null ? 'All runtimes' : agentGroups(snapshot.runtimes).find(({ info }) => agentKey(info) === prefs.agent)?.info.presentation.name ?? 'All runtimes'} wide icons="none">
               <MenuItem
                 icon={<EveryoneIcon size={14} />}
                 selected={prefs.agent === null}
-                label="All agents"
+                label="All runtimes"
                 onSelect={() => store.setListPrefs({ agent: null })}
               />
               {/* One row per agent, not per account. Codex's accounts share one

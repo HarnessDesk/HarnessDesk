@@ -37,7 +37,7 @@ it('takes /race through New Team with its task and ordinary preview token, then 
     expect(document.querySelector<HTMLTextAreaElement>('[aria-label="What should both try?"]')?.value).toBe('Fix the cart total')
     expect(document.body.textContent).not.toContain('Race an Agent against itself')
     const chooseJudge = async (value: string) => act(async () => {
-      const judge = document.querySelector<HTMLSelectElement>('[aria-label="Agent for Judge"]')!
+      const judge = document.querySelector<HTMLSelectElement>('[aria-label="Runtime for Judge"]')!
       judge.value = value; judge.dispatchEvent(new Event('change', { bubbles: true }))
     })
     await chooseJudge('alpha')

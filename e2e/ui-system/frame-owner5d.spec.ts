@@ -186,7 +186,7 @@ test('R10.38 every preview dialog keeps its named width and shared action footer
   await openPreviewWall(page, 'frame-wall=library')
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Import', exact: true }).click()
-  await inspectActionFooter(page.getByRole('dialog', { name: 'Import between agents', exact: true }))
+  await inspectActionFooter(page.getByRole('dialog', { name: 'Import between runtimes', exact: true }))
 
   await openPreviewWall(page, 'frame-wall=plugins')
   await page.locator('[data-page-destination="plugins"]:visible').getByRole('button', { name: 'Add plugin', exact: true }).click()

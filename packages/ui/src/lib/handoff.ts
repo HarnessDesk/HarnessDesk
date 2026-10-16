@@ -29,7 +29,7 @@ export const CARRY_OPTIONS: readonly { readonly id: Carry; readonly label: strin
   {
     id: 'transcript',
     label: 'Full transcript',
-    hint: 'Every exchange in order, plus files changed and open tasks. Faithful; costs the target agent more tokens.',
+    hint: 'Every exchange in order, plus files changed and open tasks. Faithful; costs the target runtime more tokens.',
   },
   {
     id: 'files',

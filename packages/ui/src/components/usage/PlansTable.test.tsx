@@ -712,7 +712,7 @@ describe('PlansTable', () => {
       />,
     )
     act(() => rowFor('nothing@example.com').click())
-    expect(host.textContent ?? '').toContain('This agent reports no plan usage here.')
+    expect(host.textContent ?? '').toContain('This runtime reports no plan usage here.')
   })
 })
 
@@ -739,7 +739,7 @@ describe('NotReportingList', () => {
     const onRefresh = vi.fn()
     const entries = entriesFromReports([report({ runtime: codex.id, account: 'x@example.com' })], byIdOf(codex), onRefresh)
     mount(<NotReportingList entries={entries} />)
-    expect(host.textContent ?? '').toContain('This agent reports no plan usage here.')
+    expect(host.textContent ?? '').toContain('This runtime reports no plan usage here.')
     const button = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Refresh')
     expect(button).toBeDefined()
     act(() => button?.click())

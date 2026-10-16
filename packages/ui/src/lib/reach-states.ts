@@ -38,11 +38,11 @@ export const REACH_NAME: Readonly<Record<ReachState, string>> = {
 export const REACH_SENTENCE: Readonly<Record<ReachState, string>> = {
   reaches: 'Loads it',
   absent: 'Not installed',
-  unscanned: 'Installed where this agent does not look',
-  stale: 'Installed where this agent looks, and not in the list it reported',
-  rejected: 'This agent read the definition and would not load it',
+  unscanned: 'Installed where this runtime does not look',
+  stale: 'Installed where this runtime looks, and not in the list it reported',
+  rejected: 'This runtime read the definition and would not load it',
   hollow: 'Empty on disk — the name lists and nothing loads',
   differs: 'Two copies disagree; scan order decides which one wins',
-  unhostable: 'This agent’s configuration cannot represent it',
+  unhostable: 'This runtime’s configuration cannot represent it',
   off: 'Installed here and switched off',
 }

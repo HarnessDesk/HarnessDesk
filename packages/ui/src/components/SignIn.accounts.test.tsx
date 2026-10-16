@@ -207,7 +207,7 @@ it('a starting account is not counted as connected, and the rail does not call i
   // header counted it as connected. Two answers to one question, in one view.
   await mount({ accountsByRuntime: { codex: status([{ label: 'ada@example.com' }], ['browser']) } } as never, 'codex-7f3a91')
 
-  const rail = container.querySelector('nav[aria-label="Agents"]')
+  const rail = container.querySelector('nav[aria-label="Runtimes"]')
   expect(rail?.textContent).not.toContain('Runs without one')
   // It waits with the ones not connected, saying it is starting, and the
   // connected group counts only the account that answered.
@@ -287,7 +287,7 @@ it('composes the shared roster, state and text roles', async () => {
   // The rail is the window rail, one list stretch of groups — what needs you
   // first, each counted in its head — and the work beside it is the dialog's
   // reading body.
-  const rail = container.querySelector('nav[aria-label="Agents"]')
+  const rail = container.querySelector('nav[aria-label="Runtimes"]')
   expect(rail?.getAttribute('data-slot')).toBe('sign-in-rail')
   expect([...(rail?.querySelectorAll(':scope > [data-slot="sign-in-list"]') ?? [])].map(node => node.getAttribute('data-slot')))
     .toEqual(['sign-in-list'])
@@ -526,7 +526,7 @@ it('lists an agent signed out as not connected, whatever its ways in are', async
     },
   } as never, 'codex-7f3a91')
 
-  const rail = container.querySelector('nav[aria-label="Agents"]')
+  const rail = container.querySelector('nav[aria-label="Runtimes"]')
   expect(rail?.querySelector('[role="group"][aria-label="Connected"]')).toBeNull()
   const out = rail?.querySelector('[role="group"][aria-label="Not connected"]')
   expect(out?.querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
@@ -544,7 +544,7 @@ it('names a connected account once: no second line that only says it is connecte
       codex: status([{ kind: 'agent', label: 'Signed in', anonymous: true }], []),
     },
   } as never)
-  const rail = container.querySelector('nav[aria-label="Agents"]')
+  const rail = container.querySelector('nav[aria-label="Runtimes"]')
   const connected = rail?.querySelector('[role="group"][aria-label="Connected"]')
   expect(connected?.querySelector('[data-slot="list-row"]')?.textContent).toBe('Codex')
   const account = detail().querySelector('[data-slot="sign-in-account"]')

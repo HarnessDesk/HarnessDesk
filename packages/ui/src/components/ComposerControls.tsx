@@ -226,7 +226,7 @@ const StaleDefaultRows = ({ stale }: { stale: readonly StaleDefault[] }) => {
   const store = useStore()
   const runtime = useRuntime()?.id
   return <>{stale.map((one) => <MenuItem key={one.id} icon={<AlertIcon size={14} />}
-    label="Use the agent’s current value" hint={`Saved ${one.label}: ${one.valueLabel}. ${one.reason}`}
+    label="Use the runtime’s current value" hint={`Saved ${one.label}: ${one.valueLabel}. ${one.reason}`}
     onSelect={() => { if (runtime) void store.clearNewSessionDefault(runtime, one.id) }} />)}
     {stale.length > 0 && <MenuSeparator />}
   </>
@@ -476,7 +476,7 @@ export const PermissionControl = () => {
     return (
       <ComposerTrack name="permissions" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
-          <MissingOptionControl stale={stale} label="Permissions" reason="This agent has no permission setting" narrow={folded} tight={tight}>
+          <MissingOptionControl stale={stale} label="Permissions" reason="This runtime has no permission setting" narrow={folded} tight={tight}>
             <ShieldIcon size={13} />
           </MissingOptionControl>
         </InToolbar>
@@ -496,7 +496,7 @@ export const PermissionControl = () => {
         <Popover
           fullWidth
           tightTrigger={tight}
-          title={folded && current ? `${current} — what the agent may do` : 'What the agent may do'}
+          title={folded && current ? `${current} — what the runtime may do` : 'What the runtime may do'}
           drop="up"
           align="left"
           tone={tone}
@@ -592,7 +592,7 @@ export const ModelControl = () => {
     return (
       <ComposerTrack name="model" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
-          <MissingOptionControl stale={stale} label="Model" reason="This agent has no model setting" narrow={folded} tight={tight}>
+          <MissingOptionControl stale={stale} label="Model" reason="This runtime has no model setting" narrow={folded} tight={tight}>
             <ModelIcon size={13} />
           </MissingOptionControl>
         </InToolbar>
@@ -740,7 +740,7 @@ export const ModelControl = () => {
                 <MenuItem
                   icon={<SlidersIcon size={14} />}
                   label="Manage models…"
-                  title="Choose which of this agent's models the picker offers."
+                  title="Choose which of this runtime's models the picker offers."
                   onSelect={() => store.askSettings('models')}
                 />
               )}
@@ -774,7 +774,7 @@ export const ModelControl = () => {
                     />
                   ))}
                   <MenuNote>
-                    On another provider the agent loses web search, subagent fan-out and
+                    On another provider the runtime loses web search, subagent fan-out and
                     reasoning display, and its system prompt is tuned for its own models.
                     Expect rougher results.
                   </MenuNote>
@@ -810,7 +810,7 @@ const RuntimeBuildNote = () => {
       <MenuItem
         icon={<RetryIcon size={14} />}
         label={refreshing ? 'Refreshing models…' : 'Refresh models'}
-        title="Ask the agent again what it offers; picks up models added since."
+        title="Ask the runtime again what it offers; picks up models added since."
         disabled={refreshing}
         onSelect={() => void store.refreshCatalog()}
       />
@@ -846,7 +846,7 @@ export const ModeControl = () => {
     return (
       <ComposerTrack name="mode" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
-          <MissingOptionControl stale={stale} label="Mode" reason="This agent has no mode setting" narrow={folded} tight={tight}>
+          <MissingOptionControl stale={stale} label="Mode" reason="This runtime has no mode setting" narrow={folded} tight={tight}>
             <ZapIcon size={13} />
           </MissingOptionControl>
         </InToolbar>
@@ -996,11 +996,11 @@ export const AgentControl = () => {
   /* A conversation seated as an Agent says who it is and the seat it took even
      on a desk with one runtime, where there is otherwise nothing to choose. */
   if (!owner || (snapshot.runtimes.length < 2 && !seated)) {
-    const reason = owner ? 'Only one agent is available' : 'No agent is available'
+    const reason = owner ? 'Only one runtime is available' : 'No runtime is available'
     return (
       <ComposerTrack name="agent" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
-          <RefusedComposerControl label={owner?.presentation.name ?? 'Agent'} reason={reason} narrow={folded} tight={tight}>
+          <RefusedComposerControl label={owner?.presentation.name ?? 'Runtime'} reason={reason} narrow={folded} tight={tight}>
             {owner ? <RuntimeMark runtime={owner} size={13} /> : <AgentIcon size={13} />}
           </RefusedComposerControl>
         </InToolbar>
@@ -1025,12 +1025,12 @@ export const AgentControl = () => {
           fullWidth
           tightTrigger={tight}
           title={folded
-            ? `${seated?.name ?? brandOf(owner.presentation.name)} — ${session ? `This conversation is with ${owner.presentation.name}` : 'Which agent starts this conversation'}`
+            ? `${seated?.name ?? brandOf(owner.presentation.name)} — ${session ? `This conversation is with ${owner.presentation.name}` : 'Which runtime starts this conversation'}`
             : seated
               ? `Seated as ${seated.name ?? 'an Agent'} on ${seat}`
               : session
                 ? `This conversation is with ${owner.presentation.name}`
-                : 'Which agent starts this conversation'}
+                : 'Which runtime starts this conversation'}
           drop="up"
           align="left"
           label={
@@ -1101,7 +1101,7 @@ export const AgentControl = () => {
                       // on screen it is a ragged menu rather than a column
                       // worth reading. Settings and first-run still show it,
                       // where choosing is the whole task.
-                      hint={down ? 'This agent cannot start right now. Selecting it shows what to fix.' : undefined}
+                      hint={down ? 'This runtime cannot start right now. Selecting it shows what to fix.' : undefined}
                       title={down ? undefined : entry.presentation.tagline}
                       onHighlight={() => warm(entry.id)}
                       onSelect={() => {

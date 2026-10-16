@@ -265,8 +265,8 @@ const AttachmentReviewDialog = ({
 
   // Rule 8: a runtime is named by its presentation, never its id.
   const runtimeName = review
-    ? (snapshot.runtimes.find((one) => String(one.id) === review.runtime)?.presentation.name ?? 'this agent')
-    : 'this agent'
+    ? (snapshot.runtimes.find((one) => String(one.id) === review.runtime)?.presentation.name ?? 'this runtime')
+    : 'this runtime'
 
   if (approved) {
     return (

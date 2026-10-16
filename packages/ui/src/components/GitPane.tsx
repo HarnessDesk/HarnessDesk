@@ -881,7 +881,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           <Text role="muted" tone="warning" className={styles.troubleWhat}>{conflicted.said}</Text>
           <Button variant="secondary" size="sm" onClick={() => setAsking(conflicted)}>
             <AgentIcon size={13} />
-            Ask an agent to fix this
+            Ask a runtime to fix this
           </Button>
           <Button variant="secondary" size="sm" onClick={() => store.openDetailsTab('changes')}>
             Open Changes

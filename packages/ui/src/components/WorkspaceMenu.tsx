@@ -197,7 +197,7 @@ const WorkspaceRows = ({
         <MenuNote>
           {remove
             ? `Its ${sessionsWord} are archived and the folder leaves this list. Nothing on disk changes.`
-            : 'They leave this list but stay in the agent’s history.'}
+            : 'They leave this list but stay in the runtime’s history.'}
         </MenuNote>
         <div className={styles.confirmActions}>
           <Button
@@ -249,7 +249,7 @@ const WorkspaceRows = ({
           icon={<BranchIcon size={14} />}
           label="New worktree…"
           title="Its own checkout on its own branch."
-          disabled={!ready ? 'Connect an agent to work in a worktree.' : false}
+          disabled={!ready ? 'Connect a runtime to work in a worktree.' : false}
           onSelect={() => onNewWorktree(actualRoot)}
         />}
       <MenuSeparator />

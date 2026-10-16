@@ -148,7 +148,7 @@ it('switches from the Year grid to one row per agent, and back', async () => {
   // fixture — it only appears once the grid draws one row per agent.
   expect(container.textContent).not.toContain('Codex')
 
-  await act(async () => choose('By agent'))
+  await act(async () => choose('By runtime'))
   expect(container.textContent).toContain('Claude Code')
   expect(container.textContent).toContain('Codex')
 
@@ -311,7 +311,7 @@ it('levels By agent rows off each agent\'s own cells, not the combined daily tot
   })
   await renderBand(vi.fn(async () => ledgerReportSkewed()))
 
-  await act(async () => choose('By agent'))
+  await act(async () => choose('By runtime'))
 
   // Rows are sorted most-total-first (Claude, then Codex) and drawn as one
   // Fragment per row, so the flat cell list — including the not-scanned

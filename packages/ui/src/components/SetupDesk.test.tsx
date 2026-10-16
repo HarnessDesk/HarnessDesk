@@ -88,7 +88,7 @@ it('an agent that has not answered yet says so plainly and offers nothing', asyn
   expect(container.textContent).not.toContain("OpenAI Codex's tagline.")
   expect(container.textContent).not.toContain('Ready')
   expect(button('Sign in')).toBeUndefined()
-  expect(button('Use this agent')).toBeUndefined()
+  expect(button('Use this runtime')).toBeUndefined()
 })
 
 it('a dead agent carries its real error and the fix', async () => {
@@ -125,7 +125,7 @@ it('a signed-out agent gets its sign-in, a healthy one the offer to work', async
   expect(onSignIn).toHaveBeenCalledWith('out')
 
   await act(async () => {
-    button('Use this agent')?.click()
+    button('Use this runtime')?.click()
   })
   expect(selectRuntime).toHaveBeenCalledWith('fine')
 })
@@ -138,7 +138,7 @@ it('the active agent is not offered to itself, and the add door is always there'
     'fine',
   )
 
-  expect(button('Use this agent')).toBeUndefined()
+  expect(button('Use this runtime')).toBeUndefined()
   button('Add a runtime…')?.click()
   expect(onOpenRuntimes).toHaveBeenCalled()
 })

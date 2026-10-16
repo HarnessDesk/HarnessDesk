@@ -220,7 +220,7 @@ const restFigure = (out: number, leastLeft: number | null, count: number): strin
 }
 
 const restTitle = (rest: Omit<StripRest, 'title' | 'figure' | 'tone'>): string => {
-  const head = `${rest.count} other ${rest.count === 1 ? 'agent' : 'agents'}`
+  const head = `${rest.count} other ${rest.count === 1 ? 'runtime' : 'runtimes'}`
   const parts: string[] = []
   if (rest.out > 0) parts.push(`${rest.out} out of quota`)
   if (rest.low > 0) parts.push(`${rest.low} running low`)

@@ -97,7 +97,7 @@ import { Menu, MenuItem, MenuSeparator, Popover } from '../../design'
  */
 
 export const PIVOTS = [
-  { value: 'runtime', label: 'By agent' },
+  { value: 'runtime', label: 'By runtime' },
   { value: 'model', label: 'By model' },
   { value: 'project', label: 'By project' },
 ] as const
@@ -216,7 +216,7 @@ export const Card = ({
   const state = stateOf(report, borrowed ? describeReport(report, { now, maxLanes: 0 }) : view)
   const hero = view.hero
   const headlineReset = hero ? resetOf(hero, view.all.length > 1) : null
-  const agent = info?.presentation.name ?? 'Agent'
+  const agent = info?.presentation.name ?? 'Runtime'
 
   // The headline. It is not a second number: it is whichever row of the table
   // below has least left, promoted — which is why the word beside it is only
@@ -615,7 +615,7 @@ export const noteOf = (
     return {
       text: hasSpend
         ? 'Pay as you go — nothing to run out of. What it cost is below.'
-        : 'This agent reports no plan usage here.',
+        : 'This runtime reports no plan usage here.',
     }
   }
   return null

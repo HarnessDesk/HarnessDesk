@@ -368,7 +368,7 @@ it('opening a row shows every copy and who reads it', async () => {
   // begins past the fold.
   expect(document.body.textContent).toContain('~/.agents/skills/alpha')
   expect(document.body.textContent).not.toContain('/home/u/.agents')
-  expect(document.body.textContent).toContain('No agent reads this directory.')
+  expect(document.body.textContent).toContain('No runtime reads this directory.')
 })
 
 it('says why a column is weaker rather than letting it look empty', async () => {
@@ -604,7 +604,7 @@ it('arriving from the banner opens the import flow over the same page', async ()
   await mount(library([entry('alpha', ['reaches', 'absent'])]), undefined, {
     initialFlow: 'import',
   })
-  expect(document.body.textContent).toContain('Import between agents')
+  expect(document.body.textContent).toContain('Import between runtimes')
   expect(document.body.textContent).toContain('Nothing changes until a preview is confirmed')
 })
 
@@ -910,7 +910,7 @@ it('three or more column caveats fold behind their count', async () => {
   }
   await mount(value)
   expect(document.body.textContent).toContain(
-    '3 columns are read from disk rather than from their agents',
+    '3 columns are read from disk rather than from their runtimes',
   )
   // The fold hides nothing: each agent's own sentence is still there to open.
   expect(document.body.querySelector('details')).toBeTruthy()
@@ -1048,7 +1048,7 @@ it('a stranded copy is captioned as stranded, not as absent', async () => {
       }),
     ]),
   )
-  expect(cards()[0]?.textContent).toContain('Where no agent looks')
+  expect(cards()[0]?.textContent).toContain('Where no runtime looks')
 })
 
 it('opening a row reads the definition off the host and renders it', async () => {
@@ -1661,7 +1661,7 @@ it('a definition an agent refused says so in the agent’s own words, and warns 
 
   await act(async () => cards()[0]?.click())
   const sheet = document.querySelector('[data-slot="skill-sheet"]')
-  expect(sheet?.textContent).toContain('This agent read the definition and would not load it')
+  expect(sheet?.textContent).toContain('This runtime read the definition and would not load it')
   // Its reason, verbatim. We did not decide this and must not paraphrase a
   // loader rule we have not measured.
   expect(sheet?.textContent).toContain('missing field `description`')
@@ -1886,7 +1886,7 @@ it('the List compares Skill, State and Loaded by without a repeated monogram', a
   const table = container.querySelector('table')!
   expect(table).not.toBeNull()
   expect(table.querySelector('caption')?.textContent).toBe(
-    'Each row is one entry; its state and the agents that load it appear in separate columns.',
+    'Each row is one entry; its state and the runtimes that load it appear in separate columns.',
   )
   expect([...table.querySelectorAll('thead th')].map((head) => head.textContent)).toEqual(['Skill', 'State', 'Loaded by'])
   const rows = [...table.querySelectorAll('tbody tr')]
@@ -2008,9 +2008,9 @@ it('says a repeated load state once and leaves different states on their own row
   await act(async () => container.querySelector<HTMLTableRowElement>('[data-slot="skill-row"]')?.click())
 
   const dialog = document.body.querySelector('[role="dialog"]')!
-  const group = [...dialog.querySelectorAll('section')].find(one => one.querySelector('h3')?.textContent === 'Which agents load it')!
-  const repeated = 'Installed where this agent does not look'
-  const grouped = 'Installed where these agents do not look'
+  const group = [...dialog.querySelectorAll('section')].find(one => one.querySelector('h3')?.textContent === 'Which runtimes load it')!
+  const repeated = 'Installed where this runtime does not look'
+  const grouped = 'Installed where these runtimes do not look'
   const rows = [...group.querySelectorAll<HTMLElement>('[role="listitem"]')]
   expect(rows).toHaveLength(12)
   expect(group.textContent?.match(new RegExp(grouped, 'g'))).toHaveLength(1)
@@ -2058,13 +2058,13 @@ it('E6 controlled sections and import intents keep one destination body', async 
   // The route remains controlled until its owner applies the visit.
   expect(container.querySelector('thead')?.textContent).toBe('ServerStateLoaded by')
   await draw('skill', 1)
-  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Import between agents')
+  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Import between runtimes')
   const close = document.body.querySelector<HTMLButtonElement>('[role="dialog"] [aria-label="Close"]')!
   await act(async () => close.click())
   await draw('skill', 1)
   expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   await draw('skill', 2)
-  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Import between agents')
+  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Import between runtimes')
   await draw('skill', 2, false)
   expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   await draw('skill', 2, true)

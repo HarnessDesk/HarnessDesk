@@ -574,7 +574,7 @@ it.each([
 
 it('explains a required read ceiling with a way forward, using the supplied presentation name', () => {
   expect(reasonWords({ kind: 'unheld', level: 'read', detail: null, required: true }, 'Runtime Alpha')).toBe(
-    'Runtime Alpha can be asked to stay read-only here but cannot be held to it. Choose another agent, or start from /race.',
+    'Runtime Alpha can be asked to stay read-only here but cannot be held to it. Choose another runtime, or start from /race.',
   )
   expect(reasonWords({ kind: 'unheld', level: 'read', detail: 'The native guard is unavailable', required: true }, 'Runtime Beta')).toContain('The native guard is unavailable')
 })

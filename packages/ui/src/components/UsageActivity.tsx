@@ -63,7 +63,7 @@ export type HeatView = 'year' | 'agent' | 'hour'
 
 const VIEWS = [
   { value: 'year', label: 'Last 12 months' },
-  { value: 'agent', label: 'By agent' },
+  { value: 'agent', label: 'By runtime' },
   { value: 'hour', label: 'By hour' },
 ] as const
 
@@ -274,7 +274,7 @@ export const UsageActivity = ({
             <EmptyState tight title="No hours recorded yet" />
           ) : (
             <HeatGrid
-              label={view === 'year' ? 'Tokens or cost per day, last 12 months' : view === 'agent' ? 'Tokens or cost per day, per agent, last 13 weeks' : 'Tokens or calls by local weekday and hour, last 12 months'}
+              label={view === 'year' ? 'Tokens or cost per day, last 12 months' : view === 'agent' ? 'Tokens or cost per day, per runtime, last 13 weeks' : 'Tokens or calls by local weekday and hour, last 12 months'}
               rows={view === 'hour' ? hourRows : rows}
               columns={view === 'hour' ? 24 : columns}
               columnLabels={

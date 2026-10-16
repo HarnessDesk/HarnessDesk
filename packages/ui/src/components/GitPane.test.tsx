@@ -935,7 +935,7 @@ it('conflicts left behind stay on screen with the way out, not just in a toast',
   // The half-made merge outlives the notice that announced it.
   const strip = document.body.querySelector('[role="status"]')!
   expect(strip.textContent).toContain('The pull hit 2 conflicts')
-  expect(strip.textContent).toContain('Ask an agent to fix this')
+  expect(strip.textContent).toContain('Ask a runtime to fix this')
 })
 
 it('asking hands the chosen agent a new session, in the repository, with the state described', async () => {
@@ -944,7 +944,7 @@ it('asking hands the chosen agent a new session, in the repository, with the sta
     on: { 'git/pull': { summary: 'The pull hit 1 conflict; resolve and commit to conclude the merge.', conflicts: ['src/a.ts'] } },
   })
   await act(async () => button('Pull').click())
-  await act(async () => button('Ask an agent to fix this').click())
+  await act(async () => button('Ask a runtime to fix this').click())
 
   const dialog = document.querySelector('[role="dialog"]')!
   expect(dialog.textContent).toContain('left 1 file conflicted')
@@ -993,7 +993,7 @@ it('a refused rebase offers the same door, and says nothing changed', async () =
   // The refusal is shown where it happened, with the way out attached.
   const failed = document.querySelector('[role="dialog"]')!
   expect(failed.textContent).toContain('would not apply cleanly')
-  await act(async () => button('Ask an agent to fix this').click())
+  await act(async () => button('Ask a runtime to fix this').click())
 
   const prompt = document.querySelector('textarea')! as HTMLTextAreaElement
   expect(prompt.value).toContain('undid itself')
@@ -1016,11 +1016,11 @@ it('the refusal hands over to the ask rather than sitting behind it', async () =
   await act(async () => button('Rebase').click())
   expect(document.querySelectorAll('[role="dialog"]').length).toBe(1)
 
-  await act(async () => button('Ask an agent to fix this').click())
+  await act(async () => button('Ask a runtime to fix this').click())
   // Still one: the rebase dialog handed over rather than stacking.
   const open = [...document.querySelectorAll('[role="dialog"]')]
   expect(open.length).toBe(1)
-  expect(open[0]!.textContent).toContain('Ask an agent to fix this')
+  expect(open[0]!.textContent).toContain('Ask a runtime to fix this')
 })
 
 // ------------------------------------------------------- the table head
