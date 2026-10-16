@@ -201,6 +201,7 @@ it('E9 modal focus returns to its opener, and a nested menu spends Escape first'
   const trigger=dialog.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')!
   await act(async () => {trigger.focus();trigger.click()})
   expect(document.querySelector('[role="menu"]')).not.toBeNull()
+  expect(dialog.contains(document.querySelector('[role="menu"]'))).toBe(true)
   const escape=()=>act(async()=>{document.activeElement!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))})
   await escape();await frame()
   expect(document.querySelector('[role="menu"]')).toBeNull();expect(document.querySelector('[role="dialog"]')).toBe(dialog)

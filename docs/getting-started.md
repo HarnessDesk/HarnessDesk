@@ -97,6 +97,10 @@ pnpm app
 pnpm serve
 ```
 
+After building, `node packages/server/dist/src/bin.js --help` (or `-h`)
+prints the headless host's options and exits without opening a data home.
+Unknown options print usage and exit with status 2.
+
 The host prints a URL containing a launch token:
 
 ```

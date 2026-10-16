@@ -3678,3 +3678,30 @@ menus cannot acquire a different highlight or cut in without motion.
 The menu-state preview shows rest, pointer and keyboard states in both themes;
 [the interface](interface.md#menus-and-row-focus) records the behavior and
 [the design guide](design.md) records its shared styling.
+## Navigation and choices stay usable while runtime reads settle — 2026-10-16
+
+Settings always lists Skills and Extensions. A runtime may call its skills
+commands and may have no extensions, but those facts describe its page and
+hover text; they do not rename or remove the route while a window is open.
+This keeps the navigation identical before and after the runtime read (#1675).
+The old recorded claims about a runtime naming the rail row, and the page
+repeating that word, are retired: the rail now names a stable route while
+its page keeps the runtime's vocabulary. The one-line row claim stays pinned
+to the updated route test.
+
+New Team uses the same anchored choice menus as the composer. An automatic
+seat reads the runtime chosen by its plan, without requiring an explicit
+runtime change first. A model or effort choice pins that automatic seat.
+Nested Escape belongs to the open picker before the dialog.
+
+A choice menu inside a dialog portals into that dialog's content. Its popup
+therefore shares the modal's stacking context instead of landing below the
+modal viewport; the existing focus and Escape policy still owns dismissal.
+
+Library does not list skill folders beginning with `_` or entries with only
+empty definitions on disk. This is the owner's choice for #1675: omit them,
+rather than select a broken entry first. The inventory keeps hollow-copy
+diagnostics for cleanup and still lists an entry with a usable copy elsewhere.
+Empty and whitespace-only definitions count as hollow. Descriptions in both
+list and matrix, and in the reading sheet, use sanitized markdown so backticks
+produce inline code.

@@ -2,7 +2,7 @@ import { useId, useCallback, useEffect, useRef, useState, type ReactNode } from 
 
 import { runtimeId, DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowAgentRole, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem, type FlowRunOptions, type FlowSeat, type ModelInfo, type SeatCandidate } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Button, Chip, CodeText, DisclosureChevron, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Segmented, Switch, Text, Textarea } from '../design'
+import { ActionError, Banner, Button, Chip, CodeText, DisclosureChevron, Field, Input, NativeSelect, Menu, MenuItem, Popover, Note, NoteList, Rows, Row, SectionHead, Segmented, Switch, Text, Textarea } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
 import { boundInputValues } from '../lib/shapes'
 import { supportsAttemptCheck, supportsComparisonJudge, withAttemptCheck, withComparisonJudge, withReviewHandoff } from '../lib/team-start'
@@ -10,7 +10,7 @@ import { evidenceGuardsWords, messagingWords } from '../lib/flows'
 import { stepName } from '../lib/flow-model'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { AgentIcon } from './Icons'
+import { AgentIcon, CaretIcon } from './Icons'
 import { CeilingChip } from './CeilingChip'
 import styles from './FlowStart.module.css'
 
@@ -664,7 +664,7 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
         return <Row key={`${role.id}-${seat.index}`} title={<span className={styles.roleTitle}>{label}{repeatsInReviewLoop && <Chip tone="neutral" size="sm">Fresh each round</Chip>}</span>} desc={!seatTaken(seat.plan) ? firstReason(seat.plan, snapshot.runtimes) ?? undefined : undefined}
           mark={picked ? <RuntimeMark runtime={snapshot.runtimes.find(one => one.id === picked.runtime) ?? { id: picked.runtime, presentation: { name: 'Selected runtime' } }} size={16} /> : <AgentIcon size={16} />}
           control={<div className={styles.roleControls}>
-            <TeamSeatControls label={label} seat={configured} automaticName={automaticName} disabled={disabled} onChange={next => { if (next) chooseSeat(seat, next) }} />
+            <TeamSeatControls label={label} seat={configured} automaticSeat={automatic?.seat} automaticName={automaticName} disabled={disabled} onChange={next => { if (next) chooseSeat(seat, next) }} />
             {alternative && <Button variant="secondary" size="sm" disabled={disabled} onClick={() => chooseSeat(seat, { runtime: alternative.id })}>Use {alternative.presentation.name}</Button>}
           </div>} />
       })}</Rows>
@@ -709,34 +709,47 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
   </div>
 }
 
-const TeamSeatControls = ({ label, seat, automaticName, disabled, optional, onChange }: { readonly label: string; readonly seat?: FlowSeat; readonly automaticName: string | null; readonly disabled?: boolean; readonly optional?: boolean; readonly onChange: (seat: FlowSeat | undefined) => void }) => {
+const TeamSeatPicker = ({ label, title, value, choices, disabled, onChange }: {
+  readonly label: string; readonly title?: string; readonly value: string; readonly choices: readonly { value: string; label: string }[]
+  readonly disabled?: boolean; readonly onChange: (value: string) => void
+}) => <Popover fullWidth aria-label={label} title={title ?? label} disabled={disabled} align="left"
+  triggerVariant={{ variant: 'outline', size: 'sm' }}
+  label={<><Text role="row" truncate>{choices.find(one => one.value === value)?.label ?? value}</Text><CaretIcon size={13} /></>}>
+  {close => <Menu close={close}>{choices.map(choice => <MenuItem key={choice.value}
+    label={choice.label} selected={choice.value === value} onSelect={() => onChange(choice.value)} />)}</Menu>}
+</Popover>
+
+const TeamSeatControls = ({ label, seat, automaticSeat, automaticName, disabled, optional, onChange }: { readonly label: string; readonly seat?: FlowSeat; readonly automaticSeat?: FlowSeat; readonly automaticName: string | null; readonly disabled?: boolean; readonly optional?: boolean; readonly onChange: (seat: FlowSeat | undefined) => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const [models, setModels] = useState<readonly ModelInfo[]>([])
+  const effectiveSeat = seat ?? automaticSeat
+  const runtime = effectiveSeat?.runtime
+  const [catalog, setCatalog] = useState<{ runtime?: string; models: readonly ModelInfo[] }>({ models: [] })
   useEffect(() => {
     let live = true
-    setModels([])
-    if (seat) void store.modelsFor(runtimeId(seat.runtime)).then(found => { if (live) setModels(found) }, () => { if (live) setModels([]) })
+    if (runtime) void store.modelsFor(runtimeId(runtime)).then(models => { if (live) setCatalog({ runtime, models }) }, () => { if (live) setCatalog({ runtime, models: [] }) })
     return () => { live = false }
-  }, [seat?.runtime, store])
-  const model = models.find(one => one.id === seat?.model) ?? models.find(one => one.isDefault)
+  }, [runtime, store])
+  const models = catalog.runtime === runtime ? catalog.models : runtime === snapshot.activeRuntime ? snapshot.models : []
+  const model = models.find(one => one.id === effectiveSeat?.model) ?? models.find(one => one.isDefault)
   const selectedRuntime = snapshot.runtimes.find(one => one.id === seat?.runtime)
+  const agentChoices = [
+    ...(optional ? [{ value: '', label: 'You' }] : !seat ? [{ value: '', label: automaticName ? `Automatic · ${automaticName}` : 'Automatic · Nothing can run' }] : []),
+    ...(seat && !snapshot.runtimes.some(one => one.id === seat.runtime) ? [{ value: seat.runtime, label: 'Selected runtime' }] : []),
+    ...snapshot.runtimes.map(one => ({ value: one.id, label: one.presentation.name })),
+  ]
   return <>
-    <NativeSelect className={styles.agentSelect} aria-label={`Runtime for ${label}`} title={selectedRuntime?.presentation.name ?? automaticName ?? undefined} disabled={disabled} value={seat?.runtime ?? ''} onChange={event => onChange(event.target.value ? { runtime: event.target.value } : undefined)}>
-      {optional && <option value="">You</option>}
-      {!optional && !seat && <option value="">{automaticName ? `Automatic · ${automaticName}` : 'Automatic · Nothing can run'}</option>}
-      {seat && !snapshot.runtimes.some(one => one.id === seat.runtime) && <option value={seat.runtime}>Selected runtime</option>}
-      {snapshot.runtimes.map(one => <option key={one.id} value={one.id}>{one.presentation.name}</option>)}
-    </NativeSelect>
-    {(!optional || seat) && <><NativeSelect aria-label={`Model for ${label}`} disabled={disabled || !seat} value={seat?.model ?? ''} onChange={event => seat && onChange({ ...seat, model: event.target.value || undefined, effort: undefined })}>
-      <option value="">Default model</option>
-      {seat?.model && !models.some(one => one.id === seat.model) && <option value={seat.model}>{seat.model}</option>}
-      {models.filter(one => !one.hidden).map(one => <option key={one.id} value={one.id}>{one.displayName}</option>)}
-    </NativeSelect>
-    <NativeSelect aria-label={`Effort for ${label}`} disabled={disabled || !seat || !model?.reasoningLevels.length} value={seat?.effort ?? ''} onChange={event => seat && onChange({ ...seat, effort: event.target.value || undefined })}>
-      <option value="">Default effort</option>
-      {seat?.effort && !model?.reasoningLevels.some(one => one.id === seat.effort) && <option value={seat.effort}>{seat.effort}</option>}
-      {model?.reasoningLevels.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
-    </NativeSelect></>}
+    <div className={styles.agentSelect}><TeamSeatPicker label={`Runtime for ${label}`} title={selectedRuntime?.presentation.name ?? automaticName ?? undefined} disabled={disabled} value={seat?.runtime ?? ''} choices={agentChoices}
+      onChange={value => onChange(value ? { runtime: value } : undefined)} /></div>
+    {(!optional || seat) && <><TeamSeatPicker label={`Model for ${label}`} disabled={disabled || !effectiveSeat} value={seat?.model ?? ''}
+      choices={[{ value: '', label: 'Default model' },
+        ...(seat?.model && !models.some(one => one.id === seat.model) ? [{ value: seat.model, label: seat.model }] : []),
+        ...models.filter(one => !one.hidden).map(one => ({ value: one.id, label: one.displayName }))]}
+      onChange={value => effectiveSeat && onChange({ ...effectiveSeat, model: value || undefined, effort: undefined })} />
+    <TeamSeatPicker label={`Effort for ${label}`} disabled={disabled || !effectiveSeat || !model?.reasoningLevels.length} value={seat?.effort ?? ''}
+      choices={[{ value: '', label: 'Default effort' },
+        ...(seat?.effort && !model?.reasoningLevels.some(one => one.id === seat.effort) ? [{ value: seat.effort, label: seat.effort }] : []),
+        ...(model?.reasoningLevels.map(one => ({ value: one.id, label: one.label })) ?? [])]}
+      onChange={value => effectiveSeat && onChange({ ...effectiveSeat, effort: value || undefined })} /></>}
   </>
 }

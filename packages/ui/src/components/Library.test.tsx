@@ -89,6 +89,13 @@ const entry = (
   ...over,
 })
 
+// A damaged copy remains useful to compare when another definition exists.
+const partialEntry = (name: string, states: readonly ReachState[], over: Partial<LibraryEntry> = {}): LibraryEntry => {
+  const one = entry(name, states, over)
+  return { ...one, copies: [...one.copies, { path: `/home/u/.agents/skills/${name}`, scope: 'user',
+    readBy: [], hollow: false, digest: 'abc', readOnly: false }] }
+}
+
 // Real libraries always carry a location row per agent and kind; an agent
 // with no row is one the table cannot write to, and the page treats it so.
 const skillLocation = (id: string): Library['locations'][number] => ({
@@ -262,8 +269,8 @@ it('names every agent from its own presentation, never a literal', async () => {
   expect(headers).toEqual(['Name', 'First Agent', 'Second Agent'])
 })
 
-it('draws a hollow directory as its own state, not as missing', async () => {
-  await mount(library([entry('browse', ['hollow', 'absent'])]))
+it('draws a hollow copy beside a usable definition as its own state', async () => {
+  await mount(library([partialEntry('browse', ['hollow', 'absent'])]))
   await showMatrix()
   expect(cellNames()).toContain('browse — First Agent: Empty')
 })
@@ -272,7 +279,7 @@ it('a count filters the table down to what it counted', async () => {
   await mount(
     library([
       entry('good', ['reaches', 'reaches']),
-      entry('empty', ['hollow', 'absent']),
+      partialEntry('empty', ['hollow', 'absent']),
     ]),
   )
   await showMatrix()
@@ -292,7 +299,7 @@ it('only-problems means defects and strandings, never mere non-reach', async () 
   await mount(
     library([
       entry('quiet', ['reaches', 'unscanned']),
-      entry('empty', ['hollow', 'absent']),
+      partialEntry('empty', ['hollow', 'absent']),
       entry('stranded', ['unscanned', 'unscanned']),
     ]),
   )
@@ -314,7 +321,7 @@ it('a count with nothing to show is not offered', async () => {
 })
 
 it('the first body options own search, filter and view; the selected filter can be left', async () => {
-  await mount(library([entry('good', ['reaches', 'reaches']), entry('empty', ['hollow', 'absent'])]))
+  await mount(library([entry('good', ['reaches', 'reaches']), partialEntry('empty', ['hollow', 'absent'])]))
   const options = document.body.querySelector('[data-slot="page-options"]')!
   expect(options.querySelector('[aria-label="Search library"]')).not.toBeNull()
   expect(options.querySelector('[data-slot="popover-trigger"][title="How to show the library"]')).not.toBeNull()
@@ -527,7 +534,7 @@ it('the drawer offers to install where the entry does not reach', async () => {
 
 it('detects the hollow directories and turns them into one previewed clean-up', async () => {
   const request = await mount(
-    library([entry('good', ['reaches', 'reaches']), entry('ghost', ['hollow', 'absent'])]),
+    library([entry('good', ['reaches', 'reaches']), partialEntry('ghost', ['hollow', 'absent'])]),
   )
   expect(document.body.textContent).toContain('1 directory holds a skill’s name and no definition')
   await act(async () => {
@@ -981,7 +988,7 @@ it('Loaded by shows only the agents that load it, with their accessible names', 
 })
 
 it('a problem is a warning in State, while Loaded by keeps only healthy faces', async () => {
-  await mount(library([entry('alpha', ['hollow', 'reaches'])]))
+  await mount(library([partialEntry('alpha', ['hollow', 'reaches'])]))
   const row = cards()[0]!
   expect(row.querySelector('[data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Empty on disk')
   expect(row.querySelector('[data-shape="face"]')?.getAttribute('aria-label')).toBe('Second Agent')
@@ -994,7 +1001,7 @@ it('a row’s finding names the defect, never the symptom it causes', async () =
   // symptom the reader can do nothing with.
   await mount(
     library([
-      entry('empty', ['hollow', 'absent'], {
+      partialEntry('empty', ['hollow', 'absent'], {
         copies: [
           {
             path: '/home/u/.claude/skills/empty',
@@ -1888,7 +1895,7 @@ it('an Agent whose attachments view could not be read is treated as nothing decl
 })
 
 it('the List compares Skill, State and Loaded by without a repeated monogram', async () => {
-  await mount(library([entry('alpha', ['reaches', 'absent']), entry('empty', ['hollow', 'absent'])]))
+  await mount(library([entry('alpha', ['reaches', 'absent']), partialEntry('empty', ['hollow', 'absent'])]))
   const table = container.querySelector('table')!
   expect(table).not.toBeNull()
   expect(table.querySelector('caption')?.textContent).toBe(
@@ -1913,7 +1920,7 @@ it('the List responds to its container and retains definition access in the narr
     disconnect = disconnect
   })
   const description = 'A complete description that remains available in the definition.'
-  await mount(library([entry('code-review', ['reaches', 'absent'], { description }), entry('empty', ['hollow', 'absent'])]))
+  await mount(library([entry('code-review', ['reaches', 'absent'], { description }), partialEntry('empty', ['hollow', 'absent'])]))
   const list = container.querySelector('[data-slot="skill-list"]')!
   const listObserver = observers.find(observer => observer.target === list)
   expect(listObserver, 'the list must observe its own container').toBeDefined()
@@ -1976,7 +1983,7 @@ it('caps loading faces with the shared stack while naming every loading agent', 
 })
 
 it('uses Banner anatomy for the empty-directory alert and keeps cleanup actionable', async () => {
-  await mount(library([entry('empty', ['hollow', 'absent'])]))
+  await mount(library([partialEntry('empty', ['hollow', 'absent'])]))
   const attention = container.querySelector('[data-slot="library-attention"]')!
   expect(attention.querySelector('[data-part="banner-icon"]')).not.toBeNull()
   expect(attention.querySelector('[data-slot="alert-title"]')?.textContent).toBe('Empty skill directories')
@@ -2097,6 +2104,20 @@ it('E6 hidden Library cancels a late scan before starting usage and rereads on r
   expect(request.mock.calls.filter(call=>call[0]==='library/read')).toHaveLength(2)
   expect(request.mock.calls.filter(call=>call[0]==='library/usage')).toHaveLength(1)
   expect(container.textContent).toContain('fresh')
+})
+
+
+it('omits reserved folders and skills without any nonempty definition from both views', async () => {
+  const real = entry('review', ['reaches', 'reaches'], { description: 'Read `src/` first. <script>bad()</script>' })
+  await mount(library([entry('_hd', ['reaches', 'reaches']), entry('empty', ['hollow', 'absent']), real]))
+  expect(cards()).toHaveLength(1)
+  expect(document.body.querySelector('[title="Library sections"]')?.textContent).toBe('Skills1')
+  expect(document.body.querySelector('[data-skill-description] code')?.textContent).toBe('src/')
+  expect(document.body.querySelector('script')).toBeNull()
+  await showMatrix()
+  expect([...document.body.querySelectorAll('tbody th[scope="row"]')].map(node => node.textContent)).toEqual(['reviewRead src/ first. '])
+  expect(document.body.querySelector('tbody code')?.textContent).toBe('src/')
+  expect(document.body.querySelector('script')).toBeNull()
 })
 
 const updateOrigin = { url: 'https://github.com/acme-dev/skills', ref: 'main', commit: '1234567890abcdef', path: 'review/code-review' }

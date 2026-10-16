@@ -1,3 +1,4 @@
+import { inlineMarkdown } from '../lib/markdown-inline'
 import { createContext, useContext, useMemo } from 'react'
 
 import type { LibraryEntry } from '@harnessdesk/protocol'
@@ -115,9 +116,8 @@ export const SkillRow = ({ entry, columns, onOpen }: {
       <CodeText as="code" size="inherit">{entry.kind === 'skill' ? `/${entry.name}` : entry.name}</CodeText>
     </Text>
   </span>
-  const description = <Text as="span" role="muted" ink="muted" data-skill-description="" className={`whitespace-normal line-clamp-2 [overflow-wrap:anywhere] ${narrow ? 'text-balance' : ''}`}>
-    {entry.description ?? (entry.kind === 'skill' ? 'No description in its frontmatter' : 'No description provided')}
-  </Text>
+  const description = <Text as="span" role="muted" ink="muted" data-skill-description="" className={`whitespace-normal line-clamp-2 [overflow-wrap:anywhere] ${narrow ? 'text-balance' : ''}`}><span
+    dangerouslySetInnerHTML={{ __html: inlineMarkdown(entry.description ?? (entry.kind === 'skill' ? 'No description in its frontmatter' : 'No description provided')) }} /></Text>
   const members = loaded.flatMap(reach => {
     const column = columns.find(column => column.id === reach.runtime)
     return column ? [{

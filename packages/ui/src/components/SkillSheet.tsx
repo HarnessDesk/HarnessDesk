@@ -534,7 +534,7 @@ export const SkillSheet = ({
                   {copied ? 'Copied' : 'Copy'}
                 </Button>
               </div>
-              {entry.description && <Text as="p" role="muted" className="mb-4">{entry.description}</Text>}
+              {entry.description && <div className="mb-4"><Markdown text={entry.description} document /></div>}
               {reading ? (
                 <EmptyState variant="inline" title="Reading the definition…" />
               ) : definition === null ? (

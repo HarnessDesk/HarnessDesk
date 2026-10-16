@@ -507,8 +507,8 @@ it.each([['comparison', 'Side by side', 'judge', 'to-judge'], ['mechanical-conte
   expect(check().value).toBe('pnpm test')
   if (id === 'comparison') {
     expect(document.body.textContent).toContain('Judge · optional')
-    const judge = document.querySelector<HTMLSelectElement>('select[aria-label="Runtime for Judge"]')!
-    expect(judge.selectedOptions[0]?.textContent).toBe('You')
+    const judge = document.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Judge"]')!
+    expect(judge.textContent).toBe('You')
     expect(store.getSnapshot().frontDoor!.preview!.flow.compiled.document.flow.roles.some(role => role.id === 'judge')).toBe(false)
   }
   const type = async (value: string) => {
@@ -1223,9 +1223,9 @@ it.each([['alpha', 'beta', false], ['beta', 'beta', false], ['alpha', 'beta', tr
     await act(async () => { accountReads.forEach(resolve => resolve()) })
   }
   expect(document.querySelector<HTMLTextAreaElement>('[aria-label="What should both try?"]')?.value).toBe('Fix the cart total')
-  expect((document.querySelector('[aria-label="Runtime for Attempt A"]') as HTMLSelectElement)?.value).toBe(first)
-  expect((document.querySelector('[aria-label="Runtime for Attempt B"]') as HTMLSelectElement)?.value).toBe(second)
-  expect((document.querySelector('[aria-label="Model for Attempt A"]') as HTMLSelectElement)?.disabled).toBe(false)
+  expect((document.querySelector('[aria-label="Runtime for Attempt A"]') as HTMLButtonElement)?.textContent).toBe(`Agent ${first}`)
+  expect((document.querySelector('[aria-label="Runtime for Attempt B"]') as HTMLButtonElement)?.textContent).toBe(`Agent ${second}`)
+  expect((document.querySelector('[aria-label="Model for Attempt A"]') as HTMLButtonElement)?.disabled).toBe(false)
   expect(button('Start Team').disabled).toBe(false)
   expect(spy.mock.calls.filter(call => call[0] === 'authoring/start/preview').at(-1)?.[1]).toMatchObject({ vars: { task: 'Fix the cart total' } })
 })

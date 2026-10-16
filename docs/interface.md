@@ -311,7 +311,10 @@ as the + beside Projects, and both are reachable by keyboard. Sending a task
 without a folder opens that picker; choosing sends into the chosen folder,
 and cancelling leaves the draft untouched. A conversation always has a folder.
 New Team opens the shared dialog with its task, searchable Flow picker, roles
-and optional Done when. Just a Team opens a shared board without fixed steps.
+and optional Done when. Runtime, model and effort use the shared choice menus.
+The automatic runtime supplies its models immediately; changing a model or
+effort makes that seat explicit. Escape closes an open picker before the
+dialog. Just a Team opens a shared board without fixed steps.
 **Most used** appears only for Flows that have actually been started on this
 desk; the rest stay under **More Flows**. Changing the Flow stays in the dialog
 and keeps each draft.
@@ -870,7 +873,9 @@ in [extending.md](extending.md).
   and values. Choosing Act returns to the adapter-declared acting value;
   Permissions displays that acting level while Plan is selected. A
   runtime without collaboration modes has no collaboration control. Draft picks
-  retain their selected label while the toolbar has room. A missing-permissions
+  retain their selected label while the toolbar has room. Model and effort
+  take their natural content width; actual toolbar overflow folds the label.
+  A missing-permissions
   placeholder appears only when no permission option is declared.
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
@@ -985,7 +990,10 @@ Account slots stay with their runtime; the count is runtimes, not accounts.
 The order is the order a new window is read in: this app, how it looks, what
 it says; the work you have opened and put away; the runtimes and what each one
 brings; what is shared across them; what any of them may do. Skills and
-Extensions are the active runtime's own and carry its name on their nav rows.
+Extensions are the active runtime's own; their hover text names that runtime.
+The nav always offers Skills and Extensions with the same labels and order,
+including before the runtime catalogue arrives. Capabilities govern the page's
+contents, never the presence or name of its navigation row.
 There is no Account page, because there is no account — the profile is
 yours, not an account's; presets are edited
 where they are created rather than on a page of their own; and workspaces,
@@ -1009,6 +1017,11 @@ not displayed and a capped read says it shows the first 256 KB. A fetched plan
 with incoming runnable or binary files requires one acknowledgement before
 Apply. It acknowledges only the operations that need it; local installs ask
 for none. Each operation keeps its own result or refusal after Apply.
+
+Library omits reserved skill folders beginning with `_` and skills whose only
+on-disk definitions are empty. A usable copy elsewhere keeps the skill listed;
+empty copies remain available to the cleanup action. Descriptions render inline
+markdown through the sanitized reading path.
 
 Check for updates asks once about skills installed from a repository, then reads
 the Library again. A toast reports available updates, an up-to-date result, no

@@ -1,3 +1,4 @@
+import { inlineMarkdown } from '../../lib/markdown-inline'
 import type { ReactNode } from 'react'
 import { Button } from '../ui/button'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '../ui/table'
@@ -11,7 +12,7 @@ export interface LibraryMatrixRow {
   readonly cells: readonly LibraryMatrixCell[]; readonly expanded?: ReactNode
 }
 export interface LibraryMatrixFooter { readonly label: string; readonly title: string; readonly values: Readonly<Record<string, number>> }
-/** Availability geometry belongs to this data block; Page owns the outer measure. */
+/** Availability geometry belongs to this data block; Page owns the outer measure. Descriptions use sanitized inline markdown. */
 export const LibraryMatrix = ({ columns, rows, caption, footer, fired }: {
   readonly columns: readonly LibraryMatrixColumn[]; readonly rows: readonly LibraryMatrixRow[]; readonly caption?: string
   readonly footer?: LibraryMatrixFooter; readonly fired?: LibraryMatrixFooter
@@ -27,7 +28,7 @@ export const LibraryMatrix = ({ columns, rows, caption, footer, fired }: {
       <TableRow key={row.id} variant="matrix" interactive data-state={row.expanded ? 'selected' : undefined}>
         <TableHead variant="row" scope="row" className={styles.name}><Button variant="row" size="content-min" bordered={false} onClick={row.open} aria-expanded={Boolean(row.expanded)} className={styles.disclosure}>
           <Text role="row" truncate title={row.name}>{row.name}</Text>
-          {row.description && <Text role="meta" truncate title={row.description}>{row.description}</Text>}
+          {row.description && <Text role="meta" title={row.description}><span dangerouslySetInnerHTML={{ __html: inlineMarkdown(row.description) }} /></Text>}
         </Button></TableHead>
         {row.cells.map(cell => <TableCell variant="matrix" key={cell.id} data-state={cell.state} data-library-state={cell.state} data-problem={cell.problem ? '' : undefined} title={cell.help ?? cell.label}>
           {cell.run ? <Button variant="quiet" size="content" aria-label={cell.label} title={cell.label} onClick={cell.run}>{cell.mark}</Button>

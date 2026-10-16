@@ -409,15 +409,19 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
    * nothing else. Everything the strip counts and everything the list shows
    * is drawn from this one set.
    */
+  const listedEntries = useMemo(() => (library?.entries ?? []).filter(entry =>
+    entry.kind !== 'skill' || (!entry.name.startsWith('_') &&
+      (entry.copies.length === 0 || entry.copies.some(copy => !copy.hollow)))), [library])
+
   const searched = useMemo(() => {
     if (!library) return []
     const needle = query.trim().toLowerCase()
-    return library.entries.filter(
+    return listedEntries.filter(
       (entry) =>
         entry.kind === kind &&
         (needle === '' || `${entry.name} ${entry.title ?? ''}`.toLowerCase().includes(needle)),
     )
-  }, [library, kind, query])
+  }, [library, listedEntries, kind, query])
 
   /**
    * Summarised over the kind on screen *and* the search, not the whole
@@ -506,10 +510,10 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
 
   const kindCounts = useMemo(
     () => ({
-      skill: library?.entries.filter((entry) => entry.kind === 'skill').length ?? 0,
-      mcp: library?.entries.filter((entry) => entry.kind === 'mcp').length ?? 0,
+      skill: listedEntries.filter(entry => entry.kind === 'skill').length,
+      mcp: listedEntries.filter(entry => entry.kind === 'mcp').length,
     }),
-    [library],
+    [listedEntries],
   )
 
   /**
@@ -604,8 +608,8 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
    * just made, which is the one moment its facts most need to be current.
    */
   const readingEntry = useMemo(
-    () => library?.entries.find((one) => one.kind === kind && one.name === reading) ?? null,
-    [library, kind, reading],
+    () => listedEntries.find(one => one.kind === kind && one.name === reading) ?? null,
+    [listedEntries, kind, reading],
   )
 
   /** Only the gaps that apply to what is on screen; the rest are noise here. */

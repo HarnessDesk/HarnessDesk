@@ -2,11 +2,7 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
-import { createDefaultHost, loadBuiltinPlugins } from './bootstrap.js'
-import { recordCrash } from './crash.js'
-import { openClientDoor } from './client-door.js'
-import { defaultStateDir } from './state.js'
-import { serve } from './server.js'
+import { parseArgs } from 'node:util'
 
 /**
  * Standalone entry point.
@@ -15,10 +11,41 @@ import { serve } from './server.js'
  * development and for running HarnessDesk headless against a browser.
  */
 
-const flag = (name: string): string | undefined => {
-  const index = process.argv.indexOf(`--${name}`)
-  return index === -1 ? undefined : process.argv[index + 1]
+const usage = `Usage: harnessdesk-host [options]
+
+Run the headless host and serve the browser interface.
+
+Options:
+  -h, --help             Print this usage and exit
+  --port <number>        Listen on this port (default: HARNESSDESK_PORT or 0)
+  --ui <directory>       Serve this UI directory
+  --log-level <level>    Log level (debug or info; default: info)
+  --codex-binary <path>  Use this agent binary
+`
+
+let values: Record<string, string | boolean | undefined>
+try {
+  values = parseArgs({ options: {
+    help: { type: 'boolean', short: 'h' },
+    port: { type: 'string' }, ui: { type: 'string' },
+    'log-level': { type: 'string' }, 'codex-binary': { type: 'string' },
+  } }).values
+} catch (error) {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n\n${usage}`)
+  process.exit(2)
 }
+if (values['help']) {
+  process.stdout.write(usage)
+  process.exit(0)
+}
+const flag = (name: string): string | undefined => typeof values[name] === 'string' ? values[name] : undefined
+
+// Usage and invalid arguments exit before loading anything that can open a home.
+const { createDefaultHost, loadBuiltinPlugins } = await import('./bootstrap.js')
+const { recordCrash } = await import('./crash.js')
+const { openClientDoor } = await import('./client-door.js')
+const { defaultStateDir } = await import('./state.js')
+const { serve } = await import('./server.js')
 
 const here = dirname(fileURLToPath(import.meta.url))
 const uiRoot = flag('ui') ?? resolve(here, '../../../ui/dist')
