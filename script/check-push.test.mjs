@@ -98,7 +98,7 @@ test('suite-only planning needs neither dependencies nor a build', async () => {
     const plan = createPlan(directory, { paths: ['e2e/ui-system/row-box.spec.ts'], chromium: true })
     assert.deepEqual(JSON.parse(plan.ci.change.browser_specs), ['e2e/ui-system/row-box.spec.ts'])
     assert.equal(plan.ci.unit.mode, 'none')
-    assert.equal(plan.ci.change.matrix, 'full')
+    assert.equal(plan.ci.change.matrix, 'pr')
     const run = plan.steps.filter(step => step.status === 'run')
     assert.ok(run.some(step => step.args.includes('script/ui-system-run.mjs')))
     // Planning needs no build; running the specs does, because they import compiled host fixtures and CI builds first.
@@ -138,7 +138,7 @@ test('a shared input still gets the cheap checks that read it, and the notes say
   const { createPlan } = await api()
   for (const path of ['package.json', 'pnpm-lock.yaml', '.github/workflows/ci.yml']) {
     const plan = createPlan(root, { paths: [path], chromium: true })
-    assert.match(plan.notes.join(' '), /Shared inputs changed .*CI installs and exercises the full graph/)
+    assert.match(plan.notes.join(' '), /Shared inputs changed .*CI installs the full graph; its browser tier determines the selection and themes/)
     const run = plan.steps.filter(step => step.status === 'run')
     assert.ok(run.some(step => step.args[0] === 'script/check-secrets.mjs'), path)
     assert.ok(run.some(step => step.args[0] === 'script/check-doc-paths.mjs'), path)
@@ -294,7 +294,7 @@ test('browser selection observes both limits and always retains directly edited 
     const select = paths => createPlan(directory, { paths, chromium: true })
     const bounded = select(['e2e/ui-system/helper.ts'])
     assert.deepEqual(bounded.steps.find(step => step.name === 'Browser specs').args, ['script/ui-system-run.mjs', 'e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/second.spec.ts'])
-    assert.deepEqual(bounded.steps.find(step => step.name === 'Browser specs').env, { UI_SYSTEM_MATRIX: 'full', PLAYWRIGHT_UI_SYSTEM_WORKERS: '1' })
+    assert.deepEqual(bounded.steps.find(step => step.name === 'Browser specs').env, { UI_SYSTEM_MATRIX: 'pr', PLAYWRIGHT_UI_SYSTEM_WORKERS: '1' })
     put('e2e/ui-system/durations.json', '{"row-box.spec.ts":300,"second.spec.ts":301}')
     const costly = select(['e2e/ui-system/helper.ts', 'e2e/ui-system/row-box.spec.ts'])
     assert.deepEqual(costly.steps.find(step => step.name === 'Browser specs').args, ['script/ui-system-run.mjs', 'e2e/ui-system/row-box.spec.ts'])

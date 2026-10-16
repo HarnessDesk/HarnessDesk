@@ -198,7 +198,7 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
   const notes = [
     ...(dirty.length ? [`${dirty.length} path${dirty.length === 1 ? ' is' : 's are'} not committed (${dirty.slice(0, 3).join(', ')}${dirty.length > 3 ? ', …' : ''}): these checks read your files, which are not what a push sends. Commit first for an answer about the commit.`] : []),
     `Checked against the merge base${behind ? `; ${base} has ${behind} newer commit${behind === 1 ? '' : 's'}` : ''}. CI checks your branch merged into the base as it is then${behind ? ': merge it in to see the same tree' : ''}.`,
-    ...(shared.length ? [`Shared inputs changed (${shared.join(', ')}): CI installs and exercises the full graph, in both themes of every spec; the checks below that read them still run.`] : []),
+    ...(shared.length ? [`Shared inputs changed (${shared.join(', ')}): CI installs the full graph; its browser tier determines the selection and themes. The checks below that read them still run.`] : []),
   ]
   const leave = paths.length === 0 ? 'No changed files; CI remains the full gate.' : ''
   const steps = []

@@ -7,6 +7,29 @@ the rule is the last line of its section.
 
 ---
 
+## Browser CI is bounded on a pull request and complete before landing — 2026-10-15
+
+A measured UI pull request took 79 minutes end to end: sixteen browser shards
+ran for 14–27 minutes and waited 5–29 minutes for runners. Browser work used
+about 340 of 373 runner-minutes. A widely rendered stylesheet can reach nearly
+all 224 specs, so an impact map alone cannot bound that cost.
+
+Ordinary pull requests keep edited specs and the most specific impact selections
+within four shards, using the existing light geometry matrix and duration
+estimates. The summary names every deferred spec. Mandatory edited specs can
+exceed the time estimate, but never the four-runner cap. Other CI jobs keep
+their existing checks and required names.
+
+This trades early coverage of indirect and dark geometry regressions for a
+bounded feedback cycle. A full run on a `batch/` branch or a pull request labelled
+`full-ci` reads every spec in both themes before landing. Main pushes and manual
+dispatches also run everything. No suite is removed; deferred coverage moves to
+that full tier. The visible tier check belongs to the same workflow check suite
+as the required checks, so an old full result cannot stand in for a newer
+bounded run.
+
+**Rule:** bounded green is feedback, and only full green is landing evidence.
+
 ## The sidebar keeps its rhythm quiet and its marks for attention — 2026-10-15
 
 The owner chose five changes so a long conversation list reads calmly and a
