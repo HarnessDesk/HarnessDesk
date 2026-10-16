@@ -285,7 +285,7 @@ export const missingFromCI = (gate, workflow) => {
 // proved. Keep the workflow's inputs and visible check tied to the planner.
 export const tierProblems = yaml => {
   const required = [
-    'types: [opened, synchronize, reopened, labeled, unlabeled]',
+    'types: [opened, synchronize, reopened]',
     'CI_HEAD_BRANCH: ${{ github.head_ref }}',
     'CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}',
     'tier: ${{ steps.paths.outputs.tier }}',
