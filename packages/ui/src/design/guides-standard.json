@@ -914,9 +914,7 @@
       "span[text] \"HarnessDesk\" Δ2": 1,
       "span[text] \"HarnessDesk\" Δ3": 1
     },
-    "overflow": {
-      "span[row-ctl] \"Restore\" spills": 3
-    },
+    "overflow": {},
     "offScale": {}
   },
   "settings-history": {
@@ -956,10 +954,7 @@
       "span[text] \"HarnessDesk\" Δ2": 1,
       "span[text] \"HarnessDesk\" Δ3": 1
     },
-    "overflow": {
-      "span[row-ctl] \"Apply\" spills": 1,
-      "span[row-ctl] spills": 2
-    },
+    "overflow": {},
     "offScale": {}
   },
   "settings-skills": {

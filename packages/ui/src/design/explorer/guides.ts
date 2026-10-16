@@ -172,12 +172,29 @@ const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
  * alone also count a resize seam's invisible hit area, which is meant to
  * reach past the line it sits on.
  */
+/**
+ * A settings row's control slot draws nothing, and a control pulled to the
+ * row's edge (`Button edge`) puts its glyph on the rows' inset line by
+ * crossing the slot by its pull. That is the design, not a spill, so long as
+ * it crosses by no more than the pull; the row's card around it is measured
+ * on its own.
+ */
+const pulledInSlot = (kid: Element, el: Element, k: DOMRect, r: DOMRect) => {
+  if (!el.matches('[data-slot="row-ctl"]')) return false
+  const pulled = kid.closest('[style*="--edge-pull"]')
+  if (!pulled || !el.contains(pulled)) return false
+  const style = getComputedStyle(pulled)
+  const pull = Math.max(0, -parseFloat(style.marginRight) || 0, -parseFloat(style.marginLeft) || 0)
+  return pull > 0 && k.right <= r.right + pull + 1 && k.left >= r.left - pull - 1 && k.bottom <= r.bottom + 1
+}
+
 const sticksOut = (el: Element, r: DOMRect) => {
   let checked = 0
   for (const kid of el.querySelectorAll('*')) {
     if (++checked > 200) break
     const k = kid.getBoundingClientRect()
     if (!visible(k)) continue
+    if (pulledInSlot(kid, el, k, r)) continue
     if (k.right > r.right + 1 || k.left < r.left - 1 || k.bottom > r.bottom + 1) {
       if (!kid.checkVisibility || kid.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return true
     }
