@@ -28,6 +28,8 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubControl,
 } from '../ui/dropdown-menu'
+import { cn } from '@/lib/utils'
+import { floatingMotion } from '../ui/motion'
 import { MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuIcons } from '../ui/menu-row'
 import { SwitchShape } from '../ui/switch'
 import { inkTone, type Tone } from '../ui/tone'
@@ -707,7 +709,7 @@ export const ContextMenu = ({
           >
             <DropdownMenuPopup
               ref={panel}
-              className={styles.surface}
+              className={cn(styles.surface, floatingMotion)}
               data-popup-kind={wide ? 'wide-menu' : 'menu'}
               data-menu-icons={icons}
               aria-label={label}

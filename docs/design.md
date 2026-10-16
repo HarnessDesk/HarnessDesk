@@ -443,6 +443,18 @@ A dialog, a confirm, a menu or a popover that holds focus never wears the
 focus ring round itself; the controls inside keep theirs. A dialog focuses its
 first field when it has one, and otherwise its own surface.
 
+A row has one highlight, its hover fill, eased in on `--hd-duration-fast`, and
+the keyboard reaches the same fill as the pointer — a menu row, a sidebar row
+and a page's `row` button alike. On a page the focus ring is drawn on top of
+it, because Tab travels the whole window. Inside a menu the arrows travel only
+the plate, so the fill is the whole mark and the row draws no ring. A refused
+menu row stays unlit under the pointer but takes the fill under the keyboard,
+which can rest there so its reason is read.
+
+Every floating surface — a menu, a popover such as the model picker, a
+select, a hover card, a tooltip — arrives and leaves on `floatingMotion`
+(`design/ui/motion.ts`); none cuts in.
+
 `Segmented` is not a button. It is a piece of a segmented control — a choice
 between two or three words, one of which is on — and using it for actions is
 what produced those thirty captions.
