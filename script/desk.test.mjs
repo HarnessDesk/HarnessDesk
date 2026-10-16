@@ -215,7 +215,7 @@ test('cleanup reports CDP failures after still terminating the child and finishi
   assert.equal(logFinished, true)
 })
 
-test('cleanup fails if SIGKILL does not close the child instead of reporting success', { timeout: 10_000 }, async () => {
+test('cleanup fails if SIGKILL does not close the child instead of reporting success', { timeout: 12_000 }, async () => {
   const child = new EventEmitter()
   child.exitCode = null
   child.signalCode = null

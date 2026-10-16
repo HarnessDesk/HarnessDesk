@@ -377,8 +377,11 @@ export const closeDesk = async ({ child, cdp, sink, processGroup }) => {
         }
       }
       // Subscribe before signalling, including on the SIGKILL path.
-      const graceful = waitForDeskClose(child, 2500)
-      signal('SIGTERM')
+      const graceful = waitForDeskClose(child, 5000)
+      // Ask the launcher to forward TERM to the shell first. Its normal quit
+      // disposes runtimes in their own groups; signalling the whole family at
+      // once would interrupt that ownership chain before disposal can finish.
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
       const closed = await graceful
       if (!closed) {
         process.stderr.write(`desk cleanup: escalating to SIGKILL ${JSON.stringify({
