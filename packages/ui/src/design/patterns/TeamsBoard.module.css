@@ -31,22 +31,7 @@
 }
 .cards { display: flex; flex-direction: column; gap: var(--hd-space-2); }
 .cards[hidden] { display: none; }
-.card {
- position: relative;
- display: flex;
- flex-direction: column;
- align-items: stretch;
- gap: var(--hd-space-2);
- width: 100%;
- min-width: 0;
- text-align: start;
- white-space: normal;
-}
-.identity { display: flex; align-items: center; justify-content: space-between; gap: var(--hd-space-2); min-width: 0; }
-.summary { display: flex; align-items: start; gap: var(--hd-space-1-5); overflow-wrap: anywhere; }
-.summary svg { flex-shrink: 0; margin-top: var(--hd-space-0-5); }
 .path { margin-block: var(--hd-space-1); }
-.footer { display: flex; align-items: center; justify-content: space-between; gap: var(--hd-space-2); min-width: 0; }
 .facts { display: flex; align-items: center; justify-content: end; gap: var(--hd-space-1); margin-inline-start: auto; min-width: 0; }
 .facts > :last-child { flex-shrink: 0; }
 .project { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

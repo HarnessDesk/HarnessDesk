@@ -1941,6 +1941,15 @@ preview also mounts the production sidebar and an open Team that can be wrapped
 under a dialog, and an open Team whose Assign dialog sits beside a wrapped Team's
 kept conversation.
 
+### Board cards
+
+`CompactBoardCard` (`patterns/BoardCard.tsx`) owns the compact clickable card
+frame: a truncated identity and optional aside, an optional attention detail,
+then optional middle and footer
+slots. It composes the shared Button and Card. Callers supply their own
+metadata, hover text and description ids; Teams supplies its Run path and
+Seat, project and age facts without changing the frame.
+
 ### Board columns
 
 The Team Board keeps occupied state columns at their full width. Empty states
