@@ -60,7 +60,7 @@ test('every shipped Flow parses as current and previews with the shipped Agents 
   }
 })
 
-test('Write and review keeps the fixer as its only publisher', async () => {
+test('Write and review grants editing and reviews commits before the person approves publishing', async () => {
   const source = await readFile(join(directory, 'fix-and-review.yml'), 'utf8')
   const parsed = parseFlowPolicy(source)
   assert.deepEqual(parsed.problems, [])
@@ -75,9 +75,12 @@ test('Write and review keeps the fixer as its only publisher', async () => {
   assert.deepEqual(preview.problems, [])
   assert.ok(preview.token)
   assert.deepEqual(preview.seats.map(seat => [seat.role, seat.index, seat.agent, seat.plan.ceiling?.level]), [
-    ['fixer', 0, 'implementer', 'publish'],
+    ['fixer', 0, 'implementer', 'edit'],
     ['reviewer', 0, 'code-reviewer', 'read'],
   ])
+  assert.deepEqual(flow.rules.find(rule => rule.id === 'review-it')?.when, { every: ['committed'] })
+  assert.equal(flow.rules.find(rule => rule.id === 'hand-to-the-person')?.then.title, 'Approve publishing the reviewed change')
+  assert.match(flow.seed.detail!, /Do not push or open a pull request/)
 })
 
 test('Side by side gives each card of one round its own isolated implementer seat', async () => {

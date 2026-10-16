@@ -3274,3 +3274,23 @@ board. Existing host wrappers keep their signatures and presentation until
 part 2 moves screens and enforces the new caller boundary. JobsBar narration,
 Approvals, dialogs and field validation remain separate. The #1211 decision,
 one notice, one outlet, still holds; this changes anatomy, never routing.
+
+## New Team writes at edit access and hands publishing to the person
+
+The first-time walkthrough in issue #1669 found that Write and review asked
+for `publish`, which none of the shipping runtimes can enforce. On 2026-10-15
+the owner chose B + D: the shipped writer and every repair run at `edit`,
+Automatic passes over preferences without the required control, and an
+independent reviewer reads the committed change. Approval opens a person card
+naming the reviewed revision and the writer's branch context. The person
+approves and performs the push and pull request publication before merging.
+The writer may commit locally but cannot push or open a pull request.
+
+Implementer's declared maximum stays `publish` for Flows that explicitly grant
+it. This changes the shipped shape's grant, not the permission ladder or a
+runtime's controls. Option C, allowing an asked-only limit with confirmation,
+was not chosen: New Team still requires an enforced limit, including read-back,
+for every agent it opens, in later rounds and after recovery too. An explicit
+runtime choice that cannot enforce that access remains refused beside its row,
+with a way to choose a compatible agent. Automatic uses the same strict plan,
+so an earlier incompatible preference cannot block a later compatible one.
