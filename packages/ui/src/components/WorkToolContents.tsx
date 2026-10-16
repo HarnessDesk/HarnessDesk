@@ -36,7 +36,7 @@ const TeamChanges = ({ room }: { room: string }) => {
       : <><SummaryList surface="panel"><SummaryItem label="Branch" kind="path">{sanitizeText(branch ?? '')}</SummaryItem>
           <SummaryItem label="From" kind="path">{sanitizeText(from ?? '')}</SummaryItem>
           <SummaryItem label="To" kind="path">{sanitizeText(to ?? '')}</SummaryItem></SummaryList>
-        <DiffView diff={shown.diff} wrap /></>}
+        <DiffView diff={shown.diff} /></>}
   </ToolSection></ToolBody>
 }
 export const WorkChangesView = () => {

@@ -1686,6 +1686,8 @@ class PreviewStore {
   setLook = (next: AppSnapshot['look']): void => this.patch({ look: next })
   setProfile = (patch: ProfilePatch): void =>
     this.patch({ profile: applyProfile(this.#snapshot.profile, patch) })
+  setDiffPrefs = (prefs: Partial<AppSnapshot['diffPrefs']>): void =>
+    this.patch({ diffPrefs: { ...this.#snapshot.diffPrefs, ...prefs } })
   setEditorPrefs = (prefs: Partial<AppSnapshot['editorPrefs']>): void =>
     this.patch({ editorPrefs: { ...this.#snapshot.editorPrefs, ...prefs } })
   setListPrefs = (prefs: Partial<AppSnapshot['listPrefs']>): void =>

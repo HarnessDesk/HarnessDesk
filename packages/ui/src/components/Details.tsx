@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { currentTurn, type GitStatus } from '@harnessdesk/protocol'
 
 import { handOverToComposer } from '../lib/compose'
-import { countChanges, splitByFile, DiffView } from '../editor'
+import { countChanges, splitByFile, DiffView, DiffFilesView } from '../editor'
 import { useActiveSession, usePane, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
 import { inView } from '../lib/git-view'
@@ -375,24 +375,7 @@ const Changes = ({
       {turnFiles.length > 0 && (
         <>
           <GroupLine left={`This turn · ${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'}`} />
-          {turnFiles.map((file, index) => {
-            const count = countChanges(file.diff)
-            return (
-              <div key={`${file.path}-${index}`}>
-                <PanelRow
-                  mark={<FileIcon size={13} />}
-                  title={basename(file.path)}
-                  sub={dirname(file.path) || 'in this folder'}
-                  subPath
-                  tooltip={file.path}
-                  trail={<Counts added={count.added} removed={count.removed} />}
-                />
-                <ListRowDetail>
-                  <DiffView diff={file.diff} />
-                </ListRowDetail>
-              </div>
-            )
-          })}
+          <DiffFilesView files={turnFiles} />
         </>
       )}
 

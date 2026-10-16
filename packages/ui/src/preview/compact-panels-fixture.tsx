@@ -41,7 +41,7 @@ export const compactChangesStore = previewStore({
     ...session, cwd: '/preview/code/project',
     turns: session.turns.map((turn, index) => index === session.turns.length - 1 ? {
       ...turn,
-      diff: 'diff --git a/src/review.ts b/src/review.ts\n--- a/src/review.ts\n+++ b/src/review.ts\n@@ -1 +1 @@\n-const ready = false\n+const ready = true\ndiff --git a/test/review.test.ts b/test/review.test.ts\n--- a/test/review.test.ts\n+++ b/test/review.test.ts\n@@ -1 +1 @@\n-expect(ready).toBe(false)\n+expect(ready).toBe(true)\n',
+      diff: 'diff --git a/src/review.ts b/src/review.ts\n--- a/src/review.ts\n+++ b/src/review.ts\n@@ -1 +1 @@\n-out.textContent = "Tip: " + tip + " Keep the checkout summary readable while the side pane is narrow and the changed ending sits beyond the first visual line: before"\n+out.textContent = "Tip: " + tip + " Keep the checkout summary readable while the side pane is narrow and the changed ending sits beyond the first visual line: after"\ndiff --git a/test/review.test.ts b/test/review.test.ts\n--- a/test/review.test.ts\n+++ b/test/review.test.ts\n@@ -1 +1 @@\n-expect(ready).toBe(false)\n+expect(ready).toBe(true)\n',
     } : turn),
   }]]),
 })

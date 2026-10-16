@@ -58,3 +58,6 @@ export { EditorMain } from './EditorMain'
 export { requestAskInChat } from './ask'
 
 export { sameFileDocument, isDirtyDocument } from './document'
+
+export { DEFAULT_DIFF_PREFS, readDiffPrefs, type DiffPrefs } from './diff-prefs'
+export { DiffFilesView } from './DiffFilesView'

@@ -131,7 +131,7 @@ export const FlowUpdate = ({ root, id, mode, onClose, onApplied }: FlowUpdatePro
       {preview && !problem && preview.edits.map((edit) => (
         <div key={edit.path} className="flex flex-col gap-(--hd-space-2)">
           <CodeText>{edit.path}</CodeText>
-          <DiffView diff={edit.before === null ? edit.after : wholeTextDiff(edit.before, edit.after)} wholeFile={edit.before === null} wrap />
+          <DiffView diff={edit.before === null ? edit.after : wholeTextDiff(edit.before, edit.after)} wholeFile={edit.before === null} />
         </div>
       ))}
     </Dialog>

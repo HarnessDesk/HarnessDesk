@@ -40,6 +40,9 @@ export const StoreProvider = ({
   children: ReactNode
 }) => <StoreContext.Provider value={store}>{children}</StoreContext.Provider>
 
+/** Standalone editor specimens can render with defaults outside the application. */
+export const useOptionalStore = (): AppStore | null => useContext(StoreContext)
+
 export const useStore = (): AppStore => {
   const store = useContext(StoreContext)
   if (!store) throw new Error('useStore must be used inside a StoreProvider')

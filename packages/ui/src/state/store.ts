@@ -1,3 +1,4 @@
+import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
 import { destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
@@ -7073,6 +7074,7 @@ export class AppStore {
         listPrefs,
         teamsPrefs: readTeamsPrefs(preferences['teamsPrefs']),
         editorPrefs,
+        diffPrefs: readDiffPrefs(preferences['diffPrefs']),
         browserPrefs,
         spendChartMode,
         usageOff,
@@ -7736,6 +7738,13 @@ export class AppStore {
     else accountPrefs[key] = cleaned
     this.#patch({ accountPrefs })
     void this.#writePreference({ accountPrefs }, 'The account name')
+  }
+
+  /** Shared diff choices, applied immediately and saved with the person's other preferences. */
+  setDiffPrefs(patch: Partial<AppSnapshot['diffPrefs']>): void {
+    const diffPrefs = { ...this.#snapshot.diffPrefs, ...patch }
+    this.#patch({ diffPrefs })
+    void this.#writePreference({ diffPrefs }, 'The diff settings')
   }
 
   /**
