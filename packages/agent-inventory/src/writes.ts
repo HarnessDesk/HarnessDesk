@@ -205,6 +205,22 @@ const writableSkillFiles = (files: readonly SkillFile[], extras: readonly string
   files.filter((file) => file.path === 'SKILL.md' ||
     (extras.includes(file.path) && isSafeSkillRelativePath(file.path)))
 
+/** Only differences belong in an update's review, including files it drops. */
+const skillFileChanges = (before: readonly SkillFile[], after: readonly SkillFile[]): NonNullable<LibraryPlannedOp['files']> => {
+  const old = new Map(before.map(file => [file.path, file]))
+  const next = new Map(after.map(file => [file.path, file]))
+  return [...new Set([...old.keys(), ...next.keys()])].sort().flatMap(path => {
+    const left = old.get(path)
+    const right = next.get(path)
+    if (left && right && left.bytes.equals(right.bytes) && ((left.mode ?? 0) & 0o111) === ((right.mode ?? 0) & 0o111)) return []
+    const change = !right ? 'removed' : !left ? 'added' : 'changed'
+    return [{ ...classifySkillFiles([right ?? left!])[0]!, change }]
+  })
+}
+
+const sameSkillSource = (before: LibrarySkillOrigin | undefined, after: LibrarySkillOrigin | undefined): boolean =>
+  before !== undefined && after !== undefined && before.url === after.url && before.ref === after.ref && before.path === after.path
+
 /** Updates retain unshipped extras; the resulting union must remain readable. */
 const updatedSkillBundleRefusal = (retained: readonly SkillFile[], incoming: readonly SkillFile[]): string | undefined => {
   const extras = new Map([...retained, ...incoming].filter((file) => file.path !== 'SKILL.md').map((file) => [file.path, file.bytes]))
@@ -250,6 +266,13 @@ class SkillBundleReadError extends Error {
   constructor(readonly targetPath: string, error: unknown) {
     super(error instanceof Error ? error.message : String(error))
   }
+}
+
+/** Links omitted by the bundle reader must never disappear in a full update. */
+const checkUpdateTree = (path: string): void => {
+  const stats = lstatSync(path, { throwIfNoEntry: false })
+  if (stats?.isSymbolicLink()) throw new SkillBundleReadError(path, new Error('This copy contains a link; resolve it before updating.'))
+  if (stats?.isDirectory()) for (const name of readdirSync(path)) checkUpdateTree(join(path, name))
 }
 
 export const currentSkillBundleDigest = (path: string, budget?: { remaining: number }): string | null => {
@@ -298,7 +321,7 @@ const push = (state: PlanState, op: Omit<LibraryPlannedOp, 'id'>): void => {
     const guardBundle = currentFiles === null ? null : bundleDigest(currentFiles)
     const source = op.flat === true ? undefined : op.sourcePath
     const files = op.content === undefined ? undefined : skillFiles(op.content, source)
-    if (op.action === 'update' && op.flat !== true && files !== undefined) {
+    if (op.action === 'update' && !op.replaceBundle && op.flat !== true && files !== undefined) {
       const reason = updatedSkillBundleRefusal(currentFiles ?? [], writableSkillFiles(files, op.extraFiles))
       if (reason !== undefined) {
         refuse(state, 'skill', op.name, op.targetPath, reason, op.targetRuntime)
@@ -309,7 +332,7 @@ const push = (state: PlanState, op: Omit<LibraryPlannedOp, 'id'>): void => {
     state.counter += 1
     state.ops.push({
       id: `op-${state.counter}`, ...op, guardBundle,
-      ...(files !== undefined ? { sourceBundle: bundleDigest(files), files: classifySkillFiles(files) } : {}),
+      ...(files !== undefined ? { sourceBundle: bundleDigest(files), files: op.replaceBundle ? skillFileChanges(currentFiles ?? [], files) : classifySkillFiles(files) } : {}),
       ...(difference !== undefined ? { reason: [op.reason, difference].filter(Boolean).join(' ') } : {}),
     })
   } else {
@@ -395,11 +418,12 @@ const insideRootsReal = (path: string, roots: readonly string[]): boolean => {
 
 const planInstallSkill = (
   state: PlanState,
-  intent: { name: string; sourcePath: string; targetRuntime: RuntimeId; origin?: LibrarySkillOrigin & { bundle: string } },
+  intent: { name: string; sourcePath: string; targetRuntime: RuntimeId; origin?: LibrarySkillOrigin & { bundle: string }; replaceBundle?: boolean },
   content?: string,
   extras?: { files: readonly string[]; sourcePath: string },
 ): void => {
   const { name, targetRuntime } = intent
+  const updating = intent.replaceBundle === true
   const brand = brandOf(state, targetRuntime)
   if (brand === null) {
     refuse(state, 'skill', name, '', 'This agent is not on the roster any more.', targetRuntime)
@@ -471,9 +495,16 @@ const planInstallSkill = (
     return
   }
 
+  if (updating && !sameSkillSource(state.manifest.find('skill', targetPath, name)?.origin, intent.origin)) {
+    refuse(state, 'skill', name, targetPath, 'Only an installed repository skill can be updated from the same source.', targetRuntime)
+    return
+  }
+
+  if (updating) checkUpdateTree(targetPath)
+
   if (existing !== null) {
     const current = digestOf(existing.text)
-    if (currentSkillBundleDigest(targetPath) === bundleDigest(skillFiles(text, existing.flat ? undefined : sourcePath))) {
+    if (!updating && currentSkillBundleDigest(targetPath) === bundleDigest(skillFiles(text, existing.flat ? undefined : sourcePath))) {
       push(state, {
         kind: 'skill',
         name,
@@ -487,7 +518,7 @@ const planInstallSkill = (
       return
     }
     const who = ownership(state.manifest, 'skill', targetPath, name, current)
-    if (who !== 'ours') {
+    if (who !== 'ours' && !updating) {
       refuse(
         state,
         'skill',
@@ -504,18 +535,25 @@ const planInstallSkill = (
     push(state, {
       kind: 'skill',
       name,
-      action: 'update',
+      action: updating && who !== 'ours' ? 'replace' : 'update',
+      ...(updating ? { replaceBundle: true } : {}),
       ...(intent.origin ? { origin: intent.origin } : {}),
       targetPath,
       targetRuntime,
       preview: unifiedDiff(existing.text, text, { fromLabel: label, toLabel: label }),
       guardDigest: current,
-      backup: false,
+      backup: updating && who !== 'ours',
+      ...(updating && who !== 'ours' ? { reason: 'This copy has been edited since install; the edited copy is backed up before replacement.' } : {}),
       content: text,
       ...(existing.flat ? { flat: true } : {}),
       ...(!existing.flat && files.length > 0 ? { extraFiles: files } : {}),
       ...((!existing.flat || intent.origin) && sourcePath !== undefined ? { sourcePath } : {}),
     })
+    return
+  }
+
+  if (updating) {
+    refuse(state, 'skill', name, targetPath, 'The installed copy no longer has a definition to update.', targetRuntime)
     return
   }
 
@@ -1049,6 +1087,12 @@ export const planLibrary = async (
         case 'installSkill':
           planInstallSkill(state, intent)
           break
+        case 'updateSkill': {
+          const source = parseGithubSource(intent.origin.url, intent.origin.ref, intent.origin.path)
+          const sourcePath = join(state.libraryDir, 'sources', source.repo.replace('/', '__'), intent.origin.commit, source.path)
+          planInstallSkill(state, { ...intent, sourcePath, replaceBundle: true })
+          break
+        }
         case 'authorSkill':
           planAuthorSkill(state, intent)
           break
@@ -1151,7 +1195,7 @@ const writeSkillFile = async (path: string, bytes: Buffer, mode?: number): Promi
   }
 }
 
-/** Sources are install-only, and the fetched bundle must still match its receipt. */
+/** A fetched source must still match its recorded bundle. */
 const checkFetchedOrigin = (source: string | undefined, origin: LibraryPlannedOp['origin'], libraryDir: string): void => {
   const root = join(libraryDir, 'sources')
   const inSources = source !== undefined && (insideRoots(source, [root]) || insideRootsReal(source, [root]))
@@ -1209,6 +1253,10 @@ const applyOne = async (
 
   if (op.kind === 'skill') {
     if (op.guardBundle === undefined) throw new Error('Plan again.')
+    if (op.replaceBundle && !sameSkillSource(manifest.find('skill', op.targetPath, op.name)?.origin, op.origin)) {
+      throw new Error('Only an installed repository skill can be updated from the same source.')
+    }
+    if (op.replaceBundle) checkUpdateTree(op.targetPath)
     const currentFiles = currentSkillFiles(op.targetPath)
     const currentBundle = currentFiles === null ? null : bundleDigest(currentFiles)
     if (currentBundle !== op.guardBundle) {
@@ -1260,17 +1308,25 @@ const applyOne = async (
       throw new Error('The source changed since the preview — plan again.')
     }
     const toWrite = writableSkillFiles(files, op.extraFiles)
-    if (op.origin && op.acknowledged !== true && classifySkillFiles(toWrite).some(file => file.runnable || file.binary)) {
+    const changes = op.replaceBundle ? skillFileChanges(currentFiles ?? [], toWrite) : undefined
+    const incoming = changes?.filter(file => file.change !== 'removed') ?? classifySkillFiles(toWrite)
+    if (op.origin && op.acknowledged !== true && incoming.some(file => file.runnable || file.binary)) {
       throw new Error('This skill carries files that can run or are binary. Read the list and acknowledge it before installing.')
     }
-    if (op.action !== 'replace' && op.flat !== true) {
+    if (changes && (changes.length !== op.files?.length || changes.some((file, index) => {
+      const reviewed = op.files?.[index]
+      return !reviewed || (['path', 'change', 'bytes', 'runnable', 'binary'] as const).some(key => file[key] !== reviewed[key])
+    }))) {
+      throw new Error('The update file list changed since the preview — plan again.')
+    }
+    if (op.action !== 'replace' && !op.replaceBundle && op.flat !== true) {
       const reason = updatedSkillBundleRefusal(currentFiles ?? [], toWrite)
       if (reason !== undefined) throw new Error(reason)
     }
     const writeRoot = op.flat === true ? dirname(op.targetPath) : op.targetPath
     // Check every destination before the first write. A replacement removes
     // the old tree, so only its parent directory survives that operation.
-    if (op.action === 'replace') checkSkillWriteParents(dirname(op.targetPath), op.targetPath)
+    if (op.action === 'replace' || op.replaceBundle) checkSkillWriteParents(dirname(op.targetPath), op.targetPath)
     else for (const file of toWrite) {
       checkSkillWriteParents(writeRoot, op.flat === true ? op.targetPath : join(op.targetPath, file.path))
     }
@@ -1279,7 +1335,7 @@ const applyOne = async (
       await mkdir(dirname(backupPath), { recursive: true })
       await cp(op.targetPath, backupPath, { recursive: true })
     }
-    if (op.action === 'replace' && existsNow) {
+    if ((op.action === 'replace' || op.replaceBundle) && existsNow) {
       await rm(op.targetPath, { recursive: true, force: true })
     }
 

@@ -78,6 +78,7 @@ import type {
   LibraryPlannedOp,
   LibraryUsage,
   LibrarySourceResult,
+  LibrarySkillUpdate,
 } from './library.js'
 import type { AgentEvent } from './events.js'
 import type { BackgroundTask } from './tasks.js'
@@ -1053,6 +1054,12 @@ export interface HostMethods {
     result: null
   }
   /** Read one bounded file from a fetched skill before acknowledging its files. */
+  /** Explicit ref-only check; never fetches objects or writes an installed skill. */
+  'library/sources/check': {
+    params: { readonly names?: readonly string[] }
+    result: readonly LibrarySkillUpdate[]
+  }
+
   'library/source/file': {
     params: { readonly sourcePath: string; readonly path: string }
     result: { readonly path: string; readonly bytes: number; readonly text: string | null; readonly truncated: boolean }

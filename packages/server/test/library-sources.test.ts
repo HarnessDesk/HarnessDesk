@@ -402,3 +402,43 @@ test('source file reads refuse outside roots, unsafe paths, links and non-files'
     await assert.rejects(read('note', join(libraryDir, 'sources')))
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+test('check resolves current, behind and gone refs without fetching objects or creating source files', async (t) => {
+  await fixture(async (root, repo, commit) => {
+    const reader = sources(root, repo)
+    const origin = { url: URL, ref: 'main', commit, path: 'tools/demo' }
+    const calls: string[][] = []
+    const spawn = childProcess.spawn
+    const spy = t.mock.method(childProcess, 'spawn', (...args: Parameters<typeof spawn>) => {
+      calls.push(args[1] as string[])
+      return spawn(...args)
+    })
+    syncBuiltinESMExports()
+    try {
+      assert.deepEqual(await reader.check(origin), { latest: commit, status: 'current', reason: null })
+      assert.deepEqual(await reader.check({ ...origin, commit: 'b'.repeat(40) }), { latest: commit, status: 'behind', reason: null })
+      assert.deepEqual(await reader.check({ ...origin, ref: 'missing' }), { latest: null, status: 'gone', reason: 'The source ref no longer exists.' })
+      for (const ref of ['HEAD', 'v1', 'refs/tags/v1', commit]) assert.equal((await reader.check({ ...origin, ref })).latest, commit)
+      assert.ok(calls.length > 0)
+      assert.ok(calls.every(args => args.includes('ls-remote')), 'only ref advertisements, never fetch/init/cat-file')
+      await assert.rejects(lstat(join(root, 'library')), { code: 'ENOENT' })
+    } finally { spy.mock.restore(); syncBuiltinESMExports() }
+  })
+})
+
+test('check returns plain unreachable reasons for transport failure and an expired deadline', async (t) => {
+  await fixture(async (root, repo, commit) => {
+    const origin = { url: URL, ref: 'main', commit, path: 'tools/demo' }
+    const failed = await sources(root, repo, { transport: () => { throw new Error('private transport details') } }).check(origin)
+    assert.deepEqual(failed, { status: 'unreachable', latest: null, reason: 'The public repository could not be reached.' })
+    const spawn = childProcess.spawn
+    const spy = t.mock.method(childProcess, 'spawn', (...args: Parameters<typeof spawn>) => spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], args[2]))
+    syncBuiltinESMExports()
+    try {
+      const expired = await sources(root, repo, { timeoutMs: 20 }).check(origin)
+      assert.equal(expired.status, 'unreachable')
+      assert.equal(expired.latest, null)
+      assert.match(expired.reason ?? '', /time limit/)
+    } finally { spy.mock.restore(); syncBuiltinESMExports() }
+  })
+})

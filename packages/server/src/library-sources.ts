@@ -5,7 +5,7 @@ import { constants } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 
 import { classifySkillFiles, bundleDigest, isSafeSkillRelativePath, MAX_BUNDLE_BYTES, MAX_BUNDLE_FILES, parseGithubSource, validSkillName, internals } from '@harnessdesk/agent-inventory'
-import type { HostResult, LibrarySourceResult } from '@harnessdesk/protocol'
+import type { HostResult, LibrarySourceResult, LibrarySkillOrigin, LibrarySkillUpdate } from '@harnessdesk/protocol'
 
 import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
@@ -29,6 +29,64 @@ const within = (path: string, root: string): boolean => {
 }
 const invalidPath = (path: string): boolean => !isSafeSkillRelativePath(path) || /[\x00-\x1f\x7f]/.test(path) || path.split(/[/\\]/).some(one => one.toLowerCase() === '.git')
 
+/** The same bounded Git transport for ref checks and source fetches. */
+const sourceGit = (
+  transport: { readonly url: string; readonly protocol: 'https' | 'file' },
+  tmp: string,
+  controller: AbortController,
+  args: string[],
+  input?: Buffer,
+  maxOutput = 8 * 1024 * 1024,
+): Promise<Buffer> => {
+  // Do not inherit repository settings or home-based credentials such as .netrc.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_') && key !== 'NETRC'))
+  Object.assign(env, { HOME: tmp, USERPROFILE: tmp, CURL_HOME: tmp, XDG_CONFIG_HOME: tmp, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '' })
+  return new Promise((done, fail) => {
+    if (controller.signal.aborted) { fail(controller.signal.reason); return }
+    const child = spawn('git', [
+      ...HARDENED_GIT_CONFIG, '--literal-pathspecs', '-c', 'credential.helper=', '-c', 'protocol.allow=never', '-c', `protocol.${transport.protocol}.allow=always`,
+      '-c', 'transfer.fsckObjects=true', '-c', 'http.followRedirects=false', '-c', 'core.quotePath=false', '--git-dir', tmp, ...args,
+    ], { env, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] })
+    const stop = () => {
+      try {
+        if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL')
+        else child.kill('SIGKILL')
+      } catch { child.kill('SIGKILL') }
+    }
+    controller.signal.addEventListener('abort', stop, { once: true })
+    if (controller.signal.aborted) stop()
+    const chunks: Buffer[] = []
+    let length = 0
+    child.stdout.on('data', (chunk: Buffer) => {
+      length += chunk.length
+      if (length > maxOutput) { controller.abort(new Error('The repository object listing exceeds its read limit.')); return }
+      chunks.push(chunk)
+    })
+    child.stderr.resume()
+    child.stdin.on('error', () => {})
+    let spawnError: Error | undefined
+    child.on('error', error => { spawnError = error })
+    child.on('close', code => {
+      controller.signal.removeEventListener('abort', stop)
+      if (controller.signal.aborted) fail(controller.signal.reason)
+      else if (spawnError) fail(spawnError)
+      else if (code !== 0) fail(new Error('The public repository or requested commit could not be read.'))
+      else done(Buffer.concat(chunks))
+    })
+    child.stdin.end(input)
+  })
+}
+
+const resolveSourceRef = (ref: string, listing: Buffer): string | null => {
+  if (/^[a-f0-9]{40}$/i.test(ref)) return ref.toLowerCase()
+  const refs = listing.toString('utf8').trim().split('\n').map(line => line.split('\t'))
+  const named = (name: string) => refs.find(([, ref]) => ref === name)?.[0]
+  const commit = /^[a-f0-9]{4,39}$/i.test(ref) ? undefined : ref === 'HEAD' ? named('HEAD') :
+    named(`refs/heads/${ref}`) ?? named(`refs/tags/${ref}^{}`) ?? named(`refs/tags/${ref}`) ??
+    (ref.startsWith('refs/') ? named(`${ref}^{}`) ?? named(ref) : undefined)
+  return commit && /^[a-f0-9]{40}$/.test(commit) ? commit : null
+}
+
 /** Resolve once, read only objects, and keep the bytes the ordinary install previews. */
 export class LibrarySources {
   #pending: Promise<unknown> = Promise.resolve()
@@ -38,6 +96,24 @@ export class LibrarySources {
     const next = this.#pending.then(() => this.#fetch(input))
     this.#pending = next.catch(() => {})
     return next
+  }
+
+  /** Advertise refs only: no repository, objects or cache files are created. */
+  async check(origin: LibrarySkillOrigin): Promise<Pick<LibrarySkillUpdate, 'latest' | 'status' | 'reason'>> {
+    const controller = new AbortController()
+    const deadline = setTimeout(() => controller.abort(new Error('The source check exceeded its time limit.')), this.options.timeoutMs ?? 60_000)
+    try {
+      const source = parseGithubSource(origin.url, origin.ref, origin.path)
+      const transport = this.options.transport?.(source.url) ?? { url: `${source.url}.git`, protocol: 'https' as const }
+      if (!transport.url.startsWith(`${transport.protocol}://`)) throw new Error('The source transport must use the repository URL over https.')
+      const listing = await sourceGit(transport, join(this.libraryDir, 'sources', `.tmp-${randomUUID()}`), controller, ['ls-remote', '--', transport.url])
+      const latest = resolveSourceRef(source.ref, listing)
+      return latest === null
+        ? { latest: null, status: 'gone', reason: 'The source ref no longer exists.' }
+        : { latest, status: latest === origin.commit.toLowerCase() ? 'current' : 'behind', reason: null }
+    } catch {
+      return { latest: null, status: 'unreachable', reason: controller.signal.aborted ? 'The source check exceeded its time limit.' : 'The public repository could not be reached.' }
+    } finally { clearTimeout(deadline) }
   }
 
   async file(input: { readonly sourcePath: string; readonly path: string }): Promise<HostResult<'library/source/file'>> {
@@ -95,43 +171,7 @@ export class LibrarySources {
       finally { measurement = undefined }
     })()
     const monitor = setInterval(() => { void measure() }, 25)
-    // Do not inherit repository settings or home-based credentials such as .netrc.
-    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_') && key !== 'NETRC'))
-    Object.assign(env, { HOME: tmp, USERPROFILE: tmp, CURL_HOME: tmp, XDG_CONFIG_HOME: tmp, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '' })
-    const git = (args: string[], input?: Buffer, maxOutput = 8 * 1024 * 1024): Promise<Buffer> => new Promise((done, fail) => {
-      if (controller.signal.aborted) { fail(controller.signal.reason); return }
-      const child = spawn('git', [
-        ...HARDENED_GIT_CONFIG, '--literal-pathspecs', '-c', 'credential.helper=', '-c', 'protocol.allow=never', '-c', `protocol.${transport.protocol}.allow=always`,
-        '-c', 'transfer.fsckObjects=true', '-c', 'http.followRedirects=false', '-c', 'core.quotePath=false', '--git-dir', tmp, ...args,
-      ], { env, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] })
-      const stop = () => {
-        try {
-          if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL')
-          else child.kill('SIGKILL')
-        } catch { child.kill('SIGKILL') }
-      }
-      controller.signal.addEventListener('abort', stop, { once: true })
-      if (controller.signal.aborted) stop()
-      const chunks: Buffer[] = []
-      let length = 0
-      child.stdout.on('data', (chunk: Buffer) => {
-        length += chunk.length
-        if (length > maxOutput) { controller.abort(new Error('The repository object listing exceeds its read limit.')); return }
-        chunks.push(chunk)
-      })
-      child.stderr.resume()
-      child.stdin.on('error', () => {})
-      let spawnError: Error | undefined
-      child.on('error', error => { spawnError = error })
-      child.on('close', code => {
-        controller.signal.removeEventListener('abort', stop)
-        if (controller.signal.aborted) fail(controller.signal.reason)
-        else if (spawnError) fail(spawnError)
-        else if (code !== 0) fail(new Error('The public repository or requested commit could not be read.'))
-        else done(Buffer.concat(chunks))
-      })
-      child.stdin.end(input)
-    })
+    const git = (args: string[], input?: Buffer, maxOutput?: number) => sourceGit(transport, tmp, controller, args, input, maxOutput)
     try {
       await git(['init', '--bare', '--template=', '--', tmp])
       await measure()
@@ -139,11 +179,7 @@ export class LibrarySources {
       let commit: string
       if (/^[a-f0-9]{40}$/i.test(source.ref)) commit = source.ref.toLowerCase()
       else {
-        const refs = (await git(['ls-remote', '--', transport.url])).toString('utf8').trim().split('\n').map(line => line.split('\t'))
-        const named = (name: string) => refs.find(([, ref]) => ref === name)?.[0]
-        commit = (/^[a-f0-9]{4,39}$/i.test(source.ref) ? undefined : source.ref === 'HEAD' ? named('HEAD') :
-          named(`refs/heads/${source.ref}`) ?? named(`refs/tags/${source.ref}^{}`) ?? named(`refs/tags/${source.ref}`) ??
-          (source.ref.startsWith('refs/') ? named(`${source.ref}^{}`) ?? named(source.ref) : undefined)) ?? ''
+        commit = resolveSourceRef(source.ref, await git(['ls-remote', '--', transport.url])) ?? ''
         if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('Use a branch, a tag or the full commit hash.')
       }
       await git(['fetch', '--depth', '1', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', '--', transport.url, commit])
