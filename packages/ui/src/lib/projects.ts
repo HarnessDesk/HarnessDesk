@@ -447,10 +447,11 @@ export const projectGroupRootOf = (workspace: WorkspaceEntry | null | undefined)
  * (#998).
  */
 export const roomGroupRootOf = (
-  room: string | Pick<TeamState, 'root' | 'realRoot'>,
+  room: string | Pick<TeamState, 'root' | 'realRoot' | 'folderGone'>,
   open: readonly (WorkspaceEntry | null | undefined)[],
 ): string => {
   const { root, realRoot } = typeof room === 'string' ? { root: room, realRoot: undefined } : room
+  if (typeof room !== 'string' && room.folderGone) return root
   for (const spelling of [root, realRoot]) {
     if (spelling === undefined) continue
     const opened = open.find((one) => one?.path === spelling)
