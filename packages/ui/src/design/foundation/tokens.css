@@ -366,6 +366,9 @@ body {
      with the two sharing a vertical border, which is the only place a step
      that size is unmissable.
 
+     Scrollbar width, inset and fill belong to this scale. A horizontal Board
+     keeps that thumb visible at rest, so overflow is apparent before a gesture.
+
      A group is read from this comment to the next one, so nothing inside it
      may open a comment of its own: doing that dropped both the token below and
      `--hd-column` out of the generated table without failing anything. */
@@ -608,7 +611,8 @@ body {
   --hd-image-max-height: 280px;
 
   /* Native-looking scrollbar geometry and paint. The global adapter consumes
-     only these public names; the private platform palette ends here. */
+     only these public names; the private platform palette ends here. Board
+     keeps this thumb visible at rest to announce horizontal overflow. */
   --hd-scrollbar-width: 8px;
   --hd-scrollbar-inset: 2px;
   --hd-scrollbar-inset-hover: 1px;

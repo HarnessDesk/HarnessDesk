@@ -3381,3 +3381,15 @@ person requested the check; a new host reads the origin without inventing a
 check result.
 
 **Rule:** the recorded origin is read from the manifest on every read; a check is only ever an explicit request.
+## Empty board columns collapse; the badge counts everything
+
+The owner chose option B in [#1674](https://github.com/HarnessDesk/HarnessDesk/issues/1674)
+on 2026-10-15. A finished Team showed Board 3 above four full-width empty
+columns, while its three completed cards were outside the visible row.
+
+The badge continues to count every card. Empty columns start as named rails
+with zero counts, preserving their order and the existing keyboard expansion
+and folding controls. Occupied columns retain their width; the all-empty board
+retains one empty state. Below 600px of content width the compact list remains
+the readable form. A horizontal Board keeps its token-backed scrollbar visible
+at rest, so overflow announces itself before a gesture.

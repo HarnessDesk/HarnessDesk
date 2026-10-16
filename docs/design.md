@@ -1940,10 +1940,16 @@ kept conversation.
 
 ### Board columns
 
-The Team Board keeps every state column at its full minimum width, including
-empty columns. When the columns do not fit, the board scrolls horizontally;
-empty columns do not fold into rails or move to another row. Below 600px of pane
-width, the Team Board switches to its compact list.
+The Team Board keeps occupied state columns at their full width. Empty states
+start as narrow named rails with zero counts; their existing keyboard controls
+open and fold them in place without changing column order. The Board tab counts
+all cards, including completed work. An all-empty board has one quiet empty
+state. Below 600px of content width it switches to its compact list.
+
+Scrolling `Board` primitives keep the shared scrollbar thumb visible at rest
+through `data-scroll-affordance`; its fill, inset and hover treatment use the
+same foundation tokens as every other scrollbar. It only draws when content
+overflows, so clipped columns advertise the horizontal row before a gesture.
 
 ### Run controls
 

@@ -67,6 +67,7 @@ import { SIGN_IN_SCENES, SIGN_IN_SELECTED, runtimesSeed, signInSeed, type SignIn
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { BoardListFrames } from './frames-board-list'
+import { FinishedBoardFrames } from './frames-finished-board'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamFramePreview } from './TeamFramePreview'
 import { ApprovalDialog, ApprovalReason, NativeSelect, PaneColumn } from '../design'
@@ -1277,6 +1278,8 @@ createRoot(container).render(
           ? <ReleaseStills />
           : new URLSearchParams(window.location.search).has('site-run')
           ? <SiteRunPreview />
+          : new URLSearchParams(window.location.search).has('finished-board')
+          ? <FinishedBoardFrames />
           : new URLSearchParams(window.location.search).has('board-list')
           ? <BoardListFrames />
           : new URLSearchParams(window.location.search).has('tables')
