@@ -55,3 +55,9 @@ test('historical Seat evidence is available at the client read tier', () => {
   assert.equal(clientTierFor('evidence/seat'), 'read')
   assert.doesNotThrow(() => request('evidence/seat', { runtime: 'fake', sessionId: 'demo' }))
 })
+
+test('Seat attachment readback is available at the client read tier', () => {
+  assert.equal(clientTierFor('attachment/seat'), 'read')
+  assert.doesNotThrow(() => request('attachment/seat', { seat: 'seat-demo' }))
+  assert.throws(() => request('attachment/seat', { seat: '' }), ValidationError)
+})

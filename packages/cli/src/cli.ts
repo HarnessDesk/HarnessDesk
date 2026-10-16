@@ -192,9 +192,9 @@ export const COMMANDS = [
     exits: { 0: 'Done; a known conversation without a loadout says not recorded.', 1: 'No conversation with that id is recorded (`notFound`).', 2: 'More than one runtime holds that id; choose --runtime (`ambiguous`).' },
   },
   {
-    name: 'run show', tier: 'read', methods: ['flow/execution', 'client/subscribe', 'evidence/board', 'finding/list', 'finding/run'], flags: ['target'], execute: showRun,
+    name: 'run show', tier: 'read', methods: ['flow/execution', 'client/subscribe', 'evidence/board', 'finding/list', 'finding/run', 'goal/read', 'session/loadout', 'attachment/seat'], flags: ['target'], execute: showRun,
     usage: 'run show <run>',
-    description: 'Shows the shared Run timeline: its header, brief, rounds, cards, check results, findings and ending. It keeps attendance and seat overrides. Round lines show answered counts; review rows show recorded publication state. JSON keeps the execution unchanged.',
+    description: 'Shows the shared Run timeline: its header, brief, rounds, cards, check results, findings and ending. It keeps attendance and seat overrides. Round lines show answered counts; review rows show recorded publication state. After the timeline, each Seat shows its latest reported loadout and any allowlist attachment readback, including names not loaded and their reasons. JSON keeps the execution unchanged.',
     arguments: [RUN_ARGUMENT],
     options: [],
     json: "The run exactly as the desk holds it: `id`, `goal` (the Team's id), `state`, `attended`, `rounds`, `reason`, `overrides` and the flow's own `document`.",
@@ -837,22 +837,28 @@ async function startFlow(args: Arguments): Promise<number> {
 
 const LOADOUT_PARTS = ['skills', 'mcp', 'memory', 'agents'] as const
 
+function loadoutSummary(latest: ConversationLoadout, name: typeof LOADOUT_PARTS[number]): string {
+  const part = latest[name]
+  if (!part.reported) return `not reported — ${part.reason}`
+  const sizes = part.items.flatMap(item => item.tokens === null ? [] : [item.tokens])
+  const size = sizes.length ? `${latest.approximate ? '~' : ''}${loadoutTokens(sizes.reduce((sum, one) => sum + one, 0))} tokens${sizes.length < part.items.length || part.more > 0 ? ' reported' : ''}` : null
+  return `${part.items.length + part.more} reported${size ? ` · ${size}` : ''}`
+}
+const loadoutTokens = (value: number): string => value >= 1000 ? `${(value / 1000).toFixed(1).replace(/\.0$/, '')}K` : String(value)
+
 export function printLoadout(records: ConversationLoadouts, name: string, args: { all?: boolean; epochs?: boolean }, seat: { role: string | null; run: string | null } | null = null, stream: NodeJS.WritableStream = process.stdout): void {
   const write = (parts: readonly (string | null | undefined)[]) => stream.write(parts.filter(part => part !== undefined && part !== null).map(part => sanitizeHuman(part!)).join('  ') + '\n')
   const latest = records.epochs.at(-1)
   write([name, records.session, records.seat ? `Seat ${records.seat}` : null, seat?.role ? `role ${seat.role}` : null, seat?.run ? `run ${seat.run}` : null])
   if (!latest) { write(['not recorded']); return }
   write([`epoch ${latest.epoch}`, new Date(latest.observedAt).toISOString()])
-  const tokens = (value: number): string => value >= 1000 ? `${(value / 1000).toFixed(1).replace(/\.0$/, '')}K` : String(value)
   for (const name of LOADOUT_PARTS) {
     const part = latest[name]
-    if (!part.reported) { write([name, `not reported — ${part.reason}`]); continue }
-    const sizes = part.items.flatMap(item => item.tokens === null ? [] : [item.tokens])
-    const size = sizes.length ? `${latest.approximate ? '~' : ''}${tokens(sizes.reduce((sum, one) => sum + one, 0))} tokens${sizes.length < part.items.length || part.more > 0 ? ' reported' : ''}` : null
-    write([name, `${part.items.length + part.more} reported${size ? ` · ${size}` : ''}`])
+    write([name, loadoutSummary(latest, name)])
+    if (!part.reported) continue
     const shown = args.all ? part.items : part.items.slice(0, 20)
     for (const item of shown) write([`  ${item.name}`, item.origin, item.digest?.slice(0, 8) ?? 'no digest',
-      item.tokens === null ? null : `${latest.approximate ? '~' : ''}${tokens(item.tokens)} tokens`, item.pathLabel,
+      item.tokens === null ? null : `${latest.approximate ? '~' : ''}${loadoutTokens(item.tokens)} tokens`, item.pathLabel,
       item.count === null ? null : `${item.count} tools`])
     const more = part.items.length - shown.length + part.more
     if (more) write([`  and ${more} more`])
@@ -918,6 +924,32 @@ async function showRun(args: Arguments): Promise<number> {
     for (const row of timeline.rows) line([row.title, row.status, row.publication?.label, row.detail,
       row.durationMs === null ? null : `${row.durationMs}ms`])
     for (const [role, seats] of Object.entries(run.overrides ?? {})) line([role, 'override', seats.map(seatSpec).join(', ')])
+    const seats = [...new Set(run.operations.flatMap(operation => operation.kind === 'seat' && operation.seat !== null ? [operation.seat] : []))]
+    if (seats.length) {
+      const goal = await client.call('goal/read', { goal: run.goal })
+      for (const id of seats) {
+        const seat = goal.members.find(one => one.id === id) ?? goal.pastMembers?.find(one => one.id === id)
+        line([seat?.role, `Seat ${id}`, seat?.agent?.name ?? client.hello.runtimes.find(one => one.id === seat?.session.runtime)?.name])
+        if (!seat) line(['not recorded'])
+        else {
+          try {
+            const records = await client.call('session/loadout', { runtime: seat.session.runtime as HostParams<'session/loadout'>['runtime'], session: seat.session.sessionId })
+            const latest = records.epochs.at(-1)
+            if (!latest) line(['not recorded'])
+            else for (const part of LOADOUT_PARTS) line([part, loadoutSummary(latest, part)])
+          } catch (error) {
+            if (!(error instanceof WireCallError) || error.code !== 'notFound') throw error
+            line(['not recorded'])
+          }
+        }
+        const attachments = await client.call('attachment/seat', { seat: id as HostParams<'attachment/seat'>['seat'] })
+        if (attachments && (attachments.skillsMode === 'allowlist' || attachments.mcpMode === 'allowlist')) {
+          const missing = attachments.results.filter(one => one.status === 'not-loaded')
+          line([`${attachments.results.filter(one => one.status === 'loaded').length} loaded · ${missing.length} not loaded`])
+          for (const one of missing) line([`  ${one.identity.name}`, one.reason])
+        }
+      }
+    }
     return 0
   } finally { client.close() }
 }

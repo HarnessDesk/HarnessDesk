@@ -1251,3 +1251,6 @@ export class AcpConnection {
 /** Source-file metadata extension; copied in the bridge's session-source-wire.ts. */
 export const ACP_SESSION_SOURCE = '_harnessdesk/session/source'
 export const ACP_SESSION_SOURCE_CAPABILITY = 'sourceTranscript'
+/** Summary-only loadout extension; copied in the bridge's loadout-wire.ts. */
+export const ACP_SESSION_LOADOUT = '_harnessdesk/session/loadout'
+export const ACP_SESSION_LOADOUT_CAPABILITY = 'sessionLoadout'

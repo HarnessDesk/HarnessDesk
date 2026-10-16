@@ -288,12 +288,15 @@ const libraryDesk = async (t: any, entries: readonly object[], definitions: Read
     ws.on('message', raw => {
       const request = JSON.parse(raw.toString()) as { id: number; method: string; params: Record<string, unknown> }
       calls.push({ method: request.method, params: request.params })
-      const result = Object.hasOwn(responses, request.method) ? responses[request.method] : request.method === 'client/hello' ? hello
+      const response = responses[request.method]
+      const result = typeof response === 'function' ? response(request.params) : Object.hasOwn(responses, request.method) ? response : request.method === 'client/hello' ? hello
         : request.method === 'library/read' ? library
           : request.method === 'library/usage' ? usage
             : request.method === 'library/definition' ? definitions[String(request.params['path'])] ?? null
               : null
-      ws.send(JSON.stringify({ id: request.id, ok: true, result }))
+      if (result instanceof WireCallError) ws.send(JSON.stringify({ id: request.id, ok: false, error: { code: result.code, message: result.message } }))
+      else ws.send(JSON.stringify({ id: request.id, ok: true, result }))
+      if (request.method === 'client/subscribe') for (const notification of (responses['baseline'] as object[] ?? [])) ws.send(JSON.stringify(notification))
     })
   }))
   await new Promise<void>(resolve => server.listen(socketPath, resolve))
@@ -544,4 +547,69 @@ test('session show resolves a closed Seat without any current or past Team membe
   assert.equal(human.code, 0, human.stderr)
   assert.match(human.stdout, /Seat seat-demo.*role writer.*run run-demo/)
   assert.doesNotMatch(human.stdout, /\x1b/)
+})
+
+const runLoadoutFixture = () => ({
+  id: 'run-demo', goal: 'team-demo', flow: 'demo', state: 'settled', revision: null, continues: null,
+  startedAt: 0, endedAt: 1000, reason: null, end: null, rounds: [], overrides: {},
+  document: { format: 'legacy', flow: { name: 'Demo', roles: [], rules: [] } },
+  operations: [
+    { kind: 'seat', seat: 'seat-demo' }, { kind: 'seat', seat: 'seat-demo' },
+    { kind: 'turn', seat: 'ignored' }, { kind: 'seat', seat: null },
+    { kind: 'seat', seat: 'seat-missing' }, { kind: 'seat', seat: 'seat-no-record' },
+  ],
+})
+
+test('run show prints each distinct Seat report, closed roster members, allowlist readback and missing records', async t => {
+  const run = runLoadoutFixture()
+  const rig = await libraryDesk(t, [], {}, {}, {
+    'client/subscribe': { baseline: 1 }, baseline: [{ method: 'flow/execution-changed', params: { execution: run } }],
+    'flow/execution': run,
+    'evidence/board': { seats: [], records: [] }, 'finding/list': { rows: [] }, 'finding/run': { run: run.id, goal: run.goal, rounds: [] },
+    'goal/read': { members: [{ id: 'seat-no-record', role: 'helper', agent: null, session: { runtime: 'runtime-b', sessionId: 'no-record' } }],
+      pastMembers: [{ id: 'seat-demo', role: 'writer\x1b[31m', agent: { name: 'Jane Doe\x1b[31m' }, session: { runtime: 'runtime-a', sessionId: 'demo' } }] },
+    'session/loadout': (params: Record<string, unknown>) => params['session'] === 'no-record' ? new WireCallError('notFound', 'No record') : loadoutFixture(),
+    'attachment/seat': (params: Record<string, unknown>) => params['seat'] === 'seat-demo' ? { skillsMode: 'allowlist', mcpMode: 'runtime-defaults', results: [
+      { identity: { name: 'demo' }, status: 'loaded', reason: null },
+      { identity: { name: 'pending\x1b[31m' }, status: 'not-loaded', reason: 'Not approved.\n\x1b]52;c;secret\x07' },
+    ] } : null,
+  })
+  const result = await runCli(t, ['run', 'show', run.id])
+  assert.equal(result.code, 0, result.stderr)
+  assert.match(result.stdout, /writer  Seat seat-demo  Jane Doe/)
+  assert.equal(result.stdout.match(/Seat seat-demo/g)?.length, 1)
+  assert.match(result.stdout, /skills  28 reported · ~3.1K tokens reported/)
+  assert.match(result.stdout, /memory  not reported/)
+  assert.match(result.stdout, /1 loaded · 1 not loaded/)
+  assert.match(result.stdout, /pending  Not approved\./)
+  assert.match(result.stdout, /Seat seat-missing[^\n]*\nnot recorded/)
+  assert.match(result.stdout, /Seat seat-no-record[^\n]*\nnot recorded/)
+  assert.doesNotMatch(result.stdout, /skill-24|[\x00-\x09\x0b-\x1f\x7f-\x9f]|secret|Seat ignored/)
+  assert.deepEqual(rig.calls.filter(call => call.method === 'session/loadout').map(call => call.params), [
+    { runtime: 'runtime-a', session: 'demo' }, { runtime: 'runtime-b', session: 'no-record' },
+  ])
+})
+
+test('run show --json is byte-for-byte the execution and never reads Seat loadouts', async t => {
+  const run = runLoadoutFixture()
+  const rig = await libraryDesk(t, [], {}, {}, { 'flow/execution': run })
+  const result = await runCli(t, ['run', 'show', run.id, '--json'])
+  assert.equal(result.code, 0, result.stderr)
+  assert.equal(result.stdout, JSON.stringify(run) + '\n')
+  assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'flow/execution'])
+})
+
+test('run show labels empty epochs not recorded and retains attachment readback without a roster conversation', async t => {
+  const run = { ...runLoadoutFixture(), operations: [{ kind: 'seat', seat: 'seat-demo' }, { kind: 'seat', seat: 'seat-missing' }] }
+  await libraryDesk(t, [], {}, {}, {
+    'client/subscribe': { baseline: 0 }, 'flow/execution': run,
+    'evidence/board': { seats: [], records: [] }, 'finding/list': { rows: [] }, 'finding/run': { run: run.id, goal: run.goal, rounds: [] },
+    'goal/read': { members: [{ id: 'seat-demo', role: 'writer', agent: null, session: { runtime: 'runtime-a', sessionId: 'demo' } }], pastMembers: [] },
+    'session/loadout': { ...loadoutFixture(), epochs: [] },
+    'attachment/seat': { skillsMode: 'runtime-defaults', mcpMode: 'allowlist', results: [{ identity: { name: 'docs' }, status: 'loaded', reason: null }] },
+  })
+  const result = await runCli(t, ['run', 'show', run.id])
+  assert.equal(result.code, 0, result.stderr)
+  assert.match(result.stdout, /writer  Seat seat-demo  Agent 1\nnot recorded\n1 loaded · 0 not loaded/)
+  assert.match(result.stdout, /Seat seat-missing\nnot recorded\n1 loaded · 0 not loaded/)
 })

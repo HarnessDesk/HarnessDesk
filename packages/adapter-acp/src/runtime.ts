@@ -37,6 +37,7 @@ import {
   type RuntimeHealth,
   type SecretReload,
   type RuntimeInfo,
+  type RuntimeLoadout,
   type RuntimeObservations,
   type CeilingLevel,
   NO_CAPABILITIES,
@@ -98,6 +99,8 @@ import {
   type AcpTasksChanged,
   ACP_SESSION_SOURCE,
   ACP_SESSION_SOURCE_CAPABILITY,
+  ACP_SESSION_LOADOUT,
+  ACP_SESSION_LOADOUT_CAPABILITY,
   ACP_SESSION_DELETE,
   ACP_SESSION_DELETE_CAPABILITY,
   ACP_INSTRUCTIONS_CAPABILITY,
@@ -118,6 +121,7 @@ import { AcpExtensions } from './extensions.js'
 import { resolveExecutable, versionAtLeast, type AcpExecutableSpec, type ResolvedExecutable } from './executable.js'
 import { acknowledgeEnvironment, environmentMeta, environmentSupported } from './lane-environment.js'
 import { CliMcp, type AcpMcpCommands } from './mcp.js'
+import { decodeLoadout, loadoutItem, loadoutPart } from './loadout.js'
 import { AcpTasks } from './tasks.js'
 import { projectToolItem, type ToolItemState } from './tool-items.js'
 
@@ -2190,6 +2194,22 @@ export class AcpRuntime implements AgentRuntime {
     return {
       data: [...matches.values()].sort((a, b) => b.updatedAt - a.updatedAt),
       nextCursor: null,
+    }
+  }
+
+  async loadout(id: SessionId, cwd: string): Promise<RuntimeLoadout> {
+    const declared = this.#initialized?._meta?.['harnessdesk'] as Record<string, unknown> | undefined
+    if (declared?.[ACP_SESSION_LOADOUT_CAPABILITY] === true) {
+      return decodeLoadout(await this.connectionFor(id).request<unknown>(ACP_SESSION_LOADOUT, { sessionId: String(id) }, 10_000))
+    }
+    return {
+      approximate: false, source: 'available commands',
+      skills: this.#commandsKnown
+        ? loadoutPart((await this.listSkills(cwd)).map(one => loadoutItem(one.name)))
+        : { reported: false, reason: 'This agent has not listed its commands yet.', notReady: true },
+      mcp: { reported: false, reason: 'This agent does not report its servers.' },
+      memory: { reported: false, reason: 'This agent does not report its memory files.' },
+      agents: { reported: false, reason: 'This agent does not report its agents.' },
     }
   }
 
