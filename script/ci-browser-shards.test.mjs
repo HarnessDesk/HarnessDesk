@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { spawnSync } from 'node:child_process'
@@ -89,6 +90,31 @@ const runAggregate = (name, env) => {
   assert.ok(block, `${name} must run a conclusive check`)
   return spawnSync('bash', ['-e', '-c', block[1]], { encoding: 'utf8', env: { ...process.env, ...env } })
 }
+
+test('bounded CI for UI changes concludes both required integration checks successfully', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ci-core-'))
+  try {
+    const list = join(directory, 'paths')
+    writeFileSync(list, 'packages/ui/src/App.tsx\0')
+    const selection = spawnSync(process.execPath, ['script/ci-changes.mjs', list], {
+      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: 'pull_request', CI_HEAD_BRANCH: 'feature/ui', CI_LABELS: '[]', UI_IMPACT_MAP: '' },
+    })
+    assert.equal(selection.status, 0, selection.stderr)
+    const plan = Object.fromEntries(selection.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
+    assert.equal(plan.tier, 'bounded')
+    const browser = runAggregate('ui-system-browser-integration', {
+      CI_TIER: plan.tier, BROWSER: plan.browser, CHANGES_RESULT: 'success',
+      BUILD_RESULT: 'skipped', SHARDS_RESULT: 'skipped', SERVER_RESULT: 'skipped',
+    })
+    assert.equal(browser.status, 0, browser.stdout + browser.stderr)
+    const native = runAggregate('ui-system-native-integration', {
+      NATIVE: plan.native, CHANGES_RESULT: 'success', SMOKE_RESULT: 'skipped',
+    })
+    assert.equal(native.status, 0, native.stdout + native.stderr)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
 
 for (const [name, resultKey, flagKey, heavy] of [
   ['ui-system-native-integration', 'SMOKE_RESULT', 'NATIVE', 'ui-system-native'],

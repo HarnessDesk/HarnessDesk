@@ -3482,3 +3482,22 @@ Run plus conversation and card or approval identify the row; repeated snapshots 
 state. Answering or moving past a step clears it, as does ending or wrapping
 the Run. Its destination opens the Team's existing view. Needs you itself keeps
 its current presentation.
+
+## Ordinary pull requests run core CI; integration runs in the full tier — 2026-10-16
+
+Per-PR browser shards competed with batch runs for the account's job cap.
+Every reviewed change lands through a `batch/` pull request that already runs
+full CI, so ordinary pull requests now run core checks only: build, typecheck,
+Node tests and end-to-end, UI unit tests, UI tests and gates. Browser shards,
+server-facing browser specs and native smoke run in the full tier: main pushes,
+`batch/` heads, `full-ci` pull requests and manual dispatches.
+
+The override lives at the `ci-changes.mjs` CLI output boundary. The shared
+`planChange` and browser selection stay intact for local `check:push`, including
+the impact map, reached and edited specs, PR matrix and duration table. Bounded
+CI reports that local spec selection and reuses the existing intentional-skip
+path for its required integration checks. Core CI, local selected specs and
+the batch's full run together cover a change; ordinary green alone cannot land.
+
+**Rule:** keep per-PR browser feedback local, and require full-tier evidence
+before landing.

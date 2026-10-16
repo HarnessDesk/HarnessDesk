@@ -257,6 +257,18 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     headBranch: process.env.CI_HEAD_BRANCH ?? '', labels: JSON.parse(process.env.CI_LABELS || '[]'),
     map: mapFile ? readMap(mapFile) : null,
   })
+  // CI alone defers integration to the full tier. check-push imports planChange
+  // directly and still runs the local selection, including edited/reached specs.
+  if (plan.tier === 'bounded') {
+    const localSpecs = plan.browser === 'all'
+      ? plan.browser_specs === 'all' ? specFiles(root).map(spec => `e2e/ui-system/${spec}`) : JSON.parse(plan.browser_specs)
+      : plan.browser === 'server' ? JSON.parse(plan.server_specs) : []
+    Object.assign(plan, {
+      browser: 'none', native: false, browser_specs: '[]', shard_count: 0, shards: '[1]', record: false,
+      summary: 'CI tier: bounded. Core CI only. Browser suite and native smoke run in the full tier (batch/ or full-ci). '
+        + `Local check-push specs: ${localSpecs.length ? localSpecs.map(oneLine).join(', ') : 'none'}.`,
+    })
+  }
   process.stdout.write([
     `browser=${plan.browser}`, `native=${plan.native}`, `server_specs=${plan.server_specs}`,
     `browser_specs=${plan.browser_specs}`, `matrix=${plan.matrix}`, `shard_count=${plan.shard_count}`, `shards=${plan.shards}`, `record=${plan.record}`,
