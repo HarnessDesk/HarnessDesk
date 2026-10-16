@@ -1,3 +1,4 @@
+import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
 import type { ClientTier, ClientTopic, FlowExecutionSummary } from './client-surface.js'
@@ -1348,6 +1349,10 @@ export interface HostMethods {
   'backup/import': {
     params: { readonly backup: unknown }
     result: BackupReport
+  }
+  'session/loadout': {
+    params: { readonly session: string; readonly runtime?: RuntimeId }
+    result: ConversationLoadouts
   }
   'session/read': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }

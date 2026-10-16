@@ -409,6 +409,17 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-active` | `rgba(9, 12, 17, 0.09)` |
 | `--hd-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
 
+### Diff grounds
+
+Diff rows sit inside the darker code fill. Resolve their state washes against the page as opaque colours so a gutter does not composite the same alpha twice, and each state's ink keeps its AA pairing.
+
+| token | value |
+| --- | --- |
+| `--hd-code-add-fill` | `color-mix(in srgb, rgb(65, 189, 111) 12%, rgb(255, 255, 255))` |
+| `--hd-code-remove-fill` | `color-mix(in srgb, rgb(228, 68, 62) 12%, rgb(255, 255, 255))` |
+| `--hd-code-add-word-fill` | `color-mix(in srgb, rgb(65, 189, 111) 28%, rgb(255, 255, 255))` |
+| `--hd-code-remove-word-fill` | `color-mix(in srgb, rgb(228, 68, 62) 28%, rgb(255, 255, 255))` |
+
 ### Density scopes
 
 A page-sized decision about how big a control is, named so a component can opt into it without redefining a system token in its own stylesheet. `[data-hd-density='comfortable']` is the settings and usage window: every control inside it stands at 36px instead of the app's working 26px, because those are pages a person reads rather than works in. The rule lives at the foot of this file, because it has to be a selector rather than a value.
@@ -437,7 +448,11 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 | --- | --- |
 | `--hd-nav-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-nav-h-group` | `calc(20px + 4px * 2 + 2px)` |
-| `--hd-left-row-h` | `32px` |
+| `--hd-sidebar-highlight-h` | `32px` |
+| `--hd-sidebar-row-pitch` | `calc(32px + 2px)` |
+| `--hd-sidebar-group-space` | `20px` |
+| `--hd-bar-h-lg` | `48px` |
+| `--hd-left-row-h` | `calc(32px + 2px)` |
 | `--hd-left-row-gap` | `0px` |
 | `--hd-left-menu-gap` | `8px` |
 | `--hd-frame-icon-button` | `28px` |
@@ -534,7 +549,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-card-fill` | `` |
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
-| `--hd-left-row-h` | `32px` |
+| `--hd-left-row-h` | `calc(32px + 2px)` |
 | `--hd-left-row-gap` | `0px` |
 | `--hd-left-menu-gap` | `8px` |
 | `--hd-nav-radius` | `10px` |
@@ -1729,7 +1744,7 @@ absent in Settings. Its compact cells use the shared switcher appearance.
 
 `packages/ui/src/design/patterns/LeftColumn.tsx`
 
-The account row closes the column without a separator hairline above it.
+A quiet account row closes the column beneath a full-width hairline.
 
 ### `LeftColumnExplorerHead`
 
@@ -2585,4 +2600,4 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 20 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2092 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2089 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |

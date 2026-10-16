@@ -1,3 +1,4 @@
+import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
 import { readKeptTranscriptFile } from './kept-transcript.js'
 import { Storage } from './storage.js'
 import { SessionWorktrees } from './session-worktrees.js'
@@ -727,6 +728,9 @@ export class Host {
   #removalSweepWork: Promise<void> | null = null
   readonly #indexTimers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #indexTeams = new Map<string, string>()
+  /** Agent-reported composition lives beside the transcript, with its own retention. */
+  readonly #loadoutStore: LoadoutStore
+  readonly #loadouts: LoadoutRecorder
   /** The transcript as the host watched it, for reads the backend returns thin. */
   readonly #transcripts: TranscriptStore
   #librarySources: LibrarySources | null = null
@@ -984,6 +988,11 @@ export class Host {
       )
     })
     this.#gateways = new GatewaySupervisor(this.#logger.child('gateway'))
+    this.#loadoutStore = new LoadoutStore(join(this.#state.directory, 'loadouts'))
+    this.#loadouts = new LoadoutRecorder(this.#loadoutStore, {
+      home: options.libraryHome ?? homedir(),
+      log: (message, error) => this.#logger.warn(message, { error: String(error) }),
+    })
     this.#audit = new AuditLog(join(this.#state.directory, 'audit.ndjson'))
     this.#transcripts = new TranscriptStore(join(this.#state.directory, 'transcripts'), (message, details) =>
       this.#logger.warn(message, details),
@@ -1942,6 +1951,7 @@ export class Host {
             role: input.role,
           })
           this.#seating.delete(sessionKey(opened.runtime, opened.sessionId))
+          this.#observeLoadout(this.#runtime({ runtime: opened.runtime }), makeSessionId(opened.sessionId), cwd)
           await this.#team.joinRoom(goal.id, opened.runtime as RuntimeId, opened.sessionId, {
             title: input.title,
             agent: this.#runtime({ runtime: opened.runtime }).info.presentation.name,
@@ -2289,7 +2299,9 @@ export class Host {
             if (held) {
               const live = result as AgentSession
               if (!held.has(live.id)) {
-                this.#attach(managed, live.id, live)
+                // Registration here precedes the caller's Seat hold. The
+                // caller's explicit attach/keep starts its loadout observation.
+                this.#attach(managed, live.id, live, false)
                 this.#sessionIndex.promote(id, live.id)
               }
             }
@@ -3240,6 +3252,7 @@ export class Host {
     this.#runtimeSubscriptions.clear()
     await this.#terminals.dispose()
     clearTimeout(this.#removalSweep)
+    await this.#loadouts.close()
     await this.#transcripts.flush()
     await this.#removalSweepWork
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
@@ -4584,6 +4597,23 @@ export class Host {
         start: (runtime) => this.#startOne(runtime),
         bindUsage: (runtime, binding) => this.bindUsage(runtime, binding),
       },
+      loadouts: {
+        observe: (runtime, session, cwd) => this.#observeLoadout(runtime, session, cwd),
+        read: async (session, selected) => {
+          const id = makeSessionId(session)
+          const candidates = new Set(await this.#loadoutStore.runtimes(id))
+          for (const runtime of this.#runtimes.values()) {
+            if (this.registry.get(runtime.info.id, id) || this.#sessionIndex.get(runtime.info.id, id)) candidates.add(runtime.info.id)
+          }
+          const matches = selected ? [...candidates].filter(id => id === selected) : [...candidates]
+          if (matches.length === 0) throw Object.assign(new Error(`No conversation ${JSON.stringify(session)} is recorded.`), { wireCode: 'notFound' })
+          if (matches.length > 1) throw Object.assign(new Error(`Conversation ${JSON.stringify(session)} is held by ${matches.sort().join(' and ')}; choose --runtime.`), { wireCode: 'ambiguous' })
+          const runtime = matches[0]!
+          const epochs = await this.#loadoutStore.history(runtime, id)
+          return { session: id, runtime, seat: epochs.at(-1)?.seat ?? this.#evidence.seats.latestKeptOf(runtime, id)?.id ?? null, epochs }
+        },
+        forget: (runtime, session) => this.#loadouts.forget(runtime, session),
+      },
       sessions: {
         assertDispatchable: (params) => this.#assertDispatchable(params),
         dispatch: (params, work) => this.#dispatch(params, work),
@@ -4623,6 +4653,7 @@ export class Host {
           // Kept: the seating's hold ends, and the conversation is the Agent's (`#seating`).
           this.#seating.delete(sessionKey(runtime, sessionId))
           const record = this.registry.seatAs(runtime as RuntimeId, makeSessionId(sessionId), seated)
+          this.#observeLoadout(this.#runtime({ runtime }), makeSessionId(sessionId), record.session.cwd)
           // Every window holding this conversation learns it, not only the one that asked.
           if (record.session.settings) {
             this.#push({
@@ -6449,6 +6480,8 @@ export class Host {
     this.#recordSessionIndex(record.session, true)
     if (reopened && !removed) await this.#finishReopen(runtime, live, reopened)
     if (reopened) this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
+    this.#loadoutHandles.delete(live)
+    this.#observeLoadout(runtime, id, record.session.cwd)
     this.#logger.info('reopened a conversation whose agent had restarted', {
       runtime: runtime.info.id,
       session: String(id),
@@ -7481,13 +7514,27 @@ export class Host {
     }
   }
 
-  #attach(runtime: AgentRuntime, id: Session['id'], live: Awaited<ReturnType<AgentRuntime['createSession']>>) {
+  readonly #loadoutHandles = new WeakSet<AgentSession>()
+
+  #observeLoadout(runtime: AgentRuntime, id: SessionId, cwd: string): void {
+    // A Seat is registered before it is kept. Its single observation starts
+    // when that hold ends, so even an immediate runtime reply carries its Seat id.
+    if (this.#disposed || this.#seating.has(sessionKey(runtime.info.id, id))) return
+    const live = this.registry.get(runtime.info.id, id)?.live
+    if (!live || this.#loadoutHandles.has(live)) return
+    this.#loadoutHandles.add(live)
+    this.#loadouts.observe(runtime, id, cwd, () => this.#evidence.seats.latestKeptOf(runtime.info.id, id)?.id ?? null)
+  }
+
+  #attach(runtime: AgentRuntime, id: Session['id'], live: Awaited<ReturnType<AgentRuntime['createSession']>>, observe = true) {
     this.#sessionIndex.admitCreated(runtime.info.id, id)
     const existing = this.registry.get(runtime.info.id, id)
     if (existing) {
+      if (existing.live !== live) this.#loadoutHandles.delete(live)
       existing.live = live
       this.#recordSessionIndex(existing.session, true)
       this.#sessionIndex.opened(runtime.info.id, id)
+      if (observe) this.#observeLoadout(runtime, id, existing.session.cwd)
       return existing.session
     }
     // `session/started` normally arrives first and seeds the registry; this is
@@ -7507,6 +7554,7 @@ export class Host {
     const session = this.registry.upsert(seeded, live).session
     this.#recordSessionIndex(session, true)
     this.#sessionIndex.opened(runtime.info.id, id)
+    if (observe) this.#observeLoadout(runtime, id, session.cwd)
     return session
   }
 
@@ -7740,6 +7788,7 @@ export class Host {
     // only, and only when someone could be looking. Cheaper and fresher than
     // any interval.
     if (event.type === 'turn/completed') {
+      this.#loadouts.turnCompleted(runtime, event.sessionId)
       void this.#usageService.refresh(runtime).catch(() => undefined)
     }
     this.#push({ method: 'event', params: { runtime, event: outgoing } })

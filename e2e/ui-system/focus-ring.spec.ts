@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { mountFocusFixture, ringOf } from './focus-ring-fixture'
+import { revealPreviewConversation } from './sidebar-preview-actions'
 
 for (const theme of ['light', 'dark'] as const) {
   test.describe(theme, () => {
@@ -49,7 +50,7 @@ for (const theme of ['light', 'dark'] as const) {
       await mountFocusFixture(page)
       const label = 'Pin the flaky inventory test after reconciling every retry branch'
       const sidebar = page.locator('[data-frame-id="sidebar-column"]')
-      const row = sidebar.locator('[data-region="session-row"] [data-left-row]').filter({ has: page.getByRole('button', { name: `Actions for ${label}`, exact: true, includeHidden: true }) }).locator('[data-slot="sidebar-menu-button"]')
+      const row = await revealPreviewConversation(sidebar, label)
       await row.hover()
       await sidebar.getByRole('button', { name: `Actions for ${label}`, exact: true }).click()
       await expect(page.getByRole('menu')).toBeVisible()

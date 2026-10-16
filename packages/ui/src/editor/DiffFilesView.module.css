@@ -1,0 +1,25 @@
+.files { min-width: 0; }
+.toolbar {
+  display: flex;
+  align-items: center;
+  padding: var(--hd-space-1) var(--hd-space-2);
+}
+.list {
+  padding: var(--hd-space-2);
+  border-bottom: 1px solid var(--hd-border);
+}
+.path {
+  justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.list .path { display: flex; }
+.counts {
+  white-space: nowrap;
+  font-size: var(--hd-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.add { color: var(--hd-success-ink); }
+.remove { color: var(--hd-danger-ink); }

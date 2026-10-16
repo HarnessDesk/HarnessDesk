@@ -1,3 +1,12 @@
+/* Row pitch includes air above and below its unchanged highlight. */
+[data-slot="sidebar-menu-item"] {
+  padding-block: calc((var(--hd-sidebar-row-pitch) - var(--hd-sidebar-highlight-h)) / 2);
+}
+[data-slot="sidebar-menu-item"] > [data-slot="sidebar-menu-button"] {
+  height: var(--hd-sidebar-highlight-h);
+  min-height: var(--hd-sidebar-highlight-h);
+}
+
 /* Every row resets its own state: a nested list never inherits a parent's hover. */
 [data-slot="sidebar-menu-item"] {
   container: sidebar-row / inline-size;

@@ -1507,7 +1507,6 @@ test('sourceOf names and stats a synthetic rollout without reading its body', as
   assert.equal(await sourceOf(sessionId('../escape')), null)
 })
 
-
 test('per-thread reads report archive authority even when a listing omits the thread', async t => {
   const { mkdtemp, rm } = await import('node:fs/promises')
   const { join } = await import('node:path')
@@ -1521,3 +1520,82 @@ test('per-thread reads report archive authority even when a listing omits the th
   await runtime.archiveSession(live.id, true)
   assert.equal((await runtime.readSession(live.id)).archived, true)
 })
+
+test('loadout reads the live skills and server catalogues, with unknown sizes and unreported memory', async t => {
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const live = await runtime.createSession({ cwd: '/home/jane/project' })
+  assert.equal(typeof (runtime as unknown as { loadout?: unknown }).loadout, 'function')
+  const report = await runtime.loadout(live.id, '/home/jane/project')
+  assert.ok(report.skills.reported)
+  assert.ok(report.mcp.reported)
+  assert.equal(report.skills.reported, true)
+  assert.equal(report.skills.items.find((item) => item.name === 'review-checklist')!.origin, 'repo')
+  assert.equal(report.skills.items[0]!.tokens, null)
+  assert.equal(report.mcp.reported, true)
+  assert.equal(report.mcp.items.find((item) => item.name === 'github')!.count, 2)
+  assert.deepEqual(report.memory, { reported: false, reason: 'This agent does not report its memory files.' })
+  assert.deepEqual(report.agents, { reported: false, reason: 'This agent does not report its agents.' })
+})
+
+test('loadout keeps an answered empty list separate from each failed catalogue read', async t => {
+  const runtime = makeRuntime({ FAKE_CODEX_LOADOUT_SKILLS: 'empty', FAKE_CODEX_LOADOUT_MCP: 'fail' })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const live = await runtime.createSession({ cwd: '/home/jane/project' })
+  const report = await runtime.loadout(live.id, '/home/jane/project')
+  assert.deepEqual(report.skills, { reported: true, items: [], more: 0 })
+  assert.deepEqual(report.mcp, { reported: false, reason: 'Server catalogue unavailable.' })
+})
+
+test('loadout does not turn a failed skill read into none or reuse an idle catalogue', async t => {
+  const runtime = makeRuntime({ FAKE_CODEX_LOADOUT_SKILLS: 'fail' })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const live = await runtime.createSession({ cwd: '/home/jane/project' })
+  const report = await runtime.loadout(live.id, '/home/jane/project')
+  assert.deepEqual(report.skills, { reported: false, reason: 'Skills catalogue unavailable.' })
+  await live.close()
+  assert.equal(await runtime.stopForIdle(), true)
+  await assert.rejects(runtime.loadout(live.id, '/home/jane/project'), /not ready/)
+})
+
+test('loadout reads each live thread native server selection, including defaults and empty selections', async t => {
+  const previous = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.160.0'
+  t.after(() => { if (previous === undefined) delete process.env['FAKE_CODEX_VERSION']; else process.env['FAKE_CODEX_VERSION'] = previous })
+  const runtime = makeRuntime({ FAKE_CODEX_VERSION: '0.160.0', FAKE_CODEX_LOADOUT_MCP: 'thread', FAKE_CODEX_NATIVE_SERVERS: '["docs","simulator"]' })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const defaults = await runtime.createSession({ cwd: '/home/jane/project' })
+  const selected = await runtime.createSession({ cwd: '/home/jane/project', runtimeServers: ['docs'] })
+  const empty = await runtime.createSession({ cwd: '/home/jane/project', runtimeServers: [] })
+  for (const [live, names] of [[selected, ['docs']], [empty, []], [defaults, ['docs', 'simulator']]] as const) {
+    const report = await runtime.loadout(live.id, '/home/jane/project')
+    assert.ok(report.mcp.reported)
+    assert.deepEqual(report.mcp.items.map(item => item.name), names)
+  }
+})
+
+test('loadout follows MCP pages and counts servers beyond its item cap', async t => {
+  const runtime = makeRuntime({ FAKE_CODEX_LOADOUT_MCP: 'pages' })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const live = await runtime.createSession({ cwd: '/home/jane/project' })
+  const report = await runtime.loadout(live.id, '/home/jane/project')
+  assert.ok(report.mcp.reported)
+  assert.equal(report.mcp.items.length, 500)
+  assert.equal(report.mcp.items[499]!.name, 'server-499')
+  assert.equal(report.mcp.more, 2)
+})
+
+for (const [mode, reason] of [['page-failure', 'Next server page unavailable.'], ['cursor-loop', 'The agent repeated an MCP server page cursor.']]) {
+  test(`loadout does not claim a complete MCP report after ${mode}`, async t => {
+    const runtime = makeRuntime({ FAKE_CODEX_LOADOUT_MCP: mode! })
+    t.after(() => runtime.dispose())
+    await runtime.start()
+    const live = await runtime.createSession({ cwd: '/home/jane/project' })
+    assert.deepEqual((await runtime.loadout(live.id, '/home/jane/project')).mcp, { reported: false, reason })
+  })
+}

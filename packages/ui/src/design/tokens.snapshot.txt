@@ -8,6 +8,7 @@
 --hd-bar-divider-h = 14px
 --hd-bar-gap = 6px
 --hd-bar-h = 40px
+--hd-bar-h-lg = 48px
 --hd-bar-ink = calc(8px + 8px + 1px)
 --hd-bar-pad = 12px
 --hd-bar-title-max = 320px
@@ -63,6 +64,7 @@
 --hd-chip-radius-sm = calc(6px * 5 / 6)
 --hd-code-active-line = rgba(0, 0, 0, 0.035)
 --hd-code-add-fill = color-mix(in srgb, rgb(65, 189, 111) 12%, rgb(255, 255, 255))
+--hd-code-add-word-fill = color-mix(in srgb, rgb(65, 189, 111) 28%, rgb(255, 255, 255))
 --hd-code-comment = rgb(110, 119, 129)
 --hd-code-constant = rgb(0, 92, 197)
 --hd-code-cursor = rgb(36, 41, 47)
@@ -89,6 +91,7 @@
 --hd-code-punctuation = rgb(89, 96, 105)
 --hd-code-radius = 10px
 --hd-code-remove-fill = color-mix(in srgb, rgb(228, 68, 62) 12%, rgb(255, 255, 255))
+--hd-code-remove-word-fill = color-mix(in srgb, rgb(228, 68, 62) 28%, rgb(255, 255, 255))
 --hd-code-search-match = rgba(255, 191, 0, 0.4)
 --hd-code-selection = rgba(0, 92, 197, 0.18)
 --hd-code-string = rgb(23, 110, 62)
@@ -200,7 +203,7 @@
 --hd-label-weight = 400
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
---hd-left-row-h = 32px
+--hd-left-row-h = calc(32px + 2px)
 --hd-line = 20px
 --hd-line-display = 40px
 --hd-line-heading = 28px
@@ -288,9 +291,12 @@
 --hd-sidebar-end-triple-action-step = calc(calc(24px + 24px) + 24px)
 --hd-sidebar-end-window-inset = calc(32px - 24px / 2 - 20px)
 --hd-sidebar-foreground = rgb(27, 27, 27)
+--hd-sidebar-group-space = 20px
+--hd-sidebar-highlight-h = 32px
 --hd-sidebar-hover = rgba(9, 12, 17, 0.05)
 --hd-sidebar-muted-foreground = rgb(71, 71, 71)
 --hd-sidebar-plate = rgb(249, 249, 249)
+--hd-sidebar-row-pitch = calc(32px + 2px)
 --hd-sidebar-selected = color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)
 --hd-sidebar-start-inset = 8px
 --hd-sidebar-width = 256px
@@ -583,6 +589,7 @@
 --hd-bar-divider-h = 14px
 --hd-bar-gap = 6px
 --hd-bar-h = 40px
+--hd-bar-h-lg = 48px
 --hd-bar-ink = calc(8px + 8px + 1px)
 --hd-bar-pad = 12px
 --hd-bar-title-max = 320px
@@ -638,6 +645,7 @@
 --hd-chip-radius-sm = calc(6px * 5 / 6)
 --hd-code-active-line = rgba(255, 255, 255, 0.045)
 --hd-code-add-fill = color-mix(in srgb, rgb(65, 189, 111) 12%, rgb(24, 24, 24))
+--hd-code-add-word-fill = color-mix(in srgb, rgb(65, 189, 111) 28%, rgb(24, 24, 24))
 --hd-code-comment = rgb(139, 148, 158)
 --hd-code-constant = rgb(121, 192, 255)
 --hd-code-cursor = rgb(201, 209, 217)
@@ -664,6 +672,7 @@
 --hd-code-punctuation = rgb(139, 148, 158)
 --hd-code-radius = 10px
 --hd-code-remove-fill = color-mix(in srgb, rgb(228, 68, 62) 12%, rgb(24, 24, 24))
+--hd-code-remove-word-fill = color-mix(in srgb, rgb(228, 68, 62) 28%, rgb(24, 24, 24))
 --hd-code-search-match = rgba(255, 191, 0, 0.32)
 --hd-code-selection = rgba(56, 139, 253, 0.32)
 --hd-code-string = rgb(126, 231, 135)
@@ -775,7 +784,7 @@
 --hd-label-weight = 400
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
---hd-left-row-h = 32px
+--hd-left-row-h = calc(32px + 2px)
 --hd-line = 20px
 --hd-line-display = 40px
 --hd-line-heading = 28px
@@ -863,9 +872,12 @@
 --hd-sidebar-end-triple-action-step = calc(calc(24px + 24px) + 24px)
 --hd-sidebar-end-window-inset = calc(32px - 24px / 2 - 20px)
 --hd-sidebar-foreground = rgb(231, 231, 231)
+--hd-sidebar-group-space = 20px
+--hd-sidebar-highlight-h = 32px
 --hd-sidebar-hover = rgba(255, 255, 255, 0.07)
 --hd-sidebar-muted-foreground = rgb(177, 177, 177)
 --hd-sidebar-plate = rgb(41, 41, 41)
+--hd-sidebar-row-pitch = calc(32px + 2px)
 --hd-sidebar-selected = color-mix(in srgb, rgb(231, 231, 231) 12%, transparent)
 --hd-sidebar-start-inset = 8px
 --hd-sidebar-width = 256px
@@ -1158,6 +1170,7 @@
 --hd-bar-divider-h = 14px
 --hd-bar-gap = 6px
 --hd-bar-h = 40px
+--hd-bar-h-lg = 48px
 --hd-bar-ink = calc(8px + 10px + 1px)
 --hd-bar-pad = 12px
 --hd-bar-title-max = 320px
@@ -1217,6 +1230,7 @@
 --hd-chip-radius-sm = calc(6px * 5 / 6)
 --hd-code-active-line = rgba(0, 0, 0, 0.035)
 --hd-code-add-fill = color-mix(in srgb, rgb(65, 189, 111) 12%, rgb(255, 255, 255))
+--hd-code-add-word-fill = color-mix(in srgb, rgb(65, 189, 111) 28%, rgb(255, 255, 255))
 --hd-code-comment = rgb(110, 119, 129)
 --hd-code-constant = rgb(0, 92, 197)
 --hd-code-cursor = rgb(36, 41, 47)
@@ -1243,6 +1257,7 @@
 --hd-code-punctuation = rgb(89, 96, 105)
 --hd-code-radius = 10px
 --hd-code-remove-fill = color-mix(in srgb, rgb(228, 68, 62) 12%, rgb(255, 255, 255))
+--hd-code-remove-word-fill = color-mix(in srgb, rgb(228, 68, 62) 28%, rgb(255, 255, 255))
 --hd-code-search-match = rgba(255, 191, 0, 0.4)
 --hd-code-selection = rgba(0, 92, 197, 0.18)
 --hd-code-string = rgb(23, 110, 62)
@@ -1356,7 +1371,7 @@
 --hd-label-weight = 400
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
---hd-left-row-h = 32px
+--hd-left-row-h = calc(32px + 2px)
 --hd-line = 20px
 --hd-line-display = 40px
 --hd-line-heading = 28px
@@ -1445,9 +1460,12 @@
 --hd-sidebar-end-triple-action-step = calc(calc(24px + 24px) + 24px)
 --hd-sidebar-end-window-inset = calc(32px - 24px / 2 - 20px)
 --hd-sidebar-foreground = rgb(27, 27, 27)
+--hd-sidebar-group-space = 20px
+--hd-sidebar-highlight-h = 32px
 --hd-sidebar-hover = rgba(9, 12, 17, 0.05)
 --hd-sidebar-muted-foreground = rgb(71, 71, 71)
 --hd-sidebar-plate = rgb(249, 249, 249)
+--hd-sidebar-row-pitch = calc(32px + 2px)
 --hd-sidebar-selected = rgb(27, 27, 27)
 --hd-sidebar-selected-foreground = rgb(255, 255, 255)
 --hd-sidebar-selected-muted-foreground = color-mix( in srgb, rgb(255, 255, 255) 86%, transparent )
@@ -1742,6 +1760,7 @@
 --hd-bar-divider-h = 14px
 --hd-bar-gap = 6px
 --hd-bar-h = 40px
+--hd-bar-h-lg = 48px
 --hd-bar-ink = calc(8px + 10px + 1px)
 --hd-bar-pad = 12px
 --hd-bar-title-max = 320px
@@ -1801,6 +1820,7 @@
 --hd-chip-radius-sm = calc(6px * 5 / 6)
 --hd-code-active-line = rgba(255, 255, 255, 0.045)
 --hd-code-add-fill = color-mix(in srgb, rgb(65, 189, 111) 12%, rgb(24, 24, 24))
+--hd-code-add-word-fill = color-mix(in srgb, rgb(65, 189, 111) 28%, rgb(24, 24, 24))
 --hd-code-comment = rgb(139, 148, 158)
 --hd-code-constant = rgb(121, 192, 255)
 --hd-code-cursor = rgb(201, 209, 217)
@@ -1827,6 +1847,7 @@
 --hd-code-punctuation = rgb(139, 148, 158)
 --hd-code-radius = 10px
 --hd-code-remove-fill = color-mix(in srgb, rgb(228, 68, 62) 12%, rgb(24, 24, 24))
+--hd-code-remove-word-fill = color-mix(in srgb, rgb(228, 68, 62) 28%, rgb(24, 24, 24))
 --hd-code-search-match = rgba(255, 191, 0, 0.32)
 --hd-code-selection = rgba(56, 139, 253, 0.32)
 --hd-code-string = rgb(126, 231, 135)
@@ -1940,7 +1961,7 @@
 --hd-label-weight = 400
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
---hd-left-row-h = 32px
+--hd-left-row-h = calc(32px + 2px)
 --hd-line = 20px
 --hd-line-display = 40px
 --hd-line-heading = 28px
@@ -2029,9 +2050,12 @@
 --hd-sidebar-end-triple-action-step = calc(calc(24px + 24px) + 24px)
 --hd-sidebar-end-window-inset = calc(32px - 24px / 2 - 20px)
 --hd-sidebar-foreground = rgb(231, 231, 231)
+--hd-sidebar-group-space = 20px
+--hd-sidebar-highlight-h = 32px
 --hd-sidebar-hover = rgba(255, 255, 255, 0.07)
 --hd-sidebar-muted-foreground = rgb(177, 177, 177)
 --hd-sidebar-plate = rgb(41, 41, 41)
+--hd-sidebar-row-pitch = calc(32px + 2px)
 --hd-sidebar-selected = rgb(231, 231, 231)
 --hd-sidebar-selected-foreground = rgb(49, 49, 49)
 --hd-sidebar-selected-muted-foreground = color-mix( in srgb, rgb(49, 49, 49) 86%, transparent )

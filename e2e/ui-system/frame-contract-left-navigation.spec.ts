@@ -32,7 +32,7 @@ for (const theme of WALL_THEMES) {
       expect(row.slots).toBe(1)
     }
     const seat = column.locator('[data-left-seat]')
-    expect((await seat.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+    expect((await seat.locator('..').boundingBox())!.height).toBe(FRAME.sidebar.footerHeight)
     await expect(seat.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-pressed', 'false')
     const start = column.getByRole('button', { name: 'New session', exact: true })
     await expect(start.locator('..').locator('[data-left-trailing] button')).toHaveCount(1)

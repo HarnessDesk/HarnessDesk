@@ -87,7 +87,7 @@ export const CeilingUpdate = ({ entry, onClose }: { readonly entry: AgentEntry; 
       {shown && (
         <div className="space-y-2">
           <CodeText>{shown.path}</CodeText>
-          <DiffView diff={shown.diff} wrap />
+          <DiffView diff={shown.diff} />
         </div>
       )}
     </Dialog>

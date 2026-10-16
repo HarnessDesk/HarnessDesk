@@ -7,6 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Diffs show the changed words.** Long lines wrap by default, modified words
+  carry a stronger tint, and the view-options menu remembers wrapping, word
+  highlighting, whitespace filtering and multi-file navigation choices.
+
 - **Faces are round.** Agents, Team members, senders in a chat and your own
   seat are now drawn as filled circles, so a Teams card with four agents shows
   four faces instead of a strip of cropped squares, and someone no longer looks

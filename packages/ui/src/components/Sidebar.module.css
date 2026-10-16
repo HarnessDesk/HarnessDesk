@@ -1,8 +1,4 @@
 /* The sidebar owns only placement. Visible roles come from the design system. */
-.groupChevron,
-.accountMeta {
-  flex: none;
-}
 
 
 .accountRow {
@@ -34,9 +30,4 @@
 
 .accountLabel {
   min-width: 0;
-}
-
-.seatTrigger {
-  flex: none;
-  display: flex;
 }

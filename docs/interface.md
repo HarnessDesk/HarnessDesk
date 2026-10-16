@@ -52,6 +52,20 @@ then carries a badge for the number of views waiting there. A split that would
 leave either half below its minimum size stays disabled and tells you the size
 it needs and the size this panel has.
 
+### Reading changes
+
+Diffs wrap by default in the side pane and at full width. Modified lines keep
+their red/green ground and emphasize changed words with a stronger band on
+both sides. Line numbers, file paths and `+N −N` counts remain visible.
+The diff header's **View options** (⋮) menu saves **Word wrap** (on),
+**Highlight changed words** (on), and **Hide whitespace changes** (off) as
+personal preferences. Whitespace hiding omits paired lines that differ only
+in whitespace without renumbering the remaining lines. Multi-file patches
+also offer **Collapse all files**, **Expand all files**, **Show files** (on)
+and **Group files by folder** (off); hiding the file list keeps the patch's
+individual file headings and counts. The patch reader currently uses unified
+rows; it has no side-by-side mode.
+
 ### Editor mode
 
 A conversation's files have their own window mode. The two icon buttons at
@@ -298,22 +312,21 @@ a **Filtered** chip stays beside Projects and its × clears the query, so a
 short result list cannot read as missing data. The title, list filter and
 conversation history all remain in the same sidebar column.
 
-**State belongs to the row.** A running conversation wears a small neutral
-spinner, still under reduced motion; its hover names the activity read from the
-turn's latest item — Planning, Editing, Testing, Running or Thinking. A conversation waiting for an approval,
+**State belongs to the row.** A running conversation names its activity on hover — Planning, Editing, Testing,
+Running or Thinking — and leaves the trailing slot quiet. Only Needs you and
+an error draw a trailing mark; branch, worktree and pin facts stay on hover. A conversation waiting for an approval,
 a held queue or an answer says **Needs you** beside its own title. Neither state
 moves it into a separate band. Stored conversations say when they last ran on
 hover instead.
 
 **One row per Team.** Each active Team sits inside its project, one indent step
-beside the project's loose conversations. A running Team wears the same neutral
-spinner; **Needs you** is its only state label. Its Seats fold underneath,
+beside the project's loose conversations. A running Team names its activity on hover; **Needs you** is its only state mark. Its Seats fold underneath,
 collapsed initially and one further indent step in; the chevron reveals them without opening the Team.
 A Seat conversation stays under its Team, including when pinned or waiting.
 Opening a Seat conversation elsewhere reveals its project and Team, including
 when the Seat works in another checkout. A later deliberate fold stays folded
-until another conversation activation. Unread output does not hide a Team's
-running spinner; Needs you takes precedence over it.
+until another conversation activation. Unread output and running activity stay
+on hover; Needs you draws the attention dot.
 Wrapped Teams and their conversations leave the sidebar and remain on **Teams**.
 
 **Pinned** is a plain section above the projects, shown only when it has loose
@@ -325,8 +338,12 @@ counts include only loose conversations still shown there.
 The sidebar lists conversations started or continued in HarnessDesk. It reads
 the desk's local index, fifty at a time, and loads another page on reaching the
 end. An agent filter pages that agent's accounts, and **Load more conversations**
-also reaches the next page when the rows do not fill the column. Each project shows its first ten conversations with **Show more** below;
-project folds are remembered. Team conversations live under their Team's row.
+also reaches the next page when the rows do not fill the column. Each project
+shows up to five rows, counting Teams and loose conversations together.
+**Show more** expands the whole list and **Show less** folds it again; if the
+selected row falls outside the first five, it replaces the fifth. This expansion
+lasts for the UI session; project group folds are remembered. Pinned rows are
+uncapped. Team conversations live under their Team's row.
 
 Clones with the same remote and linked worktrees share one project. A checkout
 you opened leads; among several, the one worked in first keeps the name.
@@ -350,16 +367,11 @@ over an agent's summary of its compacted history. A Team's Seat with no words
 of yours to name it is called by its job and Team, such as
 **Implementer · Fix the retry bug**.
 
-Trailing marks and actions share one inset rail. A state label is quiet coloured
-text, without a pill, ending on the available rail beside the title; only the
-title truncates. The label's visible right edge aligns with the session dot's
-right edge, inside the trailing
-control's larger hit target. Hover, focus or an open menu folds that row’s
-label to its state dot and puts its actions on the rail, without taking more
-title space. At narrow row widths a count beside a
-state label hides first, returning when there is room. A narrow Seat row folds
-its state to the compact mark to keep its title readable. A room and each of its
-members reveal their actions independently.
+Trailing marks and actions share one inset rail. **Needs you** uses the orange
+dot; errors keep their failure mark. Activity, branch, worktree and pin facts
+live on the row's tooltip. Hover, focus or an open menu puts the row's actions
+on that same rail without moving its title. A Team's tooltip keeps unread,
+held-message and claimed-job counts.
 
 The conversation list has one Tab stop: it enters at the active conversation,
 or the first row when none is active, and the next Tab leaves the list. Use ↑ / ↓
@@ -367,8 +379,9 @@ to move through its visible rows, including project headings, rooms, members
 and overflow rows; Home and End go to the first and last visible rows. On a
 project, room or **Other projects** row, → expands it (or moves to its first
 child) and ← collapses it (or returns to its parent). Enter or Space opens a
-conversation or toggles a group; on **Show more** it reveals another page and
-moves to the first new row. Type a title prefix to jump to a matching row.
+conversation or toggles a group; on **Show more** it reveals the whole project and
+moves to the first new row. **Show less** folds it back with focus on that
+control. Type a title prefix to jump to a matching row.
 Shift+F10 or the ContextMenu key opens the focused row's actions; Escape
 returns focus to that row. Large project lists mount rows as keyboard focus
 reaches them and keep the focused row in view.
@@ -402,17 +415,17 @@ separator; its disabled reason stays on the tooltip.
 
 **The footer holds the docks, notices and seat: you, and the agent you will pick up next.** The seat row
 is your identity — your profile's face and name, which are the house mark and
-"HarnessDesk" until you choose otherwise, and your HarnessDesk account when
-there is one — and at its end sits the mark of the agent new sessions run as,
-in its account's ring — or a dashed, empty ring when no one is signed in to
-it — with that agent's readiness dot beside it. The account's *name* is not on
-the row: an account is a pen, not a person. Rest on
-the mark for its name card — which account, on what plan, how much is left.
+"HarnessDesk" until you choose otherwise — followed by a disclosure. Its quiet
+48px row sits under a full-width hairline, with Inbox and Settings at the right.
+The default agent's account, readiness and usage live in the menu. The trigger's
+tooltip still names who new sessions run as and any applicable quota warning.
 The menu behind the row opens on you, and pressing that row opens your
 profile. Then comes switching: **Run new sessions as** lists every account of
 every agent, one line each — its name, and the same figure the header strip
-shows — and the default is the filled row. The address and plan behind a name
-are on the name's tooltip and on the mark's card. An agent with more than one
+shows — and the default is the filled row. Unavailable or Needs sign-in takes
+the figure's place when the agent cannot run; cached usage stays in its usage
+fold. The address and plan behind a name
+are on the name's tooltip. An agent with more than one
 account is a heading — its mark and its name, not a choice — with its accounts
 under it, each one line on the heading's name column after a small ring in the
 account's own colour (folded, the default is one row wearing its mark); an
@@ -430,10 +443,9 @@ in. Then come Settings and signing out of the default agent. Dashboard in the
 sidebar opens on everything.
 
 The quota forecast, "&lt;agent&gt; will run out before it refills", stays above a
-visible composer and on the Dashboard. Every other page uses a warning dot
-beside the account mark instead of the full notice; its hover text and
-accessible name carry the same title and detail. Dismissing or silencing the
-notice also puts away that dot for the same occurrence or kind.
+visible composer and on the Dashboard. Every other page carries the same title
+and detail in the account trigger's tooltip. Dismissing or silencing the notice
+also removes that warning from the tooltip for the same occurrence or kind.
 
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every
@@ -1167,9 +1179,8 @@ Workspaces › a project › Provenance controls capture on this machine. It sta
 ## Goals and retained lanes
 
 Projects list active Goals alongside loose conversations; completed work stays
-on the Teams page. A running Goal row carries a small quiet spinner; a waiting row says Needs you.
-The spinner stays still under reduced motion. These signals describe activity,
-not an evidence verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
+on the Teams page. A running Goal names its activity on hover; a waiting row
+carries the Needs you dot. These signals describe activity, not an evidence verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
 Membership comes from its open Seats. Releasing a Seat closes that membership
 record without deleting the conversation or checkout.
 Finishing a Run keeps its Seats listed and their conversations available for

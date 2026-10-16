@@ -81,7 +81,7 @@ const workers =
  * not listed.
  */
 export const COLOUR_SPECS = [
-  'frame-contract-conversation', 'frame-contract-left-headings', 'frame-contract-left-surfaces', 'frame-contract-menus',
+  'frame-contract-conversation', 'frame-contract-left-headings', 'frame-contract-left-rows', 'frame-contract-left-surfaces', 'frame-contract-menus',
   'frame-contract-palette', 'frame-contract-reconcile', 'frame-contract-teams', 'frame-contract-tools',
   'frame-contract-top-bar', 'frame-final-columns', 'frame-final-selection', 'frame-final-tiles',
   'frame-fix9', 'frame-fix10', 'frame-owner5d',

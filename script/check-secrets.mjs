@@ -132,6 +132,7 @@ const PLACEHOLDER_HOMES = new Set([
   'alice',
   'dev',
   'foo',
+  'jane', // Jane Doe, the conversation-loadout brief's synthetic home.
   'linuxbrew',
   'me',
   'sam',

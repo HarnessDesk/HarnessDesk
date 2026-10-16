@@ -51,10 +51,11 @@ for (const theme of WALL_THEMES) {
     const project = column.getByRole('button', { name: 'atlas', exact: true })
     const projectRow = project.locator('..')
     await page.mouse.move(0, 0)
-    await expect(projectRow.locator('[data-left-mark]')).toBeVisible()
+    await expect(projectRow.locator('[data-left-mark]')).toHaveCount(0)
+    await expect(project).toHaveAttribute('title', /Pinned/)
     await project.hover()
     await expect(projectRow.getByRole('button', { name: 'New session in atlas', exact: true })).toBeVisible()
-    await expect(projectRow.locator('[data-left-mark]')).toBeHidden()
+    await expect(projectRow.locator('[data-left-mark]')).toHaveCount(0)
     await expect(projectRow.getByRole('button', { name: 'Actions for atlas', exact: true })).toHaveCount(0)
     await project.focus()
     await page.keyboard.press('Shift+F10')
@@ -81,7 +82,7 @@ for (const theme of WALL_THEMES) {
     await more.click()
     await page.getByRole('menuitem', { name: /^Rename/ }).click()
     const rename = column.locator('[data-left-rename]')
-    expect((await rename.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
+    expect((await rename.boundingBox())!.height).toBe(FRAME.rail.rowPitch)
     await rename.locator('input').press('Escape')
     expect((await session.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
   })
@@ -101,8 +102,8 @@ for (const theme of WALL_THEMES) {
       'project name starts at the ordinary icon edge').toBe(iconX)
     expect((await ordinary.locator('[data-slot="sidebar-menu-label-content"]').boundingBox())!.x - iconX,
       'ordinary row text keeps its icon and gap').toBe(FRAME.rail.icon + FRAME.rail.gap)
-    for (const row of await rows.all()) expect((await row.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
-    expect((await column.locator('[data-left-rename]').boundingBox())!.height).toBe(FRAME.rail.rowHeight)
+    for (const row of await rows.all()) expect((await row.boundingBox())!.height).toBe(FRAME.rail.rowPitch)
+    expect((await column.locator('[data-left-rename]').boundingBox())!.height).toBe(FRAME.rail.rowPitch)
     expect((await column.getByRole('textbox', { name: 'Rename example' }).boundingBox())!.height).toBe(FRAME.rail.rowHeight)
     await expect(column).toContainText('No conversations yet')
   })
@@ -132,11 +133,37 @@ for (const theme of WALL_THEMES) {
         expect(await rows.count()).toBeGreaterThan(2)
         await expectColumnRowEdges(rows, destination === 'settings-navigation' ? FRAME.rail.settingsRowHeight : FRAME.rail.rowHeight)
         const seat = column.locator('[data-left-seat]')
-        expect((await seat.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+        expect((await seat.locator('..').boundingBox())!.height).toBe(FRAME.sidebar.footerHeight)
         await expect(seat.getByRole('button', { name: 'Settings', exact: true }))
           .toHaveAttribute('aria-pressed', destination === 'settings-navigation' ? 'true' : 'false')
       })
     }
   }
   }
+}
+
+
+for (const theme of WALL_THEMES) {
+  test(`sidebar rows keep 34px pitch around 32px highlights and a quiet 48px footer in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=left-work', theme)
+    const column = page.locator('[data-left-column]:visible')
+    const rows = column.locator('[data-left-row]:visible')
+    const geometry = await rows.evaluateAll(nodes => nodes.map(node => {
+      const box = node.getBoundingClientRect()
+      const button = node.querySelector('[data-slot="sidebar-menu-button"]')!.getBoundingClientRect()
+      return { pitch: box.height, height: button.height, offset: button.top - box.top }
+    }))
+    expect(geometry.length).toBeGreaterThan(5)
+    for (const row of geometry) {
+      expect(row.pitch).toBe(FRAME.rail.rowPitch)
+      expect(row.height).toBe(FRAME.rail.rowHeight)
+      expect(row.offset).toBe((FRAME.rail.rowPitch - FRAME.rail.rowHeight) / 2)
+    }
+    const seat = column.locator('[data-left-seat]')
+    const bar = seat.locator('..')
+    expect((await bar.boundingBox())!.height).toBe(FRAME.sidebar.footerHeight)
+    await expect(bar).toHaveAttribute('data-rule', 'top')
+    await expect(seat.locator('[data-slot="popover-trigger"]').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(seat.locator('button')).toHaveCount(3)
+  })
 }

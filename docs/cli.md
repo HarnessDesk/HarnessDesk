@@ -50,7 +50,7 @@ Every command ends with one of these. A command's own section lists the codes th
 | --- | --- |
 | 0 | Done. For `run wait`: the run settled. |
 | 1 | The desk answered with an error not covered below, or the command failed for another reason. |
-| 2 | Usage: an unknown command or flag, a missing argument, or a spend without a terminal and without `--yes`. |
+| 2 | An ambiguous conversation id, or usage: an unknown command or flag, a missing argument, or a spend without a terminal and without `--yes`. |
 | 3 | No desk: none is running for this home. |
 | 4 | Refused: the desk refused the request (a flow with problems, a tier this desk does not grant, a card not addressed to a person), or its socket failed the ownership check. The desk's error code is printed on stderr. |
 | 5 | Waiting for a person: `run wait` ended on a person card or a question. |
@@ -73,6 +73,7 @@ Every command ends with one of these. A command's own section lists the codes th
 | [`flows`](#harnessdesk-flows) | Lists the flows a project offers, with where each comes from and any problem in it. | read |
 | [`flow preview`](#harnessdesk-flow-preview) | Says what a flow would do, without doing it or spending anything. | read |
 | [`flow start`](#harnessdesk-flow-start) | Starts a Team running a flow, after showing a preview. | run |
+| [`session show`](#harnessdesk-session-show) | Shows the skills, servers, memory files and agents this conversation's agent reported. | read |
 | [`run show`](#harnessdesk-run-show) | Shows the shared Run timeline: its header, brief, rounds, cards, check results, findings and ending. | read |
 | [`run stop`](#harnessdesk-run-stop) | Stops a run and interrupts its seats, without opening the next card. | run |
 | [`run wait`](#harnessdesk-run-wait) | Waits for a run to end, without polling, and says how it ended in its exit code. | read |
@@ -322,6 +323,36 @@ Needs the **run** tier.
 - `0`: Started.
 - `2`: There is no terminal and no `--yes`, or the flow has no such input.
 - `4`: The preview has errors or no token to start with, or you answered no.
+
+### `harnessdesk session show`
+
+```
+harnessdesk session show <session> [--runtime NAME] [--epochs] [--all]
+```
+
+Shows the skills, servers, memory files and agents this conversation's agent reported. Sizes appear only where the agent supplied them. Reads the desk's recorded observation without starting an agent. A missing report is distinct from an agent reporting an empty list.
+
+Needs the **read** tier.
+
+**Arguments**
+
+- `<session>`: The conversation id whose recorded loadout to read.
+
+**Flags**
+
+- `--runtime NAME`: The runtime id from the desk roster; required when more than one runtime holds this conversation id.
+- `--epochs`: List every retained epoch, its observation time and which parts changed since the previous retained epoch.
+- `--all`: Print every retained item in each part instead of the first twenty. Items beyond the recording cap remain counted as more.
+
+**With `--json`**
+
+A single object, `{ "session", "runtime", "seat", "epochs": [...] }`. Each version-1 epoch includes its build, observation time, source, approximation flag and skills, mcp, memory and agents parts. All retained epochs and items are returned regardless of --epochs or --all.
+
+**Exit codes**
+
+- `0`: Done; a known conversation without a loadout says not recorded.
+- `1`: No conversation with that id is recorded (`notFound`).
+- `2`: More than one runtime holds that id; choose --runtime (`ambiguous`).
 
 ### `harnessdesk run show`
 

@@ -3,6 +3,27 @@ import { FRAME } from '../../packages/ui/src/design/frame'
 
 const seatMenuBoard = (page: import('@playwright/test').Page) => page.locator('[data-catalog-case="seat-menu-width"]')
 
+for (const theme of ['light', 'dark'] as const) test(`unavailable account keeps its readiness beside cached usage — ${theme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: theme })
+  await page.goto(`/preview.html?theme=${theme}`)
+  const sidebar = page.locator('[data-frame-id="sidebar-column"]')
+  await page.evaluate(() => {
+    const { store } = (window as unknown as { __hdPreview: { store: {
+      getSnapshot(): import('../../packages/ui/src/state/store').AppSnapshot
+      patch(value: Partial<import('../../packages/ui/src/state/store').AppSnapshot>): void
+    } } }).__hdPreview
+    const snapshot = store.getSnapshot()
+    store.patch({ healthByRuntime: { ...snapshot.healthByRuntime,
+      [snapshot.activeRuntime!]: { state: 'unavailable', reason: 'crashed', message: 'exited' } } })
+  })
+  await sidebar.locator('button[class*="accountRow"]').click()
+  const popup = page.locator('[data-popup-kind="wide-menu"][role="dialog"]')
+  const current = popup.locator('[role="menuitem"][data-current]')
+  await expect(current.locator('[data-menu-trailing]')).toHaveText('Unavailable')
+  await expect(popup.getByText('Usage remaining', { exact: true })).toBeVisible()
+  await expect(popup.locator('[data-menu-trailing]').filter({ hasText: /\d+%/ }).first()).toBeVisible()
+})
+
 test('seat menu keeps the design token width across sidebar widths and clamps to a narrow window', async ({ page }) => {
   await page.goto('/design.html?view=sidebar')
   const board = seatMenuBoard(page)

@@ -23,6 +23,7 @@ import {
  * second answer about trailing whitespace.
  */
 export { parseGithubSource } from './github-source.js'
+export { knownRoots } from './locations.js'
 export { bundleDigest, digestOf } from './digest.js'
 export { unifiedDiff } from './diff.js'
 export { LibraryManifest, type ManifestEntry } from './manifest.js'
@@ -36,6 +37,7 @@ export {
   type McpServerSpec,
 } from './mcp.js'
 export {
+  currentSkillBundleDigest,
   applyLibrary,
   isSafePathSegment,
   isSafeSkillRelativePath,

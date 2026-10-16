@@ -1,3 +1,4 @@
+import { DEFAULT_DIFF_PREFS, type DiffPrefs } from '../editor'
 import type { BrowserTileMount } from '../lib/browser-tiles'
 import type {
   HistoryImportState,
@@ -764,6 +765,7 @@ export interface AppSnapshot {
   /** Shared full baselines, including clean saves; renderer-only. Null explicitly discards. */
   readonly editorLiveDocuments: EditorLiveDocuments
   readonly editorLineTargets: EditorLineTargets
+  readonly diffPrefs: DiffPrefs
   readonly editorPrefs: {
     readonly fontFamily: string
     readonly fontSize: number
@@ -952,6 +954,7 @@ const EMPTY: AppSnapshot = {
   planEdits: {},
   listPrefs: { density: 'compact', agent: null, sort: 'recency', pinned: [], pinnedSessions: [], collapsed: [], panelsCollapsed: [], othersOpen: false },
   editorPrefs: DEFAULT_EDITOR_PREFS,
+  diffPrefs: DEFAULT_DIFF_PREFS,
   windowMode: 'conversation',
   editorState: [],
   editorDocuments: new Map(),

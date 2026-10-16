@@ -142,6 +142,15 @@ ratios are gone and Tailwind's own steps now name their pair too, `text-xs`
 and `text-xl` included: those two agreed with the table by coincidence across
 a hundred and fifty call sites, and a coincidence does not follow a change.
 
+### Sidebar rhythm
+
+Sidebar navigation, project, Team and pinned rows stand on a 34px pitch, with
+32px hover and selection surfaces centred inside each row. Group ink starts
+20px after the preceding group; the header-to-first-row gap stays unchanged.
+Settings navigation keeps its own row measure. The account footer is a quiet
+48px row under the existing full-width border, with identity and disclosure,
+Inbox and Settings; account and usage facts stay in its menu.
+
 ## Content insets
 
 A filled or bordered content surface earns an inset by its role, not by the
@@ -1028,7 +1037,15 @@ capitals and for a heavier weight.
 
 ### Sidebar trailing rail
 
-The trailing rail is inset from the sidebar edge. `--hd-sidebar-end-rail`
+In the production `SessionTree`, trailing state marks mean attention or an
+error: **Needs you**, a failure or a missing folder. Running conversations
+and Teams have no spinner or Working label; their activity stays on hover,
+along with branch, worktree and pin facts. `LeftColumnRow` uses a compact
+mark that yields to the hover action without folding a full state label.
+
+The generic sidebar specimens also exercise full state labels and nested
+rows. In those specimens, the trailing rail is inset from the sidebar edge.
+`--hd-sidebar-end-rail`
 places a trailing target’s right edge; `--hd-sidebar-end-column` places its
 ink centre. The visible rail is the session dot's right edge, inside that
 target; a whole state label ends there, one target left of any adjacent marks.
@@ -1037,8 +1054,8 @@ no background, border or horizontal padding. The text itself ends on the rail.
 A label uses its actual width at rest. Its title consumes the remaining
 space, without a faded label or a reservation for hidden actions.
 
-On hover, focus or an open menu, the label folds to a dot and the actions take
-the rail. Marks step left by the action count. The title never loses space
+In those specimens, on hover, focus or an open menu, the label folds to a dot
+and the actions take the rail. Marks step left by the action count. The title never loses space
 in that exchange. Counts beside state labels yield when the row is 200px wide
 or narrower; the query measures the row, including a nested row, rather than
 the window. A room’s header and its members each own their hover surface.
@@ -1046,25 +1063,32 @@ the window. A room’s header and its members each own their hover surface.
 
 ### Sidebar hierarchy
 
-State stays on its row: a small neutral `Spinner` for a running conversation or
-Team, still under reduced motion, and **Needs you** when it waits. No sidebar row
-uses a Working label. Pinned is one plain section for loose conversations, whose
-leading marks and titles take the same indent step as a project’s children. Every active
-Team is one row in its project with its Seats collapsed initially; Seats stay
-under their Team through running, waiting and pinning. Wrapped Teams live on the
-Teams page. Project children and Team Seats each take one shared nested-rail
-step, using `SidebarGroupContent nested` for leading content and
-`SidebarMenu nested` for the existing Seat list. Pinned keeps its heading,
-separator and row boxes; project children keep their full row boxes. Only the Seat list draws a
-vertical guide.
-Project headers have no folder icon: their names use regular 14px secondary ink,
-one tier above the muted section labels. Hover or keyboard focus reveals a fold
-chevron immediately after the name and the two end actions. Folding leaves only
-the header. Indentation moves the leading content alone; every trailing target
-keeps the enclosing rail, including Seats two steps in. A Seat row at 200px or
-narrower folds Needs you to its compact mark, preserving a readable title.
+The production tree uses `LeftColumnRow`: a 34px row pitch
+(`--hd-sidebar-row-pitch`) around a centred 32px highlight
+(`--hd-sidebar-highlight-h`), leaving a 2px gap. About 20px of air above
+group headers comes from `--hd-sidebar-group-space`, adjusted for the line's
+position inside its row. State stays on its row as a compact attention or
+error mark; running activity stays on hover.
+
+Pinned is one plain section for loose conversations, with its heading,
+separator and uncapped rows. Every active Team is one row in its project,
+beside the project's loose conversations. Team members do not also appear
+as loose rows. Wrapped Teams live on the Teams page.
+
+A project initially shows at most five rows, counting Teams and loose
+conversations together. **Show more** expands it and **Show less** restores
+the cap. The selected conversation or its owning Team takes the fifth slot
+when it would otherwise be hidden. Expansion stays local to the UI session
+and is preserved when selection changes.
+
+Project headers have no folder icon: their names use 14px secondary ink.
+The fold chevron follows the name, visible when folded or on hover or keyboard
+focus; the end actions appear on hover or focus. Folding leaves only the
+header. The footer is a transparent 48px row with a full-width hairline and
+no identity pill; readiness and usage are read in the account menu.
 The sidebar catalogue and `preview.html?sidebar-structure` mount the same
-production tree with three projects, three Seats, loose conversations and Pinned.
+production tree. Nested Seat rows, guide lines and full state-label folding
+belong to the generic sidebar specimens, not this tree.
 
 ### Destination rows
 
@@ -1075,29 +1099,17 @@ every row of one kind stands at one height. There are three kinds:
 - the settings and usage rail row (`AppWindow.tsx`'s `WindowNavItem` and `WindowNavIdentity`);
 - a dropdown menu item (`design/ui/dropdown-menu.tsx`).
 
-All three are `Button size="navigation"` or the menu's own row, floored at
-`--hd-nav-h`.
-
-The kinds also agree with each other, in both interfaces. In Studio
-`--hd-nav-h` is a literal 34px. In Desk it is solved from the row's real
-box — its 20px line, 4+4px block padding and 1+1px border — to 30px, so the
-settings and usage rail rows stand with the sidebar's rows and a menu item
-rather than a pixel under them on a floor solved from the type alone
-(#1073).
-
-This is a claim about one-line rows. The session list's comfortable density
-gives a session a second line and more air — a preview under a working row,
-a chip where one needs you — so those rows are taller than a rail row by
-design and can differ from each other with what they carry. They are still
-floored at `--hd-nav-h`. The rule is measured at the compact density the
-preview uses.
-
-The settings rail's identity row was the one row out of step with its own
-kind. Its 28px face in what was then a 29px row with 1px borders pushed it to 30px. It
-now draws the seat's 24px face, the size the sidebar's seat row uses.
+The sidebar and settings/usage rails share `LeftColumnRow` and its 32px button,
+in both interfaces. The sidebar centres it in the 34px pitch described above;
+Settings navigation keeps its own 32px row measure. The popup's
+canonical one-line menu item keeps its own 30px box. `--hd-nav-h` is the
+generic navigation floor, not the production sidebar's pitch or highlight
+height. Production conversation rows stay on one line; comfortable density
+does not add a preview or a state chip below the title.
 
 Enforced by `rules.spec.ts` ("rule: destination rows"), on every visible row
-of every kind, in both themes and interfaces. Mutations cover a row shrunk
+of every kind, in both themes and interfaces, with the menu checked against
+its own height. Mutations cover a row shrunk
 under the floor and one row taller than its siblings.
 
 ### Fields
@@ -2009,7 +2021,8 @@ hierarchy in light and dark themes at wide and narrow window widths.
 
 A long token in a conversation never widens the main column. Prose, notices,
 tool labels and Markdown headings break anywhere a token can occur. Code
-plates, diffs and tables keep their own horizontal scrollers. The frame
+plates and tables keep their own horizontal scrollers. Diffs wrap by default;
+their view-options menu can restore sideways scrolling. The frame
 contract checks the workbench main region at 1440px and 720px: its
 `scrollWidth` must equal its `clientWidth` with 600-character tokens in each
 transcript row kind.
@@ -2074,3 +2087,20 @@ A Banner defaults to the reading column. When it sits in a page section whose
 other blocks use a wider measure, set `measure="container"`: the notice fills
 the section's width so a warning and its list share one edge. The banner frame
 and card both follow that measure; a screen should not size either one itself.
+
+
+## Diff reading
+
+Diffs wrap long lines by default at every width, preserving line numbers and
+file paths with their `+N −N` counts. Paired removed/added lines highlight the
+changed words in a stronger red/green band using `--hd-code-remove-word-fill`
+and `--hd-code-add-word-fill` over the existing line grounds. Long tokens break
+anywhere inside the code cell; a wrapped line never widens its pane.
+
+The header's vertical ellipsis opens the design-system choice menu: Word wrap
+and Highlight changed words default on; Hide whitespace changes defaults off.
+These are standing preferences saved through the host's `app/state`, shared
+across diff readers. Multi-file patches add Collapse all files / Expand all
+files and a file list with Show files (on) and Group files by folder (off).
+File headings and counts stay visible when collapsed or when the list is hidden.
+The code board includes a narrow long-line and multi-file specimen.
