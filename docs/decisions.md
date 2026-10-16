@@ -3381,6 +3381,7 @@ person requested the check; a new host reads the origin without inventing a
 check result.
 
 **Rule:** the recorded origin is read from the manifest on every read; a check is only ever an explicit request.
+
 ## Empty board columns collapse; the badge counts everything
 
 The owner chose option B in [#1674](https://github.com/HarnessDesk/HarnessDesk/issues/1674)
@@ -3393,6 +3394,7 @@ and folding controls. Occupied columns retain their width; the all-empty board
 retains one empty state. Below 600px of content width the compact list remains
 the readable form. A horizontal Board keeps its token-backed scrollbar visible
 at rest, so overflow announces itself before a gesture.
+
 ## One Permissions slot; plan vs act is its own control
 
 Decided 2026-10-15 in #1672, option A. Permissions always occupies the same
@@ -3418,6 +3420,7 @@ The Permissions trigger names the slot and the selected level, including in a
 draft. Only a genuinely absent permission option earns the missing-setting
 placeholder. Model and effort take their natural width while space remains;
 they fold with the toolbar when it runs out.
+
 ## A fetched skill is reviewed as a bundle before installing — 2026-10-16
 
 The Library's Add from GitHub flow pins a public repository revision and lets
@@ -3428,6 +3431,7 @@ before Apply; ordinary local installs retain their existing confirmation.
 The acknowledgement travels only on the operations whose files need it.
 This keeps the review attached to the bundle the host planned and checks again
 at apply, rather than treating a skill's definition as its entire contents.
+
 ## Pace forecasts earn composer space; Team waits also reach the Inbox
 
 On 2026-10-15 the owner chose A + B for issue #1675 D3: a pace warning above
