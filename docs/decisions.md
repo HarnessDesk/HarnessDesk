@@ -3500,3 +3500,12 @@ This supersedes the account-tint rule for runtime brand faces; account rings
 and account badges still identify the signed-in account. Roll back by restoring
 the inline registry list and account-derived runtime tints, accepting the former
 identity changes between pages.
+
+## Usage runtime series follow their faces — 2026-10-16
+
+The owner's repair to #1729 keeps Usage's runtime table usable as its chart's
+legend: brand tint is shared by each runtime's ranked face, legend dot, share
+segment and bar. Resolve across the whole roster, reserving distinct brand
+tints first. The first runtime with a tint keeps it; later duplicates borrow
+the next unused roster tint for both series and ranked face. Plans faces,
+account preferences, other pivots and the folded Other row retain their rules.

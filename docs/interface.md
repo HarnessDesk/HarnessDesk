@@ -1035,7 +1035,10 @@ ACP registry. HarnessDesk has not reviewed them.” Adding or downloading an ent
 works as before; a custom command remains under **Something else**.
 Runtime brand tiles keep the same colour here, in Runtimes, in Library's
 **Loaded by** column and wherever that runtime is drawn. Account ring colours
-remain a separate preference. Library's loading tiles are spaced so each mark
+remain a separate preference. In Usage, runtime rows, legend dots, share segments
+and bars share that tint. The first runtime of each tint keeps it; later
+duplicates take unused roster tints, including their ranked faces, so the table
+continues to identify the series. Library's loading tiles are spaced so each mark
 stays whole. Extensions
 appears only for a runtime with a store or MCP servers to show, which today
 means Codex alone. A runtime whose sign-in the desk cannot ask about — an ACP

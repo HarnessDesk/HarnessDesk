@@ -8,7 +8,7 @@ import { AddAgentsTestPage } from '../test-support/settings-page'
 import { RuntimeFace } from './RuntimeFace'
 import { SkillRow, SkillList } from './SkillRow'
 import { PlansTable } from './usage/PlansTable'
-import { Ranked } from './usage/shared'
+import { Ranked, tintsForRoster } from './usage/shared'
 import { planRows } from '../lib/plans-table'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -34,7 +34,7 @@ it.each(['windows', 'allowance', 'balance', 'metered', 'free'] as const)('keeps 
       <section data-surface="roster">{infos.map(info => <RuntimeFace key={info.id} runtime={info} />)}</section>
       <section data-surface="library"><SkillList><SkillRow entry={entry} columns={infos.map(info => ({ id: info.id, label: info.presentation.name, info }))} onOpen={() => {}} /></SkillList></section>
       <section data-surface="plans"><PlansTable rows={rows} byId={byId} now={now} snapshot={store.getSnapshot()} filter="all" preferenceFor={() => ({})} onRefreshAccount={() => {}} onStopTracking={() => {}} onOpenPlanSettings={() => {}} /></section>
-      {[false, true].map(compact => <section key={String(compact)} data-surface={`ranked-${compact}`}><Ranked ledger={ledger} wideLedger={null} pivot="runtime" range={30} now={now} byId={byId} tintOf={() => 'rose'} compact={compact} /></section>)}
+      {[false, true].map(compact => <section key={String(compact)} data-surface={`ranked-${compact}`}><Ranked ledger={ledger} wideLedger={null} pivot="runtime" range={30} now={now} byId={byId} tintOf={tintsForRoster(infos)} compact={compact} /></section>)}
     </StoreProvider>))
     const tints = (surface: string, selector: string) => [...host.querySelectorAll(`[data-surface="${surface}"] ${selector}`)].map(tile => tile.getAttribute('data-tint'))
     const add = tints('add', '[data-slot="icon-tile"]')

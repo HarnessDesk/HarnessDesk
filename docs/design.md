@@ -2192,8 +2192,10 @@ palette. Pure selectors read it through the DOM-free `design/identity` entrypoin
 `runtimeTint` resolves its presentation brand with the same rule as
 its glyph; account preferences colour account rings, not brand tiles. Templates,
 registered runtimes, Library loading faces and Usage's Plans and ranked faces
-use that same answer, including free and metered plans. Usage chart series
-keep their own palette. Library
+use that same answer, including free and metered plans. Usage runtime series
+share their ranked face's tint. Later runtimes with a duplicate tint take unused
+roster tints for both the series and ranked face; other brand faces retain the
+shared palette. Library
 uses `AvatarStack overlap={false}` with the spacing token so every mark stays
 whole; other membership stacks retain their overlap.
 

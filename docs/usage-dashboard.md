@@ -1323,12 +1323,14 @@ way and said `% used`.
 
 Colour follows the rule `design/ui/tone` sets: a series takes a **tint**
 because "which agent" identifies, a meter takes a **tone** because "12% left"
-judges. `tintsFor` assigns a set of series their hues at once — resolved across
-every registered agent in the roster rather than only the active rows, so an
-agent keeps one stable colour whether you view the full month or click into one
-runtime. Runtime faces in Plans and ranked tables instead keep the shared
-brand palette, including free and metered accounts; chart series and their
-share bars keep the roster palette.
+judges. Runtime series resolve the shared brand tint across every registered
+agent rather than only active rows, so the ranked face, legend dot, share
+segment and bar agree across ranges and scopes. The first runtime with a tint
+keeps it; later duplicates take the next unused tint from `tintsFor`'s roster
+palette, with all distinct brand tints reserved first. Past the eight-hue
+palette, tints repeat. Plans faces retain the shared brand palette, including
+free and metered accounts. Other pivots and the folded Other row keep their
+existing palette.
 
 ## Switching an agent off
 
