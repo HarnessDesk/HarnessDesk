@@ -41,6 +41,25 @@ it('fills its destination body only when a page needs remaining-space alignment'
   }
 })
 
+it('scrolls itself only when asked, keeping its whole height inside the scroll box', () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<Page width="reading">content</Page>))
+    expect(container.querySelector('[data-slot="page-scroll"]')).toBeNull()
+    act(() => root.render(<Page width="reading" fill scroll>content</Page>))
+    const box = container.firstElementChild as HTMLElement
+    expect(box.dataset['slot']).toBe('page-scroll')
+    expect((box.firstElementChild as HTMLElement).dataset['slot']).toBe('page')
+    expect(css).toMatch(/\.scroll\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s)
+    expect(css).toMatch(/\.scroll > \.page\s*\{[^}]*flex-shrink:\s*0/s)
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+  }
+})
+
 it('lets a window own its gutter while retaining the shared page stack', () => {
   const container = document.createElement('div')
   document.body.append(container)

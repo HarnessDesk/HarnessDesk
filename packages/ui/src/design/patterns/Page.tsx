@@ -30,7 +30,7 @@ export type PageWidth = 'reading' | 'wide' | 'canvas'
  * facts against the sidebar, a button across the window and a switch in the
  * middle of it because nothing told the page what width it was.
  */
-export const Page = ({ width, measure, gutter = 'page', fill = false, topInset, children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'> & {
+export const Page = ({ width, measure, gutter = 'page', fill = false, scroll = false, topInset, children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'> & {
   readonly width: PageWidth
   /** A centred block measure inside a full-width canvas page. */
   readonly measure?: 'reading' | 'wide'
@@ -38,13 +38,15 @@ export const Page = ({ width, measure, gutter = 'page', fill = false, topInset, 
   readonly gutter?: 'page' | 'none'
   /** Fill the destination body's height so a page empty state can centre in its remaining space. */
   readonly fill?: boolean
+  /** The page is its own scroll box, for a pane body that clips: a Team's receipt is one tab among several. */
+  readonly scroll?: boolean
   /** A canvas can keep the page inset; a compact board starts on the 16px stack. */
   readonly topInset?: 'page' | 'compact'
   readonly children: ReactNode
 }) => {
   const attributes = { 'data-slot': 'page', 'data-width': width, 'data-gutter': gutter, ...(measure ? { 'data-measure': measure } : {}), ...(fill ? { 'data-fill': '' } : {}), ...(topInset ? { 'data-top-inset': topInset } : {}), className: styles.page, ...props }
   const content = measure ? <div data-page-measure={measure} className={styles.measure}>{children}</div> : children
-  if (gutter === 'none') return <div {...attributes}>{content}</div>
-  return <PaneColumn {...(width === 'canvas' ? { inset: 'canvas' as const } : { inset: 'reading' as const, page: true })}
+  const page = gutter === 'none' ? <div {...attributes}>{content}</div> : <PaneColumn {...(width === 'canvas' ? { inset: 'canvas' as const } : { inset: 'reading' as const, page: true })}
     style={topInset === 'page' ? { paddingTop: 'calc(var(--hd-page-gutter) - var(--hd-space-2) + var(--hd-space-px))' } : topInset === 'compact' ? { paddingTop: 'var(--hd-space-4)' } : undefined} {...attributes}>{content}</PaneColumn>
+  return scroll ? <div data-slot="page-scroll" className={styles.scroll}>{page}</div> : page
 }

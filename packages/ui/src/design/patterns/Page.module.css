@@ -14,6 +14,22 @@
   min-height: 100%;
 }
 
+/* A page that scrolls itself, inside a body that clips. The scroll box spans
+   the body, so its scrollbar sits on the pane's edge, not the column's. */
+.scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Its page keeps its whole height, bottom inset included, and scrolls. */
+.scroll > .page {
+  flex-shrink: 0;
+}
+
 .page[data-width='reading'] {
   max-width: calc(var(--hd-column) + 2 * var(--hd-page-gutter));
 }

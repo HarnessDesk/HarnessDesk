@@ -1228,7 +1228,9 @@ export const TeamRoomPane = ({
               onRunVisibility={onRunReviewVisibility} active={open === 'runs'} />
           </div>}
           {open === 'receipt' ? (
-            <Page width="reading" fill>
+            // Its own scroll box, as the Runs and Overview tabs have: the body
+            // clips, so a receipt taller than the pane lost its last lines.
+            <Page width="reading" fill scroll>
               {goal?.receipt ? (
                 <>
                   <GoalReceiptCost receipt={goal.receipt}>
