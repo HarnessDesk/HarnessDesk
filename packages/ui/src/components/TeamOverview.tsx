@@ -13,6 +13,7 @@ import type { runTimeline } from '../lib/run-timeline'
 import { doingLine, type DoingLine, type SeatRow, type teamOverview } from '../lib/team-overview'
 import { runPublication } from '../lib/review-publication'
 import { stepName } from '../lib/flow-model'
+import { comparisonProgress } from '../lib/team-run-words'
 import { runReasonWords } from '../lib/run-reason'
 import type { Tint } from '../design'
 import { AgentIcon, ChevronIcon } from './Icons'
@@ -106,6 +107,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
     const stopped = cardState(row)
     return stopped ? stopped.durationMs : row.done ? row.durationMs ?? null : elapsedSince(row.since, now)
   }
+  const progress = comparisonProgress(timeline?.rows)
   const run = model.run
   const publication = runPublication(run?.findingRun, run?.publicationOn !== false)
   const evidenceWait = run?.waitingEvidence === true
@@ -130,9 +132,9 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
                 {publication && <Chip tone={publication.tone}>{publication.label}</Chip>}
               </div>
               <div className="flex flex-wrap gap-3">
-                {run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${stepName(words(run.role))}` : ''}</Text>}
+                {progress ? <Text role="meta">{progress}</Text> : run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${stepName(words(run.role))}` : ''}</Text>}
                 {run.startedAt !== null && <Text role="meta">Started {new Date(run.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>}
-                {run.reviewRounds && <Text role="meta">Completed rounds {run.reviewRounds.used} of {run.reviewRounds.of}</Text>}
+                {!progress && run.reviewRounds && <Text role="meta">Completed rounds {run.reviewRounds.used} of {run.reviewRounds.of}</Text>}
                 <Text role="meta" numeric title={run.total.money === null && run.total.turns === null ? 'Recorded usage is unavailable' : undefined}>
                   {[run.total.money !== null ? `$${run.total.money.toFixed(2)}` : null,
                     run.total.turns !== null ? `${run.total.turns} turns` : null].filter(Boolean).join(' · ')}

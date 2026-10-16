@@ -12,6 +12,7 @@ let container: HTMLDivElement; let root: Root
 beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container) })
 afterEach(() => { act(() => root.unmount()); container.remove() })
 
+const snapshot = emptySnapshot()
 const view = {
   goal: { id: 'g1', root: '/repo', cwd: '/repo', sentence: 'Ship', state: 'open', revision: 1, checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 2, receipt: null },
   activity: 'ready-to-wrap', waitingOn: [], members: [],
@@ -31,7 +32,7 @@ it('keeps preview and final wrap as separate decisions and invalidates an edited
   expect(choicesOf({ summary: '', cards: new Map() })).toBeNull()
   const preview = { stamp: 's1', receipt: { version: 1, goal: 'g1', sentence: 'Ship', summary: 'Finished', cards: [{ id: 1, resolution: 'finished', reason: null }, { id: 2, resolution: 'dropped', reason: 'No longer needed' }], seats: [], evidence: [], answers: [], lanes: [], revisions: [], citations: [], gaps: [] } } as WrapPreview
   const store = {
-    subscribe: () => () => {}, getSnapshot: () => emptySnapshot(),
+    subscribe: () => () => {}, getSnapshot: () => snapshot,
     previewGoalWrap: vi.fn(async () => preview), wrapGoal: vi.fn(async () => ({ ...preview.receipt, id: 'r1', wrappedAt: 3 })),
   } as unknown as AppStore
   const close = vi.fn()
@@ -53,7 +54,7 @@ it('keeps preview and final wrap as separate decisions and invalidates an edited
 
 it('sends one final commit and preserves the draft on a stale stamp refusal', async () => {
   const preview = { stamp: 'old', receipt: { version: 1, goal: 'g1', sentence: 'Ship', summary: 'Finished', cards: [{ id: 1, resolution: 'finished', reason: null }, { id: 2, resolution: 'finished', reason: null }], seats: [], evidence: [], answers: [], lanes: [], revisions: [], citations: [], gaps: [] } } as WrapPreview
-  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), previewGoalWrap: vi.fn(async () => preview), wrapGoal: vi.fn(async () => { throw new Error('This Goal changed while you reviewed its receipt.') }) } as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, previewGoalWrap: vi.fn(async () => preview), wrapGoal: vi.fn(async () => { throw new Error('This Goal changed while you reviewed its receipt.') }) } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><GoalWrap view={view} onClose={vi.fn()} /></StoreProvider>))
   const summary = document.querySelector<HTMLTextAreaElement>('[aria-label="What finished"]')!
   act(() => type(summary, 'Finished'))
@@ -76,7 +77,7 @@ it('sends one final commit and preserves the draft on a stale stamp refusal', as
  */
 it('stops offering to wrap a Goal that is wrapped while its receipt is under review', async () => {
   const preview = { stamp: 's1', receipt: { version: 1, goal: 'g1', sentence: 'Ship', summary: 'Finished', cards: [{ id: 1, resolution: 'finished', reason: null }, { id: 2, resolution: 'finished', reason: null }], seats: [], evidence: [], answers: [], lanes: [], revisions: [], citations: [], gaps: [] } } as WrapPreview
-  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), previewGoalWrap: vi.fn(async () => preview), wrapGoal: vi.fn(async () => ({ ...preview.receipt, id: 'r1', wrappedAt: 3 })) } as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, previewGoalWrap: vi.fn(async () => preview), wrapGoal: vi.fn(async () => ({ ...preview.receipt, id: 'r1', wrappedAt: 3 })) } as unknown as AppStore
   const close = vi.fn()
   act(() => root.render(<StoreProvider store={store}><GoalWrap view={view} onClose={close} /></StoreProvider>))
   act(() => type(document.querySelector<HTMLTextAreaElement>('[aria-label="What finished"]')!, 'Finished'))
@@ -108,7 +109,7 @@ it('does not announce the wrap it is itself in the middle of making', async () =
   const preview = { stamp: 's1', receipt: { version: 1, goal: 'g1', sentence: 'Ship', summary: 'Finished', cards: [{ id: 1, resolution: 'finished', reason: null }, { id: 2, resolution: 'finished', reason: null }], seats: [], evidence: [], answers: [], lanes: [], revisions: [], citations: [], gaps: [] } } as WrapPreview
   let answer: () => void = () => {}
   const wrapGoal = vi.fn(() => new Promise<never>((resolve) => { answer = () => resolve(undefined as never) }))
-  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), previewGoalWrap: vi.fn(async () => preview), wrapGoal } as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, previewGoalWrap: vi.fn(async () => preview), wrapGoal } as unknown as AppStore
   const close = vi.fn()
   act(() => root.render(<StoreProvider store={store}><GoalWrap view={view} onClose={close} /></StoreProvider>))
   act(() => type(document.querySelector<HTMLTextAreaElement>('[aria-label="What finished"]')!, 'Finished'))
@@ -133,23 +134,51 @@ it('does not announce the wrap it is itself in the middle of making', async () =
  * rather than breaking it, and no receipt can be reviewed until it is chosen.
  */
 it('a card added while the dialog is open is one more to choose for, never a crash', async () => {
-  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), previewGoalWrap: vi.fn(), wrapGoal: vi.fn() } as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, previewGoalWrap: vi.fn(), wrapGoal: vi.fn() } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><GoalWrap view={view} onClose={vi.fn()} /></StoreProvider>))
   act(() => type(document.querySelector<HTMLTextAreaElement>('[aria-label="What finished"]')!, 'Finished'))
   const pickFinished = (select: HTMLSelectElement) => act(() => { select.value = 'finished'; select.dispatchEvent(new Event('change', { bubbles: true })) })
   pickFinished([...document.querySelectorAll<HTMLSelectElement>('select')][1]!)
   const grown = { ...view, board: { ...view.board, intents: [...view.board.intents, { id: 3, title: 'Added later', state: 'open', files: [], dependsOn: [], updatedAt: 3 }] } } as unknown as GoalView
   act(() => root.render(<StoreProvider store={store}><GoalWrap view={grown} onClose={vi.fn()} /></StoreProvider>))
-  expect(document.querySelector('[aria-label="Disposition for Added later"]')).not.toBeNull()
+  expect(document.querySelector('[aria-label="Disposition for #3 · Added later"]')).not.toBeNull()
   const review = () => [...document.querySelectorAll('button')].find((one) => one.textContent === 'Review receipt') as HTMLButtonElement
   expect(review().disabled).toBe(true)
-  pickFinished(document.querySelector<HTMLSelectElement>('[aria-label="Disposition for Added later"]')!)
+  pickFinished(document.querySelector<HTMLSelectElement>('[aria-label="Disposition for #3 · Added later"]')!)
   expect(review().disabled).toBe(false)
 })
 
 it('names the Team in its wrap question', () => {
-  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot() } as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><GoalWrap view={view} onClose={vi.fn()} /></StoreProvider>))
   expect(document.body.textContent).toContain('Wrap this Team')
   expect(document.body.textContent).not.toContain('Wrap this Goal')
+})
+
+it('prefills an editable summary and Not kept disposition from the run, distinguishing identical titles', async () => {
+  const { teamWordsFixture } = await import('../preview/team-words-fixture')
+  const { view, store } = teamWordsFixture()
+  act(() => root.render(<StoreProvider store={store}><GoalWrap view={view} onClose={vi.fn()} /></StoreProvider>))
+  const summary = document.querySelector<HTMLTextAreaElement>('[aria-label="What finished"]')!
+  expect(summary.value).toContain('#1 · Improve the session store — Merged')
+  expect(summary.value).toContain('#2 · Improve the session store — Not kept')
+  const selects = [...document.querySelectorAll<HTMLSelectElement>('select')]
+  expect(selects[1]!.value).toBe('dropped')
+  expect(selects[1]!.selectedOptions[0]?.textContent).toBe('Not kept')
+  expect(selects[0]!.getAttribute('aria-label')).not.toBe(selects[1]!.getAttribute('aria-label'))
+  act(() => type(summary, 'My own summary'))
+  expect(summary.value).toBe('My own summary')
+  expect([...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Review receipt')!.disabled).toBe(false)
+})
+
+it('keeps an edited summary while late run evidence fills untouched dispositions', async () => {
+  const { teamWordsFixture } = await import('../preview/team-words-fixture')
+  const { view, store, input } = teamWordsFixture()
+  store.patch({ boardEvidence: new Map() })
+  act(() => root.render(<StoreProvider store={store}><GoalWrap view={view} onClose={vi.fn()} /></StoreProvider>))
+  const summary = document.querySelector<HTMLTextAreaElement>('[aria-label="What finished"]')!
+  act(() => type(summary, 'My own summary'))
+  act(() => store.patch({ boardEvidence: new Map([[view.board.id, input.evidence!]]) }))
+  expect(summary.value).toBe('My own summary')
+  expect([...document.querySelectorAll<HTMLSelectElement>('select')][1]!.value).toBe('dropped')
 })

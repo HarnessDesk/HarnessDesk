@@ -383,7 +383,7 @@ export const describeTurnWork = (
         : 'Worked'
 
   const hurt = troubles(work)
-  const trouble = !running && (hurt.failed > 0 || hurt.declined > 0 || turn.status === 'failed')
+  const trouble = !running && turn.status !== 'completed' && (hurt.failed > 0 || hurt.declined > 0 || turn.status === 'failed')
   const said = work.map(describedTitle).filter((title): title is string => title !== null)
   const informative = said.length > 0
 

@@ -692,3 +692,17 @@ describe("DeepSeek Harness's tool calls", () => {
     expect(container.textContent).toContain('Run ls -a')
   })
 })
+
+it.each([
+  ['claim_work', 'Pick up a task'],
+  ['check_conflicts', 'Check who is editing these files'],
+])('presents the board tool %s in plain words and keeps its name in details', (tool, label) => {
+  const item = { ...call({ tool }), source: { kind: 'mcp' as const, server: 'harnessdesk' } }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><ItemView item={item} root="/w" /></StoreProvider>))
+  const header = container.querySelector<HTMLButtonElement>('button')!
+  expect(header.textContent).toContain(label)
+  expect(container.querySelector('[data-role="wire-name"]')).toBeNull()
+  act(() => header.click())
+  expect(container.querySelector('[data-role="wire-name"]')?.textContent).toContain(tool)
+})
