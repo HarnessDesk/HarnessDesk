@@ -226,3 +226,32 @@ test('a task title never names a command that is not the one running', () => {
   assert.equal(taskLabel(emoji), `echo ${'x'.repeat(41)}🚀…`)
   for (const label of [substitution, assignments, unterminated, leading, attached].map(taskLabel)) assert.notEqual(label, '…')
 })
+
+test('a task title keeps the line when the shell would rewrite the program or not run it', () => {
+  const cutTo48 = (line: string) => `${line.slice(0, 47).trimEnd()}…`
+  // A glob or a brace in the program word is expanded by the shell, so its name is not read for sure.
+  const glob = '/bin/ec[h]o hello from a line long enough to need a cut'
+  assert.equal(taskLabel(glob), cutTo48(glob))
+  const brace = '/bin/{echo,printf} hello from a line long enough to need a cut'
+  assert.equal(taskLabel(brace), cutTo48(brace))
+  // Quoted, the same characters are only text.
+  assert.equal(taskLabel(`"/bin/ec[h]o" hello from a line long enough to need a cut`), 'ec[h]o hello…')
+  // Only a flag that runs the script unwraps it: `-n` only checks it, and an unknown flag is not guessed at.
+  assert.equal(taskLabel("bash -nc 'printf ok'"), "bash -nc 'printf ok'")
+  assert.equal(taskLabel("bash -Zc 'printf ok'"), "bash -Zc 'printf ok'")
+  assert.equal(taskLabel("bash -ec 'printf ok'"), 'printf ok')
+})
+
+test('a task title is cut where a person sees a character end, and stays on one line', () => {
+  // A joined emoji is several code points; the cut keeps it whole.
+  const family = '👨‍👩‍👧'
+  const joined = `echo ${'x'.repeat(41)}${family}${family}${family} and more after it`
+  assert.equal(taskLabel(joined), `echo ${'x'.repeat(41)}${family}…`)
+  // A short command continued onto a second line is not shown with the break in it.
+  const continued = taskLabel('pnpm \\\ndev --port 3000')
+  assert.ok(!continued.includes('\n'), continued)
+  assert.equal(continued, 'pnpm dev…')
+  // A comment ends at its line, and the command on the next line is the one that runs.
+  assert.equal(taskLabel('# start the server\npnpm dev --host 0.0.0.0 --port 3000 --strictPort'), 'pnpm dev --host 0.0.0.0 --port 3000 --strictPort')
+  assert.equal(taskLabel('pnpm dev # the port is set in the config'), 'pnpm dev # the port is set in the config')
+})
