@@ -2191,7 +2191,9 @@ A runtime brand keeps one tint from the design system's `tintForRuntimeBrand`
 palette. Pure selectors read it through the DOM-free `design/identity` entrypoint.
 `runtimeTint` resolves its presentation brand with the same rule as
 its glyph; account preferences colour account rings, not brand tiles. Templates,
-registered runtimes and Library loading faces use that same answer. Library
+registered runtimes, Library loading faces and Usage's Plans and ranked faces
+use that same answer, including free and metered plans. Usage chart series
+keep their own palette. Library
 uses `AvatarStack overlap={false}` with the spacing token so every mark stays
 whole; other membership stacks retain their overlap.
 

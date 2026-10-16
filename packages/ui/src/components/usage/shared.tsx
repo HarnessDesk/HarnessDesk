@@ -3,7 +3,7 @@ import { type ReactNode, useMemo } from 'react'
 import type { AccountStatus, LedgerReport, LedgerRow, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import { burnWord } from '../../lib/burn'
-import { prefsForUsage, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
+import { prefsForUsage, runtimeTint, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
 import { formatTokens } from '../../lib/context-usage'
 import { agentCoverage, ledgerRuntimeIds } from '../../lib/overview-strip'
 import {
@@ -937,13 +937,13 @@ export const Ranked = ({
           {!compact && <><TableHead numeric>Tokens</TableHead><TableHead numeric>Cost</TableHead></>}
         </TableRow></TableHeader>
         <TableBody>{rows.map((row, index) => {
-          const info = row.runtime ? byId.get(row.runtime) : null
+          const info = (row.runtime ? byId.get(row.runtime) : null) ?? byId.get(row.key as RuntimeId) ?? fallbackInfo(row.key)
           const label = nameOf(row)
           const share = shareOf(row.cost, total)
           const change = row.key === OTHER_KEY ? null : rankedChange(row.cost, previous?.complete ? (previous.totals.get(row.key as RuntimeId) ?? null) : null)
           // A runtime breakdown totals all its accounts, so its face has no account initial.
           return <TableRow key={row.key}>
-            <TableCell lead={pivot === 'runtime' && row.key !== OTHER_KEY ? <IconTile shape="face" size={compact ? 'sm' : 'default'} tint={tintAt(index, row)}><RuntimeMark runtime={info ?? byId.get(row.key as RuntimeId) ?? fallbackInfo(row.key)} /></IconTile> : <SeriesDot tint={tintAt(index, row)} />}>
+            <TableCell lead={pivot === 'runtime' && row.key !== OTHER_KEY ? <IconTile shape="face" size={compact ? 'sm' : 'default'} tint={runtimeTint(info)}><RuntimeMark runtime={info} /></IconTile> : <SeriesDot tint={tintAt(index, row)} />}>
               <Text role="subject" truncate title={label}>{label}</Text>
             </TableCell>
             {!compact && pivot === 'runtime' && <TableCell numeric>{change === null ? <Text role="meta">—</Text> : <Delta value={Math.round(change)} better="down" />}</TableCell>}

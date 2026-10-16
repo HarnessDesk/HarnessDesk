@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import type { AgentTemplateInfo, Library } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { SettingsPreview } from './settings-pages'
+import { DashboardDestinationFixture } from './dashboard-destination-fixture'
 import { LIBRARY, previewStore, runtime } from './harness'
 import '../styles/app.css'
 
@@ -17,4 +18,5 @@ const library = { ...LIBRARY, home: '/home/u', runtimes: infos.map(info => info.
 const request = store.transport.request.bind(store.transport)
 store.transport.request = async (method, params) => method === 'library/read' ? library : request(method, params)
 const surface = new URLSearchParams(location.search).get('surface')
-createRoot(document.getElementById('root')!).render(<StrictMode><StoreProvider store={store}><SettingsPreview section={surface === 'library' ? 'library' : 'runtimes'} focus={surface === 'add' ? 'add' : null} /></StoreProvider></StrictMode>)
+const usageView = surface === 'usage-plans' ? 'plans' : surface === 'usage-spend' ? 'spend' : surface === 'usage-overview' ? 'overview' : null
+createRoot(document.getElementById('root')!).render(<StrictMode><StoreProvider store={store}>{usageView ? <DashboardDestinationFixture view={usageView} /> : <SettingsPreview section={surface === 'library' ? 'library' : 'runtimes'} focus={surface === 'add' ? 'add' : null} />}</StoreProvider></StrictMode>)

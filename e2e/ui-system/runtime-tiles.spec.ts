@@ -8,14 +8,24 @@ const open = async (page: Page, surface: string, theme: 'light' | 'dark') => {
   })
   await page.setViewportSize({ width: 1100, height: 900 })
   await page.emulateMedia({ colorScheme: theme })
+  if (surface.startsWith('usage-')) await page.clock.install({ time: Date.UTC(2026, 9, 16, 12) })
   await page.goto(`/preview.html?runtime-tiles&surface=${surface}`)
-  await expect(page.getByText(surface === 'library' ? 'Shared review' : 'Alpha', { exact: true }).filter({ visible: true }).first()).toBeVisible()
+  if (surface.startsWith('usage-')) await expect(page.locator(surface === 'usage-plans' ? '[data-dashboard-table="plans"]' : '[data-dashboard-table="ranked"]')).toBeVisible()
+  else await expect(page.getByText(surface === 'library' ? 'Shared review' : 'Alpha', { exact: true }).filter({ visible: true }).first()).toBeVisible()
   await page.evaluate(() => document.fonts.ready)
 }
 
 for (const theme of ['light', 'dark'] as const) {
-  for (const surface of ['add', 'runtimes', 'library']) test(`${surface} frame in ${theme}`, async ({ page }) => {
+  for (const surface of ['add', 'runtimes', 'library', 'usage-plans', 'usage-spend', 'usage-overview']) test(`${surface} frame in ${theme}`, async ({ page }) => {
     await open(page, surface, theme)
+    if (surface === 'usage-overview') await page.locator('[data-dashboard-table="ranked"]').scrollIntoViewIfNeeded()
+    if (surface.startsWith('usage-')) {
+      for (const [brand, tint] of [['codex', 'violet'], ['claudecode', 'amber'], ['cursor', 'green']] as const) {
+        const faces = page.locator(`[data-dashboard-table] [data-slot="icon-tile"]:has(svg.brand-${brand})`)
+        await expect(faces.first()).toBeVisible()
+        for (const face of await faces.all()) await expect(face).toHaveAttribute('data-tint', tint)
+      }
+    }
     if (process.env.RUNTIME_TILES_FRAMES_DIR) {
       const prefix = process.env.RUNTIME_TILES_FRAME_PREFIX ?? 'after'
       await page.screenshot({ path: path.join(process.env.RUNTIME_TILES_FRAMES_DIR, `${prefix}-${surface}-${theme}.png`) })
