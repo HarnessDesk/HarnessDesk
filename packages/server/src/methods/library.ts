@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 
-import { applyLibrary, planLibrary, readDefinition, readLibrary } from '@harnessdesk/agent-inventory'
+import { applyLibrary, planLibrary, readDefinition } from '@harnessdesk/agent-inventory'
 import { runtimeId } from '@harnessdesk/protocol'
 
 import { assertAbsoluteCwd } from '../workspace.js'
@@ -17,13 +17,15 @@ import type { MethodsUnder } from './context.js'
  * are held to.
  */
 export const libraryMethods = {
+  'library/sources/check': (ctx, params) => ctx.libraryUpdates().check(ctx.runtimes.inventory(), params.names),
+
   'library/source/file': (ctx, params) => ctx.librarySources().file(params),
 
   'library/source/fetch': (ctx, params) => ctx.librarySources().fetch(params),
 
   'library/read': (ctx, params) => {
     assertAbsoluteCwd(params)
-    return readLibrary(ctx.runtimes.inventory(), { cwd: params.cwd })
+    return ctx.libraryUpdates().read(ctx.runtimes.inventory(), params)
   },
 
   'library/definition': (ctx, params) => {
