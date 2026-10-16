@@ -3345,3 +3345,20 @@ for every agent it opens, in later rounds and after recovery too. An explicit
 runtime choice that cannot enforce that access remains refused beside its row,
 with a way to choose a compatible agent. Automatic uses the same strict plan,
 so an earlier incompatible preference cannot block a later compatible one.
+
+
+## The Library read carries where a skill came from, and the network is only asked when a person asks — 2026-10-16
+
+An installed repository skill already has its public repository, ref, commit
+and skill path in the Library manifest. `library/read` carries that recorded
+origin on each non-hollow skill copy, so copies installed for different agents
+can report different pinned commits before anyone checks for an update. Local
+skills, MCP entries and copies without a valid recorded origin omit it.
+
+Every read loads the local manifest again. An applied update therefore changes
+the origin on the next read, while the existing comparison drops a check for an
+older origin. Update results still belong only to the host lifetime in which a
+person requested the check; a new host reads the origin without inventing a
+check result.
+
+**Rule:** the recorded origin is read from the manifest on every read; a check is only ever an explicit request.
