@@ -302,8 +302,8 @@ session: the same icon, label and trailing badge grammar as the conversation
 list. Their labels truncate with the rest of the row when space is short; they
 remain visible at the sidebar's 200px minimum. Agents shows its in-force count
 when the roster has been read, Plugins shows the live plugin count, and
-Dashboard shows an attention count only while an agent needs attention.
-Its Overview hides the Turns tile when no agent reports turns; a reported zero
+Dashboard shows an attention count only while a runtime needs attention.
+Its Overview hides the Turns tile when no runtime reports turns; a reported zero
 remains a reading. A plan card with one window names it beside the headline
 reading and draws its meter once. Multiple windows keep their named meter rows.
 A row fills when its destination window is open.
@@ -788,15 +788,15 @@ in [extending.md](extending.md).
   plugin has gone takes its chip off the draft and says so, rather than refusing
   every send; and one that is here with nothing to add is left off the message
   and named.
-- **The agent chip** names who reads the next message. For a conversation that
-  is the agent it belongs to, and the menu offers to hand the conversation to
-  another agent — summary, full transcript, or files changed. For a draft it
-  switches which agent starts it. A conversation seated as an Agent names the
+- **The runtime chip** names who reads the next message. For a conversation that
+  is the runtime it belongs to, and the menu offers to hand the conversation to
+  another runtime — summary, full transcript, or files changed. For a draft it
+  switches which runtime starts it. A conversation seated as an Agent names the
   Agent here, and the seat it took, even on a desk with one runtime.
 - **Model, effort, permissions and mode** are controls, not chips: they shape
   *how* the message is read, not what it says. Beside the model sits the
-  context ring — how full the window is for whichever agent this pane talks to
-  ([context-usage.md](context-usage.md)). When an agent enables a model setting
+  context ring — how full the window is for whichever runtime this pane talks to
+  ([context-usage.md](context-usage.md)). When a runtime enables a model setting
   itself, its reported state appears in the model control’s hover text and as
   a chip beside the model name in its menu. This status comes only from the
   runtime’s report; an effort level or model name never supplies it. Reports
@@ -877,7 +877,7 @@ Conversations and branches stay; reopening recreates the checkout. Open, pinned 
 conversations and their shared worktrees stay. A toast counts removals and space
 freed; refused checkouts and their reasons remain in path order in the review dialog.
 **Clear cached previews** asks first and explains that previews are read again
-from the agent next time. Live and full conversation bodies remain.
+from the runtime next time. Live and full conversation bodies remain.
 
 
 Grouped navigation, one short page each: a rail of pages, a 20px title with a
@@ -915,7 +915,7 @@ behaviour. Older route names still land on the right page.
 The Library’s List view compares Skill (or Server), State and Loaded by in
 three labelled columns. Descriptions wrap, a warning names a needed fix, and
 only runtimes that load the entry appear as faces; Matrix and the entry’s sheet
-keep the per-agent detail. Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
+keep the per-runtime detail. Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
 the generic plugin glyph is omitted only when the list has no mapped glyphs.
 Plugin tools use their short titles in Capabilities, on their own page and in
 the transcript. Capabilities keeps the owning plugin below each title and the

@@ -93,7 +93,7 @@ try {
       await page.getByRole('dialog').getByRole('button', { name: new RegExp(`^${name}`) }).click()
       // The first dry run can still be installing the project's suggested
       // check when the task field appears. Wait for its editable Seat controls.
-      await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Agent for / }).first()).toBeEnabled({ timeout: 30000 })
+      await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Runtime for / }).first()).toBeEnabled({ timeout: 30000 })
       const task = template === 'comparison' || contest ? TEMPLATE_TASK : `${TEMPLATE_TASK} for review`
       await page.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).fill(task)
       if (template === 'comparison' || contest) {
@@ -109,7 +109,7 @@ try {
       await photograph('02-task')
       await page.getByRole('dialog').getByRole('button', { name: 'Details', exact: true }).click()
       if (!contest) {
-        const reviewer = page.getByRole('combobox', { name: template === 'comparison' ? 'Agent for Judge' : 'Agent for Reviews', exact: true })
+        const reviewer = page.getByRole('combobox', { name: template === 'comparison' ? 'Runtime for Judge' : 'Runtime for Reviews', exact: true })
         await reviewer.selectOption('codex-review')
         await expect(reviewer).toHaveValue('codex-review')
       }
@@ -331,7 +331,7 @@ try {
         await expect(page.locator('[data-slot="side-by-side-tile"]').getByText('Picked', { exact: true })).toHaveCount(1)
         await expect(page.locator('[data-slot="side-by-side-tile"]').getByText('Not kept', { exact: true })).toHaveCount(1)
         await expect(page.getByRole('button', { name: 'Merge A into main', exact: true })).toBeEnabled()
-        await expect(page.getByText('The agent finished this turn without any output.', { exact: true })).toHaveCount(0)
+        await expect(page.getByText('The runtime finished this turn without any output.', { exact: true })).toHaveCount(0)
         await photograph('11-picked-attempt')
         await page.getByRole('button', { name: 'Merge A into main', exact: true }).click()
         await expect(page.getByRole('dialog', { name: 'Merge into main', exact: true })).toBeVisible()

@@ -913,7 +913,7 @@ it('a conversation composer with no pane context still speaks for the window’s
 })
 
 it('shows the whole refused Undo reason immediately and keeps it until dismissed', async () => {
-  const reason = 'Cannot put back /workspace/src/empty.ts: the agent recorded no content for it. Nothing was changed.'
+  const reason = 'Cannot put back /workspace/src/empty.ts: the runtime recorded no content for it. Nothing was changed.'
   showToast.mockImplementationOnce(renderToast)
 
   await act(async () => root.render(<CatalogueRefusedUndo />))

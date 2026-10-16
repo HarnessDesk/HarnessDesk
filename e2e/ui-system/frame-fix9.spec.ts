@@ -148,7 +148,7 @@ test('FIX9 absent plan reports are explained once', async ({ page }) => {
 test('FIX9 spend grouping uses sentence case', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=spend')
   const options = page.getByRole('combobox', { name: 'Group spend by', exact: true })
-  await expect(options).toContainText('By agent')
+  await expect(options).toContainText('By runtime')
   await expect(options).toContainText('By model')
   await expect(options).toContainText('By project')
 })
