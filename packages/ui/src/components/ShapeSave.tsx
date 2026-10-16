@@ -130,7 +130,7 @@ export const ShapeSave = ({ input, onSaved, onClose }: ShapeSaveProps) => {
       {preview && preview.edits.map((edit) => (
         <div key={edit.path} className="flex flex-col gap-(--hd-space-2)">
           <Text>{edit.path}</Text>
-          <DiffView diff={edit.before === null ? edit.after : wholeTextDiff(edit.before, edit.after)} wholeFile={edit.before === null} wrap />
+          <DiffView diff={edit.before === null ? edit.after : wholeTextDiff(edit.before, edit.after)} wholeFile={edit.before === null} />
         </div>
       ))}
     </Dialog>

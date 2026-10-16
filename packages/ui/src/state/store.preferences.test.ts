@@ -164,3 +164,11 @@ it('says so when the shape of faces does not reach the host', async () => {
   expect(messages()[0]).toContain('The shape of faces could not be saved')
   expect(store.getSnapshot().faces).toBe('square')
 })
+
+it('reports a refused diff preference write while preserving the visible choice', async () => {
+  refuse = true
+  store.setDiffPrefs({ wrap: false })
+  await vi.waitFor(() => expect(messages()).toHaveLength(1))
+  expect(messages()[0]).toContain('The diff settings could not be saved')
+  expect(store.getSnapshot().diffPrefs.wrap).toBe(false)
+})

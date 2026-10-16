@@ -422,7 +422,7 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
           {preview && preview.edits.map((edit2) => (
             <div key={edit2.path} className="flex flex-col gap-(--hd-space-2)">
               <Text>{edit2.path}</Text>
-              <DiffView diff={edit2.before === null ? edit2.after : wholeTextDiff(edit2.before, edit2.after)} wholeFile={edit2.before === null} wrap />
+              <DiffView diff={edit2.before === null ? edit2.after : wholeTextDiff(edit2.before, edit2.after)} wholeFile={edit2.before === null} />
             </div>
           ))}
         </>
