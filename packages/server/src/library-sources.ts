@@ -47,7 +47,7 @@ export class LibrarySources {
     const realRoot = await realpath(root)
     const source = await realpath(input.sourcePath)
     if (!within(source, realRoot) || !(await lstat(source)).isDirectory()) throw new Error('The source is outside the fetched copies.')
-    const segments = input.path.split(/[/\\]/)
+    const segments = input.path.split(sep === '\\' ? /[/\\]/ : '/')
     let path = source
     for (const segment of segments) {
       path = join(path, segment)

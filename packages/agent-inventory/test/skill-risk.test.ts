@@ -46,3 +46,22 @@ test('binary detection samples the first 8 KB for NUL and invalid UTF-8', () => 
   assert.equal(classify([file('program', Buffer.from('7f454c4600', 'hex'))])[0]!.binary, true)
   assert.equal(classify([file('empty', Buffer.alloc(0))])[0]!.binary, false)
 })
+
+test('binary sampling allows a UTF-8 character split by the sample, but not incomplete EOF or malformed bytes', () => {
+  for (const character of ['é', '€', '😀']) {
+    const encoded = Buffer.from(character)
+    for (let split = 1; split < encoded.length; split++) {
+      const prefix = Buffer.alloc(8192 - split, 97)
+      const complete = Buffer.concat([prefix, encoded, Buffer.from('tail')])
+      assert.equal(classify([file('text', complete)])[0]!.binary, false, `${character}: split after ${split} bytes`)
+      for (const padding of [Buffer.alloc(0), prefix]) {
+        const incomplete = Buffer.concat([padding, encoded.subarray(0, split)])
+        assert.equal(classify([file('text', incomplete)])[0]!.binary, true, `${character}: incomplete EOF`)
+      }
+    }
+  }
+  for (const malformed of [[0xc3, 0x28], [0xe0, 0x80], [0xed, 0xa0], [0xf4, 0x90], [0xff]]) {
+    const bytes = Buffer.concat([Buffer.alloc(8192 - malformed.length, 97), Buffer.from(malformed), Buffer.from('tail')])
+    assert.equal(classify([file('data', bytes)])[0]!.binary, true, `malformed: ${malformed}`)
+  }
+})

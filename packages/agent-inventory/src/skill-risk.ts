@@ -22,7 +22,8 @@ export function classifySkillFiles(files: readonly { readonly path: string; read
     const sample = bytes.subarray(0, 8192)
     let binary = sample.includes(0)
     if (!binary) {
-      try { new TextDecoder('utf-8', { fatal: true }).decode(sample) }
+      // A sampled prefix may end inside a character; a complete file may not.
+      try { new TextDecoder('utf-8', { fatal: true }).decode(sample, { stream: bytes.length > sample.length }) }
       catch { binary = true }
     }
     return { path, bytes: bytes.length, runnable: reason !== null, binary, reason }

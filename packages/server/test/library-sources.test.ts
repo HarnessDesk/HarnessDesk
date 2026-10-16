@@ -320,6 +320,36 @@ test('a fetched plain reference installs without acknowledgement; changed source
   }, { 'demo/SKILL.md': { body: BODY }, 'demo/references/note.md': { body: 'Read more.' } })
 })
 
+test('fetched UTF-8 crossing the sample boundary is counted and read as text', async () => {
+  const body = 'a'.repeat(8191) + 'é'
+  await fixture(async (root, repo) => {
+    const reader = sources(root, repo)
+    const fetched = await reader.fetch({ url: URL })
+    const skill = fetched.skills[0]!
+    assert.equal(skill.binary, 0)
+    assert.deepEqual(await reader.file({ sourcePath: skill.sourcePath, path: 'references/note.md' }), {
+      path: 'references/note.md', bytes: Buffer.byteLength(body), text: body, truncated: false,
+    })
+  }, { 'demo/SKILL.md': { body: BODY }, 'demo/references/note.md': { body } })
+})
+
+test('source file reads preserve fetched literal backslashes beside slash paths', { skip: process.platform === 'win32' }, async () => {
+  await fixture(async (root, repo) => {
+    const reader = sources(root, repo)
+    const fetched = await reader.fetch({ url: URL })
+    const sourcePath = fetched.skills[0]!.sourcePath
+    for (const [path, text] of [['references\\note.md', 'backslash file'], ['references/note.md', 'slash file']] as const) {
+      assert.deepEqual(await reader.file({ sourcePath, path }), {
+        path, bytes: Buffer.byteLength(text), text, truncated: false,
+      })
+    }
+  }, {
+    'demo/SKILL.md': { body: BODY },
+    'demo/references\\note.md': { body: 'backslash file' },
+    'demo/references/note.md': { body: 'slash file' },
+  })
+})
+
 test('source file reads are bounded and describe binary bytes without text', async () => {
   const root = await mkdtemp(join(tmpdir(), 'hd-source-file-'))
   try {
