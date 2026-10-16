@@ -22,7 +22,7 @@ for (const theme of ['light', 'dark'] as const) {
     const judge = page.getByRole('combobox', { name: 'Runtime for Judge', exact: true })
     await expect(judge.locator('option:checked')).toHaveText('You')
     await judge.selectOption('windsurf')
-    await expect(page.getByRole('dialog')).toContainText('Runtime 3 can be asked to stay read-only here but cannot be held to it. Choose another agent, or start from /race.')
+    await expect(page.getByRole('dialog')).toContainText('Runtime 3 can be asked to stay read-only here but cannot be held to it. Choose another runtime, or start from /race.')
     await page.getByRole('button', { name: 'Use Runtime 1', exact: true }).click()
     await expect(page.getByRole('combobox', { name: 'Runtime for Judge', exact: true })).toHaveValue('codex')
     await expect(page.getByRole('dialog')).not.toContainText('cannot be held to it')

@@ -97,7 +97,7 @@ test('column filter keeps a matching conversation across repository worktrees', 
 test('dashboard without plan reports explains the absence once', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=overview&frame-empty-usage=1')
   await expect(page.getByText('Nothing is spent or low right now.', { exact: true })).toHaveCount(0)
-  await expect(page.getByText('No agent here reports plan usage.', { exact: true })).toHaveCount(1)
+  await expect(page.getByText('No runtime here reports plan usage.', { exact: true })).toHaveCount(1)
 })
 
 test('spend keeps unscanned days as gaps in bars and line beside its coverage', async ({ page }) => {
@@ -182,7 +182,7 @@ test('command strip waits for approval before saying it is running', async ({ pa
     expect(box!.x).toBeGreaterThanOrEqual(0)
     expect(box!.x + box!.width).toBeLessThanOrEqual(width)
     await row.click()
-    await page.getByRole('button', { name: /^ci(?: — what the agent may do)?$/ }).click()
+    await page.getByRole('button', { name: /^ci(?: — what the runtime may do)?$/ }).click()
     await expect(page.getByRole('menuitemradio', { name: 'ci Checks files using the project configuration.', exact: true })).toHaveAttribute('aria-checked', 'true')
 
 

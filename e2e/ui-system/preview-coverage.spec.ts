@@ -507,7 +507,7 @@ test.describe('preview coverage', () => {
     const mixed = page.locator('[data-frame-id="side-by-side-browsers-empty"]')
     await expect(mixed.locator('iframe')).toHaveCount(2)
     await expect(mixed.getByText('Nothing open yet', { exact: true })).toHaveCount(2)
-    await expect(mixed.getByText('Pages the agent opens appear here.', { exact: true })).toHaveCount(2)
+    await expect(mixed.getByText('Pages the runtime opens appear here.', { exact: true })).toHaveCount(2)
     expect((await collectCoverage(page)).covered).toContain('components/SeatBrowser.tsx#SeatBrowser')
   })
 

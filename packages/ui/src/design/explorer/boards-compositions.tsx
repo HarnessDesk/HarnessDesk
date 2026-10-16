@@ -934,7 +934,7 @@ const ToolPaneBoard = () => {
         <Case label="Seat browser — slim address bar">
           <ToolPane variant="integrated" className="h-56 w-full" data-catalog-case="seat-browser-slim">
             <ToolPaneBar variant="address-slim"><Button variant="ghost" size="icon-sm" aria-label="Back"><ArrowLeftIcon size={14} /></Button><Button variant="ghost" size="icon-sm" aria-label="Forward"><ArrowRightIcon size={14} /></Button><Button variant="ghost" size="icon-sm" aria-label="Reload"><RetryIcon size={14} /></Button><Input variant="chrome" aria-label="Address" value="https://example.com" readOnly /></ToolPaneBar>
-            <ToolPaneBody bleed><ToolPaneMessage>Pages the agent opens appear here.</ToolPaneMessage></ToolPaneBody>
+            <ToolPaneBody bleed><ToolPaneMessage>Pages the runtime opens appear here.</ToolPaneMessage></ToolPaneBody>
           </ToolPane>
         </Case>
         <Case label="integrated tool — page failed to load">

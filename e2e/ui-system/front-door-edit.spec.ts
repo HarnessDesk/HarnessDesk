@@ -46,7 +46,7 @@ test('New Team starts an edit-only writer automatically and asks the person to p
     // An explicit incompatible choice stays selectable and explains its fix
     // next to the row, rather than silently substituting the automatic winner.
     await writer.selectOption('claude-code')
-    await expect(dialog).toContainText('Scripted reviewer cannot enforce editing and local commits without publishing. Choose another agent that supports this access.')
+    await expect(dialog).toContainText('Scripted reviewer cannot enforce editing and local commits without publishing. Choose another runtime that supports this access.')
     await expect(dialog).toContainText('See the problem below.')
     await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
     await photograph('refused-edit')

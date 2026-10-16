@@ -143,10 +143,10 @@ describe('agents in words', () => {
 
   it('says a runtime that cannot hold a ceiling, and where that is decided', () => {
     expect(reasonWords({ kind: 'unheld', level: 'read', detail: null }, 'Claude')).toBe(
-      'Claude cannot enforce read-only access. Choose another agent that supports this access.',
+      'Claude cannot enforce read-only access. Choose another runtime that supports this access.',
     )
     expect(reasonWords({ kind: 'unheld', level: 'edit', detail: 'Sandbox reads back as Full access' }, 'Codex')).toBe(
-      'Codex cannot enforce editing and local commits without publishing: Sandbox reads back as Full access. Choose another agent that supports this access.',
+      'Codex cannot enforce editing and local commits without publishing: Sandbox reads back as Full access. Choose another runtime that supports this access.',
     )
     expect(fixWords({ kind: 'ceilings' }, 'Claude')).toBe('Change what happens when a ceiling cannot be held')
   })
@@ -156,17 +156,17 @@ describe('agents in words', () => {
     // level, or reads back holding a different one — never "not running",
     // and never this Mac's own setting, which is not what refused it here.
     expect(reasonWords({ kind: 'unheld', level: 'edit', detail: null, required: true }, 'Codex')).toBe(
-      'Codex cannot enforce editing and local commits without publishing. Choose another agent that supports this access.',
+      'Codex cannot enforce editing and local commits without publishing. Choose another runtime that supports this access.',
     )
     expect(reasonWords({ kind: 'unheld', level: 'edit', detail: 'reads back holding read, not edit', required: true }, 'Codex')).toBe(
-      'Codex cannot enforce editing and local commits without publishing: reads back holding read, not edit. Choose another agent that supports this access.',
+      'Codex cannot enforce editing and local commits without publishing: reads back holding read, not edit. Choose another runtime that supports this access.',
     )
     expect(fixWords({ kind: 'seats' }, 'Codex')).toBe('Edit seats for this Mac')
   })
 
   it('never throws on a level this file does not recognize — shown as written, not indexed', () => {
     expect(reasonWords({ kind: 'unheld', level: 'omniscient' as CeilingLevel, detail: null }, 'Claude')).toBe(
-      'Claude cannot enforce omniscient. Choose another agent that supports this access.',
+      'Claude cannot enforce omniscient. Choose another runtime that supports this access.',
     )
   })
 

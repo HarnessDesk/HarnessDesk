@@ -245,7 +245,7 @@ export const reasonWords = (reason: SeatReason, runtime: string, modelLabel?: Mo
       if (reason.required && reason.level === 'read') return `${runtime} can be asked to stay read-only here but cannot be held to it.${reason.detail ? ` ${reason.detail.replace(/[.!?]$/, '')}.` : ''} Choose another runtime, or start from /race.`
       const access = { read: 'read-only access', edit: 'editing and local commits without publishing', publish: 'publishing changes', merge: 'merging changes' }[reason.level] ?? reason.level
       const detail = reason.detail ? `: ${reason.detail.replace(/[.!?]$/, '')}` : ''
-      return `${runtime} cannot enforce ${access}${detail}. Choose another agent that supports this access.`
+      return `${runtime} cannot enforce ${access}${detail}. Choose another runtime that supports this access.`
     }
     case 'sameProvider':
       return 'Same provider as the writer'
