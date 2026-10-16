@@ -7,6 +7,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Agent and model logos in their own colours.** Claude, Codex, Gemini,
+  DeepSeek and the rest are drawn in their makers' colours wherever a logo
+  appears. A logo on an account's coloured face or ring still takes that
+  colour, and a maker with no colour logo stays in one colour.
+
 - **Flows have their own page.** Browse cards with mini graphs, then build,
   connect, edit and save a Flow on its canvas. Its rail holds the selected
   step, rules, triggers and recorded Runs. New Team opens the same dialog

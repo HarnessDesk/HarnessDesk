@@ -15,7 +15,8 @@ respective owners.
 
 The interface shows the logos of AI vendors and agents — OpenAI, Anthropic,
 Cursor, Google, xAI, DeepSeek, GitHub, and others — beside the agents and models
-a user has installed or chosen, drawn from the lobe-icons collection. The menu
+a user has installed or chosen, drawn from the lobe-icons collection in their
+owners' own colours where the collection has them. The menu
 bar's status item shows the same marks beside the same agents, as monochrome
 silhouettes, because that is the form macOS draws in a menu. Each logo is the
 mark of its owner, shown only to identify that owner's software or model
