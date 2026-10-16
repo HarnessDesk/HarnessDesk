@@ -1039,18 +1039,18 @@ that read is pending or unavailable, the board says so rather than claiming
 that nothing was checked. The whole of it is in
 [multi-agent.md](multi-agent.md), under *The Board*.
 
-**As the board narrows.** Open columns keep at least 220px. Ready folds first,
-then To do, into named rails with their counts; each rail opens in place and
-offers a keyboard Fold control only when it can return to a rail. The scroll
-body reserves its gutter so a scrollbar appearing cannot move the fold
-thresholds. When the columns and rails no longer fit,
-or below 760px of content width, Needs you and Working share the first row,
-In review and To do the second; Ready stays a rail. Below 600px of content width
-the pane uses the compact list, grouped by state with Needs you first. Content
-width is the scroll body's client width, after its reserved scrollbar gutter;
-column fit also subtracts its insets. The pane measures itself, including space
-lost to a sidebar or dock, and restores the selected
-view when it widens. Set aside keeps its own lane while it contains work.
+**As the board narrows.** Occupied columns keep their full width and scroll
+horizontally when they do not fit. Empty columns start as narrow rails with
+their names and zero counts; each rail opens in place and offers a keyboard
+Fold control. The Board tab counts every card, including completed work, so a
+finished Team's three Ready cards are visible beside its four empty rails.
+An overflowing board keeps its scrollbar visible before any scrolling gesture.
+When every column is empty, the board shows one “Nothing on the board yet” line.
+Below 600px of content width the pane uses the compact list, grouped by state
+with Needs you first. Content width is the scroll body's client width, after its
+reserved scrollbar gutter. The pane measures itself, including space lost to
+a sidebar or dock, and restores the selected view when it widens. Set aside
+keeps its own lane while it contains work.
 
 **As a list.** Board · List switches the same jobs into a framed table. Filter
 jobs by words or state; All starts pressed, and the default order puts Needs
