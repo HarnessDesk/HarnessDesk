@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { isFinishedTask, type BackgroundTask } from '@harnessdesk/protocol'
 
-import { Button, CodeBlock, EmptyState, Spinner, Text, ToolSection } from '../design'
+import { Button, CodeBlock, EmptyState, SectionBody, Spinner, Text, ToolSection } from '../design'
 import { splitTasks, taskElapsed, taskKindWord, tasksCount, taskStateWord, taskTooltip } from '../lib/tasks'
 import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, BackgroundIcon, CheckIcon, StopIcon } from './Icons'
@@ -108,11 +108,12 @@ export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
                 key={task.id}
                 task={task}
                 now={now}
+                card={card}
                 onStop={() => void store.stopTask(task.id, key ?? undefined)}
               />
             ))}
             {finished.map((task) => (
-              <TaskCard key={task.id} task={task} now={now} />
+              <TaskCard key={task.id} task={task} now={now} card={card} />
             ))}
           </div>
     )}
@@ -153,10 +154,13 @@ const TaskCard = ({
   task,
   now,
   onStop,
+  card = false,
 }: {
   task: BackgroundTask
   now: number
   onStop?: () => void
+  /** In a Details card, the plate takes the card's row edge, as its rows do. */
+  card?: boolean
 }) => {
   const elapsed = taskElapsed(task, now)
   const done = isFinishedTask(task)
@@ -184,7 +188,8 @@ const TaskCard = ({
           ) : undefined
         }
       />
-      {hasBlock && (
+      {hasBlock && (() => {
+        const plate = (
         <CodeBlock
           {...(task.command ? { command: task.command, copyLabel: `Copy the command for ${task.label}` } : {})}
           {...(task.output !== undefined ? { output: task.output.length > 0 ? task.output : '(no output)' } : {})}
@@ -207,7 +212,9 @@ const TaskCard = ({
             <Text role="meta" className="mt-2 block">Showing the end of a longer log.</Text>
           )}
         </CodeBlock>
-      )}
+        )
+        return card ? <SectionBody spacing="inline">{plate}</SectionBody> : plate
+      })()}
     </article>
   )
 }
