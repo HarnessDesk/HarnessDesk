@@ -224,6 +224,9 @@ export const launchDesk = async ({ app, home, port = 0, userDataDir, logPath, ex
     },
   )
   const processGroup = process.platform !== 'win32' ? child.pid : undefined
+  if (env.HD_DESK_TRACE === '1') {
+    process.stderr.write(`desk launch ownership: ${JSON.stringify({ pid: child.pid, processGroup })}\n`)
+  }
   const sink = logPath ? createWriteStream(logPath, { flags: 'a' }) : null
   child.stdout.on('data', (chunk) => sink?.write(chunk))
   child.stderr.on('data', (chunk) => sink?.write(chunk))
