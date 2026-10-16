@@ -186,6 +186,12 @@
   color: var(--hd-muted-foreground);
 }
 
+/* A dark window not yet running reads as dark: the board's ink as its ground. */
+.placeholder[data-theme='dark'] {
+  background: var(--hd-foreground);
+  color: var(--hd-background);
+}
+
 .placeholderName {
   overflow: hidden;
   text-overflow: ellipsis;

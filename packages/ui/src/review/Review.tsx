@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
-import { CanvasFitIcon, CanvasHandIcon, CanvasSelectIcon, CommentIcon, CopyIcon, DownloadIcon, TrashIcon, ZoomInIcon, ZoomOutIcon } from '../components/Icons'
+import { CanvasFitIcon, CanvasHandIcon, CanvasSelectIcon, CheckIcon, CommentIcon, CopyIcon, DownloadIcon, TrashIcon, ZoomInIcon, ZoomOutIcon } from '../components/Icons'
 import { Button, Chip, GroupLabel, Segmented, Textarea } from '../design'
 import { FlowCanvasToolbar } from '../design/patterns/FlowCanvasToolbar'
 import { GUIDES_MODES, useGuidesMode, type GuidesMode, type GuidesReport } from '../design/explorer/guides'
@@ -88,6 +88,7 @@ export const Review = () => {
   const [activeNote, setActiveNote] = useState<string | null>(null)
   const [live, setLive] = useState<string[]>([])
   const [tallies, setTallies] = useState<Record<string, Tally>>({})
+  const [copied, setCopied] = useState(false)
   const viewport = useRef<HTMLDivElement>(null)
   const frames = useRef(new Map<string, HTMLIFrameElement>())
   /* A window's address is fixed when it first goes live; later guide modes
@@ -129,9 +130,12 @@ export const Review = () => {
     focusRect(one.rect)
   }, [board, focusRect])
 
-  // First view: a deep-linked scene, else the whole board.
+  // First view: a deep-linked scene, else the whole board. A theme change
+  // keeps the scene being looked at, in its new place.
+  const selectedNow = useRef(selected)
+  selectedNow.current = selected
   useEffect(() => {
-    const scene = new URLSearchParams(location.search).get('scene')
+    const scene = selectedNow.current ?? new URLSearchParams(location.search).get('scene')
     if (scene) focusScene(scene)
     else focusRect(board.bounds, 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -172,7 +176,7 @@ export const Review = () => {
       if (event.origin !== location.origin) return
       const key = [...frames.current].find(([, frame]) => frame.contentWindow === event.source)?.[0]
       if (!key) return
-      const data = event.data as { type?: string; report?: GuidesReport; id?: string; element?: string | null; path?: string | null }
+      const data = event.data as { type?: string; report?: GuidesReport; id?: string; element?: string | null; path?: string | null; deltaY?: number; x?: number; y?: number }
       if (data.type === 'hd-guides-report' && data.report) {
         if (event.source && !ready.current.has(event.source as Window)) {
           ready.current.add(event.source as Window)
@@ -184,6 +188,16 @@ export const Review = () => {
         if (guidesNow.current !== 'off') setTallies((prior) => ({ ...prior, [key]: sum(data.report!) }))
       }
       if (data.type === 'hd-picked' && data.id) updateNote(data.id, { element: data.element ?? null, path: data.path ?? null })
+      // A zoom gesture over a running window, in that window's own pixels.
+      if (data.type === 'hd-zoom' && typeof data.deltaY === 'number' && typeof data.x === 'number' && typeof data.y === 'number') {
+        const frame = frames.current.get(key)
+        const box = viewport.current?.getBoundingClientRect()
+        if (!frame || !box) return
+        const at = frame.getBoundingClientRect()
+        const scale = at.width / frame.offsetWidth
+        const { deltaY, x, y } = data
+        setCamera((prior) => zoomAt(prior, wheelFactor(deltaY), at.left + x * scale - box.left, at.top + y * scale - box.top))
+      }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
@@ -213,6 +227,11 @@ export const Review = () => {
       const target = event.target as Element | null
       if (target?.closest('input, textarea, [contenteditable="true"]')) return
       if (event.code === 'Space' && !event.repeat) { setSpaceHeld(true); event.preventDefault(); return }
+      // The inspector's own keys belong to the window under the pointer, which
+      // never has focus while the board does.
+      if ((event.key === 'Shift' || event.key === 'Escape') && !event.repeat) {
+        for (const frame of frames.current.values()) frame.contentWindow?.postMessage({ type: 'hd-key', key: event.key }, location.origin)
+      }
       if (event.shiftKey && event.code === 'Digit1') { focusRect(board.bounds, 1); return }
       if (event.shiftKey && event.code === 'Digit0') { const { width, height } = size(); setCamera((prior) => zoomAt(prior, 1 / prior.scale, width / 2, height / 2)); return }
       if (event.shiftKey && event.code === 'Digit2' && selected) { focusScene(selected); return }
@@ -289,7 +308,12 @@ export const Review = () => {
     if (placed) { setSelected(placed.key); focusRect(placed.rect) }
   }
 
-  const exportMarkdown = () => void navigator.clipboard?.writeText(notesMarkdown(notes, titleOf))
+  const exportMarkdown = () => {
+    void navigator.clipboard?.writeText(notesMarkdown(notes, titleOf)).then(() => {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    })
+  }
   const exportJson = () => {
     const url = URL.createObjectURL(new Blob([JSON.stringify(notes, null, 2)], { type: 'application/json' }))
     const link = document.createElement('a')
@@ -423,7 +447,7 @@ export const Review = () => {
         <div className={styles.notesHead}>
           <span className={styles.notesTitle}>Notes</span>
           <span className={styles.notesCount}>{notes.filter((note) => !note.done).length} open</span>
-          <Button size="icon-sm" variant="ghost" aria-label="Copy as Markdown" title="Copy every note as Markdown" disabled={!notes.length} onClick={exportMarkdown}><CopyIcon /></Button>
+          <Button size="icon-sm" variant="ghost" aria-label="Copy as Markdown" title={copied ? 'Copied' : 'Copy every note as Markdown'} disabled={!notes.length} onClick={exportMarkdown}>{copied ? <CheckIcon /> : <CopyIcon />}</Button>
           <Button size="icon-sm" variant="ghost" aria-label="Download JSON" title="Download every note as JSON" disabled={!notes.length} onClick={exportJson}><DownloadIcon /></Button>
         </div>
         {notes.length === 0 && <p className={styles.notesEmpty}>Press C, then click a window to pin a note.</p>}

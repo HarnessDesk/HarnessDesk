@@ -238,7 +238,9 @@ if (typeof window !== 'undefined') (window as unknown as { __hdGuides: typeof gu
 
 const describe = (el: Element) => {
   const slot = el.getAttribute('data-slot')
-  const text = (el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 24)
+  // Rendered text, so a title and the line under it stay two words apart.
+  const whole = ((el instanceof HTMLElement ? el.innerText : null) ?? el.textContent ?? '').trim().replace(/\s+/g, ' ')
+  const text = whole.length > 28 ? `${whole.slice(0, 27).trimEnd()}…` : whole
   return `${el.tagName.toLowerCase()}${slot ? `[${slot}]` : ''}${text ? ` "${text}"` : ''}`
 }
 
@@ -554,7 +556,7 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
 
   const schedule = () => { if (!frame) frame = requestAnimationFrame(draw) }
   const onPointer = (event: PointerEvent) => { pointer = { x: event.clientX, y: event.clientY }; schedule() }
-  const onLeave = () => { pointer = null; schedule() }
+  const onLeave = () => { pointer = null; hovered = null; schedule() }
   let mutationTimer = 0
   let retheme = false
   const mutations = new MutationObserver((records) => {
@@ -575,7 +577,7 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
     if (event.key === 'Escape' && pinned) { pinned = null; schedule(); return }
     if (event.key !== 'Shift' || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
     const target = event.target as Element | null
-    if (target?.closest('input, textarea, [contenteditable="true"]')) return
+    if (target?.closest?.('input, textarea, [contenteditable="true"]')) return
     pinned = hovered && hovered !== pinned ? hovered : null
     schedule()
   }
@@ -647,8 +649,10 @@ export const useGuides = (roots: () => Element[]) => {
     if (window.parent === window) return
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.source !== window.parent) return
-      const data = event.data as { type?: string; mode?: GuidesMode; x?: number; y?: number; id?: string }
+      const data = event.data as { type?: string; mode?: GuidesMode; x?: number; y?: number; id?: string; key?: string }
       if (data.type === 'hd-guides' && data.mode && (GUIDES_MODES as readonly string[]).includes(data.mode)) setGuidesMode(data.mode)
+      // Shift and Escape, pressed while the board has focus.
+      if (data.type === 'hd-key' && (data.key === 'Shift' || data.key === 'Escape')) window.dispatchEvent(new KeyboardEvent('keydown', { key: data.key }))
       if (data.type === 'hd-pick' && typeof data.x === 'number' && typeof data.y === 'number') {
         const target = document.elementFromPoint(data.x, data.y)
         const hit = target ? placedAt(target, roots()) : null
@@ -656,10 +660,18 @@ export const useGuides = (roots: () => Element[]) => {
       }
     }
     window.addEventListener('message', onMessage)
+    // A pinch or ⌘-wheel zooms the board, wherever the pointer is; only a
+    // plain wheel scrolls the page itself.
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      window.parent.postMessage({ type: 'hd-zoom', deltaY: event.deltaY, x: event.clientX, y: event.clientY }, window.location.origin)
+    }
+    window.addEventListener('wheel', onWheel, { passive: false })
     // Say "ready" once, whatever the mode: a board holds a note's question
     // until the window it asks can answer.
     const hello = window.setTimeout(() => window.parent.postMessage({ type: 'hd-guides-report', report: guidesReport.current }, window.location.origin), 300)
-    return () => { window.removeEventListener('message', onMessage); clearTimeout(hello) }
+    return () => { window.removeEventListener('message', onMessage); window.removeEventListener('wheel', onWheel); clearTimeout(hello) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 }
