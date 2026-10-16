@@ -64,7 +64,7 @@ const readyHealth: RuntimeHealth = {
   state: 'ready',
 }
 
-const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' | 'flows' | 'agents' | 'library' | 'dashboard' | 'plugins' | null = null, doors: Partial<Pick<Parameters<typeof Sidebar>[0], 'onOpenSettings' | 'onOpenLibrary'>> = {}, settings?: Parameters<typeof Sidebar>[0]['settings']) => {
+const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' | 'flows' | 'agents' | 'library' | 'dashboard' | 'plugins' | null = null, doors: Partial<Pick<Parameters<typeof Sidebar>[0], 'onOpenSettings' | 'onOpenLibrary' | 'onBrowseFolders'>> = {}, settings?: Parameters<typeof Sidebar>[0]['settings']) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -144,7 +144,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     act(() => trigger.click())
     const menu = document.querySelector('[role="menu"]')!
     const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((one) => one.textContent?.trim())
-    expect(items).toEqual(['New session⌘N', 'New Team…⌘⇧N', 'New worktree…', 'topic'])
+    expect(items).toEqual(['New session⌘N', 'Open folder…', 'New Team…⌘⇧N', 'New worktree…', 'topic'])
     expect(menu.lastElementChild?.getAttribute('role')).not.toBe('separator')
     const team = [...menu.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('New Team…'))!
     await act(async () => team.click())
@@ -371,11 +371,11 @@ it('puts the unread Inbox beside the Settings gear in the seat row', () => {
 })
 
 /**
- * Main's three full navigation rows: counts follow each destination and labels
+ * Main navigation rows keep catalogue totals on their pages; labels
  * remain present at the minimum sidebar width.
  */
 describe('sidebar destinations', () => {
-  it('renders six separate, labelled design-system rows with main counts at 200px', () => {
+  it('renders six separate, labelled design-system rows without catalogue counts at 200px', () => {
     container.style.width = '200px'
     mount({
       agents: [{ id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } }],
@@ -391,7 +391,7 @@ describe('sidebar destinations', () => {
     expect(rows.map((one) => one.getAttribute('aria-label'))).toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
     expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent)).toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
     expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(6)
-    expect(rows.map((one) => one.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim())).toEqual([undefined, undefined, '1', undefined, '2', '1'])
+    expect(rows.map((one) => one.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim())).toEqual([undefined, undefined, undefined, undefined, undefined, '1'])
     expect(group.querySelectorAll('[data-left-trailing]')).toHaveLength(6)
   })
 
@@ -538,4 +538,18 @@ it('Settings omits both mode controls even with an Editor preference', () => {
   mount(atDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } }), null, {},
     { section: 'general', onSection: () => {}, onBack: () => {} })
   expect(container.querySelector('[data-mode-switch]')).toBeNull()
+})
+
+it('opens the same folder picker from Projects and the New session menu without a workspace', () => {
+  const choose = vi.fn()
+  mount({ workspace: null, worktrees: [] }, null, { onBrowseFolders: choose })
+  const projects = container.querySelector<HTMLButtonElement>('button[aria-label="Open a project folder"]')!
+  expect(projects).not.toBeNull()
+  act(() => projects.click())
+  act(() => container.querySelector<HTMLButtonElement>('button[title="More ways to start"]')!.click())
+  const open = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent === 'Open folder…')!
+  expect(open).toBeDefined()
+  expect(open.disabled).toBe(false)
+  act(() => open.click())
+  expect(choose).toHaveBeenCalledTimes(2)
 })

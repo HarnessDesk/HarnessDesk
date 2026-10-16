@@ -280,7 +280,7 @@ docked panels, notices and the seat.
 
 **New session** starts a draft in the current project with the default agent,
 in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
-start**: New Team… (⌘⇧N), New worktree… and any existing worktree. A
+start**: Open folder…, New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
 until its first message. The project’s right-click menu also offers **New worktree…**,
 for that project, including one with no sessions yet. A folder outside git keeps
@@ -289,17 +289,21 @@ is replaced by **Make a first commit to work in a worktree**, with a **Commit**
 button that opens the existing commit flow. After that commit the normal
 worktree choice returns. Menus re-read the checkout when opened, so commits
 made by an agent or terminal also restore the choice. This applies to the
-composer and project menu too.
+composer and project menu too. With no project open, the empty composer
+offers **Open a folder…**. It and **Open folder…** use the same folder picker
+as the + beside Projects, and both are reachable by keyboard.
 New Team opens the shared dialog with its task, searchable Flow picker, roles
 and optional Done when. Just a Team opens a shared board without fixed steps.
-Changing the Flow stays in the dialog and keeps each draft.
+**Most used** appears only for Flows that have actually been started on this
+desk; the rest stay under **More Flows**. Changing the Flow stays in the dialog
+and keeps each draft.
 
 **Agents**, **Dashboard** and **Plugins** each have a full row under New
 session: the same icon, label and trailing badge grammar as the conversation
 list. Their labels truncate with the rest of the row when space is short; they
-remain visible at the sidebar's 200px minimum. Agents shows its in-force count
-when the roster has been read, Plugins shows the live plugin count, and
-Dashboard shows an attention count only while an agent needs attention.
+remain visible at the sidebar's 200px minimum. Agents and Plugins keep their
+counts on their own pages; their sidebar rows carry no count. Dashboard shows
+an attention count only while an agent needs attention.
 Its Overview hides the Turns tile when no agent reports turns; a reported zero
 remains a reading. A plan card with one window names it beside the headline
 reading and draws its meter once. Multiple windows keep their named meter rows.
@@ -320,8 +324,10 @@ a held queue or an answer says **Needs you** beside its own title. Neither state
 moves it into a separate band. Stored conversations say when they last ran on
 hover instead.
 
-**One row per Team.** Each active Team sits inside its project, one indent step
-beside the project's loose conversations. A running Team names its activity on hover; **Needs you** is its only state mark. Its Seats fold underneath,
+**One row per Team.** Each active Team, and each finished Team until it is
+wrapped, sits inside its project, one indent step beside the project's loose
+conversations. A running Team names its activity on hover; **Needs you** and
+**Ready to wrap** use the existing attention dot. Its Seats fold underneath,
 collapsed initially and one further indent step in; the chevron reveals them without opening the Team.
 A Seat conversation stays under its Team, including when pinned or waiting.
 Opening a Seat conversation elsewhere reveals its project and Team, including
@@ -329,6 +335,7 @@ when the Seat works in another checkout. A later deliberate fold stays folded
 until another conversation activation. Unread output and running activity stay
 on hover; Needs you draws the attention dot.
 Wrapped Teams and their conversations leave the sidebar and remain on **Teams**.
+Teams whose project folder is gone stay hidden from the ordinary list.
 
 **Pinned** is a plain section above the projects, shown only when it has loose
 conversations. Pins keep their chosen order and stay out of their project.

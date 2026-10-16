@@ -1049,7 +1049,7 @@ capitals and for a heavier weight.
 ### Sidebar trailing rail
 
 In the production `SessionTree`, trailing state marks mean attention or an
-error: **Needs you**, a failure or a missing folder. Running conversations
+error: **Needs you**, **Ready to wrap**, a failure or a missing folder. Running conversations
 and Teams have no spinner or Working label; their activity stays on hover,
 along with branch, worktree and pin facts. `LeftColumnRow` uses a compact
 mark that yields to the hover action without folding a full state label.
@@ -1082,9 +1082,12 @@ position inside its row. State stays on its row as a compact attention or
 error mark; running activity stays on hover.
 
 Pinned is one plain section for loose conversations, with its heading,
-separator and uncapped rows. Every active Team is one row in its project,
-beside the project's loose conversations. Team members do not also appear
-as loose rows. Wrapped Teams live on the Teams page.
+separator and uncapped rows. Every active Team, and each finished Team until
+it is wrapped, is one row in its project beside the loose conversations.
+A finished Team keeps the attention dot, labelled **Ready to wrap**. Team
+members do not also appear as loose rows. Wrapped Teams live on the Teams page.
+Agents and Plugins keep catalogue counts on their pages; a sidebar count
+is earned by attention, not by the size of a catalogue.
 
 A project initially shows at most five rows, counting Teams and loose
 conversations together. **Show more** expands it and **Show less** restores

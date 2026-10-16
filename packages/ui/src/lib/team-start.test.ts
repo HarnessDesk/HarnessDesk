@@ -110,17 +110,17 @@ it('prefers a summary, otherwise the first complete description sentence', () =>
   expect(shapeSummary(entry('one', { description: null }))).toBe('')
 })
 
-it('uses the approved fresh-desk order and puts project flows in their own section', () => {
-  expect(pickerSections(shapes, {}, '').most.map(one => one.id)).toEqual(['fix-and-review', 'comparison', 'independent-review', 'investigation'])
+it('keeps a fresh desk unranked and puts project flows in their own section', () => {
+  expect(pickerSections(shapes, {}, '').most).toEqual([])
   const sections = pickerSections([...shapes, entry('local', { origin: 'project' })], {}, '')
   expect(sections.project.map(one => one.id)).toEqual(['local'])
-  expect(sections.more.map(one => one.id)).toEqual(['alignment', 'review'])
+  expect(sections.more.map(one => one.id)).toEqual(['alignment', 'comparison', 'fix-and-review', 'independent-review', 'investigation', 'review'])
   expect(pickerSections(shapes, {}, '').project).toEqual([])
 })
 
 it('ranks actual starts, breaks ties by the fresh order, and searches names and summaries', () => {
-  expect(pickerSections(shapes, { alignment: 8, review: 4, comparison: 4 }, '').most.map(one => one.id)).toEqual(['alignment', 'comparison', 'review', 'fix-and-review'])
-  expect(pickerSections([entry('one', { name: 'Read code', summary: 'Security specialists.' }), entry('two')], {}, 'SECURITY').most.map(one => one.id)).toEqual(['one'])
+  expect(pickerSections(shapes, { alignment: 8, review: 4, comparison: 4 }, '').most.map(one => one.id)).toEqual(['alignment', 'comparison', 'review'])
+  expect(pickerSections([entry('one', { name: 'Read code', summary: 'Security specialists.' }), entry('two')], {}, 'SECURITY').more.map(one => one.id)).toEqual(['one'])
 })
 
 
@@ -133,4 +133,9 @@ it('restores the separate publication handoff after changing the review outcome 
     title: 'Approve publishing the reviewed change',
     detail: EDIT_TEAM_START_POLICY.rules.find(rule => rule.then.role === 'referee')!.then.detail,
   })
+})
+
+it('does not rank zero starts or usage of shapes absent from this catalogue', () => {
+  expect(pickerSections(shapes, { comparison: 0, missing: 3 }, '').most).toEqual([])
+  expect(pickerSections(shapes, { comparison: 1 }, '').most.map(one => one.id)).toEqual(['comparison'])
 })

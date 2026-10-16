@@ -1,7 +1,7 @@
 import { teamsInput } from '../lib/teams-snapshot'
 import { goneProjectFolders, roomsByProjectFor } from '../lib/room-folders'
 import { SidebarMenuState } from '../design'
-import { teamListRow, type TeamListState } from '../lib/teams-list'
+import { teamInSidebar, teamListRow, type TeamListState } from '../lib/teams-list'
 import {
   Button,
   Chip,
@@ -538,12 +538,14 @@ const RoomRow = ({ room, state, suppressSelection = false, virtualKey, virtualIn
   const unread = state === 'unread'
   const held = room.channel.filter(entry => entry.kind === 'message' && entry.state === 'held').length
   const selected = panes(snapshot.layout.root).some(pane => pane.view.kind === 'room' && pane.view.room === room.id)
-  const trailing: LeftColumnTrail | undefined = waiting
-    ? { kind: 'mark', icon: <SidebarMenuState label="Needs you" tone="warning" state="limit" compact />, label: 'Needs you' }
+  const ready = state === 'settled'
+  const attention = waiting ? 'Needs you' : ready ? 'Ready to wrap' : null
+  const trailing: LeftColumnTrail | undefined = attention
+    ? { kind: 'mark', icon: <SidebarMenuState label={attention} tone="warning" state="limit" compact />, label: attention }
     : undefined
   return <div data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
     <LeftColumnRow label={name} icon={<TeamIcon size={16} />} selected={selected && !suppressSelection}
-      title={`${name}${state === 'stopping' ? ' · Stopping' : state === 'stopped' ? ' · Stopped' : ''}${waiting ? ' · Needs you' : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
+      title={`${name}${state === 'stopping' ? ' · Stopping' : state === 'stopped' ? ' · Stopped' : ''}${attention ? ` · ${attention}` : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
       buttonProps={{ 'aria-label': `Room ${name}` }} trailing={trailing}
       onClick={() => store.openTeamRoom(room.id)} />
   </div>
@@ -1239,11 +1241,11 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
   // A fold hides matches without removing them from the search results.
   const hasSearchRows = pinnedRows.length > 0 || noFolder.some(summary => !teamKeys.has(String(sessionKey(summary.runtime, summary.id)))) || groups.some((group) =>
     group.sessions.some((summary) => !teamKeys.has(String(sessionKey(summary.runtime, summary.id))))
-    || projectRoots(group).some((root) => (roomsByProject.get(root) ?? []).some((room) => teamRows.get(room.id)?.active)),
+    || projectRoots(group).some((root) => (roomsByProject.get(root) ?? []).some((room) => teamInSidebar(teamRows.get(room.id)))),
   )
   // A Seat's own checkout can differ from the project that holds its Team.
   const activeTeam = activeKey === null ? null : [...snapshot.teams.values()].find(room =>
-    teamRows.get(room.id)?.active && teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
+    teamInSidebar(teamRows.get(room.id)) && teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
       .some(seat => String(seat.key) === activeKey) && roomMembers(room, [], snapshot, liftedKeys)
       .some(summary => String(sessionKey(summary.runtime, summary.id)) === activeKey)) ?? null
   const activeTeamRoot = activeTeam ? roomGroupRootOf(activeTeam, [snapshot.workspace, ...snapshot.workspaces]) : null
@@ -1353,7 +1355,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
     const allRooms = projectRoots(group)
       .flatMap((root) => roomsByProject.get(root) ?? [])
       .sort((a, b) => b.updatedAt - a.updatedAt)
-    const rooms = allRooms.filter((room) => teamRows.get(room.id)?.active)
+    const rooms = allRooms.filter((room) => teamInSidebar(teamRows.get(room.id)))
     /* A conversation is listed once: under its room if it is in one, under
        the project if it is not. Two rows for one session — the room's copy
        and a loose copy — would make the tree's own count disagree with
