@@ -221,3 +221,43 @@ test('a bridge that exits on its own takes its family with it', async (t) => {
   // handler saw the family out on its own.
   await family.gone
 })
+
+test('an empty group still waits for the leader exit to be observed', async (t) => {
+  if (process.platform === 'win32') return
+  const line = await lifeline(t)
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-leader-exit-'))
+  const script = join(dir, 'bridge.mjs')
+  const pidFile = join(dir, 'pid')
+  await writeFile(script, `
+    import { writeFileSync } from 'node:fs'
+    writeFileSync(${JSON.stringify(pidFile)}, String(process.pid))
+    process.stdin.resume()
+    setInterval(() => {}, 1000)
+    ${checkIn(line.port)}
+  `)
+  const connection = new AcpConnection({ command: process.execPath, args: [script] })
+  let pid: number | undefined
+  const kill = process.kill.bind(process)
+  t.after(async () => {
+    if (pid) { try { kill(pid, 'SIGTERM') } catch {} }
+    t.mock.restoreAll()
+    await connection.stop()
+    await rm(dir, { recursive: true, force: true })
+  })
+  await connection.start()
+  const bridge = await line.checkin()
+  pid = Number(await readFile(pidFile, 'utf8'))
+  t.mock.method(process, 'kill', (target: number, signal?: NodeJS.Signals | number) => {
+    if (target !== -pid!) return kill(target, signal)
+    if (signal === 0) throw Object.assign(new Error('No group remains'), { code: 'ESRCH' })
+    return true
+  })
+  let returned = false
+  const stopping = connection.stop().then(() => { returned = true })
+  await new Promise<void>(resolve => setImmediate(resolve))
+  const returnedBeforeExit = returned
+  kill(pid, 'SIGTERM')
+  await stopping
+  await bridge.gone
+  assert.equal(returnedBeforeExit, false, 'the leader still holds its resources until it exits')
+})
