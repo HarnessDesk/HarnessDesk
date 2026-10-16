@@ -4,13 +4,16 @@ test.use({ colorScheme: process.env.NOTICE_FRAME_THEME === 'dark' ? 'dark' : 'li
 
 const layout = (page: Page, id: string): Locator => page.locator(`[data-frame-id="${id}"]`)
 
-const chooseDestination = async (page: Page, frame: Locator, name: string) => {
+const showMain = async (frame: Locator): Promise<void> => {
+  const closePane = frame.getByRole('button', { name: 'Close pane', exact: true })
+  if (await closePane.isVisible()) await closePane.click()
+  await expect(frame.locator('[data-frame-region="right"]')).toBeHidden()
+  await expect(frame.locator('[data-frame-region="main"]')).toBeVisible()
+}
+
+const chooseDestination = async (_page: Page, frame: Locator, name: string) => {
   const tab = frame.getByRole('tab', { name: new RegExp(`^${name}`) })
-  if (await tab.count()) await tab.click()
-  else {
-    await frame.locator('button[title="Destination views"]').click()
-    await page.getByRole('menuitem', { name: new RegExp(`^${name}`) }).click()
-  }
+  await tab.click()
 }
 
 const expectOneNotice = async (frame: Locator, surface: 'composer' | 'strip'): Promise<void> => {
@@ -22,6 +25,11 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
   await page.goto('/preview.html?notice-placement')
   const room = layout(page, 'coverage-notice-room-board')
   await chooseDestination(page, room, 'Board')
+  const narrow = layout(page, 'coverage-notice-narrow-overlay')
+  await expectOneNotice(narrow, 'strip')
+  await expect(narrow.locator('[data-frame-region="right"] [data-slot="notice-strip"]')).toHaveCount(1)
+  await expect(narrow.locator('[data-frame-region="main"]')).toBeHidden()
+  await showMain(narrow)
 
   const frameDir = process.env.NOTICE_FRAME_DIR
   if (frameDir) {
@@ -83,13 +91,15 @@ test('a narrow room keeps its composer notice visible when widened', async ({ pa
   await page.goto('/preview.html?notice-placement')
   const frame = layout(page, 'coverage-notice-room-container-query')
   await frame.scrollIntoViewIfNeeded()
+  await showMain(frame)
   const body = frame.locator('[data-slot="room-body"]')
   const visibleNoticeCount = (): Promise<number> => frame.locator('[data-slot="composer-notice"], [data-slot="notice-strip"]').evaluateAll((nodes) =>
     nodes.filter((node) => node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && node.getClientRects().length > 0).length,
   )
 
-  await expect(frame.locator('[data-topbar="tabs"]')).toBeVisible()
-  await expect(frame.locator('[data-topbar="tabs"]')).toContainText('Chat')
+  await expect(frame.locator('[data-team-page="room"]')).toBeVisible()
+  await expect(frame.locator('[data-team-page="room"]')).toHaveAttribute('aria-selected', 'true')
+  await expect(frame.locator('[data-slot="top-bar"] [role="tab"]')).toHaveCount(0)
   await expect(body).toBeVisible()
   await expect.poll(visibleNoticeCount).toBe(1)
   await expect(frame.locator('[data-slot="composer-notices"] :is([data-slot="notice-strip"], [data-slot="composer-notice"])')).toBeVisible()
@@ -106,6 +116,7 @@ test('a narrow room keeps its composer notice visible when widened', async ({ pa
 test('the composer notice dismiss glyph shares the send control column', async ({ page }) => {
   await page.goto('/preview.html?notice-placement')
   const frame = layout(page, 'coverage-notice-split-composers')
+  await showMain(frame)
   const notice = frame.locator('[data-slot="composer-notice"]')
   await expect(notice).toHaveCount(1)
   const dock = notice.locator('xpath=ancestor::*[@data-slot="composer-dock"]')

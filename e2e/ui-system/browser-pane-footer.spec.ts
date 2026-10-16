@@ -11,7 +11,7 @@ for (const theme of ['light', 'dark'] as const) for (const state of ['idle', 'dr
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?frame-wall=conversation${state === 'driven' ? '&frame-browser-driving=1' : ''}&theme=${theme}`)
     await page.locator('[data-work-tool="browser"]').click()
-    const panel = page.locator('[data-slot="work-tools"]')
+    const panel = page.locator('[data-frame-region="right"]')
     const footer = page.locator('[data-slot="tool-footer"]')
     if (state === 'driven') await expect(footer.getByText('Being driven', { exact: true })).toBeVisible()
     else await expect(footer).toHaveCount(0)

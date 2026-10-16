@@ -3,10 +3,8 @@ import { expect, test } from '@playwright/test'
 import { selectFrameTab } from './frame-actions'
 import { openFrame } from './frame-contract-helpers'
 
-
 // Contract runs measure the preview; the final wall owns images and recordings.
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
-
 
 // E7 measures the real App through the assembled shared preview.
 
@@ -39,10 +37,15 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
     await measureDestination(page, `frame-wall=plugins&frame-plugin-page=${child}`, child === 'detail' ? 'reading' : 'wide', theme, width)
     await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
     if (child === 'detail') {
-      await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Plugins ›', exact: true })).toBeVisible()
-      await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('tab')).toHaveCount(0)
+      const bar = page.locator('[data-slot="top-bar"]:visible')
+      const back = page.locator('[data-page-destination="plugins"]:visible').getByRole('button', { name: 'Back to Plugins', exact: true })
+      await expect(back).toBeVisible()
+      await expect(bar.getByRole('button', { name: 'Back to Plugins', exact: true })).toHaveCount(0)
+      await expect(bar.getByRole('tab')).toHaveCount(0)
+      await back.click()
+      await expect(page.getByRole('searchbox', { name: 'Search plugins', exact: true })).toBeVisible()
+      await expectDestinationTab(page, 'installed')
     } else {
-      const { expectDestinationTab } = await import('./frame-page-contract')
       await expectDestinationTab(page, child)
     }
   })
@@ -54,18 +57,20 @@ test('E7 Plugins capabilities and named detail share destination history', async
   const plugin = page.locator('[data-plugin-id]:visible').first()
   const name = await plugin.getAttribute('data-plugin-name')
   await plugin.click()
-  await expect(page.locator('[data-slot="top-bar"]:visible')).toContainText(name!)
+  await expect(page.locator('[data-page-destination="plugins"]:visible h1')).toHaveText(name!)
   await page.keyboard.press('Meta+[')
   await expect(page.getByRole('searchbox', { name: 'Search plugins', exact: true })).toBeVisible()
   await page.keyboard.press('Meta+[')
-  await expect(page.locator('[data-slot="top-bar"]:visible')).toContainText('Capabilities')
+  await expect(page.locator('[data-page-destination="plugins"]:visible h1')).toHaveText('Plugins')
+  await expectDestinationTab(page, 'capabilities')
+  await expect(page.getByRole('searchbox', { name: 'Search capabilities', exact: true })).toBeVisible()
   await page.keyboard.press('Meta+]')
   await expect(page.getByRole('searchbox', { name: 'Search plugins', exact: true })).toBeVisible()
 })
 test('E7 install flow uses Dialog header body and right ordered footer actions', async ({ page }) => {
 
   await openFrame(page, 'frame-wall=plugins', 'light')
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Add plugin', exact: true }).click()
+  await page.locator('[data-page-destination="plugins"]:visible').getByRole('button', { name: 'Add plugin', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Install a plugin' })
   await expect(dialog.locator('[data-slot="dialog-head"] > span > svg')).toHaveCount(0)
   await expect(dialog.locator('[data-slot="dialog-head"]').getByRole('button', { name: 'Close', exact: true })).toBeVisible()
@@ -106,7 +111,6 @@ test('E7 Plugins failed detail keeps its reason and guarded source actions', asy
     await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(1)
     await column.getByRole('button', { name: label, exact: true }).click()
     await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(0)
-
 
   })
 }

@@ -347,6 +347,13 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
         parseFloat(style.getPropertyValue('--hd-bar-pad'))
       if (lead && !hidden(lead) && lead.getBoundingClientRect().width > 0) bodyLeft += lead.getBoundingClientRect().width + gap
       if (parent && !hidden(parent)) bodyLeft += parent.getBoundingClientRect().width + gap
+      const state = header.querySelector('[data-topbar="state"]')
+      if (state && !hidden(state)) bodyLeft += state.getBoundingClientRect().width + gap
+      const trigger = frameTitle.querySelector('[data-slot="popover-trigger"]')
+      if (trigger) {
+        const control = getComputedStyle(trigger)
+        bodyLeft += parseFloat(getComputedStyle(frameTitle).marginLeft) + parseFloat(control.paddingLeft) + parseFloat(control.borderLeftWidth)
+      }
     }
     // Corner rows spend a layout inset for native window controls. Compare
     // from their ordinary padding edge, retaining any additional glyph offset.

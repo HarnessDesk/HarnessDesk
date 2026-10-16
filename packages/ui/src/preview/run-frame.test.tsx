@@ -55,11 +55,11 @@ it('shared Git preview authors use public placeholder identities before any bund
   expect(commits.every(commit => gitCommit(commit.sha)?.committer === 'Jane Doe')).toBe(true)
 })
 
-it('the narrow canonical tool door closes seeded inspection and original selection reopens it', async () => {
+it('the narrow pane close control hides seeded inspection and original selection reopens it', async () => {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 390, 900))
   const container = await mount(<RunInspectorExample scene="check-attempts" />)
   expect(container.querySelector('[data-preview-tool-placement="floating"] [data-slot="run-inspector"]')).not.toBeNull()
-  const toggle = container.querySelector<HTMLButtonElement>('button[aria-label="Toggle right panel"]')
+  const toggle = container.querySelector<HTMLButtonElement>('button[aria-label="Close pane"]')
   expect(toggle).not.toBeNull()
   await act(async () => toggle!.click())
   expect(container.querySelector('[data-preview-tool-placement]')).toBeNull()
@@ -68,13 +68,27 @@ it('the narrow canonical tool door closes seeded inspection and original selecti
   expect(container.querySelector('[data-preview-tool-placement="floating"] [data-slot="run-inspector"]')?.textContent).toContain('Attempt 2')
 })
 
-it('the supported terminal specimen opens and closes the real PreviewStore resource', async () => {
+it('the standalone Run puts its View choice in the body under the subject bar', async () => {
+  const container = await mount(<RunInspectorExample scene="check" />)
+  const view = container.querySelector<HTMLButtonElement>('button[aria-label="View"]')
+  expect(view).not.toBeNull()
+  expect(view?.closest('[data-slot="top-bar"]')).toBeNull()
+  expect(view?.closest('[data-slot="workbench-main"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="workbench-main"] button[aria-label="Run details"]')).not.toBeNull()
+})
+
+it('the supported terminal specimen hides and reopens the same PreviewStore resource', async () => {
   const { TerminalToggleSpecimen } = await import('./frames-supported-controls')
   const container = await mount(<TerminalToggleSpecimen />)
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open terminal"]')!.click())
   expect(container.textContent).toContain('1 terminal resources')
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close terminal"]')!.click())
-  expect(container.textContent).toContain('0 terminal resources')
+  expect(container.textContent).toContain('1 terminal resources')
+  const reopen = container.querySelector<HTMLButtonElement>('[aria-label="Open terminal"]')
+  expect(reopen).not.toBeNull()
+  await act(async () => reopen!.click())
+  expect(container.textContent).toContain('1 terminal resources')
+  expect(container.querySelector('[aria-label="Close terminal"]')).not.toBeNull()
 })
 it('keeps a fixed synthetic prompt in the terminal preview for public frames', () => {
   const bytes = Uint8Array.from(atob(terminalAttach().scrollback), character => character.charCodeAt(0))

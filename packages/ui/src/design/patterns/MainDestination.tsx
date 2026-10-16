@@ -15,4 +15,4 @@ export const MainDestination = ({ page, work, pages }: {
 /** Each visited page owns one scroll element for the current project. */
 export const DestinationBody = ({ active, id, children }: {
   readonly active: boolean; readonly id: string; readonly children: ReactNode
-}) => <div data-page-destination={id} hidden={!active} inert={!active} data-slot="destination-scroll" className={styles.body}>{children}</div>
+}) => <div role="region" aria-label={id === 'changes-review' ? 'Changes review' : id.charAt(0).toUpperCase() + id.slice(1)} data-page-destination={id} hidden={!active} inert={!active} data-slot="destination-scroll" className={styles.body}>{children}</div>

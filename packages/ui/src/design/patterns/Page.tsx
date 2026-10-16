@@ -8,6 +8,8 @@ export type PageWidth = 'reading' | 'wide' | 'canvas'
 
 /**
  * A page's column — the one way a page sets its width and its margins.
+ * The content column anchors a standalone page's title at every measure;
+ * the title and its chooser or verb scroll together under the fixed bar.
  *
  * A screen says what kind of page it is and passes its blocks; it does not
  * write a max-width, a padding or an outer margin of its own. `reading` is the
@@ -23,7 +25,7 @@ export type PageWidth = 'reading' | 'wide' | 'canvas'
  * four edges. A surface that brings its own geometry — a terminal, a diff,
  * a graph — bleeds instead of taking a page.
  *
- * Blocks inside sit one stack gap (`--hd-card-gap`) apart; a `Section` brings
+ * Blocks inside sit one stack gap (`--hd-page-stack`) apart; a `Section` brings
  * its own larger step. A Team's Findings drew its
  * facts against the sidebar, a button across the window and a switch in the
  * middle of it because nothing told the page what width it was.

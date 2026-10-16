@@ -70,7 +70,6 @@ export const flowOverlayFixture = (scene: FlowOverlayScene) => {
 /** A fake host whose pushes update a mounted real Team pane, without opening a native window. */
 export const flowOverlayRig = (initial: FlowOverlayScene = 'fix') => {
   const base = previewStore()
-  const seed = base.getSnapshot()
   let scene = initial
   const snapshotFor = (scene: FlowOverlayScene): AppSnapshot => {
     const source = flowOverlayFixture(scene)
@@ -88,7 +87,7 @@ export const flowOverlayRig = (initial: FlowOverlayScene = 'fix') => {
       } as Session
       return [sessionKey(seat.session.runtime, seat.session.sessionId), session]
     }))
-    return { ...seed, teams: new Map([[board.id, board]]), goals: new Map([[board.id, goal]]), flowExecutions: new Map([[source.execution.id, source.execution]]),
+    return { ...base.getSnapshot(), teams: new Map([[board.id, board]]), goals: new Map([[board.id, goal]]), flowExecutions: new Map([[source.execution.id, source.execution]]),
       sessions, history: [...sessions.values()], approvals: [], inbox: [], boardEvidence: new Map(),
       workspace: { path: board.root, name: 'Storefront', lastOpenedAt: START }, workspaces: [{ path: board.root, name: 'Storefront', lastOpenedAt: START }],
     }

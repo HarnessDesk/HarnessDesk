@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { WALL_THEMES, WALL_WIDTHS } from './frame-wall-destinations'
 import { selectFrameTab } from './frame-actions'
 import { openFrame } from './frame-contract-helpers'
+import { teamDetails } from './team-frame-actions'
 
 
 // Contract runs measure the preview; the final wall owns images and recordings.
@@ -35,8 +36,7 @@ for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
   test(`B11a reconcile missing Run facts use secondary 12px type on the key edge at ${width} in ${theme}`, async ({ page }, testInfo) => {
     await openFrame(page, 'frame-wall=team-run-recorded', theme, width)
     await selectFrameTab(page, 'run')
-    await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Details', exact: true }).click()
-    const panel = page.locator('[data-slot="tool-body"]:visible')
+    const panel = await teamDetails(page.locator('[data-frame-id="frame-wall"]'))
     const note = panel.locator('[data-slot="tool-prose"]').filter({ hasText: 'Not recorded for this Run:' })
     await expect(note).toBeVisible()
     const geometry = await note.evaluate(node => {

@@ -48,8 +48,9 @@ it('the clip rig answers real plugin switches and reads a public skill definitio
   try {
     window.history.replaceState(null, '', '/?release-stills=plugin-permissions&site-clip')
     await act(async () => root.render(<ReleaseStills />))
-    const installed = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(button=>button.textContent?.startsWith('Installed'))!
-    await act(async()=>installed.click()); await settle()
+    await act(async () => host.querySelector<HTMLButtonElement>('[title="Plugin sections"]')!.click())
+    const installed = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(button => button.textContent?.startsWith('Installed'))!
+    await act(async () => installed.click()); await settle()
     await act(async () => host.querySelector<HTMLButtonElement>('[data-plugin-name="Project docs"]')!.click()); await settle()
     const toggle = () => document.querySelector<HTMLButtonElement>('[role="switch"][aria-label$="Project docs"]')!
     expect(toggle().getAttribute('aria-checked')).toBe('true')

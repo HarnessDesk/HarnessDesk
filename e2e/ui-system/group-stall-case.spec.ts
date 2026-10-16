@@ -1,3 +1,4 @@
+import { selectTeamPage } from './team-frame-actions'
 import { expect, test } from '@playwright/test'
 
 /** The Run owns its refusal; the other Team destinations lead there. */
@@ -11,9 +12,9 @@ import { expect, test } from '@playwright/test'
       const wrap = page.locator('[data-testid="group-run-stalled-on-a-seat"]')
       await expect(wrap).toBeVisible()
       await wrap.scrollIntoViewIfNeeded()
-      await expect(wrap.locator('header').filter({ hasText: 'Needs you' }).first()).toBeVisible()
+      await expect(wrap.locator('[data-topbar="state"] [aria-label="Needs you"]')).toBeVisible()
       await page.evaluate(value => { document.body.toggleAttribute('data-hd-dark-theme', value === 'dark'); document.documentElement.style.colorScheme = value }, theme)
-      await wrap.getByRole('tab', { name: new RegExp(`^${name}\\b`) }).click()
+      await selectTeamPage(wrap, { Overview: 'overview', Board: 'board', Chat: 'room', Run: 'run' }[name]!)
       if (name === 'Run') {
         const reason = wrap.locator('[data-slot="run-need"]')
         await expect(reason).toContainText('The Seat for card #1 could not be opened')
@@ -27,7 +28,7 @@ import { expect, test } from '@playwright/test'
         await expect(recovery).toBeVisible()
         await recovery.click()
         await expect(wrap.locator('[data-slot="run-need"]')).toContainText('The Seat for card #1 could not be opened')
-        await wrap.getByRole('tab', { name: new RegExp(`^${name}\\b`) }).click()
+        await selectTeamPage(wrap, { Overview: 'overview', Board: 'board', Chat: 'room', Run: 'run' }[name]!)
       }
       await expect(wrap).not.toContainText('wrap this Goal')
       await info.attach(`stopped-${name.toLowerCase()}-${theme}`, { body: await wrap.screenshot(), contentType: 'image/png' })

@@ -217,6 +217,7 @@ describe('BackgroundTasksView', () => {
       element.getAttribute('aria-label')?.startsWith('Stop '),
     )
     expect(stops).toHaveLength(1)
+    expect(stops[0]?.getAttribute('data-variant')).toBe('destructive')
     click(button('Stop Still going'))
     expect(calls.stopTask).toHaveBeenCalledWith('t1', KEY)
   })

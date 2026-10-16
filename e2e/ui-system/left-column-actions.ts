@@ -9,6 +9,7 @@ export const applyLeftColumnActions = async (page: Page, actions: {
 }) => {
   if (!actions.leftOpen && actions.leftWidth === undefined) return
   const column = page.locator('[data-left-column]:visible')
+  if (!await column.count() && await page.getByRole('button', { name: 'Return to main', exact: true }).count()) await page.getByRole('button', { name: 'Return to main', exact: true }).click()
   if (!await column.count()) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
   await expect(column).toHaveCount(1)
   if (actions.leftWidth !== undefined) {

@@ -1,23 +1,26 @@
-import { expectTitleRoom } from './title-contract'
 import { expect, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { applyPageFrameActions, type PageFrameActions } from './frame-page-actions'
+import { pageChoiceFor } from './frame-actions'
 export const expectSettingsChrome = async (page: Page, width: number): Promise<void> => {
   const bar = page.locator('[data-slot="top-bar"]:visible')
+  await expect(bar).toHaveCount(1)
+  await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
+  await expect(page.locator('[data-page-destination="settings"]:visible h1')).toHaveText(/\S/)
+  await expect(bar.locator('..')).toHaveJSProperty('clientHeight', FRAME.bar.height)
   if (width >= FRAME.fold.sidebarFloats) {
-    await expect(bar).toHaveCount(0)
+    await expect(bar.locator('[data-topbar="lead"] button')).toHaveCount(0)
     const top = page.locator('[data-left-top]:visible')
     await expect(top).toBeVisible()
     expect((await top.boundingBox())!.height).toBe(FRAME.bar.height)
     await expect(top.locator('button:visible')).toHaveCount(1)
     await expect(top.locator('button:visible')).toHaveAccessibleName(/^(Hide|Show) sidebar$/)
     await expect(top.locator('[data-left-history], [aria-label="Search everything"]')).toHaveCount(0)
-    return
+  } else {
+    await expect(bar.locator('[data-topbar="lead"] button')).toHaveCount(1)
+    await expect(bar.locator('[data-topbar="lead"] button')).toHaveAccessibleName('Show sidebar')
   }
-  await expect(bar).toHaveCount(1)
-  await expect(bar.locator('..')).toHaveJSProperty('clientHeight', FRAME.bar.height)
-  await expect(bar.locator('[data-topbar-title]')).toHaveText('')
   await expect(bar.locator('[data-topbar="place"] button')).toHaveCount(0)
   await expect(bar.getByRole('button', { name: 'Search everything', exact: true })).toHaveCount(0)
   await expect(bar.getByRole('button', { name: 'Back', exact: true })).toHaveCount(0)
@@ -42,16 +45,7 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
     const more = bar.locator('[data-topbar="more"] button')
     if (actions.more === 'absent') await expect(more).toHaveCount(0)
     else await expect(more).toBeVisible()
-    const title = bar.locator('[data-topbar-title]')
-    const titleText = title.locator('[data-slot="text"]').first()
-    const titleStyle = await titleText.evaluate(element => {
-      const css = getComputedStyle(element)
-      return { size: parseFloat(css.fontSize), weight: css.fontWeight, family: css.fontFamily }
-    })
-    expect(titleStyle.size).toBe(14)
-    expect(titleStyle.weight).toBe('400')
-    expect(titleStyle.family).toContain('Geist')
-    await expectTitleRoom(title)
+    await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
     if (actions.more !== 'absent') {
       const moreBox = (await more.boundingBox())!
       expect(Math.abs(moreBox.x + moreBox.width - (width - FRAME.bar.pad))).toBeLessThanOrEqual(1)
@@ -65,6 +59,13 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
   }
   const column = page.locator(`[data-page-destination]:visible [data-slot="page"][data-width="${widthKind}"]`).first()
   await expect(column).toBeVisible()
+  if (widthKind !== 'canvas') {
+    const title = column.getByRole('heading', { level: 1 })
+    await expect(title).toHaveCount(1)
+    await expect(title).toHaveAttribute('data-role', 'page')
+    const edge = await column.evaluate(node => node.getBoundingClientRect().left + parseFloat(getComputedStyle(node).paddingLeft))
+    expect((await title.boundingBox())!.x, 'the content column anchors the page title').toBeCloseTo(edge, 1)
+  }
   const value = await column.evaluate(element => {
     const css = getComputedStyle(element), box = element.getBoundingClientRect()
     const parent = element.parentElement!.getBoundingClientRect()
@@ -79,7 +80,7 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
         }) }
   })
   const gutter = widthKind === 'canvas' ? FRAME.page.canvasGutter : FRAME.page.gutter
-  const topInset = params.get('frame-wall') === 'teams' ? 16 : actions.expectedTopInset === 'page'
+  const topInset = actions.expectedTopInset === 'page'
     ? FRAME.page.gutter - FRAME.page.canvasGutter + 1
     : gutter
   expect([value.left, value.right, value.top]).toEqual([gutter, gutter, topInset])
@@ -107,10 +108,11 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 }
 export const expectDestinationTab = async (page: Page, value: string): Promise<void> => {
-  const tab = page.locator(`[data-slot="top-bar"]:visible [role="tab"][data-team-page="${value}"]`)
+  const tab = page.locator(`[data-team-page="${value}"]:visible`)
   if (await tab.count()) { await expect(tab).toHaveAttribute('aria-selected', 'true'); return }
-  await page.getByTitle('Destination views', { exact: true }).click()
-  const item = page.locator(`[role="menu"] [data-team-page="${value}"]:visible`)
+  const choice = pageChoiceFor(value)
+  await page.locator('[data-slot="page-options"]:visible').getByTitle(choice.title, { exact: true }).click()
+  const item = page.getByRole('menuitemradio').filter({ has: page.getByText(choice.label, { exact: true }) })
   await expect(item).toHaveAttribute('aria-checked', 'true')
   await page.keyboard.press('Escape')
 }

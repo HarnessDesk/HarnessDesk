@@ -285,11 +285,11 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
   // An unavailable route keeps its identity until the user chooses a scope.
   if (scope !== null && !scopeItems.some(item => item.value === scope)) scopeItems.push({ value: scope, label: 'Unavailable account' })
   return <Page width="wide">
-    <DashboardBar view={view} attention={attention.length} changeView={onView} />
-    <PageOptions choices={[{ id: 'scope', label: 'Scope the dashboard to one account', mode: 'menu',
+    <PageOptions title="Dashboard" choices={[{ id: 'scope', label: 'Scope the dashboard to one account', mode: 'menu',
       value: scope ?? '', items: scopeItems, change: value => onScope(value ? value as RuntimeId : null) }]}
       read={oldest === null ? null : `Read ${formatAge(oldest, now)}`}
       action={{ label: refreshing ? 'Refreshing…' : 'Refresh', disabled: refreshing, run: () => void refresh() }} />
+    <DashboardBar view={view} attention={attention.length} changeView={onView} />
     {blurb && <PageExplanation>{blurb}</PageExplanation>}
           {view === 'overview' && (
             <OverviewView
