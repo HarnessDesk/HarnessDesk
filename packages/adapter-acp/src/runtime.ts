@@ -4058,7 +4058,13 @@ class AcpSession implements AgentSession {
       // The agent says where its control belongs; an unfamiliar or absent
       // category lands under "More", which is what `other` means.
       const category = acpCategory(option.id, option.category)
-      const modelStatus = (option._meta?.['harnessdesk'] as { modelStatus?: unknown } | undefined)?.modelStatus
+      const metadata = option._meta?.['harnessdesk'] as { modelStatus?: unknown; collaboration?: { planValue?: unknown; actValue?: unknown } } | undefined
+      const modelStatus = metadata?.modelStatus
+      const split = metadata?.collaboration
+      const collaboration = typeof split?.planValue === 'string' && typeof split.actValue === 'string'
+        && option.options?.some(choice => choice.value === split.planValue)
+        && option.options.some(choice => choice.value === split.actValue)
+        ? { planValue: split.planValue, actValue: split.actValue } : undefined
       const report = typeof modelStatus === 'string' && modelStatus ? { modelStatus } : {}
       if (option.type === 'toggle' || option.type === 'boolean') {
         options.push({
@@ -4082,6 +4088,7 @@ class AcpSession implements AgentSession {
           ...(option.description ? { description: option.description } : {}),
           ...(option.disabled ? { disabled: option.disabled } : {}),
           ...(option.confirm ? { confirm: acpConfirm(option.confirm) } : {}),
+          ...(collaboration ? { collaboration } : {}),
           currentValue: String(option.currentValue),
           choices: (option.options ?? []).map((choice) => ({
             value: choice.value,

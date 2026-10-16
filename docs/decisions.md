@@ -3317,3 +3317,25 @@ for every agent it opens, in later rounds and after recovery too. An explicit
 runtime choice that cannot enforce that access remains refused beside its row,
 with a way to choose a compatible agent. Automatic uses the same strict plan,
 so an earlier incompatible preference cannot block a later compatible one.
+
+
+## One Permissions slot; plan vs act is its own control
+
+Decided 2026-10-15 in #1672, option A. Permissions always occupies the same
+composer slot and keeps the agent's own levels. Collaboration mode is a
+separate control; an agent that offers no collaboration mode has none.
+
+The adapter declares permission options with `_permissions`. A mixed list
+also supplies `SelectOption.collaboration`: the existing `planValue` and
+`actValue` that the collaboration control writes. The bridge supplies those
+values on every declaration, including updates. No renderer match on a name,
+a description or an agent id decides the split. Both controls write the same
+underlying option id and its existing values; choosing a permission level
+leaves planning, and choosing Act uses the adapter's acting value (the ordinary
+manual mode when the agent is currently planning). There is no second stored
+permission policy to reconcile with the agent.
+
+The Permissions trigger names the slot and the selected level, including in a
+draft. Only a genuinely absent permission option earns the missing-setting
+placeholder. Model and effort take their natural width while space remains;
+they fold with the toolbar when it runs out.

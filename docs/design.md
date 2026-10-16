@@ -2077,7 +2077,11 @@ Permission and Mode tracks keep their selected values at their natural width.
 When the row needs room, the composer's fold order reduces controls to icons;
 the permission and mode words never shorten. The folder name is the one value
 that may shrink, up to its cap, and its full name stays in the title. A folded
-Mode fact never leaves a lone initial on screen: a new-session composer uses
+Permissions is one named slot across agents. Collaboration mode has its own
+control and is absent when the adapter declares none. Mixed permission and
+planning lists are split from adapter metadata, preserving their wire values.
+Selected model and effort labels take their natural width while space remains.
+The Mode fact never leaves a lone initial on screen: a new-session composer uses
 the mode mark with the value available to assistive technology, or hides it at
 the tightest width; a conversation composer keeps the whole value in a
 content-sized track while it fits. Usage shows only its ring; its accessible
