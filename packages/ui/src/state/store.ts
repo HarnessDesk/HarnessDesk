@@ -180,6 +180,7 @@ import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
 import { BrowserTileRegistry, browserProfileKey, type BrowserTileMount } from '../lib/browser-tiles'
 import { focusTile, fromStored, toStored, type SideBySideState } from '../lib/side-by-side'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
+import { reconcileTeamInbox } from '../lib/team-inbox'
 import { kept as keptInInbox, repeated as repeatedInInbox, markedRead, readInbox, type InboxEntry } from '../lib/inbox'
 import {
   classifyNotice,
@@ -8431,6 +8432,7 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
+    next.inbox = reconcileTeamInbox(next, this.#snapshot)
     next.foldersGone = roomFoldersGone(next.foldersGone, this.#snapshot.teams, patch.teams)
     if (patch.windowMode !== undefined || patch.workbench !== undefined) {
       next.workbench = settleConversationTool(next.workbench, effectiveWindowMode(next.windowMode, next.workbench) === 'editor')

@@ -445,8 +445,11 @@ fold has Open usage, scoped to that agent; an agent needing an account has Sign
 in. Then come Settings and signing out of the default agent. Dashboard in the
 sidebar opens on everything.
 
-The quota forecast, "&lt;agent&gt; will run out before it refills", stays above a
-visible composer and on the Dashboard. Every other page carries the same title
+The quota forecast, "&lt;agent&gt; will run out before it refills", stays on the
+Dashboard. Above a visible composer it appears only after a desk conversation
+has a turn (a history preview does not count) and the binding plan window has
+less than 15% remaining. The shared Notice primitive supplies a sentence stop
+between an inline title and its detail. Every other page carries the same title
 and detail in the account trigger's tooltip. Dismissing or silencing the notice
 also removes that warning from the tooltip for the same occurrence or kind.
 
@@ -1117,6 +1120,11 @@ and Don't show this again. Settings › Notifications offers Inbox only or Off.
 When a standing condition ends and later returns, its Inbox row is unread again;
 an older read or clear from another window affects only the occurrence that
 window saw.
+
+A Team step waiting for the person also appears in the Inbox, with the Team
+name, the step or approval, and **Open the Team**. The row follows the same
+held facts as Needs you: answering, closing its round, or ending the Run removes
+it. Repeated run or board events do not make a read row unread again.
 
 Conversation warnings, context compaction and model changes stay as quiet
 transcript lines outside the work fold. Errors keep one inline explanation and
