@@ -19,6 +19,13 @@ export type TokenTable = {
 }
 
 const LENGTH = /^-?\d+(\.\d+)?px$/
+/**
+ * A length a token derives from others, `calc(8px + 8px + 1px)` once the
+ * variables are in. Units that resolve against a box (`%`, viewport, `em`)
+ * are left out: what they come to on the probe is not what they come to
+ * where they are used.
+ */
+const DERIVED = /^(calc|min|max|clamp)\((?!.*(%|vw|vh|vmin|vmax|dvh|svh|lvh|\bem|ch\b|ex\b|lh\b))/
 const add = <K>(map: Map<K, string[]>, key: K, name: string) => {
   const list = map.get(key)
   if (list) list.push(name)
@@ -28,6 +35,14 @@ const add = <K>(map: Map<K, string[]>, key: K, name: string) => {
 /** Names that say what a value is for, ahead of names that merely alias it. */
 const rank = (name: string) =>
   /^--hd-space-/.test(name) ? 0 : /^--hd-(text|line)/.test(name) ? 1 : /^--hd-radius/.test(name) ? 2 : /^--hd-hdp|^--hdp-/.test(name) ? 9 : 5
+
+const resolve = (probe: HTMLElement, value: string) => {
+  probe.style.marginLeft = ''
+  probe.style.marginLeft = value
+  if (!probe.style.marginLeft) return null
+  const px = getComputedStyle(probe).marginLeft
+  return LENGTH.test(px) ? px : null
+}
 
 export const readTokens = (): TokenTable => {
   const table: TokenTable = { lengths: new Map(), sizes: new Map(), colors: new Map() }
@@ -44,8 +59,10 @@ export const readTokens = (): TokenTable => {
   for (const name of names) {
     const value = style.getPropertyValue(name).trim()
     if (!value) continue
-    if (LENGTH.test(value)) {
-      const px = Math.round(parseFloat(value) * 100) / 100
+    // The probe resolves a derived length; a margin takes negatives as they are.
+    const length = LENGTH.test(value) ? value : DERIVED.test(value) ? resolve(probe, value) : null
+    if (length) {
+      const px = Math.round(parseFloat(length) * 100) / 100
       add(table.lengths, px, name)
       if (/^--hd-(text|heading|title|display|btn-text)/.test(name)) add(table.sizes, px, name)
       continue

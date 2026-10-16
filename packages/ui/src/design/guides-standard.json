@@ -14,11 +14,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "conversation-left-open": {
     "offLine": {
@@ -35,11 +31,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "draft": {
     "offLine": {
@@ -53,11 +45,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "conversation-details": {
     "offLine": {
@@ -74,30 +62,22 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "conversation-details-no-background": {
     "offLine": {
       "button[button] Δ2": 2,
       "button[popover-trigger] \"Inbox\" Δ2": 1,
       "button[popover-trigger] Δ3": 1,
-      "span[text] \"HarnessDesk\" Δ2": 1
+      "span[text] \"HarnessDesk\" Δ2": 1,
+      "span[text] \"Trajectory\" Δ1": 1
     },
     "overflow": {
-      "h3[text] \"Nothing to list\" touches frame": 1,
       "span[inline-parts] \"Fix the worktree list dropp…\" spills": 1,
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "conversation-changes": {
     "offLine": {
@@ -114,16 +94,12 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "conversation-browser": {
     "offLine": {
       "button[button] Δ1": 1,
-      "button[button] Δ2": 2,
+      "button[button] Δ2": 3,
       "button[hover-card-trigger] Δ3": 1,
       "button[popover-trigger] \"Inbox\" Δ2": 1,
       "button[popover-trigger] Δ3": 1,
@@ -135,25 +111,18 @@
     "overflow": {
       "span[inline-parts] \"Fix the worktree list dropp…\" spills": 1,
       "span[inline-parts] spills": 1,
-      "span[search] spills": 1,
-      "span[tool-pane-document-tab] \"New tab\" spills": 1
+      "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "conversation-git": {
     "offLine": {
-      "button[button] \"1\" Δ1": 1,
-      "button[button] Δ1": 3,
+      "button[button] \"1\" Δ1.5": 1,
+      "button[button] Δ1": 1,
       "button[button] Δ2": 2,
       "button[hover-card-trigger] Δ3": 1,
       "button[popover-trigger] \"Inbox\" Δ2": 1,
       "button[popover-trigger] Δ3": 1,
-      "button[refused-action] Δ1": 1,
-      "button[refused-action] Δ3": 1,
       "button[toggle-group-item] \"All branches\" Δ1": 1,
       "section[tool-section] \"Conversation Agent Code rev…\" Δ1": 1,
       "section[tool-section] \"Plan No plan yet. Seat reco…\" Δ1": 1,
@@ -164,22 +133,9 @@
     "overflow": {
       "span[inline-parts] \"Fix the worktree list dropp…\" spills": 1,
       "span[inline-parts] spills": 1,
-      "span[search] spills": 1,
-      "span[text] \"Graph\" touches frame": 1
+      "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[toggle-group-item] \"All branches\" row-gap 5px, column-gap 5px": 1,
-      "button[toggle-group-item] \"Current\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
-      "span[chip] \"feat/worktree-list\" radius 5px": 1,
-      "span[chip] \"feature/inventory.reconcili…\" radius 5px": 1,
-      "span[chip] \"main\" radius 5px": 1,
-      "span[chip] \"origin/feature/inventory.re…\" radius 5px": 1,
-      "span[chip] \"origin/main\" radius 5px": 1,
-      "span[chip] \"v0.4.0\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "conversation-file": {
     "offLine": {
@@ -199,13 +155,6 @@
       "span[search] spills": 1
     },
     "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[toggle-group-item] \"All\" row-gap 5px, column-gap 5px": 1,
-      "button[toggle-group-item] \"Changed 0\" row-gap 5px, column-gap 5px": 1,
-      "button[toggle-group-item] \"Preview\" row-gap 5px, column-gap 5px": 1,
-      "button[toggle-group-item] \"Source\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
       "h1 \"Storefront\" font-size 21px": 1
     }
   },
@@ -226,11 +175,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "conversation-tasks": {
     "offLine": {
@@ -249,11 +194,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "changes-review": {
     "offLine": {
@@ -265,12 +206,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
-      "div[page] \"Working tree on main main 2…\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "conversation-update": {
     "offLine": {
@@ -287,11 +223,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "conversation-disconnected": {
     "offLine": {
@@ -308,11 +240,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "conversation-status-tasks": {
     "offLine": {
@@ -329,11 +257,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "team-reconnecting": {
     "offLine": {
@@ -353,16 +277,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 3\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "plugin-unavailable": {
     "offLine": {
@@ -380,11 +295,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "width-1100": {
     "offLine": {
@@ -402,11 +313,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "width-720": {
     "offLine": {
@@ -445,16 +352,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 3\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "team-run": {
     "offLine": {
@@ -471,17 +369,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 3\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
-      "span[chip] \"Agent\" radius 5px": 4
-    }
+    "offScale": {}
   },
   "team-run-flow": {
     "offLine": {
@@ -503,23 +391,7 @@
       "span[chip-words] \"request-changes\" clipped": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 4\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 0\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
-      "span[chip] \"14m · ×2\" radius 5px": 1,
-      "span[chip] \"2m\" radius 5px": 1,
-      "span[chip] \"3m\" radius 5px": 1,
-      "span[chip] \"approve\" radius 5px": 1,
-      "span[chip] \"pass\" radius 5px": 1,
-      "span[chip] \"request-changes\" radius 5px": 1,
-      "span[chip] \"Working\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "team-run-not-reached": {
     "offLine": {
@@ -536,19 +408,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 4\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 0\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
-      "span[chip] \"Agent\" radius 5px": 2,
-      "span[chip] \"Check\" radius 5px": 1,
-      "span[chip] \"Person\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "team-run-repeated": {
     "offLine": {
@@ -572,19 +432,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 20\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 0\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
-      "span[chip] \"Agent\" radius 5px": 4,
-      "span[chip] \"Check\" radius 5px": 1,
-      "span[chip] \"Person\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "team-run-equivalent": {
     "offLine": {
@@ -602,19 +450,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 0\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
-      "span[chip] \"Agent\" radius 5px": 2,
-      "span[chip] \"Check\" radius 5px": 1,
-      "span[chip] \"Person\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "team-board": {
     "offLine": {
@@ -631,18 +467,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 3\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
-      "span[chip] \"reviewer\" radius 5px": 1,
-      "span[chip] \"writer\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "team-board-list": {
     "offLine": {
@@ -658,22 +483,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"All 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 3\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"In review 0\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Needs you 0\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Ready 0\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"To do 0\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Working 2\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "team-chat": {
     "offLine": {
@@ -690,16 +500,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 3\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "team-chat-side": {
     "offLine": {
@@ -718,18 +519,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 3\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
-      "span[chip] \"A\" radius 5px": 1,
-      "span[chip] \"B\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "team-findings": {
     "offLine": {
@@ -746,16 +536,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 3\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "team-runs": {
     "offLine": {
@@ -771,17 +552,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 3\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Runs 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "team-receipt": {
     "offLine": {
@@ -798,27 +569,9 @@
       "span[text] \"Review the change\" Δ1": 1
     },
     "overflow": {
-      "div[page] \"What finished The checkout…\" spills": 1,
-      "div[retained-work] \"Overview Run 1 Board 2 Chat…\" clipped": 1,
-      "div[room-body] \"What finished The checkout…\" spills": 1,
-      "div[team-room] \"Overview Run 1 Board 2 Chat…\" spills": 1,
-      "section[pane-surface] \"Overview Run 1 Board 2 Chat…\" spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"By agent\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"By seat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"By Team\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 0\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Receipt\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "team-details": {
     "offLine": {
@@ -838,16 +591,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 2\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Findings 3\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview 1\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Run 1\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "teams": {
     "offLine": {
@@ -860,11 +604,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "agents-roster": {
     "offLine": {
@@ -877,11 +617,7 @@
       "div[workbench-rail] \"HarnessDesk New session Tea…\" spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "agent-detail": {
     "offLine": {
@@ -895,11 +631,7 @@
       "div[workbench-rail] \"HarnessDesk New session Tea…\" spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "agent-parse": {
     "offLine": {
@@ -913,11 +645,7 @@
       "div[workbench-rail] \"HarnessDesk New session Tea…\" spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "agent-refused": {
     "offLine": {
@@ -934,11 +662,7 @@
       "div[workbench-rail] \"HarnessDesk New session Tea…\" spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "agent-missing": {
     "offLine": {
@@ -951,37 +675,25 @@
       "div[workbench-rail] \"HarnessDesk New session Tea…\" spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "library": {
     "offLine": {
       "button[button] Δ2": 2,
       "button[popover-trigger] \"Inbox\" Δ2": 1,
-      "button[popover-trigger] \"Skills 7\" Δ2.5": 1,
+      "button[popover-trigger] \"Skills 6\" Δ2": 1,
       "button[popover-trigger] Δ3": 1,
       "div[row] \"Updated code-review Sep 30,…\" Δ1": 1,
       "div[row] \"Updated project-checks Sep…\" Δ1": 1,
       "span[avatar-fallback] Δ2.5": 1,
       "span[avatar] Δ2.5": 1,
       "span[icon-tile] Δ3": 1,
-      "span[text] \"7\" Δ2.5": 1,
       "span[text] \"HarnessDesk\" Δ2": 1
     },
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
-      "span[chip] \"2 copies differ\" radius 5px": 1,
-      "span[chip] \"Empty on disk\" radius 5px": 1,
-      "span[chip] \"Where no runtime looks\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "plugins-installed": {
     "offLine": {
@@ -992,11 +704,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "plugins-capabilities": {
     "offLine": {
@@ -1009,11 +717,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "plugins-detail": {
     "offLine": {
@@ -1025,11 +729,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "plugins-failed": {
     "offLine": {
@@ -1040,11 +740,7 @@
     "overflow": {
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "dashboard-overview": {
     "offLine": {
@@ -1066,17 +762,7 @@
       "span[chip-words] \"55% cached\" clipped": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Plans 4 low\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
-      "span[chip] \"55% cached\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "dashboard-plans": {
     "offLine": {
@@ -1094,16 +780,7 @@
       "span[table-cell-lead] \"L\" spills": 1,
       "span[table-cell-lead] \"R\" spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Plans 4 low\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "dashboard-spend": {
     "offLine": {
@@ -1118,14 +795,6 @@
       "span[search] spills": 1
     },
     "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Plans 4 low\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
       "section[chart-frame] \"$1,037 22 of 30 days with u…\" background oklab(0.9701450.00004419680.0000194311/0.6)": 1
     }
   },
@@ -1146,14 +815,6 @@
       "span[search] spills": 1
     },
     "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Plans 4 low\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
       "section[chart-frame] \"Last 12 months 108.7M Activ…\" background oklab(0.9701450.00004419680.0000194311/0.6)": 1
     }
   },
@@ -1165,19 +826,9 @@
       "span[text] \"HarnessDesk\" Δ2": 1
     },
     "overflow": {
-      "span[search] spills": 1,
-      "td[table-cell] \"Storefront Team Storefront…\" spills": 1
+      "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Plans 4 low\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "dashboard-empty": {
     "offLine": {
@@ -1195,14 +846,6 @@
       "span[search] spills": 1
     },
     "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Activity\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Plans\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Projects\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Spend\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1,
       "section[chart-frame] \"— 0 of 30 days with usage L…\" background oklab(0.9701450.00004419680.0000194311/0.6)": 1,
       "section[chart-frame] \"Last 12 months 0 Active day…\" background oklab(0.9701450.00004419680.0000194311/0.6)": 1
     }
@@ -1214,9 +857,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "offScale": {}
   },
   "settings-appearance": {
     "offLine": {
@@ -1231,8 +872,7 @@
       "button[button] background rgb(22,163,74)": 1,
       "button[button] background rgb(225,29,72)": 1,
       "button[button] background rgb(23,23,23)": 1,
-      "button[button] background rgb(234,88,12)": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
+      "button[button] background rgb(234,88,12)": 1
     }
   },
   "settings-notifications": {
@@ -1242,9 +882,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "offScale": {}
   },
   "settings-shortcuts": {
     "offLine": {
@@ -1257,9 +895,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "offScale": {}
   },
   "settings-workspaces": {
     "offLine": {
@@ -1270,10 +906,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "span[chip] \"Current\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "settings-archive": {
     "offLine": {
@@ -1284,10 +917,7 @@
     "overflow": {
       "span[row-ctl] \"Restore\" spills": 3
     },
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "span[chip] \"Worktree kept\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "settings-history": {
     "offLine": {
@@ -1296,9 +926,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "offScale": {}
   },
   "settings-storage": {
     "offLine": {
@@ -1307,9 +935,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "offScale": {}
   },
   "settings-runtimes": {
     "offLine": {
@@ -1321,10 +947,7 @@
       "span[icon-tile] \"R\" spills": 1,
       "span[row-face] \"R\" spills": 1
     },
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "span[chip] \"Default\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "settings-models": {
     "offLine": {
@@ -1337,12 +960,7 @@
       "span[row-ctl] \"Apply\" spills": 1,
       "span[row-ctl] spills": 2
     },
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "span[chip] \"Always thinks\" radius 5px": 1,
-      "span[chip] \"Default\" radius 5px": 1,
-      "span[chip] \"Not available\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "settings-skills": {
     "offLine": {
@@ -1352,9 +970,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "offScale": {}
   },
   "settings-extensions": {
     "offLine": {
@@ -1366,10 +982,7 @@
       "span[icon-tile] \"R\" spills": 1,
       "span[row-face] \"R\" spills": 1
     },
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "span[chip] \"Default\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "settings-permissions": {
     "offLine": {
@@ -1378,15 +991,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "button[toggle-group-item] \"Edit\" row-gap 5px, column-gap 5px": 3,
-      "button[toggle-group-item] \"Merge\" row-gap 5px, column-gap 5px": 3,
-      "button[toggle-group-item] \"Publish\" row-gap 5px, column-gap 5px": 3,
-      "button[toggle-group-item] \"Read only\" row-gap 5px, column-gap 5px": 3,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "span[chip] \"Asked\" radius 5px": 2,
-      "span[chip] \"Enforced\" radius 5px": 1
-    }
+    "offScale": {}
   },
   "settings-browser": {
     "offLine": {
@@ -1395,9 +1000,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "offScale": {}
   },
   "settings-profile": {
     "offLine": {
@@ -1407,12 +1010,8 @@
       "span[text] \"HarnessDesk\" Δ2": 1,
       "span[text] \"HarnessDesk\" Δ3": 1
     },
-    "overflow": {
-      "span[row-mark] spills": 1
-    },
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "overflow": {},
+    "offScale": {}
   },
   "settings-runtime": {
     "offLine": {
@@ -1423,9 +1022,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "offScale": {}
   },
   "settings-account": {
     "offLine": {
@@ -1435,9 +1032,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "offScale": {}
   },
   "settings-project": {
     "offLine": {
@@ -1446,9 +1041,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "offScale": {}
   },
   "settings-skill": {
     "offLine": {
@@ -1457,9 +1050,7 @@
       "span[text] \"HarnessDesk\" Δ3": 1
     },
     "overflow": {},
-    "offScale": {
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1
-    }
+    "offScale": {}
   },
   "left-work": {
     "offLine": {
@@ -1473,19 +1064,9 @@
       "span[text] \"HarnessDesk\" Δ2": 1
     },
     "overflow": {
-      "span[search] spills": 1,
-      "span[text] \"No Run recorded.\" touches frame": 1
+      "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 0\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tooltip-trigger] \"Findings\" row-gap 5px, column-gap 5px": 1,
-      "button[tooltip-trigger] \"Run\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "navigation": {
     "offLine": {
@@ -1505,11 +1086,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "left-start": {
     "offLine": {
@@ -1526,11 +1103,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "left-account": {
     "offLine": {
@@ -1547,11 +1120,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "left-inbox": {
     "offLine": {
@@ -1568,11 +1137,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "left-session-menu": {
     "offLine": {
@@ -1586,19 +1151,9 @@
       "span[text] \"HarnessDesk\" Δ2": 1
     },
     "overflow": {
-      "span[search] spills": 1,
-      "span[text] \"No Run recorded.\" touches frame": 1
+      "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "button[tabs-trigger] \"Board 0\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Chat\" row-gap 5px, column-gap 5px": 1,
-      "button[tabs-trigger] \"Overview\" row-gap 5px, column-gap 5px": 1,
-      "button[tooltip-trigger] \"Findings\" row-gap 5px, column-gap 5px": 1,
-      "button[tooltip-trigger] \"Run\" row-gap 5px, column-gap 5px": 1,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "menu-model": {
     "offLine": {
@@ -1615,11 +1170,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "menu-permissions": {
     "offLine": {
@@ -1636,11 +1187,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "menu-icons": {
     "offLine": {
@@ -1661,11 +1208,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "menu-disabled": {
     "offLine": {
@@ -1682,11 +1225,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "menu-wide": {
     "offLine": {
@@ -1703,11 +1242,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "menu-metered": {
     "offLine": {
@@ -1724,11 +1259,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "menu-select": {
     "offLine": {
@@ -1745,11 +1276,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "menu-suggestions": {
     "offLine": {
@@ -1766,11 +1293,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "menu-inbox": {
     "offLine": {
@@ -1787,11 +1310,7 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   },
   "menu-palette": {
     "offLine": {
@@ -1808,10 +1327,6 @@
       "span[inline-parts] spills": 1,
       "span[search] spills": 1
     },
-    "offScale": {
-      "button[button] row-gap 5px, column-gap 5px": 2,
-      "div[bar] \"HarnessDesk\" padding-left 17px": 1,
-      "div[navigation-group-header] \"Projects\" padding-top 17px": 1
-    }
+    "offScale": {}
   }
 }
