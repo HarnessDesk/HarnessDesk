@@ -3274,3 +3274,19 @@ board. Existing host wrappers keep their signatures and presentation until
 part 2 moves screens and enforces the new caller boundary. JobsBar narration,
 Approvals, dialogs and field validation remain separate. The #1211 decision,
 one notice, one outlet, still holds; this changes anatomy, never routing.
+
+## Missing Team folders are measured by the host
+
+A Team can outlive its checkout without leaving conversation history on this
+desk. Session listings therefore cannot be the only evidence that a project
+folder is gone. Room and Goal wire boards carry an optional `folderGone`
+measurement, refreshed on lists and changes; one read shares the measurement
+for every Team with the same root. Only a missing path proves absence; a
+permission or I/O failure leaves existence unknown. These measurements are not
+saved into boards or Goal documents.
+
+The sidebar merges these facts with missing conversation folders. A missing
+root earns no project row, and the gone-folders line counts each root once.
+Forget silences that count without deleting Teams, Goals, receipts, boards or
+history. Search and the Teams page still reach the Team. Measuring in the host
+also works for unopened roots and needs no request per renderer row.

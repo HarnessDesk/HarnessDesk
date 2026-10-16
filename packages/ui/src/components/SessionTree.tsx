@@ -1,4 +1,5 @@
 import { teamsInput } from '../lib/teams-snapshot'
+import { goneProjectFolders } from '../lib/room-folders'
 import { SidebarMenuState } from '../design'
 import { teamListRow, type TeamListState } from '../lib/teams-list'
 import {
@@ -919,7 +920,7 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       else shown.push(summary)
     }
     const forgotten = new Set(snapshot.listPrefs.forgottenFolders ?? [])
-    const gone = [...new Set(hidden.map((summary) => summary.cwd))].filter((folder) => !forgotten.has(folder)).sort()
+    const gone = goneProjectFolders(snapshot.foldersGone, forgotten, hidden.map(summary => summary.cwd), roomRoots, searching)
     const hiddenPinned = hidden.filter((summary) => pinnedKeys.has(String(sessionKey(summary.runtime, summary.id))))
     // The open workspace leads, then what the user pinned in the order they
     // pinned it, then the rest by the chosen order. A worktree you have open

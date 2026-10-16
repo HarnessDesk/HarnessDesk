@@ -4446,6 +4446,8 @@ test('wire rooms carry a resolved root for links without changing the saved room
 
   await rm(real, { recursive: true, force: true })
   await rm(link, { force: true })
+  assert.equal(team.stateFor(linked.id).folderGone, true)
+  assert.equal(realRootOf(team.stateFor(linked.id)), undefined)
   const reloaded = new Team(dir, teamPort)
   await reloaded.load()
   assert.equal(realRootOf(reloaded.stateFor(linked.id)), undefined)
@@ -4976,3 +4978,20 @@ for (const condition of ['held', 'busy', 'read-only'] as const) {
     assert.equal(proof.port.changed.length, saves)
   })
 }
+
+test('wire rooms measure deleted roots on list and events without persisting the measurement', async (t) => {
+  const { team, port, dir } = await rig(t)
+  const root = join(dir, 'checkout')
+  await mkdir(root)
+  const room = await team.createRoom(root, 'Kept history')
+  assert.equal(team.states().find(state => state.id === room.id)?.folderGone, false)
+  await rm(root, { recursive: true })
+  assert.equal(team.states().find(state => state.id === room.id)?.folderGone, true)
+  await team.renameRoom(room.id, 'History remains')
+  assert.equal(port.changed.at(-1)?.folderGone, true)
+  await team.flush()
+  const stored = JSON.parse(await readFile(join(dir, `${encodeURIComponent(room.id)}.json`), 'utf8'))
+  assert.equal(Object.hasOwn(stored, 'folderGone'), false)
+  await mkdir(root)
+  assert.equal(team.stateFor(room.id).folderGone, false)
+})
