@@ -1943,7 +1943,7 @@ kept conversation.
 
 ### Board cards
 
-`CompactBoardCard` (`patterns/BoardCard.tsx`) owns the compact clickable card
+`CompactBoardCard` (`packages/ui/src/design/patterns/BoardCard.tsx`) owns the compact clickable card
 frame: a truncated identity and optional aside, an optional attention detail,
 then optional middle and footer
 slots. It composes the shared Button and Card. Callers supply their own
