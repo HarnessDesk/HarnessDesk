@@ -206,6 +206,10 @@ runs must also be in the workflow, and the one exception is recorded, with its
 reason, in that script's `NOT_IN_CI`. Run it **unpiped**: `pnpm verify | tail`
 reports the exit status of `tail`, which has hidden a red run before now.
 
+Reviewed changes land on `development`, whose pushes run core CI; its nightly
+full run and full-tier release PR into `main` guard a merge commit that starts
+a release.
+
 Ordinary pull requests run core CI only in the bounded tier: build, typecheck,
 Node tests and end-to-end, UI unit tests, UI tests and gates. Browser shards,
 server-facing browser specs and native smoke run in the full tier: pushes to

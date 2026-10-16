@@ -13,7 +13,7 @@ export const REQUIRED_CHECKS = Object.freeze([
 ])
 const REQUIRED_CHECK_APP = 'github-actions'
 
-const usage = 'Usage: node script/land-safe.mjs <pr> (--head <sha> | --any-head) [--repo owner/name] [--dry-run]'
+const usage = 'Usage: node script/land-safe.mjs <pr> (--head <sha> | --any-head) [--repo owner/name] [--dry-run] [--method squash|merge]'
 const headRequired = 'name the reviewed head with --head <sha>, or pass --any-head to land whatever head is green now'
 
 const cliRunner = (args) =>
@@ -84,7 +84,7 @@ export const hasFullCITier = decision => {
 const run = (runner, args) => String(runner(args) ?? '').trim()
 
 const readPr = (runner, pr, repo) => {
-  const args = ['pr', 'view', String(pr), '--json', 'headRefOid,baseRefName,state,isDraft,mergeCommit']
+  const args = ['pr', 'view', String(pr), '--json', 'headRefOid,headRefName,baseRefName,state,isDraft,mergeCommit']
   if (repo) args.push('--repo', repo)
   return JSON.parse(run(runner, args))
 }
@@ -123,7 +123,7 @@ const printReport = (io, decision) => {
 
 /** Execute the guarded landing flow using an injectable gh-compatible runner. */
 export const landSafe = async (
-  { pr, repo, dryRun = false, head, anyHead = false },
+  { pr, repo, dryRun = false, head, anyHead = false, method = 'squash' },
   runner = cliRunner,
   io = { stdout: process.stdout, stderr: process.stderr },
 ) => {
@@ -136,6 +136,7 @@ export const landSafe = async (
     // Strict on purpose: a caller of this function does not pass through the
     // command line's parser, so an empty head or a truthy non-boolean must not
     // read as "unreviewed is fine" or as "a head was named".
+    if (method !== 'squash' && method !== 'merge') throw new Error('method must be squash or merge')
     if (typeof anyHead !== 'boolean') throw new Error('anyHead must be true or false')
     if (head !== undefined && (typeof head !== 'string' || head === '')) throw new Error('head must be the reviewed commit, not empty')
     // The two are opposites: with both given, --any-head would quietly skip the check --head asks for.
@@ -145,6 +146,7 @@ export const landSafe = async (
     const initial = readPr(runner, pr, repo)
     if (initial.isDraft) throw new Error(`PR ${pr} is a draft; refusing to land`)
     if (initial.state !== 'OPEN') throw new Error(`PR ${pr} is ${String(initial.state).toLowerCase()}, not open`)
+    if (method === 'merge' && initial.headRefName !== 'development') throw new Error('--method merge requires the development head branch')
     const sha = initial.headRefOid
     if (!sha || !initial.baseRefName) throw new Error('GitHub did not return the PR head SHA and base branch')
     if (anyHead) {
@@ -174,6 +176,10 @@ export const landSafe = async (
       write(io.stdout, `DECISION: head moved from ${sha} to ${current.headRefOid}; re-run.`)
       return 3
     }
+    if (method === 'merge' && current.headRefName !== 'development') {
+      write(io.stdout, `DECISION: head branch moved from development to ${current.headRefName}; re-run.`)
+      return 3
+    }
     if (current.baseRefName !== initial.baseRefName) {
       write(io.stdout, `DECISION: base moved from ${initial.baseRefName} to ${current.baseRefName}; re-run.`)
       return 3
@@ -189,7 +195,7 @@ export const landSafe = async (
       return 0
     }
     mergeAsked = true
-    run(runner, ['pr', 'merge', String(pr), '--repo', repo, '--squash', '--match-head-commit', sha])
+    run(runner, ['pr', 'merge', String(pr), '--repo', repo, `--${method}`, '--match-head-commit', sha])
     const afterMerge = readPr(runner, pr, repo)
     if (afterMerge.state === 'MERGED' && afterMerge.mergeCommit?.oid) {
       write(io.stdout, `DECISION: merged PR ${pr} at ${sha}; merge commit ${afterMerge.mergeCommit.oid}.`)
@@ -217,10 +223,12 @@ export const parseArgs = (argv) => {
   if (!pr || !/^\d+$/.test(pr)) throw new Error(usage)
   let repo
   let head
+  let method
   let anyHead = false
   let dryRun = false
   for (let i = 0; i < rest.length; i += 1) {
     if (rest[i] === '--dry-run' && !dryRun) dryRun = true
+    else if (rest[i] === '--method' && method === undefined && ['squash', 'merge'].includes(rest[i + 1])) method = rest[++i]
     else if (rest[i] === '--any-head' && !anyHead) anyHead = true
     else if (rest[i] === '--head' && !head && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(rest[i + 1] ?? '')) head = rest[++i]
     else if (rest[i] === '--repo' && !repo && rest[i + 1] && /^[^/]+\/[^/]+$/.test(rest[i + 1])) repo = rest[++i]
@@ -228,7 +236,7 @@ export const parseArgs = (argv) => {
   }
   if (head && anyHead) throw new Error(`${usage}\n--head and --any-head are opposites; pass one.`)
   if (!head && !anyHead) throw new Error(`${headRequired}\n${usage}`)
-  return { pr, repo, dryRun, head, anyHead }
+  return { pr, repo, dryRun, head, anyHead, method: method ?? 'squash' }
 }
 
 export const isEntryPoint = (metaUrl, argv1) => {

@@ -20,6 +20,16 @@ pnpm serve      # or headless, against a browser
 [docs/getting-started.md](docs/getting-started.md) covers signing in,
 registering ACP agents, and troubleshooting.
 
+## The development branch
+
+From the next release, reviewed changes land on the long-lived `development`
+branch, one commit per change. Each push runs core CI; a nightly full run starts
+at 11:00 UTC, and a failure is fixed the same day. A release pull request from
+`development` into `main` runs the full tier and lands with a merge commit,
+preserving each change's commit. Every merge into `main` is a release. Bump the
+version on `development` before opening that release pull request; follow
+[docs/release.md](docs/release.md) to cut it from the merged result.
+
 ## The gate
 
 Before you push, run `pnpm check:push`. It uses CI's planners for the committed,
@@ -57,19 +67,22 @@ gate and is green only when each of four jobs that run side by side is: the
 Node tests, the Node end-to-end tests, the UI tests, and the checks.
 
 Browser integration has two tiers. Ordinary pull requests use the **bounded**
-tier. A push to `main`, a pull request whose head branch starts with `batch/`,
-a pull request labelled `full-ci`, and a manual dispatch use the **full** tier.
+tier, as do pushes to `development`. A push to `main`, a pull request whose
+head branch is `development` or starts with `batch/`, a pull request labelled
+`full-ci`, and a manual dispatch use the **full** tier.
 Adding `full-ci` starts one full run on the head commit (`full-ci-label.yml`); no other label starts anything. The full tier runs every browser
 spec in both themes, with the existing matrix of up to sixteen shards, and
 native smoke. A check named `CI tier: bounded` or `CI tier: full`, the browser
 aggregate's log and the job summary identify what ran. Required check names stay
 the same; bounded success satisfies branch protection, but landing requires full
-CI. Use a batch branch or add `full-ci` before landing an individual pull request.
+CI. The development release PR supplies full evidence; batch branches and
+`full-ci` remain available for other full runs.
 
 The bounded tier runs core CI only: build, typecheck, Node tests and end-to-end,
 UI unit tests, UI tests and gates. Browser shards, server-facing browser specs
-and native smoke run in the full tier (batch or `full-ci`), keeping ordinary
-pull requests from competing with batch runs for the account's job cap. The
+and native smoke run in the full tier (development release PR, batch or
+`full-ci`), keeping ordinary pull requests from competing with full runs for
+the account's job cap. The
 three required checks keep their names and succeed when core CI passes and
 integration jobs are intentionally skipped. The summary lists the specs that
 local `pnpm check:push` selects before a push.
@@ -83,9 +96,9 @@ reads geometry contracts in light and colour contracts in both themes. Local
 checks have their own execution budget and report anything left to full CI.
 
 The full tier uses `UI_SYSTEM_MATRIX=full` everywhere. Regressions beyond core
-CI and local checks are caught by the full run on the batch or labelled pull
-request before main. Main also runs the full suite. `script/land-safe.mjs`
-refuses a bounded run even if all required checks pass; its newest full-tier
+CI and local checks are caught by the nightly development run and the full
+release PR before main (or a batch or labelled pull request). Main also runs
+the full suite. `script/land-safe.mjs` refuses a bounded run even if all required checks pass; its newest full-tier
 proof must share the required checks' workflow check suite.
 
 Every full browser run records the UI modules each spec loaded and ran.
