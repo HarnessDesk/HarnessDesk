@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import type { AgentEvent, BackgroundTask } from '@harnessdesk/protocol'
 
 import { CodexRuntime } from '../src/index.js'
+import { taskLabel } from '../src/tasks.js'
 
 /**
  * Codex's background terminals as background tasks.
@@ -164,4 +165,23 @@ test('clearing forgets the finished ones and leaves the running ones alone', asy
     left.map((task) => task.state),
     ['running'],
   )
+})
+
+test('a task is titled by its command, without the shell that wraps it', () => {
+  // Short commands stay whole, as before.
+  assert.equal(taskLabel('tail -f server.log'), 'tail -f server.log')
+  assert.equal(taskLabel('/bin/zsh -lc "pnpm dev"'), 'pnpm dev')
+  assert.equal(taskLabel("bash -c 'npm run watch'"), 'npm run watch')
+  // A leading `cd` says where, not what; the plate still shows it.
+  assert.equal(taskLabel('/bin/zsh -lc "cd /work/storefront && pnpm test --watch"'), 'pnpm test --watch')
+  // A long one is cut to its program and first argument that is not a flag.
+  assert.equal(
+    taskLabel('/bin/zsh -lc "rg -n \\"type IntentState\\" /work/storefront/packages/protocol/src /work/storefront/packages/ui/src"'),
+    'rg "type IntentState"…',
+  )
+  assert.equal(taskLabel('NODE_ENV=test /usr/local/bin/node --inspect scripts/very-long-script-name.mjs --flag-one --flag-two'), 'node scripts/very-long-script-name.mjs…')
+  // A semicolon inside quotes is part of the word, not a second command.
+  assert.equal(taskLabel('sh -c "echo \\"a; b\\""'), 'echo "a; b"')
+  // Nothing to shorten to: the command as it came.
+  assert.equal(taskLabel('   '), '   ')
 })

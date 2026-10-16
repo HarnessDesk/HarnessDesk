@@ -35,6 +35,60 @@ import {
  * here, where it provably touches nothing.
  */
 
+/** Past this, a command is shortened for its title; the plate keeps it whole. */
+const LABEL_MAX = 48
+
+/** Splits a shell line into words, keeping each quoted word as it was written. */
+const shellWords = (line: string): string[] => {
+  const words: string[] = []
+  let word = '', quote: string | null = null, started = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!
+    if (quote) {
+      if (ch === '\\' && quote === '"' && i + 1 < line.length) { word += ch + line[++i]; continue }
+      word += ch
+      if (ch === quote) quote = null
+      continue
+    }
+    if (ch === '"' || ch === "'") { quote = ch; word += ch; started = true; continue }
+    if (/\s/.test(ch)) { if (started) { words.push(word); word = ''; started = false } continue }
+    word += ch; started = true
+  }
+  if (started) words.push(word)
+  return words
+}
+
+const unquote = (word: string) => {
+  const q = word[0]
+  if ((q !== '"' && q !== "'") || word.at(-1) !== q || word.length < 2) return word
+  const inner = word.slice(1, -1)
+  return q === '"' ? inner.replace(/\\(["\\$`])/g, '$1') : inner
+}
+
+/**
+ * The title a background task is listed under. Codex names a shell session
+ * only by its command, and that command usually arrives wrapped —
+ * `/bin/zsh -lc "rg -n … /a/long/path"` — so the wrapper was the first thing
+ * read, and the plate under the title printed the same line again. The title
+ * unwraps the shell, skips a leading `cd …`, and keeps a short command whole;
+ * a long one is cut to its program and the first argument that is not a flag.
+ */
+export const taskLabel = (command: string): string => {
+  let line = command.trim()
+  const outer = shellWords(line)
+  const shell = outer[0]?.split('/').at(-1) ?? ''
+  if (outer.length === 3 && /^(ba|z|da|k|fi)?sh$/.test(shell) && /^-[a-z]*c$/.test(outer[1]!)) line = unquote(outer[2]!).trim()
+  line = line.replace(/^(?:cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*)+/, '')
+  if (line.length <= LABEL_MAX) return line || command
+  const all = shellWords(line)
+  const end = all.findIndex(word => ['&&', '||', ';', '|'].includes(word))
+  const words = (end < 0 ? all : all.slice(0, end)).filter(word => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word))
+  const program = words[0]?.split('/').at(-1) ?? ''
+  const argument = words.slice(1).find(word => !word.startsWith('-'))
+  const short = argument ? `${program} ${argument}` : program
+  return `${short.length > LABEL_MAX ? short.slice(0, LABEL_MAX - 1).trimEnd() : short}…`
+}
+
 /** How often the live list is re-read while something is running. */
 const POLL_MS = 4_000
 
@@ -120,13 +174,13 @@ export class CodexTasks implements RuntimeTasks {
     const existing = sessions.get(item.processId)
     const entry: Remembered = existing ?? {
       processId: item.processId,
-      label: item.command,
+      label: taskLabel(item.command),
       command: item.command,
       startedAt: Date.now(),
       alive: true,
       unpolled: true,
     }
-    entry.label = item.command
+    entry.label = taskLabel(item.command)
     entry.command = item.command
     entry.cwd = item.cwd
     entry.itemId = item.id
@@ -203,7 +257,7 @@ export class CodexTasks implements RuntimeTasks {
     for (const [processId, terminal] of alive) {
       const entry = sessions.get(processId) ?? {
         processId,
-        label: terminal.command,
+        label: taskLabel(terminal.command),
         command: terminal.command,
         startedAt: Date.now(),
         alive: true,
