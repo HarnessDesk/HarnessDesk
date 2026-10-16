@@ -819,6 +819,18 @@ A tinted face is filled with its tint's ink and uses the accent foreground for
 its mark or initials. A tinted ring is hollow, its edge in the tint and its
 mark in the tint's ink. A tinted square keeps the soft tint wash.
 
+A maker's mark (`BrandMark`, and `RuntimeMark` and `ModelMark` through it) is
+drawn in its maker's own colours wherever lobe-icons has a colour file, because a
+logo is recognised by its colour before its shape. Each such mark also carries
+its one-colour drawing on `currentColor`, and that drawing shows instead on an
+identity's own ground: any element with `data-tint` or `data-color` (a tinted
+face or ring, a listing's colour tile) or `data-off` (a signed-out seat). The
+tint carries the meaning there, and two colours in one disc fight. The switch is
+one rule in `styles/app.css`, so a new face gets it without a prop. A maker with
+no colour file is drawn in ink everywhere. A colour file that is not drawn for a
+page is corrected in `COLOUR_FIXES` (Codex's app-icon square, Kimi's white K),
+and each fix is tested to still find what it removes.
+
 A new surface cannot draw someone in a fixed corner without a test failing.
 `IconTile`, `DetailMark`, `AvatarStack`, `Face`, `AccountMark` and a notice’s
 face each declare what they drew with `data-shape` (`face`, `round`, `square`), and two tests read
