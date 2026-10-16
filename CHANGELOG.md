@@ -332,10 +332,6 @@ reviewed skill bundles, faster history and verified Team outcomes.
   and retained ancestry stays readable when a repository object is missing.
   Retrying a failed worktree admission closes its old capture observers first.
 
-- **The local connection checks its caller.** The host refuses unexpected
-  Host and Origin headers before admitting a window connection, alongside
-  its existing token check.
-
 - **The website's Dashboard is interactive.** Explore plan spending, activity
   and time-of-day views against one fictional desk, using the same controls
   as the app.
