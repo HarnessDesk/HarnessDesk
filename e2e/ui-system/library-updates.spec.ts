@@ -9,7 +9,7 @@ const frame = async (page: Page, name: string) => {
 }
 const openSkill = async (page: Page) => {
   await page.locator('[data-slot="skill-card"]').first().click()
-  return page.getByRole('dialog', { name: 'Code review', exact: true })
+  return page.locator('[data-slot="skill-page"]')
 }
 for (const theme of ['light', 'dark'] as const) {
   test(`Library explicit update check and review ${theme}`, async ({ page }) => {
@@ -25,10 +25,10 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.locator('[data-slot="skill-card"]')).toContainText('Update available')
     await frame(page, `row-${theme}`)
     const sheet = await openSkill(page)
-    await expect(sheet.getByText('Update available', { exact: true })).toBeVisible()
+    await expect(sheet.locator('[aria-label="Update"]').getByText('Update available', { exact: true })).toBeVisible()
     await expect(sheet.getByText('1a2b3c4 → 9f8e7d6', { exact: true })).toBeVisible()
-    await expect(sheet.getByText('review/code-review · main, pinned at 1a2b3c4', { exact: true })).toBeVisible()
-    await frame(page, `sheet-${theme}`)
+    await expect(sheet.locator('[aria-label="Source"]')).toContainText('acme-dev/skills')
+    await frame(page, `page-${theme}`)
     await sheet.getByRole('button', { name: 'Review update…', exact: true }).click()
     const plan = page.getByRole('dialog', { name: 'Update code-review', exact: true })
     await expect(plan.getByText('Changed · 1.2 KB', { exact: true })).toBeVisible()
@@ -47,6 +47,7 @@ for (const theme of ['light', 'dark'] as const) {
     await plan.getByRole('button', { name: 'Apply 1 change', exact: true }).click()
     await expect(plan.getByTestId('apply-summary')).toHaveText('1 change made.')
     await plan.getByRole('button', { name: 'Close', exact: true }).last().click()
+    await sheet.getByRole('button', { name: 'Back to Library', exact: true }).click()
     await expect(page.locator('[data-slot="skill-card"]')).not.toContainText('Update available')
   })
   test(`Library edited-copy update review ${theme}`, async ({ page }) => {
@@ -61,11 +62,11 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(plan.getByRole('button', { name: 'Apply 1 change', exact: true })).toBeDisabled()
     await frame(page, `edited-${theme}`)
   })
-  for (const status of ['unchecked', 'current', 'gone', 'unreachable'] as const) test(`Library ${status} source facts ${theme}`, async ({ page }) => {
+  for (const status of ['unchecked', 'current', 'gone', 'unreachable'] as const) test(`Library ${status} update states ${theme}`, async ({ page }) => {
     await openFrame(page, `library-updates=${status}`, theme)
     await page.setViewportSize({ width: 1440, height: 1100 })
     const sheet = await openSkill(page)
-    await expect(sheet.getByText('Where it came from', { exact: true })).toBeVisible()
+    await expect(sheet.locator('[aria-label="Update"]')).toHaveCount(status === 'gone' || status === 'unreachable' ? 1 : 0)
     await expect(sheet.getByRole('button', { name: 'Review update…', exact: true })).toHaveCount(0)
     if (status === 'gone') await expect(sheet.getByText('The branch main no longer exists in acme-dev/skills.', { exact: true })).toBeVisible()
     if (status === 'unreachable') await expect(sheet.getByText('Could not check: The repository did not answer. Try again later.', { exact: true })).toBeVisible()

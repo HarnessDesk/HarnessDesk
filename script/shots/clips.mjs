@@ -41,10 +41,10 @@ export const CLIP_SCENES = {
       move(4200, role('radio', 'Summary')), click(5000, role('radio', 'Summary')), move(5600, role('button', 'Hand off to Reviewer')),
     ]),
   library: scene('library',
-    'Select a skill to read its definition and see the agents that load it.', [
+    'Select a skill to read its definition and see the runtimes that load it.', [
       move(800, css('button[aria-expanded]:has-text("code-review")')), click(1600, css('button[aria-expanded]:has-text("code-review")')),
       move(2700, role('button', 'Read the definition')), click(3500, role('button', 'Read the definition')),
-      { at: 4300, kind: 'read' }, move(5700, role('button', 'Close')), click(6500, role('button', 'Close')),
+      { at: 4300, kind: 'read' }, move(5700, role('button', 'Back to Library')), click(6500, role('button', 'Back to Library')),
     ]),
   permissions: scene('plugin-permissions',
     'Project docs shows its Tools and Access; the plugin is turned off and back on.', [
@@ -146,7 +146,7 @@ const restore = async (page, name) => {
   if (name === 'teams' && await page.getByRole('button', { name: 'Back to Teams', exact: true }).count()) await page.getByRole('button', { name: 'Back to Teams', exact: true }).click()
   if (name === 'run' || name === 'race') await stagePage(page, 0)
   if (name === 'library') {
-    if (await page.getByRole('button', { name: 'Close', exact: true }).count()) await page.getByRole('button', { name: 'Close', exact: true }).click()
+    if (await page.getByRole('button', { name: 'Back to Library', exact: true }).count()) await page.getByRole('button', { name: 'Back to Library', exact: true }).click()
     const skill = page.locator('button[aria-expanded]:has-text("code-review")').first()
     if (await skill.getAttribute('aria-expanded') === 'true') await skill.evaluate(node => node.click())
   }
@@ -223,8 +223,11 @@ export const focusCamera = async (page, name, pan, panToEnd = false) => {
     selector = await dialog.count() ? dialogSelector : '[data-slot="teams-page"] [data-slot="table-container"]'
     width = 580; zoom = 1.32; follow = !!await dialog.count() && panToEnd
   } else if (name === 'library') {
-    selector = await dialog.count() ? dialogSelector : '[data-release-still] [data-slot="table-container"]'
-    follow = !await dialog.count()
+    const detail = page.locator('[data-slot="skill-page"]')
+    const reading = !!await detail.count()
+    selector = reading ? '[data-slot="skill-page"]' : '[data-release-still] [data-slot="table-container"]'
+    if (reading) { width = 960; zoom = 0.8 }
+    follow = !reading
   } else if (name === 'handoff') { selector = dialogSelector; width = 710; zoom = 1.08 }
   else if (name === 'permissions') { selector = '[data-release-still] [data-slot="pane-column"]'; width = 710; zoom = 1.08 }
   else if (name === 'browser') { selector = '[data-slot="side-by-side-tile"]'; width = 710; zoom = 1.08 }
@@ -244,7 +247,6 @@ export const focusCamera = async (page, name, pan, panToEnd = false) => {
     node.setAttribute('data-clip-surface', '')
     Object.assign(node.style, { width: `${width}px`, zoom: String(zoom), left: `${(800 - width * zoom) / 2 / zoom}px` })
     if (node.matches('[data-slot="side-by-side-tile"]')) node.style.setProperty('height', `${468 / zoom}px`, 'important')
-    if (name === 'library' && node.getAttribute('role') === 'dialog') node.style.setProperty('height', `${468 / zoom}px`, 'important')
     // Dialog content is normally bounded to the viewport by its own scroller.
     for (const child of node.querySelectorAll('[data-slot="modal-dialog-body"]')) child.style.maxHeight = 'none'
     const height = node.getBoundingClientRect().height

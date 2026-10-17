@@ -155,10 +155,10 @@ for (const theme of ['light', 'dark'] as const) {
       await loaded.hover()
       expect(await loaded.evaluate(node => getComputedStyle(node).textDecorationLine)).toBe('none')
       await sheet.getByRole('button', { name: 'brainstorming', exact: true }).click()
-      const detail = page.getByRole('dialog').getByText('Use before any creative work — creating features, building components, adding functionality. Explores intent and requirements before implementation.', { exact: true })
+      const detail = page.locator('[data-slot="skill-page"]').getByText('Use before any creative work — creating features, building components, adding functionality. Explores intent and requirements before implementation.', { exact: true })
       await expect(detail).toBeVisible()
       expect(await detail.evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe('none')
-      await page.keyboard.press('Escape')
+      await page.locator('[data-slot="skill-page"]').getByRole('button', { name: 'Back to Library', exact: true }).click()
     }
   })
 

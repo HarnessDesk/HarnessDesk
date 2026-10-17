@@ -76,7 +76,7 @@ export const Lightbox = ({
         ref={sheet}
         data-lightbox=""
         showCloseButton={false}
-        /* The sheet takes the focus, as every sheet here does (SkillSheet,
+        /* The sheet takes the focus, as every sheet here does (McpSheet,
            ModalDialog with no field): it wears no ring, Escape and the arrows
            reach it, and Tab goes on to its controls. Base UI's own default
            would put a ring on the first of them, the Previous step. */

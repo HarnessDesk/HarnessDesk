@@ -29,7 +29,7 @@ export const MAIN_PAGE_ENTRIES: Partial<Record<PageDestination['kind'], (input: 
   agents: ({ page, visit }) => page.kind === 'agents'
     ? <AgentsWindow focus={page.id} onFocus={id => visit({ kind: 'agents', id })} /> : null,
   library: ({page,visit,libraryImportIntent}) => page.kind === 'library'
-    ? <Page width="wide">{page.section === 'changes' ? <LibraryChanges onBack={() => visit({ kind: 'library', section: 'skill' })} /> : <LibrarySection section={page.section} onSection={section=>visit({kind:'library',section})} importIntent={libraryImportIntent} />}</Page> : null,
+    ? <Page width="wide">{page.section === 'changes' ? <LibraryChanges onBack={() => visit({ kind: 'library', section: 'skill' })} /> : <LibrarySection id={page.id} section={page.section} onSection={section=>visit({kind:'library',section})} importIntent={libraryImportIntent} />}</Page> : null,
   plugins: ({ page, visit }) => page.kind === 'plugins'
     ? <Page width={page.id === null ? 'wide' : 'reading'}><PluginsSection section={page.section} id={page.id}
         onSection={section => visit({ kind: 'plugins', section, id: null })}

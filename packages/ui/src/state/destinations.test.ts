@@ -88,3 +88,16 @@ test('restored routes strip transient fields and validate every entity payload',
   expect(stepDestination(history, 'back')?.current).toEqual(library)
   expect(stepDestination(stepDestination(history, 'back')!, 'forward')?.current).toEqual(changes)
 })
+
+test('Library skill names round trip, validate, and preserve Back and Forward without changing Settings skills', () => {
+  const library = { kind: 'library', section: 'skill' } as const
+  const detail = { ...library, id: 'code-review' }
+  expect(readDestination(detail)).toEqual(detail)
+  for (const id of ['', null, 42, {}]) expect(readDestination({ ...detail, id })).toBeNull()
+  expect(readDestination({ ...detail, section: 'mcp' })).toBeNull()
+  expect(readDestination({ ...detail, section: 'changes' })).toBeNull()
+  const history = visitDestination({ current: library, back: [], forward: [] }, detail)
+  expect(stepDestination(history, 'back')?.current).toEqual(library)
+  expect(stepDestination(stepDestination(history, 'back')!, 'forward')?.current).toEqual(detail)
+  expect(readDestination({ kind: 'settings', route: { kind: 'skill', name: 'code-review' } })).toEqual({ kind: 'settings', route: { kind: 'skill', name: 'code-review' } })
+})

@@ -43,9 +43,9 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByText('Declared by', { exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
     await page.locator('[data-slot="skill-card"]').filter({ hasText: 'systematic-debugging' }).click()
-    await expect(page.getByRole('dialog')).toBeVisible()
+    await expect(page.locator('[data-slot="skill-page"]')).toBeVisible()
     await frame(page, 'skill', theme)
     await expect(page.getByText('Every skill and MCP server your runtimes can load, wherever each one keeps them.', { exact: true })).toHaveCount(0)
-    await expect(page.getByRole('heading', { name: 'Which runtimes load it', exact: true })).toBeVisible()
+    await expect(page.locator('[data-slot="tool-section"][aria-label="Loaded by"]')).toBeVisible()
   })
 }

@@ -182,7 +182,7 @@ tier label.
 - **Who · when:** someone who sees the same name in several places.
 - **Wants:** its content, files, scope, version, origin and owner, and the
   scripts it can run.
-- **Desk:** today there is the skill sheet, with a rendered or source view of
+- **Desk:** today there is the skill page, with a rendered or source view of
   `SKILL.md` (`library/definition`). *New:* bundle files, scripts, origin and
   owner.
 - **Agents today:** this is read from disk, so it works for any tier.

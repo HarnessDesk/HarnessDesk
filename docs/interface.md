@@ -1072,12 +1072,28 @@ on focus or on a timer. An update is a quiet row finding, after existing warning
 it does not change problem counts. A missing source branch is a warning and an
 unreachable source keeps its reason on hover.
 
-The skill sheet always shows each distinct recorded origin — repository, path,
+The skill page’s Source card always shows each distinct recorded origin — repository, path,
 ref and pinned commit — even before a check. A newer commit adds an Update
-available banner with shortened revisions and Review update. A missing branch
+card with shortened revisions and Review update, and an Update available chip. A missing branch
 has no review action; an unreachable source is quiet text. Review fetches each
 behind source once and plans its runtime copies at the freshly fetched commit.
-A refused or missing folder keeps its reason in the banner and opens no plan.
+A refused or missing folder keeps its reason in the card and opens no plan.
+
+A skill opens as a wide page with Back to Library and Use in composer. Its
+sanitized description sits above a definition card with Rendered and Source
+views and Copy of the exact file. Each distinct Why reason has one warning
+banner titled with the affected runtimes, spanning both columns. The right column holds Update (only after a check),
+Loaded by, Source, Files and Cost. Loaded by retains runtime switches,
+Install and Have it look again. Source keeps every copy’s path, readers,
+empty-directory and shipped status; a copy without recorded provenance says
+This Mac. Files lists sizes and folds long bundles. Cost shows the catalogue
+estimate, measured activations, Last used, coverage and the copy count. More
+holds per-copy Remove, Resolve copies, empty-copy cleanup and Install to.
+Remove shortens home paths in its label and keeps the full path on hover.
+Install availability and refusal cautions stay beside the install actions in More.
+Every write still opens the existing reviewed plan. MCP details keep their
+dialog. Definition reads do not carry install dates or runnable/binary flags;
+file safety chips remain in the install and update plans that provide them.
 
 Update plans label each file Added, Changed or Removed. Read opens the new
 runnable or binary file; removed files have no Read action. The definition diff
@@ -1097,7 +1113,7 @@ failures share a persistent failure toast with the first reason. Skipped
 operations raise nothing, and the write toasts offer no Undo.
 
 The Library's skills page opens as a grid of cards sorted by name. Each card
-opens the existing skill sheet, shows its description in at most two lines,
+visits the skill’s page, shows its description in at most two lines,
 and carries one mark per runtime with its measured reach state on hover. A
 card carries at most one finding: a warning, or a quiet Update available.
 There are no source, command, token or loaded-count lines on the card.

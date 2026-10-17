@@ -54,7 +54,9 @@ import {
 import { chipFor, SkillList, SkillRow, type SkillChip } from './SkillRow'
 import { SkillCard } from './SkillCard'
 import { LibrarySkillsControls } from '../panels/library-skills-controls'
-import { SkillSheet } from './SkillSheet'
+import { McpSheet } from './McpSheet'
+import { SkillPage } from './SkillPage'
+import { DestinationBar } from '../panels/destination-page'
 import { shortPath } from '../lib/paths'
 import { REACH_NAME } from '../lib/reach-states'
 import { LibraryBar } from '../panels/library-bar'
@@ -222,9 +224,9 @@ const FILTER_WORDS: Record<Filter, string> = {
   unused: 'Never fired',
 }
 
-interface LibrarySectionProps { readonly section: LibraryKind; readonly onSection: (kind: LibraryKind) => void; readonly importIntent: number }
+interface LibrarySectionProps { readonly id?: string; readonly section: LibraryKind; readonly onSection: (kind: LibraryKind) => void; readonly importIntent: number }
 export const LibrarySection = (props: LibrarySectionProps) => <LibraryBody {...props} />
-const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: LibrarySectionProps) => {
+const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: LibrarySectionProps) => {
   const { active } = useDestinationPage()
   const alive = useRef(active)
   alive.current = active
@@ -246,13 +248,25 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
   const [view, setView] = useState<'list' | 'matrix'>('list')
   const [skillView, setSkillView] = useState<'cards' | 'matrix'>('cards')
   const [chip, setChip] = useState<SkillChip>('all')
-  /** The entry whose sheet is open — the reading surface, by name. */
-  const [reading, setReading] = useState<string | null>(null)
-  const [flow, setFlow] = useState<LibraryFlow | null>(null)
+  /**
+   * The entry whose sheet is open (the reading surface, by name) and the plan
+   * that is open, held with the detail that opened them: `owner` is that
+   * detail's id. A route change to another id reads what another id holds as
+   * cleared in the render that carries the new id, so the previous skill's
+   * plan never stands over the next one; the effect below then drops it for
+   * good, so coming back to the first id does not revive it.
+   */
+  const [held, setHeld] = useState<{ readonly owner: string | undefined; readonly reading: string | null; readonly flow: LibraryFlow | null }>({ owner: id, reading: null, flow: null })
+  const reading = held.owner === id ? held.reading : null
+  const flow = held.owner === id ? held.flow : null
+  const setReading = useCallback((next: string | null) => setHeld(prev => ({ owner: id, reading: next, flow: prev.owner === id ? prev.flow : null })), [id])
+  const setFlow = useCallback((next: LibraryFlow | null) => setHeld(prev => ({ owner: id, reading: prev.owner === id ? prev.reading : null, flow: next })), [id])
   const lastImport = useRef(0)
   useEffect(() => {
-    if (!active) { setReading(null); setFlow(null) }
+    if (!active) setHeld(prev => ({ ...prev, reading: null, flow: null }))
   }, [active])
+  // Plans belong to the detail that opened them, including within this destination.
+  useEffect(() => { setHeld({ owner: id, reading: null, flow: null }) }, [id])
   useEffect(() => {
     if (!active || importIntent === 0 || importIntent === lastImport.current) return
     lastImport.current = importIntent
@@ -626,6 +640,24 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
     { id: 'agent', label: 'Declared by', value: agentFilter, mode: 'menu',
       items: [{ value: '', label: 'Any agent' }, ...(snapshot.agents ?? []).map(entry => ({ value: `${entry.origin}:${entry.id}`, label: entry.definition?.name ?? entry.id }))], change: setAgentFilter },
   ]
+  const openEntry = (entry: LibraryEntry) => entry.kind === 'skill'
+    ? store.openDestination({ kind: 'library', section: 'skill', id: entry.name })
+    : setReading(entry.name)
+  if (id !== undefined) {
+    const entry = library?.entries.find(one => one.kind === 'skill' && one.name === id)
+    const back = () => store.openDestination({ kind: 'library', section: 'skill' })
+    return <>
+      {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
+      {entry ? <SkillPage key={entry.name} entry={entry} columns={columns} hosts={hosts} cwd={cwd} usage={usage} home={library?.home}
+        onBack={back} onChanged={() => void load()} onFlow={setFlow} /> : <>
+        <DestinationBar place="Library" />
+        {loading ? <EmptyState variant="inline" title="Reading skills…" /> : failed !== null ? <Button variant="ghost" size="sm" onClick={back}>Back to Library</Button> : <EmptyState title="Skill not found">
+          <Button variant="ghost" size="sm" onClick={back}>Back to Library</Button>
+        </EmptyState>}
+      </>}
+      <LibraryFlows flow={active ? flow : null} setFlow={setFlow} library={library} columns={columns} cwd={cwd} onApplied={() => void load()} />
+    </>
+  }
   return (
     <>
       <LibraryBar kind={kind} counts={kindCounts} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
@@ -690,7 +722,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
         </EmptyState>
       ) : kind === 'skill' && skillView === 'cards' ? (
         <CompactBoardCardGrid data-slot="skill-cards">
-          {ordered.map(entry => <SkillCard key={entry.name} entry={entry} columns={columns} onOpen={() => setReading(entry.name)} />)}
+          {ordered.map(entry => <SkillCard key={entry.name} entry={entry} columns={columns} onOpen={() => openEntry(entry)} />)}
         </CompactBoardCardGrid>
       ) : kind === 'mcp' && view === 'list' ? (
         <SkillList kind={kind}>
@@ -699,7 +731,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
               key={`${entry.kind}:${entry.name}`}
               entry={entry}
               columns={columns}
-              onOpen={() => setReading(entry.name)}
+              onOpen={() => openEntry(entry)}
             />
           ))}
         </SkillList>
@@ -717,7 +749,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
               open: () => setOpen(current => current === entry.name ? null : entry.name),
               cells: entry.reach.map((reach, index) => { const label = `${entry.name} — ${columns[index]?.label ?? reach.runtime}: ${REACH_NAME[reach.state]}`
                 return { id: reach.runtime, state: reach.state, label, problem: isReachProblem(reach.state), help: reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state], mark: <ReachMark state={reach.state} label={label} placement="cell" /> } }),
-              expanded: open === entry.name ? <EntryDetail entry={entry} columns={columns} usage={usage} scanOrder={scanOrder} hosts={hosts} home={library?.home} onFlow={setFlow} onRead={() => setReading(entry.name)} /> : undefined,
+              expanded: open === entry.name ? <EntryDetail entry={entry} columns={columns} usage={usage} scanOrder={scanOrder} hosts={hosts} home={library?.home} onFlow={setFlow} onRead={() => openEntry(entry)} /> : undefined,
             }))}
             footer={kind === 'skill' ? { label: `Advertised each turn${chip !== 'all' || filter !== 'all' || query.trim() !== '' ? ' (these rows)' : ''}`,
               title: 'Name and description at ≈3.6 characters per token — the catalogue line a runtime carries for every skill it loads, fired or not. How each runtime advertises varies; this prices the standard line.',
@@ -771,11 +803,10 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
        * stacked dialogs would put the diff a person is confirming behind the
        * document they were reading.
        */}
-      {active && readingEntry && flow === null && (
-        <SkillSheet
+      {active && readingEntry?.kind === 'mcp' && flow === null && (
+        <McpSheet
           entry={readingEntry}
           columns={columns}
-          usage={usage}
           hosts={hosts}
           cwd={cwd}
           home={library?.home}
@@ -825,7 +856,7 @@ const EntryDetail = ({
   /** The host's home directory, so a path prints the way it is written. */
   home: string | undefined
   onFlow: (flow: LibraryFlow) => void
-  /** Open the full reading surface — the same sheet a card opens. */
+  /** Open the full reading surface for this entry. */
   onRead: () => void
 }) => {
   /**

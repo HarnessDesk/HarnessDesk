@@ -36,7 +36,7 @@ import styles from './Markdown.module.css'
  * editor and hard-wrapped at seventy or eighty columns, so every paragraph in
  * it contains newlines that mean nothing at all. Rendered with `breaks`, a
  * wrapped sentence comes out broken at the author's column width — which is
- * what the skill sheet showed the first time a real definition went through
+ * what the skill page showed the first time a real definition went through
  * it, and it reads as a bug in the document rather than in the renderer.
  */
 const marked = new Marked({ gfm: true, breaks: true, async: false })

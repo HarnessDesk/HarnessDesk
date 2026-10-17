@@ -4334,7 +4334,7 @@ for (const designFile of designSources) {
   // Same-module composition: `Dialog` composes `DialogBody`/`DialogSubhead`
   // in its own body, in the same file, with no import at all — they are
   // already in scope. `designImportsOf` is an *import* scanner and can never
-  // see this, so `DialogBody`'s only screen importer (SkillSheet.tsx) looked
+  // see this, so `DialogBody`'s only screen importer (McpSheet.tsx) looked
   // like its whole reach, when `Dialog`'s own ~46-screen reach is exactly as
   // much this export's own (#925 review round 2, P1).
   for (const [, ref] of exportedNamesOf(designFile)) {

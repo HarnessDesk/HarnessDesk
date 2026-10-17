@@ -1,3 +1,4 @@
+import { installSkillPageFixture } from './skill-page-fixture'
 import { installLibraryChangesFixture, LibraryWriteToastFixture } from './library-changes-fixture'
 import { installEditorMainFixture } from './editor-main-fixture'
 import { EditorModeSelection, editorModeFixture, installEditorModeFixture, type EditorModeScene } from './frames-editor-mode'
@@ -232,6 +233,7 @@ export const FrameWall = () => {
       : destination === 'library' && (query.get('frame-library-state') === 'autopilot' || query.get('frame-library-state') === 'import')
         ? frameDestinationStore(showing(libraryAuditFixtureStore(query.get('frame-library-state') as 'autopilot' | 'import'), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
       : frameDestinationStore(storeFor(destination), { workspaceOutsideGit: true })
+    if (destination === 'library') installSkillPageFixture(next, query.get('frame-skill-state'))
     if (destination === 'library' && (query.get('frame-kind') === 'changes' || query.has('frame-write-toast'))) installLibraryChangesFixture(next, query.get('frame-changes-empty') === '1')
     if (destination === 'library' && query.get('frame-empty') === '1') {
       const request = next.transport.request.bind(next.transport)

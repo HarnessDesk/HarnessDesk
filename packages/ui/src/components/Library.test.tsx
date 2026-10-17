@@ -12,7 +12,7 @@ import { SkillList } from './SkillRow'
 import { DestinationPageScope } from '../panels/destination-page'
 import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 
-const { toast } = vi.hoisted(() => ({ toast: vi.fn() }))
+const { toast, visit } = vi.hoisted(() => ({ toast: vi.fn(), visit: vi.fn() }))
 vi.mock('../design', async importOriginal => ({ ...await importOriginal<typeof import('../design')>(), showToast: toast }))
 
 /** The home every `~/…` path in these fixtures hangs off; the page prints them back with the tilde. */
@@ -46,6 +46,7 @@ let root: Root
 
 beforeEach(() => {
   toast.mockClear()
+  visit.mockClear()
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 1000 } as DOMRect)
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -119,8 +120,10 @@ const library = (entries: readonly LibraryEntry[]): Library => ({
 
 const LibraryHarness = ({ initialFlow = null }: { readonly initialFlow?: 'import' | null }) => {
   const [section, setSection] = useState<'skill' | 'mcp'>('skill')
+  const [id, setId] = useState<string | undefined>()
+  useLayoutEffect(() => { visit.mockImplementation(target => setId(target.kind === 'library' ? target.id : undefined)) }, [])
   return <TopBarProvider><DestinationPageScope owner="destination:library" active>
-    <LibrarySection section={section} onSection={setSection} importIntent={initialFlow === 'import' ? 1 : 0} />
+    <LibrarySection id={id} section={section} onSection={setSection} importIntent={initialFlow === 'import' ? 1 : 0} />
   </DestinationPageScope><TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}} /></TopBarProvider>
 }
 const chooseKind = async (kind: 'skill' | 'mcp') => {
@@ -175,8 +178,9 @@ const mount = async (
     getSnapshot: () => snapshot,
     transport: { request },
     setSkillEnabled: options.setSkillEnabled ?? (async () => {}),
-    returnToWork: options.returnToWork ?? (() => {}),
+    returnToWork: () => { options.returnToWork?.(); visit({ kind: 'work' }) },
     notice: vi.fn(),
+    openDestination: visit,
     // The Agent filter's own roster read — these fixtures never populate
     // `snapshot.agents`, so this stays a no-op and the filter offers nothing.
     loadAgents: vi.fn(async () => {}),
@@ -314,7 +318,6 @@ it('skills do not offer a count with nothing to show', async () => {
   expect(filterRow('Everything')).toBeTruthy()
 })
 
-
 it('skills keep a single controls row beneath the title and show active Filter count', async () => {
   await mount(library([entry('good', ['reaches', 'reaches']), partialEntry('empty', ['hollow', 'absent'])]))
   const controls = container.querySelector('[data-slot="library-skills-controls"]')!
@@ -330,7 +333,6 @@ it('skills keep a single controls row beneath the title and show active Filter c
   expect(document.activeElement).toBe(filterTrigger())
 })
 
-
 it('skills use ToggleGroups for chips and view without outlined view or Agent dropdowns', async () => {
   await mount(library([entry('good', ['reaches', 'reaches'])]))
   expect(container.querySelectorAll('[role="radiogroup"]')).toHaveLength(2)
@@ -338,7 +340,6 @@ it('skills use ToggleGroups for chips and view without outlined view or Agent dr
   expect(container.querySelector('[title="How to show the library"][data-slot="popover-trigger"]')).toBeNull()
   expect(container.querySelector('[data-slot="native-select"]')).toBeNull()
 })
-
 
 it('opening a row shows every copy and who reads it', async () => {
   await mount(
@@ -795,7 +796,7 @@ it('never offers to install a server into an agent with no config file for one',
   expect(offers()).toHaveLength(1)
 })
 
-it.each([['skill', 'list'], ['skill', 'matrix'], ['mcp', 'list'], ['mcp', 'matrix']] as const)('many runtimes collapse the %s %s offers into one previewed plan', async (kind, layout) => {
+it.each([['skill', 'matrix'], ['mcp', 'list'], ['mcp', 'matrix']] as const)('many runtimes collapse the %s %s offers into one previewed plan', async (kind, layout) => {
   // One button per agent is fine at four and a keyboard row at ten. Past
   // three targets, one button previews a plan with an op per agent — every
   // target still named, apply still per-op.
@@ -901,7 +902,7 @@ const cards = (): readonly HTMLElement[] => [
 ]
 
 it('opens on a list, one row per entry, each carrying what the thing is for', async () => {
-  // The earned sentence stays whole on the row; the sheet reads the definition.
+  // The earned sentence stays whole on the row; the detail reads the definition.
   await mount(
     library([
       entry('code-review', ['reaches', 'reaches'], {
@@ -919,7 +920,6 @@ it('keeps command names off the opening card', async () => {
   expect(cards()[0]?.textContent).not.toContain('/brainstorming')
 })
 
-
 it('Loaded by includes every runtime, dimming those that do not load it', async () => {
   await mount(library([entry('alpha', ['reaches', 'unscanned'])]))
   const marks = [...cards()[0]!.querySelectorAll('[data-runtime-state]')]
@@ -927,14 +927,12 @@ it('Loaded by includes every runtime, dimming those that do not load it', async 
   expect(marks[1]?.hasAttribute('data-problem')).toBe(true)
 })
 
-
 it('a problem gets a warning flag beside its single finding', async () => {
   await mount(library([partialEntry('alpha', ['hollow', 'reaches'])]))
   const row = cards()[0]!
   expect(row.querySelector('[data-card-finding][data-tone="warning"]')?.textContent).toBe('Empty on disk')
   expect(row.querySelector('[data-card-finding] svg')).toBeTruthy()
 })
-
 
 it('a row’s finding names the defect, never the symptom it causes', async () => {
   // The bug this pins: `hollow` and `differs` both mean nothing reaches, so
@@ -1030,19 +1028,19 @@ it('opening a row reads the definition off the host and renders it', async () =>
     path: '/home/u/.claude/skills/code-review',
   })
 
-  const sheet = document.querySelector('[data-slot="skill-sheet"]')
-  expect(sheet, 'the sheet should open').toBeTruthy()
-  expect(sheet?.textContent).toContain('Code review')
-  expect(sheet?.textContent).toContain('Correctness first.')
+  const detail = document.querySelector('[data-slot="skill-page"]')
+  expect(detail, 'the page should open').toBeTruthy()
+  expect(detail?.textContent).toContain('Code review')
+  expect(detail?.textContent).toContain('Correctness first.')
   // The frontmatter is lifted out rather than dropped: it is what the agent
   // reads to decide whether to fire, so a reader who cannot see it cannot
   // debug that decision.
-  expect(sheet?.textContent).toContain('description: Review the diff.')
+  expect(detail?.textContent).toContain('description: Review the diff.')
 })
 
 it('Use in composer leaves the page for the conversation, then hands the command over', async () => {
   // The composer ignores a compose event while a page, not the conversation,
-  // is showing — so a bare event sent from the Library closed the sheet and
+  // is showing — so a bare event sent from the Library closed the detail and
   // went nowhere, with no word that it had. The press has to go back to the
   // work first and keep handing over until a composer takes it.
   const calls: string[] = []
@@ -1060,7 +1058,7 @@ it('Use in composer leaves the page for the conversation, then hands the command
   })
   await act(async () => cards()[0]?.click())
   const use = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Use in composer')
-  expect(use, 'the sheet should offer Use in composer').toBeTruthy()
+  expect(use, 'the page should offer Use in composer').toBeTruthy()
 
   const listener = (event: Event): void => {
     const detail = (event as CustomEvent<{ text: string; onReceived: () => void }>).detail
@@ -1075,14 +1073,14 @@ it('Use in composer leaves the page for the conversation, then hands the command
   }
 
   expect(calls).toEqual(['returnToWork', 'compose /code-review '])
-  expect(document.querySelector('[data-slot="skill-sheet"]'), 'the sheet closes').toBeNull()
+  expect(document.querySelector('[data-slot="skill-page"]'), 'the page is left for work').toBeNull()
 })
 
 it('a definition the host cannot answer for is said, never left blank', async () => {
   await mount(library([entry('gone', ['reaches', 'absent'])]), undefined, { definition: null })
   await act(async () => cards()[0]?.click())
-  const sheet = document.querySelector('[data-slot="skill-sheet"]')
-  expect(sheet?.textContent).toContain('could not be read')
+  const detail = document.querySelector('[data-slot="skill-page"]')
+  expect(detail?.textContent).toContain('could not be read')
 })
 
 it('a malformed answer is treated as unreadable rather than crashing the page', async () => {
@@ -1092,45 +1090,9 @@ it('a malformed answer is treated as unreadable rather than crashing the page', 
     definition: { unexpected: true } as unknown as null,
   })
   await act(async () => cards()[0]?.click())
-  const sheet = document.querySelector('[data-slot="skill-sheet"]')
-  expect(sheet, 'the sheet should still render').toBeTruthy()
-  expect(sheet?.textContent).toContain('could not be read')
-})
-
-it('the sheet offers the same install the matrix does, and refuses it the same way', async () => {
-  // The verbs are shared, not reimplemented: an entry whose copies disagree
-  // offers Resolve and never Install, because *which* content would travel
-  // is the open question.
-  await mount(
-    library([
-      entry('split', ['differs', 'differs'], {
-        copies: [
-          {
-            path: '/home/u/.claude/skills/split',
-            scope: 'user',
-            readBy: [runtimeId('one')],
-            hollow: false,
-            digest: 'a',
-            readOnly: false,
-          },
-          {
-            path: '/home/u/.codex/skills/split',
-            scope: 'user',
-            readBy: [runtimeId('two')],
-            hollow: false,
-            digest: 'b',
-            readOnly: false,
-          },
-        ],
-      }),
-    ]),
-  )
-  await act(async () => cards()[0]?.click())
-  const labels = [...document.querySelectorAll('[data-slot="skill-sheet"] button')].map(
-    (one) => one.textContent ?? '',
-  )
-  expect(labels.some((one) => one.includes('Resolve copies'))).toBe(true)
-  expect(labels.some((one) => one.startsWith('Add to'))).toBe(false)
+  const detail = document.querySelector('[data-slot="skill-page"]')
+  expect(detail, 'the page should still render').toBeTruthy()
+  expect(detail?.textContent).toContain('could not be read')
 })
 
 it('an empty library offers the way out of being empty', async () => {
@@ -1172,11 +1134,11 @@ it('a switched-off agent gets a switch, and every other state gets a sentence', 
     ]),
   )
   await act(async () => cards()[0]?.click())
-  const sheet = document.querySelector('[data-slot="skill-sheet"]')
-  const switches = [...(sheet?.querySelectorAll('[role="switch"]') ?? [])]
+  const detail = document.querySelector('[data-slot="skill-page"]')
+  const switches = [...(detail?.querySelectorAll('[role="switch"]') ?? [])]
   expect(switches).toHaveLength(1)
   expect(switches[0]?.getAttribute('aria-label')).toBe('review in First Agent')
-  expect(sheet?.textContent).toContain('Not installed')
+  expect(detail?.textContent).toContain('Not installed')
 })
 
 it('throwing the switch names the agent it belongs to, not the focused one', async () => {
@@ -1206,7 +1168,7 @@ it('throwing the switch names the agent it belongs to, not the focused one', asy
     { setSkillEnabled: enabled },
   )
   await act(async () => cards()[0]?.click())
-  const toggle = document.querySelector('[data-slot="skill-sheet"] [role="switch"]')
+  const toggle = document.querySelector('[data-slot="skill-page"] [role="switch"]')
   await act(async () => (toggle as HTMLElement | null)?.click())
 
   expect(enabled).toHaveBeenCalledTimes(1)
@@ -1251,7 +1213,7 @@ it('the switch addresses the agent in the agent’s own spelling of the path', a
     { setSkillEnabled: enabled },
   )
   await act(async () => cards()[0]?.click())
-  const toggle = document.querySelector('[data-slot="skill-sheet"] [role="switch"]')
+  const toggle = document.querySelector('[data-slot="skill-page"] [role="switch"]')
   await act(async () => (toggle as HTMLElement | null)?.click())
 
   const [skill] = enabled.mock.calls[0] as unknown as [{ name: string; path: string | null }]
@@ -1284,7 +1246,7 @@ it('an agent that reported no path is addressed by name, never by ours', async (
     { setSkillEnabled: enabled },
   )
   await act(async () => cards()[0]?.click())
-  const toggle = document.querySelector('[data-slot="skill-sheet"] [role="switch"]')
+  const toggle = document.querySelector('[data-slot="skill-page"] [role="switch"]')
   await act(async () => (toggle as HTMLElement | null)?.click())
 
   const [skill] = enabled.mock.calls[0] as unknown as [{ name: string; path: string | null }]
@@ -1339,12 +1301,12 @@ it('an agent that refuses toggles gets a sentence, never a switch', async () => 
     ]),
   )
   await act(async () => cards()[0]?.click())
-  const sheet = document.querySelector('[data-slot="skill-sheet"]')
-  const switches = [...(sheet?.querySelectorAll('[role="switch"]') ?? [])]
+  const detail = document.querySelector('[data-slot="skill-page"]')
+  const switches = [...(detail?.querySelectorAll('[role="switch"]') ?? [])]
   // Only the agent that accepts the write gets one.
   expect(switches.map((one) => one.getAttribute('aria-label'))).toEqual(['review in Second Agent'])
   // And the one that does not still says what it is doing.
-  expect(sheet?.textContent).toContain('Loads it')
+  expect(detail?.textContent).toContain('Loads it')
 })
 
 /**
@@ -1424,16 +1386,6 @@ it('an empty list blames whichever of the two narrowings actually emptied it', a
   expect(document.body.textContent).not.toContain('No skill here is called')
 })
 
-it('a skill is installed and a server is added, in every place that offers it', async () => {
-  await mount(library([entry('alpha', ['reaches', 'absent'])]))
-  await act(async () => cards()[0]?.click())
-  const sheet = document.querySelector('[data-slot="skill-sheet"]')
-  // One verb per kind. The drawer said "Install to Second Agent" and the
-  // sheet said "Add to Second Agent" about the identical act.
-  expect(sheet?.textContent).toContain('Install to Second Agent')
-  expect(sheet?.textContent).not.toContain('Add to Second Agent')
-})
-
 it('the matrix says what its marks mean, on screen', async () => {
   await mount(library([entry('alpha', ['reaches', 'unscanned'])]))
   await showMatrix()
@@ -1486,7 +1438,7 @@ it('a copy an agent has not read back yet says so, and is not filed as a fault',
   expect(filterRow('Problems')).toBeUndefined()
 })
 
-it('the sheet offers to make a stale agent look again, and reports a refusal', async () => {
+it('the page offers to make a stale runtime look again, and reports a refusal', async () => {
   const stale = library([
     entry('alpha', ['reaches', 'stale'], {
       reach: [
@@ -1497,14 +1449,14 @@ it('the sheet offers to make a stale agent look again, and reports a refusal', a
   ])
   const request = await mount(stale)
   await act(async () => cards()[0]?.click())
-  const sheet = () => document.querySelector('[data-slot="skill-sheet"]')
-  expect(sheet()?.textContent).toContain('Second Agent lists the skills it read when it started')
+  const detail = () => document.querySelector('[data-slot="skill-page"]')
+  expect(detail()?.textContent).toContain('Second Agent lists the skills it read when it started')
 
   const press = () =>
-    [...(sheet()?.querySelectorAll('button') ?? [])].find((node) =>
+    [...(detail()?.querySelectorAll('button') ?? [])].find((node) =>
       node.textContent?.includes('Have it look again'),
     )
-  expect(press(), 'the sheet should offer the step, not only describe it').toBeTruthy()
+  expect(press(), 'the page should offer the step, not only describe it').toBeTruthy()
   await act(async () => press()?.click())
   // Asked for the agent that is behind, not the one that is fine.
   expect(request).toHaveBeenCalledWith('runtime/refreshCatalog', { runtime: runtimeId('two') })
@@ -1530,8 +1482,8 @@ it('the sheet offers to make a stale agent look again, and reports a refusal', a
           : stale
   })
   await act(async () => press()?.click())
-  expect(sheet()?.textContent).toContain('Second Agent')
-  expect(sheet()?.textContent).toContain('A turn is in flight.')
+  expect(detail()?.textContent).toContain('Second Agent')
+  expect(detail()?.textContent).toContain('A turn is in flight.')
 })
 
 it('an agent that re-read and still does not list it is not asked to look a third time', async () => {
@@ -1545,18 +1497,18 @@ it('an agent that re-read and still does not list it is not asked to look a thir
   ])
   // The refresh succeeds — and the library still reports the skill as stale,
   // because this agent will not load the definition. "It has not looked
-  // since" is spent as an explanation, and the sheet says so instead of
+  // since" is spent as an explanation, and the detail says so instead of
   // offering the same press for ever.
   await mount(stale, undefined, {})
   await act(async () => cards()[0]?.click())
-  const sheet = () => document.querySelector('[data-slot="skill-sheet"]')
+  const detail = () => document.querySelector('[data-slot="skill-page"]')
   const press = () =>
-    [...(sheet()?.querySelectorAll('button') ?? [])].find((node) =>
+    [...(detail()?.querySelectorAll('button') ?? [])].find((node) =>
       node.textContent?.includes('Have it look again'),
     )
   await act(async () => press()?.click())
-  expect(sheet()?.textContent).toContain('re-read and still does not list it')
-  expect(sheet()?.textContent).toContain('may be one it will not accept')
+  expect(detail()?.textContent).toContain('re-read and still does not list it')
+  expect(detail()?.textContent).toContain('may be one it will not accept')
 })
 
 it('a throw is still reported, named for the agent it happened to', async () => {
@@ -1580,50 +1532,13 @@ it('a throw is still reported, named for the agent it happened to', async () => 
           : stale
   })
   await act(async () => cards()[0]?.click())
-  const sheet = () => document.querySelector('[data-slot="skill-sheet"]')
+  const detail = () => document.querySelector('[data-slot="skill-page"]')
   const press = () =>
-    [...(sheet()?.querySelectorAll('button') ?? [])].find((node) =>
+    [...(detail()?.querySelectorAll('button') ?? [])].find((node) =>
       node.textContent?.includes('Have it look again'),
     )
   await act(async () => press()?.click())
-  expect(sheet()?.textContent).toContain('the host is gone')
-})
-
-it('a definition an agent refused says so in the agent’s own words, and warns before it spreads', async () => {
-  /*
-   * From disk this is indistinguishable from a skill the agent has not
-   * re-read — a `SKILL.md` is there and the agent did not name it. The
-   * difference is that looking again will never help, and the agent already
-   * knows why: Codex answers `skills/list` with an `errors` array beside the
-   * skills, naming the file and the fault.
-   */
-  await mount(
-    library([
-      entry('broken', ['rejected', 'absent'], {
-        reach: [
-          {
-            runtime: runtimeId('one'),
-            state: 'rejected',
-            basis: 'reported',
-            note: 'missing field `description`',
-          },
-          { runtime: runtimeId('two'), state: 'absent', basis: 'reported' },
-        ],
-      }),
-    ]),
-  )
-  // The row leads with it: it is the one thing here somebody can act on.
-  expect(cards()[0]?.textContent).toContain('Refused by First Agent')
-
-  await act(async () => cards()[0]?.click())
-  const sheet = document.querySelector('[data-slot="skill-sheet"]')
-  expect(sheet?.textContent).toContain('This runtime read the definition and would not load it')
-  // Its reason, verbatim. We did not decide this and must not paraphrase a
-  // loader rule we have not measured.
-  expect(sheet?.textContent).toContain('missing field `description`')
-  // And a word before the obvious next click, which would copy a definition
-  // one agent has already refused into another.
-  expect(sheet?.textContent).toContain('First Agent would not load this one.')
+  expect(detail()?.textContent).toContain('the host is gone')
 })
 
 it('determines winning copy under Windows-style scan roots (#664)', async () => {
@@ -1838,13 +1753,14 @@ it('an Agent whose attachments view could not be read is treated as nothing decl
   expect(document.body.textContent).toContain('shared-skill')
 })
 
-it('cards sort by name, clamp descriptions and open the existing sheet', async () => {
+it('cards sort by name, clamp descriptions and visit the skill page', async () => {
   const description = 'A complete description that remains available in the definition.'
   await mount(library([entry('zulu', ['reaches', 'absent']), entry('alpha', ['reaches', 'reaches'], { description })]))
   expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['alpha', 'zulu'])
   expect(cards()[0]?.querySelector('[data-skill-description]')?.textContent).toBe(description)
   await act(async () => cards()[0]!.click())
-  expect(document.querySelector('[role="dialog"]')?.textContent).toContain(description)
+  expect(visit).toHaveBeenCalledWith({ kind: 'library', section: 'skill', id: 'alpha' })
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
 })
 
 it('the server List uses the same labelled columns, without a skill invocation', async () => {
@@ -1855,7 +1771,6 @@ it('the server List uses the same labelled columns, without a skill invocation',
   expect(row.textContent).not.toContain('/workspace-tools')
   expect(row.textContent).toContain('Ready')
 })
-
 
 it('mounts only the measured List layout before child layout effects run', async () => {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 599 } as DOMRect)
@@ -1876,7 +1791,6 @@ it('keeps a mark for every runtime without capping the strip', async () => {
   expect(cards()[0]?.querySelector('[aria-label="Loaded by 6 of 6 runtimes"]')).toBeTruthy()
 })
 
-
 it('uses Banner anatomy for the empty-directory alert and keeps cleanup actionable', async () => {
   await mount(library([partialEntry('empty', ['hollow', 'absent'])]))
   await chooseChip('Needs you')
@@ -1896,7 +1810,7 @@ it('clamps a table description to two lines and keeps the full description in it
   expect(row.querySelector('[data-detail-lines]')?.getAttribute('data-detail-lines')).toBe('2')
 
   await act(async () => row.click())
-  expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain(description)
+  expect(document.body.querySelector('[data-slot="skill-page"]')?.textContent).toContain(description)
 })
 
 it('labels the broad filter in sentence case', async () => {
@@ -1906,7 +1820,7 @@ it('labels the broad filter in sentence case', async () => {
   expect(container.textContent).not.toContain('Any Agent')
 })
 
-it('says a repeated load state once and leaves different states on their own rows', async () => {
+it('keeps each runtime state on its own compact row and its full explanation on hover', async () => {
   const agents = Array.from({ length: 12 }, (_, index) => runtime(`agent-${index + 1}`, `Agent ${index + 1}`))
   const reaches = agents.map((info, index) => ({
     runtime: runtimeId(info.id),
@@ -1917,37 +1831,16 @@ it('says a repeated load state once and leaves different states on their own row
   await mount({ ...library([autopilot]), runtimes: agents.map(info => runtimeId(info.id)), locations: [] }, undefined, { runtimes: agents })
   await act(async () => container.querySelector<HTMLButtonElement>('[data-slot="skill-card"]')?.click())
 
-  const dialog = document.body.querySelector('[role="dialog"]')!
-  const group = [...dialog.querySelectorAll('section')].find(one => one.querySelector('h3')?.textContent === 'Which runtimes load it')!
+  const group = document.body.querySelector('[data-slot="tool-section"][aria-label="Loaded by"]')!
   const repeated = 'Installed where this runtime does not look'
   const grouped = 'Installed where these runtimes do not look'
-  const rows = [...group.querySelectorAll<HTMLElement>('[role="listitem"]')]
+  const rows = [...group.querySelectorAll<HTMLElement>('[data-slot="row"]')]
   expect(rows).toHaveLength(12)
-  expect(group.textContent?.match(new RegExp(grouped, 'g'))).toHaveLength(1)
-  expect(group.querySelector('[data-slot="note"][data-ink="muted"]')?.textContent).toBe(grouped)
+  expect(rows.filter(one => one.textContent?.includes('Not read'))).toHaveLength(11)
+  expect(rows[0]?.getAttribute('title')).toContain(repeated)
   expect(rows.filter(one => one.textContent?.includes(repeated))).toHaveLength(0)
   expect(rows.find(one => one.textContent?.includes('Agent 12'))?.textContent).toContain('Loads it')
 })
-
-it('groups identical Why notes once and names the agents they cover', async () => {
-  const agents = Array.from({ length: 12 }, (_, index) => runtime(`agent-${index + 1}`, `Agent ${index + 1}`))
-  const reason = 'On disk, but not in any directory this agent reads — it did not report it.'
-  const reaches = agents.map((info, index) => ({
-    runtime: runtimeId(info.id),
-    state: index === 11 ? 'reaches' as const : 'unscanned' as const,
-    basis: 'scanned' as const,
-    ...(index < 3 ? { note: reason } : {}),
-  }))
-  const autopilot = entry('autopilot', reaches.map(reach => reach.state), { reach: reaches })
-  await mount({ ...library([autopilot]), runtimes: agents.map(info => runtimeId(info.id)), locations: [] }, undefined, {
-    runtimes: agents,
-  })
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-slot="skill-card"]')?.click())
-
-  const why = [...document.body.querySelectorAll('section')].find(one => one.querySelector('h3')?.textContent === 'Why')!
-  expect(why.querySelector('[role="list"]')?.textContent).toBe(`Agent 1, Agent 2, Agent 3 — ${reason}`)
-})
-
 
 it('E6 controlled sections and import intents keep one destination body', async () => {
   const value = library([entry('alpha', ['reaches', 'absent']), entry('server', ['reaches', 'absent'], { kind: 'mcp' })])
@@ -2002,7 +1895,6 @@ it('E6 hidden Library cancels a late scan before starting usage and rereads on r
   expect(request.mock.calls.filter(call=>call[0]==='library/usage')).toHaveLength(1)
   expect(container.textContent).toContain('fresh')
 })
-
 
 it('omits reserved folders and skills without any nonempty definition from both views', async () => {
   const real = entry('review', ['reaches', 'reaches'], { description: 'Read `src/` first. <script>bad()</script>' })
@@ -2063,7 +1955,7 @@ it('shows Checking and disables another check while the first request is pending
   await act(async () => { finish([]) })
 })
 
-const mountUpdateSheet = async (updates?: readonly LibrarySkillUpdate[], origins = [updateOrigin]) => {
+const mountUpdatePage = async (updates?: readonly LibrarySkillUpdate[], origins = [updateOrigin]) => {
   const value = entry('code-review', ['reaches'], {
     copies: origins.map((origin, index) => ({ path: `/home/jane/.runtime-${index}/skills/code-review`, scope: 'user', readBy: [runtimeId('one')], hollow: false, digest: 'same', readOnly: false, origin })),
     ...(updates ? { update: updates } : {}),
@@ -2072,49 +1964,32 @@ const mountUpdateSheet = async (updates?: readonly LibrarySkillUpdate[], origins
   await act(async () => cards()[0]!.click())
   return request
 }
-const updateSheet = () => document.querySelector('[data-slot="skill-sheet"]')!
-const reviewUpdate = () => [...updateSheet().querySelectorAll('button')].find(b => b.textContent === 'Review update…')
-
-it('shows the recorded origin once before any check and no update state', async () => {
-  await mountUpdateSheet(undefined, [updateOrigin, updateOrigin])
-  const text = updateSheet().textContent!
-  expect(text.match(/Where it came from/g)).toHaveLength(1)
-  expect(text.match(/acme-dev\/skills/g)).toHaveLength(1)
-  expect(text).toContain('review/code-review · main, pinned at 1234567')
-  expect(text).not.toContain('Update available')
-  expect(text).not.toContain('Could not check')
-  expect(reviewUpdate()).toBeUndefined()
-})
-
-it('shows each distinct recorded origin, and nothing about origins for a local skill', async () => {
-  await mountUpdateSheet(undefined, [updateOrigin, { ...updateOrigin, ref: 'stable' }])
-  expect(updateSheet().textContent).toContain('main, pinned at 1234567')
-  expect(updateSheet().textContent).toContain('stable, pinned at 1234567')
-})
+const updatePage = () => document.querySelector('[data-slot="skill-page"]')!
+const reviewUpdate = () => [...updatePage().querySelectorAll('button')].find(b => b.textContent === 'Review update…')
 
 it.each(['behind', 'gone', 'unreachable', 'current'] as const)('renders the %s update state in the facts column', async status => {
-  await mountUpdateSheet([skillUpdate(status, { reason: 'The source did not answer.' })])
-  const sheet = updateSheet()
+  await mountUpdatePage([skillUpdate(status, { reason: 'The source did not answer.' })])
+  const detail = updatePage()
   if (status === 'behind') {
-    expect(sheet.textContent).toContain('Update available')
-    expect(sheet.textContent).toContain('1234567 → abcdef1')
+    expect(detail.textContent).toContain('Update available')
+    expect(detail.textContent).toContain('1234567 → abcdef1')
     expect(reviewUpdate()).toBeTruthy()
   } else {
     expect(reviewUpdate()).toBeUndefined()
-    if (status === 'gone') expect(sheet.textContent).toContain('The branch main no longer exists in acme-dev/skills.')
+    if (status === 'gone') expect(detail.textContent).toContain('The branch main no longer exists in acme-dev/skills.')
     if (status === 'unreachable') {
-      const quiet = [...sheet.querySelectorAll('*')].find(n => n.textContent === 'Could not check: The source did not answer.')
+      const quiet = [...detail.querySelectorAll('*')].find(n => n.textContent === 'Could not check: The source did not answer.')
       expect(quiet).toBeTruthy()
       expect(quiet!.closest('[data-slot="notice"]')).toBeNull()
     }
-    if (status === 'current') expect(sheet.textContent).not.toContain('Update available')
+    if (status === 'current') expect(detail.textContent).not.toContain('Update available')
   }
 })
 
 it('fetches each distinct behind origin once and plans every runtime from the matching dir at the fetched commit', async () => {
   const second = { ...updateOrigin, url: 'https://github.com/acme-dev/other-skills', path: 'review/other' }
   const updates = [skillUpdate('behind'), skillUpdate('behind', { runtime: runtimeId('two'), origin: { ...updateOrigin, commit: 'older-pinned-commit' } }), skillUpdate('behind', { runtime: runtimeId('three'), origin: second }), skillUpdate('current', { runtime: runtimeId('four') })]
-  const request = await mountUpdateSheet(updates)
+  const request = await mountUpdatePage(updates)
   const original = request.getMockImplementation()!
   request.mockImplementation(async (method: string, params?: unknown) => {
     if (method === 'library/source/fetch') {
@@ -2129,26 +2004,26 @@ it('fetches each distinct behind origin once and plans every runtime from the ma
     ['library/source/fetch', { url: second.url, ref: 'main', path: second.path }],
   ])
   expect(request).toHaveBeenCalledWith('library/plan', { intents: updates.filter(u => u.status === 'behind').map(u => ({ kind: 'updateSkill', name: 'code-review', targetRuntime: u.runtime, origin: { ...u.origin, commit: 'fresh-commit', bundle: `bundle-${u.origin.path}` } })) })
-  expect(updateSheet()).toBeNull()
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Update code-review')
 })
 
 it.each(['missing', 'refused', 'failure'] as const)('keeps a %s fetch in the banner and opens no plan', async result => {
-  const request = await mountUpdateSheet([skillUpdate('behind')])
+  const request = await mountUpdatePage([skillUpdate('behind')])
   request.mockImplementationOnce(async () => {
     if (result === 'failure') throw new Error('The repository did not answer.')
     return { ...updateOrigin, commit: 'fresh', skills: [], refused: result === 'refused' ? [{ dir: updateOrigin.path, reason: 'The requested folder contains no skill.' }] : [] }
   })
   await act(async () => reviewUpdate()!.click())
-  expect(updateSheet().textContent).toContain(result === 'failure' ? 'The repository did not answer.' : result === 'refused' ? 'The requested folder contains no skill.' : 'No skill was found at review/code-review.')
+  expect(updatePage().textContent).toContain(result === 'failure' ? 'The repository did not answer.' : result === 'refused' ? 'The requested folder contains no skill.' : 'No skill was found at review/code-review.')
   expect(request.mock.calls.some(([m]) => m === 'library/plan')).toBe(false)
 })
 
 it('keeps Fetching disabled while fetching and clears the update only through the post-apply library read', async () => {
-  const request = await mountUpdateSheet([skillUpdate('behind')])
+  const request = await mountUpdatePage([skillUpdate('behind')])
   let finish!: (value: unknown) => void
   request.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
   await act(async () => reviewUpdate()!.click())
-  const fetching = [...updateSheet().querySelectorAll('button')].find(b => b.textContent === 'Fetching…')!
+  const fetching = [...updatePage().querySelectorAll('button')].find(b => b.textContent === 'Fetching…')!
   expect(fetching.disabled).toBe(true)
   const original = request.getMockImplementation()!
   request.mockImplementation(async (method: string) => {
@@ -2160,31 +2035,31 @@ it('keeps Fetching disabled while fetching and clears the update only through th
   await act(async () => finish({ ...updateOrigin, commit: 'fresh', skills: [{ dir: updateOrigin.path, bundle: 'fresh-bundle' }], refused: [] }))
   await act(async () => [...document.body.querySelectorAll('button')].find(b => b.textContent === 'Apply 1 change')!.click())
   expect(request.mock.calls.filter(([m]) => m === 'library/read')).toHaveLength(2)
-  expect(cards()[0]?.textContent).not.toContain('Update available')
+  expect(updatePage()?.textContent).not.toContain('Update available')
 })
 
 it('a local skill has no source fact or update banner', async () => {
   await mount(library([entry('local-review', ['reaches'])]))
   await act(async () => cards()[0]!.click())
-  expect(updateSheet().textContent).not.toContain('Where it came from')
-  expect(updateSheet().textContent).not.toContain('Update available')
+  expect(updatePage().textContent).not.toContain('Where it came from')
+  expect(updatePage().textContent).not.toContain('Update available')
   expect(reviewUpdate()).toBeUndefined()
 })
 it('a matching refusal wins over a listed skill and a second-source refusal opens no partial plan', async () => {
   const second = { ...updateOrigin, path: 'review/other' }
-  const request = await mountUpdateSheet([skillUpdate('behind'), skillUpdate('behind', { runtime: runtimeId('two'), origin: second })])
+  const request = await mountUpdatePage([skillUpdate('behind'), skillUpdate('behind', { runtime: runtimeId('two'), origin: second })])
   request.mockImplementationOnce(async () => ({ ...updateOrigin, commit: 'fresh', skills: [{ dir: updateOrigin.path, bundle: 'bundle' }], refused: [] }))
   request.mockImplementationOnce(async () => ({ ...second, commit: 'fresh', skills: [{ dir: second.path, bundle: 'bundle' }], refused: [{ dir: second.path, reason: 'The folder was refused.' }] }))
   await act(async () => reviewUpdate()!.click())
-  expect(updateSheet().textContent).toContain('The folder was refused.')
+  expect(updatePage().textContent).toContain('The folder was refused.')
   expect(request.mock.calls.some(([m]) => m === 'library/plan')).toBe(false)
 })
-it('closing a sheet during a fetch cannot open a late plan', async () => {
-  const request = await mountUpdateSheet([skillUpdate('behind')])
+it('leaving a skill page during a fetch cannot open a late plan', async () => {
+  const request = await mountUpdatePage([skillUpdate('behind')])
   let finish!: (value: unknown) => void
   request.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
   await act(async () => reviewUpdate()!.click())
-  await act(async () => updateSheet().querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click())
+  await act(async () => [...updatePage().querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Back to Library')!.click())
   await act(async () => finish({ ...updateOrigin, commit: 'fresh', skills: [{ dir: updateOrigin.path, bundle: 'bundle' }], refused: [] }))
   expect(request.mock.calls.some(([m]) => m === 'library/plan')).toBe(false)
 })
@@ -2214,7 +2089,6 @@ it('Rescan cannot suppress a pending check failure', async () => {
   expect(container.textContent).toContain('The repository did not answer.')
   expect(toast).not.toHaveBeenCalled()
 })
-
 
 const chooseChip = async (name: string) => {
   const chip = container.querySelector<HTMLButtonElement>(`[role="radio"][aria-label="${name}"]`)
@@ -2269,7 +2143,7 @@ it('cards have one finding at most, quiet updates and every runtime state', asyn
   expect(descriptions.map(node => node.textContent)).toContain('No description in its frontmatter')
   expect(descriptions.find(node => node.getAttribute('role') === 'img')?.getAttribute('aria-label')).toBe('Loaded by 1 of 2 runtimes')
   await act(async () => (card('plain') as HTMLButtonElement).click())
-  expect(document.querySelector('[data-slot="skill-sheet"]')).toBeTruthy()
+  expect(document.querySelector('[data-slot="skill-page"]')).toBeTruthy()
 })
 it('empty skills and filtered regions render only a short title and their own actions', async () => {
   await mount(library([]))
@@ -2393,7 +2267,6 @@ it('uses one menu trigger form for the view, filter and agent choices', async ()
   ])
   expect(options.querySelectorAll('[data-slot="native-select"]')).toHaveLength(0)
 })
-
 
 it('catalogue Show never fired leaves Needs you and shows unused cards', async () => {
   await mount(library([entry('never', ['reaches', 'reaches'], { catalogTokens: 6000 })]))

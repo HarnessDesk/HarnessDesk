@@ -5,7 +5,7 @@ import conversationTsx from './Conversation.tsx?raw'
 import itemsCss from './Items.module.css?raw'
 import itemsTsx from './Items.tsx?raw'
 import stepGroupTsx from './StepGroup.tsx?raw'
-import skillSheetTsx from './SkillSheet.tsx?raw'
+import skillPageTsx from './SkillPage.tsx?raw'
 import baseCss from '../styles/base.css?raw'
 
 it('keeps transcript animations bound to shared global keyframes', () => {
@@ -62,11 +62,11 @@ it('draws every attached image through one picture part: a lone one capped, seve
 })
 
 it('a skill\'s reach reads On untoned, like Off: health takes no tone (#838)', () => {
-  // The sheet has no render rig of its own and the preview does not mount it,
-  // so the rendered rules spec cannot see this word; the source can.
-  // The word On is drawn, and nothing on its line gives it a tone.
-  const onLine = skillSheetTsx.split('\n').find((line) => /'On'\s*:\s*'Off'/.test(line))
-  expect(onLine).toBeDefined()
-  expect(onLine).not.toMatch(/tone/)
-  expect(skillSheetTsx).not.toMatch(/reaches'\s*\?\s*\{\s*tone:\s*'success'/)
+  // The page keeps ordinary reach untoned.
+  for (const source of [skillPageTsx]) {
+    const onLine = source.split('\n').find(line => /'On'\s*:\s*'Off'/.test(line))
+    expect(onLine).toBeDefined()
+    expect(onLine).not.toMatch(/tone/)
+    expect(source).not.toMatch(/reaches'\s*\?\s*\{\s*tone:\s*'success'/)
+  }
 })

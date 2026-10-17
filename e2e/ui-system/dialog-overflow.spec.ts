@@ -141,7 +141,7 @@ for (const [where, width, height] of [
  *
  * `bleed` removes `DialogContent`'s five opinions rather than replacing them,
  * which is what lets a lightbox be a grid — and it means the sheet owns its
- * own display. The skill sheet's first version of this leaned on an earlier
+ * own display. The reading dialog's first version of this leaned on an earlier
  * `bleed` that imposed `flex flex-col overflow-hidden`, so when `bleed` became
  * layout-neutral the sheet quietly computed as `display: block` with visible
  * overflow: its footer stopped short of the bottom, and a long definition grew
@@ -150,17 +150,13 @@ for (const [where, width, height] of [
  * The two things that says: the foot reaches the foot, and the growing part
  * scrolls rather than the sheet.
  */
-test('the skill sheet fills the height it asked for', async ({ page }) => {
+test('the MCP detail fills the height it asked for', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/preview.html')
   await page.evaluate(async () => { await document.fonts.ready })
-  await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
-  const library = page.locator('[data-frame-id="settings-sheet"]')
-  await expect(library).toBeVisible()
-  await library.scrollIntoViewIfNeeded()
-  await library.locator('button').filter({ hasText: /audit|review|plan/i }).first().click()
+  await page.getByRole('combobox', { name: 'settings sheet', exact: true }).selectOption('MCP detail')
 
-  const sheet = page.locator('[data-slot="skill-sheet"]')
+  const sheet = page.locator('[data-slot="mcp-sheet"]')
   await expect(sheet).toBeVisible()
   const held = await sheet.evaluate(node => {
     const box = node.getBoundingClientRect()

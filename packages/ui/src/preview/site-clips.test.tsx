@@ -1,8 +1,9 @@
 import { installTopBarTestLayout } from '../test/top-bar-layout'
-import { act, useState } from 'react'
+import { act, useMemo, useState } from 'react'
 import type { PageDestination } from '../state/destinations'
 import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 import { DestinationPageScope } from '../panels/destination-page'
+import { StoreProvider, useStore } from '../state/context'
 import { LibrarySection } from '../components/Library'
 import { PluginsSection } from '../components/PluginsSection'
 import { createRoot } from 'react-dom/client'
@@ -14,13 +15,20 @@ import { ReleaseStills } from './release-stills'
 vi.mock('./page-preview', () => ({ CurrentPagePreview: ({ page }: { page: PageDestination }) => {
   const [section, setSection] = useState<'installed' | 'capabilities'>('capabilities')
   const [id, setId] = useState<string | null>(null)
-  return <TopBarProvider><TopBarOutlet owner="clip" fallback={{ place: '', more: () => null }} />
+  const [skillId, setSkillId] = useState<string>()
+  const fixture = useStore()
+  const routed = useMemo(() => new Proxy(fixture, { get(target, key, receiver) {
+    if (key === 'openDestination') return (target: PageDestination) => { if (target.kind === 'library') setSkillId(target.id) }
+    const value = Reflect.get(target, key, receiver)
+    return typeof value === 'function' ? value.bind(target) : value
+  } }), [fixture])
+  return <StoreProvider store={routed}><TopBarProvider><TopBarOutlet owner="clip" fallback={{ place: '', more: () => null }} />
     <DestinationPageScope owner="clip" active>
       {page.kind === 'library'
-        ? <LibrarySection section="skill" onSection={() => {}} importIntent={0} />
+        ? <LibrarySection id={skillId} section="skill" onSection={() => {}} importIntent={0} />
         : <PluginsSection section={section} id={id} onSection={setSection} onPlugin={setId} />}
     </DestinationPageScope>
-  </TopBarProvider>
+  </TopBarProvider></StoreProvider>
 } }))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -61,9 +69,11 @@ it('the clip rig answers real plugin switches and reads a public skill definitio
     expect(host.querySelector('[data-slot="library-matrix"]')).toBeTruthy()
     await act(async () => button('code-review').click())
     await act(async () => button('Read the definition').click())
-    const dialog = document.querySelector('[role="dialog"]')!
-    expect(dialog.textContent).toContain('Correctness first')
-    expect(dialog.textContent).not.toContain('/home/')
+    const detail = document.querySelector('[data-slot="skill-page"]')!
+    expect(detail.closest('[role="dialog"]')).toBeNull()
+    expect(detail.textContent).toContain('Correctness first')
+    expect(detail.querySelector('[aria-label="Source"]')?.textContent).toContain('Read by Alpha, Beta, Gamma.')
+    expect(detail.textContent).not.toContain('/home/')
   } finally {
     act(() => root.unmount())
     host.remove()

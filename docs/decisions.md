@@ -7,6 +7,10 @@ the rule is the last line of its section.
 
 ---
 
+## A skill opens as a page, not a sheet — 2026-10-17
+
+A skill has enough definition and evidence to read as a destination: the definition is a card on the left, while loaded runtimes, recorded source and copies, files and cost stay in cards on the right. Back returns to the Library and history retains the route. Findings sit above the columns, and More keeps the less frequent copy actions; writes still open reviewed plans. This keeps the skill consistent with other details and gives long definitions the page’s scroll owner rather than two constrained dialog lanes. MCP retains its existing dialog. **Rule:** a detail is a page with a way back; dialogs are for confirming.
+
 ## What the Library changed has its own page, and every write says so in a toast with no Undo — 2026-10-17
 
 The Library keeps its cards for finding skills. Changes made here is a separate
@@ -3838,7 +3842,7 @@ fresh allocation.
 
 ## The Library's skills page is cards under filter chips — 2026-10-16
 
-Skills open as compact cards with All, Needs you, One runtime and Nobody chips. Chips count all listed skills, while search, state filters and Agent declarations narrow together. Cards carry the runtime reach strip and at most one problem line; Matrix and the skill sheet retain the detailed comparison. Add skill groups the three existing ways to bring in a skill. MCP keeps its current page. Catalogue banners appear under Needs you even when that chip reads 0: banners describe the catalogue, while chips count skills.
+Skills open as compact cards with All, Needs you, One runtime and Nobody chips. Chips count all listed skills, while search, state filters and Agent declarations narrow together. Cards carry the runtime reach strip and at most one problem line; Matrix and the skill page retain the detailed comparison. Add skill groups the three existing ways to bring in a skill. MCP keeps its current page. Catalogue banners appear under Needs you even when that chip reads 0: banners describe the catalogue, while chips count skills.
 
 ToggleGroup gained a `chips` variant, and BoardCard gained `marks`, `finding`, `detailLines` and a grid. Keeping this shape costs maintaining those shared contracts and both views over the same filtered rows, using the existing finding and update selectors. Toolbar owns the controls row. Choices remain local to the viewer, history stays at the foot, and empty regions carry a short title without a description.
 

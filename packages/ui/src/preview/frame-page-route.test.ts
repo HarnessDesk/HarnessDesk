@@ -14,6 +14,8 @@ it.each([
   ['frame-wall=dashboard&frame-view=plans&frame-scope=runtime',{kind:'dashboard',view:'plans',scope:ids.runtime}],
   ['frame-wall=agents&frame-detail=agent',{kind:'agents',id:ids.agent}],
   ['frame-wall=teams&frame-filter=settled',{kind:'teams',filter:'settled'}],
+  ['frame-wall=library&frame-detail=skill',{kind:'library',section:'skill',id:ids.skill}],
+  ['frame-wall=library&frame-detail=skill&frame-name=removed',{kind:'library',section:'skill',id:'removed'}],
   ['frame-wall=library&frame-kind=changes',{kind:'library',section:'changes'}],
   ['frame-wall=library&frame-kind=mcp',{kind:'library',section:'mcp'}],
   ['frame-wall=plugins&frame-plugin-page=detail',{kind:'plugins',section:'installed',id:ids.plugin}],

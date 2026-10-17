@@ -24,6 +24,7 @@ export const framePageRoute = (query: URLSearchParams, ids: FramePageIds): PageD
     const value = query.get('frame-filter')
     return { kind, filter: value === 'needs-you' || value === 'settled' ? value : 'active' }
   }
+  if (kind === 'library' && query.get('frame-detail') === 'skill') return { kind, section: 'skill', id: query.get('frame-name') || ids.skill }
   if (kind === 'library') return { kind, section: query.get('frame-kind') === 'changes' ? 'changes' : query.get('frame-kind') === 'mcp' ? 'mcp' : 'skill' }
   if (kind === 'plugins') {
     const value = query.get('frame-plugin-page')

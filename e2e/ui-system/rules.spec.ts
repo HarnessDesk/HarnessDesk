@@ -1180,7 +1180,7 @@ test.describe('rule: monospace', () => {
  * - `components/ProjectTriggers.tsx`'s former "Armed" chip: it read in the
  *   success tone; the switch now carries Off and Armed, while exceptional
  *   states keep their own toned chips.
- * - `components/SkillSheet.tsx`'s runtime-reach row: a skill a runtime
+ * - `components/SkillPage.tsx`'s runtime-reach row: a skill a runtime
  *   reaches read "On" in the success tone; "Off" already had none.
  * - `components/SeatAttachments.tsx`: a loaded attachment read "Loaded" in
  *   the success tone; "Not loaded" keeps its warning, which is a verdict.

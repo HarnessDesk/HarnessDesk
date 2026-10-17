@@ -96,7 +96,7 @@ const prefixPattern = (home) => `${NOT_BEFORE_A_PATH}${escapeForRegExp(home)}${N
 /**
  * Write this machine's home as `~`, the way the app writes it elsewhere.
  *
- * `shortPath` is applied in the Library, the skill sheet and every diff label,
+ * `shortPath` is applied in the Library, the skill page and every diff label,
  * but the repository pane's header prints its root absolute — it has no `home`
  * to shorten against, because home reaches the renderer on the library scan
  * rather than on the app snapshot. That is a real if small defect and it is

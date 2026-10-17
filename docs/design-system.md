@@ -267,6 +267,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
 | `--hd-page-wide` | `1320px` |
+| `--hd-page-aside` | `320px` |
 | `--hd-page-gutter` | `24px` |
 | `--hd-page-stack` | `16px` |
 | `--hd-menu-min` | `200px` |
@@ -1926,7 +1927,7 @@ A switch stays open; Base UI supplies checkbox-menu keyboard semantics.
 The head every dialog wears: its name, context, short description, and way out.
 
 `Dialog` draws it, and so does a sheet that lays out its own body — the
-skill sheet — so a dialog's name is one step, one inset and one rule under
+MCP detail — so a dialog's name is one step, one inset and one rule under
 it whichever of them is open. The name is the title step (16/24, semibold).
 
 `aside` sits after the name on its line (a context chip); `children` are one
@@ -2065,6 +2066,18 @@ Blocks inside sit one stack gap (`--hd-page-stack`) apart; a `Section` brings
 its own larger step. A Team's Findings drew its
 facts against the sidebar, a button across the window and a switch in the
 middle of it because nothing told the page what width it was.
+
+### `PageStack`
+
+`packages/ui/src/design/patterns/Page.tsx`
+
+Content blocks share a page's stack; fact cards and captions use the smaller named steps.
+
+### `PageColumns`
+
+`packages/ui/src/design/patterns/Page.tsx`
+
+A detail's reading body and its fact column (`--hd-page-aside`) become one column below the large breakpoint.
 
 ### `PageControls`
 
@@ -2435,6 +2448,8 @@ row buttons) keeps its card, its edge and its ground.
 
 A named row with optional text below it. Keep the title scannable and put
 its full sentence in `desc`, where it wraps as an earned second line.
+`density="compact"` is a card row at panel-row height with a 16px face, no
+divider, one trailing value and one action.
 
 ### `RowButton`
 
@@ -2661,12 +2676,6 @@ The header is the card's label, a disclosure when it folds, and its `value`
 every card's state without opening one. A card's rows keep their own 12px
 edge, which is the card's side padding; the card adds the top and bottom.
 
-### `ToolRow`
-
-`packages/ui/src/design/patterns/ToolBody.tsx`
-
-One line of a card: a 16px icon, a label, one trailing fact and at most one action.
-
 ### `ToolFold`
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
@@ -2730,9 +2739,9 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawDuration` | 0 | Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
-| `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
+| `retiredComponent` | 4 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 19 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2062 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2046 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
 ## Screens against the standard
 

@@ -346,7 +346,7 @@ reviewed skill bundles, faster history and verified Team outcomes.
   refuse before replacement, and local edits keep their backup protection.
 
 - **Skill updates are checked when you ask.** Check for updates reads recorded
-  repository origins; rows show the result and the skill sheet names pinned
+  repository origins; rows show the result and the skill detail names pinned
   and newer commits. Review fetches the current source and lists added,
   changed and removed files before Apply, with the same acknowledgement for
   incoming runnable or binary files. Origins remain visible before a check;

@@ -80,11 +80,11 @@ test('Lists R9 Library filter and skill detail use group-level facts', async ({ 
   const skill = page.locator('[data-slot="skill-card"]').filter({ hasText: 'systematic-debugging' })
   await expect(skill).toBeVisible()
   await skill.click()
-  const dialog = page.getByRole('dialog')
-  const group = dialog.locator('section').filter({ has: page.getByRole('heading', { name: 'Which runtimes load it', exact: true }) })
-  await expect(group.getByRole('listitem')).toHaveCount(3)
-  await expect(group).toContainText('Installed where these runtimes do not look')
-  expect(await group.locator('text=Installed where these runtimes do not look').count()).toBe(1)
+  const group = page.locator('[data-slot="skill-page"] [data-slot="tool-section"][aria-label="Loaded by"]')
+  await expect(group.locator('[data-slot="row"]')).toHaveCount(3)
+  await expect(group.getByText('Not read', { exact: true })).toHaveCount(3)
+  await expect(group.locator('[data-slot="row"][title$="Installed where this runtime does not look"]')).toHaveCount(3)
+  await expect(group.getByText('Read from disk against this build’s table of where each runtime looks — the runtimes themselves were not asked.', { exact: true })).toHaveCount(1)
 })
 
 test('Lists R9 Plugins show Active and Built in on the state row', async ({ page }) => {

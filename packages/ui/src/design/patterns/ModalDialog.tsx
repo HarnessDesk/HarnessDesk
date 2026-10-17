@@ -36,7 +36,7 @@ const FIELD = [
  * The head every dialog wears: its name, context, short description, and way out.
  *
  * `Dialog` draws it, and so does a sheet that lays out its own body — the
- * skill sheet — so a dialog's name is one step, one inset and one rule under
+ * MCP detail — so a dialog's name is one step, one inset and one rule under
  * it whichever of them is open. The name is the title step (16/24, semibold).
  *
  * `aside` sits after the name on its line (a context chip); `children` are one

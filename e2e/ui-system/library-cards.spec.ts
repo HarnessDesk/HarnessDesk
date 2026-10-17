@@ -42,7 +42,7 @@ for (const theme of ['light', 'dark'] as const) {
     await capture(page, 'add-skill', theme)
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'systematic-debugging', exact: true }).click()
-    await expect(page.locator('[data-slot="skill-sheet"]')).toBeVisible()
+    await expect(page.locator('[data-slot="skill-page"]')).toBeVisible()
   })
   test(`narrow skills pane uses one card column ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=library', theme, 480)
