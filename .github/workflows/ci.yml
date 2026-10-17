@@ -95,7 +95,9 @@ jobs:
               rm -f "$list"
             fi
             # Theme metadata uses exactly the same change boundary as the paths.
-            if git diff --no-renames -U0 "$base" HEAD -- packages/ui | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' | grep -Eiq 'dark|theme'; then
+            # The last grep reads to the end: an early -q exit would make the
+            # diff die of SIGPIPE on a large change, failing the pipe under pipefail.
+            if git diff --no-renames -U0 "$base" HEAD -- packages/ui | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' | grep -Ei 'dark|theme' > /dev/null; then
               theme=true
             fi
           fi

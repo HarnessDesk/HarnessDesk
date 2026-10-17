@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { editorConversation } from '../editor'
 import { sanitizeText } from '../lib/sanitize'
 import { sessionUnavailable } from '../lib/session-unavailable'
+import { isChatFolder } from '../lib/chats'
 import { useInstalledAgents } from '../lib/first-run'
 import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
@@ -806,8 +807,13 @@ export const GitControl = ({
   const summary = session
     ? snapshot.history.find((entry) => entry.runtime === session.runtime && entry.id === session.id)
     : undefined
-  const hasRepository = Boolean(branch || checkout || session?.git || summary?.repo
-    || (cwd === snapshot.workspace?.path && (snapshot.workspace?.repo || snapshot.workspace?.git)))
+  // Repository rows go only where the folder is known not to be a repository:
+  // a managed chat, or the open workspace once the host has read it as none
+  // (`repo: null`; absent means unread). A folder this window has no read for
+  // (a Team member's clone, a runtime that reports no git) keeps them.
+  const here = cwd === snapshot.workspace?.path ? snapshot.workspace : null
+  const knownNotRepository = isChatFolder(cwd, snapshot.chatsFolderRoots) || (here?.repo === null && !here.git)
+  const hasRepository = Boolean(branch || checkout || session?.git || summary?.repo) || !knownNotRepository
   const linked =
     armed !== null ||
     pointedAway ||

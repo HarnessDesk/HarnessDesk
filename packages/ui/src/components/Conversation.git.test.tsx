@@ -416,3 +416,25 @@ it('keeps file changes but omits repository actions for a non-repository convers
   expect(rows).not.toContain('Commit the changes')
   expect(rows).not.toContain('Review uncommitted changes')
 })
+
+it('keeps repository actions for a conversation outside the open workspace whose runtime reports no git', () => {
+  // A Team member's clone, or a runtime that records no git: this window has no read saying it is not a repository.
+  const cwd = '/work/teams/retry-checkout'
+  rig({ activeSessionKey: KEY, sessions: new Map([[KEY, { ...conversation(cwd), git: null }]]),
+    workspace: { path: '/work/notes', name: 'notes', lastOpenedAt: 1, git: null, repo: null },
+    runtimes: [{ id: runtimeId('fake'), presentation: { name: 'Demo runtime' }, capabilities: { ...NO_CAPABILITIES, review: true } }] as RuntimeInfo[] })
+  const rows = menu()
+  expect(rows).toContain('Commit the changes')
+  expect(rows).toContain('Review uncommitted changes')
+})
+
+it('omits repository actions for a managed chat outside the open workspace', () => {
+  const cwd = '/work/chats/2026-10-16-a1b2'
+  rig({ activeSessionKey: KEY, sessions: new Map([[KEY, { ...conversation(cwd), git: null }]]), chatsFolderRoots: [cwd],
+    workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1, git: { branch: 'main' }, repo: { root: '/work/storefront', worktree: false } },
+    runtimes: [{ id: runtimeId('fake'), presentation: { name: 'Demo runtime' }, capabilities: { ...NO_CAPABILITIES, review: true } }] as RuntimeInfo[] })
+  const rows = menu()
+  expect(rows).toContain('Changes')
+  expect(rows).not.toContain('Commit the changes')
+  expect(rows).not.toContain('Review uncommitted changes')
+})
