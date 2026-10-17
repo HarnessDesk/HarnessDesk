@@ -18,6 +18,7 @@
     { "path": "../responses-gateway" },
     { "path": "../mcp-tools" },
     { "path": "../plugins" },
-    { "path": "../adapter-testkit" }
+    { "path": "../adapter-testkit" },
+    { "path": "../lead" }
   ]
 }

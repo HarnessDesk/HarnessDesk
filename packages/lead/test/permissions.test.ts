@@ -22,7 +22,7 @@ const decide = (request: unknown, context: unknown): { effect: string; rule: unk
 }
 const context = () => ({
   desk: policy(), projectPolicy: null as LeadPermissionPolicy | null, project: contract.project,
-  approved: { contract, consent: { contractDigest: contract.digest, contractRevision: 1, policyRevision: 1, expiresAt: 200 }, runIds: ['run-1'] },
+  approved: { contract, consent: { contractDigest: contract.digest, contractRevision: 1, policyRevision: 1, expiresAt: 200 }, runIds: ['run-1'], teamIds: ['team-1'] },
   budget: parseLeadBudgetState({ version: 1, revision: 1, caps: contract.caps, leadUsdMicros: 10,
     workerUsdMicros: 20, reservedUsdMicros: 0, roundsAdmitted: 1, spend: 'known', stop: null }),
   now: 100, policyInterpretation: 'idle',
@@ -456,5 +456,16 @@ test('project filters use canonical paths and previews cannot import another run
   for (const patch of [{ retry: { run: 'run-other', card: 1 } }, { continues: 'run-other' }]) {
     const params = { root: contract.project.path, source: 'synthetic recipe', ...patch }
     assert.equal(decide({ ...request(), method: 'flow/preview', params, runId: null }, context()).effect, 'deny')
+  }
+})
+
+test('approved Team scope works before a first run and refuses other Team ids', () => {
+  const c = { ...context(), approved: { ...context().approved, runIds: [], teamIds: ['team-1'] } }
+  for (const method of ['flow/executions', 'client/subscribe']) {
+    const params = method === 'flow/executions' ? { team: 'team-1' } : { topics: ['runs'], scope: { team: 'team-1' } }
+    assert.equal(decide({ ...request(), method, params, runId: null }, c).effect, 'allow')
+    const other = method === 'flow/executions' ? { project: contract.project.path, team: 'other' }
+      : { topics: ['runs'], scope: { project: contract.project.path, team: 'other' } }
+    assert.equal(decide({ ...request(), method, params: other, runId: null }, c).effect, 'deny')
   }
 })

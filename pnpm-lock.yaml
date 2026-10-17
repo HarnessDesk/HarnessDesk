@@ -257,6 +257,9 @@ importers:
       '@harnessdesk/extension-host':
         specifier: workspace:*
         version: link:../extension-host
+      '@harnessdesk/lead':
+        specifier: workspace:*
+        version: link:../lead
       '@harnessdesk/mcp-tools':
         specifier: workspace:*
         version: link:../mcp-tools

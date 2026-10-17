@@ -37,6 +37,7 @@ export interface LeadPermissionContext {
     readonly consent: { readonly contractDigest: string; readonly contractRevision: number; readonly policyRevision: number; readonly expiresAt: number }
     /** Host-owned membership; never infer it from a model-supplied run id. */
     readonly runIds: readonly string[]
+    readonly teamIds: readonly string[]
   } | null
   readonly budget: LeadBudgetState | null
   readonly now: number
@@ -116,6 +117,9 @@ const decideParsedPermission = (request: LeadPermissionRequest, context: LeadPer
     if ((scope.run !== undefined && scope.run !== request.runId) ||
       (scope.project !== undefined && scope.project !== request.project?.path))
       return deny('Subscription scope differs from its resolved target', 'scope')
+    const team = request.method === 'flow/executions' ? params.team : request.method === 'client/subscribe' ? scope.team : undefined
+    if (team !== undefined && (context.approved === null || !context.approved.teamIds.includes(team as string)))
+      return deny('Team is outside the approved contract', 'scope')
     if (request.runId !== null && (context.approved === null || !context.approved.runIds.includes(request.runId)))
       return deny('Run is outside the approved contract', 'run')
     // Listings are scoped to the selected project; single-run reads to the approved contract, intentionally.
@@ -123,10 +127,10 @@ const decideParsedPermission = (request: LeadPermissionRequest, context: LeadPer
       return deny('Lead previews cannot retry or continue another run', 'scope')
     if (tier === 'read') {
       if (!deskWideReads.has(request.method) && !globalDefinition && request.project === null) return deny('Read requires a selected project target', 'project')
-      if ((request.method === 'flow/executions' && params.project === undefined && !(params.team !== undefined && request.runId !== null)) ||
+      if ((request.method === 'flow/executions' && params.project === undefined && params.team === undefined) ||
         (request.method === 'goal/list' && params.root === undefined) ||
         (request.method === 'client/subscribe' && scope.project === undefined &&
-          !(request.runId !== null && (scope.run !== undefined || scope.team !== undefined))) ||
+          scope.team === undefined && !(request.runId !== null && scope.run !== undefined)) ||
         (request.method === 'library/read' && params.cwd === undefined))
         return deny('Listing or subscription requires a selected project scope', 'scope')
       return intersect(desk, projectPolicy, request.method, action, request.project?.id ?? null)

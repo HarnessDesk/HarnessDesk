@@ -22,6 +22,7 @@
     "@harnessdesk/codex": "workspace:*",
     "@harnessdesk/cordis-host": "workspace:*",
     "@harnessdesk/extension-host": "workspace:*",
+    "@harnessdesk/lead": "workspace:*",
     "@harnessdesk/mcp-tools": "workspace:*",
     "@harnessdesk/plugins": "workspace:*",
     "@harnessdesk/protocol": "workspace:*",
