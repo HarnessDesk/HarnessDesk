@@ -306,10 +306,10 @@ it('only-problems means defects and strandings, never mere non-reach', async () 
   expect(rows).toEqual(['empty', 'stranded'])
 })
 
-it('keeps each state filter and its count available, even at zero', async () => {
+it('skills do not offer a count with nothing to show', async () => {
   await mount(library([entry('good', ['reaches', 'reaches'])]))
   await openFilter()
-  expect(filterRow('Empty on disk')?.textContent).toBe('Empty on disk0')
+  expect(filterRow('Empty on disk')).toBeUndefined()
   expect(filterRow('Problems')).toBeUndefined()
   expect(filterRow('Everything')).toBeTruthy()
 })
@@ -1450,7 +1450,7 @@ it('a count counts what choosing it will show, search included', async () => {
   // rather than offering a choice that would empty the list.
   await act(async () => filterRow('Everything')?.click())
   await openFilter()
-  expect(filterRow('Reach none')?.textContent).toBe('Reach none0')
+  expect(filterRow('Reach none')).toBeUndefined()
 })
 
 it('an empty list blames whichever of the two narrowings actually emptied it', async () => {
@@ -1794,6 +1794,7 @@ it('Agent filter preserves measured reach: same skill declared by two origins bu
   expect(document.body.textContent).toContain('orphan-skill')
 
   await chooseAgent('Agent A')
+  expect(filterTrigger().textContent).toBe('Filter1')
   expect(document.body.textContent).toContain('shared-skill')
   expect(document.body.textContent).not.toContain('orphan-skill')
 
@@ -2268,27 +2269,24 @@ const chooseChip = async (name: string) => {
 }
 it('chips count all skills ignoring search and Filter, and narrow together', async () => {
   await mount(library([entry('alpha', ['reaches', 'absent']), entry('beta', ['reaches', 'reaches']),
-    entry('off', ['off', 'off']), entry('warn', ['rejected', 'reaches'])]))
-  expect(container.querySelector('[aria-label="All"]')?.textContent).toBe('All4')
-  expect(container.querySelector('[aria-label="Needs you"]')?.textContent).toBe('Needs you1')
-  expect(container.querySelector('[aria-label="One runtime"]')?.textContent).toBe('One runtime1')
-  expect(container.querySelector('[aria-label="Nobody"]')?.textContent).toBe('Nobody1')
+    entry('paused', ['off', 'reaches']), entry('off', ['off', 'off']), entry('warn', ['rejected', 'reaches'])]))
   await chooseChip('One runtime')
-  expect(container.querySelectorAll('[data-slot="skill-card"]')).toHaveLength(1)
-  await chooseFilter('Reach some')
-  await act(async () => {
-    const input = container.querySelector<HTMLInputElement>('[aria-label="Search library"]')!
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'beta')
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-  })
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['alpha', 'paused'])
+  expect(await countOf('Everything')).toBe('Everything2')
+  expect(await countOf('Never fired')).toBe('Never fired2')
+  expect(await countOf('Switched off')).toBe('Switched off1')
+  await chooseFilter('Switched off')
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['paused'])
+  await typeSearch('alpha')
   expect(container.textContent).toContain('Nothing matches')
-  expect(container.querySelector('[aria-label="All"]')?.textContent).toBe('All4')
+  expect(container.querySelector('[aria-label="All"]')?.textContent).toBe('All5')
   expect(container.querySelector('[aria-label="Needs you"]')?.textContent).toBe('Needs you1')
-  expect(container.querySelector('[aria-label="One runtime"]')?.textContent).toBe('One runtime1')
+  expect(container.querySelector('[aria-label="One runtime"]')?.textContent).toBe('One runtime2')
   expect(container.querySelector('[aria-label="Nobody"]')?.textContent).toBe('Nobody1')
-  const clear = [...container.querySelectorAll('button')].find(b => b.textContent === 'Clear the filters')!
-  await act(async () => clear.click())
-  expect(container.querySelectorAll('[data-slot="skill-card"]')).toHaveLength(4)
+  await act(async () => [...container.querySelectorAll('button')].find(b => b.textContent === 'Clear the filters')!.click())
+  expect(cards()).toHaveLength(5)
+  await chooseChip('Nobody')
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['off'])
 })
 it('keeps banners exclusively under Needs you and cleanup still plans the same copies', async () => {
   const request = await mount(library([partialEntry('empty', ['hollow', 'reaches'], { catalogTokens: 5000 })]))
@@ -2313,7 +2311,9 @@ it('cards have one finding at most, quiet updates and every runtime state', asyn
   expect([...card('plain').querySelectorAll('[data-runtime-state]')].map(n => n.getAttribute('title'))).toEqual(['First Agent: Reaches', 'Second Agent: Not installed'])
   expect(card('plain').textContent).not.toContain('/plain')
   expect(card('plain').querySelectorAll('button')).toHaveLength(0)
-  expect(document.getElementById(card('plain').getAttribute('aria-describedby')!)?.textContent).toBe('No description in its frontmatter')
+  const descriptions = card('plain').getAttribute('aria-describedby')!.split(' ').map(id => document.getElementById(id)!)
+  expect(descriptions.map(node => node.textContent)).toContain('No description in its frontmatter')
+  expect(descriptions.find(node => node.getAttribute('role') === 'img')?.getAttribute('aria-label')).toBe('Loaded by 1 of 2 runtimes')
   await act(async () => (card('plain') as HTMLButtonElement).click())
   expect(document.querySelector('[data-slot="skill-sheet"]')).toBeTruthy()
 })
@@ -2392,4 +2392,76 @@ it('the matrix prices the chip-filtered rows and names that scope', async () => 
   await showMatrix()
   expect(container.querySelector('tfoot th')?.textContent).toBe('Advertised each turn (these rows)')
   expect([...container.querySelectorAll('tfoot tr:first-child td')].map(node => node.textContent)).toEqual(['—', '≈40 tok'])
+})
+
+it('a count with nothing to show is not offered', async () => {
+  // A zero-count filter is a row that would empty the list, so it is not
+  // offered at all — and the one that is always a way back, "Everything", is.
+  await mount(library([entry('good', ['reaches', 'reaches'], { kind: 'mcp' })]))
+  await chooseKind('mcp')
+  await openFilter()
+  const counts = filterRows().map((node) => node.textContent)
+  expect(counts.some((text) => text?.startsWith('Empty on disk'))).toBe(false)
+  expect(counts.some((text) => text?.startsWith('Problems'))).toBe(false)
+  expect(counts.some((text) => text?.startsWith('Everything'))).toBe(true)
+})
+
+it('the first body options own search, filter and view; the selected filter can be left', async () => {
+  await mount(library([entry('good', ['reaches', 'reaches'], { kind: 'mcp' }), partialEntry('empty', ['hollow', 'absent'], { kind: 'mcp' })]))
+  await chooseKind('mcp')
+  const options = document.body.querySelector('[data-slot="page-options"]')!
+  expect(options.querySelector('[aria-label="Search library"]')).not.toBeNull()
+  expect(options.querySelector('[data-slot="popover-trigger"][title="How to show the library"]')).not.toBeNull()
+  expect(options.contains(filterTrigger())).toBe(true)
+  expect(document.body.querySelector('[data-slot="library-toolbar"]')).toBeNull()
+  await openFilter()
+  expect(filterRow('Empty on disk')?.textContent).toContain('1')
+  await act(async () => filterRow('Empty on disk')?.click())
+  expect(filterTrigger().textContent).toBe('Empty on disk')
+  expect(cards()).toHaveLength(1)
+  await chooseFilter('Everything')
+  expect(cards()).toHaveLength(2)
+  expect(filterTrigger().textContent).toBe('Everything')
+  expect(document.activeElement).toBe(filterTrigger())
+})
+
+it('uses one menu trigger form for the view, filter and agent choices', async () => {
+  await mount(library([entry('good', ['reaches', 'reaches'], { kind: 'mcp' })]))
+  await chooseKind('mcp')
+  const options = document.body.querySelector('[data-slot="page-options"]')!
+  const triggers = [...options.querySelectorAll<HTMLElement>('[data-slot="popover-trigger"]')]
+
+  expect(triggers.map((trigger) => trigger.getAttribute('title'))).toEqual([
+    'Library sections',
+    'How to show the library',
+    'Filter the library',
+    'Declared by',
+  ])
+  expect(options.querySelectorAll('[data-slot="native-select"]')).toHaveLength(0)
+})
+
+
+it('catalogue Show never fired leaves Needs you and shows unused cards', async () => {
+  await mount(library([entry('never', ['reaches', 'reaches'], { catalogTokens: 6000 })]))
+  await chooseChip('Needs you')
+  expect(cards()).toHaveLength(0)
+  await act(async () => [...container.querySelectorAll('button')].find(b => b.textContent === 'Show never fired')!.click())
+  expect(container.querySelector('[aria-label="All"]')?.getAttribute('aria-checked')).toBe('true')
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['never'])
+})
+it('switching from MCP Problems to skills selects Everything', async () => {
+  await mount(library([entry('skill', ['reaches', 'reaches']), entry('server', ['absent', 'absent'], { kind: 'mcp' })]))
+  await chooseKind('mcp')
+  await chooseFilter('Problems')
+  await chooseKind('skill')
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['skill'])
+  await openFilter()
+  expect(filterRow('Everything')?.getAttribute('aria-checked')).toBe('true')
+})
+it('chip counts include behind and gone updates but not current or unreachable updates', async () => {
+  await mount(library((['behind', 'gone', 'current', 'unreachable'] as const).map(status =>
+    entry(status, ['reaches', 'reaches'], { update: [skillUpdate(status)] }))))
+  expect(container.querySelector('[aria-label="Needs you"]')?.textContent).toBe('Needs you2')
+  await chooseChip('Needs you')
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['behind', 'gone'])
 })

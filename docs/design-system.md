@@ -1235,7 +1235,7 @@ footer in the app; every other answer is quiet, and its number still works.
 A compact opening card, exported publicly as CompactBoardCard: identity,
 optional attention detail, middle and footer.
 Title and detail props preserve a caller's hover text, slots and description ids.
-Optional marks retain presence and attention independently; a finding owns its flag.
+Optional marks retain presence and attention independently and describe the card; a finding owns its flag.
 detailLines bounds a catalogue description without truncating the finding.
 Supply aria-describedby for the detail and any facts inside the footer slot.
 

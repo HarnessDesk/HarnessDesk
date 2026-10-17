@@ -213,7 +213,7 @@ export const E5_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
 export const E6_LIBRARY_PAGE_DESTINATIONS: readonly WallDestination[] = [
   { id: 'e6-library-skills', query: 'frame-wall=library&frame-kind=skill', pageWidth: 'wide' },
   { id: 'l1-library-empty', query: 'frame-wall=library&frame-empty=1', pageWidth: 'wide' },
-  { id: 'l1-library-add', query: 'frame-wall=library', pageWidth: 'wide', addSkillChoice: 'From GitHub…' },
+  { id: 'l1-library-add', query: 'frame-wall=library', pageWidth: 'wide', addSkillMenu: true },
   { id: 'e6-library-mcp', query: 'frame-wall=library&frame-kind=mcp', pageWidth: 'wide', tab: 'mcp' },
   { id: 'e6-library-matrix', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'How to show the library',value:'matrix',item:'Matrix'} },
   { id: 'e6-library-expanded', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'How to show the library',value:'matrix',item:'Matrix'}, expandLibraryEntry: true },

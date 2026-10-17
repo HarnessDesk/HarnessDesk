@@ -64,7 +64,9 @@ it('owns bounded detail, presence marks and one finding without a footer', async
       {id:'beta',title:'Beta: Refused',active:false,attention:true,mark:'B'}]}}
     finding={{text:'Refused by Beta',tone:'warn',id:'finding'}} onOpen={()=>{}} />))
   expect(host.querySelector('[data-detail-lines="2"]')).toBeTruthy()
-  expect(host.querySelector('[aria-label="Loaded by 1 of 2 runtimes"]')).toBeTruthy()
+  const strip = host.querySelector('[aria-label="Loaded by 1 of 2 runtimes"]')!
+  expect(strip.id).toBeTruthy()
+  expect(host.querySelector('button')?.getAttribute('aria-describedby')?.split(' ')).toContain(strip.id)
   expect(host.querySelector('[title="Beta: Refused"]')?.getAttribute('data-mark-active')).toBe('false')
   expect(host.querySelector('[title="Beta: Refused"]')?.hasAttribute('data-mark-attention')).toBe(true)
   expect(host.querySelectorAll('[data-card-finding]')).toHaveLength(1)

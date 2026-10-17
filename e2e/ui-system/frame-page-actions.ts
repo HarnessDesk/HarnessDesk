@@ -5,6 +5,7 @@ export interface PageFrameActions extends FrameActions, WallActions {
   readonly more?: 'present' | 'absent'
   readonly bodyChoice?: { readonly label: string; readonly value: string; readonly item?: string }
   readonly moreChoice?: string
+  readonly addSkillMenu?: boolean
   readonly addSkillChoice?: string
   readonly bodySearch?: { readonly label: string; readonly value: string }
   readonly expandWrapped?: boolean
@@ -28,9 +29,10 @@ export const applyPageFrameActions = async (page: Page, actions: PageFrameAction
       await item.click()
     }
   }
-  if (actions.addSkillChoice) {
+  if (actions.addSkillMenu || actions.addSkillChoice) {
     await page.getByRole('button', { name: 'Add skill', exact: true }).click()
-    await page.getByRole('menuitem', { name: actions.addSkillChoice, exact: true }).click()
+    if (actions.addSkillChoice) await page.getByRole('menuitem', { name: actions.addSkillChoice, exact: true }).click()
+    else await expect(page.getByRole('menuitem', { name: 'Write a skill', exact: true })).toBeVisible()
   }
   if (actions.moreChoice) {
     await page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button').click()

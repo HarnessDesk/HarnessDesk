@@ -447,8 +447,9 @@ export const TeamIcon = animated(UsersRoundGlyph, UsersRound, 'TeamIcon')
 /** Fold every group in a list shut, and open every one again. */
 export const CollapseAllIcon = animated(ChevronsDownUpGlyph, ChevronsDownUp, 'CollapseAllIcon')
 export const ExpandAllIcon = animated(ChevronsUpDownGlyph, ChevronsUpDown, 'ExpandAllIcon')
-/** A ruled matrix; the loose and tight rows offer two list densities. */
+/** A grid of opening cards. */
 export const CardsIcon = icon(LayoutGrid, 'CardsIcon')
+/** A ruled matrix; the loose and tight rows offer two list densities. */
 export const MatrixIcon = icon(Table2, 'MatrixIcon')
 export const RowsLooseIcon = icon(Rows3, 'RowsLooseIcon')
 export const RowsTightIcon = icon(Rows4, 'RowsTightIcon')

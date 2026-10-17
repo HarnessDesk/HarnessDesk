@@ -3825,18 +3825,8 @@ fresh allocation.
 
 ## The Library's skills page is cards under filter chips — 2026-10-16
 
-Skills open as compact cards with All, Needs you, One runtime and Nobody chips.
-The chips count the whole listed skill inventory, while search, state and Agent
-declarations narrow together. Cards keep the runtime reach strip; Matrix and
-the existing skill sheet retain the detailed comparison. Add skill groups the
-three existing ways to bring in a skill. MCP keeps its current page.
+Skills open as compact cards with All, Needs you, One runtime and Nobody chips. Chips count all listed skills, while search, state filters and Agent declarations narrow together. Cards carry the runtime reach strip and at most one problem line; Matrix and the skill sheet retain the detailed comparison. Add skill groups the three existing ways to bring in a skill. MCP keeps its current page. Catalogue banners appear under Needs you even when that chip reads 0: banners describe the catalogue, while chips count skills.
 
-Keeping this shape means using the shared compact BoardCard and ToggleGroup,
-with the card pattern owning its grid, marks and finding, and ToggleGroup owning
-its chip corners. Toolbar owns the controls row. This extends existing contracts
-without adding a primitive, while
-reading the existing finding and update selectors, and maintaining both views
-over the same filtered rows. Choices remain local to the viewer. The history
-stays at the foot, and empty regions carry a short title without a description.
+ToggleGroup gained a `chips` variant, and BoardCard gained `marks`, `finding`, `detailLines` and a grid. Keeping this shape costs maintaining those shared contracts and both views over the same filtered rows, using the existing finding and update selectors. Toolbar owns the controls row. Choices remain local to the viewer, history stays at the foot, and empty regions carry a short title without a description.
 
 **Rule:** a card carries at most one problem line, and banners live under Needs you.
