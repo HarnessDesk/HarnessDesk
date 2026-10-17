@@ -4,7 +4,7 @@
 // Both run before dependencies are installed, so this module uses only builtins.
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { basename, dirname, extname, join, relative, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 
 export const SOURCE = ['.ts', '.tsx', '.mts', '.cts', '.mjs', '.cjs', '.js', '.jsx']
 export const IMPORT = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)['"]([^'"\n]+)['"]/g
@@ -94,6 +94,38 @@ export function suiteGraph(root) {
     }
   }
   return { suite, sources, importers, forward }
+}
+
+// Literal file reads are dependency edges too. Keep this scan dependency-free:
+// CI plans before install. The gate independently checks these edges with the TS parser.
+export function repositoryGraph(root, graph = suiteGraph(root)) {
+  root = resolve(root)
+  const importers = new Map([...graph.importers].map(([file, parents]) => [file, new Set(parents)]))
+  const queue = graph.sources.filter(file => specsReaching(graph, [file]).length > 0)
+  const seen = new Set()
+  while (queue.length > 0) {
+    const file = queue.pop()
+    if (seen.has(file)) continue
+    seen.add(file)
+    const text = readFileSync(file, 'utf8')
+    const add = target => {
+      if (!target || !target.startsWith(`${root}/`)) return
+      importers.set(target, new Set([...(importers.get(target) ?? []), file]))
+      if (existsSync(target) && SOURCE.includes(extname(target)) && !relative(root, target).startsWith('packages/')) queue.push(target)
+    }
+    for (const [, specifier] of text.matchAll(IMPORT)) {
+      if (specifier.startsWith('.')) add(resolveHelper(file, specifier))
+    }
+    // Also sees literals used in URLs, child-process arguments and source-text reads.
+    for (const match of text.matchAll(/(['"`])([^'"`\\\n]+)\1/g)) {
+      const literal = match[2]
+      if (literal.startsWith('.')) add(findFile(file, literal) ?? (extname(literal) ? resolve(dirname(file), literal) : null))
+      else if (!isAbsolute(literal) && (literal.includes('/') || /(?:readFile|readFileSync)\s*\(\s*$/.test(text.slice(0, match.index)))) {
+        add(findFile(join(root, 'entry'), `./${literal}`) ?? (/^(?:docs|script|packages|e2e|assets)\//.test(literal) ? resolve(root, literal) : null))
+      }
+    }
+  }
+  return { ...graph, importers }
 }
 
 // A spec and everything it loads, as one id: the same id on a later run means

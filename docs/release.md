@@ -49,12 +49,20 @@ below will get further than the first `-c.mac.notarize=true`.
 
 The Lead pushes approved changes directly to `development`, one commit per
 change, without a per-change pull request. Each push runs core CI and the
-bounded browser selection reached by its full before-to-HEAD change. A missing,
-all-zero or unavailable before commit runs every browser spec with the bounded
-theme matrix. Native smoke stays full-tier only. The nightly full dispatch has
-a separate concurrency group from pushes, so landings cannot cancel it. Close
-the changelog gap and bump the version there before opening the release pull
-request from `development` into `main`. That pull request runs full CI and lands
+bounded browser selection reached by its full before-to-HEAD change. It uses
+development's last full-run impact map first, then main's, then legacy
+`ui-impact-map-<sha>` entries. Files read by specs select their readers beside
+the UI source's mapped reach. A differing map environment keeps the four-shard
+cap: recorded per-file reach ranks first, then the cap fills, and the summary
+names the mismatch and deferred specs. Other stale map evidence also ranks a
+conservative capped sample. An unknown or unfetchable range (including a missing
+or all-zero before), no map when needed, an unreadable input graph, or an
+unresolvable read runs every browser spec without the cap, with the bounded
+theme matrix. Native smoke stays full-tier only. Every development push has
+its own commit-keyed concurrency group, preserving earlier running and pending
+ranges. The nightly full dispatch has a separate group, so landings cannot
+cancel it. Close the changelog gap and bump the version there before opening
+the release pull request from `development` into `main`. That pull request runs full CI and lands
 with a merge commit to preserve the changes' own commits. Every merge into
 `main` is a release; cut the release from that merged result.
 

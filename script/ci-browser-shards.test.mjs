@@ -401,3 +401,13 @@ test('development push diff fetches before beyond checkout depth and computes th
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test('impact cache restore falls back to legacy entries after development and main', () => {
+  const keys = job('changes').match(/restore-keys: \|\n((?:            [^\n]+\n)+)/)?.[1].trim().split('\n').map(line => line.trim().replace('${{ github.ref_name }}', 'development'))
+  assert.deepEqual(keys, ['ui-impact-map-development-', 'ui-impact-map-main-', 'ui-impact-map-'])
+  const legacy = `ui-impact-map-${'a'.repeat(40)}`
+  const restore = entries => keys.flatMap(prefix => entries.filter(key => key.startsWith(prefix)))[0]
+  assert.equal(restore([legacy]), legacy)
+  assert.equal(restore([legacy, 'ui-impact-map-main-new', 'ui-impact-map-development-new']), 'ui-impact-map-development-new')
+  assert.equal(restore([legacy, 'ui-impact-map-main-new']), 'ui-impact-map-main-new')
+})

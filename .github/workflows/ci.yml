@@ -50,7 +50,7 @@ jobs:
           node-version: 22
       # Prefer this branch's last full-run map, then main's (script/ui-impact.mjs).
       # Development's nightly map includes source that has not shipped on main;
-      # a development push without a usable selection runs every browser spec.
+      # unresolved reads/ranges and missing maps run every browser spec.
       - name: Restore the branch impact map
         if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/development')
         uses: actions/cache/restore@v6
@@ -60,6 +60,7 @@ jobs:
           restore-keys: |
             ui-impact-map-${{ github.ref_name }}-
             ui-impact-map-main-
+            ui-impact-map-
       - name: Select UI integration jobs
         id: paths
         env:

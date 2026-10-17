@@ -353,7 +353,7 @@ export const filesAtBase = (root, revision = 'HEAD^1') => {
 
 // `impactedSpecs` for a repository on disk, with a pull request's base as git has it
 // (`baseFiles` and `baseEnvironment` say otherwise to a caller that knows better).
-export function impactPlan(root, paths, { map, baseFiles = () => filesAtBase(root), baseEnvironment = () => environmentAt(root, 'HEAD^1') }) {
+export function impactPlan(root, paths, { map, baseFiles = () => filesAtBase(root), baseEnvironment = () => environmentAt(root, 'HEAD^1'), rankingOnly = false }) {
   const graph = suiteGraph(root)
   const texts = suiteTexts(graph)
   const hashes = specHashes(root, graph)
@@ -361,8 +361,10 @@ export function impactPlan(root, paths, { map, baseFiles = () => filesAtBase(roo
   return impactedSpecs(map, paths, {
     allSpecs: Object.keys(hashes),
     specHash: name => hashes[name],
-    baseFiles,
-    baseEnvironment,
+    // Old records remain useful for ordering a conservative capped selection.
+    // They may only exclude specs after the ordinary freshness checks pass.
+    baseFiles: rankingOnly ? () => Object.fromEntries(Object.entries(map.files).map(([path, entry]) => [path, entry.blob])) : baseFiles,
+    baseEnvironment: rankingOnly ? () => map.environment : baseEnvironment,
     importers: path => importers.get(path),
     nodeSpecs: path => [...new Set([
       ...specsReaching(graph, [join(root, path)]).map(file => relative(graph.suite, file)),

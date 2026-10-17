@@ -83,7 +83,7 @@ for (const path of ['e2e/ui-system/row-box.spec.ts', 'playwright.ui-system.confi
 for (const path of ['e2e/ui-system/durations.json', 'e2e/ui-system/durations.pr.json']) {
   test(`${path} opens no browser`, () => check([path], ['none', false]))
 }
-for (const path of ['packages/desktop/electron/main.mjs', 'script/lib/temporary-directory.mjs']) {
+for (const path of ['packages/desktop/electron/main.mjs']) {
   test(`${path} runs native smoke`, () => check([path], ['none', true]))
 }
 test('the shot seed selects browser coverage and native smoke', () =>
@@ -104,7 +104,7 @@ test('a filename with a control character runs everything', () => {
 test('a mixed change runs each affected suite', () =>
   check(['docs/architecture.md', 'packages/desktop/electron/main.mjs', 'e2e/ui-system/row-box.spec.ts'], ['all', true]))
 
-for (const path of ['packages/server/src/host.ts', 'packages/plugins/src/index.ts', 'packages/adapter-codex/test/fixtures/fake-codex.mjs']) {
+for (const path of ['packages/server/src/host.ts']) {
   test(`${path} runs server specs and native smoke`, () => check([path], ['server', true]))
 }
 test('UI inputs take precedence over server changes', () =>
@@ -287,7 +287,7 @@ test('a changed helper reaches the specs that import it through another helper',
 })
 
 test('untraceable suite data and deleted helpers sample the whole suite within the cap', () => {
-  for (const path of ['e2e/ui-system/composer-slot-record.json', 'e2e/ui-system/a-helper-that-was-deleted.ts']) {
+  for (const path of ['e2e/ui-system/untraceable-data.json', 'e2e/ui-system/a-helper-that-was-deleted.ts']) {
     const run = plan([path])
     assert.equal(run.browser, 'all')
     assert.equal(run.matrix, 'pr')
@@ -314,15 +314,19 @@ test('the outputs are well formed on a run that skips the browser job', () => {
 
 // A map of the real repository, made up: every spec ran the button, and `row-box.spec.ts` alone ran BringHome.
 const real = fileURLToPath(new URL('../', import.meta.url))
-const impactMap = () => {
+const impactMap = (narrow = '/src/components/BringHome.tsx') => {
   const records = specFiles(real).map(spec => ({
     [`e2e/ui-system/${spec}`]: {
       tests: 1, unclean: 0,
-      loaded: ['/src/design/ui/button.tsx', '/src/components/BringHome.tsx'],
-      ran: spec === 'row-box.spec.ts' ? ['/src/design/ui/button.tsx', '/src/components/BringHome.tsx'] : ['/src/design/ui/button.tsx'],
+      loaded: ['/src/design/ui/button.tsx', narrow],
+      ran: spec === 'row-box.spec.ts' ? ['/src/design/ui/button.tsx', narrow] : ['/src/design/ui/button.tsx'],
     },
   }))
-  return mergeRecords(real, records, { commit: 'abcdef1234567' })
+  const map = mergeRecords(real, records, { commit: 'abcdef1234567' })
+  // App.tsx is no longer in this checkout. Supply its historical record explicitly
+  // when exercising that path, without creating a production source file.
+  if (narrow === '/src/App.tsx') map.files['packages/ui/src/App.tsx'] = { blob: 'a'.repeat(40), loaded: 'all', ran: [map.specs.indexOf('row-box.spec.ts')] }
+  return map
 }
 const planWith = (inputs, impact, over = {}) => browserPlan(real, {
   browser: 'all', inputs, serverInputs: false, event: 'pull_request', themeTouched: false, request: '', baseText: () => null, impact, ...over,
@@ -493,7 +497,7 @@ test('edited and newly added specs always survive the cap, even when they exceed
   assert.deepEqual(run.specs === 'all' ? all : JSON.parse(run.specs), all)
   assert.ok(run.count <= 4)
   assert.deepEqual(run.deferred, [])
-  assert.match(run.summary, /edited specs exceed/)
+  assert.match(run.summary, /edited or reader specs exceed/)
 })
 
 test('a narrow source selection wins over a widely rendered input when both change', () => {
@@ -621,7 +625,7 @@ test('only the exact development PR head selects the release tier', () => {
 
 for (const path of [
   'packages/ui/src/App.tsx', 'package.json',
-  'e2e/ui-system/composer-slot-record.json', 'e2e/ui-system/a-deleted-helper.ts',
+  'e2e/ui-system/untraceable-data.json', 'e2e/ui-system/a-deleted-helper.ts',
 ]) {
   test(`a development push runs every spec when the plan cannot narrow ${path}`, () => {
     const run = cliPlan([path], 'push', { CI_REF_NAME: 'development' })
@@ -631,14 +635,14 @@ for (const path of [
   })
 }
 
-test('a stale impact map cannot cap a development push', () => {
+test('a stale source map ranks a capped conservative development selection', () => {
   const map = impactMap()
   const base = current(map).baseFiles()
   base['packages/ui/src/components/BringHome.tsx'] = 'f'.repeat(40)
   const run = planWith(['packages/ui/src/components/BringHome.tsx'], { ...current(map), baseFiles: () => base }, { event: 'push', refName: 'development' })
-  assert.equal(run.specs, 'all')
-  assert.deepEqual(run.deferred, [])
-  assert.ok(run.count > 4)
+  assert.ok(JSON.parse(run.specs).includes('e2e/ui-system/row-box.spec.ts'))
+  assert.ok(run.deferred.length > 0)
+  assert.ok(run.count <= 4)
   assert.match(run.summary, /Not narrowed: .*has changed on the base branch/)
 })
 
@@ -672,5 +676,78 @@ for (const [path, spec] of [
     assert.equal(run.browser, 'all')
     assert.ok(run.browser_specs === 'all' || JSON.parse(run.browser_specs).includes(`e2e/ui-system/${spec}`))
     assert.equal(run.native, 'false')
+  })
+}
+
+for (const event of ['push', 'pull_request']) {
+  test(`UI source beside a repository read keeps both narrow selections on ${event}`, () => {
+    const map = impactMap('/src/App.tsx')
+    const run = planWith(['packages/ui/src/App.tsx', 'docs/interface.md'], current(map), { event, refName: 'development' })
+    assert.deepEqual(JSON.parse(run.specs), ['e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/team-board-widths.spec.ts'])
+    assert.equal(run.count, 1)
+    assert.deepEqual(run.deferred, [])
+  })
+}
+
+for (const [name, source] of [
+  ['direct read', "readFileSync('docs/new-contract.md', 'utf8')"],
+  ['helper URL', "import './helper'"],
+  ['package read', "readFileSync('packages/cli/package.json', 'utf8')"],
+]) {
+  test(`repository readers are selected for a ${name}`, async () => {
+    await fixture((root, put) => {
+      put('docs/new-contract.md', 'contract')
+      put('packages/cli/package.json', JSON.stringify({ name: '@harnessdesk/cli' }))
+      put('e2e/ui-system/row-box.spec.ts', source)
+      put('e2e/ui-system/helper.ts', "readFileSync(new URL('../../docs/new-contract.md', import.meta.url), 'utf8')")
+      put('e2e/ui-system/durations.json', '{}')
+      const run = planChange(root, { event: 'push', refName: 'development', paths: [name === 'package read' ? 'packages/cli/package.json' : 'docs/new-contract.md'] })
+      assert.equal(run.browser, 'all')
+      assert.deepEqual(JSON.parse(run.browser_specs), ['e2e/ui-system/row-box.spec.ts'])
+    })
+  })
+}
+
+test('environment changes keep the cap and rank recorded reach before the remaining specs', async () => {
+  await fixture((root, put) => {
+    put('packages/ui/src/App.tsx', 'export const App = () => null')
+    const times = {}
+    for (const name of [...Array.from({ length: 8 }, (_, i) => `a${i}.spec.ts`), 'z-reached.spec.ts']) {
+      put(`e2e/ui-system/${name}`, 'export {}')
+      times[name] = 900
+    }
+    put('e2e/ui-system/durations.json', JSON.stringify(times))
+    // Mark all specs as recorded without giving the unrelated specs App's reach.
+    const complete = mergeRecords(root, Object.keys(times).map(name => ({ [`e2e/ui-system/${name}`]: { tests: 1, unclean: 0, loaded: ['/src/App.tsx'], ran: name === 'z-reached.spec.ts' ? ['/src/App.tsx'] : [] } })), { environment: { 'packages/protocol': 'old' } })
+    const impact = { ...current(complete), baseEnvironment: () => ({ 'packages/protocol': 'new' }) }
+    for (const inputs of [['packages/ui/src/App.tsx'], ['packages/ui/src/App.tsx', 'packages/protocol/src/wire.ts']]) {
+      const run = browserPlan(root, { browser: 'all', inputs, serverInputs: false, event: 'push', refName: 'development', impact })
+      assert.ok(run.count <= 4)
+      assert.ok(run.deferred.length > 0)
+      assert.ok(JSON.parse(run.specs).includes('e2e/ui-system/z-reached.spec.ts'))
+      assert.match(run.summary, /map.*environment differs/i)
+      for (const spec of run.deferred) assert.ok(run.summary.includes(spec), spec)
+    }
+  })
+})
+
+for (const path of ['script/lib/temporary-directory.mjs', 'packages/plugins/src/index.ts', 'packages/adapter-codex/test/fixtures/fake-codex.mjs']) {
+  test(`${path} selects its browser readers and native smoke`, () => check([path], ['all', true]))
+}
+
+test('a literal suite data read selects only its reader', () => {
+  const run = plan(['e2e/ui-system/composer-slot-record.json'])
+  assert.deepEqual(JSON.parse(run.browser_specs), ['e2e/ui-system/composer-slots.spec.ts'])
+})
+
+for (const literal of ["'docs/deleted-contract.md'", "new URL('../../docs/deleted-contract.md', import.meta.url)"]) {
+  test(`a deleted literal read still selects its reader: ${literal}`, async () => {
+    await fixture((root, put) => {
+      put('e2e/ui-system/row-box.spec.ts', `readFileSync(${literal}, 'utf8')`)
+      put('e2e/ui-system/durations.json', '{}')
+      const run = planChange(root, { event: 'push', refName: 'development', paths: ['docs/deleted-contract.md'] })
+      assert.equal(run.browser, 'all')
+      assert.deepEqual(JSON.parse(run.browser_specs), ['e2e/ui-system/row-box.spec.ts'])
+    })
   })
 }

@@ -5,7 +5,7 @@ import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { plan as deal, recordedSeconds, shardCount, specFiles } from './ci-browser-shards.mjs'
-import { IMPORT, SOURCE, SPEC, resolveHelper, specsReaching, suiteGraph, uiPackages } from './ci-imports.mjs'
+import { IMPORT, SOURCE, SPEC, repositoryGraph, resolveHelper, specsReaching, uiPackages } from './ci-imports.mjs'
 import { environmentAt, filesAtBase, impactPlan, readMap, uiExternalImports, uiSource } from './ui-impact.mjs'
 
 export { uiPackages }
@@ -42,7 +42,6 @@ const BROWSER = [
   /^playwright\.ui-system\.config\.ts$/, // Defines the browser suite and its Vite preview server.
   /^script\/ci-browser-shards\.mjs$/, // Deals the specs to the shards: a change to it changes what each shard runs.
   /^script\/(?:ui-system-run|ci-server-split)(?:\.test)?\.mjs$/, // The runner and classifier decide which server each selected spec reads.
-  /^docs\/interface\.md$/, // team-board-widths reads the board's layout contract.
   /^script\/shots\//, // Browser specs read source text and run the synthetic template rigs.
   /^e2e\/ui-system\//, // Browser specs, helpers and recorded metrics live in this test directory.
 ]
@@ -79,22 +78,22 @@ export function serverSpecs(root, inputs) {
 }
 
 // The specs a change to files of the suite can reach: a changed spec itself, and
-// every spec that imports a changed helper, directly or through other helpers.
-// Null when the change cannot be traced to specs, and the caller runs them all:
-// a data file a spec reads at run time, or a helper that was deleted and so has
-// no importers left to find.
-export function affectedSpecs(root, changed) {
-  const graph = suiteGraph(root)
+// every spec that reads a changed file, directly or through other helpers.
+// Null when the change cannot be traced: an unnamed data file, or a deleted
+// helper with no remaining references.
+export function affectedSpecs(root, changed, graph = repositoryGraph(root)) {
   const queue = []
   for (const path of changed) {
     if (DEAL_ONLY.test(path)) continue
     const file = join(root, path)
     if (!existsSync(file)) {
+      if (graph.importers.has(file)) { queue.push(file); continue }
       if (SPEC.test(path)) continue
       return null
     }
-    if (!SOURCE.includes(extname(file))) return null
-    queue.push(file)
+    if (specsReaching(graph, [file]).length > 0) queue.push(file)
+    else if (SOURCE.includes(extname(file))) queue.push(file)
+    else return null
   }
   return specsReaching(graph, queue).map(file => relative(root, file)).sort()
 }
@@ -142,22 +141,26 @@ export const ciTier = ({ event, headBranch = '', refName = '', labels = [] }) =>
   return event !== 'pull_request' || headBranch === 'development' || headBranch.startsWith('batch/') || labels.includes('full-ci') ? 'full' : 'bounded'
 }
 
-function boundedSpecs(root, candidates, inputs, impact) {
+function boundedSpecs(root, candidates, inputs, impact, graph) {
   const all = new Set(specFiles(root).map(spec => `e2e/ui-system/${spec}`))
-  const mandatory = inputs.filter(path => SPEC.test(path) && all.has(path))
+  const mandatory = [...new Set([
+    ...inputs.filter(path => SPEC.test(path) && all.has(path)),
+    ...inputs.flatMap(path => specsReaching(graph, [join(root, path)]).map(file => relative(root, file)).filter(spec => all.has(spec))),
+  ])]
   const seconds = recordedSeconds(root, 'pr')
-  const relative = specs => specs.map(spec => spec.slice('e2e/ui-system/'.length))
-  const fits = specs => Math.max(...deal(relative(specs), seconds, PR_MAX_SHARDS).map(shard => shard.load)) <= PR_SHARD_SECONDS
+  const specNames = specs => specs.map(spec => spec.slice('e2e/ui-system/'.length))
+  const fits = specs => Math.max(...deal(specNames(specs), seconds, PR_MAX_SHARDS).map(shard => shard.load)) <= PR_SHARD_SECONDS
   // A spec reached by a small group of inputs is more specific than one reached
   // only by a shared stylesheet. Use the selector itself, including helper imports.
   const specificity = new Map()
   for (const path of fits(candidates) ? [] : inputs) {
-    let reached = null
-    if (path.startsWith('e2e/ui-system/')) reached = affectedSpecs(root, [path])
+    let reached = specsReaching(graph, [join(root, path)]).map(file => relative(root, file))
+    if (path.startsWith('e2e/ui-system/')) reached = affectedSpecs(root, [path], graph)
     else if (impact && uiSource(path)) {
-      const specs = impactPlan(root, [path], impact).specs
-      if (specs) reached = specs.map(spec => `e2e/ui-system/${spec}`)
+      const specs = impactPlan(root, [path], { ...impact, rankingOnly: true }).specs
+      if (specs) reached.push(...specs.map(spec => `e2e/ui-system/${spec}`))
     }
+    if (reached) reached = [...new Set(reached)]
     if (reached) for (const spec of reached) specificity.set(spec, Math.min(specificity.get(spec) ?? Infinity, reached.length))
   }
   const selected = [...new Set(mandatory)].sort()
@@ -168,33 +171,48 @@ function boundedSpecs(root, candidates, inputs, impact) {
     if (fits([...selected, spec])) selected.push(spec)
     else deferred.push(spec)
   }
-  let count = shardCount(relative(selected), seconds, { target: PR_SHARD_SECONDS, max: PR_MAX_SHARDS })
-  while (count < PR_MAX_SHARDS && count < selected.length && Math.max(...deal(relative(selected), seconds, count).map(shard => shard.load)) > PR_SHARD_SECONDS) count++
+  let count = shardCount(specNames(selected), seconds, { target: PR_SHARD_SECONDS, max: PR_MAX_SHARDS })
+  while (count < PR_MAX_SHARDS && count < selected.length && Math.max(...deal(specNames(selected), seconds, count).map(shard => shard.load)) > PR_SHARD_SECONDS) count++
   return { selected: selected.sort(), deferred: deferred.sort(), count, overBudget }
 }
 
-export function browserPlan(root, { browser, inputs, serverInputs, event, refName = '', tier = ciTier({ event, refName }), impact = null, unknownChange = false, unknownReason = 'change range unavailable' }) {
+export function browserPlan(root, { browser, inputs, serverInputs, event, refName = '', tier = ciTier({ event, refName }), impact = null, unknownChange = false, unknownReason = 'change range unavailable', graph = null }) {
   const all = specFiles(root).map(spec => `e2e/ui-system/${spec}`)
   let selected = null
   let basis = unknownChange ? `${unknownReason}; running every browser spec` : ''
-  const suiteInputs = inputs.filter(path => path.startsWith('e2e/ui-system/'))
-  const uiInputs = inputs.filter(path => !path.startsWith('e2e/ui-system/'))
-  if (browser === 'all' && tier === 'bounded' && !unknownChange && inputs.length > 0 && uiInputs.every(uiSource) && (uiInputs.length === 0 || impact)) {
-    const reached = suiteInputs.length > 0 ? affectedSpecs(root, suiteInputs) : []
-    const touched = uiInputs.length > 0 ? impactPlan(root, uiInputs, impact) : { specs: [] }
-    if (uiInputs.length > 0 && touched.specs === null) basis = oneLine(touched.reason)
-    if (reached && touched.specs) {
-      selected = [...new Set([...reached, ...touched.specs.map(spec => `e2e/ui-system/${spec}`), ...(serverInputs ? serverSpecs(root, uiPackages(root)) : [])])].sort()
+  let resolvable = false
+  if (browser === 'all' && tier === 'bounded' && !unknownChange && inputs.length > 0) {
+    graph ??= repositoryGraph(root)
+    const readers = path => specsReaching(graph, [join(root, path)]).map(file => relative(root, file)).filter(spec => all.includes(spec))
+    const suiteInputs = inputs.filter(path => path.startsWith('e2e/ui-system/'))
+    const uiInputs = inputs.filter(path => !path.startsWith('e2e/ui-system/') && uiSource(path))
+    const otherInputs = inputs.filter(path => !path.startsWith('e2e/ui-system/') && !uiSource(path))
+    const reached = affectedSpecs(root, suiteInputs, graph)
+    const readSpecs = inputs.flatMap(readers)
+    const otherResolved = otherInputs.every(path => readers(path).length > 0)
+    const touched = uiInputs.length > 0 && impact ? impactPlan(root, uiInputs, impact) : { specs: uiInputs.length ? null : [] }
+    // An unresolvable suite/read input cannot be sampled. Other inputs with an
+    // available map can still use its per-file reach to rank a conservative cap.
+    resolvable = reached !== null && !otherInputs.some(path => path.startsWith('script/shots/') && readers(path).length === 0)
+    if (touched.specs === null) basis = oneLine(touched.reason ?? 'no impact map available')
+    if (reached && touched.specs && otherResolved) {
+      selected = [...new Set([...reached, ...readSpecs, ...touched.specs.map(spec => `e2e/ui-system/${spec}`), ...(serverInputs ? serverSpecs(root, uiPackages(root)) : [])])].sort()
       if (uiInputs.length > 0) basis = `the specs that ran the changed UI source (map of ${(impact.map.commit || 'main').slice(0, 9)})`
+    }
+    if (impact && selected === null && resolvable) {
+      const environment = impact.baseEnvironment?.() ?? impact.map.environment
+      if (Object.entries(impact.map.environment).some(([path, blob]) => environment?.[path] !== blob)) {
+        basis = `map environment differs; ranking recorded reach before filling the cap${basis ? `; ${basis}` : ''}`
+      }
     }
   }
   if (browser === 'all' && selected && selected.length === 0) browser = 'none'
   const matrix = tier === 'bounded' ? 'pr' : 'full'
-  // A development push must cover its range even when a missing/stale map or
-  // an untraceable input prevents narrowing. Sampling would lose reached specs.
-  const unnarrowedDevelopment = event === 'push' && refName === 'development' && selected === null
+  // Unknown ranges, missing maps and unresolvable reads run uncapped. A map
+  // that cannot exclude specs still ranks recorded reach within the cap.
+  const unnarrowedDevelopment = event === 'push' && refName === 'development' && selected === null && !(impact && resolvable)
   if (unnarrowedDevelopment && !basis) basis = 'no usable impact selection; running every browser spec'
-  const bounded = tier === 'bounded' && browser === 'all' && !unknownChange && !unnarrowedDevelopment ? boundedSpecs(root, selected ?? all, inputs, impact) : null
+  const bounded = tier === 'bounded' && browser === 'all' && !unknownChange && !unnarrowedDevelopment ? boundedSpecs(root, selected ?? all, inputs, impact, graph ?? repositoryGraph(root)) : null
   if (bounded && (selected !== null || bounded.deferred.length > 0)) selected = bounded.selected
   const count = browser === 'all'
     ? bounded?.count ?? shardCount(all.map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix))
@@ -207,17 +225,25 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, refNam
     shards: JSON.stringify(Array.from({ length: Math.max(1, count) }, (_, index) => index + 1)),
     summary: `CI tier: ${tier}. ` + (browser === 'all'
       ? `Browser suite: ${selected ? `${selected.length} of ${all.length} specs` : `all ${all.length} specs`}, ${matrix === 'pr' ? 'pull-request' : 'full'} theme matrix, ${count} shard${count === 1 ? '' : 's'}.${basis ? ` ${basis.includes('map of') ? 'Selected by' : 'Not narrowed:'} ${basis}.` : ''}`
-      : `Browser suite: ${browser === 'server' ? 'server-facing specs only' : 'not needed for this change'}.`) + (bounded?.overBudget ? ' Mandatory edited specs exceed the planned time budget; all still run.' : '') + (bounded?.deferred.length ? ` Deferred to full tier (${bounded.deferred.length}): ${bounded.deferred.map(oneLine).join(', ')}.` : ''),
+      : `Browser suite: ${browser === 'server' ? 'server-facing specs only' : 'not needed for this change'}.`) + (bounded?.overBudget ? ' Mandatory edited or reader specs exceed the planned time budget; all still run.' : '') + (bounded?.deferred.length ? ` Deferred to full tier (${bounded.deferred.length}): ${bounded.deferred.map(oneLine).join(', ')}.` : ''),
   }
+}
+
+export function changePlanner(root) {
+  const packages = uiPackages(root)
+  const graph = repositoryGraph(root)
+  const prepared = { packages, graph, specs: serverSpecs(root, packages), external: uiExternalImports(root) }
+  return options => planChange(root, options, prepared)
 }
 
 // CI's merge commit names its base as HEAD^1. A local caller can name its merge
 // base instead, so theme and impact-map freshness answer for the same change.
-export function planChange(root, { event, paths, headBranch = '', refName = '', labels = [], map = null, baseRevision = 'HEAD^1' }) {
+export function planChange(root, { event, paths, headBranch = '', refName = '', labels = [], map = null, baseRevision = 'HEAD^1' }, prepared = null) {
   const tier = ciTier({ event, headBranch, refName, labels })
   const knownPaths = paths?.length > 0 && paths.every(path => path.length > 0 && !path.startsWith('/') && !path.split('/').includes('..') && !/[\u0000-\u001f\u007f]/.test(path))
-  const inputs = uiPackages(root)
-  const specs = serverSpecs(root, inputs)
+  const inputs = prepared?.packages ?? uiPackages(root)
+  const specs = prepared?.specs ?? serverSpecs(root, inputs)
+  let graph = prepared?.graph
   let decision = { browser: 'all', native: true }
   let browserInputs = []
   let serverInputs = false
@@ -227,8 +253,9 @@ export function planChange(root, { event, paths, headBranch = '', refName = '', 
     try {
       // A name with a control character in it is not one to plan from: run everything.
       if (knownPaths) {
-        const external = uiExternalImports(root)
-        const uiInput = path => !DEAL_ONLY.test(path) && (BROWSER.some(pattern => pattern.test(path)) || inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]) || external.has(path))
+        graph ??= repositoryGraph(root)
+        const external = prepared?.external ?? uiExternalImports(root)
+        const uiInput = path => !DEAL_ONLY.test(path) && (BROWSER.some(pattern => pattern.test(path)) || inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]) || external.has(path) || graph.importers.has(join(root, path)))
         browserInputs = paths.filter(uiInput)
         serverInputs = paths.some(path => /^packages\/(?!desktop\/)[^/]+\//.test(path) && !inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]))
         decision = {
@@ -243,7 +270,7 @@ export function planChange(root, { event, paths, headBranch = '', refName = '', 
     }
   }
   const plan = browserPlan(root, {
-    browser: decision.browser, inputs: browserInputs, serverInputs, event, refName, tier, unknownChange, unknownReason,
+    browser: decision.browser, inputs: browserInputs, serverInputs, event, refName, tier, unknownChange, unknownReason, graph,
     impact: map ? { map, baseFiles: () => filesAtBase(root, baseRevision), baseEnvironment: () => environmentAt(root, baseRevision) } : null,
   })
   return {

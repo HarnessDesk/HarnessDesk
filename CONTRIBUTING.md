@@ -92,15 +92,24 @@ full-tier only. Required check names stay the same and accept intentional
 skips, including browser jobs for docs-only pushes.
 
 Development pushes and local `check:push` keep added and edited specs, follow
-suite helpers and use the cached impact map of main to find specs that ran
-changed UI source. Missing or stale map evidence starts from the whole suite.
-The planner keeps the most specific selections first within four shards of at
-most 1,000 recorded test seconds each; edited specs always survive that budget.
-An unavailable development push range bypasses this cap to run every spec.
-The `UI_SYSTEM_MATRIX=pr` matrix reads geometry contracts in light and colour
-contracts in both themes. Local checks have their own execution budget and
-report anything left to full CI. Push runs and manual dispatches use separate
-concurrency groups, so a development push cannot cancel its nightly full run.
+suite helpers, and resolve files read by specs to their readers. A mixed change
+to UI source and a document combines the map's reach with the document's readers.
+Development restores its last full-run map first, then main's, then legacy
+`ui-impact-map-<sha>` entries. The planner keeps the most specific selections
+first within four shards of at most 1,000 recorded test seconds each. Edited
+specs and the readers of changed files always survive that budget.
+If the map's environment differs (protocol, client, UI configuration or root
+setup), its recorded per-file reach still ranks specs first, then the cap fills;
+the summary names the mismatch and every
+deferred spec. Other stale map evidence also ranks a conservative capped sample.
+On a development push, an unknown or unfetchable change range, no impact map
+when one is needed, an unreadable input graph, or an unresolvable read runs
+every spec without the cap. The `UI_SYSTEM_MATRIX=pr` matrix reads geometry
+contracts in light and colour contracts in both themes. Local checks have their
+own execution budget and report anything left to full CI. Each development
+push has a commit-keyed concurrency group, preserving running and pending
+coverage of earlier ranges; dispatches have a separate group, so pushes cannot
+cancel the nightly full run.
 
 The full tier uses `UI_SYSTEM_MATRIX=full` everywhere. Regressions beyond core
 CI, reached browser specs and local checks are caught by the nightly
@@ -109,7 +118,8 @@ the full suite. `script/land-safe.mjs` refuses a bounded run even if all require
 proof must share the required checks' workflow check suite.
 
 Every full browser run records the UI modules each spec loaded and ran.
-`script/ui-impact.mjs merge` folds the records into a map, and main caches it.
+`script/ui-impact.mjs merge` folds the records into a map; main and development
+cache it after clean full runs.
 A changed module selects the specs in which it ran; stylesheets and constants
 follow their importers, including data exports, bundler imports and glob loads.
 Unseen or changed specs and incomplete recordings join that selection before
