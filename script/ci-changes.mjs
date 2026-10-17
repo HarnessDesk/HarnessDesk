@@ -42,6 +42,8 @@ const BROWSER = [
   /^playwright\.ui-system\.config\.ts$/, // Defines the browser suite and its Vite preview server.
   /^script\/ci-browser-shards\.mjs$/, // Deals the specs to the shards: a change to it changes what each shard runs.
   /^script\/(?:ui-system-run|ci-server-split)(?:\.test)?\.mjs$/, // The runner and classifier decide which server each selected spec reads.
+  /^docs\/interface\.md$/, // team-board-widths reads the board's layout contract.
+  /^script\/shots\//, // Browser specs read source text and run the synthetic template rigs.
   /^e2e\/ui-system\//, // Browser specs, helpers and recorded metrics live in this test directory.
 ]
 
@@ -171,13 +173,13 @@ function boundedSpecs(root, candidates, inputs, impact) {
   return { selected: selected.sort(), deferred: deferred.sort(), count, overBudget }
 }
 
-export function browserPlan(root, { browser, inputs, serverInputs, event, tier = ciTier({ event }), impact = null, unknownChange = false }) {
+export function browserPlan(root, { browser, inputs, serverInputs, event, refName = '', tier = ciTier({ event, refName }), impact = null, unknownChange = false, unknownReason = 'change range unavailable' }) {
   const all = specFiles(root).map(spec => `e2e/ui-system/${spec}`)
   let selected = null
-  let basis = unknownChange ? 'change range unavailable; running every browser spec' : ''
+  let basis = unknownChange ? `${unknownReason}; running every browser spec` : ''
   const suiteInputs = inputs.filter(path => path.startsWith('e2e/ui-system/'))
   const uiInputs = inputs.filter(path => !path.startsWith('e2e/ui-system/'))
-  if (browser === 'all' && tier === 'bounded' && inputs.length > 0 && uiInputs.every(uiSource) && (uiInputs.length === 0 || impact)) {
+  if (browser === 'all' && tier === 'bounded' && !unknownChange && inputs.length > 0 && uiInputs.every(uiSource) && (uiInputs.length === 0 || impact)) {
     const reached = suiteInputs.length > 0 ? affectedSpecs(root, suiteInputs) : []
     const touched = uiInputs.length > 0 ? impactPlan(root, uiInputs, impact) : { specs: [] }
     if (uiInputs.length > 0 && touched.specs === null) basis = oneLine(touched.reason)
@@ -188,7 +190,11 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, tier =
   }
   if (browser === 'all' && selected && selected.length === 0) browser = 'none'
   const matrix = tier === 'bounded' ? 'pr' : 'full'
-  const bounded = tier === 'bounded' && browser === 'all' && !unknownChange ? boundedSpecs(root, selected ?? all, inputs, impact) : null
+  // A development push must cover its range even when a missing/stale map or
+  // an untraceable input prevents narrowing. Sampling would lose reached specs.
+  const unnarrowedDevelopment = event === 'push' && refName === 'development' && selected === null
+  if (unnarrowedDevelopment && !basis) basis = 'no usable impact selection; running every browser spec'
+  const bounded = tier === 'bounded' && browser === 'all' && !unknownChange && !unnarrowedDevelopment ? boundedSpecs(root, selected ?? all, inputs, impact) : null
   if (bounded && (selected !== null || bounded.deferred.length > 0)) selected = bounded.selected
   const count = browser === 'all'
     ? bounded?.count ?? shardCount(all.map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix))
@@ -215,6 +221,8 @@ export function planChange(root, { event, paths, headBranch = '', refName = '', 
   let decision = { browser: 'all', native: true }
   let browserInputs = []
   let serverInputs = false
+  let unknownChange = event === 'push' && refName === 'development' && !knownPaths
+  let unknownReason
   if (tier === 'bounded' && paths) {
     try {
       // A name with a control character in it is not one to plan from: run everything.
@@ -230,11 +238,12 @@ export function planChange(root, { event, paths, headBranch = '', refName = '', 
       }
     } catch {
       // An unreadable input graph keeps the conservative decision, as an unreadable diff does.
+      unknownChange = event === 'push' && refName === 'development'
+      unknownReason = 'input graph unavailable'
     }
   }
   const plan = browserPlan(root, {
-    browser: decision.browser, inputs: browserInputs, serverInputs, event, tier,
-    unknownChange: event === 'push' && refName === 'development' && !knownPaths,
+    browser: decision.browser, inputs: browserInputs, serverInputs, event, refName, tier, unknownChange, unknownReason,
     impact: map ? { map, baseFiles: () => filesAtBase(root, baseRevision), baseEnvironment: () => environmentAt(root, baseRevision) } : null,
   })
   return {

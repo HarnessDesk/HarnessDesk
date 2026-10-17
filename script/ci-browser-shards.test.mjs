@@ -279,7 +279,7 @@ test('a full run records what each spec ran, and only a pull request that runs p
   assert.match(browser, /- uses: actions\/upload-artifact@\S+\n        if: success\(\) && needs\.changes\.outputs\.record == 'true'\n        with:\n          name: ui-impact-\$\{\{ matrix\.shard \}\}\n          path: output\/ui-impact\//)
 })
 
-test('the map is made from a clean full run, kept only by main, and restored for PRs and development pushes', () => {
+test('the map is made from a clean full run, kept by main and development, and restored with the branch preferred', () => {
   const map = job('ui-impact-map')
   assert.match(map, /^    needs: \[changes, ui-system-browser\]$/m)
   assert.match(map, /^    if: needs\.changes\.outputs\.record == 'true' && needs\.ui-system-browser\.result == 'success'$/m)
@@ -290,9 +290,9 @@ test('the map is made from a clean full run, kept only by main, and restored for
   assert.doesNotMatch(map, /steps\.map\./)
   assert.match(map, /test -s ui-impact-map\.json/)
   assert.match(map, /actions\/upload-artifact@\S+\n        with:\n          name: ui-impact-map\n/)
-  assert.match(map, /actions\/cache\/save@\S+\n        if: github\.ref == 'refs\/heads\/main'\n        with:\n          path: ui-impact-map\.json\n          key: ui-impact-map-\$\{\{ github\.sha \}\}/)
+  assert.match(map, /actions\/cache\/save@\S+\n        if: github\.ref == 'refs\/heads\/main' \|\| github\.ref == 'refs\/heads\/development'\n        with:\n          path: ui-impact-map\.json\n          key: ui-impact-map-\$\{\{ github\.ref_name \}\}-\$\{\{ github\.sha \}\}/)
   const changes = job('changes')
-  assert.match(changes, /if: github\.event_name == 'pull_request' \|\| \(github\.event_name == 'push' && github\.ref == 'refs\/heads\/development'\)\n        uses: actions\/cache\/restore@\S+\n        with:\n          path: ui-impact-map\.json\n          key: ui-impact-map-none\n          restore-keys: ui-impact-map-\n/)
+  assert.match(changes, /if: github\.event_name == 'pull_request' \|\| \(github\.event_name == 'push' && github\.ref == 'refs\/heads\/development'\)\n        uses: actions\/cache\/restore@\S+\n        with:\n          path: ui-impact-map\.json\n          key: ui-impact-map-\$\{\{ github\.ref_name \}\}-none\n          restore-keys: \|\n            ui-impact-map-\$\{\{ github\.ref_name \}\}-\n            ui-impact-map-main-\n/)
   assert.ok(changes.includes('UI_IMPACT_MAP: ui-impact-map.json'))
   // The map job concludes nothing the merge depends on: neither aggregate waits for it.
   assert.doesNotMatch(job('ui-system-browser-integration'), /ui-impact-map/)

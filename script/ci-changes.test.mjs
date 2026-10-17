@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -83,9 +83,11 @@ for (const path of ['e2e/ui-system/row-box.spec.ts', 'playwright.ui-system.confi
 for (const path of ['e2e/ui-system/durations.json', 'e2e/ui-system/durations.pr.json']) {
   test(`${path} opens no browser`, () => check([path], ['none', false]))
 }
-for (const path of ['packages/desktop/electron/main.mjs', 'script/shots/seed.mjs', 'script/lib/temporary-directory.mjs']) {
+for (const path of ['packages/desktop/electron/main.mjs', 'script/lib/temporary-directory.mjs']) {
   test(`${path} runs native smoke`, () => check([path], ['none', true]))
 }
+test('the shot seed selects browser coverage and native smoke', () =>
+  check(['script/shots/seed.mjs'], ['all', true]))
 // It sits in the browser test directory but no browser spec imports it, so only the native job runs it.
 test('the native smoke runner runs native smoke and no browser spec', () =>
   check(['e2e/ui-system/native-smoke.mjs'], ['none', true]))
@@ -616,3 +618,59 @@ test('only the exact development PR head selects the release tier', () => {
   assert.equal(ciTier({ event: 'pull_request', headBranch: 'development/topic' }), 'bounded')
   assert.equal(ciTier({ event: 'pull_request', refName: 'development' }), 'bounded')
 })
+
+for (const path of [
+  'packages/ui/src/App.tsx', 'package.json',
+  'e2e/ui-system/composer-slot-record.json', 'e2e/ui-system/a-deleted-helper.ts',
+]) {
+  test(`a development push runs every spec when the plan cannot narrow ${path}`, () => {
+    const run = cliPlan([path], 'push', { CI_REF_NAME: 'development' })
+    assert.equal(run.browser_specs, 'all')
+    assert.ok(Number(run.shard_count) > 4, run.shard_count)
+    assert.doesNotMatch(run.summary, /Deferred to full tier/)
+  })
+}
+
+test('a stale impact map cannot cap a development push', () => {
+  const map = impactMap()
+  const base = current(map).baseFiles()
+  base['packages/ui/src/components/BringHome.tsx'] = 'f'.repeat(40)
+  const run = planWith(['packages/ui/src/components/BringHome.tsx'], { ...current(map), baseFiles: () => base }, { event: 'push', refName: 'development' })
+  assert.equal(run.specs, 'all')
+  assert.deepEqual(run.deferred, [])
+  assert.ok(run.count > 4)
+  assert.match(run.summary, /Not narrowed: .*has changed on the base branch/)
+})
+
+test('a development push still caps a successfully narrowed impact plan', () => {
+  const run = planWith(['packages/ui/src/design/ui/button.tsx'], current(impactMap()), { event: 'push', refName: 'development' })
+  assert.ok(run.deferred.length > 0)
+  assert.ok(run.count <= 4)
+})
+
+test('an unreadable input graph runs every browser spec on a development push', async () => {
+  await fixture((root, put) => {
+    put('e2e/ui-system/durations.json', '{}')
+    // The source walk encounters an unreadable file while building uiExternalImports.
+    put('packages/ui/src/placeholder.ts', '')
+    symlinkSync('missing.ts', join(root, 'packages/ui/src/unreadable.ts'))
+    const run = planChange(root, { event: 'push', refName: 'development', paths: ['docs/architecture.md'] })
+    assert.equal(run.browser, 'all')
+    assert.equal(run.browser_specs, 'all')
+    assert.match(run.summary, /input graph unavailable.*every browser spec/)
+  })
+})
+
+for (const [path, spec] of [
+  ['docs/interface.md', 'team-board-widths.spec.ts'],
+  ['script/shots/shoot.mjs', 'header-status-group.spec.ts'],
+  ['script/shots/template-rig.mjs', 'front-door-edit.spec.ts'],
+  ['script/shots/templates.mjs', 'template-journeys.spec.ts'],
+]) {
+  test(`a development push touching ${path} covers ${spec}`, () => {
+    const run = cliPlan([path], 'push', { CI_REF_NAME: 'development' })
+    assert.equal(run.browser, 'all')
+    assert.ok(run.browser_specs === 'all' || JSON.parse(run.browser_specs).includes(`e2e/ui-system/${spec}`))
+    assert.equal(run.native, 'false')
+  })
+}

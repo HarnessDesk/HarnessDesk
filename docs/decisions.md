@@ -3715,14 +3715,20 @@ without prompt detection, so every development push now runs core CI plus the
 same bounded browser selection formerly used for pull requests. Diff the
 push's `github.event.before` against `HEAD`, fetching the before commit when
 the shallow checkout lacks it, and compute theme metadata over that same range.
-Restore main's impact map to select reached UI specs, retain edited specs and
-include server-facing coverage when reached. Docs-only pushes open no browser.
+Prefer development's last full-run impact map, falling back to main's, to
+select reached UI specs, retain edited specs and include server-facing coverage
+when reached. Save maps from clean full runs on both branches under distinct
+branch keys. Files the specs read, including the interface contract and shot
+rigs, are browser inputs; other docs-only pushes open no browser.
 
 A missing, all-zero or unavailable before commit runs every browser spec with
 the bounded theme matrix, bypassing the selection cap rather than guessing at
-the pushed change. Native smoke stays full-tier only. Ordinary pull requests
+the pushed change. An unreadable input graph or any plan that cannot narrow
+the selection does the same on a development push, including a missing or stale
+impact map. Native smoke stays full-tier only. Ordinary pull requests
 remain core-only as decided in #1734. Main pushes, nightly/manual dispatches,
 the development release PR, batch heads and the full-ci label retain their full
 tier. Required check names and intentional-skip success stay stable. Push and
 dispatch concurrency groups remain separate so a landing cannot cancel the
-nightly full run.
+nightly full run. Each development push also has its own commit-keyed group,
+so later pushes cannot cancel running or pending coverage of earlier ranges.
