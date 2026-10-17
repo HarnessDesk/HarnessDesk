@@ -342,3 +342,21 @@ test('JSON-shaped plain text cannot carry an escaped credential', async () => {
     assert.ok(!JSON.stringify(result).includes(key))
   }
 })
+
+test('a reply in the provider\'s current shape is read, and its extra fields are not passed on', async () => {
+  const s = await setup([message([{ type: 'text', text: 'Checking', citations: null },
+    { ...tool('use-1', 'library_usage'), caller: { type: 'direct' } }], { stop_reason: 'tool_use', container: null, stop_details: null,
+    diagnostics: {} }), message()])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.deepEqual(s.dispatched, ['library/usage'])
+  assert.deepEqual(result.messages.at(-2).content, [{ type: 'text', text: 'Checking' }, tool('use-1', 'library_usage')])
+  // A tool the provider ran on someone else's behalf was never offered here.
+  const other = await setup([message([{ ...tool('use-2', 'library_usage'), caller: { type: 'code_execution_20250825', tool_id: 'x' } }], { stop_reason: 'tool_use' })])
+  assert.equal((await other.client.request(input, new AbortController().signal)).status, 'invalid-response')
+  assert.deepEqual(other.dispatched, [])
+  // History the caller supplies stays strict.
+  const strict = await setup([])
+  const extra = [...input.messages, { role: 'assistant', content: [{ type: 'text', text: 'x', citations: null }] }, input.messages[0]]
+  assert.equal((await strict.client.request({ ...input, messages: extra }, new AbortController().signal)).status, 'refused')
+})

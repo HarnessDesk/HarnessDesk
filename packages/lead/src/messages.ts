@@ -96,20 +96,25 @@ const toolCall = (block: MessagesToolUse): LeadPermissionCall => {
   const parsed = parseClientMessage({ id: 1, method: tool.method, params: input })
   return { method: tool.method, params: parsed.params } as LeadPermissionCall
 }
-const block = (value: unknown): MessagesText | MessagesToolUse => {
+/** History the caller supplies must be exactly what this client returned. A provider
+ * reply may carry fields added after this was written (`citations`, `caller`); they
+ * are read past and never passed on, except that a tool use made on behalf of anything
+ * other than the model directly was never offered here and is refused. */
+const block = (value: unknown, provider = false): MessagesText | MessagesToolUse => {
   const source = object(value)
   if (source.type === 'text') {
-    object(source, ['type', 'text'])
+    if (!provider) object(source, ['type', 'text'])
     return { type: 'text', text: string(source.text) }
   }
   if (source.type !== 'tool_use') return fail()
-  object(source, ['type', 'id', 'name', 'input'])
+  if (!provider) object(source, ['type', 'id', 'name', 'input'])
+  else if (source.caller !== undefined && object(source.caller).type !== 'direct') fail()
   // A recognizable use with malformed arguments still receives its correlated error.
   return { type: 'tool_use', id: identifier(source.id), name: string(source.name, 128), input: source.input ?? null }
 }
-const blocks = (value: unknown): (MessagesText | MessagesToolUse)[] => {
+const blocks = (value: unknown, provider = false): (MessagesText | MessagesToolUse)[] => {
   if (!Array.isArray(value) || value.length === 0 || value.length > LIMIT.blocks) return fail()
-  const result = value.map(block), ids = result.filter(item => item.type === 'tool_use').map(item => item.id)
+  const result = value.map(item => block(item, provider)), ids = result.filter(item => item.type === 'tool_use').map(item => item.id)
   if (new Set(ids).size !== ids.length) return fail()
   return result
 }
@@ -298,7 +303,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     let content: (MessagesText | MessagesToolUse)[], output: ReturnType<typeof proposals>
     try {
       if (parsed.type !== 'message' || parsed.role !== 'assistant' || !['end_turn', 'tool_use', 'max_tokens', 'stop_sequence'].includes(parsed.stop_reason as string)) fail()
-      content = blocks(parsed.content)
+      content = blocks(parsed.content, true)
       safeJson(content)
       if (parsed.stop_reason === 'tool_use' && !content.some(item => item.type === 'tool_use')) fail()
       if (parsed.stop_reason !== 'tool_use' && parsed.stop_reason !== 'max_tokens' && content.some(item => item.type === 'tool_use')) fail()
