@@ -562,7 +562,8 @@ const ControlBoard = () => {
             ]}
           />
           <div className="mt-2 flex flex-wrap gap-2">
-            {TOGGLE_GROUP_CATALOG_VARIANTS.filter(variant => variant !== 'chips').map((variant) => (
+            {/* Chips render on their own row below, so this row skips them. */}
+            {TOGGLE_GROUP_CATALOG_VARIANTS.map((variant) => variant === 'chips' ? null : (
               <ToggleGroup key={variant} type="single" variant={variant} defaultValue="one" data-catalog-variant={variant}>
                 <ToggleGroupItem value="one">One</ToggleGroupItem>
                 <ToggleGroupItem value="two">Two</ToggleGroupItem>
