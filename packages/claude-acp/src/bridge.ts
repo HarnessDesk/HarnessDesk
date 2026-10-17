@@ -370,7 +370,10 @@ export const DESK_READ_TOOLS = new Set(
     .filter(([, ceiling]) => ceiling === 'read')
     .map(([name]) => name),
 )
-const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'Task', 'Agent', 'TaskOutput'])
+// ToolSearch only loads deferred tool schemas. Each loaded tool is still judged
+// by this ceiling when called, and without it a read seat cannot reach the
+// desk's review tools (record_review, complete_claim) at all.
+const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'Task', 'Agent', 'TaskOutput', 'ToolSearch'])
 
 export const forkedControls = (parent: Record<string, string>): Record<string, string> =>
   parent['ceiling'] === 'read' ? { ceiling: 'read' } : {}
