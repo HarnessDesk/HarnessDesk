@@ -27,12 +27,16 @@ const cost = (tokens: number, rate: number): number => {
 // collide. Time is excluded so retries of the same usage remain idempotent.
 const usageDigest = (usage: Event<'settle'>) => [usage.inputTokens, usage.outputTokens, usage.cacheReadTokens ?? 0,
   usage.cacheWriteTokens ?? 0].map(value => value.toString(36)).join('.')
-const charge = (reserve: Event<'reserve'>, usage: Event<'settle'> | null): number => usage
-  ? cost(usage.inputTokens, reserve.inputUsdMicrosPerMillion) + cost(usage.outputTokens, reserve.outputUsdMicrosPerMillion) +
-    cost(usage.cacheReadTokens ?? 0, reserve.cacheReadUsdMicrosPerMillion) +
-    cost(usage.cacheWriteTokens ?? 0, reserve.cacheWriteUsdMicrosPerMillion)
-  : cost(reserve.inputTokens, Math.max(reserve.inputUsdMicrosPerMillion, reserve.cacheReadUsdMicrosPerMillion,
-    reserve.cacheWriteUsdMicrosPerMillion)) + cost(reserve.maxOutputTokens, reserve.outputUsdMicrosPerMillion)
+const charge = (reserve: Event<'reserve'>, usage: Event<'settle'> | null): number => {
+  if (usage) return cost(usage.inputTokens, reserve.inputUsdMicrosPerMillion) + cost(usage.outputTokens, reserve.outputUsdMicrosPerMillion) +
+    cost(usage.cacheReadTokens ?? 0, reserve.cacheReadUsdMicrosPerMillion) + cost(usage.cacheWriteTokens ?? 0, reserve.cacheWriteUsdMicrosPerMillion)
+  const rates = [reserve.inputUsdMicrosPerMillion, reserve.cacheReadUsdMicrosPerMillion, reserve.cacheWriteUsdMicrosPerMillion]
+  const maximum = Math.max(...rates)
+  // Each additional populated input category can add one micro-unit of rounding.
+  // An integral per-token maximum already bounds each category without headroom.
+  const rounding = maximum % 1_000_000 === 0 ? 0 : Math.min(Math.max(0, reserve.inputTokens - 1), rates.filter(rate => rate > 0).length - 1)
+  return cost(reserve.inputTokens, maximum) + rounding + cost(reserve.maxOutputTokens, reserve.outputUsdMicrosPerMillion)
+}
 const covers = (state: LeadBudgetLedger, observation: Event<'observe'>) => observation.executionIds.length === state.executionIds.length &&
   state.executionIds.every(id => observation.executionIds.includes(id))
 /** Read-only projection takes time explicitly. Unknown, partial or stale attribution

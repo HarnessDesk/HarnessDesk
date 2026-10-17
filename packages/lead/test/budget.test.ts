@@ -353,3 +353,16 @@ test('failed stop-effect acknowledgement remains pending for supervisor retry', 
   assert.equal(stops, 2)
   assert.equal((await open(storage)).state.stopEffectsPending, null)
 })
+
+test('cache reservations cover independent micro-unit rounding across all input categories', () => {
+  const reservation = { ...reserve('paid-1', 0), inputTokens: 3,
+    inputUsdMicrosPerMillion: 1, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 1 }
+  const reserved = reduce(reduce(null, init), reservation)
+  assert.equal(reserved.reservedUsdMicros, 3)
+  const settled = reduce(reserved, { ...settle('paid-1', 0), inputTokens: 1, cacheReadTokens: 1, cacheWriteTokens: 1 })
+  assert.equal(settled.leadUsdMicros, reserved.reservedUsdMicros)
+  for (const [inputTokens, expected] of [[0, 0], [1, 1], [2, 2], [10, 3]] as const) {
+    const state = reduce(reduce(null, init), { ...reservation, inputTokens })
+    assert.equal(state.reservedUsdMicros, expected)
+  }
+})
