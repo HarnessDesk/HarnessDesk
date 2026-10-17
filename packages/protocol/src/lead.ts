@@ -1,4 +1,4 @@
-import { CLIENT_METHODS, type ClientMethodName } from './client-surface.js'
+import { CLIENT_ACTION_TIERS, CLIENT_METHODS, type ClientMethodName } from './client-surface.js'
 import type { CeilingLevel } from './evidence.js'
 import type { FlowSeat } from './flow.js'
 import { flowSeatValidator } from './flow-seat.js'
@@ -296,9 +296,15 @@ export const parseLeadAssertionResult: Validator<LeadAssertionResult> = object({
 })
 const method: Validator<ClientMethodName> = (value, path = '') =>
   typeof value === 'string' && Object.hasOwn(CLIENT_METHODS, value) ? value as ClientMethodName : fail(path, 'method outside client surface')
-const rule: Validator<LeadPermissionRule> = object({
+const ruleShape: Validator<LeadPermissionRule> = object({
   id, effect: literalUnion('allow', 'ask', 'deny'), method, action: nullable(id), project: nullable(opaque),
 })
+const rule: Validator<LeadPermissionRule> = (value, path = '') => {
+  const parsed = ruleShape(value, path)
+  if (parsed.action !== null && !Object.hasOwn(CLIENT_ACTION_TIERS, parsed.method))
+    fail(path, 'method has no permission actions')
+  return parsed
+}
 export const parseLeadPermissionPolicy: Validator<LeadPermissionPolicy> = object({
   version, revision, mode: literalUnion('plan', 'default', 'manage'), rules: list(rule, LEAD_LIMITS.rules, 0, rule => rule.id),
 })

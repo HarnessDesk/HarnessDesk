@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { parseLeadAcceptanceContract, parseLeadBudgetState, parseLeadPermissionPolicy, type LeadPermissionPolicy } from '@harnessdesk/protocol'
+import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetState, parseLeadPermissionPolicy, type LeadPermissionPolicy } from '@harnessdesk/protocol'
 import * as lead from '../src/index.js'
 
 const contract = parseLeadAcceptanceContract({
@@ -15,7 +15,7 @@ const policy = (mode: LeadPermissionPolicy['mode'] = 'manage', rules: LeadPermis
   parseLeadPermissionPolicy({ version: 1, revision, mode, rules })
 const rule = (effect: 'allow' | 'ask' | 'deny', id: string = effect) => ({ id, effect, method: 'flow/execution/stop' as const, action: null, project: null })
 // Dynamic export lookup makes the first red assertion describe the missing behavior.
-const decide = (request: unknown, context: unknown): { effect: string; rule: unknown; reason: string } => {
+const decide = (request: unknown, context: unknown): { effect: string; rule: unknown; reason: string; floor: string | null; call: { method: string; params: unknown } | null } => {
   const fn = (lead as Record<string, unknown>).decideLeadPermission
   assert.equal(typeof fn, 'function', 'decideLeadPermission must enforce the desk deny before a project allow')
   return (fn as (r: unknown, c: unknown) => ReturnType<typeof decide>)(request, context)
@@ -93,32 +93,33 @@ test('every immutable floor survives project allow, manage mode and an approved 
     context(), { ...context(), desk: approved },
   ]
   const cases = [
-    { label: 'merge', request: { ...request(), method: 'git/merge', params: {} } },
-    { label: 'publish', request: { ...request(), params: { run: 'run-1', action: 'publish' } } },
-    { label: 'delete', request: { ...request(), params: { run: 'run-1', action: 'delete' } } },
-    { label: 'worker approval', request: { ...request(), method: 'approval/respond', params: { choice: 'approve' } } },
-    { label: 'off surface', request: { ...request(), method: 'session/send', params: {} } },
-    { label: 'answer tier', request: { ...request(), method: 'team/intent', params: { room: 'room-1', id: 1, action: 'done' } } },
-    { label: 'unknown action', request: { ...request(), method: 'team/intent', params: { action: 'other' } } },
-    { label: 'unapproved', context: { approved: null } },
-    { label: 'unrelated project', request: { ...request(), project: { id: 'other', path: '/workspace/other' } } },
-    { label: 'unrelated run', request: { ...request(), runId: 'run-other', params: { run: 'run-other' } } },
-    { label: 'disguised run', request: { ...request(), params: { run: 'run-other' } } },
-    { label: 'stale consent', context: { now: 200 } },
-    { label: 'changed contract', context: { approved: { ...context().approved, consent: { ...context().approved.consent, contractRevision: 0 } } } },
-    { label: 'stale digest', context: { approved: { ...context().approved, consent: { ...context().approved.consent, contractDigest: 'b'.repeat(64) } } } },
-    { label: 'stale policy consent', context: { approved: { ...context().approved, consent: { ...context().approved.consent, policyRevision: 0 } } } },
-    { label: 'caps', context: { budget: { ...context().budget, leadUsdMicros: 500, stop: { reason: 'budget', revision: 1 } } } },
-    { label: 'rounds', context: { budget: { ...context().budget, roundsAdmitted: 3 } } },
-    { label: 'unknown spend', context: { budget: { ...context().budget, spend: 'unknown' } } },
-    { label: 'stale spend', context: { budget: { ...context().budget, spend: 'stale' } } },
-    { label: 'partial spend', context: { budget: { ...context().budget, spend: 'partial' } } },
-    { label: 'missing budget', context: { budget: null } },
-    { label: 'policy interpretation', context: { policyInterpretation: 'interpreting' } },
+    { label: 'merge', floor: 'irreversible', request: { ...request(), method: 'git/merge', params: {} } },
+    { label: 'publish', floor: 'irreversible', request: { ...request(), params: { run: 'run-1', action: 'publish' } } },
+    { label: 'delete', floor: 'irreversible', request: { ...request(), params: { run: 'run-1', action: 'delete' } } },
+    { label: 'worker approval', floor: 'worker-approval', request: { ...request(), method: 'approval/respond', params: { choice: 'approve' } } },
+    { label: 'off surface', floor: 'client-surface', request: { ...request(), method: 'session/send', params: {} } },
+    { label: 'answer tier', floor: 'client-surface', request: { ...request(), method: 'team/intent', params: { room: 'room-1', id: 1, action: 'done' } } },
+    { label: 'unknown action', floor: 'client-surface', request: { ...request(), method: 'team/intent', params: { action: 'other' } } },
+    { label: 'unapproved', floor: 'unapproved', context: { approved: null } },
+    { label: 'unrelated project', floor: 'project', request: { ...request(), project: { id: 'other', path: '/workspace/other' } } },
+    { label: 'unrelated run', floor: 'run', request: { ...request(), runId: 'run-other', params: { run: 'run-other', reason: 'Stop work' } } },
+    { label: 'disguised run', floor: 'run', request: { ...request(), params: { run: 'run-other', reason: 'Stop work' } } },
+    { label: 'stale consent', floor: 'consent', context: { now: 200 } },
+    { label: 'changed contract', floor: 'consent', context: { approved: { ...context().approved, consent: { ...context().approved.consent, contractRevision: 0 } } } },
+    { label: 'stale digest', floor: 'consent', context: { approved: { ...context().approved, consent: { ...context().approved.consent, contractDigest: 'b'.repeat(64) } } } },
+    { label: 'stale policy consent', floor: 'consent', context: { approved: { ...context().approved, consent: { ...context().approved.consent, policyRevision: 0 } } } },
+    { label: 'caps', floor: 'budget', context: { budget: { ...context().budget, leadUsdMicros: 500, stop: { reason: 'budget', revision: 1 } } } },
+    { label: 'rounds', floor: 'budget', context: { budget: { ...context().budget, roundsAdmitted: 3 } } },
+    { label: 'unknown spend', floor: 'budget', context: { budget: { ...context().budget, spend: 'unknown' } } },
+    { label: 'stale spend', floor: 'budget', context: { budget: { ...context().budget, spend: 'stale' } } },
+    { label: 'partial spend', floor: 'budget', context: { budget: { ...context().budget, spend: 'partial' } } },
+    { label: 'missing budget', floor: 'budget', context: { budget: null } },
+    { label: 'policy interpretation', floor: 'policy-interpretation', context: { policyInterpretation: 'interpreting' } },
   ]
   for (const c of wideningPaths) for (const item of cases) {
-    const result = decide(item.request ?? request(), { ...c, ...item.context })
+    const result = decide(item.request ?? startRequest(), { ...c, ...item.context })
     assert.equal(result.effect, 'deny', item.label)
+    assert.equal(result.floor, item.floor, item.label)
     assert.ok(result.reason.length > 0, item.label)
     assert.equal(result.rule, null, item.label)
   }
@@ -153,8 +154,8 @@ test('authority comparison detects effective narrowing, widening, mixed and unch
   const old = policy('manage', [rule('deny')])
   const next = policy('manage', [{ ...rule('deny'), method: 'workspace/open' }], 2)
   assert.equal(compare(old, next), 'mixed')
-  assert.equal(compare(policy('manage'), policy('manage', [{ ...rule('deny'), project: 'unrelated' }], 2)), 'unchanged')
-  assert.equal(compare(policy('plan'), policy('manage', [], 2), policy('plan')), 'unchanged')
+  assert.equal(compare(policy('manage'), policy('manage', [{ ...rule('deny'), project: 'unrelated' }], 2)), 'narrowing')
+  assert.equal(compare(policy('plan'), policy('manage', [], 2), policy('plan')), 'widening')
   assert.equal(compare(policy('manage', [rule('deny'), rule('allow')]), policy('manage', [rule('deny')], 2)), 'unchanged')
   assert.equal(compare(policy('default', [{ ...rule('deny'), method: 'team/intent', action: 'done' }]), policy('default', [], 2)), 'unchanged')
 })
@@ -227,7 +228,7 @@ test('unapproved starts and inflated, exhausted or malformed allowances fail clo
     { stop: { reason: 'cancelled', revision: 1 } }, { leadUsdMicros: NaN },
   ]) assert.equal(decide(startRequest(), { ...context(), budget: { ...context().budget, ...patch } }).effect, 'deny')
   for (const now of [NaN, Infinity, -1, 100.5])
-    assert.equal(decide(request(), { ...context(), now }).effect, 'deny')
+    assert.equal(decide(startRequest(), { ...context(), now }).effect, 'deny')
   for (const params of [null, {}, { run: 'run-1' }, { run: 'run-1', reason: 'Stop', unexpected: true }])
     assert.equal(decide({ ...request(), params }, context()).effect, 'deny')
   assert.equal(decide(request(), { ...context(), desk: { ...policy(), mode: 'unknown' } }).effect, 'deny')
@@ -271,4 +272,178 @@ test('policy comparison and approval preserve inputs and ignore object property 
   const reordered = { rules: current.rules, mode: current.mode, revision: current.revision, version: current.version }
   assert.deepEqual(approve(result.card, reordered), proposed)
   assert.equal(JSON.stringify({ current, proposed }), before)
+})
+
+
+test('stored desk changes cannot hide widening on other projects or behind project restrictions', () => {
+  const startDeny = { ...rule('deny', 'start-deny'), method: 'flow/start-goal' as const, project: 'other-project' }
+  const localDeny = { ...rule('deny', 'local-deny'), method: 'workspace/open' as const, project: contract.project.id }
+  const probes = [
+    { current: policy('manage', [startDeny]), proposed: policy('manage', [localDeny], 2), projectPolicy: null },
+    { current: policy('default'), proposed: policy('default', [{ ...startDeny, effect: 'allow' as const }, localDeny], 2), projectPolicy: null },
+    { current: policy('default'), proposed: policy('default', [rule('allow'), localDeny], 2), projectPolicy: policy('manage', [rule('deny')]) },
+  ]
+  for (const probe of probes) {
+    assert.equal(compare(probe.current, probe.proposed, probe.projectPolicy), 'mixed')
+    for (const approved of [contract, null]) {
+      const result = change(probe.current, probe.proposed, { projectPolicy: probe.projectPolicy, contract: approved })
+      assert.equal(result.comparison, 'mixed')
+      assert.equal(result.kind, 'card')
+      assert.deepEqual(result.policy, probe.current)
+    }
+  }
+})
+
+test('reads cannot discover unrelated projects through omitted listing or subscription scope', () => {
+  const probes = [
+    { method: 'flow/executions', params: {} },
+    { method: 'flow/executions', params: { active: false } },
+    { method: 'goal/list', params: {} },
+    { method: 'client/subscribe', params: { topics: ['runs', 'waiting'] } },
+    { method: 'client/subscribe', params: { topics: ['runs'], scope: {} } },
+    { method: 'library/read', params: { cwd: '/workspace/other' } },
+    { method: 'session/loadout', params: { session: 'someone' } },
+    { method: 'library/read', params: { sessionId: 'someone' } },
+  ]
+  for (const probe of probes) for (const resolved of [null, contract.project]) {
+    const result = decide({ ...request(), ...probe, project: resolved, runId: null }, context())
+    // A resolved target is required for session reads; the host owns session-to-project lookup.
+    if (probe.method === 'session/loadout' && resolved !== null) continue
+    assert.equal(result.effect, 'deny', JSON.stringify({ probe, resolved }))
+  }
+})
+
+test('scoped reads stay within the selected project and honor project denies', () => {
+  const probes = [
+    { method: 'flow/executions', params: { project: contract.project.path } },
+    { method: 'goal/list', params: { root: contract.project.path } },
+    { method: 'client/subscribe', params: { topics: ['runs'], scope: { project: contract.project.path } } },
+    { method: 'library/read', params: { cwd: contract.project.path } },
+    { method: 'session/loadout', params: { session: 'session-1' } },
+  ] as const
+  for (const probe of probes) {
+    assert.equal(decide({ ...request(), ...probe, runId: null }, context()).effect, 'allow')
+    const denyRead = { ...rule('deny'), method: probe.method, project: contract.project.id }
+    const result = decide({ ...request(), ...probe, runId: null }, { ...context(), projectPolicy: policy('manage', [denyRead]) })
+    assert.equal(result.effect, 'deny'); assert.deepEqual(result.rule, { layer: 'project', id: 'deny' })
+  }
+  const deskDeny = { ...rule('deny'), method: 'flow/executions' as const, project: contract.project.id }
+  assert.equal(decide({ ...request(), method: 'flow/executions', params: { active: false }, project: null, runId: null },
+    { ...context(), desk: policy('manage', [deskDeny]) }).effect, 'deny')
+  for (const project of [contract.project.path, '/workspace/other'])
+    assert.equal(decide({ ...request(), method: 'library/read', params: { cwd: project } }, context()).effect,
+      project === contract.project.path ? 'allow' : 'deny')
+  assert.equal(decide({ ...request(), method: 'client/hello', params: { client: { name: 'fixture', version: '1' }, protocol: 1 }, project: null, runId: null }, context()).effect, 'allow')
+})
+
+
+test('approved stop and abandon remain available under every degraded admission state', () => {
+  const cancellations = [request(), { ...request(), method: 'team/intent', params: { room: 'room-1', id: 1, action: 'abandon' } }]
+  const degraded = [
+    { now: 200 }, { now: NaN },
+    { budget: null },
+    { budget: { ...context().budget, stop: { reason: 'budget', revision: 1 } } },
+    ...['unknown', 'stale', 'partial'].map(spend => ({ budget: { ...context().budget, spend } })),
+    { budget: { ...context().budget, roundsAdmitted: 3 } },
+    { budget: { ...context().budget, leadUsdMicros: 480 } },
+    { budget: { ...context().budget, reservedUsdMicros: 470 } },
+    { budget: { ...context().budget, leadUsdMicros: NaN } },
+  ]
+  for (const r of cancellations) for (const patch of degraded) {
+    const c = { ...context(), ...patch }
+    assert.equal(decide(r, c).effect, 'allow', JSON.stringify({ r, patch }))
+    assert.equal(decide(r, { ...c, desk: policy('default') }).effect, 'ask')
+    assert.equal(decide(r, { ...c, desk: policy('plan') }).effect, 'deny')
+    const denyCancellation = { ...rule('deny'), method: r.method as 'flow/execution/stop', action: r.method === 'team/intent' ? 'abandon' : null }
+    assert.equal(decide(r, { ...c, projectPolicy: policy('manage', [denyCancellation]) }).effect, 'deny')
+    assert.equal(decide(r, { ...c, policyInterpretation: 'interpreting' }).effect, 'deny')
+    assert.equal(decide({ ...r, runId: 'run-other' }, c).effect, 'deny')
+    assert.equal(decide({ ...r, project: { id: 'other', path: '/workspace/other' } }, c).effect, 'deny')
+    assert.equal(decide(r, { ...c, approved: null }).effect, 'deny')
+    assert.equal(decide(startRequest(), c).effect, 'deny')
+  }
+})
+
+test('library definition uses cwd membership and keeps definition paths under host confinement', () => {
+  const skill = { ...request(), method: 'library/definition', runId: null,
+    params: { kind: 'skill', name: 'test-skill', path: '/workspace/demo/.claude/skills/test-skill', cwd: contract.project.path } }
+  assert.equal(decide(skill, context()).effect, 'allow')
+  const global = { ...skill, project: null, params: { kind: 'skill', name: 'test-skill', path: '/profiles/demo/.claude/skills/test-skill' } }
+  assert.equal(decide(global, context()).effect, 'allow')
+  assert.equal(decide({ ...skill, params: { ...skill.params, cwd: '/workspace/other' } }, context()).effect, 'deny')
+  assert.equal(decide({ ...skill, project: null }, context()).effect, 'deny')
+  const denyDefinition = { ...rule('deny'), method: 'library/definition' as const, project: contract.project.id }
+  assert.equal(decide(skill, { ...context(), projectPolicy: policy('manage', [denyDefinition]) }).effect, 'deny')
+  const globalDeny = { ...denyDefinition, project: null }
+  assert.equal(decide(global, { ...context(), desk: policy('manage', [globalDeny]) }).effect, 'deny')
+  for (const [method, params] of [
+    ['flow/catalog', { root: contract.project.path }],
+    ['flow/source', { root: contract.project.path, id: 'fixture' }],
+    ['flow/preview', { root: contract.project.path, source: 'synthetic recipe' }],
+    ['flow/start-goal', startRequest().params], ['goal/list', { root: contract.project.path }],
+  ] as const) {
+    const r = { ...startRequest(), method, params }
+    assert.equal(decide(r, context()).effect, 'allow', method)
+    const result = decide({ ...r, params: { ...params, root: '/workspace/other' } }, context())
+    assert.equal(result.effect, 'deny', method); assert.equal(result.floor, 'project', method)
+  }
+})
+
+
+test('irreversible and worker-approval floors are independently observable', () => {
+  for (const action of ['merge', 'publish', 'delete']) {
+    // workspace/open has an open validator: absent the fixed floor this otherwise runs.
+    const r = { ...request(), method: 'workspace/open', runId: null, params: { path: contract.project.path, action } }
+    const result = decide(r, context())
+    assert.equal(result.effect, 'deny'); assert.equal(result.floor, 'irreversible')
+  }
+  const result = decide({ ...request(), method: 'approval/respond', params: { choice: 'approve' } }, context())
+  assert.equal(result.effect, 'deny'); assert.equal(result.floor, 'worker-approval')
+  const ordinary = decide({ ...request(), method: 'workspace/open', runId: null, params: { path: contract.project.path } }, context())
+  assert.equal(ordinary.effect, 'allow'); assert.equal(ordinary.floor, null)
+})
+
+test('non-action methods cannot acquire authority through an injected action', () => {
+  const invalidRule = { ...rule('allow'), method: 'workspace/open' as const, action: 'x' }
+  assert.throws(() => policy('default', [invalidRule]))
+  assert.throws(() => policy('manage', [{ ...invalidRule, effect: 'deny', method: 'library/read' }]))
+  const injected = { ...request(), method: 'workspace/open', runId: null, params: { path: contract.project.path, action: 'x' } }
+  assert.equal(decide(injected, { ...context(), desk: policy('default') }).effect, 'ask')
+  const malformedPolicy = { ...policy('default'), rules: [invalidRule] }
+  const result = decide(injected, { ...context(), desk: malformedPolicy })
+  assert.equal(result.effect, 'deny'); assert.equal(result.floor, 'invalid-input')
+  assert.throws(() => change(policy('default'), { ...malformedPolicy, revision: 2 }))
+  const stopDeny = { ...rule('deny'), method: 'workspace/open' as const }
+  assert.equal(decide(injected, { ...context(), desk: policy('manage', [stopDeny]) }).effect, 'deny')
+})
+
+
+test('permission decisions expose the parsed detached snapshot used for dispatch', () => {
+  const r = startRequest()
+  const expected = parseClientMessage({ id: 1, method: r.method, params: r.params })
+  const result = decide(r, context())
+  assert.equal(result.effect, 'allow')
+  assert.ok(result.call)
+  assert.equal(result.call.method, r.method)
+  assert.deepEqual(result.call.params, expected.params)
+  assert.notEqual(result.call.params, r.params)
+  r.params.vars = { task: 'Changed after deciding' }
+  r.params.seats.implement[0] = { runtime: 'other', model: 'other' }
+  assert.deepEqual((result.call.params as typeof r.params).vars, contract.steps[0]!.variables)
+  assert.deepEqual((result.call.params as typeof r.params).seats, (expected.params as typeof r.params).seats)
+  assert.ok(Object.isFrozen(result.call))
+  assert.ok(Object.isFrozen((result.call.params as typeof r.params).seats.implement))
+  assert.equal(decide({ ...request(), method: 'session/send', params: {} }, context()).call, null)
+  const asking = decide(startRequest(), { ...context(), desk: policy('default') })
+  assert.equal(asking.effect, 'ask'); assert.ok(asking.call)
+})
+
+test('normalized parser values, rather than raw params, decide global definition scope', () => {
+  const r = { ...request(), method: 'library/definition', project: null, runId: null,
+    params: { kind: 'skill', name: 'test-skill', path: '/profiles/demo/.claude/skills/test-skill', cwd: null } }
+  const result = decide(r, context())
+  assert.equal(result.effect, 'allow')
+  assert.ok(result.call)
+  assert.equal((result.call.params as { cwd?: unknown }).cwd, undefined)
+  assert.equal(r.params.cwd, null)
 })

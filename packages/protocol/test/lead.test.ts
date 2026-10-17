@@ -347,3 +347,11 @@ test('Lead byte window reserves envelope overhead before crossing the child boun
   assert.deepEqual(validator('parseLeadChildControl')(control), control)
   assert.deepEqual(threadWindow(window, 1_048_576 - overhead), window, 'windowing is idempotent')
 })
+
+test('Lead rules carry actions only for action-tier methods', () => {
+  const base = { id: 'rule-1', effect: 'allow', action: 'abandon', project: null }
+  for (const method of ['workspace/open', 'library/read', 'library/definition', 'session/loadout', 'evidence/seat'])
+    assert.throws(() => protocol.parseLeadPermissionPolicy({ ...policy, rules: [{ ...base, method }] }), protocol.ValidationError)
+  assert.doesNotThrow(() => protocol.parseLeadPermissionPolicy({ ...policy, rules: [{ ...base, method: 'team/intent' }] }))
+  assert.doesNotThrow(() => protocol.parseLeadPermissionPolicy({ ...policy, rules: [{ ...base, method: 'workspace/open', action: null }] }))
+})
