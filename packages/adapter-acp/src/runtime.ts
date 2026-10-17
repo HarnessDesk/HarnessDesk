@@ -881,8 +881,8 @@ export class AcpRuntime implements AgentRuntime {
    * key it actually has.
    */
   #handedKeys: ReadonlySet<string> = new Set()
-  /** The agent that was replaced had been handed a key it may have been told to use. */
-  #keyWasHanded = false
+  /** The agent accepted being told to use a stored key, and nothing has told it otherwise since. */
+  #keyTold = false
   /** The version of the agent that refused the tool server; a different one is asked again. */
   #refusedBy: string | null | undefined = undefined
   /** The agent's bridge declared that it carries the desk's standing instruction. */
@@ -1701,11 +1701,7 @@ export class AcpRuntime implements AgentRuntime {
     if ((this.#config.secrets?.length ?? 0) === 0) return 'unsupported'
     // Whatever happens below, the next handshake is the one that hands the
     // changed key over, so that is when the agent is told to use it.
-    const told = (this.#config.secrets ?? []).filter((secret) => secret.acpMethod)
-    if (told.length > 0) {
-      this.#keyAuthPending = true
-      this.#keyWasHanded ||= told.some((secret) => this.#handedKeys.has(secret.env))
-    }
+    if (this.#config.secrets?.some((secret) => secret.acpMethod)) this.#keyAuthPending = true
     if (this.#health.state !== 'ready') return 'restarted'
     const busy = [...this.#sessions.values()].some(
       (session) => !this.#isProbe(session.id) && session.busy,
@@ -2015,16 +2011,18 @@ export class AcpRuntime implements AgentRuntime {
       // A key stored after this process was spawned waits for the next one.
       if (told.some((one) => typeof this.#config.resolveSecret?.(one.env) === 'string')) return
       this.#keyAuthPending = false
-      if (this.#keyWasHanded && told.length > 0) this.#noteSignIn({ state: 'required', message: KEY_REMOVED })
-      this.#keyWasHanded = false
+      if (this.#keyTold && told.length > 0) this.#noteSignIn({ state: 'required', message: KEY_REMOVED })
+      this.#keyTold = false
       return
     }
     this.#keyAuthPending = false
-    this.#keyWasHanded = false
     try {
       await this.#connection.request(ACP_AUTHENTICATE, { methodId: secret.acpMethod })
+      this.#keyTold = true
       this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
     } catch (error) {
+      // Refused, so it signs in however it did before — nothing to undo later.
+      this.#keyTold = false
       this.#config.logger?.warn?.('the agent would not switch to the stored key', {
         agent: this.#config.id,
         error: describeAcp(error),

@@ -370,11 +370,20 @@ test('a key stored for an agent that must be told to use it is used after the re
   }
 })
 
-test('a key taken away from an agent told to use it leaves it needing a sign-in, not unchecked', async () => {
-  let key: string | undefined = 'placeholder-key'
-  const runtime = keyed(() => key)
+test('a key taken away from an agent told to use it leaves it needing a sign-in, not unchecked', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-keyoff-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const log = join(dir, 'auth.log')
+  let key: string | undefined
+  const runtime = keyed(() => key, { FAKE_ACP_AUTH_LOG: log })
   await runtime.start()
   try {
+    key = 'placeholder-key'
+    assert.equal(await runtime.reloadSecrets(), 'restarted')
+    const told = Date.now() + 5000
+    while (!existsSync(log) && Date.now() < told) await new Promise((resolve) => setTimeout(resolve, 20))
+    // The reply that says it switched is read just after the line is written.
+    await new Promise((resolve) => setTimeout(resolve, 50))
     key = undefined
     assert.equal(await runtime.reloadSecrets(), 'restarted')
     const deadline = Date.now() + 5000

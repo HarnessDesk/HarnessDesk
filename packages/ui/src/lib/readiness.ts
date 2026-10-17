@@ -115,10 +115,11 @@ export const readinessOf = (input: ReadinessInput): Readiness => {
     if (!input.account) return 'unknown'
     // An agent nobody has asked yet has not said it is signed out, and the
     // only thing that asks it is a session (#1759). So it reads as an agent
-    // with no account surface always has: a turn sent now would start, and
-    // the agent itself says if it needs a sign-in. Not `unknown`, which waits
-    // for an answer that here never comes without a session.
-    if (input.account.accounts.length === 0) return input.account.unchecked ? 'ready' : 'signin'
+    // with no account surface always has — on to the plan window below, and
+    // ready if nothing else stands in the way; the agent itself says if it
+    // needs a sign-in. Not `unknown`, which waits for an answer that here
+    // never comes without a session.
+    if (input.account.accounts.length === 0 && !input.account.unchecked) return 'signin'
   }
   const decided = workingAccount(input.usage ?? [])
   if (decided !== null && isBlocked(decided)) return 'limit'

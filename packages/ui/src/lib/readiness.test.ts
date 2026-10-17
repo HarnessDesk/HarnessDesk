@@ -74,6 +74,8 @@ describe('readinessOf', () => {
     // as it read before it had an account surface at all.
     const unchecked = { accounts: [], signInMethods: [], unchecked: true }
     expect(readinessOf({ registered: true, health: { state: 'ready' }, account: unchecked })).toBe('ready')
+    // Not asked about its sign-in is not a pass on its plan window.
+    expect(readinessOf({ registered: true, health: { state: 'ready' }, account: unchecked, usage: [report('weekly')] })).toBe('limit')
   })
 
   it('reads a spent window from the agent, not from a failure', () => {
