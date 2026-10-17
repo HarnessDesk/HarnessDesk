@@ -624,7 +624,7 @@ test('only the exact development PR head selects the release tier', () => {
 })
 
 for (const path of [
-  'packages/ui/src/App.tsx', 'package.json',
+  'packages/ui/src/App.tsx',
   'e2e/ui-system/untraceable-data.json', 'e2e/ui-system/a-deleted-helper.ts',
 ]) {
   test(`a development push runs every spec when the plan cannot narrow ${path}`, () => {
@@ -751,3 +751,83 @@ for (const literal of ["'docs/deleted-contract.md'", "new URL('../../docs/delete
     })
   })
 }
+
+for (const path of ['packages/ui/package.json', 'packages/protocol/src/ids.ts', 'docs/shared.json']) {
+  for (const withMap of [false, true]) {
+    test(`a reader never narrows the whole-UI input ${path}, map=${withMap}`, async () => {
+      await fixture((root, put) => {
+        put('packages/ui/src/App.tsx', "import '../../../docs/shared.json'")
+        put('docs/shared.json', '{}')
+        put('packages/protocol/src/ids.ts', 'export {}')
+        const times = {}
+        for (const name of [...Array.from({ length: 9 }, (_, i) => `a${i}.spec.ts`), 'z-reader.spec.ts']) {
+          put(`e2e/ui-system/${name}`, name.startsWith('z-') ? `readFileSync('${path}', 'utf8')` : 'export {}')
+          times[name] = 900
+        }
+        put('e2e/ui-system/durations.json', JSON.stringify(times))
+        const map = withMap ? mergeRecords(root, Object.keys(times).map(name => ({
+          [`e2e/ui-system/${name}`]: { tests: 1, unclean: 0, loaded: [], ran: [] },
+        }))) : null
+        for (const event of ['push', 'pull_request']) {
+          const run = planChange(root, { event, refName: 'development', paths: [path], map })
+          const selected = run.browser_specs === 'all' ? specFiles(root).map(spec => `e2e/ui-system/${spec}`) : JSON.parse(run.browser_specs)
+          assert.ok(selected.length > 1, 'the reader is mandatory, not the complete impact')
+          assert.ok(selected.includes('e2e/ui-system/z-reader.spec.ts'))
+        }
+      })
+    })
+  }
+}
+
+for (const path of ['package.json', 'pnpm-lock.yaml', 'packages/ui/vite.config.ts', 'packages/protocol/src/wire.ts', 'assets/example.svg']) {
+  test(`a global input keeps the cap and names its reason: ${path}`, () => {
+    for (const impact of [null, current(impactMap())]) {
+      const run = planWith([path], impact, { event: 'push', refName: 'development', sha: 'a'.repeat(40) })
+      assert.equal(run.count, 4)
+      assert.ok(run.deferred.length > 0)
+      assert.ok(run.summary.includes(`Not narrowed: global input ${path}`), run.summary)
+    }
+  })
+}
+
+test('global capped coverage rotates by push sha and falls back to before', () => {
+  const impact = current(impactMap())
+  const select = options => planWith(['pnpm-lock.yaml'], impact, { event: 'push', refName: 'development', ...options }).specs
+  const first = select({ sha: 'a'.repeat(40), before: 'c'.repeat(40) })
+  const second = select({ sha: 'b'.repeat(40), before: 'c'.repeat(40) })
+  assert.notEqual(first, second)
+  assert.equal(first, select({ sha: 'a'.repeat(40), before: 'd'.repeat(40) }))
+  assert.equal(first, select({ before: 'a'.repeat(40) }))
+  const alphabetical = specFiles(real).slice(0, JSON.parse(first).length).map(spec => `e2e/ui-system/${spec}`)
+  assert.notDeepEqual(JSON.parse(first), alphabetical)
+})
+
+test('the development CLI keys global rotation by the pushed sha', () => {
+  const first = cliPlan(['pnpm-lock.yaml'], 'push', { CI_REF_NAME: 'development', GITHUB_SHA: 'a'.repeat(40) })
+  const second = cliPlan(['pnpm-lock.yaml'], 'push', { CI_REF_NAME: 'development', GITHUB_SHA: 'b'.repeat(40) })
+  assert.equal(first.shard_count, '4')
+  assert.equal(second.shard_count, '4')
+  assert.notEqual(first.browser_specs, second.browser_specs)
+})
+
+for (const path of ['.github/workflows/ci.yml', 'playwright.ui-system.config.ts']) {
+  test(`a suite execution configuration change runs everything uncapped: ${path}`, () => {
+    const run = planWith([path], current(impactMap()), { event: 'push', refName: 'development' })
+    assert.equal(run.specs, 'all')
+    assert.ok(run.count > 4)
+    assert.deepEqual(run.deferred, [])
+  })
+}
+
+test('an unread shot README selects no browser specs', () => {
+  const run = planChange(real, { event: 'push', refName: 'development', paths: ['script/shots/README.md'] })
+  assert.equal(run.browser, 'none')
+  assert.equal(run.shard_count, 0)
+})
+
+test('an unread shot README preserves a narrow UI selection', () => {
+  const run = planWith(['packages/ui/src/App.tsx', 'script/shots/README.md'], current(impactMap('/src/App.tsx')), { event: 'push', refName: 'development' })
+  assert.deepEqual(JSON.parse(run.specs), ['e2e/ui-system/row-box.spec.ts'])
+  assert.equal(run.count, 1)
+  assert.deepEqual(run.deferred, [])
+})

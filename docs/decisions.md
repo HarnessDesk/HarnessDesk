@@ -3722,7 +3722,19 @@ full runs on both branches under distinct
 branch keys. Files the specs read, including the interface contract and shot
 rigs, select the specs that read them through the suite's dependency graph.
 Combine those readers with the mapped reach of UI source in a mixed change;
-other docs-only pushes open no browser.
+other docs-only pushes open no browser. A read narrows a file only when it is
+the file's sole tie to the suite. UI package inputs, UI external imports and
+global inputs keep broad coverage with their readers mandatory. Comments are
+not reads, and an unread file under `script/shots/` selects no browser specs.
+
+Global inputs, including manifests, the lockfile, UI build configuration,
+protocol and assets, retain the four-shard cap even without an impact map.
+The summary names the global input. After mandatory specs and recorded reach,
+the cap fills in a deterministic rotation keyed by the pushed SHA, falling
+back to the before revision, so successive pushes sample different specs;
+the nightly full run covers the rest. A change to `.github/workflows/ci.yml`
+or `playwright.ui-system.config.ts` instead runs every spec uncapped: these
+rare changes alter how the suite itself runs.
 
 A missing, all-zero or unavailable before commit runs every browser spec with
 the bounded theme matrix, bypassing the selection cap rather than guessing at

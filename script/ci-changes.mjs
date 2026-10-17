@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -42,9 +43,14 @@ const BROWSER = [
   /^playwright\.ui-system\.config\.ts$/, // Defines the browser suite and its Vite preview server.
   /^script\/ci-browser-shards\.mjs$/, // Deals the specs to the shards: a change to it changes what each shard runs.
   /^script\/(?:ui-system-run|ci-server-split)(?:\.test)?\.mjs$/, // The runner and classifier decide which server each selected spec reads.
-  /^script\/shots\//, // Browser specs read source text and run the synthetic template rigs.
   /^e2e\/ui-system\//, // Browser specs, helpers and recorded metrics live in this test directory.
 ]
+
+const EXECUTION_CONFIG = /^(?:\.github\/workflows\/ci\.yml|playwright\.ui-system\.config\.ts)$/
+// Source in the UI itself can use recorded reach. These other inputs affect
+// the preview as a whole, even when one spec also reads their text directly.
+const globalInput = (path, packages, external) => !path.startsWith('e2e/ui-system/') && !uiSource(path)
+  && (BROWSER.some(pattern => pattern.test(path)) || packages.has(path.match(/^packages\/([^/]+)\//)?.[1]) || external.has(path))
 
 const NATIVE = [
   ...SHARED,
@@ -141,7 +147,7 @@ export const ciTier = ({ event, headBranch = '', refName = '', labels = [] }) =>
   return event !== 'pull_request' || headBranch === 'development' || headBranch.startsWith('batch/') || labels.includes('full-ci') ? 'full' : 'bounded'
 }
 
-function boundedSpecs(root, candidates, inputs, impact, graph) {
+function boundedSpecs(root, candidates, inputs, impact, graph, rotationKey = null) {
   const all = new Set(specFiles(root).map(spec => `e2e/ui-system/${spec}`))
   const mandatory = [...new Set([
     ...inputs.filter(path => SPEC.test(path) && all.has(path)),
@@ -166,7 +172,11 @@ function boundedSpecs(root, candidates, inputs, impact, graph) {
   const selected = [...new Set(mandatory)].sort()
   const overBudget = !fits(selected)
   const deferred = []
-  for (const spec of [...candidates].sort((a, b) => (specificity.get(a) ?? Infinity) - (specificity.get(b) ?? Infinity) || a.localeCompare(b))) {
+  const ordered = [...candidates].sort()
+  const offset = rotationKey === null || ordered.length === 0 ? 0 : createHash('sha256').update(rotationKey).digest().readUInt32BE(0) % ordered.length
+  const rotated = [...ordered.slice(offset), ...ordered.slice(0, offset)]
+  const rank = new Map(rotated.map((spec, index) => [spec, index]))
+  for (const spec of rotated.sort((a, b) => (specificity.get(a) ?? Infinity) - (specificity.get(b) ?? Infinity) || rank.get(a) - rank.get(b))) {
     if (selected.includes(spec)) continue
     if (fits([...selected, spec])) selected.push(spec)
     else deferred.push(spec)
@@ -176,24 +186,32 @@ function boundedSpecs(root, candidates, inputs, impact, graph) {
   return { selected: selected.sort(), deferred: deferred.sort(), count, overBudget }
 }
 
-export function browserPlan(root, { browser, inputs, serverInputs, event, refName = '', tier = ciTier({ event, refName }), impact = null, unknownChange = false, unknownReason = 'change range unavailable', graph = null }) {
+export function browserPlan(root, { browser, inputs, serverInputs, event, refName = '', tier = ciTier({ event, refName }), impact = null, unknownChange = false, unknownReason = 'change range unavailable', graph = null, packages = null, external = null, sha = '', before = '' }) {
   const all = specFiles(root).map(spec => `e2e/ui-system/${spec}`)
   let selected = null
   let basis = unknownChange ? `${unknownReason}; running every browser spec` : ''
   let resolvable = false
+  let globals = []
+  let executionConfig = false
   if (browser === 'all' && tier === 'bounded' && !unknownChange && inputs.length > 0) {
     graph ??= repositoryGraph(root)
     const readers = path => specsReaching(graph, [join(root, path)]).map(file => relative(root, file)).filter(spec => all.includes(spec))
+    // Shot files belong to browser coverage only through actual readers.
+    inputs = inputs.filter(path => !path.startsWith('script/shots/') || readers(path).length > 0)
+    packages ??= uiPackages(root)
+    external ??= uiExternalImports(root)
+    globals = inputs.filter(path => globalInput(path, packages, external))
+    executionConfig = inputs.some(path => EXECUTION_CONFIG.test(path))
     const suiteInputs = inputs.filter(path => path.startsWith('e2e/ui-system/'))
     const uiInputs = inputs.filter(path => !path.startsWith('e2e/ui-system/') && uiSource(path))
     const otherInputs = inputs.filter(path => !path.startsWith('e2e/ui-system/') && !uiSource(path))
     const reached = affectedSpecs(root, suiteInputs, graph)
     const readSpecs = inputs.flatMap(readers)
-    const otherResolved = otherInputs.every(path => readers(path).length > 0)
+    const otherResolved = globals.length === 0 && otherInputs.every(path => readers(path).length > 0)
     const touched = uiInputs.length > 0 && impact ? impactPlan(root, uiInputs, impact) : { specs: uiInputs.length ? null : [] }
     // An unresolvable suite/read input cannot be sampled. Other inputs with an
     // available map can still use its per-file reach to rank a conservative cap.
-    resolvable = reached !== null && !otherInputs.some(path => path.startsWith('script/shots/') && readers(path).length === 0)
+    resolvable = reached !== null
     if (touched.specs === null) basis = oneLine(touched.reason ?? 'no impact map available')
     if (reached && touched.specs && otherResolved) {
       selected = [...new Set([...reached, ...readSpecs, ...touched.specs.map(spec => `e2e/ui-system/${spec}`), ...(serverInputs ? serverSpecs(root, uiPackages(root)) : [])])].sort()
@@ -205,14 +223,16 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, refNam
         basis = `map environment differs; ranking recorded reach before filling the cap${basis ? `; ${basis}` : ''}`
       }
     }
+    if (globals.length > 0) basis = `global input ${globals.map(oneLine).join(', ')}${basis ? `; ${basis}` : ''}`
+    if (executionConfig) basis = `suite execution configuration ${inputs.filter(path => EXECUTION_CONFIG.test(path)).map(oneLine).join(', ')}; running every browser spec`
   }
   if (browser === 'all' && selected && selected.length === 0) browser = 'none'
   const matrix = tier === 'bounded' ? 'pr' : 'full'
-  // Unknown ranges, missing maps and unresolvable reads run uncapped. A map
-  // that cannot exclude specs still ranks recorded reach within the cap.
-  const unnarrowedDevelopment = event === 'push' && refName === 'development' && selected === null && !(impact && resolvable)
+  // Global inputs keep the cap without needing a map. Unknown ranges, missing
+  // maps needed for UI reach, and unresolved suite reads still run uncapped.
+  const unnarrowedDevelopment = event === 'push' && refName === 'development' && selected === null && !((impact || globals.length > 0) && resolvable)
   if (unnarrowedDevelopment && !basis) basis = 'no usable impact selection; running every browser spec'
-  const bounded = tier === 'bounded' && browser === 'all' && !unknownChange && !unnarrowedDevelopment ? boundedSpecs(root, selected ?? all, inputs, impact, graph ?? repositoryGraph(root)) : null
+  const bounded = tier === 'bounded' && browser === 'all' && !unknownChange && !unnarrowedDevelopment && !executionConfig ? boundedSpecs(root, selected ?? all, inputs, impact, graph ?? repositoryGraph(root), globals.length > 0 ? sha || before : null) : null
   if (bounded && (selected !== null || bounded.deferred.length > 0)) selected = bounded.selected
   const count = browser === 'all'
     ? bounded?.count ?? shardCount(all.map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix))
@@ -238,12 +258,13 @@ export function changePlanner(root) {
 
 // CI's merge commit names its base as HEAD^1. A local caller can name its merge
 // base instead, so theme and impact-map freshness answer for the same change.
-export function planChange(root, { event, paths, headBranch = '', refName = '', labels = [], map = null, baseRevision = 'HEAD^1' }, prepared = null) {
+export function planChange(root, { event, paths, headBranch = '', refName = '', labels = [], map = null, baseRevision = 'HEAD^1', sha = '', before = '' }, prepared = null) {
   const tier = ciTier({ event, headBranch, refName, labels })
   const knownPaths = paths?.length > 0 && paths.every(path => path.length > 0 && !path.startsWith('/') && !path.split('/').includes('..') && !/[\u0000-\u001f\u007f]/.test(path))
   const inputs = prepared?.packages ?? uiPackages(root)
   const specs = prepared?.specs ?? serverSpecs(root, inputs)
   let graph = prepared?.graph
+  let external = prepared?.external
   let decision = { browser: 'all', native: true }
   let browserInputs = []
   let serverInputs = false
@@ -254,8 +275,9 @@ export function planChange(root, { event, paths, headBranch = '', refName = '', 
       // A name with a control character in it is not one to plan from: run everything.
       if (knownPaths) {
         graph ??= repositoryGraph(root)
-        const external = prepared?.external ?? uiExternalImports(root)
-        const uiInput = path => !DEAL_ONLY.test(path) && (BROWSER.some(pattern => pattern.test(path)) || inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]) || external.has(path) || graph.importers.has(join(root, path)))
+        external ??= uiExternalImports(root)
+        const uiInput = path => !DEAL_ONLY.test(path) && (!path.startsWith('script/shots/') || specsReaching(graph, [join(root, path)]).length > 0)
+          && (BROWSER.some(pattern => pattern.test(path)) || inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]) || external.has(path) || graph.importers.has(join(root, path)))
         browserInputs = paths.filter(uiInput)
         serverInputs = paths.some(path => /^packages\/(?!desktop\/)[^/]+\//.test(path) && !inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]))
         decision = {
@@ -270,7 +292,7 @@ export function planChange(root, { event, paths, headBranch = '', refName = '', 
     }
   }
   const plan = browserPlan(root, {
-    browser: decision.browser, inputs: browserInputs, serverInputs, event, refName, tier, unknownChange, unknownReason, graph,
+    browser: decision.browser, inputs: browserInputs, serverInputs, event, refName, tier, unknownChange, unknownReason, graph, packages: inputs, external, sha, before: before || baseRevision,
     impact: map ? { map, baseFiles: () => filesAtBase(root, baseRevision), baseEnvironment: () => environmentAt(root, baseRevision) } : null,
   })
   return {
@@ -298,6 +320,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     headBranch: process.env.CI_HEAD_BRANCH ?? '', refName: process.env.CI_REF_NAME ?? '', labels: JSON.parse(process.env.CI_LABELS || '[]'),
     map: mapFile ? readMap(mapFile) : null,
     baseRevision: developmentPush ? process.env.CI_BEFORE || 'HEAD^1' : 'HEAD^1',
+    sha: process.env.GITHUB_SHA ?? '', before: process.env.CI_BEFORE ?? '',
   })
   // Ordinary PRs defer integration to the full tier. Development pushes keep
   // the shared bounded browser selection; native smoke remains full-tier only.

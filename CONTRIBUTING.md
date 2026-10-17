@@ -92,8 +92,12 @@ full-tier only. Required check names stay the same and accept intentional
 skips, including browser jobs for docs-only pushes.
 
 Development pushes and local `check:push` keep added and edited specs, follow
-suite helpers, and resolve files read by specs to their readers. A mixed change
-to UI source and a document combines the map's reach with the document's readers.
+suite helpers, and resolve files read by specs to their readers. A reader alone
+can narrow a file only when the read is its sole tie to the suite. UI package
+inputs, UI external imports and global inputs retain broad coverage with their
+readers mandatory. Comments create no read edges; unread files under
+`script/shots/` select no browser specs. A mixed change to UI source and a
+document combines the map's reach with the document's readers.
 Development restores its last full-run map first, then main's, then legacy
 `ui-impact-map-<sha>` entries. The planner keeps the most specific selections
 first within four shards of at most 1,000 recorded test seconds each. Edited
@@ -178,9 +182,16 @@ scripts read by the UI include their transitive script imports.
 
 The shared local planner selects `server` for specs importing packages outside
 the UI inputs, and `none` for docs-only and unrelated script changes. Native
-inputs include package changes, the isolated rig and launch helpers; shared
-manifests, the lockfile, root tool configuration, assets, CI and unreadable
-changed paths select broad coverage. These path rules remain in
+inputs include package changes, the isolated rig and launch helpers. Global
+browser inputs, including shared manifests, the lockfile, UI build and root tool
+configuration, protocol and assets, retain the four-shard cap. Their summary
+names each global input, and a deterministic rotation keyed by the pushed SHA
+(falling back to the before revision) fills the cap after mandatory and reached
+specs, varying coverage across pushes; the nightly full run covers the rest.
+Changes to `.github/workflows/ci.yml` or `playwright.ui-system.config.ts` run
+every browser spec uncapped because they change how the suite runs. Unknown
+ranges, unreadable input graphs and unresolvable suite reads also run uncapped
+on development. These path rules remain in
 `script/ci-changes.mjs` for `check:push` and development pushes; its CLI
 suppresses browser integration only for ordinary bounded PRs, and native smoke
 for every bounded run. Full CI runs every browser spec and native smoke.

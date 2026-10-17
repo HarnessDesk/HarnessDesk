@@ -12,6 +12,11 @@ export const IMPORT = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)['"]
 export const URL_IMPORT = /new\s+URL\(\s*['"](\.[^'"\n]*)['"]\s*,\s*import\.meta\.url\s*\)/g
 export const SPEC = /\.spec\.[cm]?[jt]sx?$/
 
+// Consume strings whole before looking for comment markers: URLs and template
+// contents can contain // or /* as data. Keep offsets and line breaks intact.
+const withoutComments = text => text.replace(/'((?:\\[\s\S]|[^'\\\r\n])*)'|"((?:\\[\s\S]|[^"\\\r\n])*)"|`((?:\\[\s\S]|[^`\\])*)`|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g,
+  token => token.startsWith('//') || token.startsWith('/*') ? token.replace(/[^\r\n]/g, ' ') : token)
+
 export const walk = directory => readdirSync(directory, { withFileTypes: true }).flatMap(entry =>
   entry.isDirectory() ? walk(join(directory, entry.name)) : [join(directory, entry.name)])
 
@@ -79,7 +84,7 @@ export function suiteGraph(root) {
     forward.set(file, new Set([...(forward.get(file) ?? []), helper]))
   }
   for (const file of sources) {
-    const text = readFileSync(file, 'utf8')
+    const text = withoutComments(readFileSync(file, 'utf8'))
     for (const [, specifier] of text.matchAll(IMPORT)) {
       if (!specifier.startsWith('.')) continue
       const helper = resolveHelper(file, specifier)
@@ -107,7 +112,7 @@ export function repositoryGraph(root, graph = suiteGraph(root)) {
     const file = queue.pop()
     if (seen.has(file)) continue
     seen.add(file)
-    const text = readFileSync(file, 'utf8')
+    const text = withoutComments(readFileSync(file, 'utf8'))
     const add = target => {
       if (!target || !target.startsWith(`${root}/`)) return
       importers.set(target, new Set([...(importers.get(target) ?? []), file]))
@@ -116,6 +121,9 @@ export function repositoryGraph(root, graph = suiteGraph(root)) {
     for (const [, specifier] of text.matchAll(IMPORT)) {
       if (specifier.startsWith('.')) add(resolveHelper(file, specifier))
     }
+    // URL expressions can sit inside generated executable templates, where
+    // nested quotes prevent the ordinary literal scan from seeing the path.
+    for (const [, specifier] of text.matchAll(URL_IMPORT)) add(findFile(file, specifier))
     // Also sees literals used in URLs, child-process arguments and source-text reads.
     for (const match of text.matchAll(/(['"`])([^'"`\\\n]+)\1/g)) {
       const literal = match[2]
