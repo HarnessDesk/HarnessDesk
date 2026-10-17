@@ -108,16 +108,19 @@ const decideParsedPermission = (request: LeadPermissionRequest, context: LeadPer
         params.root !== undefined && params.root !== request.project?.path) ||
       (request.method === 'workspace/open' && params.path !== request.project?.path) ||
       (request.method === 'flow/executions' && params.project !== undefined &&
-        params.project !== request.project?.path && params.project !== request.project?.id))
+        params.project !== request.project?.path))
       return deny('Call project differs from its resolved target', 'project')
     if (['library/read', 'library/definition'].includes(request.method) && params.cwd !== undefined && params.cwd !== request.project?.path) return deny('Call cwd differs from its resolved target', 'project')
     if (params.run !== undefined && params.run !== request.runId) return deny('Call run differs from its resolved target', 'run')
     const scope = record(params.scope)
     if ((scope.run !== undefined && scope.run !== request.runId) ||
-      (scope.project !== undefined && scope.project !== request.project?.path && scope.project !== request.project?.id))
+      (scope.project !== undefined && scope.project !== request.project?.path))
       return deny('Subscription scope differs from its resolved target', 'scope')
     if (request.runId !== null && (context.approved === null || !context.approved.runIds.includes(request.runId)))
       return deny('Run is outside the approved contract', 'run')
+    // Listings are scoped to the selected project; single-run reads to the approved contract, intentionally.
+    if (request.method === 'flow/preview' && (params.retry !== undefined || params.continues !== undefined))
+      return deny('Lead previews cannot retry or continue another run', 'scope')
     if (tier === 'read') {
       if (!deskWideReads.has(request.method) && !globalDefinition && request.project === null) return deny('Read requires a selected project target', 'project')
       if ((request.method === 'flow/executions' && params.project === undefined && !(params.team !== undefined && request.runId !== null)) ||

@@ -447,3 +447,14 @@ test('normalized parser values, rather than raw params, decide global definition
   assert.equal((result.call.params as { cwd?: unknown }).cwd, undefined)
   assert.equal(r.params.cwd, null)
 })
+
+test('project filters use canonical paths and previews cannot import another run', () => {
+  for (const method of ['flow/executions', 'client/subscribe']) {
+    const params = method === 'flow/executions' ? { project: contract.project.id } : { topics: ['runs'], scope: { project: contract.project.id } }
+    assert.equal(decide({ ...request(), method, params, runId: null }, context()).effect, 'deny')
+  }
+  for (const patch of [{ retry: { run: 'run-other', card: 1 } }, { continues: 'run-other' }]) {
+    const params = { root: contract.project.path, source: 'synthetic recipe', ...patch }
+    assert.equal(decide({ ...request(), method: 'flow/preview', params, runId: null }, context()).effect, 'deny')
+  }
+})
