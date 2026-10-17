@@ -12,7 +12,7 @@ export const TeamRunFacts = ({ input, number, chooser, at, flowFile, pullRequest
   originAction?: ReactNode; originNote?: string
   trigger?: ReactNode; flowFile?: ReactNode; pullRequest?: { number: number; url: string | null } | null; cost?: string | null
 }) => {
-  if (!input) return <><Text role="meta">No Run recorded.</Text><SummaryList surface="panel" aria-label="Team Run facts">
+  if (!input) return <><ToolProse variant="note">No Run recorded.</ToolProse><SummaryList surface="panel" aria-label="Team Run facts">
     {at && <SummaryItem label="At" kind="path">{sanitizeText(at)}</SummaryItem>}
     {trigger && <SummaryItem label="Trigger">{trigger}</SummaryItem>}
   </SummaryList></>

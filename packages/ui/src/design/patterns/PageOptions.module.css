@@ -1,7 +1,9 @@
 .options { display: flex; align-items: center; flex-wrap: wrap; gap: var(--hd-space-2); min-width: 0; }
 .options > * { max-width: 100%; }
 .group { display: flex; flex-direction: column; gap: var(--hd-page-stack); min-width: 0; }
-.head { display: flex; align-items: center; gap: var(--hd-space-3); min-width: 0; }
+/* One bar tall, like the sidebar's brand row: at the top of a page (Page drops
+   its top gutter above it) the title and its verb centre on the wordmark's line. */
+.head { display: flex; align-items: center; gap: var(--hd-space-3); min-width: 0; min-height: var(--hd-bar-h); }
 .title { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .head > .options { flex-shrink: 0; justify-content: flex-end; max-width: 70%; }
 

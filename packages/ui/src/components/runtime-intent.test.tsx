@@ -32,7 +32,7 @@ const mount = async (settings: boolean) => {
 it('warms the highlighted agent by pointer and keyboard, and when chosen', async () => {
   const { request, dispose } = await mount(false)
   try {
-    act(() => document.querySelector<HTMLButtonElement>('button[title="Which agent starts this conversation"]')!.click())
+    act(() => document.querySelector<HTMLButtonElement>('button[title="Which runtime starts this conversation"]')!.click())
     const two = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(row => row.textContent?.includes('Two'))!
     request.mockClear()
     act(() => two.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
@@ -89,7 +89,7 @@ it('choosing a cheap idle agent loads its cached composer controls without a rea
   const root = createRoot(container)
   try {
     await act(async () => root.render(<StoreProvider store={store}><AgentControl /></StoreProvider>))
-    act(() => container.querySelector<HTMLButtonElement>('button[title="Which agent starts this conversation"]')!.click())
+    act(() => container.querySelector<HTMLButtonElement>('button[title="Which runtime starts this conversation"]')!.click())
     const two = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(row => row.textContent?.includes('Two'))!
     request.mockClear()
     await act(async () => two.click())

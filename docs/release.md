@@ -45,6 +45,27 @@ below will get further than the first `-c.mac.notarize=true`.
 
 ---
 
+## Prepare the release on development
+
+The Lead pushes approved changes directly to `development`, one commit per
+change, without a per-change pull request. Each push runs core CI and the
+bounded browser selection reached by its full before-to-HEAD change. It uses
+development's last full-run impact map first, then main's, then legacy
+`ui-impact-map-<sha>` entries. Files read by specs select their readers beside
+the UI source's mapped reach. A differing map environment keeps the four-shard
+cap: recorded per-file reach ranks first, then the cap fills, and the summary
+names the mismatch and deferred specs. Other stale map evidence also ranks a
+conservative capped sample. An unknown or unfetchable range (including a missing
+or all-zero before), no map when needed, an unreadable input graph, or an
+unresolvable read runs every browser spec without the cap, with the bounded
+theme matrix. Native smoke stays full-tier only. Every development push has
+its own commit-keyed concurrency group, preserving earlier running and pending
+ranges. The nightly full dispatch has a separate group, so landings cannot
+cancel it. Close the changelog gap and bump the version there before opening
+the release pull request from `development` into `main`. That pull request runs full CI and lands
+with a merge commit to preserve the changes' own commits. Every merge into
+`main` is a release; cut the release from that merged result.
+
 ## 1. Close the CHANGELOG gap
 
 ```
@@ -84,7 +105,8 @@ reappears once the next commit actually lands after this release.
 node script/release.mjs bump <version>
 ```
 
-bumps exactly two `package.json` files — the root and
+Run this on `development` before opening the release PR. It bumps exactly two
+`package.json` files — the root and
 `packages/desktop/package.json` — and rewrites the `DOWNLOAD` constant in
 `packages/ui/site-demo/fake-host.ts` to point at the new arm64 DMG.
 
@@ -106,8 +128,9 @@ default can produce a unix socket path in a test fixture that overruns
 macOS's 104-byte `sun_path` limit and crashes the runtime rather than failing
 the test cleanly.
 
-Open the PR, wait for CI, and land it through `node script/land-safe.mjs
-<pr> --head <sha> [--repo owner/name]`, where `<sha>` is the full commit that
+Open the release PR from `development` into `main`, wait for CI, and land it
+through `node script/land-safe.mjs <pr> --head <sha> --method merge
+[--repo owner/name]`, where `<sha>` is the full commit that
 was reviewed. It refuses (exit 2, saying why) unless the PR is still at that
 commit, so a push after the approving review is never merged unreviewed; that
 same commit is what it hands to the merge. `--any-head` instead lands whatever
@@ -116,12 +139,17 @@ script reads check-runs for the PR's head SHA, requires `Build, typecheck, test`
 and `UI system native integration` to have completed successfully. It also
 requires the newest `CI tier: full` check to have succeeded in the same workflow
 check suite as those required checks. An ordinary pull request's bounded run
-cannot land: add `full-ci` (which starts a new full run), or land reviewed work
-through a `batch/` pull request, which always runs full CI. Manual dispatches
+checks core CI only; browser shards, server-facing browser specs and native
+smoke are intentionally skipped. Local `pnpm check:push` still selects reached
+and edited browser specs, listed in the CI summary. Development pushes also
+run that bounded browser selection; nightly dispatches provide full coverage.
+Bounded success cannot land through `land-safe`. The `development` release PR always runs full CI; `batch/` heads and
+`full-ci` (which starts a new full run) remain full-tier options. Manual dispatches
 and pushes to `main` also run the full suite. The script checks
 that both the head and base branch tip stayed put
-before it asks GitHub to squash-merge that exact head. This avoids the stale
-result `gh pr checks` can show immediately after a push. Use it for every
+before it asks GitHub to merge that exact head. `--method merge` is allowed
+only for a `development` head; the default `--method squash` keeps the existing
+behavior for other changes. This avoids the stale result `gh pr checks` can show immediately after a push. Use it for every
 landing, whether the merge is initiated by a human or an agent seat; use
 `--dry-run` to print the decision without merging. Exit 4 means the merge was
 requested but is not yet confirmed. Read the PR's state and merge commit
@@ -161,6 +189,9 @@ git rev-parse origin/main^{tree}
 
 Equal trees mean the squash merge changed no bytes — what CI is checking and
 what you're about to build and sign are the same tree.
+
+After the release PR is merged, use its merged result on `main` for all build,
+signing, tagging and publishing steps that follow.
 
 ## 4. Build, sign, and notarize
 

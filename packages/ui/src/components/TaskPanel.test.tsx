@@ -317,7 +317,7 @@ describe('editing a task', () => {
       { s1: [{ from: 'Buffer the request body', to: 'Buffer the body' }] },
     )
     expect(text()).toContain('edited')
-    expect(rows()[0]?.getAttribute('title')).toContain('Buffer the request body')
+    expect(rows()[0]?.getAttribute('title')).toContain('The runtime wrote “Buffer the request body”')
   })
 
   it('leaves an untouched task saying exactly what the agent wrote', () => {

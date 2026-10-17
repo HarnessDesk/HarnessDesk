@@ -277,7 +277,7 @@ const TOTAL_TURNS = LEDGER_ROWS.reduce((sum, row) => sum + (row.turns ?? 0), 0)
 /**
  * Six months of each agent's spend, keyed on local midnight as the Dashboard
  * buckets it (`stackDaily` matches `day` exactly). Each agent's days add up to
- * its row, so the chart's headline agrees with the strip's Value: a rig that
+ * its row, so the chart's headline agrees with the strip's Usage cost: a rig that
  * stamped `Date.now() - n days` matched no bucket and drew $0 beside $159.
  *
  * `DAYS` used to be 30, then 182 — the year heat grid (`buildYearGrid`,

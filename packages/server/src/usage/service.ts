@@ -155,6 +155,7 @@ export class UsageService {
     if (!report || report.lanes.length === 0) return own
     return {
       planType: report.plan,
+      ...(report.planLabel ? { planLabel: report.planLabel } : {}),
       lanes: report.lanes,
       windows: report.lanes.map((lane) => ({
         label: lane.scope ? `${lane.label} · ${lane.scope}` : lane.label,
@@ -278,6 +279,7 @@ export class UsageService {
 
     let lanes: readonly UsageLane[] = []
     let plan: string | null = null
+    let planLabel: string | null = null
     let account: string | null = null
     let credits: UsageReport['credits'] = null
     let reached: string | null = null
@@ -311,6 +313,7 @@ export class UsageService {
         if (limits) {
           lanes = lanesFrom(limits)
           plan = limits.planType ?? null
+          planLabel = limits.planLabel ?? null
           reached = limits.reached ?? null
           if (limits.unlimited || limits.hasCredits) {
             credits = { remaining: limits.balance ?? null, unit: 'credits', unlimited: limits.unlimited === true }
@@ -375,6 +378,7 @@ export class UsageService {
       }
       lanes = reading.lanes
       plan = reading.plan
+      planLabel = null
       account = reading.account
       credits = reading.credits
       reached = reading.reached
@@ -424,6 +428,7 @@ export class UsageService {
       runtime: id,
       account,
       plan,
+      ...(planLabel ? { planLabel } : {}),
       lanes,
       credits,
       spend,

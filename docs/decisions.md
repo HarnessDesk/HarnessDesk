@@ -7,6 +7,20 @@ the rule is the last line of its section.
 
 ---
 
+## Page band headings are 16/600 and field-group labels stay small — 2026-10-16
+
+Heads naming the cards or rows in a page’s body use the existing section text
+role. `SectionHead` defaults to that heading; field groups explicitly choose
+`level="label"`. Titled `Section` bands choose the same heading level. Page
+titles, dialog legends, Settings forms and right-rail cards keep their roles.
+
+This costs an explicit classification at every call site. The explorer shows
+both levels and rendered frame tests hold page bands to the existing role,
+so a new form group cannot silently become another heading style. No size,
+weight or foundation token is added.
+
+**Rule:** a head that names a band of a page's body is a section heading; a label that names a field group stays small.
+
 ## First launch offers installed runtimes — 2026-10-16
 
 The first empty conversation uses the Add a runtime page's machine catalogue
@@ -3557,3 +3571,253 @@ so a restart needs another explicit check; the ordinary read after Apply clears
 results whose recorded origin changed.
 
 **Rule:** nothing checks on a timer and nothing applies by itself.
+## Ordinary pull requests run core CI; integration runs in the full tier — 2026-10-16
+
+Per-PR browser shards competed with batch runs for the account's job cap.
+Every reviewed change lands through a `batch/` pull request that already runs
+full CI, so ordinary pull requests now run core checks only: build, typecheck,
+Node tests and end-to-end, UI unit tests, UI tests and gates. Browser shards,
+server-facing browser specs and native smoke run in the full tier: main pushes,
+`batch/` heads, `full-ci` pull requests and manual dispatches.
+
+The override lives at the `ci-changes.mjs` CLI output boundary. The shared
+`planChange` and browser selection stay intact for local `check:push`, including
+the impact map, reached and edited specs, PR matrix and duration table. Bounded
+CI reports that local spec selection and reuses the existing intentional-skip
+path for its required integration checks. Core CI, local selected specs and
+the batch's full run together cover a change; ordinary green alone cannot land.
+
+**Rule:** keep per-PR browser feedback local, and require full-tier evidence
+before landing.
+## Dashboard figures name their measure and their observation
+
+On 2026-10-15 the owner chose all of issue #1675 D10. Overview calls the
+ledger's total **Usage cost**, keeping its pricing basis in the title and its
+chart selection in `aria-pressed`. Pace badges use the magnitude of remaining
+allowance above or below an even burn, so the arrow and over/under word agree;
+zero is on pace. Reports older than this window are labelled **From a cached
+read**, rather than suggesting this desk read them hours before it opened.
+The read note follows account scope and retains the oldest observation.
+
+The adapter supplies a readable plan label beside the raw identifier; the
+host carries both and the raw value remains available in the label's title.
+Unknown plan types fall back to title-cased words without Self Serve.
+**What is left** includes healthy accounts with reported limits. Its former
+attention-only filter caused the missing account; there was no runtime-id
+gate. Host reads already use runtime capabilities, and file-backed meters may
+report limits even when a runtime cannot meter directly, so those reports
+remain eligible too. The attention count still counts only plans needing it.
+## Agent and model logos in their makers' colours — 2026-10-16
+
+The owner compared the app with other agent desktops and found theirs read
+better because their logos are in colour; every glyph in those apps is still a
+one-colour line icon. The owner chose colour logos only, not a colour per
+project. `BrandMark` draws the lobe-icons colour file where one exists and keeps
+the one-colour drawing beside it. A stylesheet rule shows the one-colour drawing
+on `[data-tint]`, `[data-color]` and `[data-off]` grounds. That keeps a tinted
+face, an account ring or a signed-out seat in its identity's ink, and it costs
+a second inline drawing per mark rather than a prop at every call site. A maker
+with no colour file stays in ink. Codex's colour file loses its white app-icon
+square and Kimi's white K takes `currentColor`; tests require each fix to still
+find what it removes, so an upstream redraw fails a test instead of shipping.
+
+## Reviewed changes collect on development; every merge to main is a release — 2026-10-16
+
+CI and the account's job cap became the bottleneck: approved changes waited
+hours for a batch. From the next release, reviewed changes land offline on a
+long-lived `development` branch, one commit per change. Each push runs the core
+checks, without browser or native jobs. A nightly dispatch at 11:00 UTC runs
+full CI on development; failures are fixed the same day. Until the branch
+exists, that nightly workflow quietly does nothing.
+
+The release pull request from `development` into `main` always runs full CI.
+It lands with a merge commit, preserving each change's commit on main; the
+version bump happens on development before that PR. Every merge into main is
+a release. Core checks on every push, nightly full coverage and the release
+PR's full run keep the guardrails while removing per-change integration queues.
+Main pushes, batch heads, the full-ci label and manual dispatches remain full.
+`land-safe` defaults to squash and permits `--method merge` only for a
+`development` head, retaining its reviewed-head, full-tier and stable-base checks.
+## Registry browsing is a separate step; runtime brands keep one colour — 2026-10-16
+
+Owner pick for #1675 D9: **A**. Add a runtime keeps the machine's catalogue
+first and puts ACP registry entries behind **Browse more…**. A single MenuNote
+says the entries are third-party and unreviewed. An entry's install and add
+behaviour stays the same.
+
+The same issue's Part 2 item 3 fixes identity drift: a runtime's presentation
+brand selects one tint in the design system, wherever its tile appears.
+Account ring preferences remain separate. Library's Loaded by tiles use a
+token gap rather than overlap, keeping each runtime mark visible.
+
+This supersedes the account-tint rule for runtime brand faces; account rings
+and account badges still identify the signed-in account. Roll back by restoring
+the inline registry list and account-derived runtime tints, accepting the former
+identity changes between pages.
+
+## Usage runtime series follow their faces — 2026-10-16
+
+The owner's repair to #1729 keeps Usage's runtime table usable as its chart's
+legend: brand tint is shared by each runtime's ranked face, legend dot, share
+segment and bar. Resolve across the whole roster, reserving distinct brand
+tints first. The first runtime with a tint keeps it; later duplicates borrow
+the next unused roster tint for both series and ranked face. Plans faces,
+account preferences, other pivots and the folded Other row retain their rules.
+## Agent is a role; Runtime runs the conversation — 2026-10-16
+
+For issue #1675 D1, the owner chose B: an Agent is a saved role such as
+Implementer, Judge or Code reviewer. A Runtime is the program that runs a
+conversation. The composer, Settings group, Library loaders, account and
+history surfaces use runtime when they refer to `RuntimeInfo`. Runtime names
+still come from its presentation and features from its capabilities.
+
+The Agents page, Team roles, Seats, sub-agents and Library’s Declared by
+filter keep their role meaning. This is a copy boundary; identifiers, wire
+methods, protocol fields and file names keep their existing spellings.
+
+
+## Rows share one highlight and floating surfaces share one motion
+
+The visual refinement in #1733 uses the row's hover fill for keyboard focus
+as well. A menu's arrow keys stay within its plate, so that fill is its whole
+focus mark; a page row keeps the window's focus ring too. A refused menu row
+remains in the keyboard path so its reason can be read, but it cannot run.
+Pointer hover leaves it unlit, preserving the distinction between an action
+and an explanation.
+
+The model picker and context menu now use `floatingMotion`, the same entrance
+and exit as the other floating surfaces, and row fill transitions use
+`--hd-duration-fast`. The shared primitives own this policy so individual
+menus cannot acquire a different highlight or cut in without motion.
+The menu-state preview shows rest, pointer and keyboard states in both themes;
+[the interface](interface.md#menus-and-row-focus) records the behavior and
+[the design guide](design.md) records its shared styling.
+## Navigation and choices stay usable while runtime reads settle — 2026-10-16
+
+Settings always lists Skills and Extensions. A runtime may call its skills
+commands and may have no extensions, but those facts describe its page and
+hover text; they do not rename or remove the route while a window is open.
+This keeps the navigation identical before and after the runtime read (#1675).
+The old recorded claims about a runtime naming the rail row, and the page
+repeating that word, are retired: the rail now names a stable route while
+its page keeps the runtime's vocabulary. The one-line row claim stays pinned
+to the updated route test.
+
+New Team uses the same anchored choice menus as the composer. An automatic
+seat reads the runtime chosen by its plan, without requiring an explicit
+runtime change first. A model or effort choice pins that automatic seat.
+Nested Escape belongs to the open picker before the dialog.
+
+A choice menu inside a dialog portals into that dialog's content. Its popup
+therefore shares the modal's stacking context instead of landing below the
+modal viewport; the existing focus and Escape policy still owns dismissal.
+
+Library does not list skill folders beginning with `_` or entries with only
+empty definitions on disk. This is the owner's choice for #1675: omit them,
+rather than select a broken entry first. The inventory keeps hollow-copy
+diagnostics for cleanup and still lists an entry with a usable copy elsewhere.
+Empty and whitespace-only definitions count as hollow. Descriptions in both
+list and matrix, and in the reading sheet, use sanitized markdown so backticks
+produce inline code.
+
+
+## Development pushes run the browser specs their change reaches — 2026-10-16
+
+Owner's decision: approved work lands on `development` by a Lead push, without
+an individual pull request. Five consecutive landings broke browser specs
+without prompt detection, so every development push now runs core CI plus the
+same bounded browser selection formerly used for pull requests. Diff the
+push's `github.event.before` against `HEAD`, fetching the before commit when
+the shallow checkout lacks it, and compute theme metadata over that same range.
+Prefer development's last full-run impact map, falling back to main's and then
+legacy `ui-impact-map-<sha>` entries, to select reached UI specs, retain edited
+specs and include server-facing coverage when reached. Save maps from clean
+full runs on both branches under distinct
+branch keys. Files the specs read, including the interface contract and shot
+rigs, select the specs that read them through the suite's dependency graph.
+Combine those readers with the mapped reach of UI source in a mixed change;
+other docs-only pushes open no browser. A read narrows a file only when it is
+the file's sole tie to the suite. UI package inputs, UI external imports and
+global inputs keep broad coverage with their readers mandatory. Comments are
+not reads, and an unread file under `script/shots/` selects no browser specs.
+
+Global inputs, including manifests, the lockfile, UI build configuration,
+protocol and assets, retain the four-shard cap even without an impact map.
+The summary names the global input. After mandatory specs and recorded reach,
+the cap fills in a deterministic rotation keyed by the pushed SHA, falling
+back to the before revision, so successive pushes sample different specs;
+the nightly full run covers the rest. A change to `.github/workflows/ci.yml`
+or `playwright.ui-system.config.ts` instead runs every spec uncapped: these
+rare changes alter how the suite itself runs.
+
+A missing, all-zero or unavailable before commit runs every browser spec with
+the bounded theme matrix, bypassing the selection cap rather than guessing at
+the pushed change. An unreadable input graph, a missing impact map when one is
+needed, or an unresolvable read does the same on a development push. A map whose
+environment differs (protocol, client, UI configuration or root setup) still supplies
+per-file reach for ranking: reached specs come first, then the four-shard cap
+fills. Its summary names the environment mismatch and every deferred spec.
+Other stale map evidence also ranks a conservative capped sample. Native smoke
+stays full-tier only. Ordinary pull requests remain core-only as decided in
+#1734. Main pushes, nightly/manual dispatches,
+the development release PR, batch heads and the full-ci label retain their full
+tier. Required check names and intentional-skip success stay stable. Push and
+dispatch concurrency groups remain separate so a landing cannot cancel the
+nightly full run. Each development push also has its own commit-keyed group,
+so later pushes cannot cancel running or pending coverage of earlier ranges.
+
+## A page title stands on the wordmark's line — 2026-10-16
+
+A standalone page's title and the sidebar's wordmark are the same type, 20px on a 28px line, and they sat 18 to 20px apart: the page column began under the bar with its full 24px gutter, while the wordmark stands in a bar-tall brand row directly under the sidebar's top row. Two big names at nearly one height read as a near miss, the same flaw the guides report as an edge off its rail. Titles also disagreed with each other by 2px, because a head whose verb is 32px tall centred its title lower than a head with a smaller verb.
+
+The title now shares the wordmark's line. Its head row is one bar tall (`--hd-bar-h`), the brand row's counterpart, and a page that opens with its title drops its top gutter, so both rows start at the bar's bottom and centre on the same line. The title, the wordmark and their baselines coincide, and the page's verb (Refresh, New Team) centres on that line too. Nothing hand-tunes a screen: `PageOptions` sizes the row and `Page` drops the gutter when its first block leads with that row, so every page built from them follows, including one whose head sits inside a toolbar (Teams).
+
+Why the line rather than more air: the window already reads along its bars, and the content's first row is a bar-height row beside the sidebar's. The 6px between the bar and the title is the wordmark's own distance from the row above it, so the two columns open the same way. The title keeps its place when the sidebar is hidden, because the row is measured from the bar, not from the sidebar. Pages without a body title (conversations, canvases, a session or a Team with its subject menu in the bar) keep their insets.
+
+## Conversations can start without a project — 2026-10-16
+
+For #1727 the owner chose option A. This reverses decision 3 of #1721's
+first-run entry: Send no longer opens a folder picker or requires a project.
+The host creates a fresh dated directory with a short unique suffix inside
+its chats folder, defaulting to `chats/` under `HARNESSDESK_HOME`. The renderer
+never constructs that path.
+
+The folder menu starts with **No folder**, which clears a prior choice while
+retaining the draft. Its hover title carries the chats location. Managed chats
+and conversations with unknown folders share one **Chats** group; an empty
+group is omitted. Existing repository-state checks govern folder-only tools.
+
+Settings › General exposes **Chats folder**, **Change…** and **Reset** through
+the existing folder picker and host preferences. Changes affect only future
+conversations. The host retains previous chats roots so existing conversations
+keep both their original folder and their Chats grouping. New drafts and
+hand-offs from a managed chat allocate fresh folders; the hand-off packet
+retains its source location as provenance.
+
+The host-created folder becomes the chat's open workspace before its first
+layout is saved. A recent chat with a saved workbench restores that workbench
+on launch; a recent chat with no saved workbench does not choose a folder for
+an empty draft. Suggested tasks from chats request a fresh folder explicitly,
+even when a different project is open, while tasks from projects retain their
+sender's folder.
+
+## A chats location never claims an existing project — 2026-10-16
+
+The owner's repair to #1727 makes chat identity a record of folders the host
+created, rather than a property inherited from a configured parent. Selecting
+an opened project, or a parent containing one, is refused in Settings, including
+when the location reaches it through a symlink. Changing or resetting the
+location never broadens the recorded set; previous chat allocations keep their
+identity. A pre-existing folder with a dated name is still a project.
+
+Only the latest managed chat appears in recent folders, alongside the fifty
+remembered projects. Settings' folder list, History's project choices and the
+Flows catalogue exclude managed chats. Startup restores a chat only with its
+saved workbench, regardless of read order; an explicit folder choice made while
+preferences load takes precedence. Failed starts remove only empty allocations.
+
+The draft's folder control refreshes Git facts when mounted. Recent entries
+other than the first carry unread facts, so refreshing them preserves the open
+repository's known state. Suggested tasks from a source with an unknown folder
+keep the open project's folder; a recorded managed chat explicitly requests a
+fresh allocation.

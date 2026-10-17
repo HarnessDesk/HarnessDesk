@@ -194,13 +194,11 @@ it("offers HarnessDesk's own worktrees of this project to start in", () => {
   })
 })
 
-it('says why a folder with no repository has no worktree, rather than hiding the row', () => {
+it('omits worktree controls for a folder with no repository', () => {
   rig({ workspace: { ...MAIN, git: null, repo: null } as WorkspaceEntry })
 
-  open()
-  const unavailable = row('New worktree')
-  expect(unavailable?.getAttribute('aria-disabled')).toBe('true')
-  expect(unavailable?.textContent).toContain('Worktrees need a git repository.')
+  expect(container.querySelector('button')).toBeNull()
+  expect(row('New worktree')).toBeUndefined()
 })
 
 it('names a worktree by the end of its branch, where branches differ, and the whole of it on hover', () => {
@@ -340,4 +338,19 @@ it('opens Commit for an unborn repository in place of New worktree', () => {
   const commit = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Commit')!
   click(commit)
   expect(store.askCommit).toHaveBeenCalledWith(MAIN.path)
+})
+
+it('keeps repository controls when fresh Git status arrives before repository identity', () => {
+  rig({ workspace: { ...MAIN, repo: null } as WorkspaceEntry })
+  open()
+  expect(row('New worktree')).toBeDefined()
+})
+
+it('keeps the place control while repository facts have not been read', () => {
+  rig({ workspace: { path: MAIN.path, name: MAIN.name, lastOpenedAt: 1 } as WorkspaceEntry })
+  expect(trigger()).not.toBeNull()
+  expect(trigger()?.textContent).toContain('harness-desk')
+  open()
+  expect(row('Local')).toBeDefined()
+  expect(row('New worktree')).toBeDefined()
 })

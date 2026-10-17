@@ -1,4 +1,5 @@
 import { sessionKey } from '@harnessdesk/protocol'
+import { isChatFolder, projectWorkspaces } from '../lib/chats'
 import { useDestinationActive } from '../panels/destination-page'
 import { PageExplanation, PageControls, Clipped, RowButton } from '../design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -80,10 +81,10 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
       if (epoch.current !== generation) return
       setRows(previous => after ? [...new Map([...previous, ...page.data].map(row => [`${row.runtime}:${row.id}`, row])).values()] : page.data)
       setCursor(page.nextCursor ?? null)
-      setProjects(previous => [...new Set([...previous, ...page.data.map(row => row.repo?.root ?? row.cwd)])].sort())
+      setProjects(previous => [...new Set([...previous, ...page.data.filter(row => !isChatFolder(row.cwd, snapshot.chatsFolderRoots)).map(row => row.repo?.root ?? row.cwd)])].sort())
     } catch (error) { if (epoch.current === generation) setProblem(reason(error)) }
     finally { if (epoch.current === generation) { setLoading(false); paging.current = false } }
-  }, [store, params])
+  }, [store, params, snapshot.chatsFolderRoots])
   const previousRead = useRef<typeof read | null>(null)
   useEffect(() => {
     if (!destinationActive) return
@@ -112,7 +113,7 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
     const observer = new ResizeObserver(measure); observer.observe(node)
     return () => observer.disconnect()
   }, [destinationActive, rows.length === 0])
-  const projectOptions = [...new Set([...projects, ...snapshot.workspaces.map(workspace => workspace.repo?.root ?? workspace.path)])].sort()
+  const projectOptions = [...new Set([...projects, ...projectWorkspaces(snapshot.workspaces, snapshot.chatsFolderRoots).map(workspace => workspace.repo?.root ?? workspace.path)])].filter(root => !isChatFolder(root, snapshot.chatsFolderRoots)).sort()
   const hasSearchableHistory = rows.length > 0 || query.trim() !== '' || agent !== '' || project !== '' || hidden
   const open = async (row: HistorySummary): Promise<void> => {
     if (!destinationActive) return
@@ -126,17 +127,17 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
   useEffect(() => { if (!destinationActive) { setDeleting(null) } }, [destinationActive])
 
   return <>
-    <PageExplanation>Conversations imported from your agents. Open one to preview it; send a message to add it to the sidebar.</PageExplanation>
+    <PageExplanation>Conversations imported from your runtimes. Open one to preview it; send a message to add it to the sidebar.</PageExplanation>
     {hasSearchableHistory && <>
       <PageControls search={{label:'Search history titles',placeholder:'Search titles',value:query,change:setQuery}}
-        choices={[{id:'agent',title:'Agent',value:agent,options:[{value:'',label:'All agents'},...snapshot.runtimes.map(info=>({value:info.id,label:info.presentation.name}))],change:setAgent},
+        choices={[{id:'agent',title:'Runtime',value:agent,options:[{value:'',label:'All runtimes'},...snapshot.runtimes.map(info=>({value:info.id,label:info.presentation.name}))],change:setAgent},
           {id:'project',title:'Project',value:project,options:[{value:'',label:'All projects'},...projectOptions.map(root=>({value:root,label:folderName(root)}))],change:setProject}]}/>
       <Rows><Row title="Show hidden" control={<Switch aria-label="Show hidden" checked={hidden} onCheckedChange={setHidden}/>}/></Rows>
     </>}
     {problem && <Note tone="bad" action={<Button variant="outline" size="sm" onClick={() => setRetry(was => was + 1)}>Retry</Button>}>{problem}</Note>}
     {!loading && !problem && rows.length === 0 && (hasSearchableHistory
       ? <EmptyState variant="inline" align="start" title="Nothing matches these filters." />
-      : <EmptyState title="Nothing imported yet" description="Import history from an agent’s settings page."
+      : <EmptyState title="Nothing imported yet" description="Import history from a runtime’s settings page."
           stretchChildren children={<Rows>{importable.map(info => <RowButton key={info.id} kind="record" mark={<RuntimeFace runtime={info} size="navigation" />}
             title={info.presentation.name} onClick={() => onOpenAgent(info.id)} />)}</Rows>} />)}
     {rows.length > 0 && <Table aria-rowcount={rows.length + 1} rows="bare" density="comfortable" inset="row" viewport={{ref:scroll, 'data-history-scroll':true, onScroll:event => {
@@ -151,7 +152,7 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
           const info = snapshot.runtimes.find(info => info.id === row.runtime)
           const title = sessionLabel(row.title, row.preview)
           const deletable = info?.capabilities.deleteHistory === 'trash'
-          const deleteReason = !info ? 'This conversation’s agent is unavailable.' : info.capabilities.deleteHistory === 'erase'
+          const deleteReason = !info ? 'This conversation’s runtime is unavailable.' : info.capabilities.deleteHistory === 'erase'
             ? `${info.presentation.name} erases it for good, so delete it there` : !deletable ? `${info.presentation.name} keeps no way to delete one.` : undefined
           return <TableRow aria-rowindex={index + 2} key={`${row.runtime}:${row.id}`} interactive onClick={() => open(row)}>
             <TableCell lead={info && <RuntimeFace runtime={info} size="navigation" />}><Text as="span" role="row">
@@ -164,7 +165,7 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
               <DropdownMenu icons="none">
                 <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${title} actions`} />} />
                 <DropdownMenuContent align="end">
-                  {!row.hidden && <DropdownMenuItem title="The agent’s own files stay as they are." onClick={() => {
+                  {!row.hidden && <DropdownMenuItem title="The runtime’s own files stay as they are." onClick={() => {
                     void store.removeSession(row.id, row.runtime).then(() => setRetry(was => was + 1))
                   }} label={"Hide from HarnessDesk"} />}
                   <DropdownMenuItem variant="destructive" disabled={!deletable} title={deleteReason} closeOnClick={deletable} onClick={() => { if (deletable) setDeleting(row) }} label={"Delete everywhere…"} />
@@ -217,7 +218,7 @@ export const AgentHistory = ({ info, onBrowse }: { info: RuntimeInfo; onBrowse: 
   const label = running ? 'Importing history' : complete ? 'Imported history' : failed ? 'History import failed' : state?.state === 'cancelled' ? 'History import cancelled' : 'Import history'
 
   return <>
-    <SectionHead name="History" />
+    <SectionHead level="label" name="History" />
     <Rows><Row title={<span title={state?.error}>{label}</span>} control={<>
       {state && <RowValue numeric>{state.count.toLocaleString()} conversations</RowValue>}
       {complete && <RowValue>{scanTime(state.lastScanAt)}</RowValue>}

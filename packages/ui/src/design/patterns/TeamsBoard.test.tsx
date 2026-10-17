@@ -15,6 +15,8 @@ it('names columns and cards, preserves the full ask and opens a card once', asyn
   </TeamsBoardColumn></TeamsBoard>))
   expect(host.querySelector('section')?.getAttribute('aria-label')).toBe('Needs you')
   expect(host.querySelector('h2')?.textContent).toBe('Needs you1')
+  expect(host.querySelector('h2')?.getAttribute('data-role')).toBe('section')
+  expect(host.querySelector('h2 [data-role="meta"]')?.textContent).toBe('1')
   const button=host.querySelector<HTMLButtonElement>('button')!
   expect(button.getAttribute('aria-label')).toBe('Open Fix checkout.')
   expect(button.querySelector('[aria-label="Unread changes"]')).not.toBeNull()

@@ -1,3 +1,5 @@
+import SettingsChatsFolder from './SettingsChatsFolder'
+import { projectWorkspaces } from '../lib/chats'
 import SettingsNewConversations from './SettingsNewConversations'
 import { Toolbar } from '../design'
 import type { SettingsRoute, SettingsSection } from '../state/destinations'
@@ -241,7 +243,7 @@ const AddRouteDialog = ({ onClose }: { onClose: () => void }) => {
         <Note key="error" tone="bad">{error}</Note>
       ) : (
         <Note key="note">
-          Web search, subagents and reasoning display need the agent’s own models. A custom
+          Web search, subagents and reasoning display need the runtime’s own models. A custom
           endpoint runs plain conversations.
         </Note>
       )}
@@ -262,7 +264,7 @@ const RoutesRows = () => {
 
   return (
     <>
-      <SectionHead
+      <SectionHead level="label"
         name={withCount('Custom endpoints', snapshot.routes.length)}
         action={
           <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
@@ -393,7 +395,7 @@ const KeysRows = () => {
 
   return (
     <>
-      <SectionHead name={withCount('Stored keys', routeKeys.length)} />
+      <SectionHead level="label" name={withCount('Stored keys', routeKeys.length)} />
       <Rows>
         {routeKeys.map((key) => {
           const owners = usedBy.get(key.ref) ?? []
@@ -648,7 +650,7 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
       <ClientAnswersSection />
 
       {groups.length > 0 && (
-        <Section title="Approvals" description="What a new session starts with. An agent that decides this per conversation says so.">
+        <Section title="Approvals" description="What a new session starts with. A runtime that decides this per conversation says so.">
           {/* Each runtime's head is a sub-head of this section — a step
               tighter than a section's — so twelve runtimes read as twelve
               groups of one section rather than twelve sections. */}
@@ -667,7 +669,7 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
 
       <Section
         title={withCount('Rules', rules?.length ?? 0)}
-        description="They answer a request before it reaches you, for every agent alike; a question an agent asks you directly always comes through."
+        description="They answer a request before it reaches you, for every runtime alike; a question a runtime asks you directly always comes through."
         action={
           <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
             <PlusIcon size={13} />
@@ -819,7 +821,7 @@ const PresetsRows = () => {
 
   return (
     <>
-      <SectionHead
+      <SectionHead level="label"
         name={withCount('Presets', presets.length)}
         action={
           <Button variant="outline" size="sm" disabled={!options} onClick={() => setSaving(true)}>
@@ -853,7 +855,7 @@ const PresetsRows = () => {
       </Rows>
       {elsewhere > 0 && (
         <Note>
-          {elsewhere} more saved for other agents; they appear when one of them is selected.
+          {elsewhere} more saved for other runtimes; they appear when one of them is selected.
         </Note>
       )}
       {destinationActive && saving && options && <SavePresetDialog options={options} onClose={() => setSaving(false)} />}
@@ -908,7 +910,7 @@ const ModelsSection = () => {
     <>
       <PageExplanation>{`Which of ${runtime.presentation.name}’s models the composer offers.`}</PageExplanation>
 
-      <SectionHead
+      <SectionHead level="label"
         name={withCount('Models', total)}
         action={
           <>
@@ -931,7 +933,7 @@ const ModelsSection = () => {
               size="sm"
               variant="outline"
               disabled={snapshot.catalogRefreshing}
-              title="Ask the agent for its models again"
+              title="Ask the runtime for its models again"
               onClick={() => void store.refreshCatalog()}
             >
               <RetryIcon size={13} />
@@ -1026,8 +1028,8 @@ const HooksList = () => {
   if (!runtime.capabilities.hooks || !hooks || hooks.length === 0) return null
   return (
     <>
-      <SectionHead name={withCount('Hooks', hooks.length)} />
-      <Note>Run by {runtime.presentation.name} around the agent’s work, configured on disk.</Note>
+      <SectionHead level="label" name={withCount('Hooks', hooks.length)} />
+      <Note>Run by {runtime.presentation.name} around the runtime’s work, configured on disk.</Note>
       <Rows>
         {hooks.map((hook) => (
           <Row
@@ -1144,12 +1146,12 @@ const SkillPage = ({
 
       {skill.description && skill.description !== skill.shortDescription && (
         <>
-          <SectionHead name="What it does" />
+          <SectionHead level="label" name="What it does" />
           <PreservedText value={skill.description}/>
         </>
       )}
 
-      <SectionHead name="About" />
+      <SectionHead level="label" name="About" />
       <Rows>
         <Row title="Identifier" control={<Text role="meta"><CodeText>{skill.name}</CodeText></Text>} />
         {skill.path && (
@@ -1204,7 +1206,7 @@ export const SkillsSection = ({name,onSkill,onUse}: {readonly name:string|null;r
 <PageExplanation>{
           declared
             ? `What ${runtime.presentation.name} can be asked to run: its skills and its own commands.`
-            : `Instruction bundles ${runtime.presentation.name} found for this project. Mention one with @, or let the agent choose.`
+            : `Instruction bundles ${runtime.presentation.name} found for this project. Mention one with @, or let the runtime choose.`
         }</PageExplanation>
 
       {snapshot.skills.length === 0 ? (
@@ -1273,12 +1275,12 @@ const PLACEMENTS = [
   {
     value: 'window',
     name: 'In a separate window',
-    why: 'A window of its own. Agents can still read and click the page.',
+    why: 'A window of its own. Runtimes can still read and click the page.',
   },
   {
     value: 'system',
     name: 'In your default browser',
-    why: 'Agents can open a page there, but not read or click it.',
+    why: 'Runtimes can open a page there, but not read or click it.',
   },
 ] as const
 
@@ -1301,9 +1303,9 @@ const BrowserSection = () => {
 
   return (
     <>
-      <PageExplanation>Where the pages agents open appear, and what those pages may keep.</PageExplanation>
+      <PageExplanation>Where the pages runtimes open appear, and what those pages may keep.</PageExplanation>
 
-      <SectionHead name="Pages open" />
+      <SectionHead level="label" name="Pages open" />
       <Rows role="radiogroup" aria-label="Pages open">
         {PLACEMENTS.map((option) => (
           <RowChoice
@@ -1318,7 +1320,7 @@ const BrowserSection = () => {
 
       {prefs.placement === 'window' && (
         <>
-          <SectionHead name="Which browser" />
+          <SectionHead level="label" name="Which browser" />
           <Rows role="radiogroup" aria-label="Which browser">
             <RowChoice
               title="Whichever is installed"
@@ -1357,12 +1359,12 @@ const BrowserSection = () => {
               title="Keep its profile between runs"
               desc={
                 prefs.keepExternalProfile
-                  ? 'Logins survive a restart. The profile is the agent’s own, never yours.'
+                  ? 'Logins survive a restart. The profile is the runtime’s own, never yours.'
                   : 'A fresh profile each time; nothing survives the session.'
               }
               control={
                 <Switch
-                  aria-label="Keep the agent’s browser profile"
+                  aria-label="Keep the runtime’s browser profile"
                   checked={prefs.keepExternalProfile}
                   onCheckedChange={(next) => store.setBrowserPrefs({ keepExternalProfile: next })}
                 />
@@ -1374,7 +1376,7 @@ const BrowserSection = () => {
 
       {prefs.placement === 'pane' && (
         <>
-          <SectionHead name="The pane" />
+          <SectionHead level="label" name="The pane" />
           <Rows>
             <Row
               title="Open links in the pane"
@@ -1441,6 +1443,7 @@ const BrowserSection = () => {
  */
 export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focus?:string|null;readonly project:string|null;readonly onProject:(root:string|null)=>void}) => {
   const snapshot = useSnapshot()
+  const workspaces = projectWorkspaces(snapshot.workspaces, snapshot.chatsFolderRoots)
   const open=project,setOpen=onProject
   if (open) return <ProjectPage key={open} root={open} onBack={() => setOpen(null)} />
 
@@ -1448,12 +1451,12 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
     <>
       <PageExplanation>Every folder HarnessDesk has opened, and each project’s own page. Forgetting one touches nothing on disk.</PageExplanation>
 
-      <Section title={withCount('Folders', snapshot.workspaces.length)}>
+      <Section title={withCount('Folders', workspaces.length)}>
       <Rows>
-        {snapshot.workspaces.length === 0 && (
+        {workspaces.length === 0 && (
           <EmptyState variant="row" title="No folders opened yet" description="Open one from File › Open Folder, or ⌘O." />
         )}
-        {snapshot.workspaces.map((workspace) => (
+        {workspaces.map((workspace) => (
           <RowButton
             key={workspace.path}
             kind="record"
@@ -1484,14 +1487,15 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
 export const GeneralSectionRows = () => (
   <>
     <SettingsNewConversations />
-    <SectionHead name="Backup" />
+    <SettingsChatsFolder />
+    <SectionHead level="label" name="Backup" />
     <BackupRows />
 
-    <SectionHead name="Support" />
+    <SectionHead level="label" name="Support" />
     <Rows>
       <Row
         title="Diagnostics"
-        desc="Versions, agent health, plugin state and the recent log, scrubbed."
+        desc="Versions, runtime health, plugin state and the recent log, scrubbed."
         control={<DiagnosticsButton />}
       />
     </Rows>

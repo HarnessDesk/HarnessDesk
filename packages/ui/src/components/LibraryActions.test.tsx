@@ -171,7 +171,7 @@ it('puts the import explanation in the dialog head and gives agent marks their o
 
   const head = document.body.querySelector('[data-slot="dialog-head"]')!
   expect(head.querySelector('[data-slot="dialog-description"]')?.textContent).toBe(
-    'Pick where to import from, and which agent should get it. Nothing changes until a preview is confirmed.',
+    'Pick where to import from, and which runtime should get it. Nothing changes until a preview is confirmed.',
   )
   const firstChoice = document.body.querySelector('[role="radiogroup"] [role="radio"] [data-slot="choice-title"]') as HTMLElement
   expect(firstChoice.firstElementChild?.className).toContain('items-center')

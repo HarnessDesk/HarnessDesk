@@ -199,6 +199,7 @@ const readSkillRoot = (root: string, spec: LocationSpec): readonly FoundCopy[] =
       } catch {
         body = null
       }
+      if (body !== null && body.trim() === '') body = null
       const meta = body === null ? {} : frontmatter(body)
       out.push({
         name,
@@ -224,8 +225,8 @@ const readSkillRoot = (root: string, spec: LocationSpec): readonly FoundCopy[] =
       name: name.slice(0, -3),
       path,
       scope: spec.scope,
-      hollow: false,
-      digest: digestOf(body),
+      hollow: body.trim() === '',
+      digest: body.trim() === '' ? null : digestOf(body),
       readOnly: spec.readOnly === true,
       ...(meta.name ? { title: meta.name } : {}),
       ...(meta.description ? { description: meta.description } : {}),

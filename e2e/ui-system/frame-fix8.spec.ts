@@ -96,7 +96,7 @@ test('column filter keeps a matching conversation across repository worktrees', 
 test('dashboard without plan reports explains the absence once', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=overview&frame-empty-usage=1')
   await expect(page.getByText('Nothing is spent or low right now.', { exact: true })).toHaveCount(0)
-  await expect(page.getByText('No agent here reports plan usage.', { exact: true })).toHaveCount(1)
+  await expect(page.getByText('No runtime here reports plan usage.', { exact: true })).toHaveCount(1)
 })
 
 test('spend keeps unscanned days as gaps in bars and line beside its coverage', async ({ page }) => {

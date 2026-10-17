@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import type { AgentEvent, BackgroundTask } from '@harnessdesk/protocol'
 
 import { CodexRuntime } from '../src/index.js'
+import { taskLabel } from '../src/tasks.js'
 
 /**
  * Codex's background terminals as background tasks.
@@ -164,4 +165,166 @@ test('clearing forgets the finished ones and leaves the running ones alone', asy
     left.map((task) => task.state),
     ['running'],
   )
+})
+
+test('a task is titled by its command, without the shell that wraps it', () => {
+  // Short commands stay whole, as before.
+  assert.equal(taskLabel('tail -f server.log'), 'tail -f server.log')
+  assert.equal(taskLabel('/bin/zsh -lc "pnpm dev"'), 'pnpm dev')
+  assert.equal(taskLabel("bash -c 'npm run watch'"), 'npm run watch')
+  // A leading `cd` says where, not what; the plate still shows it.
+  assert.equal(taskLabel('/bin/zsh -lc "cd /work/storefront && pnpm test --watch"'), 'pnpm test --watch')
+  // A long one is cut to its program and first argument that is not a flag.
+  assert.equal(
+    taskLabel('/bin/zsh -lc "rg -n \\"type IntentState\\" /work/storefront/packages/protocol/src /work/storefront/packages/ui/src"'),
+    'rg "type IntentState"…',
+  )
+  assert.equal(taskLabel('NODE_ENV=test /usr/local/bin/node --inspect scripts/very-long-script-name.mjs --flag-one --flag-two'), 'node scripts/very-long-script-name.mjs…')
+  // A semicolon inside quotes is part of the word, not a second command.
+  assert.equal(taskLabel('sh -c "echo \\"a; b\\""'), 'echo "a; b"')
+  // Nothing to shorten to: the command as it came.
+  assert.equal(taskLabel('   '), '   ')
+})
+
+test('a task title never names a command that is not the one running', () => {
+  const cutTo48 = (line: string) => `${line.slice(0, 47).trimEnd()}…`
+  // A leading `cd` goes only when its directory and the separator after it are read for sure.
+  assert.equal(taskLabel('cd /work;pwd;tail -f server.log'), 'pwd;tail -f server.log')
+  assert.equal(taskLabel('cd "/work/a\\"; echo pretend" && pnpm dev'), 'pnpm dev')
+  assert.equal(taskLabel('cd x'), 'cd x')
+  // A directory that expands is not read for sure, so its `cd` stays; the wrapper still goes.
+  assert.equal(taskLabel('zsh -lc "cd $HOME/app && pnpm test --watch --reporter verbose"'), 'cd $HOME/app…')
+  // A backslash outside quotes joins a word: the assignment stays one word.
+  assert.equal(taskLabel('FOO=some\\ value pnpm dev --host 0.0.0.0 --port 3000'), 'pnpm dev…')
+  // A separator touching a word still ends the command.
+  const long = 'sleep 100 && echo done-with-a-long-enough-tail-to-cut'
+  assert.equal(taskLabel(`zsh -c "ls; ${long}"`), 'ls…')
+  assert.equal(taskLabel(`a&&b ${long}`), 'a…')
+  assert.equal(taskLabel(`x;y ${long}`), 'x…')
+  // Only a leading assignment is skipped, and a line with no program left keeps itself.
+  const substitution = 'OUTPUT="$(node /work/scripts/a-script-with-a-long-name.mjs --flag)"'
+  assert.equal(taskLabel(substitution), cutTo48(substitution))
+  const assignments = 'FIRST_VARIABLE=one SECOND_VARIABLE=two THIRD_VARIABLE=three'
+  assert.equal(taskLabel(assignments), cutTo48(assignments))
+  // A quoted program path is read unquoted before its name is taken.
+  assert.equal(taskLabel('"/my path/bin" --a value-that-makes-this-line-long enough-to-cut'), 'bin value-that-makes-this-line-long…')
+  // What cannot be read for sure is shown as it came.
+  const unterminated = '/bin/zsh -lc "rg -n pattern /work/storefront/packages/ui/src'
+  assert.equal(taskLabel(unterminated), cutTo48(unterminated))
+  assert.equal(taskLabel('bash -c "x" extra'), 'bash -c "x" extra')
+  // A redirection can stand anywhere, before the program too; it is not read, so the line stays.
+  const leading = '2>/dev/null pnpm dev --host 0.0.0.0 --port 3000 --strictPort'
+  assert.equal(taskLabel(leading), cutTo48(leading))
+  const attached = 'pnpm dev --host 0.0.0.0 --port 3000 --strictPort>/tmp/dev.log 2>&1'
+  assert.equal(taskLabel(attached), cutTo48(attached))
+  assert.equal(taskLabel('/bin/zsh -lc "pnpm dev 2>&1"'), 'pnpm dev 2>&1')
+  // A line continuation joins, outside quotes and inside double quotes alike.
+  assert.equal(taskLabel('pn\\\npm dev --host 0.0.0.0 --port 3000 --strictPort --open'), 'pnpm dev…')
+  assert.equal(taskLabel('/bin/zsh -lc "pn\\\npm dev --host 0.0.0.0 --port 3000 --strictPort --open"'), 'pnpm dev…')
+  // A cut counts code points, so an emoji at the edge stays whole.
+  const emoji = `echo ${'x'.repeat(41)}🚀🚀🚀 and more after it`
+  assert.equal(taskLabel(emoji), `echo ${'x'.repeat(41)}🚀…`)
+  for (const label of [substitution, assignments, unterminated, leading, attached].map(taskLabel)) assert.notEqual(label, '…')
+})
+
+test('a task title keeps the line when the shell would rewrite the program or not run it', () => {
+  const cutTo48 = (line: string) => `${line.slice(0, 47).trimEnd()}…`
+  // A glob or a brace in the program word is expanded by the shell, so its name is not read for sure.
+  const glob = '/bin/ec[h]o hello from a line long enough to need a cut'
+  assert.equal(taskLabel(glob), cutTo48(glob))
+  const brace = '/bin/{echo,printf} hello from a line long enough to need a cut'
+  assert.equal(taskLabel(brace), cutTo48(brace))
+  // Quoted, the same characters are only text.
+  assert.equal(taskLabel(`"/bin/ec[h]o" hello from a line long enough to need a cut`), 'ec[h]o hello…')
+  // Only a flag that runs the script unwraps it: `-n` only checks it, and an unknown flag is not guessed at.
+  assert.equal(taskLabel("bash -nc 'printf ok'"), "bash -nc 'printf ok'")
+  assert.equal(taskLabel("bash -Zc 'printf ok'"), "bash -Zc 'printf ok'")
+  assert.equal(taskLabel("bash -ec 'printf ok'"), 'printf ok')
+})
+
+test('a task title is cut where a person sees a character end, and stays on one line', () => {
+  // A joined emoji is several code points; the cut keeps it whole.
+  const family = '👨‍👩‍👧'
+  const joined = `echo ${'x'.repeat(41)}${family}${family}${family} and more after it`
+  assert.equal(taskLabel(joined), `echo ${'x'.repeat(41)}${family}…`)
+  // A short command continued onto a second line is shown whole, joined, with no break and no "…".
+  assert.equal(taskLabel('pnpm \\\ndev --port 3000'), 'pnpm dev --port 3000')
+  // A comment ends at its line, and the command on the next line is the one that runs.
+  assert.equal(taskLabel('# start the server\npnpm dev --host 0.0.0.0 --port 3000 --strictPort'), 'pnpm dev --host 0.0.0.0 --port 3000 --strictPort')
+  assert.equal(taskLabel('pnpm dev # the port is set in the config'), 'pnpm dev # the port is set in the config')
+  // A written `;` before a command is a syntax error, not a line break: the line is kept as it came.
+  assert.equal(taskLabel(';printf ok'), ';printf ok')
+  assert.equal(taskLabel('cd /tmp;; printf ok'), 'cd /tmp;; printf ok')
+  assert.equal(taskLabel('cd /tmp\nprintf ok'), 'printf ok')
+  // Blank and comment lines between a `cd`'s separator and its command are skipped; a second `;` or nothing after is not.
+  assert.equal(taskLabel('cd /tmp\n\nprintf ok'), 'printf ok')
+  assert.equal(taskLabel('cd /tmp\n# c\nprintf ok'), 'printf ok')
+  assert.equal(taskLabel('cd /tmp &&\nprintf ok'), 'printf ok')
+  assert.equal(taskLabel('cd /tmp;\nprintf ok'), 'printf ok')
+  assert.equal(taskLabel('cd /tmp;'), 'cd /tmp;')
+  assert.equal(taskLabel('cd /tmp &&'), 'cd /tmp &&')
+  // A program word that is only whitespace names nothing: the line is kept, cut.
+  const blank = "' ' --flag value-long-enough-to-push-the-line-past-the-limit"
+  assert.equal(taskLabel(blank), `${blank.slice(0, 47).trimEnd()}…`)
+  const newline = '"\n" --flag value-long-enough-to-push-the-line-past-the-limit'
+  assert.notEqual(taskLabel(newline).trim(), '…')
+  assert.ok(!taskLabel(newline).startsWith('\n…'), taskLabel(newline))
+})
+
+test('a task title reads a quoted continuation and a no-break space as the shell does', () => {
+  // A backslash-newline inside double quotes joins, as it does outside them.
+  assert.equal(taskLabel('"pr\\\nintf" ok'), '"printf" ok')
+  // An escaped backslash before a line break is a backslash and a break, not a continuation.
+  assert.equal(taskLabel('echo "a\\\\\nb"'), 'echo "a\\\\ ⏎ b"')
+  // U+00A0 is part of a word to the shell, so it neither splits one nor starts a comment.
+  assert.equal(taskLabel("printf '%s|' a\u00a0# b\nprintf ok"), "printf '%s|' a\u00a0# b ⏎ printf ok")
+  assert.equal(taskLabel('echo\u00a0hello'), 'echo\u00a0hello')
+})
+
+test('a task title normalizes non-shell line breaks without splitting words', () => {
+  for (const separator of ['\u2028', '\u2029', '\r', '\u0085', '\v', '\f']) {
+    const context = JSON.stringify(separator)
+    assert.equal(taskLabel(`printf x${separator}y\nprintf ok`), 'printf x y ⏎ printf ok', context)
+    assert.equal(taskLabel(`echo x${separator}y`), 'echo x y', context)
+    // The separator stays within the word, so the following # cannot start a comment.
+    assert.equal(taskLabel(`printf '%s|' a${separator}# b\nprintf ok`), "printf '%s|' a # b ⏎ printf ok", context)
+    assert.equal(taskLabel(`/bin/ec${separator}ho --flag value-long-enough-to-need-a-cut`), 'ec ho value-long-enough-to-need-a-cut…', context)
+    const fallback = `echo $(printf x${separator}y) --flag value-long-enough-to-need-a-cut`
+    assert.equal(taskLabel(fallback), `${fallback.replace(separator, ' ').slice(0, 47).trimEnd()}…`, context)
+  }
+})
+
+test('a task title falls back to the command when shortening leaves only whitespace', () => {
+  const command = `/bin/${'\u00a0'.repeat(48)}echo`
+  const label = taskLabel(command)
+  assert.equal(label, '/bin/…')
+  assert.ok(label.trim() && label.trim() !== '…')
+  // A display break the shell keeps inside a word is blank on screen too.
+  assert.equal(taskLabel(`${'\u0085'.repeat(48)}echo`), 'echo')
+})
+
+test('a task title is always one line', () => {
+  const lines = [
+    "echo 'a\nb'",
+    'printf "first\nsecond" --then-a-flag value-long-enough-to-need-a-cut',
+    '"\n" --flag value-long-enough-to-push-the-line-past-the-limit',
+    "' ' --flag 'a\nb' value-long-enough-to-push-the-line-past-the-limit",
+    'zsh -lc "rg -n pattern\n" unterminated "quote',
+    'echo one\necho two',
+    '\n',
+  ]
+  for (const line of lines) assert.ok(!taskLabel(line).includes('\n'), JSON.stringify(taskLabel(line)))
+  // A command that fits is shown whole, its quoted break as ⏎ and no "…".
+  assert.equal(taskLabel("echo 'a\nb'"), "echo 'a ⏎ b'")
+  assert.equal(taskLabel('echo one\necho two'), 'echo one ⏎ echo two')
+  // An argument that keeps a quoted break keeps it as ⏎ when the line is cut to it.
+  assert.equal(taskLabel('printf "first\nsecond" --then-a-flag value-long-enough-to-need-a-cut'), 'printf "first ⏎ second"…')
+})
+
+test('a command of only comments and breaks is never titled empty', () => {
+  for (const line of ['# only a comment\n# another', '# c\n# d\n', 'zsh -lc "# c\n# d"', '\\\n#c ', '#first\n#second']) {
+    const label = taskLabel(line)
+    assert.ok(label.trim() && !/^[\s⏎…]*$/.test(label), JSON.stringify([line, label]))
+    assert.ok(!label.includes('\n'), JSON.stringify(label))
+  }
 })

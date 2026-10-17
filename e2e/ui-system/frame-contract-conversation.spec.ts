@@ -27,7 +27,7 @@ for (const theme of WALL_THEMES) {
     const submenus = menu.locator('[data-slot="dropdown-menu-sub-trigger"]')
     await expect(submenus).toHaveCount(2)
     await expect(submenus.nth(0)).toContainText('Recency')
-    await expect(submenus.nth(1)).toContainText('All agents')
+    await expect(submenus.nth(1)).toContainText('All runtimes')
     await expectSubmenuChevrons(page, menu)
   })
 

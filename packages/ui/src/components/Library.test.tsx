@@ -89,6 +89,13 @@ const entry = (
   ...over,
 })
 
+// A damaged copy remains useful to compare when another definition exists.
+const partialEntry = (name: string, states: readonly ReachState[], over: Partial<LibraryEntry> = {}): LibraryEntry => {
+  const one = entry(name, states, over)
+  return { ...one, copies: [...one.copies, { path: `/home/u/.agents/skills/${name}`, scope: 'user',
+    readBy: [], hollow: false, digest: 'abc', readOnly: false }] }
+}
+
 // Real libraries always carry a location row per agent and kind; an agent
 // with no row is one the table cannot write to, and the page treats it so.
 const skillLocation = (id: string): Library['locations'][number] => ({
@@ -262,8 +269,8 @@ it('names every agent from its own presentation, never a literal', async () => {
   expect(headers).toEqual(['Name', 'First Agent', 'Second Agent'])
 })
 
-it('draws a hollow directory as its own state, not as missing', async () => {
-  await mount(library([entry('browse', ['hollow', 'absent'])]))
+it('draws a hollow copy beside a usable definition as its own state', async () => {
+  await mount(library([partialEntry('browse', ['hollow', 'absent'])]))
   await showMatrix()
   expect(cellNames()).toContain('browse — First Agent: Empty')
 })
@@ -272,7 +279,7 @@ it('a count filters the table down to what it counted', async () => {
   await mount(
     library([
       entry('good', ['reaches', 'reaches']),
-      entry('empty', ['hollow', 'absent']),
+      partialEntry('empty', ['hollow', 'absent']),
     ]),
   )
   await showMatrix()
@@ -292,7 +299,7 @@ it('only-problems means defects and strandings, never mere non-reach', async () 
   await mount(
     library([
       entry('quiet', ['reaches', 'unscanned']),
-      entry('empty', ['hollow', 'absent']),
+      partialEntry('empty', ['hollow', 'absent']),
       entry('stranded', ['unscanned', 'unscanned']),
     ]),
   )
@@ -314,7 +321,7 @@ it('a count with nothing to show is not offered', async () => {
 })
 
 it('the first body options own search, filter and view; the selected filter can be left', async () => {
-  await mount(library([entry('good', ['reaches', 'reaches']), entry('empty', ['hollow', 'absent'])]))
+  await mount(library([entry('good', ['reaches', 'reaches']), partialEntry('empty', ['hollow', 'absent'])]))
   const options = document.body.querySelector('[data-slot="page-options"]')!
   expect(options.querySelector('[aria-label="Search library"]')).not.toBeNull()
   expect(options.querySelector('[data-slot="popover-trigger"][title="How to show the library"]')).not.toBeNull()
@@ -372,7 +379,7 @@ it('opening a row shows every copy and who reads it', async () => {
   // begins past the fold.
   expect(document.body.textContent).toContain('~/.agents/skills/alpha')
   expect(document.body.textContent).not.toContain('/home/u/.agents')
-  expect(document.body.textContent).toContain('No agent reads this directory.')
+  expect(document.body.textContent).toContain('No runtime reads this directory.')
 })
 
 it('says why a column is weaker rather than letting it look empty', async () => {
@@ -527,7 +534,7 @@ it('the drawer offers to install where the entry does not reach', async () => {
 
 it('detects the hollow directories and turns them into one previewed clean-up', async () => {
   const request = await mount(
-    library([entry('good', ['reaches', 'reaches']), entry('ghost', ['hollow', 'absent'])]),
+    library([entry('good', ['reaches', 'reaches']), partialEntry('ghost', ['hollow', 'absent'])]),
   )
   expect(document.body.textContent).toContain('1 directory holds a skill’s name and no definition')
   await act(async () => {
@@ -608,7 +615,7 @@ it('arriving from the banner opens the import flow over the same page', async ()
   await mount(library([entry('alpha', ['reaches', 'absent'])]), undefined, {
     initialFlow: 'import',
   })
-  expect(document.body.textContent).toContain('Import between agents')
+  expect(document.body.textContent).toContain('Import between runtimes')
   expect(document.body.textContent).toContain('Nothing changes until a preview is confirmed')
 })
 
@@ -845,13 +852,13 @@ it('never offers to install a server into an agent with no config file for one',
   expect(offers()).toHaveLength(1)
 })
 
-it('ten agents collapse the drawer offers into one previewed plan', async () => {
+it.each([['skill', 'list'], ['skill', 'matrix'], ['mcp', 'list'], ['mcp', 'matrix']] as const)('many runtimes collapse the %s %s offers into one previewed plan', async (kind, layout) => {
   // One button per agent is fine at four and a keyboard row at ten. Past
   // three targets, one button previews a plan with an op per agent — every
   // target still named, apply still per-op.
   const ids = ['one', 'two', 'three', 'four', 'five', 'six']
   const wide: LibraryEntry = {
-    kind: 'skill',
+    kind,
     name: 'alpha',
     title: null,
     description: null,
@@ -875,14 +882,15 @@ it('ten agents collapse the drawer offers into one previewed plan', async () => 
     generatedAt: 1,
     home: HOME,
     runtimes: ids.map((id) => runtimeId(id)),
-    locations: ids.map((id) => skillLocation(id)),
+    locations: ids.map((id) => ({ ...skillLocation(id), kind })),
     entries: [wide],
     gaps: [],
   }
   const request = await mount(value, undefined, {
     runtimes: ids.map((id, index) => runtime(id, `Agent ${index + 1}`)),
   })
-  await showMatrix()
+  if (kind === 'mcp') await chooseKind('mcp')
+  if (layout === 'matrix') await showMatrix()
   await act(async () => {
     ;[...document.body.querySelectorAll('button')]
       .find((one) => one.textContent?.includes('alpha'))
@@ -891,10 +899,11 @@ it('ten agents collapse the drawer offers into one previewed plan', async () => 
   const labels = [...document.body.querySelectorAll('button')].map((one) => one.textContent ?? '')
   expect(labels.some((label) => label === 'Install to Agent 2')).toBe(false)
   const all = [...document.body.querySelectorAll('button')].find((one) =>
-    one.textContent?.includes('Install to all 5 missing'),
+    one.textContent?.includes(`${kind === 'skill' ? 'Install' : 'Add'} to all 5 missing`),
   )
   expect(all).toBeTruthy()
   await act(async () => all?.click())
+  expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain(kind === 'skill' ? 'Install alpha for 5 runtimes' : `Add alpha ${layout === 'matrix' ? 'to' : 'for'} 5 runtimes`)
   const planned = request.mock.calls.find((one) => one[0] === 'library/plan')
   const intents = (planned?.[1] as { intents: readonly { targetRuntime: string }[] }).intents
   expect(intents).toHaveLength(5)
@@ -914,7 +923,7 @@ it('three or more column caveats fold behind their count', async () => {
   }
   await mount(value)
   expect(document.body.textContent).toContain(
-    '3 columns are read from disk rather than from their agents',
+    '3 columns are read from disk rather than from their runtimes',
   )
   // The fold hides nothing: each agent's own sentence is still there to open.
   expect(document.body.querySelector('details')).toBeTruthy()
@@ -979,7 +988,7 @@ it('Loaded by shows only the agents that load it, with their accessible names', 
 })
 
 it('a problem is a warning in State, while Loaded by keeps only healthy faces', async () => {
-  await mount(library([entry('alpha', ['hollow', 'reaches'])]))
+  await mount(library([partialEntry('alpha', ['hollow', 'reaches'])]))
   const row = cards()[0]!
   expect(row.querySelector('[data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Empty on disk')
   expect(row.querySelector('[data-shape="face"]')?.getAttribute('aria-label')).toBe('Second Agent')
@@ -992,7 +1001,7 @@ it('a row’s finding names the defect, never the symptom it causes', async () =
   // symptom the reader can do nothing with.
   await mount(
     library([
-      entry('empty', ['hollow', 'absent'], {
+      partialEntry('empty', ['hollow', 'absent'], {
         copies: [
           {
             path: '/home/u/.claude/skills/empty',
@@ -1052,7 +1061,7 @@ it('a stranded copy is captioned as stranded, not as absent', async () => {
       }),
     ]),
   )
-  expect(cards()[0]?.textContent).toContain('Where no agent looks')
+  expect(cards()[0]?.textContent).toContain('Where no runtime looks')
 })
 
 it('opening a row reads the definition off the host and renders it', async () => {
@@ -1665,7 +1674,7 @@ it('a definition an agent refused says so in the agent’s own words, and warns 
 
   await act(async () => cards()[0]?.click())
   const sheet = document.querySelector('[data-slot="skill-sheet"]')
-  expect(sheet?.textContent).toContain('This agent read the definition and would not load it')
+  expect(sheet?.textContent).toContain('This runtime read the definition and would not load it')
   // Its reason, verbatim. We did not decide this and must not paraphrase a
   // loader rule we have not measured.
   expect(sheet?.textContent).toContain('missing field `description`')
@@ -1886,11 +1895,11 @@ it('an Agent whose attachments view could not be read is treated as nothing decl
 })
 
 it('the List compares Skill, State and Loaded by without a repeated monogram', async () => {
-  await mount(library([entry('alpha', ['reaches', 'absent']), entry('empty', ['hollow', 'absent'])]))
+  await mount(library([entry('alpha', ['reaches', 'absent']), partialEntry('empty', ['hollow', 'absent'])]))
   const table = container.querySelector('table')!
   expect(table).not.toBeNull()
   expect(table.querySelector('caption')?.textContent).toBe(
-    'Each row is one entry; its state and the agents that load it appear in separate columns.',
+    'Each row is one entry; its state and the runtimes that load it appear in separate columns.',
   )
   expect([...table.querySelectorAll('thead th')].map((head) => head.textContent)).toEqual(['Skill', 'State', 'Loaded by'])
   const rows = [...table.querySelectorAll('tbody tr')]
@@ -1911,7 +1920,7 @@ it('the List responds to its container and retains definition access in the narr
     disconnect = disconnect
   })
   const description = 'A complete description that remains available in the definition.'
-  await mount(library([entry('code-review', ['reaches', 'absent'], { description }), entry('empty', ['hollow', 'absent'])]))
+  await mount(library([entry('code-review', ['reaches', 'absent'], { description }), partialEntry('empty', ['hollow', 'absent'])]))
   const list = container.querySelector('[data-slot="skill-list"]')!
   const listObserver = observers.find(observer => observer.target === list)
   expect(listObserver, 'the list must observe its own container').toBeDefined()
@@ -1974,7 +1983,7 @@ it('caps loading faces with the shared stack while naming every loading agent', 
 })
 
 it('uses Banner anatomy for the empty-directory alert and keeps cleanup actionable', async () => {
-  await mount(library([entry('empty', ['hollow', 'absent'])]))
+  await mount(library([partialEntry('empty', ['hollow', 'absent'])]))
   const attention = container.querySelector('[data-slot="library-attention"]')!
   expect(attention.querySelector('[data-part="banner-icon"]')).not.toBeNull()
   expect(attention.querySelector('[data-slot="alert-title"]')?.textContent).toBe('Empty skill directories')
@@ -2012,9 +2021,9 @@ it('says a repeated load state once and leaves different states on their own row
   await act(async () => container.querySelector<HTMLTableRowElement>('[data-slot="skill-row"]')?.click())
 
   const dialog = document.body.querySelector('[role="dialog"]')!
-  const group = [...dialog.querySelectorAll('section')].find(one => one.querySelector('h3')?.textContent === 'Which agents load it')!
-  const repeated = 'Installed where this agent does not look'
-  const grouped = 'Installed where these agents do not look'
+  const group = [...dialog.querySelectorAll('section')].find(one => one.querySelector('h3')?.textContent === 'Which runtimes load it')!
+  const repeated = 'Installed where this runtime does not look'
+  const grouped = 'Installed where these runtimes do not look'
   const rows = [...group.querySelectorAll<HTMLElement>('[role="listitem"]')]
   expect(rows).toHaveLength(12)
   expect(group.textContent?.match(new RegExp(grouped, 'g'))).toHaveLength(1)
@@ -2062,13 +2071,13 @@ it('E6 controlled sections and import intents keep one destination body', async 
   // The route remains controlled until its owner applies the visit.
   expect(container.querySelector('thead')?.textContent).toBe('ServerStateLoaded by')
   await draw('skill', 1)
-  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Import between agents')
+  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Import between runtimes')
   const close = document.body.querySelector<HTMLButtonElement>('[role="dialog"] [aria-label="Close"]')!
   await act(async () => close.click())
   await draw('skill', 1)
   expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   await draw('skill', 2)
-  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Import between agents')
+  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Import between runtimes')
   await draw('skill', 2, false)
   expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   await draw('skill', 2, true)
@@ -2095,6 +2104,20 @@ it('E6 hidden Library cancels a late scan before starting usage and rereads on r
   expect(request.mock.calls.filter(call=>call[0]==='library/read')).toHaveLength(2)
   expect(request.mock.calls.filter(call=>call[0]==='library/usage')).toHaveLength(1)
   expect(container.textContent).toContain('fresh')
+})
+
+
+it('omits reserved folders and skills without any nonempty definition from both views', async () => {
+  const real = entry('review', ['reaches', 'reaches'], { description: 'Read `src/` first. <script>bad()</script>' })
+  await mount(library([entry('_hd', ['reaches', 'reaches']), entry('empty', ['hollow', 'absent']), real]))
+  expect(cards()).toHaveLength(1)
+  expect(document.body.querySelector('[title="Library sections"]')?.textContent).toBe('Skills1')
+  expect(document.body.querySelector('[data-skill-description] code')?.textContent).toBe('src/')
+  expect(document.body.querySelector('script')).toBeNull()
+  await showMatrix()
+  expect([...document.body.querySelectorAll('tbody th[scope="row"]')].map(node => node.textContent)).toEqual(['reviewRead src/ first. '])
+  expect(document.body.querySelector('tbody code')?.textContent).toBe('src/')
+  expect(document.body.querySelector('script')).toBeNull()
 })
 
 const updateOrigin = { url: 'https://github.com/acme-dev/skills', ref: 'main', commit: '1234567890abcdef', path: 'review/code-review' }

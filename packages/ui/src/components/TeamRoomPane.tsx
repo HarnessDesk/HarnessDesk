@@ -23,7 +23,8 @@ import {
 } from '@harnessdesk/protocol'
 
 import { raceRoleId } from '../lib/flows'
-import { runtimeTint, type Tint } from '../lib/accounts'
+import { runtimeTint } from '../lib/accounts'
+import type { Tint } from '../design'
 import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
 import { goalRunOf, namedGoalRun } from '../lib/goal-run'
@@ -733,7 +734,7 @@ export const TeamRoomPane = ({
     const runtime = seat.record.session?.runtime
     const info = snapshot.runtimes.find(one => one.id === runtime)
     return [seat.record.id, { brand: info ? brandForRuntime(info) : null,
-      tint: runtime ? runtimeTint(runtime as RuntimeId, snapshot.accountsByRuntime, snapshot.accountPrefs) : 'blue' }]
+      tint: runtime ? runtimeTint(info) : 'blue' }]
   })), [goal, team, flowExecution, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs])
   const members = useMemo(() => {
     return seats.filter(seat => !seat.record.closed).map(seat => {
@@ -883,10 +884,8 @@ export const TeamRoomPane = ({
           runtime,
           here: peer.here,
           brand: runtime ? brandForRuntime(runtime) : null,
-          /* The account's own ring rather than one fixed colour. A rail of
-             five members all in blue says nothing, and the ring exists to
-             say which account this is — see lib/accounts.ts. */
-          tint: runtimeTint(peer.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs),
+          /* The runtime's shared brand tint, matching its other tiles. */
+          tint: runtimeTint(snapshot.runtimes.find(info => info.id === peer.runtime)),
           busy: peer.here && (live ? isBusy(live) : peer.busy),
           done: overview.seats.find(one => seats.find(seat => seat.record.id === one.seat)?.key === key)?.done ?? false,
           /* Whether this member can use the board at all. HarnessDesk's tools
@@ -1229,7 +1228,9 @@ export const TeamRoomPane = ({
               onRunVisibility={onRunReviewVisibility} active={open === 'runs'} />
           </div>}
           {open === 'receipt' ? (
-            <Page width="reading" fill>
+            // Its own scroll box, as the Runs and Overview tabs have: the body
+            // clips, so a receipt taller than the pane lost its last lines.
+            <Page width="reading" fill scroll>
               {goal?.receipt ? (
                 <>
                   <GoalReceiptCost receipt={goal.receipt}>
@@ -1256,7 +1257,7 @@ export const TeamRoomPane = ({
               onFindings={goal ? () => show('findings') : undefined}
               runReason={flowExecution?.state === 'stalled' ? null : flowExecution?.reason}
               runRules={flowExecution?.document.flow.rules}
-              faceTints={new Map(seats.map(seat => [seat.record.id, runtimeTint(seat.record.session.runtime as RuntimeId, snapshot.accountsByRuntime, snapshot.accountPrefs)]))}
+              faceTints={new Map(seats.map(seat => [seat.record.id, runtimeTint(snapshot.runtimes.find(info => info.id === seat.record.session.runtime))]))}
               runtimeNames={new Map(seats.flatMap(seat => { const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime); return runtime ? [[seat.record.id, runtime.presentation.name]] : [] }))}
               timeline={overviewTimeline}
               onStop={!record && flowExecution ? () => setStoppingRun(flowExecution.id) : undefined}

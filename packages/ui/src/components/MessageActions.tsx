@@ -78,7 +78,7 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
         variant="quiet" size="icon-xs"
         onClick={retry}
         disabled={Boolean(refusal)}
-        aria-label="Ask the agent to try again"
+        aria-label="Ask the runtime to try again"
         title={refusal ?? 'Try again'}
       >
         <RetryIcon size={13} />

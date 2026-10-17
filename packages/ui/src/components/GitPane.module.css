@@ -126,7 +126,9 @@
   display: flex;
   align-items: center;
   gap: var(--hd-space-2-5);
-  padding-right: var(--hd-space-3); /* desk: GitHistoryTableHeader's pr-3 → here, the rows' own right inset */
+  /* The rows' own inset, both sides: with none on the left, the graph and its
+     "Graph" label started on the pane's edge. */
+  padding-inline: var(--hd-space-3);
 }
 
 /* No `overflow: hidden` here: the handle straddles the column's right edge,

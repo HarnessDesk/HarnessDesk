@@ -1,3 +1,5 @@
+import { changePlanner } from './ci-changes.mjs'
+import { IMPORT, SOURCE, findFile, resolveHelper, specsReaching, suiteGraph } from './ci-imports.mjs'
 import { pageLayoutFindings } from './frame-page-layout.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
@@ -4651,4 +4653,91 @@ test('Phase E has retired destination windows, heads and title rules', () => {
 test('the loadout brief home is a placeholder while undeclared home names remain refused', () => {
   assert.deepEqual(offendersIn('loadout-fixture.ts', "const cwd = '/home/jane/project'"), [])
   assert.equal(offendersIn('loadout-fixture.ts', "const cwd = '/home/private-person/project'").length, 1) // hd-secrets-ok
+})
+
+// Inspect all literal repository paths, not only import declarations: specs also
+// read docs and source text through fs, URLs and child-process arguments. Follow
+// their script helpers too; package inputs already select UI or server coverage.
+const browserRepositoryReads = (root) => {
+  const graph = suiteGraph(root)
+  const queue = graph.sources.filter(file => specsReaching(graph, [file]).length > 0)
+  const seen = new Set()
+  const reads = new Set()
+  const importers = new Map([...graph.importers].map(([file, parents]) => [file, new Set(parents)]))
+  while (queue.length > 0) {
+    const file = queue.pop()
+    if (seen.has(file)) continue
+    seen.add(file)
+    const text = fs.readFileSync(file, 'utf8')
+    const add = target => {
+      if (!target || !target.startsWith(`${root}/`)) return
+      const relative = path.relative(root, target)
+      reads.add(relative)
+      importers.set(target, new Set([...(importers.get(target) ?? []), file]))
+      if (fs.existsSync(target) && SOURCE.includes(path.extname(target)) && !relative.startsWith('packages/')) queue.push(target)
+    }
+    for (const [, specifier] of text.matchAll(IMPORT)) {
+      if (specifier.startsWith('.')) add(resolveHelper(file, specifier))
+    }
+    const visit = node => {
+      if (ts.isStringLiteralLike(node)) {
+        const literal = node.text
+        if (literal.startsWith('.')) add(findFile(file, literal))
+        else if (!path.isAbsolute(literal) && (literal.includes('/')
+          || (ts.isCallExpression(node.parent) && /(?:readFile|readFileSync)$/.test(node.parent.expression.getText()) && node.parent.arguments[0] === node))) {
+          add(findFile(path.join(root, 'entry'), `./${literal}`))
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true))
+  }
+  return new Map([...reads].sort().map(file => [file, specsReaching({ ...graph, importers }, [path.join(root, file)]).map(spec => path.relative(root, spec)).sort()]))
+}
+
+const browserReadGaps = (root, reads, plan = changePlanner(root)) => [...reads].filter(([file, readers]) => {
+  const run = plan({ event: 'push', refName: 'development', paths: [file] })
+  const selected = run.browser === 'none' ? [] : run.browser === 'server' ? JSON.parse(run.server_specs)
+    : run.browser_specs === 'all' ? null : JSON.parse(run.browser_specs)
+  return selected !== null && readers.some(spec => !selected.includes(spec))
+}).map(([file]) => file)
+
+test('every repository file read by browser specs is covered by the browser input policy', () => {
+  const reads = browserRepositoryReads(repoRoot)
+  for (const file of ['docs/interface.md', 'script/shots/shoot.mjs', 'script/shots/template-rig.mjs', 'packages/ui/src/design/metrics.json']) {
+    assert.ok(reads.has(file), `the repository read scan must see ${file}`)
+  }
+  assert.deepEqual(browserReadGaps(repoRoot, reads), [], 'every reader must be selected when its input changes')
+})
+
+test('the browser input gate resolves a new repo read, including one through a helper or URL', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-read-gate-'))
+  const put = (file, text) => {
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+    fs.writeFileSync(path.join(root, file), text)
+  }
+  try {
+    put('packages/ui/package.json', JSON.stringify({ name: '@harnessdesk/ui' }))
+    put('e2e/ui-system/durations.json', '{}')
+    put('docs/new-contract.md', 'contract')
+    for (const source of [
+      "import { readFileSync } from 'node:fs'; readFileSync('docs/new-contract.md', 'utf8')",
+      "import './helper';",
+    ]) {
+      put('e2e/ui-system/example.spec.ts', source)
+      put('e2e/ui-system/helper.ts', "import { readFileSync } from 'node:fs'; readFileSync(new URL('../../docs/new-contract.md', import.meta.url), 'utf8')")
+      const reads = browserRepositoryReads(root)
+      assert.ok(reads.has('docs/new-contract.md'))
+      assert.deepEqual(reads.get('docs/new-contract.md'), ['e2e/ui-system/example.spec.ts'])
+      assert.deepEqual(browserReadGaps(root, reads), [])
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the browser read gate rejects a server-only plan that omits the package reader', () => {
+  const reads = new Map([['packages/cli/package.json', ['e2e/ui-system/row-box.spec.ts']]])
+  const serverOnly = () => ({ browser: 'server', server_specs: '[]', browser_specs: 'all' })
+  assert.deepEqual(browserReadGaps(repoRoot, reads, serverOnly), ['packages/cli/package.json'])
 })

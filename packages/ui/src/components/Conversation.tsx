@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { editorConversation } from '../editor'
 import { sanitizeText } from '../lib/sanitize'
 import { sessionUnavailable } from '../lib/session-unavailable'
+import { isChatFolder } from '../lib/chats'
 import { useInstalledAgents } from '../lib/first-run'
 import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
@@ -261,7 +262,7 @@ const ConversationEmpty = ({
     <ConversationEmptyState height={height}>
       <EmptyTitle>What should we build?</EmptyTitle>
       <EmptyBody>
-        {session ? `Describe what you want done in ${folder}.` : 'Describe a task, then choose the folder it runs in.'}
+        {session ? `Describe what you want done in ${folder}.` : 'Describe a task.'}
       </EmptyBody>
       {/* This pane already knows its folder — the front door reads the same
           root. With none chosen yet there is no catalogue to read, so the
@@ -425,7 +426,7 @@ export const Conversation = ({
     <ConversationEmptyState height={emptyHeight}>
       <EmptyTitle>Nothing to show</EmptyTitle>
       <EmptyBody>
-        {snapshot.runtimes.find((entry) => entry.id === session.runtime)?.presentation.name ?? 'The agent'}{' '}
+        {snapshot.runtimes.find((entry) => entry.id === session.runtime)?.presentation.name ?? 'The runtime'}{' '}
         couldn’t restore this conversation’s messages. Sending a message continues the same session.
       </EmptyBody>
     </ConversationEmptyState>
@@ -617,7 +618,7 @@ export const Conversation = ({
             {session.worktreeWarning && <Banner tone="neutral" compact>{session.worktreeWarning}</Banner>}
             {!hasRealTurn && emptyState}
             <div ref={transcriptContent} data-transcript-content><Page width="reading" gutter="none">
-            {session.deskCopy && <ReadingMeasure><Text as="div" role="prose" ink="secondary">HarnessDesk’s copy — {snapshot.runtimes.find(entry => entry.id === session.runtime)?.presentation.name ?? 'The agent'}’s own record is unavailable.</Text></ReadingMeasure>}
+            {session.deskCopy && <ReadingMeasure><Text as="div" role="prose" ink="secondary">HarnessDesk’s copy — {snapshot.runtimes.find(entry => entry.id === session.runtime)?.presentation.name ?? 'The runtime'}’s own record is unavailable.</Text></ReadingMeasure>}
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
               // answer, then what changed on disk — the order a reader wants,
@@ -806,6 +807,13 @@ export const GitControl = ({
   const summary = session
     ? snapshot.history.find((entry) => entry.runtime === session.runtime && entry.id === session.id)
     : undefined
+  // Repository rows go only where the folder is known not to be a repository:
+  // a managed chat, or the open workspace once the host has read it as none
+  // (`repo: null`; absent means unread). A folder this window has no read for
+  // (a Team member's clone, a runtime that reports no git) keeps them.
+  const here = cwd === snapshot.workspace?.path ? snapshot.workspace : null
+  const knownNotRepository = isChatFolder(cwd, snapshot.chatsFolderRoots) || (here?.repo === null && !here.git)
+  const hasRepository = Boolean(branch || checkout || session?.git || summary?.repo) || !knownNotRepository
   const linked =
     armed !== null ||
     pointedAway ||
@@ -850,7 +858,7 @@ export const GitControl = ({
                 disabled
                 onSelect={() => {}}
               />
-            ) : (
+            ) : hasRepository && (
               <>
                 <MenuItem
                   icon={<HistoryIcon size={16} />}
@@ -886,7 +894,7 @@ export const GitControl = ({
                 onSelect={onRemoveWorktree}
               />
             )}
-            {session && key && runtime.capabilities.review && (
+            {hasRepository && session && key && runtime.capabilities.review && (
               <MenuItem
                 icon={<ReviewIcon size={16} />}
                 label="Review uncommitted changes"
@@ -895,11 +903,11 @@ export const GitControl = ({
                 onSelect={() => void store.review({ type: 'uncommitted', delivery: 'detached' }, key)}
               />
             )}
-            {session && !sessionUnavailable(snapshot, session) && (
+            {hasRepository && session && !sessionUnavailable(snapshot, session) && (
               <MenuItem
                 icon={<CommitIcon size={16} />}
                 label="Commit the changes"
-                title="Asks the agent, in this conversation; you send it."
+                title="Asks the runtime, in this conversation; you send it."
                 onSelect={() => {
                   dismissOverlays({ returnFocus: false })
                   if (pane) store.focusPane(pane.paneId.split(':')[0]!)

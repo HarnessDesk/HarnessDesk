@@ -112,6 +112,7 @@ const rig = (
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     workSubject: () => one ? `session:${KEY}` : 'draft:p1',
     send: vi.fn(),
@@ -321,7 +322,7 @@ it('keeps one short draft pitch with a chosen project', () => {
   })
   render(store, null)
 
-  expect(container.textContent).toContain('Describe a task, then choose the folder it runs in.')
+  expect(container.textContent).toContain('Describe a task.')
   expect(container.textContent).not.toContain('Pick a project folder')
 })
 
@@ -961,7 +962,7 @@ it('failed-runtime history refuses live agent verbs and keeps copy without edit 
   const {store}=rig(one,new Map(),{healthByRuntime:{codex:{state:'unavailable',reason:'unreadable',message:reason}},
     runtimes:[{id:'codex',name:'Fixture',presentation:{name:'Fixture'},capabilities:{memory:true,undo:true,compaction:true,review:true}}] as unknown as AppSnapshot['runtimes']})
   render(store)
-  expect(container.querySelector<HTMLButtonElement>('[aria-label="Ask the agent to try again"]')?.disabled).toBe(true)
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Ask the runtime to try again"]')?.disabled).toBe(true)
   expect(container.querySelector('[aria-label="Edit this message"]')).toBeNull()
   await act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
   for(const label of ['Compact now','Undo the last turn','Remember this conversation']) {
@@ -1093,7 +1094,7 @@ it('keeps other clients out of the draft pitch even with legacy history metadata
   }))
   render(rig(null, new Map(), { runtimes, activeRuntime: runtimes[0]!.id }).store, null)
   const text = container.querySelector('[data-slot="conversation-empty-state"]')!.textContent
-  expect(text).toContain('Describe a task, then choose the folder it runs in.')
+  expect(text).toContain('Describe a task.')
   expect(text).not.toContain('Sessions you start in')
   expect(text).not.toContain('Gamma CLI')
   expect(text).not.toContain('Codex')

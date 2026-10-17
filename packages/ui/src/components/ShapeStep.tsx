@@ -62,7 +62,7 @@ export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) 
           {role.kind === 'agent' && (
             <>
               <section aria-label={`Agents for ${role.id}`}>
-                <SectionHead name="Uses" />
+                <SectionHead level="label" name="Uses" />
                 <Rows>
                   {agents.length === 0 && <Row title="No Agents to choose from yet" />}
                   {agents.map((entry) => (
@@ -101,15 +101,15 @@ export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) 
                 )}
               </Field>
               <section aria-label={`Seat override for ${role.id}`}>
-                <SectionHead
+                <SectionHead level="label"
                   name="Seat override"
                   action={
                     <DropdownMenu wide icons="none">
                       <DropdownMenuTrigger render={<Button size="sm" variant="outline" aria-label="Add a seat"><PlusIcon size={14} />Add a seat</Button>} />
                       <DropdownMenuContent align="end">
-                        {runtimes.length >= 6 && <MenuSearch label="Search Agents" value={seatQuery} onChange={setSeatQuery} autoFocus />}
+                        {runtimes.length >= 6 && <MenuSearch label="Search runtimes" value={seatQuery} onChange={setSeatQuery} autoFocus />}
                         {shownSeats.map(one => <DropdownMenuItem key={one.id} label={one.presentation.name} onClick={() => onChange({ ...role, seats: [...role.seats, { runtime: one.id }] })} />)}
-                        {shownSeats.length === 0 && <MenuNote>No Agents match.</MenuNote>}
+                        {shownSeats.length === 0 && <MenuNote>No runtimes match.</MenuNote>}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   }

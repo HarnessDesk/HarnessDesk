@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { isFinishedTask, type BackgroundTask } from '@harnessdesk/protocol'
 
-import { Button, CodeBlock, EmptyState, Spinner, Text, ToolSection } from '../design'
+import { Button, CodeBlock, EmptyState, SectionBody, Spinner, Text, ToolSection } from '../design'
 import { splitTasks, taskElapsed, taskKindWord, tasksCount, taskStateWord, taskTooltip } from '../lib/tasks'
 import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, BackgroundIcon, CheckIcon, StopIcon } from './Icons'
@@ -82,7 +82,7 @@ export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
               tight
               icon={<BackgroundIcon />}
               title="No conversation"
-              description="Open a conversation to see what its agent is running in the background."
+              description="Open a conversation to see what its runtime is running in the background."
             />
       ) : !runtime.capabilities.backgroundTasks ? (
             // An agent without the concept, said plainly: an empty list would
@@ -108,11 +108,12 @@ export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
                 key={task.id}
                 task={task}
                 now={now}
+                card={card}
                 onStop={() => void store.stopTask(task.id, key ?? undefined)}
               />
             ))}
             {finished.map((task) => (
-              <TaskCard key={task.id} task={task} now={now} />
+              <TaskCard key={task.id} task={task} now={now} card={card} />
             ))}
           </div>
     )}
@@ -153,15 +154,43 @@ const TaskCard = ({
   task,
   now,
   onStop,
+  card = false,
 }: {
   task: BackgroundTask
   now: number
   onStop?: () => void
+  /** In a Details card, the plate takes the card's row edge, as its rows do. */
+  card?: boolean
 }) => {
   const elapsed = taskElapsed(task, now)
   const done = isFinishedTask(task)
   const meta = [taskKindWord(task), taskStateWord(task), elapsed].filter(Boolean).join(' · ')
   const hasBlock = Boolean(task.command) || task.output !== undefined || !done
+
+  const plate = hasBlock ? (
+    <CodeBlock
+      {...(task.command ? { command: task.command, copyLabel: `Copy the command for ${task.label}` } : {})}
+      {...(task.output !== undefined ? { output: task.output.length > 0 ? task.output : '(no output)' } : {})}
+    >
+      {task.output === undefined && (
+        /* Three things "no output" can mean, and the plate says which:
+           still running, so nothing yet; over, and the runtime is still
+           fetching what it printed; over, and the runtime looked and the
+           file was never there. The middle one used to read like the
+           last, which left a person unable to tell a race from a loss. */
+        <Text role="meta">
+          {!done
+            ? 'Nothing printed yet.'
+            : task.outputMissing
+              ? 'Its output was never found.'
+              : 'Fetching what it printed…'}
+        </Text>
+      )}
+      {task.outputTruncated && (
+        <Text role="meta" className="mt-2 block">Showing the end of a longer log.</Text>
+      )}
+    </CodeBlock>
+  ) : null
 
   return (
     <article data-slot="task-card" data-state={task.state} className="flex flex-col gap-1">
@@ -184,30 +213,7 @@ const TaskCard = ({
           ) : undefined
         }
       />
-      {hasBlock && (
-        <CodeBlock
-          {...(task.command ? { command: task.command, copyLabel: `Copy the command for ${task.label}` } : {})}
-          {...(task.output !== undefined ? { output: task.output.length > 0 ? task.output : '(no output)' } : {})}
-        >
-          {task.output === undefined && (
-            /* Three things "no output" can mean, and the plate says which:
-               still running, so nothing yet; over, and the runtime is still
-               fetching what it printed; over, and the runtime looked and the
-               file was never there. The middle one used to read like the
-               last, which left a person unable to tell a race from a loss. */
-            <Text role="meta">
-              {!done
-                ? 'Nothing printed yet.'
-                : task.outputMissing
-                  ? 'Its output was never found.'
-                  : 'Fetching what it printed…'}
-            </Text>
-          )}
-          {task.outputTruncated && (
-            <Text role="meta" className="mt-2 block">Showing the end of a longer log.</Text>
-          )}
-        </CodeBlock>
-      )}
+      {plate && (card ? <SectionBody spacing="inline">{plate}</SectionBody> : plate)}
     </article>
   )
 }

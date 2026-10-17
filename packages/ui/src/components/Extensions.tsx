@@ -149,7 +149,7 @@ export const ExtensionsSection = () => {
             <Note>Loading…</Note>
           ) : (
             <>
-              <SectionHead name={`Installed · ${installed.length}`} />
+              <SectionHead level="label" name={`Installed · ${installed.length}`} />
               <Rows>
                 {installed.length === 0 ? (
                   <EmptyState variant="row" title={query ? 'No installed plugin matches' : 'Nothing installed yet'} />
@@ -157,7 +157,7 @@ export const ExtensionsSection = () => {
                   installed.map((plugin) => <PluginRow key={plugin.id} plugin={plugin} />)
                 )}
               </Rows>
-              <SectionHead name={`Available · ${available.length}`} />
+              <SectionHead level="label" name={`Available · ${available.length}`} />
               <Rows>
                 {available.length === 0 ? (
                   <EmptyState variant="row" title="Nothing more to add" />
@@ -316,7 +316,7 @@ const AppDirectory = () => {
 
   return (
     <>
-      <SectionHead name="Connect an app" />
+      <SectionHead level="label" name="Connect an app" />
       <Note>Connecting happens in {runtime.presentation.name}; HarnessDesk opens the link.</Note>
       <PageControls search={{label:"Search apps to connect",placeholder:"Search apps to connect",value:query,change:setQuery}}/>
       <Rows>
@@ -359,7 +359,7 @@ const McpServers = () => {
 
   return (
     <>
-      <SectionHead
+      <SectionHead level="label"
         name={`MCP servers${servers && servers.length > 0 ? ` · ${servers.length}` : ''}`}
         action={
           <Button

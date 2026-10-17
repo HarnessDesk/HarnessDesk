@@ -591,8 +591,8 @@ const BrowserTabPage = ({
           over={inline}
           icon={<GlobeIcon size={40} />}
           title="Nothing open yet"
-          description={agentPages ? 'Pages the agent opens appear here.' : inline
-            ? 'Type a URL above, or let a turn open one. Whatever an agent does in the marked tab happens here, in front of you.'
+          description={agentPages ? 'Pages the runtime opens appear here.' : inline
+            ? 'Type a URL above, or let a turn open one. Whatever a runtime does in the marked tab happens here, in front of you.'
             : 'Type a URL above. In the desktop app this pane is a full browser; here it shows what allows itself to be framed.'}
         />
       )}
@@ -677,7 +677,7 @@ const useDriving = (): Driving | null => {
         const info = snapshot.runtimes.find((entry) => entry.id === session.runtime) ?? null
         return {
           what,
-          who: info?.presentation.name ?? 'Agent',
+          who: info?.presentation.name ?? 'Runtime',
           step: index + 1,
           key,
           info,
@@ -1446,14 +1446,14 @@ const BrowserPaneContent = () => {
                         name on a tab it has never touched, and a room of Cursor
                         and Claude Code read "Codex". */}
                     {entry.id === view.driven && canDrive && (
-                      <Chip tone="brand" emphasis size="sm" title={`${namedDriver?.presentation.name ?? 'Agents'} drive${namedDriver ? 's' : ''} this tab`}>
+                      <Chip tone="brand" emphasis size="sm" title={`${namedDriver?.presentation.name ?? 'Runtimes'} drive${namedDriver ? 's' : ''} this tab`}>
                         <Dot state="signin" />
-                        {namedDriver?.presentation.name ?? 'Agents'}
+                        {namedDriver?.presentation.name ?? 'Runtimes'}
                       </Chip>
                     )}
                     <Button
                       type="button"
-                      variant="reveal" size="icon-sm" edge="end" edgeGlyph={11}
+                      variant="reveal" size="icon-xs" edge="end" edgeGlyph={11}
                       onClick={(event) => {
                         event.stopPropagation()
                         store.closeBrowserTab(paneId, entry.id)
@@ -1543,7 +1543,7 @@ const BrowserPaneContent = () => {
                 icon={<GlobeIcon size={14} />}
                 label="Browser tools drive this tab"
                 selected={view.driven === view.active}
-                disabled={canDrive ? false : `${drivingRuntime?.presentation.name ?? 'This agent'} cannot receive browser tools.`}
+                disabled={canDrive ? false : `${drivingRuntime?.presentation.name ?? 'This runtime'} cannot receive browser tools.`}
                 onSelect={() => store.setBrowserDriven(paneId, view.active)}
               />
               <MenuSeparator />
@@ -1903,7 +1903,7 @@ const BrowserPaneContent = () => {
               icon={<DesktopIcon size={14} />}
               label="Browser tools drive this tab"
               selected={view.driven === tabMenu.tab.id}
-              disabled={canDrive ? false : `${drivingRuntime?.presentation.name ?? 'This agent'} cannot receive browser tools.`}
+              disabled={canDrive ? false : `${drivingRuntime?.presentation.name ?? 'This runtime'} cannot receive browser tools.`}
               onSelect={() => store.setBrowserDriven(paneId, tabMenu.tab!.id)}
             />
             <MenuSeparator />

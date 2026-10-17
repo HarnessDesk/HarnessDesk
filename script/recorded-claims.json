@@ -471,27 +471,7 @@
           "held": true,
           "observed": "14 rows, heights 35px",
           "pinnedBy": [
-            "cuts a label the runtime chose rather than wrapping its row",
-            "keeps the trailing values out of the label’s space"
-          ]
-        },
-        {
-          "id": "the-runtimes-own-word",
-          "says": "the row an agent named is the same height as the rest",
-          "held": true,
-          "observed": "\"Skills & commandsCursor\" is 35px; the rail's rows are 35px",
-          "pinnedBy": [
-            "cuts a label the runtime chose rather than wrapping its row",
-            "keeps the trailing values out of the label’s space"
-          ]
-        },
-        {
-          "id": "the-page-keeps-the-rails-promise",
-          "says": "the page opens under the same word the rail used",
-          "held": true,
-          "observed": "rail \"Skills & commands\" · page \"Skills & commands\"",
-          "pinnedBy": [
-            "cuts a label the runtime chose rather than wrapping its row",
+            "keeps a stable nav label while the skills page uses the runtime name",
             "keeps the trailing values out of the label’s space"
           ]
         }

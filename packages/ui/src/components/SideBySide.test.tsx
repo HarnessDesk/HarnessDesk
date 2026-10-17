@@ -601,7 +601,7 @@ it('switches one tile to Browser, keeps its sibling in Conversation, and invents
   expect(mode(tiles[0]!, 'Browser')).not.toBeNull()
   click(mode(tiles[0]!, 'Browser'))
   expect(mode(tiles[0]!, 'Conversation')?.getAttribute('title')).toBe('Conversation')
-  expect(tiles[0]!.textContent).toContain('Pages the agent opens appear here.')
+  expect(tiles[0]!.textContent).toContain('Pages the runtime opens appear here.')
   expect(tiles[0]!.querySelector('iframe, webview')).toBeNull()
   expect(tiles[1]!.querySelector('[data-testid="conversation-body"]')).not.toBeNull()
   expect(saved.modes).toEqual({ [keys[0]!]: 'browser' })

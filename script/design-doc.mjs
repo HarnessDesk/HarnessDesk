@@ -163,6 +163,20 @@ const patterns = () =>
     })
 
 /** The local table scope is an axis of its own, not a second page default. */
+/**
+ * One row per recorded scene — how many findings of each kind its guides
+ * hold — in the order the board shows them, and a total.
+ */
+export const standardRows = (record) => {
+  const count = (kinds, kind) => Object.values(kinds?.[kind] ?? {}).reduce((sum, n) => sum + n, 0)
+  const rows = Object.entries(record).map(([scene, kinds]) => ({
+    scene, offLine: count(kinds, 'offLine'), overflow: count(kinds, 'overflow'), offScale: count(kinds, 'offScale'),
+  }))
+  const total = { scene: 'total', offLine: 0, overflow: 0, offScale: 0 }
+  for (const row of rows) for (const kind of ['offLine', 'overflow', 'offScale']) total[kind] += row[kind]
+  return [...rows, total]
+}
+
 export const tableDensityRows = () => {
   const comfortable = resolveTokens({ root })
   const compact = resolveTokens({ root, tableDensity: 'compact' })
@@ -296,6 +310,33 @@ lines.push('| --- | --- | --- |')
 const COST = new Map(SECTIONS.map(([key, , why]) => [key, why]))
 for (const [key, count] of Object.entries(baseline)) {
   lines.push(`| \`${key}\` | ${count} | ${COST.get(key) ?? ''} |`)
+}
+lines.push('')
+
+lines.push('## Screens against the standard')
+lines.push('')
+lines.push('The rest of this page is the system as written. This is the app as drawn: every')
+lines.push('scene of the review board (`pnpm design`, then `/review.html`), measured by its')
+lines.push('own guides and recorded in')
+lines.push('`packages/ui/src/design/guides-standard.json`, once per platform: text widths are the')
+lines.push('platform\'s own, so the same scene measures a little differently on a Mac and on a Linux')
+lines.push('runner. The counts below are the Linux record, the one CI gates on, and the most any CI run has shown. *Off-line* is an edge 0.5–3px off a')
+lines.push('line three others share; *overflow* is content that spills, is clipped without an')
+lines.push('ellipsis, leaves its window, or touches the edge of its card; *off-scale* is a')
+lines.push('value no token names. The guides standard spec fails a count that rises, so these')
+lines.push('numbers only go down until someone re-records them on purpose')
+lines.push('(`UPDATE_GUIDES=1` on each platform, from one commit, then `pnpm design:doc`). The board\'s *View: fixed* switch (or')
+lines.push('`?fix=1`) shows each screen with every finding it can correct corrected — an')
+lines.push('off-line edge moved onto its line, text given its card\'s edge, an off-scale value')
+lines.push('set to the nearest token — and measures again, so a reviewer sees the target')
+lines.push('before anyone edits the source.')
+lines.push('')
+lines.push('| scene | off-line | overflow | off-scale |')
+lines.push('| --- | --- | --- | --- |')
+const standardRecord = JSON.parse(read(path.join(DESIGN, 'guides-standard.json')))
+if (!standardRecord.linux) throw new Error('guides-standard.json has no linux record; the doc counts the one CI gates on')
+for (const row of standardRows(standardRecord.linux)) {
+  lines.push(`| ${row.scene === 'total' ? '**total**' : `\`${row.scene}\``} | ${row.offLine} | ${row.overflow} | ${row.offScale} |`)
 }
 lines.push('')
 

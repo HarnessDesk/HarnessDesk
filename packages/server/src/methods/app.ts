@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { installedBrowsers } from '@harnessdesk/cordis-host'
 import { PROTOCOL_VERSION } from '@harnessdesk/protocol'
 
+import { chatsPreferences, chatsPreferencePatch } from '../chats.js'
 import { keepRuntimeInboxEntry, mergeNoticePreferences } from '../runtime-notices.js'
 
 import type { MethodsUnder } from './context.js'
@@ -32,21 +33,22 @@ export const appMethods = {
 
   'backup/import': (ctx, params) => ctx.backup.import(params.backup),
 
-  'app/state/get': (ctx) => ctx.state.state.preferences,
+  'app/state/get': (ctx) => chatsPreferences(ctx.state),
 
   'app/browsers': () => installedBrowsers(),
 
   'app/inbox/keepInfo': async (ctx, params) => {
     const patch = keepRuntimeInboxEntry(ctx.state.state.preferences, params.entry)
     if (patch) await ctx.state.setPreferences(patch)
-    return ctx.state.state.preferences
+    return chatsPreferences(ctx.state)
   },
 
   'app/state/set': async (ctx, params) => {
-    await ctx.state.setPreferences(mergeNoticePreferences(ctx.state.state.preferences, params.patch, params.noticeBase))
+    const patch = await chatsPreferencePatch(ctx.state, params.patch)
+    await ctx.state.setPreferences(mergeNoticePreferences(ctx.state.state.preferences, patch, params.noticeBase))
     // Where pages open is the one preference that is not only the
     // window's business: plugins in another process act on it.
     if ('browserPrefs' in params.patch) ctx.settings.applyBrowser()
-    return ctx.state.state.preferences
+    return chatsPreferences(ctx.state)
   },
 } satisfies MethodsUnder<'host/' | 'diagnostics/' | 'backup/' | 'app/'>

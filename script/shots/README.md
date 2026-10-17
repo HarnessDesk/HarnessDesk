@@ -155,8 +155,8 @@ Host starts; it does not mutate a running Team or bypass this guard.
 
 Two native adapters use only `fake-codex.mjs`. Their distinct provider metadata
 represents two scripted services so the host's independence gate is exercised;
-the journey explicitly chooses **Scripted reviewer** through the preview's Agent
-control. The scripted writer also advertises its own held publish control: the
+the journey explicitly chooses **Scripted reviewer** through the preview's Runtime
+menu. The scripted writer also advertises its own held publish control: the
 Host applies and reads back workspace/user sandbox settings, while the fake
 executes only its declared local branch push and `pr_create` through the gated
 tool registry. The production adapter advertises held read/edit only; this is

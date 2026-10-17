@@ -600,7 +600,7 @@ try {
     }
     const dryRun = '[role="dialog"][aria-label="New Team"]'
     await waitForSnapshot(
-      () => cdp.eval(`document.querySelector(${q(`${dryRun} select[aria-label^="Agent for "]:not(:disabled)`)}) !== null`),
+      () => cdp.eval(`document.querySelector(${q(`${dryRun} button[aria-label^="Runtime for "]:not(:disabled)`)}) !== null`),
       Boolean,
     )
     collected.splice(beforeChoice)

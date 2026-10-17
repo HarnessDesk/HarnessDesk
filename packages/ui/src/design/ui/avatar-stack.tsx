@@ -70,6 +70,8 @@ type AvatarStackProps = Omit<React.ComponentProps<'div'>, 'children'> & {
   members: readonly StackMember[]
   /** How many faces before the rest become a count. */
   max?: number
+  /** Keep every glyph whole when these are runtime identities to compare. */
+  overlap?: boolean
   size?: 'sm' | 'default' | 'stack'
   /**
    * A face is someone, so it follows the person's choice for faces
@@ -83,6 +85,7 @@ const AvatarStack = ({
   className,
   members,
   max = 4,
+  overlap = true,
   size = 'default',
   shape = 'face',
   ...props
@@ -102,7 +105,7 @@ const AvatarStack = ({
       aria-label={`${members.length} ${members.length === 1 ? 'member' : 'members'}`}
       {...props}
     >
-      <span className={cn('inline-flex', compact ? '-space-x-2' : size === 'sm' ? '-space-x-1' : '-space-x-1.5')}>
+      <span className={cn('inline-flex', !overlap ? 'gap-(--hd-space-2)' : compact ? '-space-x-2' : size === 'sm' ? '-space-x-1' : '-space-x-1.5')}>
       {shown.map((member) => (
         <Avatar
           key={member.id}

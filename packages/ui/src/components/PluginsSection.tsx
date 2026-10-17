@@ -314,7 +314,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
       )}
 
       {plugin.state.type === 'failed' && (
-        <Section title="Why it did not load">
+        <Section level="heading" title="Why it did not load">
           <Rows>
             <Row title={stateLabel(plugin.state)} desc={plugin.state.message} />
           </Rows>
@@ -325,7 +325,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
         <Rows><Row title="Tool names" control={<Switch aria-label="Show tool names" checked={wire} onCheckedChange={setWire} />} /></Rows>
       </Section>}
       {byKind.map(([kind, entries]) => (
-        <Section key={kind} title={KIND_HEADING[kind]}>
+        <Section level="heading" key={kind} title={KIND_HEADING[kind]}>
           <Rows>
             {entries.map((contribution) => (
               contribution.kind === 'tool' ? (
@@ -377,7 +377,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
         </Section>
       )}
 
-      <Section title="About">
+      <Section level="heading" title="About">
         <Rows>
           <Row title="Identifier" control={<Text role="meta"><CodeText>{plugin.identity.id}</CodeText></Text>} />
           <Row
@@ -618,7 +618,7 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
           ]),
         ]} />
       <PageExplanation>{pluginToolsReach
-        ? 'Tools, guardrails, context and panels for every agent in this workspace.'
+        ? 'Tools, guardrails, context and panels for every runtime in this workspace.'
         : `Tools, guardrails, context and panels. ${runtime.presentation.name} does not take them in the session request, so they reach it only through its own configuration.`}</PageExplanation>
 
       {active && installing && <InstallPlugin onClose={() => setInstalling(false)} />}
@@ -656,8 +656,8 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
             </Rows>
           )}
           {byKind.map(([kind, entries]) => (
-            <Section key={kind} title={kindLabel(kind, entries.length)}
-              description={kind === 'tool' && pluginToolsReach ? 'Reaches agent' : undefined}>
+            <Section level="heading" key={kind} title={kindLabel(kind, entries.length)}
+              description={kind === 'tool' && pluginToolsReach ? 'Reaches runtime' : undefined}>
               <Rows>
                 {entries.map((contribution) => (
                   <RowButton

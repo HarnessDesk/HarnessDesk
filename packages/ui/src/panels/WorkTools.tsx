@@ -22,7 +22,7 @@ export const WorkTools = ({ draft = false, changesRefusal }: { draft?: boolean; 
       aria-expanded={workRailOpen(snapshot.workbench)} aria-pressed={workRailOpen(snapshot.workbench)} onClick={() => store.toggleWorkRail()}><SquareMenuIcon /></TopBarToolButton>
     <span data-work-tools-divider aria-hidden="true" />
     {available.map(one => {
-      const reason = draft && one.value === 'changes' ? 'Send this session before opening this tool' : one.value === 'changes' ? changesRefusal : undefined
+      const reason = draft && one.value === 'changes' ? 'Available after the first message' : one.value === 'changes' ? changesRefusal : undefined
       const pressed = current?.open === true && current.tool === one.value
       return <TopBarToolButton key={one.value} data-work-tool={one.value} aria-label={one.label} title={reason ?? one.label}
         disabled={Boolean(reason)} aria-pressed={pressed} onClick={() => {

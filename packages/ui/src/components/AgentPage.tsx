@@ -246,7 +246,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
       {definition?.description && <PageExplanation>{definition.description}</PageExplanation>}
 
       {(folder || definition) && (
-        <Section title="Agent">
+        <Section level="heading" title="Agent">
           <SummaryList>
             {folder && (
               <SummaryItem
@@ -303,7 +303,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
       {attachmentsProblem && <Banner tone="danger" title="Attachments could not be read">{attachmentsProblem}</Banner>}
 
       {errors.length > 0 && (
-        <Section title="Why it will not parse">
+        <Section level="heading" title="Why it will not parse">
           <Rows>
             {errors.map((one) => (
               <Row key={`${one.at}-${one.text}`} title={one.text} {...(one.at ? { desc: `At ${one.at}` } : {})} />
@@ -312,7 +312,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
         </Section>
       )}
       {warnings.length > 0 && (
-        <Section title="Warnings">
+        <Section level="heading" title="Warnings">
           <Rows>
             {warnings.map((one) => (
               <Row key={`${one.at}-${one.text}`} title={one.text} {...(one.at ? { desc: `At ${one.at}` } : {})} />
@@ -348,7 +348,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
           ) : documentProblem ? (
             <Banner tone="danger" title="This Agent’s file could not be read">{documentProblem}</Banner>
           ) : (
-            <Section title="What it hands back">
+            <Section level="heading" title="What it hands back">
               <Rows>
                 <Row title="Answers" control={<RowValue>{wordList(definition.answers)}</RowValue>} />
                 <Row title="Produces" control={<RowValue>{wordList(definition.produces)}</RowValue>} />
@@ -471,7 +471,7 @@ const OwnSeats = ({
   const seats = replaced ? (plan.own ?? []) : (plan?.candidates ?? [])
   const editable = entry.origin !== 'builtin'
   return (
-    <Section title="Seats"
+    <Section level="heading" title="Seats"
         {...(editable && onEditPrefer ? { action: <Button size="sm" variant="outline" onClick={onEditPrefer}>Edit…</Button> } : {})}
       >
       <Note>
@@ -630,7 +630,7 @@ const MachineSeats = ({
   }
 
   return (
-    <Section title="On this Mac"
+    <Section level="label" title="On this Mac"
         action={
           <>
             {mine && (

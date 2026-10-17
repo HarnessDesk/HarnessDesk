@@ -22,7 +22,11 @@ export type PageWidth = 'reading' | 'wide' | 'canvas'
  * its smaller top inset with the page's top content inset while keeping the
  * same full-width canvas frame.
  * Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
- * four edges. A surface that brings its own geometry — a terminal, a diff,
+ * four edges — except above a page that opens with its title. That page
+ * starts at the body's top, and its title row is one bar tall, so the title
+ * stands in the same band as the sidebar's brand row and reads on the
+ * wordmark's line (docs/decisions.md, "A page title stands on the
+ * wordmark's line"). A surface that brings its own geometry — a terminal, a diff,
  * a graph — bleeds instead of taking a page.
  *
  * Blocks inside sit one stack gap (`--hd-page-stack`) apart; a `Section` brings
@@ -30,7 +34,7 @@ export type PageWidth = 'reading' | 'wide' | 'canvas'
  * facts against the sidebar, a button across the window and a switch in the
  * middle of it because nothing told the page what width it was.
  */
-export const Page = ({ width, measure, gutter = 'page', fill = false, topInset, children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'> & {
+export const Page = ({ width, measure, gutter = 'page', fill = false, scroll = false, topInset, children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'> & {
   readonly width: PageWidth
   /** A centred block measure inside a full-width canvas page. */
   readonly measure?: 'reading' | 'wide'
@@ -38,13 +42,15 @@ export const Page = ({ width, measure, gutter = 'page', fill = false, topInset, 
   readonly gutter?: 'page' | 'none'
   /** Fill the destination body's height so a page empty state can centre in its remaining space. */
   readonly fill?: boolean
+  /** The page is its own scroll box, for when it sits in a body that clips rather than scrolls. */
+  readonly scroll?: boolean
   /** A canvas can keep the page inset; a compact board starts on the 16px stack. */
   readonly topInset?: 'page' | 'compact'
   readonly children: ReactNode
 }) => {
   const attributes = { 'data-slot': 'page', 'data-width': width, 'data-gutter': gutter, ...(measure ? { 'data-measure': measure } : {}), ...(fill ? { 'data-fill': '' } : {}), ...(topInset ? { 'data-top-inset': topInset } : {}), className: styles.page, ...props }
   const content = measure ? <div data-page-measure={measure} className={styles.measure}>{children}</div> : children
-  if (gutter === 'none') return <div {...attributes}>{content}</div>
-  return <PaneColumn {...(width === 'canvas' ? { inset: 'canvas' as const } : { inset: 'reading' as const, page: true })}
-    style={topInset === 'page' ? { paddingTop: 'calc(var(--hd-page-gutter) - var(--hd-space-2) + var(--hd-space-px))' } : topInset === 'compact' ? { paddingTop: 'var(--hd-space-4)' } : undefined} {...attributes}>{content}</PaneColumn>
+  const page = gutter === 'none' ? <div {...attributes}>{content}</div> : <PaneColumn {...(width === 'canvas' ? { inset: 'canvas' as const } : { inset: 'reading' as const, page: true })}
+    style={topInset === 'page' ? { paddingTop: 'var(--page-top, calc(var(--hd-page-gutter) - var(--hd-space-2) + var(--hd-space-px)))' } : topInset === 'compact' ? { paddingTop: 'var(--page-top, var(--hd-space-4))' } : undefined} {...attributes}>{content}</PaneColumn>
+  return scroll ? <div data-slot="page-scroll" className={styles.scroll}>{page}</div> : page
 }

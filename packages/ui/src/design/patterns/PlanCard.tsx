@@ -99,7 +99,7 @@ export const PlanCard = ({ active = true, entry, suggestion, refusal, showBudget
 
   return (
     <>
-      <SectionHead name="Plan" />
+      <SectionHead level="label" name="Plan" />
       {refusal && (
         <Note tone="bad">{`Your set plan prices could not be read: ${refusal}`}</Note>
       )}

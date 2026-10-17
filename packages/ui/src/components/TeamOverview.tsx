@@ -149,7 +149,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
           </Card>
         )}
         {(model.needsYou.length > 0 || findingsWait || publicationWait) && (
-          <Section title="Needs you" inset="row" className="mt-0">
+          <Section level="heading" title="Needs you" inset="row" className="mt-0">
             <ListRows>
               {findingsWait && <ListRow title="Review the findings" subtitle={reason} wrapSubtitle
                 trail={onFindings && <Button variant="outline" size="sm" title="You or the reviewer can resolve this wait in Findings." onClick={onFindings}>Open findings</Button>} />}
@@ -164,7 +164,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
             </ListRows>
           </Section>
         )}
-        <Section ref={box} title={`Agents · ${model.seats.length}`} aria-label="Seats" inset="row" className="mt-0"
+        <Section level="heading" ref={box} title={`Agents · ${model.seats.length}`} aria-label="Seats" inset="row" className="mt-0"
           action={done.length > 0 && <Button variant="outline" size="sm" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
             <DisclosureChevron open={expanded} />{done.length} done
           </Button>}>

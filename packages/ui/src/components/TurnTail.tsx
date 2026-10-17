@@ -107,7 +107,7 @@ export const TurnTail = ({
         <Alert tone="danger" role="status" className={styles.turnError}>
           <AlertIcon />
           <AlertContent>
-            <AlertDescription>The agent finished this turn without any output.</AlertDescription>
+            <AlertDescription>The runtime finished this turn without any output.</AlertDescription>
           </AlertContent>
         </Alert>
       )}

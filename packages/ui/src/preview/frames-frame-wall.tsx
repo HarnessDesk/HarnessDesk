@@ -8,6 +8,7 @@ import { pluginsDestinationStore } from './plugins-destination-fixture'
 import { reviewPageStore, type ReviewScene } from './review-page-fixture'
 import { signInSeed } from './signin-fixture'
 import { App } from '../app/App'
+import { FRAME_WALL_DESTINATIONS, type FrameWallDestination } from './frame-wall-kinds'
 import { frameDestinationStore, setFrameConnection } from './frame-destination-store'
 import { framePageIds, framePageRoute } from './frame-page-route'
 import { shortcutFor } from '../lib/shortcuts'
@@ -50,8 +51,7 @@ import { libraryAuditFixtureStore } from './library-audit-fixture'
  * the same App registry and permanent shell as navigation.
  * Placeholder fixtures only.
  */
-export const FRAME_WALL_DESTINATIONS = ['navigation', 'conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'team-run-recorded', 'team-run-not-reached', 'team-run-repeated', 'team-run-equivalent', 'teams', 'agents', 'agent', 'dashboard', 'settings', 'settings-general', 'settings-runtimes', 'settings-navigation', 'settings-search', 'library', 'plugins', 'changes-review', 'left-work'] as const
-type Destination = (typeof FRAME_WALL_DESTINATIONS)[number]
+type Destination = FrameWallDestination
 const sectionFor = (destination: Destination): Section => destination === 'settings-runtimes' ? 'runtimes'
   : destination === 'library' ? 'library' : destination === 'plugins' ? 'plugins' : 'general'
 
@@ -514,6 +514,12 @@ export const FrameWall = () => {
         ...runtime, capabilities: { ...runtime.capabilities, memory: true, compaction: true, undo: true },
       })) })
     }
+    // An agent that keeps no list of background work: the Details panel says so instead of listing nothing.
+    if (query.get('frame-no-background') === '1') {
+      Object.assign(snapshot, { tasks: new Map(), runtimes: snapshot.runtimes.map(runtime => ({
+        ...runtime, capabilities: { ...runtime.capabilities, backgroundTasks: false },
+      })) })
+    }
     if (query.get('frame-sidebar-hidden') === '1') Object.assign(snapshot, { sidebarCollapsed: true, sidebarFloating: false })
     if (query.get('frame-status') === 'tasks') {
       const task: BackgroundTask = { id: 'frame-task', label: 'Review the checkout', kind: 'command', state: 'running',
@@ -848,6 +854,11 @@ export const FrameWall = () => {
       next.showViewIn('right', { kind: 'plugin', contribution: contribution.id, label: contribution.label, mounts: contribution.mounts! })
     }
     if (query.get('frame-terminal') === '1') void next.openTerminal()
+    // The page's App reads its theme from this store, not the outer one: a
+    // `?theme=` that only reached the outer store left a destination on
+    // "system", which a capture's emulated scheme answered and an embedded
+    // review window, on a light desktop, did not.
+    if (requestedTheme === 'light' || requestedTheme === 'dark') next.setTheme(requestedTheme)
     return next
   }, [destination, location.search])
   useEffect(() => {

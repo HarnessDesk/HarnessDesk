@@ -1,3 +1,4 @@
+import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
 import { recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
@@ -1049,7 +1050,7 @@ export class AppStore {
     })
     // Remembered across launches; losing the user's runtime pick on every
     // restart made the shell feel like it had a favourite vendor.
-    void this.#writePreference({ activeRuntime: runtime }, 'The agent you picked')
+    void this.#writePreference({ activeRuntime: runtime }, 'The runtime you picked')
     // Choosing a crashed agent is also "selecting it again": it comes back
     // up, and its health change re-reads the surface once it is ready.
     if (crashed) void this.refreshCatalog()
@@ -1761,7 +1762,7 @@ export class AppStore {
    */
   async signInAgent(runtime: RuntimeId): Promise<void> {
     const name =
-      this.#snapshot.runtimes.find((entry) => entry.id === runtime)?.presentation.name ?? 'That agent'
+      this.#snapshot.runtimes.find((entry) => entry.id === runtime)?.presentation.name ?? 'That runtime'
     const known = this.#snapshot.accountsByRuntime[runtime]?.signInMethods
     let methods = known
     if (methods === undefined) {
@@ -1815,9 +1816,9 @@ export class AppStore {
       this.resultNotice(
         'info',
         applied === 'restarted'
-          ? `Key stored. ${name ?? 'The agent'} restarted with it.`
+          ? `Key stored. ${name ?? 'The runtime'} restarted with it.`
           : applied === 'busy'
-            ? `Key stored. ${name ?? 'The agent'} is mid-turn; it picks the key up on its next start.`
+            ? `Key stored. ${name ?? 'The runtime'} is mid-turn; it picks the key up on its next start.`
             : 'Key stored.',
       )
       return true
@@ -2747,7 +2748,8 @@ export class AppStore {
    */
   async newSession(
     options: {
-      readonly cwd?: string
+      /** Null asks the host for a fresh chat folder instead of the open workspace. */
+      readonly cwd?: string | null
       readonly worktree?: string
       /** The branch the worktree starts from. HEAD when absent. */
       readonly base?: string
@@ -2768,23 +2770,24 @@ export class AppStore {
       readonly reveal?: boolean
     } = {},
   ): Promise<SessionKey | null> {
+    const navigation = this.#navigationEpoch
     const candidate = focusedPane(this.#snapshot.layout)
     const draftPane = options.reveal !== false && options.split === undefined && (!options.area || options.area === 'main')
       && candidate.view.kind === 'conversation' && candidate.view.session === null ? candidate : null
     const draftSubject = draftPane ? `draft:${draftPane.id}` : null
     const runtime = options.runtime ?? this.#snapshot.activeRuntime
-    const workspace = options.cwd ?? this.#snapshot.workspace?.path
+    const workspace = options.cwd === null ? undefined : options.cwd ?? this.#snapshot.workspace?.path
     /* A folder this app has proof is gone is never where a session starts.
        Without this, the open folder being the deleted one turned every way
        out of it — the copy a folder-gone conversation offers included — back
        into the same refused `session/create`. */
-    if (!runtime || !workspace || this.#snapshot.foldersGone.has(workspace)) {
+    if (!runtime || (workspace && this.#snapshot.foldersGone.has(workspace)) || (options.worktree !== undefined && !workspace)) {
       this.resultNotice('warning', 'Choose a project folder before starting a session.')
       return null
     }
     try {
       let cwd = workspace
-      if (options.worktree !== undefined) {
+      if (options.worktree !== undefined && workspace) {
         const created = await this.transport.request('worktree/create', {
           root: workspace,
           name: options.worktree,
@@ -2808,18 +2811,29 @@ export class AppStore {
       // never opens.
       // Validate saved picks at the creation boundary: declarations may have
       // changed since the draft last read them.
-      const values = await this.#newSessionValues(runtime, cwd)
+      const values = await this.#newSessionValues(runtime, cwd ?? null)
       const session = await this.transport.request('session/create', {
         runtime,
         options: {
-          cwd,
+          ...(cwd ? { cwd } : {}),
           ...(Object.keys(values).length > 0 ? { options: values } : {}),
           ...(this.#snapshot.draftRouteId ? { routeId: this.#snapshot.draftRouteId } : {}),
         } as never,
       })
+      if (!cwd) this.#patch({ chatsFolderRoots: [...new Set([...this.#snapshot.chatsFolderRoots, session.cwd])] })
       this.#setSession(session)
       const key = sessionKey(runtime, session.id)
-      if (options.reveal !== false) {
+      let reveal = options.reveal !== false
+      if (reveal && !cwd) {
+        // Adopt the host's folder without replacing the draft and its tools.
+        // A newer navigation owns the screen and the host's workspace scope.
+        const selected = navigation === this.#navigationEpoch
+          ? await this.#openWorkspace(session.cwd, () => navigation === this.#navigationEpoch,
+            undefined, undefined, undefined, true)
+          : null
+        reveal = selected !== null && selected === this.#navigationEpoch
+      }
+      if (reveal) {
         this.#showInPane(key, options.split, options.area, draftPane?.id)
         const promoted = focusedPane(this.#snapshot.layout)
         if (draftSubject && promoted.id === draftPane?.id && promoted.view.kind === 'conversation' && promoted.view.session === key) {
@@ -2926,6 +2940,8 @@ export class AppStore {
     )
     if (!drafted) this.newDraft()
     this.#parkedHandoff = null
+    const cwd = options.cwd !== undefined ? options.cwd : (open?.cwd ?? null)
+    if (cwd && isChatFolder(cwd, this.#snapshot.chatsFolderRoots)) this.clearDraftFolder()
     this.#patch({
       draftHandoff: {
         runtime,
@@ -2938,7 +2954,7 @@ export class AppStore {
            `null` means no folder at all, and is not the same instruction —
            `??` folded the two together, so the one caller with a folder to
            drop could not drop it. */
-        cwd: options.cwd !== undefined ? options.cwd : (open?.cwd ?? null),
+        cwd,
       },
     })
   }
@@ -3017,6 +3033,9 @@ export class AppStore {
    * abandoned "new session" leaves nothing behind in the backend's history.
    */
   newDraft(options: { readonly split?: Split['direction'] } = {}): void {
+    const place = this.#parkedHandoff?.cwd ?? this.#snapshot.workspace?.path
+    const startsInChats = Boolean(place && isChatFolder(place, this.#snapshot.chatsFolderRoots))
+    if (startsInChats) this.clearDraftFolder()
     const navigation = this.#snapshot.workbench.navigation
     const layout = this.#snapshot.layout
     if (options.split) {
@@ -3048,7 +3067,7 @@ export class AppStore {
     this.#parkedHandoff = null
     // And it starts in the open folder: a worktree chosen for the last draft
     // is a decision about that one, and "New session" is asked to be empty.
-    this.#patch({ draftHandoff: parked, draftPlace: null, sidebarFloating: false })
+    this.#patch({ draftHandoff: parked, draftPlace: startsInChats ? { kind: 'chats' } : null, sidebarFloating: false })
     // Hand the keyboard to the composer, the only thing to do in an empty pane.
     window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: '' }))
   }
@@ -3066,6 +3085,7 @@ export class AppStore {
     // A place the person chose outranks the one the packet names: the
     // packet says where the work *was*, the choice says where it goes next.
     const place = this.#snapshot.draftPlace
+    if (place?.kind === 'chats') return {}
     if (place?.kind === 'existing') return { cwd: place.path }
     if (place?.kind === 'worktree') {
       return { cwd: place.root, worktree: place.name, ...(place.base ? { base: place.base } : {}) }
@@ -6254,7 +6274,7 @@ export class AppStore {
   #creationDefaults: Partial<Record<RuntimeId, Promise<Readonly<Record<string, OptionValue>>>>> = {}
 
   /** Capture validated start values without competing starts invalidating each other. */
-  async #newSessionValues(runtime: RuntimeId, cwd: string): Promise<Readonly<Record<string, OptionValue>>> {
+  async #newSessionValues(runtime: RuntimeId, cwd: string | null): Promise<Readonly<Record<string, OptionValue>>> {
     const previous = this.#creationDefaults[runtime] ?? Promise.resolve({})
     const validation = previous.catch(() => ({})).then(async () => {
       while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
@@ -6281,7 +6301,7 @@ export class AppStore {
    * applied. The same question the composer asks for its pre-session
    * controls — Settings and the composer read one answer.
    */
-  async newSessionDefaultsFor(runtime: RuntimeId, cwd = this.#snapshot.workspace?.path): Promise<readonly ConfigOption[]> {
+  async newSessionDefaultsFor(runtime: RuntimeId, cwd: string | null | undefined = this.#snapshot.workspace?.path): Promise<readonly ConfigOption[]> {
     // A read must not invalidate a user pick whose answer is still in flight.
     while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
     const revision = this.#nextDraftRevision(runtime)
@@ -6299,7 +6319,7 @@ export class AppStore {
     const selectors = Object.fromEntries(Object.entries({ ...draftRecommendations(declared, asked), ...asked }).filter(([id]) =>
       declared.some((one) => one.id === id && (one.category === 'model' || one.category === '_profile'))))
     const invalidSelectors = new Set(staleDefaults(selectors, declared)
-      .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+      .filter((one) => one.reason !== 'The runtime returned a different value.').map((one) => one.id))
     const validSelectors = Object.fromEntries(Object.entries(selectors).filter(([id]) => !invalidSelectors.has(id)))
     const fallbackSelectors = Object.fromEntries(Object.entries(draftRecommendations(declared,
       Object.fromEntries(Object.entries(asked).filter(([id]) => !invalidSelectors.has(id)))))
@@ -6310,7 +6330,7 @@ export class AppStore {
       if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
     }
     const invalid = new Set(staleDefaults(asked, declared, this.#draftOptionsByRuntime[runtime])
-      .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+      .filter((one) => one.reason !== 'The runtime returned a different value.').map((one) => one.id))
     const saved = Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id)))
     const applicable = modelFirstValues({ ...draftRecommendations(declared, saved), ...saved }, declared)
     let options = Object.keys(applicable).length > 0
@@ -6586,7 +6606,7 @@ export class AppStore {
       // partial success rather than a success — hence the warning.
       const without =
         skipped.length > 0
-          ? ` ${skipped.join(', ')} ${skipped.length === 1 ? 'was' : 'were'} left alone: the agent recorded nothing to put back there.`
+          ? ` ${skipped.join(', ')} ${skipped.length === 1 ? 'was' : 'were'} left alone: the runtime recorded nothing to put back there.`
           : ''
       this.resultNotice(
         skipped.length > 0 ? 'warning' : 'info',
@@ -6966,9 +6986,31 @@ export class AppStore {
 
   // --------------------------------------------------------------- workspaces
 
+  /** Clear only the draft's place, retaining its text, attachments and hand-off. */
+  clearDraftFolder(): void {
+    this.#navigationEpoch += 1
+    this.#flowGeneration += 1
+    this.#folderCleared = true
+    this.#preserveWorkspaceSource()
+    this.#patch({ workspace: null, draftPlace: { kind: 'chats' }, worktrees: [] })
+    void this.loadDraftOptions()
+  }
+
+  async setChatsFolder(path: string | null): Promise<boolean> {
+    try {
+      const preferences = await this.transport.request('app/state/set', { patch: { chatsFolder: path } })
+      this.#patch({ ...readChatsPreferences(preferences), chatsFolderProblem: null })
+      return true
+    } catch (error) {
+      this.#patch({ chatsFolderProblem: describe(error) })
+      return false
+    }
+  }
+
   async loadPreferences(): Promise<void> {
     try {
       const preferences = await this.transport.request('app/state/get', {})
+      this.#patch(readChatsPreferences(preferences))
       const loadedEditor = readEditorState(preferences['editorState'])
       const localEditor = this.#snapshot.editorState.filter(one => this.#editorChanged.has(one.subject) || this.#editorTouched.has(one.subject))
       const editorState = [
@@ -6996,6 +7038,7 @@ export class AppStore {
         typeof layouts === 'object' && layouts !== null && !Array.isArray(layouts)
           ? (layouts as Record<string, Workbench>)
           : {}
+      this.#discardUnsavedStartupChat()
       if (this.#snapshot.workspace) this.#restoreLayout(this.#snapshot.workspace.path)
       const savedOptions = preferences['draftDefaultOptions']
       if (typeof savedOptions === 'object' && savedOptions !== null && !Array.isArray(savedOptions)) {
@@ -7219,13 +7262,30 @@ export class AppStore {
     }
   }
 
+  #folderCleared = false
+  #startupWorkspace: { path: string; navigation: number } | null = null
+
+  #discardUnsavedStartupChat(): void {
+    const automatic = this.#startupWorkspace
+    const workspace = this.#snapshot.workspace
+    if (automatic?.navigation === this.#navigationEpoch && workspace?.path === automatic.path
+      && isChatFolder(workspace.path, this.#snapshot.chatsFolderRoots) && !readWorkbench(this.#layouts?.[workspace.path])) {
+      this.#patch({ workspace: null, worktrees: [] })
+    }
+    this.#startupWorkspace = null
+  }
+
   async loadWorkspaces(): Promise<void> {
     try {
       const workspaces = await this.transport.request('workspace/recent', {})
       const current = this.#snapshot.workspace
       // The list carries fresh git facts for the folder at its head; the
       // open workspace takes them, or a branch switch would never show.
-      const workspace = (current && workspaces.find((entry) => entry.path === current.path)) ?? current ?? workspaces[0] ?? null
+      const recent = workspaces[0]
+      const fallback = !this.#folderCleared && recent && (!isChatFolder(recent.path, this.#snapshot.chatsFolderRoots)
+        || readWorkbench(this.#layouts?.[recent.path])) ? recent : null
+      const workspace = recentWorkspace(current, workspaces) ?? fallback
+      if (!current && workspace) this.#startupWorkspace = { path: workspace.path, navigation: this.#navigationEpoch }
       const changed = workspace?.path !== this.#snapshot.workspace?.path
       this.#patch({ workspaces, workspace })
       // Preferences and workspaces load in parallel at startup; whichever
@@ -7307,7 +7367,7 @@ export class AppStore {
   }
 
   /** Apply the folder and requested conversation together, before restoring anything else. */
-  async #openWorkspace(path: string, current: () => boolean, conversation?: SessionKey, previous?: { path: string | null; workbench: Workbench }, onError?: (error: unknown) => void): Promise<number | null> {
+  async #openWorkspace(path: string, current: () => boolean, conversation?: SessionKey, previous?: { path: string | null; workbench: Workbench }, onError?: (error: unknown) => void, preserveLayout = false): Promise<number | null> {
     // Overlapping host mutations can finish in either order, even when their
     // renderer replies are discarded. Reassert the final choice once quiet.
     if (this.#workspaceOpensPending > 0) this.#workspaceReconcileNeeded = true
@@ -7320,6 +7380,7 @@ export class AppStore {
       }
       if (!workspace) return null
       this.#flowGeneration += 1
+      this.#folderCleared = false
       // An explicit folder open can abandon the loading conversation too.
       // Put back the source before changing the workspace in either path.
       this.#preserveWorkspaceSource(previous)
@@ -7330,7 +7391,7 @@ export class AppStore {
       }
       else {
         this.#patch({ workspace })
-        if (this.#layouts) this.#restoreLayout(workspace.path)
+        if (this.#layouts && !preserveLayout) this.#restoreLayout(workspace.path)
       }
       const selected = this.#navigationEpoch
       await this.loadWorkspaces()
@@ -8006,8 +8067,8 @@ export class AppStore {
 
   /**
    * Starts the task a kept message suggests: a new conversation, in the
-   * sender's folder and on its runtime, whose first message is the task. The
-   * message is read once it has been acted on.
+   * sender's project (or a fresh chat folder) and on its runtime, whose first
+   * message is the task. The message is read once it has been acted on.
    */
   async startSuggestedTask(id: string): Promise<void> {
     const entry = this.#snapshot.inbox.find((message) => message.id === id)
@@ -8018,7 +8079,7 @@ export class AppStore {
         this.#snapshot.history.find((summary) => summary.runtime === from.runtime && summary.id === from.sessionId))
       : undefined
     const key = await this.newSession({
-      ...(sender?.cwd ? { cwd: sender.cwd } : {}),
+      ...(sender?.cwd ? { cwd: isChatFolder(sender.cwd, this.#snapshot.chatsFolderRoots) ? null : sender.cwd } : {}),
       ...(from ? { runtime: from.runtime as RuntimeId } : {}),
     })
     if (!key) return
@@ -8166,7 +8227,7 @@ export class AppStore {
     const skipPaint = surfaceFor(policy, kind) === null || (!old && wasKept(policy, key)) ||
       (event.id && old?.lastEvent === event.id) ||
       (old && event.id && event.count !== undefined && event.at !== undefined && event.at <= old.at && event.count <= (old.count ?? 1))
-    const name = this.#snapshot.runtimes.find(info => info.id === runtime)?.presentation.name ?? 'The agent'
+    const name = this.#snapshot.runtimes.find(info => info.id === runtime)?.presentation.name ?? 'The runtime'
     const settings = detail?.settings ?? []
     const title = kind === 'runtime:config' && settings.length > 0
       ? `${name} ignored ${settings.length} ${settings.length === 1 ? 'setting' : 'settings'} in its config file`

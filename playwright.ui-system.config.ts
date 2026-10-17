@@ -59,17 +59,15 @@ const workers =
         : 1
 
 /**
- * What a pull request reads of the frame contracts, and what it leaves for `main`.
+ * Local browser coverage, and the full tier required before landing.
  *
- * The frame contracts run each geometry check in both themes. A theme here is a
- * set of colour variables and nothing else (every `body[data-hd-dark-theme]`
- * rule rewrites a colour or a border alpha, none a size or a position), so a box
- * measured in the dark theme is the box measured in the light one, and a pull
- * request pays for the second measurement without learning anything from it.
- * With `UI_SYSTEM_MATRIX=pr` (the bounded pull-request tier; see
- * `script/ci-changes.mjs`) the frame specs below skip the cases whose title names
- * the dark theme. The full tier (main, batch branches, full-ci and manual runs) reads both,
- * and the colour contracts listed here read both in every run.
+ * Ordinary pull-request CI runs core checks only; browser and native integration
+ * run in the full tier. Local `check:push` still selects reached and edited specs
+ * with `UI_SYSTEM_MATRIX=pr` (see `script/ci-changes.mjs`). The frame specs below
+ * skip cases whose title names the dark theme: theme variables change colour,
+ * not geometry. Colour contracts retain both themes in every browser run.
+ * The full tier (main, batch branches, full-ci and manual runs) reads both themes
+ * for every spec with `UI_SYSTEM_MATRIX=full`.
  *
  * Skipped by default is wrong for a new spec, so the list is the other way
  * round: a `frame-*` spec is a geometry spec until it is named here. The
@@ -83,7 +81,7 @@ export const COLOUR_SPECS = [
   'frame-contract-conversation', 'frame-contract-left-headings', 'frame-contract-left-rows', 'frame-contract-left-surfaces', 'frame-contract-menus',
   'frame-contract-palette', 'frame-contract-reconcile', 'frame-contract-teams', 'frame-contract-tools',
   'frame-contract-top-bar', 'frame-final-columns', 'frame-final-selection', 'frame-final-tiles',
-  'frame-fix9', 'frame-fix10', 'frame-owner5d',
+  'frame-fix9', 'frame-fix10', 'frame-owner5d', 'frame-page-band-headings',
 ] as const
 // Playwright matches `grep` against the project name, the file and the title joined by spaces.
 export const geometryInDark = new RegExp(`^ *(?!(?:${COLOUR_SPECS.join('|')})\\.spec\\.ts )frame-[\\w-]+\\.spec\\.ts .*\\bdark\\b`)

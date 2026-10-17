@@ -11,6 +11,7 @@ import {
 import { cn } from '@/lib/utils'
 
 import { buttonEdge, buttonVariants } from '../ui/button'
+import { floatingMotion } from '../ui/motion'
 
 import { MenuPresentation, useMenuPresentation, type MenuIcons } from '../ui/menu-row'
 import styles from './Popover.module.css'
@@ -168,6 +169,7 @@ export const Popover = ({
   const grouped = useHeaderStatusGroup()
   const [open, setOpenState] = useState(false)
   const menuId = useRef(Symbol('popover-menu'))
+  const externalReturnFocus = useRef<boolean | null>(null)
   useLayoutEffect(() => open ? registerMenu(menuId.current) : undefined, [open])
   // What the caller was last told, kept beside the state rather than read out
   // of an updater: an updater runs during render (twice, in StrictMode), and a
@@ -176,6 +178,7 @@ export const Popover = ({
   const told = useRef(false)
   const setOpen = (next: boolean): void => {
     if (next && disabled) return
+    if (next) externalReturnFocus.current = null
     setOpenState(next)
     if (next === told.current) return
     told.current = next
@@ -193,7 +196,6 @@ export const Popover = ({
     : triggerVariant ? cn(buttonVariants(triggerVariant)) : (triggerClassName ?? styles.trigger)
   const triggerId = useId()
   const panel = useRef<HTMLDivElement>(null)
-  const externalReturnFocus = useRef<boolean | null>(null)
 
   /*
     A dialog opening is also a way of leaving. Menus have to outrank the
@@ -255,7 +257,7 @@ export const Popover = ({
         >
           {label}
         </PopoverTrigger>
-        <PopoverPortal>
+        <PopoverPortal container={trigger.current?.closest<HTMLElement>('[data-slot="dialog-content"]') ?? undefined}>
           <PopoverPositioner
             positionMethod="fixed"
             side={side ?? (drop === 'up' ? 'top' : 'bottom')}
@@ -277,13 +279,12 @@ export const Popover = ({
               data-popup-kind={panelWidth === 'wide' ? 'wide-menu' : 'menu'}
               data-menu-icons={icons}
               aria-labelledby={triggerId}
-              className={styles.panel}
+              className={cn(styles.panel, floatingMotion)}
               initialFocus={false}
-              finalFocus={() => {
-                const requested = externalReturnFocus.current
-                externalReturnFocus.current = null
-                return requested === false ? false : trigger.current
-              }}
+              // The default focus return respects a control reached while this
+              // popup was closing. An explicit trigger bypasses that protection
+              // and can close the next popup by stealing its focus.
+              finalFocus={externalReturnFocus.current !== false}
             >
               {children(() => setOpen(false))}
             </PopoverPopup>

@@ -63,7 +63,7 @@ export type HeatView = 'year' | 'agent' | 'hour'
 
 const VIEWS = [
   { value: 'year', label: 'Last 12 months' },
-  { value: 'agent', label: 'By agent' },
+  { value: 'agent', label: 'By runtime' },
   { value: 'hour', label: 'By hour' },
 ] as const
 
@@ -248,7 +248,7 @@ export const UsageActivity = ({
   const columns = view === 'year' ? 53 : AGENT_SPAN_DAYS
 
   return (
-    <Section title="When it ran" description={view !== 'hour' && busiestDow !== null ? `Busiest on ${WEEKDAY_NAMES[busiestDow]}s` : undefined} action={<PageOptions choices={[
+    <Section level="heading" title="When it ran" description={view !== 'hour' && busiestDow !== null ? `Busiest on ${WEEKDAY_NAMES[busiestDow]}s` : undefined} action={<PageOptions choices={[
       {id:'view',label:'Show by',value:view,items:VIEWS,change:next=>setView(next as HeatView)},
       {id:'metric',label:'Measure',value:view === 'hour' ? hourMetric : dayMetric,items:view === 'hour' ? HOUR_METRICS : DAY_METRICS,change:next=>view === 'hour' ? setHourMetric(next) : setDayMetric(next as HeatMetric)},
     ]} />}>
@@ -274,7 +274,7 @@ export const UsageActivity = ({
             <EmptyState tight title="No hours recorded yet" />
           ) : (
             <HeatGrid
-              label={view === 'year' ? 'Tokens or cost per day, last 12 months' : view === 'agent' ? 'Tokens or cost per day, per agent, last 13 weeks' : 'Tokens or calls by local weekday and hour, last 12 months'}
+              label={view === 'year' ? 'Tokens or cost per day, last 12 months' : view === 'agent' ? 'Tokens or cost per day, per runtime, last 13 weeks' : 'Tokens or calls by local weekday and hour, last 12 months'}
               rows={view === 'hour' ? hourRows : rows}
               columns={view === 'hour' ? 24 : columns}
               columnLabels={
@@ -291,7 +291,7 @@ export const UsageActivity = ({
             showNotScanned={view !== 'hour' && inView.some(cell => !cell.scanned)}
           />
           {view === 'hour' && hoursCoverage.partial && hoursCoverage.known > 0 && (
-            <Text role="meta">known for {hoursCoverage.known} of {hoursCoverage.total} agents</Text>
+            <Text role="meta">known for {hoursCoverage.known} of {hoursCoverage.total} runtimes</Text>
           )}
         </ChartFoot>
       </ChartFrame>

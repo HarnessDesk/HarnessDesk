@@ -245,11 +245,11 @@ it('folds Permissions and then Model at the sums of their preceding tracks', () 
   draw(permissionsAt + 1)
   expect(triggers()).toHaveLength(2)
   expect(model().textContent).toContain('Small')
-  expect(triggers().find((trigger) => /what the agent may do/i.test(trigger.title))?.textContent).toContain('Ask first')
+  expect(triggers().find((trigger) => /what the runtime may do/i.test(trigger.title))?.textContent).toContain('Ask first')
 
   resize(permissionsAt - 1)
   expect(model().textContent).toContain('Small')
-  expect(triggers().find((trigger) => /what the agent may do/i.test(trigger.title))?.textContent?.trim()).toBe('')
+  expect(triggers().find((trigger) => /what the runtime may do/i.test(trigger.title))?.textContent?.trim()).toBe('')
 
   resize(permissionsAt)
   expect(model().textContent).toContain('Small')
@@ -340,14 +340,14 @@ it('keeps every control’s words, the model’s among them, while there is room
   draw(720)
   expect(triggers()).toHaveLength(2)
   for (const trigger of triggers()) expect(trigger.textContent?.trim()).not.toBe('')
-  const permission = triggers().find((trigger) => /what the agent may do/i.test(trigger.title))
+  const permission = triggers().find((trigger) => /what the runtime may do/i.test(trigger.title))
   expect(permission?.textContent).toContain('Ask first')
   expect(model().textContent).toContain('Small')
 })
 
 it('puts boolean auto-approval in the permission control', () => {
   draw(700, 'live')
-  const permission = triggers().find((trigger) => /what the agent may do/i.test(trigger.title))
+  const permission = triggers().find((trigger) => /what the runtime may do/i.test(trigger.title))
   expect(permission).toBeDefined()
   click(permission!)
 

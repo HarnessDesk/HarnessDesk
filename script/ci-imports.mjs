@@ -4,13 +4,18 @@
 // Both run before dependencies are installed, so this module uses only builtins.
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { basename, dirname, extname, join, relative, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 
 export const SOURCE = ['.ts', '.tsx', '.mts', '.cts', '.mjs', '.cjs', '.js', '.jsx']
 export const IMPORT = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)['"]([^'"\n]+)['"]/g
 // A file named by `new URL('./helper', import.meta.url)` is loaded at run time, by a child process or a worker.
 export const URL_IMPORT = /new\s+URL\(\s*['"](\.[^'"\n]*)['"]\s*,\s*import\.meta\.url\s*\)/g
 export const SPEC = /\.spec\.[cm]?[jt]sx?$/
+
+// Consume strings whole before looking for comment markers: URLs and template
+// contents can contain // or /* as data. Keep offsets and line breaks intact.
+const withoutComments = text => text.replace(/'((?:\\[\s\S]|[^'\\\r\n])*)'|"((?:\\[\s\S]|[^"\\\r\n])*)"|`((?:\\[\s\S]|[^`\\])*)`|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g,
+  token => token.startsWith('//') || token.startsWith('/*') ? token.replace(/[^\r\n]/g, ' ') : token)
 
 export const walk = directory => readdirSync(directory, { withFileTypes: true }).flatMap(entry =>
   entry.isDirectory() ? walk(join(directory, entry.name)) : [join(directory, entry.name)])
@@ -79,7 +84,7 @@ export function suiteGraph(root) {
     forward.set(file, new Set([...(forward.get(file) ?? []), helper]))
   }
   for (const file of sources) {
-    const text = readFileSync(file, 'utf8')
+    const text = withoutComments(readFileSync(file, 'utf8'))
     for (const [, specifier] of text.matchAll(IMPORT)) {
       if (!specifier.startsWith('.')) continue
       const helper = resolveHelper(file, specifier)
@@ -94,6 +99,41 @@ export function suiteGraph(root) {
     }
   }
   return { suite, sources, importers, forward }
+}
+
+// Literal file reads are dependency edges too. Keep this scan dependency-free:
+// CI plans before install. The gate independently checks these edges with the TS parser.
+export function repositoryGraph(root, graph = suiteGraph(root)) {
+  root = resolve(root)
+  const importers = new Map([...graph.importers].map(([file, parents]) => [file, new Set(parents)]))
+  const queue = graph.sources.filter(file => specsReaching(graph, [file]).length > 0)
+  const seen = new Set()
+  while (queue.length > 0) {
+    const file = queue.pop()
+    if (seen.has(file)) continue
+    seen.add(file)
+    const text = withoutComments(readFileSync(file, 'utf8'))
+    const add = target => {
+      if (!target || !target.startsWith(`${root}/`)) return
+      importers.set(target, new Set([...(importers.get(target) ?? []), file]))
+      if (existsSync(target) && SOURCE.includes(extname(target)) && !relative(root, target).startsWith('packages/')) queue.push(target)
+    }
+    for (const [, specifier] of text.matchAll(IMPORT)) {
+      if (specifier.startsWith('.')) add(resolveHelper(file, specifier))
+    }
+    // URL expressions can sit inside generated executable templates, where
+    // nested quotes prevent the ordinary literal scan from seeing the path.
+    for (const [, specifier] of text.matchAll(URL_IMPORT)) add(findFile(file, specifier))
+    // Also sees literals used in URLs, child-process arguments and source-text reads.
+    for (const match of text.matchAll(/(['"`])([^'"`\\\n]+)\1/g)) {
+      const literal = match[2]
+      if (literal.startsWith('.')) add(findFile(file, literal) ?? (extname(literal) ? resolve(dirname(file), literal) : null))
+      else if (!isAbsolute(literal) && (literal.includes('/') || /(?:readFile|readFileSync)\s*\(\s*$/.test(text.slice(0, match.index)))) {
+        add(findFile(join(root, 'entry'), `./${literal}`) ?? (/^(?:docs|script|packages|e2e|assets)\//.test(literal) ? resolve(root, literal) : null))
+      }
+    }
+  }
+  return { ...graph, importers }
 }
 
 // A spec and everything it loads, as one id: the same id on a later run means
@@ -157,7 +197,7 @@ export function unobservedSpecs(root, graph = suiteGraph(root)) {
 
 // These are the build's entry pages. Query strings vary the fixture, not the
 // route. Source URLs and source-response rewrites still belong to Vite's dev server.
-export const E2E_PAGES = ['preview.html', 'design.html', 'narrow-overlay.html', 'src/preview/tile-page.html']
+export const E2E_PAGES = ['preview.html', 'design.html', 'narrow-overlay.html', 'runtime-copy-repair.html', 'src/preview/tile-page.html']
 
 // The workspace packages the UI is built from, resolved from the manifests, so adding a
 // workspace dependency cannot silently leave it outside full browser coverage.

@@ -10,7 +10,7 @@ instruction.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/app/conversation-dark.png" />
-    <img src="images/app/conversation-light.png" alt="The window: a sidebar with the session tree grouped by project and a task list docked beneath it, the transcript in the middle showing a turn's reasoning and tool calls with its summary, and the composer along the bottom carrying the agent, permission mode and model." />
+    <img src="images/app/conversation-light.png" alt="The window: a sidebar with the session tree grouped by project and a task list docked beneath it, the transcript in the middle showing a turn's reasoning and tool calls with its summary, and the composer along the bottom carrying the runtime, permission mode and model." />
   </picture>
 </p>
 
@@ -54,6 +54,9 @@ it needs and the size this panel has.
 
 ### Reading changes
 
+Before a draft has its first message, Changes stays disabled with
+**Available after the first message** on hover. Activity appears as work is recorded.
+
 Diffs wrap by default in the side pane and at full width. Modified lines keep
 their red/green ground and emphasize changed words with a stronger band on
 both sides. Line numbers, file paths and `+N −N` counts remain visible.
@@ -71,7 +74,7 @@ rows; it has no side-by-side mode.
 A conversation's files have their own window mode. The two icon buttons at
 the right end of the left column's top row switch between Conversation and
 Editor; **⌘G** does the same from the editor. The switch stays greyed on a
-Team, draft or other destination, with its reason on hover, and is absent in
+Team, draft or other destination, with the reason only on Editor’s hover title, and is absent in
 Settings. Leaving the conversation returns the visible window to Conversation
 mode; returning restores its editor state.
 
@@ -139,6 +142,19 @@ board and the room had no header control at all.
 
 A view that needs an argument — a file, a preview — declares neither and keeps
 its own command, because "open *what*" is not a question a list can answer.
+
+### Menus and row focus
+
+Pointer hover and keyboard focus use the same row fill, eased on the fast
+motion step. A page row keeps its focus ring as well, since Tab travels the
+whole window. Inside a menu, arrow keys travel the plate and the fill is the
+focus mark; no ring surrounds the row. A refused menu row stays unlit under
+the pointer but remains reachable by the keyboard, with the fill and its
+reason visible. It cannot be activated.
+
+Menus and other floating surfaces share one entrance and exit motion,
+including the model picker, select, hover card and tooltip. Reduced motion
+follows the system preference.
 
 ### The window's edge rows
 
@@ -278,7 +294,7 @@ everything-search, then New session and three navigation rows; one scrolling
 **content** area for the list controls and conversations; and a **footer** for
 docked panels, notices and the seat.
 
-**New session** starts a draft in the current project with the default agent,
+**New session** starts a draft in the current project with the default runtime,
 in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
 start**: Open folder…, New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
@@ -289,13 +305,17 @@ is replaced by **Make a first commit to work in a worktree**, with a **Commit**
 button that opens the existing commit flow. After that commit the normal
 worktree choice returns. Menus re-read the checkout when opened, so commits
 made by an agent or terminal also restore the choice. This applies to the
-composer and project menu too. With no project open, the composer keeps an enabled text box and a **Choose folder**
-control in its toolbar. It and **Open folder…** use the same folder picker
-as the + beside Projects, and both are reachable by keyboard. Sending a task
-without a folder opens that picker; choosing sends into the chosen folder,
-and cancelling leaves the draft untouched. A conversation always has a folder.
+composer and project menu too. With no project open, the composer keeps an enabled text box and a **No folder**
+control in its toolbar. Its menu lists **No folder** first, then **Choose folder…**,
+which uses the same folder picker as the + beside Projects. Sending without a
+chosen folder starts immediately in a fresh host-created directory under the
+chats folder; it opens no picker. The control's hover title names that location.
+Choosing **No folder** clears a prior choice without losing the draft.
 New Team opens the shared dialog with its task, searchable Flow picker, roles
-and optional Done when. Just a Team opens a shared board without fixed steps.
+and optional Done when. Runtime, model and effort use the shared choice menus.
+The automatic runtime supplies its models immediately; changing a model or
+effort makes that seat explicit. Escape closes an open picker before the
+dialog. Just a Team opens a shared board without fixed steps.
 **Most used** appears only for Flows that have actually been started on this
 desk; the rest stay under **More Flows**. Changing the Flow stays in the dialog
 and keeps each draft.
@@ -305,8 +325,8 @@ session: the same icon, label and trailing badge grammar as the conversation
 list. Their labels truncate with the rest of the row when space is short; they
 remain visible at the sidebar's 200px minimum. Agents and Plugins keep their
 counts on their own pages; their sidebar rows carry no count. Dashboard shows
-an attention count only while an agent needs attention.
-Its Overview hides the Turns tile when no agent reports turns; a reported zero
+an attention count only while a runtime needs attention.
+Its Overview hides the Turns tile when no runtime reports turns; a reported zero
 remains a reading. A plan card with one window names it beside the headline
 reading and draws its meter once. Multiple windows keep their named meter rows.
 A row fills when its destination window is open.
@@ -347,7 +367,7 @@ counts include only loose conversations still shown there.
 **Projects, not folders.** Sessions group by repository (`lib/projects.ts`).
 The sidebar lists conversations started or continued in HarnessDesk. It reads
 the desk's local index, fifty at a time, and loads another page on reaching the
-end. An agent filter pages that agent's accounts, and **Load more conversations**
+end. A runtime filter pages that runtime's accounts, and **Load more conversations**
 also reaches the next page when the rows do not fill the column. Each project
 shows up to five rows, counting Teams and loose conversations together.
 **Show more** expands the whole list and **Show less** folds it again; if the
@@ -357,13 +377,14 @@ uncapped. Team conversations live under their Team's row.
 
 Clones with the same remote and linked worktrees share one project. A checkout
 you opened leads; among several, the one worked in first keeps the name.
-Each conversation's branch still says where it ran. Agents that report no git
+Each conversation's branch still says where it ran. Runtimes that report no git
 join the project another session placed their folder in. The current project
 stays open; the rest fold under **Other projects**.
 
-Conversations whose folder is unknown wait in **No folder**, folded by default
-below the projects. It has no new-conversation or project-menu actions; each
-conversation keeps its own menu and first-prompt label. A ready agent's history
+Conversations in folders created by the host, including under previous chats locations,
+and conversations whose folder is unknown share **Chats**, folded by default
+below the projects. An empty Chats group is omitted. It has no new-conversation or project-menu actions; each
+conversation keeps its own menu and first-prompt label. A ready runtime's history
 can recover a missing folder in the background, and opening a conversation can
 recover it too. A conversation in `/` still belongs to the `/` project.
 
@@ -399,15 +420,15 @@ returns focus to that row. Large project lists mount rows as keyboard focus
 reaches them and keep the focused row in view.
 
 **Every open conversation whose folder is still there has a row.** The desk
-records its conversations even when an agent keeps no history of its own.
+records its conversations even when a runtime keeps no history of its own.
 A conversation open in this window is named by its title or its first ask and
 filed under the checkout its folder belongs to, or under its Team. The active row is
 scrolled into view when it changes: a list long enough to hold a month of
 rooms kept it thousands of pixels below the fold.
 
 The **Projects** row also carries display controls: **Sort projects** opens
-Recency and Name, **Density** opens Comfortable and Compact, and **Show agents**
-opens All agents and one row per agent. Collapse all and Expand all follow after
+Recency and Name, **Density** opens Comfortable and Compact, and **Show runtimes**
+opens All runtimes and one row per runtime. Collapse all and Expand all follow after
 a separator, with the unavailable action's reason on its title. The folder
 browse button stays beside them. The funnel
 is the row's own field — one click opens it to full width and the label steps
@@ -425,36 +446,48 @@ absolute path. Conversation actions are Rename and Pin, then Open on the right,
 Branch from here and Copy, then Archive and Remove from HarnessDesk. Delete everywhere follows below a
 separator; its disabled reason stays on the tooltip.
 
-**The footer holds the docks, notices and seat: you, and the agent you will pick up next.** The seat row
+**The footer holds the docks, notices and seat: you, and the runtime you will pick up next.** The seat row
 is your identity — your profile's face and name, which are the house mark and
 "HarnessDesk" until you choose otherwise — followed by a disclosure. Its quiet
 48px row sits under a full-width hairline, with Inbox and Settings at the right.
-The default agent's account, readiness and usage live in the menu. The trigger's
+The default runtime's account, readiness and usage live in the menu. The trigger's
 tooltip still names who new sessions run as and any applicable quota warning.
 The menu behind the row opens on you, and pressing that row opens your
 profile. Then comes switching: **Run new sessions as** lists every account of
-every agent, one line each — its name, and the same figure the header strip
+every runtime, one line each — its name, and the same figure the header strip
 shows — and the default is the filled row. Unavailable or Needs sign-in takes
-the figure's place when the agent cannot run; cached usage stays in its usage
+the figure's place when the runtime cannot run; cached usage stays in its usage
 fold. The address and plan behind a name
-are on the name's tooltip. An agent with more than one
+are on the name's tooltip. A runtime with more than one
 account is a heading — its mark and its name, not a choice — with its accounts
 under it, each one line on the heading's name column after a small ring in the
 account's own colour (folded, the default is one row wearing its mark); an
-account known only by the agent's name is called by its gateway instead. Where
+account known only by the runtime's name is called by its gateway instead. Where
 two accounts share a name, a second word on the line tells them apart: the
-agent, between two agents' single rows, or the address's domain under one
-heading. An agent that has answered that nobody is signed in is not listed
+runtime, between two runtimes' single rows, or the address's domain under one
+heading. A runtime that has answered that nobody is signed in is not listed
 (choosing it would start nothing) unless it is the default; it waits behind
 **Add an account**, whose chooser is where signing in happens. The menu-bar
 item still lists it, because there the row is itself the way to sign in.
-**Usage remaining** and the other agents' usage rows carry the same plan
+**Usage remaining** and the other runtimes' usage rows carry the same plan
 facts as the former window foot: windows, resets, blocks, source and age. Each
-fold has Open usage, scoped to that agent; an agent needing an account has Sign
-in. Then come Settings and signing out of the default agent. Dashboard in the
+fold has Open usage, scoped to that runtime; a runtime needing an account has Sign
+in. Then come Settings and signing out of the default runtime. Dashboard in the
 sidebar opens on everything.
 
-The quota forecast, "&lt;agent&gt; will run out before it refills", stays on the
+Dashboard's Overview names the ledger total **Usage cost**; its title explains
+whether that cost was metered or priced at public rates. The pressed chart
+measure keeps the shared quiet button's visible fill after the pointer leaves,
+without a Selected chip. **What is left** includes
+every account reporting limits, including healthy accounts and limits supplied
+by a host meter. Plan labels come from adapter presentation, with the raw plan
+type in the title. Pace badges describe remaining allowance against an even
+burn: **▼ 39% under pace**, **▲ 39% over pace**, or **● 0% on pace**, with no
+signed percentage. A read observed before this window opened says **From a
+cached read**; a reading made in this window says **Read … ago**. The page's
+read note follows the selected accounts and uses their oldest observation.
+
+The quota forecast, "&lt;runtime&gt; will run out before it refills", stays on the
 Dashboard. Above a visible composer it appears only after a desk conversation
 has a turn (a history preview does not count) and the binding plan window has
 less than 15% remaining. The shared Notice primitive supplies a sentence stop
@@ -479,12 +512,12 @@ string every copy of the app draws the same — which is what an account will
 sync. The same face marks your own messages in a room, where the header still
 says "You".
 
-**Switching is a preference, not a navigation.** Picking a different agent
-changes what ⌘N and a draft's agent chip start with, and nothing else: the
-conversation on screen stays (it belongs to its agent, and its own composer
+**Switching is a preference, not a navigation.** Picking a different runtime
+changes what ⌘N and a draft's runtime chip start with, and nothing else: the
+conversation on screen stays (it belongs to its runtime, and its own composer
 says so), the session list stays where you scrolled it, and only an empty
-draft takes on the new agent. The rule behind every surface: one *inside* a
-pane speaks for the pane's agent — the header strip, the context ring, the
+draft takes on the new runtime. The rule behind every surface: one *inside* a
+pane speaks for the pane's runtime — the header strip, the context ring, the
 composer; one *outside* every pane speaks for the default — the seat, the
 status banner, the palette's *Start with* (which opens a draft, because it
 promised a conversation).
@@ -494,27 +527,27 @@ at the bottom-right, and its title names the parent conversation. Runtimes
 has a server glyph; runtime rows keep their own brand faces. When two or more
 accounts of the same runtime are signed in, their faces carry unique account
 initials from 24px up (two letters when initials collide). Smaller faces keep
-the account tint and a title naming the account. Top-right is reserved for
+the runtime's brand tint and a title naming the account. Top-right is reserved for
 attention counts. A face that totals several accounts carries no initial.
 
 ### Archive, Remove and Delete everywhere
 
 Archive keeps a conversation and its search while taking it off the sidebar.
-Remove from HarnessDesk forgets the desk's copy and leaves the agent's files
+Remove from HarnessDesk forgets the desk's copy and leaves the runtime's files
 alone. Both are one click, followed by a toast with Undo. Remove's toast lasts
 about eight seconds; its body is kept during that window, then dropped. A running
 conversation is stopped before removal. The Remove tooltip says whether the
-agent keeps its own copy or HarnessDesk holds the only readable record.
+runtime keeps its own copy or HarnessDesk holds the only readable record.
 
 Delete everywhere is a secondary, separated item. It is enabled only when the
-agent can move its files to the Trash. The confirmation names the conversation,
-says it moves to the Trash and the agent can no longer resume it, and offers
+runtime can move its files to the Trash. The confirmation names the conversation,
+says it moves to the Trash and the runtime can no longer resume it, and offers
 Move to Trash and Keep. A running conversation's confirmation also says it
 will stop first. The result toast says Moved to the Trash.
 
 **Worktrees follow the conversation.** Archive removes its clean managed
 worktree; Remove waits until Undo ends, and Delete everywhere removes it after
-the agent accepts. A branch always stays. Uncommitted work, ignored content,
+the runtime accepts. A branch always stays. Uncommitted work, ignored content,
 a detached checkout or another active conversation keeps the checkout. Archive shows **Worktree kept**
 on the row's label, with counts on hover. **Discard worktree…** names what will
 be lost and asks again if that inventory changes. A detached checkout is kept
@@ -526,25 +559,25 @@ main checkout and says so.
 Wrapping a Team archives its idle conversations too. A working member stays,
 and the receipt counts how many stayed.
 
-**Every agent can archive, whether or not it has an archive.** When an agent
+**Every runtime can archive, whether or not it has an archive.** When a runtime
 supports archiving natively (like Codex), HarnessDesk triggers it directly. For
-agents connected via the Agent Client Protocol (ACP), which provides no archive
+runtimes connected via the Agent Client Protocol (ACP), which provides no archive
 operation, HarnessDesk records the archived mark in its own local store.
-HarnessDesk holds what the agent does not, and never shadows what it does: where
-an agent maintains its own archive history, HarnessDesk defers to it, because
+HarnessDesk holds what the runtime does not, and never shadows what it does: where
+a runtime maintains its own archive history, HarnessDesk defers to it, because
 two archives disagreeing is worse than one that is only ours. A quiet archived
-conversation releases its live agent handle when the agent can resume it.
+conversation releases its live runtime handle when the runtime can resume it.
 Archiving leaves working turns, approvals, queued messages and running tasks
 live; their handles rest after the work becomes quiet.
-Reopening restores the conversation from the agent's history. Personal
+Reopening restores the conversation from the runtime's history. Personal
 conversations also release after ten quiet minutes; working turns, approvals,
 queued messages and running tasks keep them live, and so does a conversation
-the agent has taken no message in, which it could not reopen: a first message
+the runtime has taken no message in, which it could not reopen: a first message
 it rejected, or only a warning, does not count as one.
 
-**The deletion destination is declared before the click.** An agent that erases
+**The deletion destination is declared before the click.** A runtime that erases
 its record for good keeps Delete everywhere greyed, with a tooltip directing
-you to delete it there. An unavailable agent or one with no delete operation
+you to delete it there. An unavailable runtime or one with no delete operation
 keeps its reason on the tooltip too. Menu rows have no second line.
 
 **The archive is a page in Settings, not a slot in the sidebar.** Archiving is
@@ -555,32 +588,36 @@ journey nobody is making. Settings is where the places you go to on purpose
 already are, under its own heading — **Conversations › Archive** — and ⌘K still
 reaches it by the name people type, "Archive".
 
-The page reads the local conversation index, groups by agent, and the line under each heading says whose archive it
-is showing: an agent with one of its own is told to the user as such, and an
-agent without gets "the conversation is untouched and still listed in its own
+The page reads the local conversation index, groups by runtime, and the line under each heading says whose archive it
+is showing: a runtime with one of its own is told to the user as such, and a
+runtime without gets "the conversation is untouched and still listed in its own
 window". The difference is visible from the other application, so hiding it
-only means meeting it there instead — which is why every agent's line shows at
+only means meeting it there instead — which is why every runtime's line shows at
 once.
 
 ### Imported History
 
-Settings › Conversations › History lists metadata imported from an agent's
-settings page. The command palette also reaches History by name. Agent and
+Settings › Conversations › History lists metadata imported from a runtime's
+settings page. The command palette also reaches History by name. Runtime and
 project filters, title search and Show hidden narrow a windowed list; an
-Archived chip records the agent's archive state. Opening a row previews it in
+Archived chip records the runtime's archive state. Opening a row previews it in
 the main pane. Sending a message adds it to the sidebar. Its row menu offers
-Hide from HarnessDesk with Undo, leaving the agent's files alone, and Delete
+Hide from HarnessDesk with Undo, leaving the runtime's files alone, and Delete
 everywhere with the shared Trash confirmation. Unsupported deletion stays
 greyed with its reason on hover; hidden rows omit Hide.
 
 An importable runtime's page has a History section: Import history, a running
 count with Cancel, or the imported count and last scan with Rescan, Browse and
 Remove imported. Failed imports expose their reason on hover and can be
-retried. Remove imported keeps the agent's own files and conversations
-continued here. Opening History or returning focus rescans imported agents;
+retried. Remove imported keeps the runtime's own files and conversations
+continued here. Opening History or returning focus rescans imported runtimes;
 the host limits completed rescans to once a minute.
 
 ## The conversation
+
+Ordinary conversation actions, file approvals, task tooltips and system notification
+descriptions call the process a runtime, whether or not a saved Agent role was seated.
+Library batch-install previews count runtime targets for both skills and MCP servers.
 
 Opening a conversation from the sidebar, command palette or a conversation
 link opens its folder as the workspace, including a worktree whose repository
@@ -661,7 +698,7 @@ way, but the folder goes and an `.env` in it goes with the folder.
 that outlives the turn — a watcher, a test run sent to the background — the
 header wears a chip beside the status ("1 running in the background"), and a
 quiet count once everything has ended. Pressing it opens the Background tasks
-panel: one card per task with the sentence the agent named it with, the kind and
+panel: one card per task with the sentence the runtime named it with, the kind and
 state in words, a clock, a stop control while it runs, and then the command under
 a prompt mark and what it printed, scrollable. While something is running, every
 door to the panel wears an indicator dot — the ⋯ menu item, the panel's tab, and
@@ -763,10 +800,16 @@ on this viewer.
 
 ## The composer
 
+**Agent names a role; Runtime names the program that runs a conversation.**
+The composer chooses a Runtime. A conversation seated as an Agent keeps the
+Agent’s role name and Seat; its runtime name comes from `RuntimeInfo.presentation`.
+Library’s **Declared by** filter selects Agent roles, while **Loaded by**,
+**Install for**, and **Which runtimes load it** describe runtimes.
+
 A fresh draft focuses its enabled text box and asks **What should we build?**,
-with one line: **Describe a task, then choose the folder it runs in.** The
+with one line: **Describe a task.** The
 folder control shares the toolbar's centre line and spacing. It shows
-**Choose folder** until a folder is chosen, then its name with the full path
+**No folder** until a folder is chosen, then its name with the full path
 on hover; worktree choices remain beside it. Choosing a folder keeps the box's
 height. Details shows **Not chosen** or the folder name (full path on hover),
 and **No usage yet**. Drafts omit unreported permissions and branches and an
@@ -774,15 +817,15 @@ empty Plan card. The sidebar has no global empty-state text: Projects retains it
 filter, options and + even without projects. Each project owns its empty row. Neither pane names
 another client or a history source.
 
-An empty conversation offers agents already installed on this Mac, with a
-compact row of each agent's name and a small secondary **Add** button beside
+An empty conversation offers runtimes already installed on this Mac, with a
+compact row of each runtime's name and a small secondary **Add** button beside
 **Installed on this Mac**. The pane draws before the background scan answers;
 the scan runs once per window and the offer is omitted when nothing new is
 found. Adding uses the same registration as Settings › Runtimes › Add a
 runtime. The new runtime becomes available in the composer, and its offer
 disappears.
 
-A signed-out agent’s empty conversation offers one normal Sign in button.
+A signed-out runtime’s empty conversation offers one normal Sign in button.
 Its composer does not repeat the sign-in notice while the page already explains
 it; an existing transcript keeps that notice and its action. In Editor mode,
 the notice returns to the strip while the conversation panel is hidden.
@@ -812,27 +855,29 @@ in [extending.md](extending.md).
   plugin has gone takes its chip off the draft and says so, rather than refusing
   every send; and one that is here with nothing to add is left off the message
   and named.
-- **The agent chip** names who reads the next message. For a conversation that
-  is the agent it belongs to, and the menu offers to hand the conversation to
-  another agent — summary, full transcript, or files changed. For a draft it
-  switches which agent starts it. A conversation seated as an Agent names the
+- **The runtime chip** names who reads the next message. For a conversation that
+  is the runtime it belongs to, and the menu offers to hand the conversation to
+  another runtime — summary, full transcript, or files changed. For a draft it
+  switches which runtime starts it. A conversation seated as an Agent names the
   Agent here, and the seat it took, even on a desk with one runtime.
 - **Model, effort, permissions and mode** are controls, not chips: they shape
   *how* the message is read, not what it says. Beside the model sits the
-  context ring — how full the window is for whichever agent this pane talks to
-  ([context-usage.md](context-usage.md)). When an agent enables a model setting
+  context ring — how full the window is for whichever runtime this pane talks to
+  ([context-usage.md](context-usage.md)). When a runtime enables a model setting
   itself, its reported state appears in the model control’s hover text and as
   a chip beside the model name in its menu. This status comes only from the
-  agent’s report; an effort level or model name never supplies it. Reports
+  runtime’s report; an effort level or model name never supplies it. Reports
   are observations and are left out of saved preset preferences.
-  **Permissions** has one slot for every agent, filled with its own permission
+  **Permissions** has one slot for every runtime, filled with its own permission
   levels. **Collaboration mode** is separate: plan first or act directly. When
-  an agent mixes planning into its permission list, adapter metadata splits the
-  list into those two controls; both still send the agent's existing option id
+  a runtime mixes planning into its permission list, adapter metadata splits the
+  list into those two controls; both still send the runtime's existing option id
   and values. Choosing Act returns to the adapter-declared acting value;
-  Permissions displays that acting level while Plan is selected. An
-  agent without collaboration modes has no collaboration control. Draft picks
-  retain their selected label while the toolbar has room. A missing-permissions
+  Permissions displays that acting level while Plan is selected. A
+  runtime without collaboration modes has no collaboration control. Draft picks
+  retain their selected label while the toolbar has room. Model and effort
+  take their natural content width; actual toolbar overflow folds the label.
+  A missing-permissions
   placeholder appears only when no permission option is declared.
 - The composer floats over the transcript with a gradient scrim; the first and
   last lines stay readable at either end of the scroll.
@@ -847,27 +892,27 @@ in [extending.md](extending.md).
   stays available when reopening fails.
 - **A conversation whose folder has been deleted has no composer**, because
   there is nowhere for a message to go. In its place the pane states the fact
-  in the agent's own words and offers *Open a copy in another folder*, which
+  in the runtime's own words and offers *Open a copy in another folder*, which
   carries the conversation across as a hand-off packet and starts the copy in
   the open folder — the one the composer's *Work in* control names, and which
   you can point elsewhere before sending. The transcript above it
-  is whole and stays readable — the host serves its own copy when the agent
+  is whole and stays readable — the host serves its own copy when the runtime
   cannot — so this is a read-only conversation, not a broken one. The sidebar
   row wears a mark for the same state, on the right rail beside the worktree
   glyph: one deleted worktree usually takes several conversations, and the mark
   is what says so before the click.
 
-**Typing while the agent works.** Full behaviour, scenario by scenario,
+**Typing while the runtime works.** Full behaviour, scenario by scenario,
 in [message-queue.md](message-queue.md). Enter *queues*: the host holds the
 message and sends it when the turn ends, one message per turn, in the order
-they were typed. ⌘↵ steers the running turn for agents that support mid-turn
+they were typed. ⌘↵ steers the running turn for runtimes that support mid-turn
 steering — the others state that they cannot, so the shortcut is offered by
 capability rather than tried and apologised for. Stop and the queue button sit
 side by side while a turn runs, so the primary position never changes meaning
 under a pointer already moving toward it.
 
 If adding a message to the running turn fails — the turn ended, the connection
-was lost, or the agent timed out — its words and chips stay in that
+was lost, or the runtime timed out — its words and chips stay in that
 conversation's Restore list. The failure reason stays beside them, including
 after reopening the view. Restore brings the message back to the composer and
 keeps any newer draft available in the same list.
@@ -878,7 +923,7 @@ edit cannot be saved because the original was already sent, the changed words
 remain in a Restore list beside that conversation's composer. A turn that ended any way
 but cleanly **holds** the queue and says why (amber, with *Send now* and
 *Discard*), and the conversation's sidebar row says *Needs you*: firing
-the rest of a queue into a rate limit, a crashed agent, or a turn the user just
+the rest of a queue into a rate limit, a crashed runtime, or a turn the user just
 stopped would spend money on a guess. The queue lives in the host, so it
 survives a reload and a second window; it does not survive the host, because a
 session that is no longer live could not deliver it anyway.
@@ -904,6 +949,26 @@ General, the runtime's New sessions section and Permissions › Approvals show
 the reason and keep the runtime's choices available for an explicit pick;
 a new conversation waits until its start values can be validated.
 
+Settings › General shows **Chats folder** with the host's current path, shortened
+in the middle when needed. **Change…** uses the existing folder picker and
+**Reset** restores `chats/` inside the host's data directory. The setting persists
+on the host and affects only new conversations; existing folders are not moved.
+Picking an opened project or a folder containing one is refused with a short
+reason in Settings and its folder picker. Other folders beneath a chats location
+remain projects. Managed chats are omitted from Settings' folder list, History's
+project filter and the Flows catalogue; only the latest occupies a recent-folder
+entry, separate from the fifty remembered projects.
+Each conversation gets a unique dated subfolder, including a new draft,
+hand-off or suggested task from an existing chat. A hand-off retains its source
+folder as provenance without reusing it. A chat's conversation and panels are
+saved under its host-created folder and restored on the next launch, just as
+for a project. A delayed chat-folder open preserves a newer project selection
+and its draft. A recent chat without a saved workbench leaves the composer at
+No folder, whichever startup read finishes first. Suggested tasks whose source
+folder is unknown use the open project. An explicit No folder start uses folderless runtime recommendations,
+even while another project is open. Non-repository conversations
+use the existing repository-state checks to omit Git and worktree controls.
+
 **Conversations › Storage** shows the database, snapshots, cached previews and
 managed worktrees as single-line rows with counts and sizes. Worktree sizes say
 **Measuring…** until the background read finishes. Kept worktrees of removed or
@@ -919,7 +984,7 @@ Conversations and branches stay; reopening recreates the checkout. Open, pinned 
 conversations and their shared worktrees stay. A toast counts removals and space
 freed; refused checkouts and their reasons remain in path order in the review dialog.
 **Clear cached previews** asks first and explains that previews are read again
-from the agent next time. Live and full conversation bodies remain.
+from the runtime next time. Live and full conversation bodies remain.
 
 
 Grouped navigation, one short page each: a rail of pages, a 20px title with a
@@ -927,27 +992,30 @@ one-line blurb, small grey section labels over cards of rows, one control at
 the right of each row. The rail starts with you — your face and name, above
 every group — and that row opens your profile.
 
-Standalone pages name themselves once with a visible h1 in the first body row, on the content column's left edge. Their chooser or verb sits on the right of the same row, with the page stack gap before the next block. The title scrolls away; the fixed bar keeps its height and tools. Sessions, Teams and edited Flows retain their subject menu in the bar; canvas surfaces have no body title.
+Standalone pages name themselves once with a visible h1 in the first body row, on the content column's left edge. That row is one bar tall and starts at the body's top, so the title stands on the sidebar wordmark's line. Their chooser or verb sits on the right of the same row, centred on that line, with the page stack gap before the next block. The title scrolls away; the fixed bar keeps its height and tools. Sessions, Teams and edited Flows retain their subject menu in the bar; canvas surfaces have no body title.
 
 The page name is a visible h1 above its description. The Settings top bar
 keeps only the column toggle; it carries no page title or breadcrumb.
-Permissions shows ceiling rows for agents signed in or used in known
-conversations first. Other agents sit behind one **Other agents · N**
+Permissions shows ceiling rows for runtimes signed in or used in known
+conversations first. Other runtimes sit behind one **Other runtimes · N**
 disclosure, which expands their rows in place and reports its expanded state.
-Account slots stay with their agent; the count is agents, not accounts.
+Account slots stay with their runtime; the count is runtimes, not accounts.
 
 | Group | Pages |
 | --- | --- |
 | **General** | General · Appearance · Notifications · Keyboard shortcuts |
 | **Conversations** | Workspaces · History · Archive |
-| **Agents** | Runtimes · Models · Skills · Extensions |
+| **Runtimes** | Runtimes · Models · Skills · Extensions |
 | **Capabilities** | Library · Plugins |
 | **Access** | Permissions · Browser |
 
 The order is the order a new window is read in: this app, how it looks, what
-it says; the work you have opened and put away; the agents and what each one
+it says; the work you have opened and put away; the runtimes and what each one
 brings; what is shared across them; what any of them may do. Skills and
-Extensions are the active agent's own and carry its name on their nav rows.
+Extensions are the active runtime's own; their hover text names that runtime.
+The nav always offers Skills and Extensions with the same labels and order,
+including before the runtime catalogue arrives. Capabilities govern the page's
+contents, never the presence or name of its navigation row.
 There is no Account page, because there is no account — the profile is
 yours, not an account's; presets are edited
 where they are created rather than on a page of their own; and workspaces,
@@ -972,6 +1040,11 @@ with incoming runnable or binary files requires one acknowledgement before
 Apply. It acknowledges only the operations that need it; local installs ask
 for none. Each operation keeps its own result or refusal after Apply.
 
+Library omits reserved skill folders beginning with `_` and skills whose only
+on-disk definitions are empty. A usable copy elsewhere keeps the skill listed;
+empty copies remain available to the cleanup action. Descriptions render inline
+markdown through the sanitized reading path.
+
 Check for updates asks once about skills installed from a repository, then reads
 the Library again. A toast reports available updates, an up-to-date result, no
 recorded sources, or sources that could not be checked. Nothing checks on open,
@@ -995,14 +1068,14 @@ After Apply the ordinary Library read supplies the new state.
 
 The Library’s List view compares Skill (or Server), State and Loaded by in
 three labelled columns. Descriptions wrap, a warning names a needed fix, and
-only agents that load the entry appear as faces; Matrix and the entry’s sheet
-keep the per-agent detail. Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
+only runtimes that load the entry appear as faces; Matrix and the entry’s sheet
+keep the per-runtime detail. Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
 the generic plugin glyph is omitted only when the list has no mapped glyphs.
 Plugin tools use their short titles in Capabilities, on their own page and in
 the transcript. Capabilities keeps the owning plugin below each title and the
 full description on hover; the plugin page keeps the full description visible.
-Tools that reach the active agent through the session request say so once above
-the group. Tools available only through the agent's own configuration keep
+Tools that reach the active runtime through the session request say so once above
+the group. Tools available only through the runtime's own configuration keep
 that exception beside their title.
 
 Model efforts are words beside the description, and endpoint, key and preset
@@ -1075,10 +1148,20 @@ or unmeasured start in the background; the page can show the last learned models
 options and account while it waits. Shared recycling refusals are stated once below the table.
 
 It has a page per runtime (health, update, the runtime's own options) or per account;
-*Add a runtime* is where a registry entry or a custom one is added. Extensions
+*Add a runtime* lists the runtimes this machine can register. **Browse more…**
+reveals ACP registry entries with one group note: “Third-party entries from the
+ACP registry. HarnessDesk has not reviewed them.” Adding or downloading an entry
+works as before; a custom command remains under **Something else**.
+Runtime brand tiles keep the same colour here, in Runtimes, in Library's
+**Loaded by** column and wherever that runtime is drawn. Account ring colours
+remain a separate preference. In Usage, runtime rows, legend dots, share segments
+and bars share that tint. The first runtime of each tint keeps it; later
+duplicates take unused roster tints, including their ranked faces, so the table
+continues to identify the series. Library's loading tiles are spaced so each mark
+stays whole. Extensions
 appears only for a runtime with a store or MCP servers to show, which today
 means Codex alone. A runtime whose sign-in the desk cannot ask about — an ACP
-agent with no status command and no stored key — is described by what its own
+runtime with no status command and no stored key — is described by what its own
 answers showed: "Signed in" once a conversation has opened, its declared
 sign-in methods in its own words when it refused one for want of
 authentication, and nothing at all before either has happened. It is never
@@ -1258,7 +1341,7 @@ pixels. A 400px reading column is protected in this order:
   word and the tasks chip's words fold to their marks — still read out, and
   on hover — while back and forward retain their title-row targets, moving
   to the main bar if the sidebar has no room, and the plan meter shows its
-  figure only when the agent is running low. At 400px a resting status goes, the browser and
+  figure only when the runtime is running low. At 400px a resting status goes, the browser and
   terminal buttons fold into ⋯ › View where there is a ⋯ — a draft has none,
   and keeps its browser button — and the plan meter keeps its bar alone, low
   or not. The title is what all of it protects: at a 375px window it keeps
@@ -1289,10 +1372,10 @@ carries the Needs you dot. These signals describe activity, not an evidence verd
 Membership comes from its open Seats. Releasing a Seat closes that membership
 record without deleting the conversation or checkout.
 Finishing a Run keeps its Seats listed and their conversations available for
-follow-ups. When an agent can reopen its conversations and stop its process
+follow-ups. When a runtime can reopen its conversations and stop its process
 on idle, a finished Seat lets go of its live conversation after ten quiet
-minutes without outstanding work; the process stops once the agent is unused.
-Opening or messaging it reconnects to the same conversation. Agents without
+minutes without outstanding work; the process stops once the runtime is unused.
+Opening or messaging it reconnects to the same conversation. Runtimes without
 both capabilities keep their processes as before.
 
 **New session → A Goal** asks what finishes the work, then optionally seats
@@ -1375,7 +1458,7 @@ show live pages at once. When two rows cannot fit the Browser controls, a
 usable page and the shared dock, member tabs show one tile at a time; making
 the room taller restores the grid without reloading its pages.
 A Seat with no page shows **Nothing open yet** and
-**Pages the agent opens appear here.** Seats that share the ordinary browser
+**Pages the runtime opens appear here.** Seats that share the ordinary browser
 profile share one surface; another tile says where that browser is already
 shown.
 
@@ -1452,19 +1535,19 @@ source or a variable invalidates Start immediately; a stale reply can never
 re-enable it. Starting a flow opens exactly one new Goal, through one host
 operation — never a bare Goal made first and a flow started into it after.
 The preview checks each chosen model's effort and thinking controls with the
-agent's own session options, checking thinking after effort has settled, then
+runtime's own session options, checking thinking after effort has settled, then
 checks what the full combination settles on.
 Each check starts with new-session defaults, independent of earlier draft picks.
-An explicit `default` effort must be accepted by the agent's own controls.
+An explicit `default` effort must be accepted by the runtime's own controls.
 An unsupported choice names its reason on that Seat and refuses Start before
-a Run, Goal or lane is created. If the agent cannot yet report its catalogue
-or controls, the preview says so and must be read again when the agent is ready.
-Refreshing the agent's catalogue clears an unanswered option read so it can
-be tried again; it waits for real turns to finish and keeps conversations an
-agent cannot reopen.
+a Run, Goal or lane is created. If the runtime cannot yet report its catalogue
+or controls, the preview says so and must be read again when the runtime is ready.
+Refreshing the runtime's catalogue clears an unanswered option read so it can
+be tried again; it waits for real turns to finish and keeps conversations a
+runtime cannot reopen.
 
 **`/race <task>`** opens **New Team → Side by side**, with the task already
-filled in. The two attempts default to two signed-in agents when available;
+filled in. The two attempts default to two signed-in runtimes when available;
 with only one signed in, both use it. Each attempt keeps its own model and
 effort controls. **Judge · optional** defaults to **You**, and an agent judge
 may also run either attempt. This is the same form and full dry run as New Team.
@@ -1531,11 +1614,11 @@ The form reads the identical strict dry run before **Start**: every Seat must
 refusal and fix beside its row rather than starting under a weaker policy.
 Automatic skips preferences that cannot enforce the required access. An edit
 refusal explains that editing and local commits must be enforced without
-publishing, and asks you to choose another agent. **See the problem below**
+publishing, and asks you to choose another runtime. **See the problem below**
 points to the full explanation when Start is unavailable. A read-only refusal
-names the agent and explains that it can be asked to stay read-only but cannot
-be held to it, then offers choosing another agent or starting from **/race**.
-When another agent declares a control for the required ceiling, **Use &lt;agent&gt;**
+names the runtime and explains that it can be asked to stay read-only but cannot
+be held to it, then offers choosing another runtime or starting from **/race**.
+When another runtime declares a control for the required ceiling, **Use &lt;runtime&gt;**
 selects it for that slot and refreshes the dry run before Start is available.
 Git's branch
 menu, a pull request's own row, ⌘K and an empty Goal's board each open it
@@ -1621,7 +1704,7 @@ The Board toolbar keeps **New job**; an empty Goal also offers **Start with a te
 Board-only Chat keeps the consequence of its messaging mode on screen: agents cannot message each other, while claims and signals continue. Chat’s Send to menu changes the mode; refused messages are never queued for release.
 
 What needs you can be answered from its row. A tool's request for approval
-offers the agent's own choices. The command and its working folder, files a
+offers the runtime's own choices. The command and its working folder, files a
 change would touch, or access it would open appear beside them; the answer is
 the same as the approval in the chat, so whichever you answer first wins. A
 question with one single choice offers its options; one needing a form leaves

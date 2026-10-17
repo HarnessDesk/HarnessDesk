@@ -139,7 +139,9 @@ const EmptyState = (allProps: EmptyStateProps) => {
       className={cn(
         'mx-auto flex w-full max-w-md flex-col items-center text-center',
         fill && 'flex-1 justify-center',
-        tight ? 'gap-2 py-6' : 'gap-3 py-10',
+        // Inside a card the panel brings the card's side edge, as a card's rows do: without it a
+        // description that wraps wide runs to the border.
+        tight ? 'gap-2 px-(--hd-space-3) py-6' : 'gap-3 py-10',
         className,
       )}
       {...props}

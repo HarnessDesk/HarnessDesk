@@ -1,3 +1,4 @@
+import { isChatFolder } from '../lib/chats'
 import { teamsInput } from '../lib/teams-snapshot'
 import { goneProjectFolders, roomsByProjectFor } from '../lib/room-folders'
 import { SidebarMenuState } from '../design'
@@ -163,7 +164,7 @@ const SessionRow = memo(({
       seatLabel: seatLabelsOf(snapshot).get(String(key)) ?? null,
     }
   }, sameSessionRowSlice)
-  const agentName = runtime?.presentation.name ?? 'This conversation’s agent'
+  const agentName = runtime?.presentation.name ?? 'This conversation’s runtime'
   /* The name the person just gave it, before the history list has caught up.
      A rename patches the open session and the indexed row at once;
      138 renames in a row left the sidebar saying "Untitled session" down the
@@ -286,7 +287,7 @@ const SessionRow = memo(({
           label="Delete everywhere…"
           danger
           disabled={runtime?.capabilities.deleteHistory !== 'trash'}
-          title={!runtime ? 'This conversation’s agent is unavailable.' : runtime.capabilities.deleteHistory === 'erase'
+          title={!runtime ? 'This conversation’s runtime is unavailable.' : runtime.capabilities.deleteHistory === 'erase'
             ? `${agentName} erases it for good, so delete it there` : runtime.capabilities.deleteHistory !== 'trash'
               ? `${agentName} keeps no way to delete one.` : undefined}
           onSelect={() => onDelete(summary)}
@@ -341,11 +342,11 @@ export const SessionListControls = ({ searching = false }: { searching?: boolean
                 onSelect={() => store.setListPrefs({ sort: 'name' })}
               />
             </Submenu>
-            <Submenu label="Show agents" value={prefs.agent === null ? 'All agents' : agentGroups(snapshot.runtimes).find(({ info }) => agentKey(info) === prefs.agent)?.info.presentation.name ?? 'All agents'} wide icons="none">
+            <Submenu label="Show runtimes" value={prefs.agent === null ? 'All runtimes' : agentGroups(snapshot.runtimes).find(({ info }) => agentKey(info) === prefs.agent)?.info.presentation.name ?? 'All runtimes'} wide icons="none">
               <MenuItem
                 icon={<EveryoneIcon size={14} />}
                 selected={prefs.agent === null}
-                label="All agents"
+                label="All runtimes"
                 onSelect={() => store.setListPrefs({ agent: null })}
               />
               {/* One row per agent, not per account. Codex's accounts share one
@@ -842,6 +843,7 @@ const rowOf = (session: Session): SessionSummary => ({
 export interface ProjectList {
   readonly groups: ProjectGroup[]
   readonly noFolder: SessionSummary[]
+  readonly chatFolders: string[]
   readonly hiddenPinned: SessionSummary[]
   /** Folders that no longer exist and have not been forgotten, each once. */
   readonly gone: readonly string[]
@@ -927,11 +929,12 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
     // The open workspace leads, then what the user pinned in the order they
     // pinned it, then the rest by the chosen order. A worktree you have open
     // is the project it is a checkout of, so the row it leads is that one.
+    const projectWorkspace = snapshot.workspace && !isChatFolder(snapshot.workspace.path, snapshot.chatsFolderRoots) ? snapshot.workspace : null
     const list = groupByProject(
-      shown.filter((summary) => summary.cwd !== ''),
-      snapshot.workspaces,
-      snapshot.workspace,
-      { identityHistory, goneFolders: searching ? undefined : new Set(snapshot.foldersGone.keys()),
+      shown.filter((summary) => !isChatFolder(summary.cwd, snapshot.chatsFolderRoots)),
+      snapshot.workspaces.filter(workspace => !isChatFolder(workspace.path, snapshot.chatsFolderRoots)),
+      projectWorkspace,
+      { identityHistory: identityHistory.filter(summary => !isChatFolder(summary.cwd, snapshot.chatsFolderRoots)), goneFolders: searching ? undefined : new Set(snapshot.foldersGone.keys()),
         seatProjects: new Map([...snapshot.goals.values()].flatMap(goal => goal.members.flatMap(seat =>
           seat.checkout?.project ? [[sessionKey(seat.session.runtime, seat.session.sessionId), seat.checkout.project] as const] : []))) },
     )
@@ -940,8 +943,8 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
     // does not mention the folder you are in leaves "where am I" to the branch
     // chip. It gets its row — empty — until the first conversation fills it,
     // unless it is a copy of a project the list already has.
-    const current = projectGroupRootOf(snapshot.workspace)
-    const holding = groupHolding(list, snapshot.workspace)
+    const current = projectGroupRootOf(projectWorkspace)
+    const holding = groupHolding(list, projectWorkspace)
     const currentGone = snapshot.workspace !== null && snapshot.foldersGone.has(snapshot.workspace.path)
     if (current && !snapshot.listPrefs.agent && !holding && (searching || !currentGone)) {
       list.push({ root: current, name: folderName(current), sessions: [], updatedAt: 0, folders: [current] })
@@ -972,7 +975,7 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
     for (const root of roomRoots.split('\u0000')) {
       // The empty string is "no rooms at all", and a room with no folder has
       // none to be filed under either — the same answer serves both.
-      if (root === '' || claimed.has(root) || !searching && snapshot.foldersGone.has(root)) continue
+      if (isChatFolder(root, snapshot.chatsFolderRoots) || claimed.has(root) || !searching && snapshot.foldersGone.has(root)) continue
       list.push({ root, name: folderName(root), sessions: [], updatedAt: 0, folders: [root] })
       claimed.add(root)
     }
@@ -1005,9 +1008,11 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       if (snapshot.listPrefs.sort === 'name') return a.name.localeCompare(b.name)
       return b.updatedAt - a.updatedAt
     })
-    const noFolder = shown.filter((summary) => summary.cwd === '').sort((a, b) => b.updatedAt - a.updatedAt)
-    return { groups, noFolder, hiddenPinned, gone }
-  }, [snapshot.history, snapshot.historyIdentity, snapshot.goals, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, searching])
+    const noFolder = shown.filter((summary) => isChatFolder(summary.cwd, snapshot.chatsFolderRoots)).sort((a, b) => b.updatedAt - a.updatedAt)
+    const chatFolders = [...new Set([...noFolder.map(summary => summary.cwd),
+      ...roomRoots.split('\u0000').filter(root => root !== '' && isChatFolder(root, snapshot.chatsFolderRoots))])]
+    return { groups, noFolder, chatFolders, hiddenPinned, gone }
+  }, [snapshot.history, snapshot.historyIdentity, snapshot.goals, snapshot.chatsFolderRoots, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, searching])
 }
 
 /** The projects alone: what the section's own controls act on. */
@@ -1027,8 +1032,8 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
   const [navigationTarget, setNavigationTarget] = useState<{ root: string; index: number } | null>(null)
   const lastReveal = useRef<string | null>(null)
   const [expandedProjects, setExpandedProjects] = useState<ReadonlySet<string>>(() => new Set())
-  const { groups, noFolder, hiddenPinned, gone } = useProjectList({ searching })
-  const noFolderGroup = useMemo<ProjectGroup>(() => ({ root: 'no-folder', name: 'No folder', sessions: noFolder, folders: [], updatedAt: 0 }), [noFolder])
+  const { groups, noFolder, chatFolders, hiddenPinned, gone } = useProjectList({ searching })
+  const noFolderGroup = useMemo<ProjectGroup>(() => ({ root: 'no-folder', name: 'Chats', sessions: noFolder, folders: chatFolders, updatedAt: 0 }), [noFolder, chatFolders])
   const [noFolderOpen, setNoFolderOpen] = useState(false)
   const collapsed = useMemo(
     () => new Set(migratedRoots(snapshot.listPrefs.collapsed, snapshot.workspace, groups)),
@@ -1239,7 +1244,8 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
   }, [])
   const teamRows = new Map(teamsInput(snapshot).map(input => [input.team.id, teamListRow(input)]))
   // A fold hides matches without removing them from the search results.
-  const hasSearchRows = pinnedRows.length > 0 || noFolder.some(summary => !teamKeys.has(String(sessionKey(summary.runtime, summary.id)))) || groups.some((group) =>
+  const hasChatRooms = chatFolders.some(root => (roomsByProject.get(root) ?? []).some(room => teamInSidebar(teamRows.get(room.id))))
+  const hasSearchRows = hasChatRooms || pinnedRows.length > 0 || noFolder.some(summary => !teamKeys.has(String(sessionKey(summary.runtime, summary.id)))) || groups.some((group) =>
     group.sessions.some((summary) => !teamKeys.has(String(sessionKey(summary.runtime, summary.id))))
     || projectRoots(group).some((root) => (roomsByProject.get(root) ?? []).some((room) => teamInSidebar(teamRows.get(room.id)))),
   )
@@ -1254,10 +1260,10 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
       activeKey === null
         ? null
         : [...groups, noFolderGroup].find((group) => activeTeamRoot !== null
-            ? projectRoots(group).includes(activeTeamRoot)
+            ? (group === noFolderGroup ? chatFolders : projectRoots(group)).includes(activeTeamRoot)
             : group.sessions.some((summary) => String(sessionKey(summary.runtime, summary.id)) === activeKey),
           ) ?? null,
-    [activeKey, activeTeamRoot, groups, noFolderGroup],
+    [activeKey, activeTeamRoot, groups, noFolderGroup, chatFolders],
   )
 
   useEffect(() => {
@@ -1352,7 +1358,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
   const goneLine = gone.length > 0 ? <GoneFolders folders={gone} /> : null
   const renderGroup = (group: ProjectGroup, folderless = false) => {
     const open = folderless ? noFolderOpen : !collapsed.has(group.root)
-    const allRooms = projectRoots(group)
+    const allRooms = (folderless ? chatFolders : projectRoots(group))
       .flatMap((root) => roomsByProject.get(root) ?? [])
       .sort((a, b) => b.updatedAt - a.updatedAt)
     const rooms = allRooms.filter((room) => teamInSidebar(teamRows.get(room.id)))
@@ -1401,7 +1407,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
     const overflowTitle = `${allRows.length - rows.length} more ${rooms.length > 0 ? 'rows' : 'conversations'}`
     return (
       <div key={group.root} data-navigation-root={group.root} data-project-root={folderless ? undefined : group.root} data-no-folder={folderless ? '' : undefined}>
-        {folderless ? <LeftColumnRow label="No folder"
+        {folderless ? <LeftColumnRow label="Chats"
           expanded={open} onClick={() => setNoFolderOpen(value => !value)} /> : <GroupHead
           group={group}
           open={open}
@@ -1490,7 +1496,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
         </div>
       )}
       {far.length === 0 && goneLine}
-      {noFolder.some(summary => !teamKeys.has(String(sessionKey(summary.runtime, summary.id))) && !liftedKeys.has(String(sessionKey(summary.runtime, summary.id)))) &&
+      {(hasChatRooms || noFolder.some(summary => !teamKeys.has(String(sessionKey(summary.runtime, summary.id))) && !liftedKeys.has(String(sessionKey(summary.runtime, summary.id))))) &&
         renderGroup(noFolderGroup, true)}
       {deleting && <DeleteSession summary={deleting} onClose={() => setDeleting(null)} />}
       {/* Reordering by hand is silent by nature; this is the same move said

@@ -753,7 +753,7 @@ export const ShapeEditor = ({ root, context, goal, document: initialDocument, in
               </section>
 
               <section aria-label="Rules">
-                <SectionHead name="Rules" action={<Button size="sm" variant="outline" onClick={addRule}><PlusIcon size={14} />Add a rule</Button>} />
+                <SectionHead level="heading" name="Rules" action={<Button size="sm" variant="outline" onClick={addRule}><PlusIcon size={14} />Add a rule</Button>} />
                 <Note>Tried in order; the first match fires. A round that matches nothing ends the run.</Note>
                 <Rows>
                   {policy.rules.length === 0 && <Row title="No rules yet — the seed round runs, then the run ends" />}

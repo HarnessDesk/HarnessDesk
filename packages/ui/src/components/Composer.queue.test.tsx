@@ -159,6 +159,7 @@ const mount = ({
   }
   mountedStore = {
     subscribe: (listener: () => void) => { mountedListeners.add(listener); return () => mountedListeners.delete(listener) },
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => mountedSnapshot,
     transport: { request: vi.fn() },
     ...calls,

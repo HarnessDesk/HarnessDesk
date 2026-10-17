@@ -178,7 +178,7 @@ export const Sidebar = ({
           selected={activeDestination === door.id} onClick={door.run}
           title={door.id === 'agents' && agentsBroken ? 'Agents, some unavailable' : door.label}
           trailing={door.count > 0 ? { kind: 'count', value: door.count,
-            label: `${door.count} Agents need attention` } : undefined} />)}
+            label: `${door.count} Runtimes need attention` } : undefined} />)}
       </LeftColumnGroup>
     </LeftColumnNavigation>
   </>
@@ -262,7 +262,7 @@ const WorktreeItems = ({ onChoose, close, onBrowseFolders }: { readonly onChoose
             icon={<BranchIcon size={14} />}
             label="New worktree…"
             title="Its own checkout, on a branch of its own."
-            {...(!isRepo || !ready ? { disabled: isRepo ? 'Connect an agent to work in a worktree.' : 'Worktrees need a git repository.' } : {})}
+            {...(!isRepo || !ready ? { disabled: isRepo ? 'Connect a runtime to work in a worktree.' : 'Worktrees need a git repository.' } : {})}
             onSelect={() => {
               close()
               store.askNewWorktree(snapshot.workspace?.path ?? null)

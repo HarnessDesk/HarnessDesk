@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import test from 'node:test'
-import { groupDeclarations, leadComment, tableDensityRows } from './design-doc.mjs'
+import { groupDeclarations, leadComment, standardRows, tableDensityRows } from './design-doc.mjs'
 
 test('leadComment preserves words starting with i or ic when comments omit space after asterisk (#490)', () => {
   const comment = [
@@ -93,4 +93,22 @@ test('the generated design reference documents the public ChannelSignal pattern'
   const reference = fs.readFileSync(new URL('../docs/design-system.md', import.meta.url), 'utf8')
   assert.ok(reference.includes('### `ChannelSignal`\n'), 'ChannelSignal has a generated heading')
   assert.ok(reference.includes('A board event — claimed, completed, released'), 'ChannelSignal retains its public description')
+})
+
+test('standardRows counts each scene\'s recorded findings by kind, in board order, with a total', () => {
+  const rows = standardRows({
+    b: { offLine: { 'x Δ1': 2 }, overflow: {}, offScale: { 'y padding 5px': 1 } },
+    a: { offLine: {}, overflow: { 'z spills': 1, 'w touches frame': 3 }, offScale: {} },
+  })
+  assert.deepEqual(rows, [
+    { scene: 'b', offLine: 2, overflow: 0, offScale: 1 },
+    { scene: 'a', offLine: 0, overflow: 4, offScale: 0 },
+    { scene: 'total', offLine: 2, overflow: 4, offScale: 1 },
+  ])
+})
+
+test('the guides standard is kept for both platforms, over the same scenes', () => {
+  const record = JSON.parse(fs.readFileSync(new URL('../packages/ui/src/design/guides-standard.json', import.meta.url), 'utf8'))
+  assert.deepEqual(Object.keys(record).sort(), ['darwin', 'linux'], 'CI is linux and the Mac gates locally: each has its own record')
+  assert.deepEqual(Object.keys(record.darwin).sort(), Object.keys(record.linux).sort(), 'a scene on one platform\'s record is on the other\'s')
 })

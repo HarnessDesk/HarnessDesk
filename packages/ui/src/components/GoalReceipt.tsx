@@ -62,7 +62,7 @@ export const GoalReceipt = ({ receipt, insight, faces, onOpenFinding }: GoalRece
         </Rows>
         {receipt.findings.overrides.length > 0 ? (
           <>
-            <SectionHead name="Person overrides" />
+            <SectionHead level="label" name="Person overrides" />
             <Rows>
               {receipt.findings.overrides.map((override, index) => (
                 <Row

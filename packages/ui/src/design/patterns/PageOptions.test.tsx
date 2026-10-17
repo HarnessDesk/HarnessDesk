@@ -1,4 +1,5 @@
 import { act } from 'react'
+import css from './PageOptions.module.css?raw'
 import { createRoot } from 'react-dom/client'
 import { expect, test, vi } from 'vitest'
 import { PageOptions } from './PageOptions'
@@ -46,4 +47,8 @@ test('the page verb starts the row and a disabled verb keeps its reason', async 
     expect(action.title).toBe('The library has not been read.')
     act(() => action.click()); expect(run).not.toHaveBeenCalled()
   } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+test('a page head is one bar tall, the sidebar brand row\'s counterpart', () => {
+  expect(css).toMatch(/\.head\s*\{[^}]*min-height:\s*var\(--hd-bar-h\)/)
 })

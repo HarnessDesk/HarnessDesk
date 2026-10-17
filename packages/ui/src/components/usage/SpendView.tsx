@@ -57,7 +57,7 @@ export const SpendView = ({
       }
     />
 
-    <Section title="Where it went" action={
+    <Section level="heading" title="Where it went" action={
       <PageOptions choices={[{id:'pivot',label:'Group spend by',value:pivot,items:PIVOTS,change:value=>onPivotChange(value as Pivot)}]} />
     }>
       <Ranked

@@ -22,7 +22,7 @@ import {
   type TeamMessage,
 } from '@harnessdesk/protocol'
 
-import type { Tint } from '../lib/accounts'
+import type { Tint } from '../design'
 import type { Brand } from '../lib/brands'
 import { closeMentionGap, cycle, detectMention, stripMention } from '../lib/triggers'
 import { useSnapshot, useStore } from '../state/context'

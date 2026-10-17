@@ -117,6 +117,7 @@ const mount = (imageInput: boolean, activeRuntime?: string, contributions: reado
   }
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     transport: { request },
     queue,
@@ -270,6 +271,7 @@ describe('a composer in a pane of its own', () => {
     }
     const store = {
       subscribe: () => () => {},
+      refreshWorkspaceGit: vi.fn(async () => {}),
       getSnapshot: () => snapshot,
       transport: { request },
       queue,

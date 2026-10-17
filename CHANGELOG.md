@@ -5,12 +5,86 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## 0.5.1 — 2026-10-17
+
+Conversations now start without a project, with a managed Chats folder behind
+them, alongside clearer runtime choices, readable background-task titles and
+fixes to menus, page alignment and Team receipts.
+
+- **A conversation can start without a project.** Send creates its own folder
+  and puts the conversation under Chats in the sidebar. No folder clears a
+  project choice without losing the draft; Settings › General lets you change
+  the Chats folder for future conversations. Returning to a chat restores its
+  saved workbench, and hand-offs from chats get a fresh folder.
+
+- **Page sections read as headings.** Page section headings are a size larger
+  and bolder, so the groups on the Teams, Agents, Library and Plugins pages
+  read as headings rather than labels.
+
+- **Pages and cards line up.** Page titles share the sidebar wordmark's line.
+  Git history, profile faces, empty cards and background-task output keep
+  their insets, long table labels truncate inside their cells, and a browser
+  tab keeps its close button inside the tab beside its text.
+
+- **Runtime names the program; Agent names the role.** The composer, Settings,
+  Library, history and account controls use Runtime for what runs a
+  conversation. Agents and Team roles keep their own names.
+
+- **Runtimes are easier to add and recognise.** Add a runtime shows what is
+  on the machine first, with Browse more… opening the third-party registry.
+  Runtime faces keep a consistent colour across pages, Library marks stay
+  apart, and Usage charts match their runtime faces to their legend colours.
+
+- **New Team keeps model choices within reach.** Runtime, model and effort
+  open in the same choice menus as the composer. An automatic Seat offers
+  its runtime's models straight away; choosing a model or effort pins that
+  Seat. Escape closes the picker before the dialog.
+
+- **Skills stay readable and within reach.** Settings keeps Skills and
+  Extensions in the same place while runtimes load. Library leaves out
+  reserved skill folders and skills with only empty definitions, keeps those
+  with a usable copy, and formats descriptions' inline code and Markdown.
+
+- **Background tasks show the command you recognise.** Titles leave out a
+  shell wrapper and leading folder change when the command is clear, keeping
+  the original command when shortening it would change its meaning. Long or
+  multiline commands stay on one title line without becoming an empty label
+  or a bare ellipsis.
+
+- **Menus keep the next choice open.** Closing one popup no longer steals
+  focus from the menu opened next. Keyboard focus gives rows the same fill
+  as pointer hover, refused menu rows remain readable by keyboard, and menus
+  and pickers share their entrance and exit motion.
+
+- **Repository controls wait for the facts.** The composer's place control
+  and a conversation's repository actions stay available while Git facts are
+  unread. A folder known to have no repository leaves those actions out.
+
+- **Team receipts scroll to the end.** A receipt taller than its pane keeps
+  its last lines reachable.
+
+- **Read-only review Seats can load their tools.** A Claude Code Seat held
+  to reading can load the desk's review tools without asking for editing
+  access.
+
+- **The headless host explains its options.** Help prints usage and exits,
+  and an invalid argument reports the problem before opening a desk.
+
+- **Stopping the app lets its runtimes close.** A stop or interrupt signal
+  follows the app's ordinary shutdown, giving its runtimes time to dispose
+  before the window exits.
+
 ## 0.5.0 — 2026-10-16
 
 Flows now have their own page, with a canvas for building the work a Team will
 run. Getting there brings one shared New Team dialog, a window that keeps
 cards beside the work, files you can edit beside the conversation, and
 reviewed skill bundles, faster history and verified Team outcomes.
+
+- **Agent and model logos in their own colours.** Claude, Codex, Gemini,
+  DeepSeek and the rest are drawn in their makers' colours wherever a logo
+  appears. A logo on an account's coloured face or ring still takes that
+  colour, and a maker with no colour logo stays in one colour.
 
 - **Flows have their own page.** Browse cards with mini graphs, then build,
   connect, edit and save a Flow on its canvas. Its rail holds the selected

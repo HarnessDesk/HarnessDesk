@@ -53,7 +53,7 @@ export const READINESS_LABEL: Readonly<Record<Readiness, string>> = {
 export const READINESS_ACTION: Readonly<Record<Readiness, string>> = {
   ready: '',
   signin: 'Sign in',
-  limit: 'Wait, or use another agent',
+  limit: 'Wait, or use another runtime',
   broken: 'Fix, with the command',
   available: 'Add',
   unknown: '',

@@ -314,7 +314,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   const startReason = starting ? 'Starting the Team…'
     : openingProject ? 'Opening the project…'
     : problem ? 'Resolve the shape error first.'
-    : readingAccounts ? 'Reading signed-in agents…'
+    : readingAccounts ? 'Reading signed-in runtimes…'
     : !flow ? 'Reading the shape…'
     : !sentenceValid ? task.trim() ? 'Keep Done when to 2,000 characters.' : 'Add a task first.'
     : briefReading ? 'Reading the attached brief…'
@@ -433,7 +433,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     ? <Banner tone="danger" role="alert" actions={recovery(text)}>{text}</Banner>
     : <ActionError>{text}</ActionError>
   const group = (name: string, list: readonly FlowEntry[]) => list.length > 0 && <section className={styles.section} aria-label={name}>
-    <SectionHead name={name} />
+    <SectionHead level="label" name={name} />
     <FlowCardGrid>{list.map(entry => <FlowCard key={`${entry.origin}-${entry.id}`} name={entry.name}
       aria-label={entry.name} title={entry.description ?? entry.name}
       origin={entry.origin === 'project' ? project : entry.origin === 'builtin' ? 'Built in' : 'Personal'}
@@ -494,7 +494,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
             event.preventDefault(); event.target.click()
           }
         }}>
-          <SectionHead name="Flow" action={<Button variant="outline" size="sm" disabled={locked || policyPending || readingAccounts} onClick={() => { store.openDestination({ kind: 'flows', root, id: null, origin: null, start: { context, ...(goal ? { goal } : {}), task, done: sentence } }); onClose() }}>Build your own</Button>} />
+          <SectionHead level="label" name="Flow" action={<Button variant="outline" size="sm" disabled={locked || policyPending || readingAccounts} onClick={() => { store.openDestination({ kind: 'flows', root, id: null, origin: null, start: { context, ...(goal ? { goal } : {}), task, done: sentence } }); onClose() }}>Build your own</Button>} />
           <Search label="Search Flows" placeholder="Search Flows…" value={query} onChange={value => { setQuery(value); setActiveCard(0) }} />
           {unlisted !== null && <Banner tone="danger" title="These Flows could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
           {entries === null && !unlisted && <div aria-label="Loading Flows" aria-busy="true"><Rows><Row title="Reading Flows…" /><Row title="Reading project choices…" /></Rows></div>}
@@ -531,7 +531,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
         <Field label="Done when · optional" error={(plainTeam ? plainWords.length : sentence.trim().length) > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
           {control => <Input {...control} aria-label="Done when · optional" value={sentence} disabled={locked} onChange={event => { setSentence(event.target.value); onDoneChange?.(event.target.value); setPlainDryRun(false) }} />}
         </Field>
-        {!plainTeam && dryRunOpen && compiled?.format === 'agents' && flow && <section aria-label="Dry run"><SectionHead name="Dry run" />{!preview && <Note role="status">Checking the seats and inputs…</Note>}<FlowPreviewReport preview={flow} flow={compiled.flow} roster={roster} vars={vars} warnings={flow.problems.filter(one => one.level === 'warning')} /></section>}
+        {!plainTeam && dryRunOpen && compiled?.format === 'agents' && flow && <section aria-label="Dry run"><SectionHead level="label" name="Dry run" />{!preview && <Note role="status">Checking the seats and inputs…</Note>}<FlowPreviewReport preview={flow} flow={compiled.flow} roster={roster} vars={vars} warnings={flow.problems.filter(one => one.level === 'warning')} /></section>}
         {plainTeam && plainDryRun && <Note role="status">No fixed steps. The Team opens with a board and chat{selectedAgents.size ? ` and ${selectedAgents.size} selected Agent${selectedAgents.size === 1 ? '' : 's'}` : ''}. {isolated ? 'New Seats use isolated checkouts.' : 'Seats share the project checkout.'}</Note>}
         {plainTeam && callerProblem && !startProblem && callerProblem !== unlisted && failure(callerProblem)}
         {startProblem && failure(startProblem)}

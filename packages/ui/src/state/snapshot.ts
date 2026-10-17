@@ -222,8 +222,9 @@ export interface DraftHandoff {
   readonly agentName: string
   readonly title: string
   /**
-   * The source conversation's working folder. The session this draft becomes
-   * starts there, not in whatever workspace happens to be selected — the
+   * The source conversation's working folder. Managed chats keep this as
+   * provenance and start in a fresh chats directory. Other conversations
+   * start there, not in whatever workspace happens to be selected — the
    * packet names the folder as ground truth, and an agent dropped into a
    * different one either wastes a trip finding it or, worse, answers about
    * the folder it is actually in.
@@ -235,7 +236,7 @@ export interface DraftHandoff {
  * Where the next conversation will run, while that is still a decision.
  *
  * `null` is the open folder as it is — the answer nine times in ten, and the
- * one a fresh draft starts from. The other two are held on the draft and
+ * one a fresh draft starts from. The other choices are held on the draft and
  * become a fact about a session on its first message:
  *
  * - `worktree` is a checkout that does not exist yet. The host cuts it on
@@ -251,6 +252,8 @@ export interface DraftHandoff {
  *   to work and is never a `managed` one (#255).
  */
 export type DraftPlace =
+  /** An explicit No folder choice also overrides a carried hand-off's cwd. */
+  | { readonly kind: 'chats' }
   | { readonly kind: 'worktree'; readonly root: string; readonly name: string; readonly base?: string }
   | { readonly kind: 'existing'; readonly path: string; readonly branch: string | null }
 
@@ -310,6 +313,10 @@ export interface AppSnapshot {
    */
   readonly home: string
   /** Where this desk keeps its state — see `host/hello`. Empty until the handshake. */
+  readonly chatsFolder: string
+  readonly chatsFolderProblem: string | null
+  /** Host-created folders, each a root for that conversation's descendants. */
+  readonly chatsFolderRoots: readonly string[]
   readonly stateDir: string
   /** Who each runtime is signed in as — the sign-in page and the Agents card read this. */
   readonly accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
@@ -863,6 +870,9 @@ const EMPTY: AppSnapshot = {
   // a path whole rather than guess, which is the right way round.
   home: '',
   stateDir: '',
+  chatsFolder: '',
+  chatsFolderRoots: [],
+  chatsFolderProblem: null,
   accountsByRuntime: {},
   accountPrefs: {},
   profile: {},

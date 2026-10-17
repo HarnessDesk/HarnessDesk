@@ -90,7 +90,7 @@ export const SetupDesk = ({
                   </Button>
                 ) : state === 'ready' && info.id !== snapshot.activeRuntime ? (
                   <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(info.id)}>
-                    Use this agent
+                    Use this runtime
                   </Button>
                 ) : null}
             />
@@ -99,7 +99,7 @@ export const SetupDesk = ({
         </ListRows>
       </Card>
       <Text as="p" role="muted">
-        Another agent program on this Mac?{' '}
+        Another runtime program on this Mac?{' '}
         <Button variant="link" size="inline-link" onClick={onOpenRuntimes}>
           Add a runtime…
         </Button>

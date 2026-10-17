@@ -377,6 +377,8 @@ export interface RateLimits {
   readonly unlimited?: boolean
   readonly balance?: number | null
   readonly planType?: string | null
+  /** Adapter-authored plan presentation; `planType` remains the source's raw identifier. */
+  readonly planLabel?: string | null
   readonly windows?: readonly UsageWindow[]
   /**
    * The same allowances with everything a `UsageWindow` cannot carry — the

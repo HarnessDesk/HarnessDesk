@@ -210,7 +210,9 @@ const TableCell = ({
     {...props}
   >
     {lead != null ? (
-      <div className="flex min-w-0 items-center gap-(--hd-table-lead-gap)">
+      // What sits beside the lead may shrink, so a truncating line inside it
+      // truncates rather than widening past its cell.
+      <div className="flex min-w-0 items-center gap-(--hd-table-lead-gap) [&>:not([data-slot=table-cell-lead])]:min-w-0">
         <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) has-[[data-slot=avatar-stack]]:w-auto has-[[data-slot=avatar-stack]]:overflow-visible has-[[data-slot=face-badge]]:overflow-visible [&>*:not([data-slot=avatar-stack]):not([data-slot=series-dot])]:size-full [&>*:not([data-slot=avatar-stack]):not([data-slot=series-dot])]:rounded-[inherit]">{lead}</span>
         {children}
       </div>

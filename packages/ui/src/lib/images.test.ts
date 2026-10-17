@@ -31,7 +31,7 @@ describe('vetImageFiles', () => {
     expect(accepted.map((entry) => entry.name)).toEqual(['a.png', 'b.jpg', 'c.webp', 'd.gif'])
     expect(rejected.map((entry) => entry.reason)).toEqual([
       'notes.txt is not an image.',
-      'e.tiff is TIFF; agents read PNG, JPEG, GIF and WebP.',
+      'e.tiff is TIFF; runtimes read PNG, JPEG, GIF and WebP.',
     ])
   })
 

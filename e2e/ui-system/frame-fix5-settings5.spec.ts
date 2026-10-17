@@ -22,7 +22,7 @@ for (const theme of themes) for (const width of widths) {
   test(`R11.15 ceilings show one selected level and a status chip at ${width} in ${theme}`, async ({ page }) => {
     await openSettings(page, 'permissions', theme, width)
     const section = page.locator('section[aria-label="Ceilings"]')
-    await section.getByRole('button', { name: /^Other agents · / }).click()
+    await section.getByRole('button', { name: /^Other runtimes · / }).click()
     const rows = section.locator('[data-slot="rows"] > [data-slot="row"]')
     await expect(rows).toHaveCount(12)
 
@@ -67,7 +67,7 @@ for (const theme of themes) for (const width of widths) {
     await expect(empty).toBeVisible()
     await expect(empty.getByRole('button')).toHaveCount(6)
     await expect(page.getByRole('searchbox', { name: 'Search history titles' })).toHaveCount(0)
-    await expect(page.getByRole('combobox', { name: 'Agent' })).toHaveCount(0)
+    await expect(page.getByRole('combobox', { name: 'Runtime' })).toHaveCount(0)
     await expect(page.getByRole('combobox', { name: 'Project' })).toHaveCount(0)
     await expect(page.getByRole('switch', { name: 'Show hidden' })).toHaveCount(0)
   })

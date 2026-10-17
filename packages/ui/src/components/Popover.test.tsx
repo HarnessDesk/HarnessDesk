@@ -140,6 +140,19 @@ describe('Popover', () => {
     expect(document.activeElement).toBe(trigger())
   })
 
+  it('keeps focus on the next control when a selected row closes its popup', async () => {
+    render()
+    click(trigger())
+    const row = document.querySelector<HTMLButtonElement>('[data-slot="popover-popup"] button')!
+    const next = container.appendChild(document.createElement('button'))
+    await act(async () => {
+      row.click()
+      next.focus()
+    })
+    expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
+    expect(document.activeElement).toBe(next)
+  })
+
   it('a dialog taking the window closes it', () => {
     // Floating panels outrank the modal layer on purpose — one opened
     // inside Settings has to sit above it — so a panel still open when a

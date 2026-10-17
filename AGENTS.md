@@ -206,13 +206,19 @@ runs must also be in the workflow, and the one exception is recorded, with its
 reason, in that script's `NOT_IN_CI`. Run it **unpiped**: `pnpm verify | tail`
 reports the exit status of `tail`, which has hidden a red run before now.
 
-Browser CI is bounded on ordinary pull requests: edited specs are mandatory,
-with inferred coverage capped at four shards using the PR geometry matrix.
-The summary lists deferred specs. Pushes to `main`, `batch/` pull requests,
-`full-ci` pull requests and manual dispatches run every spec in both themes.
-Required check names stay fixed; the separate `CI tier: full` check proves the
-full tier to `script/land-safe.mjs`, which refuses bounded evidence. See
-CONTRIBUTING.md for the selection budget and its limits.
+Reviewed changes land on `development`, whose pushes run core CI; its nightly
+full run and full-tier release PR into `main` guard a merge commit that starts
+a release.
+
+Ordinary pull requests run core CI only in the bounded tier: build, typecheck,
+Node tests and end-to-end, UI unit tests, UI tests and gates. Browser shards,
+server-facing browser specs and native smoke run in the full tier: pushes to
+`main`, `batch/` pull requests, `full-ci` pull requests and manual dispatches.
+Local `check:push` still selects reached and edited specs with the PR geometry
+matrix; the CI summary lists that selection. Required check names stay fixed
+and accept intentional integration skips. The separate `CI tier: full` check
+proves the full tier to `script/land-safe.mjs`, which refuses bounded evidence.
+See CONTRIBUTING.md for local selection and its limits.
 
 ## Writing plugins
 

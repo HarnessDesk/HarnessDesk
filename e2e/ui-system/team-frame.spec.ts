@@ -282,3 +282,40 @@ for (const theme of ['light', 'dark'] as const) {
     await captureFrame(page, `after-frame-1440-${theme}`)
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`closing Team menus preserve the next control's focus in ${theme}`, async ({ page }, info) => {
+    await page.setViewportSize({ width: 1600, height: 1000 })
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: 'no-preference' })
+    await page.goto(`/preview.html?team-frame=member-chat&theme=${theme}`)
+    const team = page.locator('[data-frame-id="team-frame"]')
+    // Keep the old popup mounted while the person reaches the next control.
+    await page.evaluate(() => document.body.style.setProperty('--hd-duration-exit', '2s'))
+    await selectTeamPage(team, 'room')
+    const view = team.getByRole('button', { name: 'View', exact: true })
+    await view.click()
+    const actions = team.getByRole('button', { name: 'Actions for Beta', exact: true })
+    // Exercise the observed ordering: another control takes focus before the
+    // closing popup performs its final focus handoff.
+    await page.evaluate(() => {
+      const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(node => node.textContent?.trim() === 'Side by side')!
+      choice.click()
+      const next = document.querySelector<HTMLButtonElement>('button[aria-label="Actions for Beta"]')!
+      next.focus()
+      next.click()
+    })
+    const closing = page.locator('[data-slot="popover-popup"][data-ending-style]')
+    await expect(closing).toHaveCount(0)
+    await expect(actions).toHaveAttribute('aria-expanded', 'true')
+    await page.getByRole('menuitem', { name: 'Open conversation', exact: true }).click()
+    await expect(team.getByText('The request helper makes one attempt. I am tracing where transient failures are returned.', { exact: true })).toBeVisible()
+    await selectTeamPage(team, 'room')
+    await view.click()
+    await expect(page.getByRole('menuitemradio', { name: 'Side by side', exact: true })).toBeVisible()
+    await expect(closing).toHaveCount(0)
+    await expect(view).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('menuitemradio', { name: 'Thread', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitemradio', { name: 'Side by side', exact: true })).toBeVisible()
+    await info.attach(`chat-view-stays-open-${theme}`, { body: await page.screenshot(), contentType: 'image/png' })
+  })
+}

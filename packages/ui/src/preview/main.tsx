@@ -1,3 +1,5 @@
+import './update-bridge'
+import { Issue1675Frames } from './issue-1675-fixture'
 import { ConversationDefaultsPreview } from './defaults-fixture'
 import { LibraryUpdateFrames } from './frames-library-updates'
 import { LibraryGithubFrames } from './frames-library-github'
@@ -36,8 +38,10 @@ import { isSceneName } from '../../site-demo/scenes'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
 import { CliInstallFrame } from './frames-cli-install'
-import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { StrictMode, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { GUIDES_MODES, useGuides, useGuidesMode } from '../design/explorer/guides'
+import { requestedSteps, runSceneSteps } from './scene-steps'
 
 import { runtimeId, sessionId, sessionKey, type RuntimeId, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
@@ -547,6 +551,12 @@ export const Dial = <T extends string>({
   </label>
 )
 
+/** Lines over every frame — boxes, rails, gaps and overflow. Alt+G cycles it. */
+const GuidesDial = () => {
+  const [mode, setMode] = useGuidesMode()
+  return <Dial label="guides" value={mode} options={GUIDES_MODES} onChange={setMode} />
+}
+
 const SETTINGS_SECTIONS = [
   'profile',
   'general',
@@ -610,6 +620,7 @@ const Preview = () => {
       </section>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold">Screen preview</span>
+        <GuidesDial />
         <Dial
           label="theme"
           value={snapshot.theme}
@@ -1232,12 +1243,33 @@ const FindingsPreview = () => {
 
 const siteSceneParam = new URLSearchParams(window.location.search).get('site-scene') ?? ''
 const siteScene = isSceneName(siteSceneParam) ? siteSceneParam : null
+/* Guides draw over every route: each `Frame` is a page of its own, and a
+   route without frames is one page. Alt+G steps through the modes. */
+const PreviewGuides = () => {
+  useGuides(() => {
+    const frames = [...document.querySelectorAll('[data-frame-id]')].filter((one) => !one.parentElement?.closest('[data-frame-id]'))
+    return frames.length ? frames : [container.firstElementChild ?? container]
+  })
+  return null
+}
+
+/* A scene from the review board names the clicks that reach its state. */
+const SceneSteps = () => {
+  useEffect(() => {
+    const steps = requestedSteps()
+    if (steps) void runSceneSteps(steps)
+  }, [])
+  return null
+}
+
 installOverlayScrollbarTracking()
 createRoot(container).render(
   <StrictMode>
+    <PreviewGuides />
+    <SceneSteps />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
-        {siteScene
+        {new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
           : new URLSearchParams(window.location.search).has('flows-page')
             ? <FlowsDestinationFixture />

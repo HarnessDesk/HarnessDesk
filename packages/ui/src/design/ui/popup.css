@@ -40,6 +40,8 @@
   text-align: left;
   cursor: pointer;
   outline: none;
+  /* The fill eases in as a page row's and a sidebar row's do: one hover. */
+  transition: background-color var(--hd-duration-fast) var(--hd-ease);
 }
 [data-menu-row]:hover, [data-menu-row]:focus-visible,
 [data-menu-row][data-highlighted], [data-menu-row][aria-expanded='true'] { background: var(--hd-hover); }
@@ -113,6 +115,14 @@
 [data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled):is(:hover, :focus-visible, [data-highlighted], [data-selected], [data-current], [aria-expanded='true']) {
   background: transparent;
 }
+/* A row's highlight is its fill, for the pointer and the keyboard alike: the
+   document's focus ring (app.css) is bundled later and won the tie against
+   the row's own `outline: none`, so arrowing drew a 2px marquee the pointer
+   never saw. The keyboard can rest on a refused row — Base UI keeps it
+   focusable so its reason is read — and there the fill is the only mark of
+   where it stands, so it stays; the pointer passes over a refused row unlit. */
+[data-menu-row]:focus-visible { outline: none; }
+[data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled):focus-visible { background: var(--hd-hover); }
 
 /* Command-palette results do not use the shared menu-row slots. Keep their
    icon, title and trailing fact on the same disabled ink and skip row fading. */

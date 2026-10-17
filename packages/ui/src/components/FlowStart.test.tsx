@@ -88,7 +88,7 @@ const renderTeam = async (flow: FlowPolicy, seats: readonly FlowPreviewSeat[], r
 
 it('gives the selected agent name a tooltip in the seat controls', async () => {
   await renderTeam(TEAM_START_POLICIES.comparison, [seat('judge', true)], [{ id: 'gamma', presentation: { name: 'Gamma' } } as never])
-  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')?.title).toBe('Gamma')
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Judge"]')?.title).toBe('Gamma')
 })
 
 it('shows what Automatic resolves to, or that no agent can run', async () => {
@@ -106,12 +106,10 @@ it('shows what Automatic resolves to, or that no agent can run', async () => {
   }
   await renderTeam(TEAM_START_POLICIES['fix-and-review'], [resolved, unavailable], [{ id: 'codex', presentation: { name: 'Codex' } } as never])
 
-  const writes = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Writes"]')!
-  const reviews = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Reviews"]')!
-  expect(writes.value).toBe('')
-  expect(writes.selectedOptions[0]?.textContent).toBe('Automatic · Codex')
-  expect(reviews.value).toBe('')
-  expect(reviews.selectedOptions[0]?.textContent).toBe('Automatic · Nothing can run')
+  const writes = container.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Writes"]')!
+  const reviews = container.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Reviews"]')!
+  expect(writes.textContent).toBe('Automatic · Codex')
+  expect(reviews.textContent).toBe('Automatic · Nothing can run')
 })
 
 it('marks a reviewer that returns to the seed role as fresh each round', async () => {
@@ -151,19 +149,21 @@ it.each([false, true])('keeps the attempt check editable when empty, including a
   expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'competitor', then: { role: 'judge' } })
   expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toBeUndefined()
   expect(container.textContent).toContain('Leave empty to let the judge read the attempts directly.')
-  const judge = () => {
-    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')!
-    select.value = current.roles.some(role => role.id === 'judge') ? '' : 'gamma'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+  const judge = async () => {
+    const select = container.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Judge"]')!
+    const name = current.roles.some(role => role.id === 'judge') ? 'You' : 'Gamma'
+    await act(async () => select.click())
+    const choice = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(one => one.textContent === name)!
+    await act(async () => choice.click())
   }
-  act(() => judge())
+  await judge()
   expect(current.rules.find(rule => rule.id === 'to-person')).toMatchObject({ on: 'competitor', then: { role: 'referee' } })
-  act(() => judge())
+  await judge()
   expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toBeUndefined()
-  act(() => judge())
+  await judge()
   type('node check.mjs')
   expect(current.rules.find(rule => rule.id === 'to-person')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
-  act(() => judge())
+  await judge()
   expect(current.rules.filter(rule => rule.on === 'competitor').map(rule => rule.then.role)).toEqual(['verify'])
   expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
   await act(async () => {})
@@ -200,20 +200,22 @@ it('keeps a saved custom check’s success and incoming guards through clearing,
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  const toggle = () => act(() => {
-    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')!
-    select.value = current.roles.some(role => role.id === 'judge') ? '' : 'gamma'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
+  const toggle = async () => {
+    const select = container.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Judge"]')!
+    const name = current.roles.some(role => role.id === 'judge') ? 'You' : 'Gamma'
+    await act(async () => select.click())
+    const choice = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(one => one.textContent === name)!
+    await act(async () => choice.click())
+  }
   type('')
-  toggle()
+  await toggle()
   expect(current.rules.find(rule => rule.id === 'to-person')?.when).toEqual({ every: ['published'] })
-  toggle()
+  await toggle()
   expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toEqual({ every: ['published'] })
   type('node replacement.mjs')
-  toggle()
+  await toggle()
   expect(current.rules.find(rule => rule.id === 'to-person')?.when).toEqual(success)
-  toggle()
+  await toggle()
   expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toEqual(success)
   expect(current.rules.find(rule => rule.id === 'retry')).toEqual(template.rules.find(rule => rule.id === 'retry'))
   await act(async () => {})
@@ -434,7 +436,7 @@ it('renders provider warnings, held-ceiling refusals, and additional provider re
   expect(container.textContent).toContain('Same provider as the writer')
   expect(container.textContent).toContain('cannot enforce read-only access')
   // Delta's alsoPassed reason renders beside its primary one; Alpha's alone would not prove it.
-  expect(container.textContent).toMatch(/Choose another agent that supports this access\. — Same provider as the writer/)
+  expect(container.textContent).toMatch(/Choose another runtime that supports this access\. — Same provider as the writer/)
   expect(container.textContent).not.toContain('Can’t confirm a different provider from the writer')
   expect(container.textContent).toContain('Picked')
   expect(container.textContent).toContain(warning)
@@ -862,7 +864,7 @@ it.each(['judge', 'reviewer'].flatMap(roleId => [{ repeated: false, disabled: fa
   await act(async () => { root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{
     flow, template: flow, disabled, preview: { ...emptyPreview(), seats: repeated ? [refused, { ...refused, index: 1 }] : [refused] }, roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy,
   }} /></StoreProvider>) })
-  expect(container.textContent).toContain('Runtime Alpha can be asked to stay read-only here but cannot be held to it. Choose another agent, or start from /race.')
+  expect(container.textContent).toContain('Runtime Alpha can be asked to stay read-only here but cannot be held to it. Choose another runtime, or start from /race.')
   const use = [...container.querySelectorAll('button')].find(button => button.textContent === 'Use Runtime Beta')!
   if (!offered) { expect(use).toBeUndefined(); return }
   expect(use).toBeTruthy()
@@ -880,7 +882,35 @@ it('explains an edit refusal next to Writes and offers a compatible runtime', as
     { id: 'alpha', presentation: { name: 'Runtime Alpha' }, ceilings: {} } as never,
     { id: 'beta', presentation: { name: 'Runtime Beta' }, ceilings: { edit: { settings: [], how: 'Workspace guard' } } } as never,
   ])
-  expect(container.textContent).toContain('Runtime Alpha cannot enforce editing and local commits without publishing. Choose another agent that supports this access.')
-  expect(container.querySelector('select[aria-label="Agent for Writes"]')).not.toBeNull()
+  expect(container.textContent).toContain('Runtime Alpha cannot enforce editing and local commits without publishing. Choose another runtime that supports this access.')
+  expect(container.querySelector('button[aria-label="Runtime for Writes"]')).not.toBeNull()
   expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Use Runtime Beta')).toBe(true)
+})
+
+
+it('loads the automatic runtime models and offers menu choices before an agent is picked', async () => {
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview,
+    runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } } as never] })
+  const models = [{ id: 'large', displayName: 'Large model', isDefault: true, hidden: false,
+    reasoningLevels: [{ id: 'high', label: 'High' }], supportsImages: false }]
+  Object.assign(theStore, { modelsFor: vi.fn().mockResolvedValue(models) })
+  const automatic = seat('writer', false)
+  const policy = TEAM_START_POLICIES['fix-and-review']
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{
+    flow: policy, template: policy, preview: { ...emptyPreview(), seats: [{ ...automatic, role: 'fixer' }] },
+    roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {},
+  }} /></StoreProvider>))
+  expect(theStore.modelsFor).toHaveBeenCalledWith('gamma')
+  for (const label of ['Runtime', 'Model', 'Effort']) {
+    const trigger = container.querySelector<HTMLButtonElement>(`button[aria-label="${label} for Writes"]`)!
+    expect(trigger).not.toBeNull()
+    expect(trigger.disabled).toBe(false)
+    await act(async () => trigger.click())
+    const menu = document.body.querySelector('[role="menu"]')!
+    expect(menu).not.toBeNull()
+    if (label === 'Model') expect(menu.textContent).toContain('Large model')
+    if (label === 'Effort') expect(menu.textContent).toContain('High')
+    await act(async () => menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(document.body.querySelector('[role="menu"]')).toBeNull()
+  }
 })

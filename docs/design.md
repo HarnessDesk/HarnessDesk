@@ -226,6 +226,8 @@ by its line box, because a text Range includes unused font-em space outside it.
 
 ## Named text roles
 
+A head naming a band of a page’s body uses the 16px semibold `section` role; field groups, Settings forms, dialog groups and right-rail card labels stay small (`SectionHead level="label"`).
+
 A size and a weight together name a *role*. A role describes what the words
 are doing; screens do not invent a new spelling for the same job:
 
@@ -233,8 +235,8 @@ are doing; screens do not invent a new spelling for the same job:
 | --- | --- | --- |
 | wordmark | 20 / semibold | the product name beside its mark |
 | page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
-| section | 16 / semibold | a page band's heading (a Dashboard band) — below the page title, above a subject (#1122) |
-| group label | 13 / medium, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
+| section | 16 / semibold | a page band's heading (Teams, Agents, Library, Plugins, Dashboard and detail-page bands) — below the page title, above a subject (#1122) |
+| group label | 13 / medium, secondary ink | the word over a group — a card of rows, a rail's list or a Settings form (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | member | 14 / medium | the name of someone — an agent at work or a person — beside its face: a chat's sender, a member named inside a sentence (`MemberName`); `--hd-member-weight` owns the weight |
 | row | 13 / medium | the title of a setting, and the word above a control |
@@ -299,8 +301,8 @@ from. The word over a group was 13px secondary in the sidebar, 13px in the
 faint ink over a settings card, and 12px tracked capitals in the room's rail,
 the trajectory's roles and the agent card.
 
-Now every page head is the page role, and every group heading is
-`GroupLabel`. The interfaces share its medium weight and vary the air above a
+Now every page head is the page role, page-body bands use the section role,
+and field groups and rail labels use `GroupLabel`. The interfaces share its medium weight and vary the air above a
 group, never its size, its ink or its case. Capitals are counted: the design
 audit's `uppercaseLabel` finds every `text-transform: uppercase`, `uppercase`
 utility and inline `textTransform` outside a `Keycap`, and its ceiling may only
@@ -309,6 +311,12 @@ agent card and the transcript's small tags — are the burn-down.
 
 Settings names each page with a visible h1 in the page role, above its
 description. Its bar carries no title, so the name is shown once.
+
+A page title is the wordmark's type, and it stands on the wordmark's line.
+`PageOptions` makes the titled head one bar tall (`--hd-bar-h`), the sidebar
+brand row's counterpart, and `Page` drops its top gutter above a first block
+that leads with that head. The title, the wordmark and the head's verb then
+centre on one line, with the sidebar shown or hidden.
 
 ### Where a label lands
 
@@ -442,6 +450,18 @@ label.
 A dialog, a confirm, a menu or a popover that holds focus never wears the
 focus ring round itself; the controls inside keep theirs. A dialog focuses its
 first field when it has one, and otherwise its own surface.
+
+A row has one highlight, its hover fill, eased in on `--hd-duration-fast`, and
+the keyboard reaches the same fill as the pointer — a menu row, a sidebar row
+and a page's `row` button alike. On a page the focus ring is drawn on top of
+it, because Tab travels the whole window. Inside a menu the arrows travel only
+the plate, so the fill is the whole mark and the row draws no ring. A refused
+menu row stays unlit under the pointer but takes the fill under the keyboard,
+which can rest there so its reason is read.
+
+Every floating surface — a menu, a popover such as the model picker, a
+select, a hover card, a tooltip — arrives and leaves on `floatingMotion`
+(`design/ui/motion.ts`); none cuts in.
 
 `Segmented` is not a button. It is a piece of a segmented control — a choice
 between two or three words, one of which is on — and using it for actions is
@@ -818,6 +838,18 @@ face claims that nobody did the work.
 A tinted face is filled with its tint's ink and uses the accent foreground for
 its mark or initials. A tinted ring is hollow, its edge in the tint and its
 mark in the tint's ink. A tinted square keeps the soft tint wash.
+
+A maker's mark (`BrandMark`, and `RuntimeMark` and `ModelMark` through it) is
+drawn in its maker's own colours wherever lobe-icons has a colour file, because a
+logo is recognised by its colour before its shape. Each such mark also carries
+its one-colour drawing on `currentColor`, and that drawing shows instead on an
+identity's own ground: any element with `data-tint` or `data-color` (a tinted
+face or ring, a listing's colour tile) or `data-off` (a signed-out seat). The
+tint carries the meaning there, and two colours in one disc fight. The switch is
+one rule in `styles/app.css`, so a new face gets it without a prop. A maker with
+no colour file is drawn in ink everywhere. A colour file that is not drawn for a
+page is corrected in `COLOUR_FIXES` (Codex's app-icon square, Kimi's white K),
+and each fix is tested to still find what it removes.
 
 A new surface cannot draw someone in a fixed corner without a test failing.
 `IconTile`, `DetailMark`, `AvatarStack`, `Face`, `AccountMark` and a notice’s
@@ -1399,6 +1431,74 @@ surface's description says what the tab shows *on this fixture* and names what
 it does not. A description written for a richer picture than the tab renders is
 the same misleading a drawing was, in words. The only check that has caught
 these is opening every tab in a browser.
+
+### Guides
+
+Both `/design.html` and `/preview.html` carry a **guides** dial — off, boxes,
+lines, all — also opened with `?guides=<mode>` and stepped with Alt+G. It is
+the designer's ruler laid over the screen, drawn by
+`design/explorer/guides.ts` on one canvas that takes no pointer events. Each
+preview `Frame`, or the explorer's current board, is one page, and nothing is
+measured across two.
+
+- **boxes** outlines every component (`data-slot`), control and heading —
+  containers in the accent, controls in violet, text in amber.
+- **rails** draws a dashed line wherever three or more starts (or the ends of
+  controls and containers) meet. A start that misses a rail by 0.5–3px is
+  marked `Δn` in red: a value typed by eye. Only the horizontal axis is
+  judged, because items of different heights centred in a row differ at the
+  top on purpose.
+- **gaps** writes the space between neighbours on the space itself.
+- **overflow** marks what is drawn past its box, what is clipped without an
+  ellipsis, and what leaves its page; an ellipsis is amber, not red.
+- **scale** flags, with an amber corner, a padding, gap, radius, type size or
+  colour that no `--hd-*` token resolves to (`design/explorer/guides-tokens.ts`
+  reads the live tokens, so a foundation is measured as itself).
+- Hovering carries the element's four edges across the page and shows its
+  size, padding, gap and radius by token name (`pad space-3`), its type and
+  ink by token name, anything off scale, and its distance to its parent on
+  each side. Shift pins the hovered element; hovering another then measures
+  between the two. Escape lets go.
+
+The tally in each page's corner, and `window.__hdGuides` beside it, is what
+the lines found; `e2e/ui-system/guides.spec.ts` proves a two-pixel nudge is
+caught and that the drawing never takes a click.
+
+### The review board
+
+`/review.html` (served by `pnpm design`) lays every state of the app out as a
+real window, at its true size, on one canvas: the scenes in
+`packages/ui/src/review/scenes.ts`, each a frame-wall route of the preview
+plus the clicks that reach its state (`preview/scene-steps.ts`). It is where
+a screen is reviewed whole rather than in fragments.
+
+- **Move:** pinch or ⌘-scroll zooms at the pointer, scrolling or dragging
+  pans, Space holds the hand. Shift+1 fits everything, Shift+0 is 100%, Shift+2
+  fits the selected window, and a window's title or a rail entry flies to it.
+  Only windows in view and above 12% run live; the rest are named cards.
+- **Tools:** H moves the board, I hands the pointer to the windows, C pins a
+  note.
+- **Guides** switch over every window at once, light, dark or both side by
+  side, and each window's title carries its own tally.
+- **Notes** record the scene, theme, point and the element under it
+  (`span[row-title] "Release checker"`, with its slot path), and leave the board
+  as Markdown or JSON — an issue, a review comment, an agent's brief.
+
+The same scene list is the **guides standard**:
+`e2e/ui-system/guides-standard.spec.ts` measures every scene with its guides
+and holds the findings to `packages/ui/src/design/guides-standard.json`. A
+count may fall but not rise, and a finding not on the record fails;
+`UPDATE_GUIDES=1` re-records, which is a decision to accept what the board
+shows. The record is kept per platform, `linux` and `darwin`, because a finding
+carries how far an edge sits from its rail and which edges form a rail at all,
+and both follow text widths that are the platform's own. CI is Linux and the
+docs count its record; a run on a platform with no record fails rather than
+read another's. Re-record each platform from the same commit. The Linux record
+is the most any CI run has shown, signature by signature: a finding at the outer
+edge of the near-miss band (`Δ3`) comes and goes between runs of the same code,
+and the gate only fails on growth. A failed run uploads what it measured in
+`guides-observed/`; merge it in as a per-signature maximum. A new state of the app belongs on the board — add its scene — and is
+held to the standard from then on.
 
 ### What the engine checks
 
@@ -2213,6 +2313,13 @@ belongs to incoming fetched files that can run or are binary, and gates Apply.
 the file review, both using the method-aware placeholder repository fixture.
 
 
+Skill descriptions are prose with sanitized inline markdown: backticks name
+code, while the surrounding sentence keeps the reading type. Inside a row
+button, a description keeps link text without a nested interactive link. New Team's
+runtime, model and effort controls compose the shared choice menus; a popup
+inside a dialog belongs to that dialog's stacking context and closes first
+on Escape.
+
 ## New conversation defaults
 
 General's **New conversations** section uses the existing Settings Rows and
@@ -2222,3 +2329,33 @@ title. General, runtime New sessions and Permissions › Approvals show a
 refused recommendation in the shared warning Banner while leaving
 the choice rows available for recovery. This section adds no control or token
 spelling of its own.
+
+## Runtime brand identity and registry browsing
+
+A runtime brand keeps one tint from the design system's `tintForRuntimeBrand`
+palette. Pure selectors read it through the DOM-free `design/identity` entrypoint.
+`runtimeTint` resolves its presentation brand with the same rule as
+its glyph; account preferences colour account rings, not brand tiles. Templates,
+registered runtimes, Library loading faces and Usage's Plans and ranked faces
+use that same answer, including free and metered plans. Usage runtime series
+share their ranked face's tint. Later runtimes with a duplicate tint take unused
+roster tints for both the series and ranked face; other brand faces retain the
+shared palette. Library
+uses `AvatarStack overlap={false}` with the spacing token so every mark stays
+whole; other membership stacks retain their overlap.
+
+Add a runtime keeps the machine's catalogue first. Browse more… reveals the
+registry, with one MenuNote for its third-party, unreviewed status. It does not
+change an entry's add, download, blocked or registered behaviour.
+
+A folder choice is optional for a new conversation. The composer's **No folder**
+label keeps the same single toolbar line; its hover title names the host's chats
+folder. **No folder** is the first menu choice and clears a chosen folder. In
+Settings, **Chats folder** earns a path hint, shortened with `MiddleTruncate`,
+beside **Change…** and **Reset**. The sidebar's **Chats** group joins managed
+chats with unknown-folder conversations and is omitted when empty.
+Only folders recorded as host allocations belong to that group. A refused
+Chats folder pick explains the conflicting opened project in the picker's
+description and a Settings note. Project lists omit managed chats. The composer
+refreshes repository facts on mount before deciding whether to show its worktree
+control; an unread recent-folder entry cannot permanently hide that control.

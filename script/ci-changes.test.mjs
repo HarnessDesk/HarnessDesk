@@ -1,34 +1,67 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { browserPlan, planChange, themeDiff, themeInputs } from './ci-changes.mjs'
+import { browserPlan, ciTier, planChange, themeDiff, themeInputs } from './ci-changes.mjs'
 import { specFiles } from './ci-browser-shards.mjs'
-import { mergeRecords } from './ui-impact.mjs'
+import { mergeRecords, readMap } from './ui-impact.mjs'
 
 const script = fileURLToPath(new URL('./ci-changes.mjs', import.meta.url))
-const check = (paths, expected, event = 'pull_request', env = {}) => {
+const cliPlan = (paths, event = 'pull_request', env = {}) => {
   const directory = mkdtempSync(join(tmpdir(), 'ci-changes-'))
   try {
     const list = join(directory, 'paths')
     if (paths !== null) writeFileSync(list, paths.length ? `${paths.join('\0')}\0` : '')
     const result = spawnSync(process.execPath, [script, list], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', UI_IMPACT_MAP: '', CI_HEAD_BRANCH: '', CI_LABELS: '', ...env },
+      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', UI_IMPACT_MAP: '', CI_HEAD_BRANCH: '', CI_REF_NAME: '', CI_LABELS: '', ...env },
     })
     assert.equal(result.status, 0, result.stderr)
     const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
-    assert.equal(output.browser, expected[0])
-    assert.equal(output.native, String(expected[1]))
-    assert.deepEqual(JSON.parse(output.server_specs), ['e2e/ui-system/front-door-edit.spec.ts', 'e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/project-composer-terminal.spec.ts', 'e2e/ui-system/run-ending.spec.ts', 'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts'])
     return output
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
 }
+
+// check-push consumes the shared planner, independently of CI's tier policy.
+const check = (paths, expected, event = 'pull_request', env = {}) => {
+  const output = plan(paths, env, event)
+  assert.equal(output.browser, expected[0])
+  assert.equal(output.native, String(expected[1]))
+  assert.deepEqual(JSON.parse(output.server_specs), ['e2e/ui-system/front-door-edit.spec.ts', 'e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/project-composer-terminal.spec.ts', 'e2e/ui-system/run-ending.spec.ts', 'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts'])
+  return output
+}
+
+for (const paths of [
+  ['packages/ui/src/App.tsx'], ['packages/server/src/host.ts'],
+  ['packages/desktop/electron/main.mjs'], ['e2e/ui-system/row-box.spec.ts'],
+  ['package.json'], ['docs/a b.md'], ['docs/line\nbreak.md'], [], null,
+]) {
+  test(`bounded CI runs core only for ${JSON.stringify(paths)}`, () => {
+    const run = cliPlan(paths)
+    assert.deepEqual([run.browser, run.native, run.tier], ['none', 'false', 'bounded'])
+    assert.deepEqual([run.browser_specs, run.shard_count, run.shards, run.record], ['[]', '0', '[1]', 'false'])
+    assert.match(run.summary, /Browser suite and native smoke run in the full tier \(batch\/ or full-ci\)/)
+    assert.match(run.summary, /Local check-push specs:/)
+    assert.doesNotMatch(run.summary, /[\n\r]/)
+  })
+}
+
+test('bounded CI lists the local reached specs without changing local selection', () => {
+  const paths = ['e2e/ui-system/row-box.spec.ts', 'packages/server/src/host.ts']
+  const local = plan(paths)
+  const ci = cliPlan(paths)
+  assert.equal(local.browser, 'all')
+  assert.equal(local.native, 'true')
+  const specs = JSON.parse(local.browser_specs)
+  assert.ok(specs.includes('e2e/ui-system/row-box.spec.ts'))
+  assert.ok(specs.includes('e2e/ui-system/front-door-edit.spec.ts'))
+  assert.ok(ci.summary.endsWith(`Local check-push specs: ${specs.join(', ')}.`), ci.summary)
+})
 
 for (const path of [
   'packages/ui/src/App.tsx', 'packages/protocol/src/wire.ts',
@@ -50,9 +83,11 @@ for (const path of ['e2e/ui-system/row-box.spec.ts', 'playwright.ui-system.confi
 for (const path of ['e2e/ui-system/durations.json', 'e2e/ui-system/durations.pr.json']) {
   test(`${path} opens no browser`, () => check([path], ['none', false]))
 }
-for (const path of ['packages/desktop/electron/main.mjs', 'script/shots/seed.mjs', 'script/lib/temporary-directory.mjs']) {
+for (const path of ['packages/desktop/electron/main.mjs']) {
   test(`${path} runs native smoke`, () => check([path], ['none', true]))
 }
+test('the shot seed selects browser coverage and native smoke', () =>
+  check(['script/shots/seed.mjs'], ['all', true]))
 // It sits in the browser test directory but no browser spec imports it, so only the native job runs it.
 test('the native smoke runner runs native smoke and no browser spec', () =>
   check(['e2e/ui-system/native-smoke.mjs'], ['none', true]))
@@ -69,7 +104,7 @@ test('a filename with a control character runs everything', () => {
 test('a mixed change runs each affected suite', () =>
   check(['docs/architecture.md', 'packages/desktop/electron/main.mjs', 'e2e/ui-system/row-box.spec.ts'], ['all', true]))
 
-for (const path of ['packages/server/src/host.ts', 'packages/plugins/src/index.ts', 'packages/adapter-codex/test/fixtures/fake-codex.mjs']) {
+for (const path of ['packages/server/src/host.ts']) {
   test(`${path} runs server specs and native smoke`, () => check([path], ['server', true]))
 }
 test('UI inputs take precedence over server changes', () =>
@@ -158,21 +193,13 @@ test('import scan still refuses an unresolved source helper', async () => {
   })
 })
 
-// What the browser job runs, and how it is sized (the plan of `browserPlan`).
+// Local browser selection and sizing still use the shared plan unchanged.
 const plan = (paths, env = {}, event = 'pull_request') => {
-  const directory = mkdtempSync(join(tmpdir(), 'ci-plan-'))
-  try {
-    const list = join(directory, 'paths')
-    writeFileSync(list, paths.length ? `${paths.join('\0')}\0` : '')
-    const result = spawnSync(process.execPath, [script, list], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', CI_HEAD_BRANCH: '', CI_LABELS: '', ...env },
-    })
-    assert.equal(result.status, 0, result.stderr)
-    const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
-    return output
-  } finally {
-    rmSync(directory, { recursive: true, force: true })
-  }
+  const output = planChange(fileURLToPath(new URL('../', import.meta.url)), {
+    event, paths, headBranch: env.CI_HEAD_BRANCH ?? '', refName: env.CI_REF_NAME ?? '', labels: JSON.parse(env.CI_LABELS || '[]'),
+    map: env.UI_IMPACT_MAP ? readMap(env.UI_IMPACT_MAP) : null,
+  })
+  return Object.fromEntries(Object.entries(output).map(([key, value]) => [key, String(value)]))
 }
 
 test('a pull request without a map samples the suite in the PR matrix within four shards', () => {
@@ -260,7 +287,7 @@ test('a changed helper reaches the specs that import it through another helper',
 })
 
 test('untraceable suite data and deleted helpers sample the whole suite within the cap', () => {
-  for (const path of ['e2e/ui-system/composer-slot-record.json', 'e2e/ui-system/a-helper-that-was-deleted.ts']) {
+  for (const path of ['e2e/ui-system/untraceable-data.json', 'e2e/ui-system/a-helper-that-was-deleted.ts']) {
     const run = plan([path])
     assert.equal(run.browser, 'all')
     assert.equal(run.matrix, 'pr')
@@ -287,15 +314,19 @@ test('the outputs are well formed on a run that skips the browser job', () => {
 
 // A map of the real repository, made up: every spec ran the button, and `row-box.spec.ts` alone ran BringHome.
 const real = fileURLToPath(new URL('../', import.meta.url))
-const impactMap = () => {
+const impactMap = (narrow = '/src/components/BringHome.tsx') => {
   const records = specFiles(real).map(spec => ({
     [`e2e/ui-system/${spec}`]: {
       tests: 1, unclean: 0,
-      loaded: ['/src/design/ui/button.tsx', '/src/components/BringHome.tsx'],
-      ran: spec === 'row-box.spec.ts' ? ['/src/design/ui/button.tsx', '/src/components/BringHome.tsx'] : ['/src/design/ui/button.tsx'],
+      loaded: ['/src/design/ui/button.tsx', narrow],
+      ran: spec === 'row-box.spec.ts' ? ['/src/design/ui/button.tsx', narrow] : ['/src/design/ui/button.tsx'],
     },
   }))
-  return mergeRecords(real, records, { commit: 'abcdef1234567' })
+  const map = mergeRecords(real, records, { commit: 'abcdef1234567' })
+  // App.tsx is no longer in this checkout. Supply its historical record explicitly
+  // when exercising that path, without creating a production source file.
+  if (narrow === '/src/App.tsx') map.files['packages/ui/src/App.tsx'] = { blob: 'a'.repeat(40), loaded: 'all', ran: [map.specs.indexOf('row-box.spec.ts')] }
+  return map
 }
 const planWith = (inputs, impact, over = {}) => browserPlan(real, {
   browser: 'all', inputs, serverInputs: false, event: 'pull_request', themeTouched: false, request: '', baseText: () => null, impact, ...over,
@@ -413,19 +444,19 @@ test('suite-only selection reads the source behind compiled package imports on a
   })
 })
 
-test('the shared change plan prints the same fields, in the same order, as the CI CLI', () => {
+test('the shared change plan and CI CLI keep the same output contract', () => {
   const real = fileURLToPath(new URL('../', import.meta.url))
   const paths = ['docs/architecture.md']
-  const output = check(paths, ['none', false])
+  const output = cliPlan(paths)
   const shared = planChange(real, { event: 'pull_request', paths })
-  assert.deepEqual(Object.fromEntries(Object.entries(shared).map(([key, value]) => [key, String(value)])), output)
   assert.deepEqual(Object.keys(shared), Object.keys(output))
+  for (const key of ['server_specs', 'matrix', 'tier']) assert.equal(String(shared[key]), output[key], key)
 })
 
 test('theme diff selection matches the unchanged CI grep pipeline', () => {
   const real = fileURLToPath(new URL('../', import.meta.url))
   const workflow = readFileSync(join(real, '.github/workflows/ci.yml'), 'utf8')
-  const pipeline = workflow.match(/git diff --no-renames -U0 HEAD\^1 HEAD -- packages\/ui \| (grep[^;]+); then/)?.[1]
+  const pipeline = workflow.match(/git diff --no-renames -U0 "\$base" HEAD -- packages\/ui \| (grep[^;]+); then/)?.[1]
   assert.ok(pipeline, 'CI still exposes its theme pipeline')
   for (const diff of ['+++ b/theme.css\n--- a/dark.css', '+DARK colour', '-theme rule', ' context dark', '+colour: blue', '+--- theme', '\n+theme\n']) {
     const result = spawnSync('bash', ['-c', pipeline], { input: diff, encoding: 'utf8' })
@@ -466,7 +497,7 @@ test('edited and newly added specs always survive the cap, even when they exceed
   assert.deepEqual(run.specs === 'all' ? all : JSON.parse(run.specs), all)
   assert.ok(run.count <= 4)
   assert.deepEqual(run.deferred, [])
-  assert.match(run.summary, /edited specs exceed/)
+  assert.match(run.summary, /edited or reader specs exceed/)
 })
 
 test('a narrow source selection wins over a widely rendered input when both change', () => {
@@ -495,10 +526,18 @@ for (const options of [
 
 test('CLI reads full-tier branch and label metadata without evaluating branch text', () => {
   for (const env of [{ CI_HEAD_BRANCH: 'batch/reviewed' }, { CI_LABELS: '["full-ci"]' }]) {
-    const run = plan(['docs/architecture.md'], env)
-    assert.deepEqual([run.tier, run.browser, run.matrix, run.browser_specs], ['full', 'all', 'full', 'all'])
+    const run = cliPlan(['packages/ui/src/App.tsx'], 'pull_request', env)
+    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.browser_specs, run.record], ['full', 'all', 'true', 'full', 'all', 'true'])
+    assert.equal(run.summary, plan(['packages/ui/src/App.tsx'], env).summary)
   }
 })
+
+for (const event of ['push', 'workflow_dispatch']) {
+  test(`CLI keeps full CI for ${event}`, () => {
+    const run = cliPlan(['docs/architecture.md'], event)
+    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.browser_specs], ['full', 'all', 'true', 'full', 'all'])
+  })
+}
 
 test('an added spec absent from duration tables is mandatory beside a broad change', async () => {
   await fixture((root, put) => {
@@ -516,4 +555,279 @@ test('an added spec absent from duration tables is mandatory beside a broad chan
     assert.ok(specs.length < 14)
     assert.ok(run.shard_count <= 4)
   })
+})
+
+test('development pushes select the bounded tier, independently of PR metadata', () => {
+  assert.equal(ciTier({ event: 'push', refName: 'development' }), 'bounded')
+  assert.equal(ciTier({ event: 'push', refName: 'main', headBranch: 'development' }), 'full')
+  assert.equal(ciTier({ event: 'push', refName: 'development/topic' }), 'full')
+  assert.equal(plan(['package.json'], { CI_REF_NAME: 'development' }, 'push').tier, 'bounded')
+})
+
+test('a development push runs reached UI specs against the before revision', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ci-development-map-'))
+  try {
+    const map = join(directory, 'map.json')
+    writeFileSync(map, JSON.stringify(impactMap()))
+    const run = cliPlan(['packages/ui/src/components/BringHome.tsx'], 'push', {
+      CI_REF_NAME: 'development', CI_BEFORE: 'HEAD', UI_IMPACT_MAP: map,
+    })
+    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.record], ['bounded', 'all', 'false', 'pr', 'false'])
+    assert.deepEqual(JSON.parse(run.browser_specs), ['e2e/ui-system/row-box.spec.ts'])
+    assert.match(run.summary, /Development push/)
+    assert.match(run.summary, /Selected by the specs that ran the changed UI source/)
+    assert.match(run.summary, /Native smoke.*full tier/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('a development push touching only docs selects no browser or native job', () => {
+  const run = cliPlan(['docs/architecture.md'], 'push', { CI_REF_NAME: 'development' })
+  assert.deepEqual([run.tier, run.browser, run.native, run.shard_count, run.shards, run.record], ['bounded', 'none', 'false', '0', '[1]', 'false'])
+  assert.match(run.summary, /not needed for this change/)
+})
+
+test('a development push keeps edited specs and server-facing coverage in the bounded matrix', () => {
+  const paths = ['e2e/ui-system/row-box.spec.ts', 'packages/server/src/host.ts']
+  const run = cliPlan(paths, 'push', { CI_REF_NAME: 'development' })
+  assert.deepEqual(JSON.parse(run.browser_specs), JSON.parse(plan(paths).browser_specs))
+  assert.equal(run.native, 'false')
+  assert.equal(run.matrix, 'pr')
+  assert.ok(Number(run.shard_count) <= 4)
+  const server = cliPlan(['packages/server/src/host.ts'], 'push', { CI_REF_NAME: 'development' })
+  assert.equal(server.browser, 'server')
+  assert.equal(server.native, 'false')
+})
+
+for (const before of ['', '0'.repeat(40), 'f'.repeat(40)]) {
+  test(`an unreadable development push range runs every browser spec: ${before || 'missing before'}`, () => {
+    // The workflow removes the path list when before is missing, zero or unavailable.
+    const run = cliPlan(null, 'push', { CI_REF_NAME: 'development', CI_BEFORE: before })
+    assert.deepEqual([run.tier, run.browser, run.native, run.browser_specs, run.matrix, run.record], ['bounded', 'all', 'false', 'all', 'pr', 'false'])
+    assert.match(run.summary, /change range unavailable.*every browser spec/)
+  })
+}
+
+for (const event of ['pull_request', 'workflow_dispatch']) {
+  test(`development runs the full tier on ${event}`, () => {
+    const env = { CI_REF_NAME: 'development', CI_HEAD_BRANCH: event === 'pull_request' ? 'development' : '' }
+    const run = cliPlan(['docs/architecture.md'], event, env)
+    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.browser_specs, run.record], ['full', 'all', 'true', 'full', 'all', 'true'])
+    assert.equal(plan(['docs/architecture.md'], env, event).tier, 'full')
+  })
+}
+
+test('only the exact development PR head selects the release tier', () => {
+  assert.equal(ciTier({ event: 'pull_request', headBranch: 'development/topic' }), 'bounded')
+  assert.equal(ciTier({ event: 'pull_request', refName: 'development' }), 'bounded')
+})
+
+for (const path of [
+  'packages/ui/src/App.tsx',
+  'e2e/ui-system/untraceable-data.json', 'e2e/ui-system/a-deleted-helper.ts',
+]) {
+  test(`a development push runs every spec when the plan cannot narrow ${path}`, () => {
+    const run = cliPlan([path], 'push', { CI_REF_NAME: 'development' })
+    assert.equal(run.browser_specs, 'all')
+    assert.ok(Number(run.shard_count) > 4, run.shard_count)
+    assert.doesNotMatch(run.summary, /Deferred to full tier/)
+  })
+}
+
+test('a stale source map ranks a capped conservative development selection', () => {
+  const map = impactMap()
+  const base = current(map).baseFiles()
+  base['packages/ui/src/components/BringHome.tsx'] = 'f'.repeat(40)
+  const run = planWith(['packages/ui/src/components/BringHome.tsx'], { ...current(map), baseFiles: () => base }, { event: 'push', refName: 'development' })
+  assert.ok(JSON.parse(run.specs).includes('e2e/ui-system/row-box.spec.ts'))
+  assert.ok(run.deferred.length > 0)
+  assert.ok(run.count <= 4)
+  assert.match(run.summary, /Not narrowed: .*has changed on the base branch/)
+})
+
+test('a development push still caps a successfully narrowed impact plan', () => {
+  const run = planWith(['packages/ui/src/design/ui/button.tsx'], current(impactMap()), { event: 'push', refName: 'development' })
+  assert.ok(run.deferred.length > 0)
+  assert.ok(run.count <= 4)
+})
+
+test('an unreadable input graph runs every browser spec on a development push', async () => {
+  await fixture((root, put) => {
+    put('e2e/ui-system/durations.json', '{}')
+    // The source walk encounters an unreadable file while building uiExternalImports.
+    put('packages/ui/src/placeholder.ts', '')
+    symlinkSync('missing.ts', join(root, 'packages/ui/src/unreadable.ts'))
+    const run = planChange(root, { event: 'push', refName: 'development', paths: ['docs/architecture.md'] })
+    assert.equal(run.browser, 'all')
+    assert.equal(run.browser_specs, 'all')
+    assert.match(run.summary, /input graph unavailable.*every browser spec/)
+  })
+})
+
+for (const [path, spec] of [
+  ['docs/interface.md', 'team-board-widths.spec.ts'],
+  ['script/shots/shoot.mjs', 'header-status-group.spec.ts'],
+  ['script/shots/template-rig.mjs', 'front-door-edit.spec.ts'],
+  ['script/shots/templates.mjs', 'template-journeys.spec.ts'],
+]) {
+  test(`a development push touching ${path} covers ${spec}`, () => {
+    const run = cliPlan([path], 'push', { CI_REF_NAME: 'development' })
+    assert.equal(run.browser, 'all')
+    assert.ok(run.browser_specs === 'all' || JSON.parse(run.browser_specs).includes(`e2e/ui-system/${spec}`))
+    assert.equal(run.native, 'false')
+  })
+}
+
+for (const event of ['push', 'pull_request']) {
+  test(`UI source beside a repository read keeps both narrow selections on ${event}`, () => {
+    const map = impactMap('/src/App.tsx')
+    const run = planWith(['packages/ui/src/App.tsx', 'docs/interface.md'], current(map), { event, refName: 'development' })
+    assert.deepEqual(JSON.parse(run.specs), ['e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/team-board-widths.spec.ts'])
+    assert.equal(run.count, 1)
+    assert.deepEqual(run.deferred, [])
+  })
+}
+
+for (const [name, source] of [
+  ['direct read', "readFileSync('docs/new-contract.md', 'utf8')"],
+  ['helper URL', "import './helper'"],
+  ['package read', "readFileSync('packages/cli/package.json', 'utf8')"],
+]) {
+  test(`repository readers are selected for a ${name}`, async () => {
+    await fixture((root, put) => {
+      put('docs/new-contract.md', 'contract')
+      put('packages/cli/package.json', JSON.stringify({ name: '@harnessdesk/cli' }))
+      put('e2e/ui-system/row-box.spec.ts', source)
+      put('e2e/ui-system/helper.ts', "readFileSync(new URL('../../docs/new-contract.md', import.meta.url), 'utf8')")
+      put('e2e/ui-system/durations.json', '{}')
+      const run = planChange(root, { event: 'push', refName: 'development', paths: [name === 'package read' ? 'packages/cli/package.json' : 'docs/new-contract.md'] })
+      assert.equal(run.browser, 'all')
+      assert.deepEqual(JSON.parse(run.browser_specs), ['e2e/ui-system/row-box.spec.ts'])
+    })
+  })
+}
+
+test('environment changes keep the cap and rank recorded reach before the remaining specs', async () => {
+  await fixture((root, put) => {
+    put('packages/ui/src/App.tsx', 'export const App = () => null')
+    const times = {}
+    for (const name of [...Array.from({ length: 8 }, (_, i) => `a${i}.spec.ts`), 'z-reached.spec.ts']) {
+      put(`e2e/ui-system/${name}`, 'export {}')
+      times[name] = 900
+    }
+    put('e2e/ui-system/durations.json', JSON.stringify(times))
+    // Mark all specs as recorded without giving the unrelated specs App's reach.
+    const complete = mergeRecords(root, Object.keys(times).map(name => ({ [`e2e/ui-system/${name}`]: { tests: 1, unclean: 0, loaded: ['/src/App.tsx'], ran: name === 'z-reached.spec.ts' ? ['/src/App.tsx'] : [] } })), { environment: { 'packages/protocol': 'old' } })
+    const impact = { ...current(complete), baseEnvironment: () => ({ 'packages/protocol': 'new' }) }
+    for (const inputs of [['packages/ui/src/App.tsx'], ['packages/ui/src/App.tsx', 'packages/protocol/src/wire.ts']]) {
+      const run = browserPlan(root, { browser: 'all', inputs, serverInputs: false, event: 'push', refName: 'development', impact })
+      assert.ok(run.count <= 4)
+      assert.ok(run.deferred.length > 0)
+      assert.ok(JSON.parse(run.specs).includes('e2e/ui-system/z-reached.spec.ts'))
+      assert.match(run.summary, /map.*environment differs/i)
+      for (const spec of run.deferred) assert.ok(run.summary.includes(spec), spec)
+    }
+  })
+})
+
+for (const path of ['script/lib/temporary-directory.mjs', 'packages/plugins/src/index.ts', 'packages/adapter-codex/test/fixtures/fake-codex.mjs']) {
+  test(`${path} selects its browser readers and native smoke`, () => check([path], ['all', true]))
+}
+
+test('a literal suite data read selects only its reader', () => {
+  const run = plan(['e2e/ui-system/composer-slot-record.json'])
+  assert.deepEqual(JSON.parse(run.browser_specs), ['e2e/ui-system/composer-slots.spec.ts'])
+})
+
+for (const literal of ["'docs/deleted-contract.md'", "new URL('../../docs/deleted-contract.md', import.meta.url)"]) {
+  test(`a deleted literal read still selects its reader: ${literal}`, async () => {
+    await fixture((root, put) => {
+      put('e2e/ui-system/row-box.spec.ts', `readFileSync(${literal}, 'utf8')`)
+      put('e2e/ui-system/durations.json', '{}')
+      const run = planChange(root, { event: 'push', refName: 'development', paths: ['docs/deleted-contract.md'] })
+      assert.equal(run.browser, 'all')
+      assert.deepEqual(JSON.parse(run.browser_specs), ['e2e/ui-system/row-box.spec.ts'])
+    })
+  })
+}
+
+for (const path of ['packages/ui/package.json', 'packages/protocol/src/ids.ts', 'docs/shared.json']) {
+  for (const withMap of [false, true]) {
+    test(`a reader never narrows the whole-UI input ${path}, map=${withMap}`, async () => {
+      await fixture((root, put) => {
+        put('packages/ui/src/App.tsx', "import '../../../docs/shared.json'")
+        put('docs/shared.json', '{}')
+        put('packages/protocol/src/ids.ts', 'export {}')
+        const times = {}
+        for (const name of [...Array.from({ length: 9 }, (_, i) => `a${i}.spec.ts`), 'z-reader.spec.ts']) {
+          put(`e2e/ui-system/${name}`, name.startsWith('z-') ? `readFileSync('${path}', 'utf8')` : 'export {}')
+          times[name] = 900
+        }
+        put('e2e/ui-system/durations.json', JSON.stringify(times))
+        const map = withMap ? mergeRecords(root, Object.keys(times).map(name => ({
+          [`e2e/ui-system/${name}`]: { tests: 1, unclean: 0, loaded: [], ran: [] },
+        }))) : null
+        for (const event of ['push', 'pull_request']) {
+          const run = planChange(root, { event, refName: 'development', paths: [path], map })
+          const selected = run.browser_specs === 'all' ? specFiles(root).map(spec => `e2e/ui-system/${spec}`) : JSON.parse(run.browser_specs)
+          assert.ok(selected.length > 1, 'the reader is mandatory, not the complete impact')
+          assert.ok(selected.includes('e2e/ui-system/z-reader.spec.ts'))
+        }
+      })
+    })
+  }
+}
+
+for (const path of ['package.json', 'pnpm-lock.yaml', 'packages/ui/vite.config.ts', 'packages/protocol/src/wire.ts', 'assets/example.svg']) {
+  test(`a global input keeps the cap and names its reason: ${path}`, () => {
+    for (const impact of [null, current(impactMap())]) {
+      const run = planWith([path], impact, { event: 'push', refName: 'development', sha: 'a'.repeat(40) })
+      assert.equal(run.count, 4)
+      assert.ok(run.deferred.length > 0)
+      assert.ok(run.summary.includes(`Not narrowed: global input ${path}`), run.summary)
+    }
+  })
+}
+
+test('global capped coverage rotates by push sha and falls back to before', () => {
+  const impact = current(impactMap())
+  const select = options => planWith(['pnpm-lock.yaml'], impact, { event: 'push', refName: 'development', ...options }).specs
+  const first = select({ sha: 'a'.repeat(40), before: 'c'.repeat(40) })
+  const second = select({ sha: 'b'.repeat(40), before: 'c'.repeat(40) })
+  assert.notEqual(first, second)
+  assert.equal(first, select({ sha: 'a'.repeat(40), before: 'd'.repeat(40) }))
+  assert.equal(first, select({ before: 'a'.repeat(40) }))
+  const alphabetical = specFiles(real).slice(0, JSON.parse(first).length).map(spec => `e2e/ui-system/${spec}`)
+  assert.notDeepEqual(JSON.parse(first), alphabetical)
+})
+
+test('the development CLI keys global rotation by the pushed sha', () => {
+  const first = cliPlan(['pnpm-lock.yaml'], 'push', { CI_REF_NAME: 'development', GITHUB_SHA: 'a'.repeat(40) })
+  const second = cliPlan(['pnpm-lock.yaml'], 'push', { CI_REF_NAME: 'development', GITHUB_SHA: 'b'.repeat(40) })
+  assert.equal(first.shard_count, '4')
+  assert.equal(second.shard_count, '4')
+  assert.notEqual(first.browser_specs, second.browser_specs)
+})
+
+for (const path of ['.github/workflows/ci.yml', 'playwright.ui-system.config.ts']) {
+  test(`a suite execution configuration change runs everything uncapped: ${path}`, () => {
+    const run = planWith([path], current(impactMap()), { event: 'push', refName: 'development' })
+    assert.equal(run.specs, 'all')
+    assert.ok(run.count > 4)
+    assert.deepEqual(run.deferred, [])
+  })
+}
+
+test('an unread shot README selects no browser specs', () => {
+  const run = planChange(real, { event: 'push', refName: 'development', paths: ['script/shots/README.md'] })
+  assert.equal(run.browser, 'none')
+  assert.equal(run.shard_count, 0)
+})
+
+test('an unread shot README preserves a narrow UI selection', () => {
+  const run = planWith(['packages/ui/src/App.tsx', 'script/shots/README.md'], current(impactMap('/src/App.tsx')), { event: 'push', refName: 'development' })
+  assert.deepEqual(JSON.parse(run.specs), ['e2e/ui-system/row-box.spec.ts'])
+  assert.equal(run.count, 1)
+  assert.deepEqual(run.deferred, [])
 })

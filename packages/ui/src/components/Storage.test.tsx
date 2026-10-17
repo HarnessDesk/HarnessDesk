@@ -69,7 +69,7 @@ it('reviews two groups and exposes inventories only after the separate discard c
 it('requires confirmation before clearing cached previews', async () => {
   await mount(); await act(async () => button('Clear').click())
   expect(request).not.toHaveBeenCalledWith('history/clearCached', {})
-  expect(document.body.textContent).toContain('read again from the agent')
+  expect(document.body.textContent).toContain('read again from the runtime')
   await act(async () => button('Clear cached previews').click())
   expect(request).toHaveBeenCalledWith('history/clearCached', {})
 })

@@ -35,6 +35,157 @@ import {
  * here, where it provably touches nothing.
  */
 
+/** Past this, a command is shortened for its title; the plate keeps it whole. */
+const LABEL_MAX = 48
+
+/**
+ * `raw` is the word as written; `value` is what the shell makes of it, unless
+ * `expands` says the shell rewrites it first (a `$`, a glob or a brace).
+ */
+type Word = { kind: 'word'; raw: string; value: string; start: number; expands: boolean }
+type Token = Word | { kind: 'op'; op: string; start: number }
+
+/**
+ * Splits a shell line into words and the operators between them, or gives up.
+ * It reads quotes, backslashes, line continuations and `;` `&&` `||` `|` `&`
+ * even where they touch a word, and returns null for whatever it would have to
+ * guess at — an unterminated quote, a command substitution, a subshell, a
+ * redirection — so a caller that cannot be sure keeps the line as it was. A
+ * `#` comment runs to the end of its line, and the next line is read on.
+ */
+const shellTokens = (line: string): Token[] | null => {
+  const tokens: Token[] = []
+  const at: { word: Word | null } = { word: null }
+  const open = (i: number) => (at.word ??= { kind: 'word', raw: '', value: '', start: i, expands: false })
+  const close = () => { if (at.word) tokens.push(at.word); at.word = null }
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!
+    // Only the shell's own blanks split words: a no-break space is part of one.
+    if (ch === ' ' || ch === '\t' || ch === '\n') { close(); if (ch === '\n') tokens.push({ kind: 'op', op: '\n', start: i }); continue }
+    if (ch === '\\') {
+      if (i + 1 >= line.length) return null
+      if (line[i + 1] === '\n') { i++; continue } // a line continuation joins, and is not part of the word
+      const w = open(i); w.raw += ch + line[++i]; w.value += line[i]; continue
+    }
+    if (ch === "'") {
+      const end = line.indexOf("'", i + 1)
+      if (end < 0) return null
+      const w = open(i); w.raw += line.slice(i, end + 1); w.value += line.slice(i + 1, end); i = end; continue
+    }
+    if (ch === '"') {
+      // `raw` keeps the quotes and escapes as written, less any line continuation, which joins.
+      const w = open(i); let j = i + 1, raw = '"'
+      for (; j < line.length && line[j] !== '"'; j++) {
+        const c = line[j]!
+        if (c === '`' || (c === '$' && line[j + 1] === '(')) return null
+        if (c === '\\' && line[j + 1] === '\n') { j++; continue }
+        if (c === '\\' && /["\\$`]/.test(line[j + 1] ?? '')) { raw += c + line[j + 1]; w.value += line[++j]; continue }
+        if (c === '$') w.expands = true
+        w.value += c; raw += c
+      }
+      if (j >= line.length) return null
+      w.raw += `${raw}"`; i = j; continue
+    }
+    // A redirection can stand anywhere, even before the program (`2>/dev/null pnpm dev`).
+    if (ch === '`' || ch === '(' || ch === ')' || ch === '<' || ch === '>') return null
+    if (ch === '$' && line[i + 1] === '(') return null
+    if (ch === '#' && !at.word) {
+      const eol = line.indexOf('\n', i)
+      if (eol < 0) break
+      i = eol - 1; continue
+    }
+    if (ch === ';' || ch === '|' || ch === '&') {
+      close()
+      const op = (ch === '|' || ch === '&') && line[i + 1] === ch ? ch + line[++i] : ch
+      tokens.push({ kind: 'op', op, start: i + 1 - op.length }); continue
+    }
+    const w = open(i); w.raw += ch; w.value += ch
+    if (/[$*?[{]/.test(ch)) w.expands = true
+  }
+  close()
+  return tokens
+}
+
+const isWord = (token: Token | undefined, value?: string): token is Word =>
+  token?.kind === 'word' && !token.expands && (value === undefined || token.value === value)
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+/** What a person counts as characters, so a joined emoji at the edge is never split. */
+const characters = (text: string) => Array.from(graphemes.segment(text), part => part.segment)
+
+/** Shell line breaks show as ⏎; other display breaks become spaces after tokenization. */
+const oneLine = (text: string) => text.replace(/[ \t]*\r?\n[ \t]*/g, ' ⏎ ').replace(/[\r\v\f\u0085\u2028\u2029]/g, ' ')
+
+/** The line as it came, on one line and cut to fit a title. */
+const cut = (line: string) => {
+  const flat = oneLine(line)
+  const chars = characters(flat)
+  return chars.length <= LABEL_MAX ? flat : `${chars.slice(0, LABEL_MAX - 1).join('').trimEnd()}…`
+}
+
+/** The flags that run the script they are given: `-c`, `-lc`, `-ic` and the like. `-n` only checks it. */
+const RUNS_SCRIPT = /^-[eilux]*c$/
+
+/**
+ * The title a background task is listed under. Codex names a shell session
+ * only by its command, and that command usually arrives wrapped —
+ * `/bin/zsh -lc "rg -n … /a/long/path"` — so the wrapper was the first thing
+ * read, and the plate under the title printed the same line again. The title
+ * unwraps the shell, skips a leading `cd …`, and keeps a short command whole;
+ * a long one is cut to its program and the first argument that is not a flag.
+ *
+ * Each step is taken only when the line was read for certain. Otherwise the
+ * title is the line as far as it was read, cut to fit: a title may be less
+ * helpful than it could be, but never names a command that is not running.
+ */
+export const taskLabel = (command: string): string => {
+  let line = command.trim()
+  if (!line) return oneLine(command)
+  let tokens = shellTokens(line)
+  if (!tokens) return cut(line)
+  const [shell, flag, script] = tokens
+  if (tokens.length === 3 && isWord(shell) && /^(ba|z|da|k|fi)?sh$/.test(shell.value.split('/').at(-1)!)
+    && isWord(flag) && RUNS_SCRIPT.test(flag.value) && script?.kind === 'word') {
+    line = script.value.trim()
+    tokens = shellTokens(line)
+    if (!line || !tokens) return cut(line || command.trim())
+  }
+  let from = 0
+  for (;;) {
+    // A line break before the command, as a comment line leaves; a written `;` there is a syntax error, and is kept.
+    if (tokens[from]?.kind === 'op' && (tokens[from] as { op: string }).op === '\n') { from++; continue }
+    const [cd, dir, after] = tokens.slice(from, from + 3)
+    if (!isWord(cd, 'cd') || !isWord(dir) || dir.value.startsWith('-')) break
+    if (after?.kind !== 'op' || !['&&', ';', '\n'].includes(after.op)) break
+    // Blank and comment lines may stand between the separator and the command; another `;` may not.
+    let next = from + 3
+    while (tokens[next]?.kind === 'op' && (tokens[next] as { op: string }).op === '\n') next++
+    if (tokens[next]?.kind !== 'word') break
+    from = next
+  }
+  if (from && tokens[from]) line = line.slice(tokens[from]!.start).trim()
+  // A short line is the title as the shell reads it: across a line break it is
+  // put back together from its words, with each break that ends a command as ⏎.
+  const whole = oneLine(line.includes('\n')
+    ? tokens.slice(from).map(token => token.kind === 'word' ? token.raw : token.op === '\n' ? '⏎' : token.op).join(' ')
+    : line)
+  // A line with no word in it (only comments and breaks) is shown as it came, cut.
+  if (/[^\s⏎]/.test(whole) && characters(whole).length <= LABEL_MAX) return whole
+  const end = tokens.findIndex((token, i) => i >= from && token.kind === 'op')
+  const segment = tokens.slice(from, end < 0 ? undefined : end)
+  let at = 0
+  while (segment[at]?.kind === 'word' && /^[A-Za-z_][A-Za-z0-9_]*=/.test((segment[at] as Word).raw)) at++
+  const program = segment[at]
+  if (!isWord(program) || !program.value.trim()) return cut(line)
+  const name = program.value.split('/').at(-1) || program.value
+  const argument = segment.slice(at + 1).find((token): token is Word => token.kind === 'word' && !token.value.startsWith('-'))
+  const short = oneLine(argument ? `${name} ${argument.raw}` : name)
+  const label = characters(short).length > LABEL_MAX ? cut(short) : `${short}…`
+  // Trimming a whitespace-only prefix must not leave the ellipsis as the whole title, a display break included.
+  return label.slice(0, -1).trim() ? label : cut(oneLine(command).trim())
+}
+
 /** How often the live list is re-read while something is running. */
 const POLL_MS = 4_000
 
@@ -120,13 +271,13 @@ export class CodexTasks implements RuntimeTasks {
     const existing = sessions.get(item.processId)
     const entry: Remembered = existing ?? {
       processId: item.processId,
-      label: item.command,
+      label: taskLabel(item.command),
       command: item.command,
       startedAt: Date.now(),
       alive: true,
       unpolled: true,
     }
-    entry.label = item.command
+    entry.label = taskLabel(item.command)
     entry.command = item.command
     entry.cwd = item.cwd
     entry.itemId = item.id
@@ -203,7 +354,7 @@ export class CodexTasks implements RuntimeTasks {
     for (const [processId, terminal] of alive) {
       const entry = sessions.get(processId) ?? {
         processId,
-        label: terminal.command,
+        label: taskLabel(terminal.command),
         command: terminal.command,
         startedAt: Date.now(),
         alive: true,

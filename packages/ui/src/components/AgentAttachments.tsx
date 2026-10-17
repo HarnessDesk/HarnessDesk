@@ -186,7 +186,7 @@ const AttachmentEditDialog = ({
       }
     >
       <Note>Choosing none for a list uses this runtime’s own defaults — never “nothing loaded”.</Note>
-      <SectionHead name="Skills" />
+      <SectionHead level="label" name="Skills" />
       <Rows>
         {skillDeclarations.length === 0 ? (
           <Row title="No skills are declared here yet" />
@@ -201,7 +201,7 @@ const AttachmentEditDialog = ({
           ))
         )}
       </Rows>
-      <SectionHead name="Servers" />
+      <SectionHead level="label" name="Servers" />
       <Rows>
         {mcpDeclarations.length === 0 ? (
           <Row title="No servers are declared here yet" />
@@ -265,8 +265,8 @@ const AttachmentReviewDialog = ({
 
   // Rule 8: a runtime is named by its presentation, never its id.
   const runtimeName = review
-    ? (snapshot.runtimes.find((one) => String(one.id) === review.runtime)?.presentation.name ?? 'this agent')
-    : 'this agent'
+    ? (snapshot.runtimes.find((one) => String(one.id) === review.runtime)?.presentation.name ?? 'this runtime')
+    : 'this runtime'
 
   if (approved) {
     return (

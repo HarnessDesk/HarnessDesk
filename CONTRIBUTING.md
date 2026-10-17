@@ -20,6 +20,16 @@ pnpm serve      # or headless, against a browser
 [docs/getting-started.md](docs/getting-started.md) covers signing in,
 registering ACP agents, and troubleshooting.
 
+## The development branch
+
+From the next release, reviewed changes land on the long-lived `development`
+branch, one commit per change. Each push runs core CI; a nightly full run starts
+at 11:00 UTC, and a failure is fixed the same day. A release pull request from
+`development` into `main` runs the full tier and lands with a merge commit,
+preserving each change's commit. Every merge into `main` is a release. Bump the
+version on `development` before opening that release pull request; follow
+[docs/release.md](docs/release.md) to cut it from the merged result.
+
 ## The gate
 
 Before you push, run `pnpm check:push`. It uses CI's planners for the committed,
@@ -57,37 +67,63 @@ gate and is green only when each of four jobs that run side by side is: the
 Node tests, the Node end-to-end tests, the UI tests, and the checks.
 
 Browser integration has two tiers. Ordinary pull requests use the **bounded**
-tier. A push to `main`, a pull request whose head branch starts with `batch/`,
-a pull request labelled `full-ci`, and a manual dispatch use the **full** tier.
+tier, as do pushes to `development`. A push to `main`, a pull request whose
+head branch is `development` or starts with `batch/`, a pull request labelled
+`full-ci`, and a manual dispatch use the **full** tier.
 Adding `full-ci` starts one full run on the head commit (`full-ci-label.yml`); no other label starts anything. The full tier runs every browser
 spec in both themes, with the existing matrix of up to sixteen shards, and
 native smoke. A check named `CI tier: bounded` or `CI tier: full`, the browser
 aggregate's log and the job summary identify what ran. Required check names stay
 the same; bounded success satisfies branch protection, but landing requires full
-CI. Use a batch branch or add `full-ci` before landing an individual pull request.
+CI. The development release PR supplies full evidence; batch branches and
+`full-ci` remain available for other full runs.
 
-The bounded tier always keeps added and edited spec files. It follows changed
-suite helpers and uses the impact map of main to find specs that ran changed UI
-source. Missing or stale evidence starts from the whole suite. It then keeps the
-most specific selections first (the smallest group reached by any changed input,
-with filenames breaking ties), within four shards of at most 1,000 recorded test
-seconds each. The deal is longest first onto the lightest shard, using
-`script/ci-browser-shards.mjs` and the duration tables under `e2e/ui-system`.
-Two workers share each shard. Edited specs are never dropped: if they alone
-exceed the estimated time budget, they still run on at most four shards and the
-summary reports the exception. Every deferred spec is listed in the summary.
-Estimates target a run under fifteen minutes on idle runners, not a deadline.
+Every bounded run includes core CI: build, typecheck, Node tests and end-to-end,
+UI unit tests, UI tests and gates. Ordinary pull requests stay core-only;
+their browser and native jobs are intentionally skipped, and their summary
+lists the specs local `pnpm check:push` selects.
 
-The bounded tier uses `UI_SYSTEM_MATRIX=pr`: geometry contracts run in light;
-colour contracts and specs outside that geometry group retain both themes.
-The full tier uses `UI_SYSTEM_MATRIX=full` everywhere. An indirect regression or
-a dark geometry regression can escape a bounded run; the full run on the batch
-or labelled pull request catches it before main. Main also runs the full suite.
-`script/land-safe.mjs` refuses a bounded run even if all required checks pass;
-its newest full-tier proof must share the required checks' workflow check suite.
+A push to `development` also runs the browser specs reached by the pushed
+change, including server-facing specs when needed. It compares
+`github.event.before` with `HEAD`, fetching the before commit if checkout's
+two-commit history lacks it. Missing, all-zero or unavailable before commits
+run every browser spec with the bounded theme matrix. Native smoke stays
+full-tier only. Required check names stay the same and accept intentional
+skips, including browser jobs for docs-only pushes.
+
+Development pushes and local `check:push` keep added and edited specs, follow
+suite helpers, and resolve files read by specs to their readers. A reader alone
+can narrow a file only when the read is its sole tie to the suite. UI package
+inputs, UI external imports and global inputs retain broad coverage with their
+readers mandatory. Comments create no read edges; unread files under
+`script/shots/` select no browser specs. A mixed change to UI source and a
+document combines the map's reach with the document's readers.
+Development restores its last full-run map first, then main's, then legacy
+`ui-impact-map-<sha>` entries. The planner keeps the most specific selections
+first within four shards of at most 1,000 recorded test seconds each. Edited
+specs and the readers of changed files always survive that budget.
+If the map's environment differs (protocol, client, UI configuration or root
+setup), its recorded per-file reach still ranks specs first, then the cap fills;
+the summary names the mismatch and every
+deferred spec. Other stale map evidence also ranks a conservative capped sample.
+On a development push, an unknown or unfetchable change range, no impact map
+when one is needed, an unreadable input graph, or an unresolvable read runs
+every spec without the cap. The `UI_SYSTEM_MATRIX=pr` matrix reads geometry
+contracts in light and colour contracts in both themes. Local checks have their
+own execution budget and report anything left to full CI. Each development
+push has a commit-keyed concurrency group, preserving running and pending
+coverage of earlier ranges; dispatches have a separate group, so pushes cannot
+cancel the nightly full run.
+
+The full tier uses `UI_SYSTEM_MATRIX=full` everywhere. Regressions beyond core
+CI, reached browser specs and local checks are caught by the nightly
+development run and the full release PR before main (or a batch or labelled pull request). Main also runs
+the full suite. `script/land-safe.mjs` refuses a bounded run even if all required checks pass; its newest full-tier
+proof must share the required checks' workflow check suite.
 
 Every full browser run records the UI modules each spec loaded and ran.
-`script/ui-impact.mjs merge` folds the records into a map, and main caches it.
+`script/ui-impact.mjs merge` folds the records into a map; main and development
+cache it after clean full runs.
 A changed module selects the specs in which it ran; stylesheets and constants
 follow their importers, including data exports, bundler imports and glob loads.
 Unseen or changed specs and incomplete recordings join that selection before
@@ -97,10 +133,11 @@ the bounded cap. To inspect the uncapped impact selection with a downloaded
 The recording runner is `script/ui-impact/test.ts`.
 
 Refresh `e2e/ui-system/durations.json` from full main-run logs, and
-`durations.pr.json` from bounded PR-run logs without coverage, using
-`node script/ci-browser-shards.mjs --refresh run.log …`. The latter may take
-several runs to cover the suite. A missing PR time uses the full time scaled by
-the median PR/full ratio of shared specs; without overlap, it uses the full time.
+`durations.pr.json` from local `UI_SYSTEM_MATRIX=pr` logs without coverage, using
+`node script/ci-browser-shards.mjs --refresh run.log …`. The existing PR table
+remains in use by bounded development and local selection and may take
+several runs to refresh across the suite. A missing PR time uses the full time scaled by the median PR/full
+ratio of shared specs; without overlap, it uses the full time.
 
 Non-recording browser shards share one build of `preview.html`, `design.html`,
 `narrow-overlay.html` and the embedded Seat page,
@@ -143,21 +180,26 @@ results. Files under `script/` that no UI file imports or mentions by path do no
 select unit tests, unless they configure Vitest or belong to the setup closure;
 scripts read by the UI include their transitive script imports.
 
-`server` runs only specs that import packages outside those UI inputs, in
-one Ubuntu job, for other package changes. The selector discovers those
-imports, including local helpers; the spec list needs no manual update. `none`
-skips both browser jobs for docs-only and unrelated script changes.
-Desktop-only changes run native smoke.
+The shared local planner selects `server` for specs importing packages outside
+the UI inputs, and `none` for docs-only and unrelated script changes. Native
+inputs include package changes, the isolated rig and launch helpers. Global
+browser inputs, including shared manifests, the lockfile, UI build and root tool
+configuration, protocol and assets, retain the four-shard cap. Their summary
+names each global input, and a deterministic rotation keyed by the pushed SHA
+(falling back to the before revision) fills the cap after mandatory and reached
+specs, varying coverage across pushes; the nightly full run covers the rest.
+Changes to `.github/workflows/ci.yml` or `playwright.ui-system.config.ts` run
+every browser spec uncapped because they change how the suite runs. Unknown
+ranges, unreadable input graphs and unresolvable suite reads also run uncapped
+on development. These path rules remain in
+`script/ci-changes.mjs` for `check:push` and development pushes; its CLI
+suppresses browser integration only for ordinary bounded PRs, and native smoke
+for every bounded run. Full CI runs every browser spec and native smoke.
 
-Native smoke still runs for every package change, its isolated rig and launch
-helpers. Shared manifests, the lockfile, root tool configuration, assets, CI
-or its selection script, and unreadable changed paths select the whole browser
-suite before the bounded cap, and run native smoke. The required browser check accepts only the selected
-job's success and the other job's intentional skip (or both skips for `none`);
-failed selection, failures, cancellations and unexpected skips fail it. The
-native required check also accepts intentional skips. Pushes to `main` always
-run everything. The path rules and their reasons live in
-`script/ci-changes.mjs`.
+The required browser check accepts only the selected job's success and the
+other job's intentional skip (or both skips for `none`); failed selection,
+failures, cancellations and unexpected skips fail it. The native required
+check also accepts intentional skips.
 
 Three of its checks are worth knowing before they surprise you:
 

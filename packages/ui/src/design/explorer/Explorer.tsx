@@ -6,6 +6,7 @@ import { PropagationPage } from '../showcase/PropagationPage'
 import { Button, GroupLabel, Input, Segmented } from '..'
 import { CATALOG_ENTRIES } from '../catalog/manifest'
 import { BOARDS } from './boards'
+import { GUIDES_MODES, useGuides, useGuidesMode } from './guides'
 import { COMPOSITION_BOARDS } from './boards-compositions'
 
 /**
@@ -141,7 +142,7 @@ const SURFACES = [
     id: 'dashboard',
     title: 'Dashboard',
     about:
-      "The shipped Dashboard — what is left on each plan, what it cost and where it went — as ⌘U opens it, on the preview's four agents. It is a window of its own, so it sits in a window-sized frame here.",
+      "The shipped Dashboard — what is left on each plan, what it cost and where it went — as ⌘U opens it, on the preview's four runtimes. It is a window of its own, so it sits in a window-sized frame here.",
     render: DashboardSurface,
   },
   {
@@ -155,7 +156,7 @@ const SURFACES = [
     id: 'conversation',
     title: 'Conversation',
     about:
-      'The shipped conversation — header, transcript and composer — on the preview\'s Worktree Management session: a question, the agent\'s thinking, one command, one file change, and the answer. It does not yet show an approval, a refused or failed tool call, a plan, attachments, a compaction or a turn still running: the fixture has no session in those states, and this tab shows the fixture.',
+      'The shipped conversation — header, transcript and composer — on the preview\'s Worktree Management session: a question, the runtime\'s thinking, one command, one file change, and the answer. It does not yet show an approval, a refused or failed tool call, a plan, attachments, a compaction or a turn still running: the fixture has no session in those states, and this tab shows the fixture.',
     render: ConversationSurface,
   },
   {
@@ -183,7 +184,7 @@ const SURFACES = [
     id: 'composer-fixed-slots',
     title: 'Composer — fixed slots',
     about:
-      'The shipped composer controls in draft and live layouts, across agent shapes and at composer, 560px and 360px widths. Refused slots retain their reason; empty More and Extension slots, and the empty Context ring, stay visible where their positions depend on them.',
+      'The shipped composer controls in draft and live layouts, across runtime shapes and at composer, 560px and 360px widths. Refused slots retain their reason; empty More and Extension slots, and the empty Context ring, stay visible where their positions depend on them.',
     render: ComposerSlotsSurface,
   },
   {
@@ -197,7 +198,7 @@ const SURFACES = [
     id: 'seat-rows',
     title: 'Seats in the left bar',
     about:
-      'Three Seats of one role, one per agent, all titled by the role — at compact density the agent is a chip on the title line, drawn only where rows from more than one agent share a title.',
+      'Three Seats of one role, one per runtime, all titled by the role — at compact density the runtime is a chip on the title line, drawn only where rows from more than one runtime share a title.',
     render: SeatRowsSurface,
   },
   {
@@ -303,6 +304,8 @@ export const Explorer = () => {
   const [foundation, setFoundation] = useState<string>(FOUNDATIONS[0]?.id ?? 'current')
   const [dials, setDials] = useState<DialState>(DIAL_DEFAULTS)
   const bodyRef = useRef<HTMLDivElement>(null)
+  const [guides, setGuides] = useGuidesMode()
+  useGuides(() => (bodyRef.current ? [bodyRef.current] : []))
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0 })
@@ -437,6 +440,15 @@ export const Explorer = () => {
               value={foundation}
               onChange={setFoundation}
               options={FOUNDATIONS.map((one) => ({ value: one.id, label: one.title }))}
+            />
+          </div>
+          <div className={styles.dial}>
+            <span className={styles.switchLabel}>Guides</span>
+            <Segmented
+              label="Guides"
+              value={guides}
+              onChange={setGuides}
+              options={GUIDES_MODES.map((one) => ({ value: one, label: one }))}
             />
           </div>
           <div className={styles.dial}>

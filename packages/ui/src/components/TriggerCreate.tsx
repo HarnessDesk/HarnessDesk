@@ -238,7 +238,7 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
 
               {source === 'pull-request' && definition.on.kind === 'pull-request' && (
                 <section aria-label="Events">
-                  <SectionHead name="Events" />
+                  <SectionHead level="label" name="Events" />
                   <FormStack spacing="section">
                     <Rows>
                       {(['opened', 'pushed'] as const).map((event) => (
@@ -272,7 +272,7 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
 
               {source === 'issue' && definition.on.kind === 'issue' && (
                 <section aria-label="Events">
-                  <SectionHead name="Events" />
+                  <SectionHead level="label" name="Events" />
                   <Rows>
                     {(['labelled', 'closed', 'commented'] as const).map((event) => (
                       <Row
@@ -316,7 +316,7 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
               )}
 
               <section aria-label="Grouping">
-                <SectionHead name="Goals" />
+                <SectionHead level="label" name="Goals" />
                 <Note>{triggerGroupingWords(definition.goal)}</Note>
                 <Rows>
                   {fields.map((field) => (
@@ -334,7 +334,7 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
                     />
                   ))}
                 </Rows>
-                <SectionHead name="What makes a firing new" />
+                <SectionHead level="label" name="What makes a firing new" />
                 <Rows>
                   {fields.map((field) => (
                     <Row
@@ -378,7 +378,7 @@ export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved
               </Field>
 
               <section aria-label="Budget">
-                <SectionHead name="Budget" />
+                <SectionHead level="label" name="Budget" />
                 <Note>{triggerBudgetWords(budget)}</Note>
                 <FormStack>
                   <Field label="USD">

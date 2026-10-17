@@ -180,7 +180,7 @@ it('flags a stale saved model in the control and offers one click to clear its o
   const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
   expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
   click(trigger)
-  const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((node) => node.textContent?.includes('Use the agent’s current value'))!
+  const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((node) => node.textContent?.includes('Use the runtime’s current value'))!
   expect(row.textContent).toContain('Retired model')
   expect(row.textContent).toContain('This value is no longer offered.')
   click(row)
@@ -195,7 +195,7 @@ it('reports a recommendation refusal when clearing a stale composer pick', async
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, clearNewSessionDefault, resultNotice } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><ModelControl /></StoreProvider>))
   click(container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!)
-  const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(node => node.textContent?.includes('Use the agent’s current value'))!
+  const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(node => node.textContent?.includes('Use the runtime’s current value'))!
   await act(async () => row.click())
   expect(resultNotice).toHaveBeenCalledWith('warning', 'Recommendation unavailable.')
 })
@@ -215,7 +215,7 @@ it.each(['stale default', 'unavailable current value'] as const)('keeps a single
   click(trigger)
   if (state === 'stale default') {
     expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
-    const clear = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Use the agent’s current value'))!
+    const clear = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Use the runtime’s current value'))!
     expect(clear.textContent).toContain('Retired mode')
     click(clear)
     expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'mode')
@@ -237,7 +237,7 @@ it.each([['model', ModelControl], ['mode', ModeControl], ['_permissions', Permis
   expect(trigger).toBeTruthy()
   expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
   click(trigger)
-  const clear = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Use the agent’s current value'))!
+  const clear = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Use the runtime’s current value'))!
   expect(clear.textContent).toContain('Original value')
   click(clear)
   expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'removed')

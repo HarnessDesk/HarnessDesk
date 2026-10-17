@@ -69,7 +69,7 @@ test('FIX9 command card waits for approval and names its folder', async ({ page 
     await expect(cost.getByText('0 of 30 days with usage', { exact: true })).toHaveCount(1)
     await expect(cost.locator('[data-slot="chart-foot"]')).not.toContainText('days with usage')
     await expect(cost).not.toContainText('unpriced')
-    if (view === 'overview') await expect(page.getByRole('button', { name: /^Value/ })).not.toContainText('unpriced')
+    if (view === 'overview') await expect(page.getByRole('button', { name: /^Usage cost/ })).not.toContainText('unpriced')
 
 
   })
@@ -141,14 +141,14 @@ test('FIX9 confirmed sign out uses one phrase on the list and detail', async ({ 
 test('FIX9 absent plan reports are explained once', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=overview&frame-empty-usage=1&frame-fix9-silent=1')
   const left = page.getByRole('region', { name: 'What is left', exact: true })
-  await expect(left).toContainText('No agent here reports plan usage.')
+  await expect(left).toContainText('No runtime here reports plan usage.')
   await expect(left).not.toContainText('agents don’t report usage')
 })
 
 test('FIX9 spend grouping uses sentence case', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=spend')
   const options = page.getByRole('combobox', { name: 'Group spend by', exact: true })
-  await expect(options).toContainText('By agent')
+  await expect(options).toContainText('By runtime')
   await expect(options).toContainText('By model')
   await expect(options).toContainText('By project')
 })

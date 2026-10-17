@@ -35,13 +35,13 @@ const ledger = (provenance: SpendProvenance): LedgerReport =>
     scannedAt: null,
   }) as LedgerReport
 
-describe('OverviewStrip Value cell', () => {
+describe('OverviewStrip usage cost cell', () => {
   it.each([
     ['listPrice', 'list-price equivalent'],
     ['vendorMetered', 'plan metered'],
     ['mixed', 'metered and list-price'],
     ['unknown', 'spend unavailable'],
-  ] as const)('labels %s as Value and keeps its pricing detail in the title', (provenance, phrase) => {
+  ] as const)('names the %s figure and keeps its pricing detail in the title', (provenance, phrase) => {
     act(() =>
       root.render(
         <OverviewStrip
@@ -58,8 +58,9 @@ describe('OverviewStrip Value cell', () => {
     )
 
     const valueButton = host.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
-    expect(valueButton?.textContent?.startsWith('Value')).toBe(true)
-    expect(valueButton?.getAttribute('title')).toBe(`Value (${phrase}). Switch the chart below to cost per day`)
+    expect(valueButton?.textContent?.startsWith('Usage cost')).toBe(true)
+    expect(valueButton?.textContent).not.toContain('Selected')
+    expect(valueButton?.getAttribute('title')).toBe(`Usage cost (${phrase}). Switch the chart below to cost per day`)
     if (provenance === 'unknown') expect(valueButton?.textContent).toContain('—')
   })
 })
@@ -82,4 +83,14 @@ it('keeps the Turns tile for partial coverage even when the total is unknown', (
     rows: [{ key: 'alpha', label: 'Alpha', runtime: alpha, cost: 12, tokens: 100, hasUnpriced: false }] }
   act(() => root.render(<OverviewStrip reports={[]} ledger={report} wideLedger={null} range={30} now={0} metric="value" onMetricChange={() => {}} onOpenPlan={() => {}} />))
   expect(host.querySelector('button[title^="Turns"]')?.textContent).toContain('—')
+})
+
+it('counts runtimes in both partial-coverage captions', () => {
+  const alpha = runtimeId('alpha'), beta = runtimeId('beta')
+  const report = { ...ledger('listPrice'), coverage: { ...ledger('listPrice').coverage, turnsKnownFor: [alpha] }, rows: [
+    { key: 'alpha', label: 'Alpha', runtime: alpha, cost: 12, tokens: 100, hasUnpriced: false },
+    { key: 'beta', label: 'Beta', runtime: beta, cost: null, tokens: null, hasUnpriced: true },
+  ] }
+  act(() => root.render(<OverviewStrip reports={[]} ledger={report} wideLedger={null} range={30} now={0} metric="value" onMetricChange={() => {}} onOpenPlan={() => {}} />))
+  for (const label of ['Turns', 'Tokens']) expect(host.querySelector(`button[title^="${label}"]`)?.textContent).toContain('known for 1 of 2 runtimes')
 })

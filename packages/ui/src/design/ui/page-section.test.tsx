@@ -256,3 +256,11 @@ it('a panel Checklist requests the shared edge without changing default lists', 
   expect(lists[0]?.getAttribute('data-surface')).toBe('panel')
   expect(lists[1]?.getAttribute('data-surface')).toBe('default')
 })
+
+it('page bands use the section role while form sections retain group labels', () => {
+  const band = draw(<Section title="In storefront" level="heading"><p>Agents</p></Section>)
+  expect(band.querySelector('h2[data-role="section"]')?.textContent).toBe('In storefront')
+  const form = draw(<Section title="Approvals" level="label"><p>Controls</p></Section>)
+  expect(form.querySelector('h2[data-slot="group-label"]')?.textContent).toBe('Approvals')
+  expect(form.querySelector('[data-role="section"]')).toBeNull()
+})

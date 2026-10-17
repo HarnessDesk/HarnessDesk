@@ -1,0 +1,25 @@
+name: Nightly development CI
+
+on:
+  schedule:
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Start the full development run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch CI if development exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          exists=$(gh api "repos/$GH_REPO/git/matching-refs/heads/development" --jq 'any(.[]; .ref == "refs/heads/development")')
+          if [ "$exists" = true ]; then
+            gh workflow run ci.yml --ref development
+          fi

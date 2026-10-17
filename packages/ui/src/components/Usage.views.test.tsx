@@ -29,14 +29,14 @@ installTopBarTestLayout()
 const low: RuntimeInfo = {
   id: runtimeId('low-agent'),
   name: 'Low Agent',
-  capabilities: { ...NO_CAPABILITIES, account: true },
+  capabilities: { ...NO_CAPABILITIES, account: true, metered: true },
   presentation: { name: 'Low Agent' },
 } as unknown as RuntimeInfo
 
 const good: RuntimeInfo = {
   id: runtimeId('good-agent'),
   name: 'Good Agent',
-  capabilities: { ...NO_CAPABILITIES, account: true },
+  capabilities: { ...NO_CAPABILITIES, account: true, metered: true },
   presentation: { name: 'Good Agent' },
 } as unknown as RuntimeInfo
 
@@ -101,6 +101,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  vi.restoreAllMocks()
 })
 
 /** A harness that owns `view`/`scope` the way `App.tsx` does — `Usage` itself is fully controlled. */
@@ -118,10 +119,10 @@ const Harness = ({ initial = 'overview' as DashboardView }: { initial?: Dashboar
   )
 }
 
-const render = async (initial: DashboardView = 'overview'): Promise<void> => {
+const render = async (initial: DashboardView = 'overview', store = makeStore()): Promise<void> => {
   await act(async () =>
     root.render(
-      <StoreProvider store={makeStore()}>
+      <StoreProvider store={store}>
         <Harness initial={initial} />
       </StoreProvider>,
     ),
@@ -135,6 +136,29 @@ const railButton = (label: string): HTMLButtonElement => {
 }
 
 describe('the Dashboard first body row lists views', () => {
+  it.each([
+    [-3 * 3_600_000, 'From a cached read'],
+    [60_000, 'Read 2m ago'],
+  ])('qualifies a reading from %s ms after this desk opened', async (offset, expected) => {
+    const startedAt = performance.timeOrigin
+    vi.spyOn(Date, 'now').mockReturnValue(startedAt + 3 * 60_000)
+    const store = makeStore()
+    Object.assign(store.getSnapshot(), { usage: store.getSnapshot().usage.map(report => ({ ...report, fetchedAt: startedAt + offset })) })
+    await render('overview', store)
+    expect(document.body.textContent).toContain(expected)
+    if (offset < 0) expect(document.body.textContent).not.toContain('Read 3h ago')
+  })
+
+  it.each([true, false])('includes a healthy account with limits (native metering: %s)', async metered => {
+    const store = makeStore()
+    Object.assign(store.getSnapshot(), { runtimes: [low, { ...good, capabilities: { ...good.capabilities, metered } }] })
+    await render('overview', store)
+    const region = host.querySelector('section[aria-label="What is left"]')!
+    expect(region.textContent).toContain('Low Agent')
+    expect(region.textContent).toContain('Good Agent')
+    expect(region.querySelectorAll('article')).toHaveLength(2)
+  })
+
   it('switches the page shown when a different row is clicked', async () => {
     await render('overview')
     expect(document.body.textContent).toContain('What is left')
@@ -179,6 +203,20 @@ describe('the header’s account scope', () => {
 
   const scopeTrigger = (): HTMLButtonElement =>
     document.querySelector<HTMLButtonElement>('[title="Scope the dashboard to one account"]')!
+
+  it('takes the read note from the selected account rather than an older account outside its scope', async () => {
+    const startedAt = performance.timeOrigin
+    vi.spyOn(Date, 'now').mockReturnValue(startedAt + 3 * 60_000)
+    const store = makeStore()
+    Object.assign(store.getSnapshot(), { usage: store.getSnapshot().usage.map(report => ({ ...report,
+      fetchedAt: report.runtime === low.id ? startedAt - 3_600_000 : startedAt + 60_000,
+    })) })
+    await render('overview', store)
+    expect(document.body.textContent).toContain('From a cached read')
+    await chooseAccount('Good Agent')
+    expect(document.body.textContent).toContain('Read 2m ago')
+    expect(document.body.textContent).not.toContain('From a cached read')
+  })
 
   it('scopes whichever view is open, not only the one it was chosen from', async () => {
     await render('spend')
@@ -251,16 +289,16 @@ describe('the heatmap band', () => {
 
     const byAgent = document.querySelector<HTMLSelectElement>('select[aria-label="Show by"]')!
     await act(async () => { byAgent.value = 'agent'; byAgent.dispatchEvent(new Event('change', {bubbles:true})) })
-    expect(isPressed('By agent')).toBe(true)
+    expect(isPressed('By runtime')).toBe(true)
 
     const callsAfterToggle = ledgerMock.mock.calls.length
     await act(async () => railButton('Activity').click())
     expect(document.body.textContent).toContain('When it ran')
     // Still on "By agent" — the toggle is shared state, not reset by the switch.
-    expect(isPressed('By agent')).toBe(true)
+    expect(isPressed('By runtime')).toBe(true)
 
     await act(async () => railButton('Overview').click())
-    expect(isPressed('By agent')).toBe(true)
+    expect(isPressed('By runtime')).toBe(true)
     expect(ledgerMock.mock.calls.length).toBe(callsAfterToggle)
   })
 })

@@ -2,7 +2,7 @@ import { slotForCategory } from '../lib/composer-slots'
 import { useNewSessionDefaults } from '../lib/use-new-session-defaults'
 import { CheckIcon } from './Icons'
 import { DestinationBar, useDestinationActive } from '../panels/destination-page'
-import { PageExplanation, PageControls, PageOptions, MenuItem, Toolbar } from '../design'
+import { PageExplanation, PageControls, PageOptions, MenuItem, MenuNote, Toolbar } from '../design'
 import { AgentHistory } from './History'
 import { RuntimeResources } from './RuntimeResources'
 import { RuntimeFace } from './RuntimeFace'
@@ -217,7 +217,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
   const view = describeLimits(limits)
   return (
     <>
-      <SectionHead name="Usage" />
+      <SectionHead level="label" name="Usage" />
       {view?.blocked && (
         <Text role="muted" as="p" tone="danger" >
           {view.blocked.title} — {view.blocked.detail}
@@ -614,7 +614,7 @@ const AgentAccounts = ({
     <>
       {/* The ways to add another stand in the section's head, where a card's
           own actions stand on a page, rather than in a bar under the list. */}
-      <SectionHead
+      <SectionHead level="label"
         name="Accounts"
         action={
           info.slot?.canAdd || (rows.length > 0 && info.capabilities.account && canSignIn) ? (
@@ -851,8 +851,8 @@ const AgentAccounts = ({
           }}
         >
           {removing.slot?.home
-            ? `It may be signed in already. Its sign-in at ${shortPath(removing.slot.home, snapshot.home)} is forgotten; conversations stay with the agent.`
-            : 'It may be signed in already. Its sign-in is forgotten; conversations stay with the agent.'}
+            ? `It may be signed in already. Its sign-in at ${shortPath(removing.slot.home, snapshot.home)} is forgotten; conversations stay with the runtime.`
+            : 'It may be signed in already. Its sign-in is forgotten; conversations stay with the runtime.'}
         </ConfirmDialog>
       )}
     </>
@@ -1080,6 +1080,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
   const [templates, setTemplates] = useState<readonly AgentTemplateInfo[] | null>(null)
   const [registry, setRegistry] = useState<AcpRegistryCatalogInfo | null>(null)
   const [registryQuery, setRegistryQuery] = useState('')
+  const [browsing, setBrowsing] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [customOpen, setCustomOpen] = useState(false)
 
@@ -1139,7 +1140,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                yet, so it shows only the runtime's face. */
             kind="record"
             face={
-              <IconTile shape="face" tint={runtimeTint(template.key as RuntimeId, {}, {})}>
+              <IconTile shape="face" tint={runtimeTint({ id: template.key as RuntimeId, presentation: { name: template.name, ...(template.brand ? { brand: template.brand } : {}) } })}>
                 <RuntimeMark
                   runtime={{
                     id: template.key,
@@ -1208,10 +1209,13 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
         {templates === null && <Row title="Looking at this machine…" />}
       </Rows>
 
-      {/* The protocol's own list. Every entry is shown — the blocked ones say
-          why in the line a description would use, and the search exists
-          because forty rows is where scanning stops working. */}
-      <SectionHead name="From the ACP registry" />
+      <Rows>
+        <RowButton title="Browse more…" onClick={() => setBrowsing(!browsing)}
+          aria-expanded={browsing} />
+      </Rows>
+      {browsing && <>
+      <SectionHead level="label" name="From the ACP registry" />
+      <MenuNote>Third-party entries from the ACP registry. HarnessDesk has not reviewed them.</MenuNote>
       {(registry?.agents.length ?? 0) > 8 && (
         <PageControls search={{label:"Search the ACP registry",placeholder:"Search the registry",value:registryQuery,change:setRegistryQuery}}/>
       )}
@@ -1222,7 +1226,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
       {registryListed.length > 0 && (
         <Rows>
           {registryListed.map(agent => <Row key={agent.id} kind="record"
-            mark={<IconTile shape="face" tint={runtimeTint(agent.id as RuntimeId,{}, {})}><RuntimeMark runtime={{id:agent.id,presentation:{name:agent.name}}} size={16}/></IconTile>}
+            mark={<IconTile shape="face" tint={runtimeTint({ id: agent.id as RuntimeId, presentation: { name: agent.name } })}><RuntimeMark runtime={{id:agent.id,presentation:{name:agent.name}}} size={16}/></IconTile>}
             title={agent.name} desc={registrySentence(agent)}
             titleChip={agent.run==='binary' && agent.integrity==='none' && !agent.installed
               ? <Chip tone="neutral" size="sm" title="The registry publishes no checksum for this build, so the download cannot be verified.">Unverified</Chip>:undefined}
@@ -1248,11 +1252,13 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
         </Rows>
       )}
 
-      <SectionHead name="Something else" />
+      </>}
+
+      <SectionHead level="label" name="Something else" />
       <Rows>
         <Row
           title="A command of your own"
-          desc="Any agent that speaks the protocol: name it and say how to start it."
+          desc="Any runtime that speaks the protocol: name it and say how to start it."
           control={
             <Button variant="secondary" size="sm" onClick={() => setCustomOpen(true)}>
               <PlusIcon size={13} />
@@ -1354,7 +1360,7 @@ const AccountDetail = ({
           />
           <Row
             title="Ring"
-            desc="Tells this account apart from another one of the same agent."
+            desc="Tells this account apart from another one of the same runtime."
             control={
               <RingPicker
                 info={info}
@@ -1464,7 +1470,7 @@ const AccountDetail = ({
           }}
         >
           {info.slot?.removable
-            ? 'Its sign-in is forgotten. Conversations stay with the agent.'
+            ? 'Its sign-in is forgotten. Conversations stay with the runtime.'
             : `${info.presentation.name} forgets this sign-in. Signing in again is the only way back.`}
         </ConfirmDialog>
       )}
@@ -1576,7 +1582,7 @@ export const NewSessionDefaults = ({
   const staleListed = only ? stale.filter((one) => only({ id: one.id, label: one.label, category: one.category } as ConfigOption)) : stale
   return (
     <>
-      <SectionHead
+      <SectionHead level="label"
         name={
           mark ? (
             <Text as="span" role="row">
@@ -1593,7 +1599,7 @@ export const NewSessionDefaults = ({
         <Row key={one.id} title={<>{`Saved ${one.label}: ${one.valueLabel}`} <Chip tone="warning">Stale</Chip></>}
           desc={one.reason} data-composer-option-slot={slotForCategory(one.category)}
           control={<Button variant="secondary" size="sm" onClick={() => clear(one.id)}>
-            Use the agent’s current value
+            Use the runtime’s current value
           </Button>} />
       ))}</Rows>}
       {listed.length === 0 ? !error && (
@@ -1701,7 +1707,7 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
           : 'No copy is installed; install one and it is picked up on the next check.'
   return (
     <>
-      <SectionHead name="Install" />
+      <SectionHead level="label" name="Install" />
       <Rows>
         <Row
           title={installSummary(install)}
@@ -1888,7 +1894,7 @@ const AgentDetail = ({
 
       {health?.state === 'unavailable' && (
         <>
-          <SectionHead name="Why it will not start" />
+          <SectionHead level="label" name="Why it will not start" />
           <Rows>
             <HealthBlock health={health} />
           </Rows>
@@ -1909,7 +1915,7 @@ const AgentDetail = ({
 
       {update && (
         <>
-          <SectionHead name="Update" />
+          <SectionHead level="label" name="Update" />
           <Rows>
             <Row
               title={`${info.update?.version} available`}
@@ -1938,18 +1944,18 @@ const AgentDetail = ({
 
       {options.length > 0 && (
         <>
-          <SectionHead name="Settings" />
+          <SectionHead level="label" name="Settings" />
           <OptionRows options={options} onSet={setOption} />
         </>
       )}
 
       {info.origin === 'registry' && (
         <>
-          <SectionHead name="Registration" />
+          <SectionHead level="label" name="Registration" />
           <Rows>
             <Row
               title="Remove from HarnessDesk"
-              desc="Its account, configuration and history stay where the agent keeps them."
+              desc="Its account, configuration and history stay where the runtime keeps them."
               control={
                 <Button variant="secondary" size="sm" onClick={() => setConfirmingRemove(true)}>
                   Remove…
@@ -1962,7 +1968,7 @@ const AgentDetail = ({
       {destinationActive && confirmingRemove && (
         <ConfirmDialog
           title={`Remove ${info.presentation.name}?`}
-          confirmLabel="Remove agent"
+          confirmLabel="Remove runtime"
           tone="destructive"
           onCancel={() => setConfirmingRemove(false)}
           onConfirm={() => {
@@ -1973,7 +1979,7 @@ const AgentDetail = ({
           }}
         >
           It leaves the picker. A build HarnessDesk downloaded for it is deleted; everything the
-          agent keeps itself is untouched.
+          runtime keeps itself is untouched.
         </ConfirmDialog>
       )}
     </>
@@ -2086,7 +2092,7 @@ export const RuntimesSection = ({
           <PlusIcon size={13} />Add a runtime
         </Button>
       </Toolbar>
-<PageExplanation>What your Agents run on: the agent programs HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
+<PageExplanation>What your Agents run on: the runtimes HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
 
       {/* Two agents fit on a screen and need no help being found; the filters
           arrive with the third, which is where scrolling starts. */}
@@ -2127,7 +2133,7 @@ export const RuntimesSection = ({
           /* No accessible name of its own: the head names the group, and a
              label beside it was announced twice. */
           <div key={section.name} data-group={section.name}>
-            <SectionHead
+            <SectionHead level="label"
               name={withCount(section.name, section.agents.length)}
             />
             <Rows>

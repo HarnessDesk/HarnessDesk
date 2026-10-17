@@ -90,7 +90,7 @@ describe('registryRunSentence', () => {
       integrity: 'none',
     })
     expect(registryRunSentence(unverified)).toBe(
-      "Adding it downloads the agent's own build for this machine into HarnessDesk's data folder; the registry publishes no checksum for this build, so the download cannot be verified. Removing the agent deletes the download too.",
+      "Adding it downloads the runtime's own build for this machine into HarnessDesk's data folder; the registry publishes no checksum for this build, so the download cannot be verified. Removing the runtime deletes the download too.",
     )
   })
 
@@ -102,7 +102,7 @@ describe('registryRunSentence', () => {
       integrity: 'sha256',
     })
     expect(registryRunSentence(verified)).toBe(
-      "Adding it downloads the agent's own build for this machine into HarnessDesk's data folder; removing the agent deletes the download too.",
+      "Adding it downloads the runtime's own build for this machine into HarnessDesk's data folder; removing the runtime deletes the download too.",
     )
   })
 })

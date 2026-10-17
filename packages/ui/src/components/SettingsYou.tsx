@@ -129,7 +129,7 @@ export const ProfileSection = () => {
 
   return (
     <>
-      <Rows><Row mark={<Face avatar={profile.avatar} size={44} />} title={profileName(live)} desc={"Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."} control={isDefaultProfile(live) ? undefined : (
+      <Rows><Row face={<Face avatar={profile.avatar} />} title={profileName(live)} desc={"Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."} control={isDefaultProfile(live) ? undefined : (
             <Button variant="outline" onClick={reset}>
               Reset to default
             </Button>
@@ -173,7 +173,7 @@ export const ProfileSection = () => {
         />
       </Rows>
 
-      <SectionHead name="Picture" />
+      <SectionHead level="label" name="Picture" />
       <FacePicker
         value={profile.avatar}
         describedBy={keeps ? noteId : undefined}
@@ -248,16 +248,16 @@ export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
   <>
     <PageExplanation>Defaults for new conversations, and what this Mac’s HarnessDesk keeps.</PageExplanation>
 
-    <SectionHead name="Your data" />
+    <SectionHead level="label" name="Your data" />
     <Rows>
       <Row
         title="HarnessDesk’s data stays on this Mac"
-        desc="HarnessDesk keeps its preferences, conversations and work records in ~/.harnessdesk. Agents connect to their own services."
+        desc="HarnessDesk keeps its preferences, conversations and work records in ~/.harnessdesk. Runtimes connect to their own services."
         control={<RowValue>Local</RowValue>}
       />
       <Row
-        title="Agent sign-ins belong to the agents"
-        desc="Each credential stays with its own agent; HarnessDesk never keeps a copy."
+        title="Runtime sign-ins belong to the runtimes"
+        desc="Each credential stays with its own runtime; HarnessDesk never keeps a copy."
       />
     </Rows>
 
@@ -337,7 +337,7 @@ export const AppearanceSection = () => {
     <>
       <PageExplanation>How HarnessDesk looks. Every change shows here as you make it.</PageExplanation>
 
-      <SectionHead name="Theme" />
+      <SectionHead level="label" name="Theme" />
       <ThemeCards />
       <Rows>
         <Row
@@ -389,7 +389,7 @@ export const AppearanceSection = () => {
         />
       </Rows>
 
-      <SectionHead name="Code" />
+      <SectionHead level="label" name="Code" />
       <EditorSample />
       <Rows>
         <Row
@@ -450,7 +450,7 @@ export const AppearanceSection = () => {
         />
       </Rows>
 
-      <SectionHead name="Session list" />
+      <SectionHead level="label" name="Session list" />
       <Rows>
         <Row
           title="Density"
@@ -522,7 +522,7 @@ export const NotificationsSection = () => {
 
       {/* The map before the switches: what each kind of message is for, and
           where that puts it. Read once, it explains every control below. */}
-      <SectionHead name="How messages reach you" />
+      <SectionHead level="label" name="How messages reach you" />
       <Rows>
         <Row title="Something stops a turn" desc="Shown on the composer of the conversation it stops, and nowhere else." />
         <Row title="Something to do later" desc="Waits at the foot of the sidebar, one at a time, until you act or dismiss it." />
@@ -538,7 +538,7 @@ export const NotificationsSection = () => {
         if (kinds.length === 0) return null
         return (
           <section key={use.use}>
-            <SectionHead name={use.title} />
+            <SectionHead level="label" name={use.title} />
             <Rows>
               {kinds.map((entry) => {
                 const record = policy.records[entry.kind]
@@ -588,7 +588,7 @@ export const NotificationsSection = () => {
         )
       })}
 
-      <SectionHead
+      <SectionHead level="label"
         name="Inbox"
         action={
           snapshot.inbox.length > 0 ? (
@@ -619,7 +619,7 @@ export const NotificationsSection = () => {
         />
       </Rows>
 
-      <SectionHead name="On your Mac" />
+      <SectionHead level="label" name="On your Mac" />
       <Rows>
         <Row
           title="System notifications"
@@ -692,7 +692,7 @@ export const ShortcutsSection = () => (
       if (rows.length === 0) return null
       return (
         <div key={group}>
-          <SectionHead name={group} />
+          <SectionHead level="label" name={group} />
           <Rows>
             {rows.map((shortcut) => (
               groupTiles && shortcut === first ? (
@@ -706,7 +706,7 @@ export const ShortcutsSection = () => (
       )
     })}
 
-    <SectionHead name="In the composer" />
+    <SectionHead level="label" name="In the composer" />
     <Rows>
       <Row title="Send" control={<Keycap>↵</Keycap>} />
       <Row title="New line" control={<ShortcutKeys keys={['⇧','↵']}/>} />
