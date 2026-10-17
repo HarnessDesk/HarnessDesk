@@ -1,5 +1,6 @@
 import { CLIENT_METHODS, type ClientMethodName } from './client-surface.js'
 import type { CeilingLevel } from './evidence.js'
+import { parseSeat, seatSpec } from './flow-seat.js'
 import { isBoolean, isObject, literalUnion, ValidationError, type Validator } from './validate.js'
 
 /** Versioned plain data only. Provider credentials and transport descriptors are private to the child bootstrap. */
@@ -111,8 +112,9 @@ export type LeadCard = (LeadCardBase & { readonly contractDigest: string } & (
       readonly personCardId: string | null; readonly summary: string; readonly assertions: readonly LeadAssertionResult[] }
   | { readonly type: 'result'; readonly outcome: 'reviewed' | 'accepted' | 'declined'; readonly summary: string;
       readonly assertions: readonly LeadAssertionResult[]; readonly budget: LeadBudgetState }
-  | { readonly type: 'stopped'; readonly reason: LeadStopReason; readonly summary: string; readonly budget: LeadBudgetState }
-)) | (LeadCardBase & {
+)) | (LeadCardBase & { readonly type: 'stopped'; readonly contractDigest: string | null;
+  readonly reason: LeadStopReason; readonly summary: string; readonly budget: LeadBudgetState }
+) | (LeadCardBase & {
   readonly type: 'permission-change'
   /** Null before there is an approved contract. The immutable card ID/revision binds the policy pair. */
   readonly contractDigest: string | null
@@ -188,10 +190,15 @@ const integer = (min = 0, max = Number.MAX_SAFE_INTEGER): Validator<number> => (
 const revision = integer()
 const micros = integer(0, LEAD_LIMITS.maxUsdMicros)
 const version: Validator<1> = (value, path = '') => value === LEAD_VERSION ? LEAD_VERSION : fail(path, 'unsupported Lead version')
+// Supported runtimes provide this ES2024 method; the shared compile-time library is ES2023.
+const wellFormed = (value: string) => (value as string & { isWellFormed(): boolean }).isWellFormed()
 const boundedText = (max: number, allowEmpty: boolean, controls: RegExp): Validator<string> => (value, path = '') =>
-  typeof value === 'string' && (allowEmpty || value.trim().length > 0) && value.length <= max && !controls.test(value)
+  typeof value === 'string' && wellFormed(value) && (allowEmpty || value.trim().length > 0) && value.length <= max && !controls.test(value)
     ? value : fail(path, `expected ${allowEmpty ? '' : 'nonempty '}string of at most ${max} characters without controls`)
 const text = (max: number) => boundedText(max, false, /[\u0000-\u001f\u007f-\u009f]/)
+/** Catalogue IDs are filenames, model choices are agent-owned, and repository identities
+ * can contain punctuation. Current Flow revisions are hex hashes, but Lead keeps them opaque. */
+const opaque = text(LEAD_LIMITS.idChars)
 const id: Validator<string> = (value, path = '') => {
   const parsed = text(LEAD_LIMITS.idChars)(value, path)
   return /^[A-Za-z0-9._:/@-]+$/.test(parsed) ? parsed : fail(path, 'invalid Lead identifier')
@@ -261,10 +268,17 @@ const projectPath: Validator<string> = (value, path = '') => {
     return fail(path, 'expected absolute project path without parent traversal')
   return parsed
 }
-const project: Validator<LeadProject> = object({ id, path: projectPath })
-const assignment: Validator<LeadAssignment> = object({ role: id, agent: id, seat: id, ceiling: literalUnion('read', 'edit', 'publish', 'merge') })
+const project: Validator<LeadProject> = object({ id: opaque, path: projectPath })
+const seat: Validator<string> = (value, path = '') => {
+  const spec = opaque(value, path)
+  const parsed = parseSeat(spec)
+  // Canonical spelling avoids silently discarding clauses from the approved assignment.
+  if (typeof parsed === 'string' || seatSpec(parsed) !== spec) return fail(path, 'expected canonical Flow seat specification')
+  return spec
+}
+const assignment: Validator<LeadAssignment> = object({ role: id, agent: id, seat, ceiling: literalUnion('read', 'edit', 'publish', 'merge') })
 const step: Validator<LeadPlanStep> = object({
-  id, title: prose, flow: id, sourceRevision: id, variables, attendance: literalUnion('attended', 'unattended'),
+  id, title: prose, flow: opaque, sourceRevision: opaque, variables, attendance: literalUnion('attended', 'unattended'),
   assignments: list(assignment, LEAD_LIMITS.assignments, 1, assignment => assignment.role),
 })
 const assertion: Validator<LeadAssertion> = object({ id, kind: literalUnion('check', 'review', 'blocking-findings', 'diff'), description: prose })
@@ -272,7 +286,7 @@ export const parseLeadAcceptanceContract: Validator<LeadAcceptanceContract> = ob
   version, revision, digest, goal: prose, project, policyRevision: revision,
   steps: list(step, LEAD_LIMITS.steps, 1, step => step.id), assertions: list(assertion, LEAD_LIMITS.assertions, 1, assertion => assertion.id), caps: parseLeadCaps,
 })
-const evidence: Validator<LeadEvidenceReference> = object({ kind: literalUnion('check', 'review', 'finding', 'diff', 'spend'), id, revision: id })
+const evidence: Validator<LeadEvidenceReference> = object({ kind: literalUnion('check', 'review', 'finding', 'diff', 'spend'), id, revision: opaque })
 export const parseLeadAssertionResult: Validator<LeadAssertionResult> = object({
   assertionId: id, status: literalUnion('pending', 'passed', 'failed', 'unknown'), revision,
   contractRevision: revision, evidence: list(evidence, LEAD_LIMITS.evidence), reason: nullable(prose),
@@ -280,7 +294,7 @@ export const parseLeadAssertionResult: Validator<LeadAssertionResult> = object({
 const method: Validator<ClientMethodName> = (value, path = '') =>
   typeof value === 'string' && Object.hasOwn(CLIENT_METHODS, value) ? value as ClientMethodName : fail(path, 'method outside client surface')
 const rule: Validator<LeadPermissionRule> = object({
-  id, effect: literalUnion('allow', 'ask', 'deny'), method, action: nullable(id), project: nullable(id),
+  id, effect: literalUnion('allow', 'ask', 'deny'), method, action: nullable(id), project: nullable(opaque),
 })
 export const parseLeadPermissionPolicy: Validator<LeadPermissionPolicy> = object({
   version, revision, mode: literalUnion('plan', 'default', 'manage'), rules: list(rule, LEAD_LIMITS.rules, 0, rule => rule.id),
@@ -314,7 +328,7 @@ const card = tag<LeadCard>({
     personCardId: nullable(id), summary: content, assertions: list(parseLeadAssertionResult, LEAD_LIMITS.assertions, 0, result => result.assertionId) }),
   result: object<CardOf<'result'>>({ ...cardBase, type: literalUnion('result'), outcome: literalUnion('reviewed', 'accepted', 'declined'),
     summary: content, assertions: list(parseLeadAssertionResult, LEAD_LIMITS.assertions, 0, result => result.assertionId), budget: parseLeadBudgetState }),
-  stopped: object<CardOf<'stopped'>>({ ...cardBase, type: literalUnion('stopped'), reason: stopReason, summary: content, budget: parseLeadBudgetState }),
+  stopped: object<CardOf<'stopped'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('stopped'), reason: stopReason, summary: content, budget: parseLeadBudgetState }),
 })
 export const parseLeadCard: Validator<LeadCard> = (value, path = '') => {
   const parsed = card(value, path)
@@ -389,7 +403,7 @@ export const migrateLeadThread: Validator<LeadThread> = (value, path = '') => {
   }
 }
 export const parseLeadSettingsProjection: Validator<LeadSettingsProjection> = object({
-  version, model: id, key: object({ configured: isBoolean, protection: literalUnion('encrypted', 'unavailable') }),
+  version, model: opaque, key: object({ configured: isBoolean, protection: literalUnion('encrypted', 'unavailable') }),
   policy: parseLeadPermissionPolicy, caps: parseLeadCaps,
 })
 export const parseLeadHostProjection: Validator<LeadHostProjection> = object({
@@ -397,7 +411,7 @@ export const parseLeadHostProjection: Validator<LeadHostProjection> = object({
 })
 type ControlOf<T extends LeadChildControl['type']> = Extract<LeadChildControl, { type: T }>
 export const parseLeadChildControl: Validator<LeadChildControl> = ipc(tag<LeadChildControl>({
-  initialize: object<ControlOf<'initialize'>>({ version, type: literalUnion('initialize'), thread: parseLeadThread, model: id, policy: parseLeadPermissionPolicy, budget: parseLeadBudgetState }),
+  initialize: object<ControlOf<'initialize'>>({ version, type: literalUnion('initialize'), thread: parseLeadThread, model: opaque, policy: parseLeadPermissionPolicy, budget: parseLeadBudgetState }),
   observe: object<ControlOf<'observe'>>({ version, type: literalUnion('observe'), projection: parseLeadHostProjection }),
   cancel: object<ControlOf<'cancel'>>({ version, type: literalUnion('cancel'), reason: stopReason }),
 }))

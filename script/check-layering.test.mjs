@@ -142,6 +142,47 @@ test('Lead core refuses Function constructor acquisition through property and el
     assert.ok(rule.offenders(source, 'packages/lead/src/loop.ts').length > 0, source)
 })
 
+test('Lead core rejects literal constructor and prototype keys in accesses, objects and destructuring', () => {
+  const rule = boundaryRule('lead')
+  for (const source of [
+    'const { constructor: Make } = () => {}', "const { ['constructor']: Make } = () => {}",
+    'const { __proto__: prototype } = value', "const { ['__proto__']: prototype } = value",
+    'const value = { constructor: make }', "const value = { ['constructor']: make }",
+    'const value = { __proto__: prototype }', "const value = { ['__proto__']: prototype }",
+    'const value = { constructor }', 'const value = { constructor() {} }',
+    'value.__proto__', "value['__proto__']",
+  ]) assert.ok(rule.offenders(source, 'packages/lead/src/loop.ts').length > 0, source)
+  assert.deepEqual(rule.offenders('const { kind: label } = value; const dto = { kind: label }', 'packages/lead/src/loop.ts'), [])
+})
+
+test('Lead entries reject computed process handles except safe literal members', () => {
+  const rule = boundaryRule('lead')
+  for (const entry of ['child', 'supervisor']) {
+    const file = `packages/lead/src/${entry}.ts`
+    for (const source of ["process['getBuiltin' + 'Module']('node:fs')", 'process[member]',
+      'process[`stdin`]', "process['__proto__']", "const { ['getBuiltinModule']: get } = process",
+      'const { [member]: get } = process', "const { ['binding']: get } = process",
+      "({ ['getBuiltinModule']: get } = process)", '({ [member]: get } = process)'])
+      assert.ok(rule.offenders(source, file).length > 0, source)
+    for (const source of ["process['stdin']", "process['getBuiltinModule']('node:https')", "const { ['stdin']: input } = process"])
+      assert.deepEqual(rule.offenders(source, file), [], source)
+  }
+})
+
+test('Lead source scanning includes every local TypeScript and JavaScript extension', t => {
+  const root = mkdtempSync(join(tmpdir(), 'hd-lead-extensions-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const directory = join(root, 'packages/lead/src')
+  mkdirSync(directory, { recursive: true })
+  const extensions = ['ts', 'tsx', 'mts', 'cts', 'js', 'mjs', 'cjs', 'jsx']
+  const expected = extensions.map(extension => join(directory, `helper.${extension}`))
+  const source = "const fs = process.getBuiltinModule('node:fs')"
+  for (const file of expected) writeFileSync(file, source)
+  const files = layering.sourceFilesOf('lead', root)
+  assert.deepEqual(files.sort(), expected.sort())
+  for (const file of files) assert.ok(boundaryRule('lead').offenders(source, file).length > 0, file)
+})
+
 test('Lead authority checks distinguish property/type names from values and shadowing bindings', () => {
   const rule = boundaryRule('lead')
   for (const source of [

@@ -35,6 +35,38 @@ const thread = { version: 1, id: 'thread-1', revision: 2, state: 'awaiting-plan'
   olderMessages: 0, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'user', text: 'Repair the check' }], cards }
 const settings = { version: 1, model: 'model-demo', key: { configured: true, protection: 'encrypted' }, policy, caps }
 
+test('Lead assignments round-trip the real seat grammar and opaque host fields', () => {
+  const seat = protocol.seatSpec({ runtime: 'cursor', model: 'gpt-5.3-codex', effort: 'xhigh', thinking: true })
+  assert.equal(seat, 'cursor=gpt-5.3-codex/xhigh+thinking')
+  const seated = { ...contract, steps: [{ ...contract.steps[0], assignments: [{ ...contract.steps[0]!.assignments[0], seat }] }] }
+  assert.deepEqual(validator('parseLeadAcceptanceContract')(seated), seated)
+  const candidate = { ...contract, project: { ...contract.project, id: 'acme.dev/demo+tools' },
+    steps: [{ ...contract.steps[0], flow: 'Reviewed work+checks', sourceRevision: 'sha256=ab+/c==',
+      assignments: [{ ...contract.steps[0]!.assignments[0], seat }] }] }
+  const parsed = protocol.parseLeadAcceptanceContract(candidate)
+  assert.deepEqual(parsed, candidate)
+  assert.deepEqual(protocol.parseSeat(parsed.steps[0]!.assignments[0]!.seat), { runtime: 'cursor', model: 'gpt-5.3-codex', effort: 'xhigh', thinking: true })
+  assert.deepEqual(validator('parseLeadSettingsProjection')({ ...settings, model: 'provider model+variant' }), { ...settings, model: 'provider model+variant' })
+  for (const seat of ['=model/high', 'cursor=model/high+unknown', 'cursor=model/high/ignored'])
+    assert.throws(() => validator('parseLeadAcceptanceContract')({ ...contract, steps: [{ ...contract.steps[0], assignments: [{ ...contract.steps[0]!.assignments[0], seat }] }] }), protocol.ValidationError)
+  for (const sourceRevision of ['bad\nrevision', 'x'.repeat(257)])
+    assert.throws(() => validator('parseLeadAcceptanceContract')({ ...contract, steps: [{ ...contract.steps[0], sourceRevision }] }), protocol.ValidationError)
+})
+
+test('Lead stopped cards can describe planning failures before any contract exists', () => {
+  const stopped = { ...cards[4]!, contractDigest: null, reason: 'error', summary: 'Planning could not start' }
+  assert.deepEqual(validator('parseLeadCard')(stopped), stopped)
+  const decision = { version: 1, cardId: stopped.id, expectedRevision: 1, cardType: 'stopped', contractDigest: null, choice: 'decline' }
+  assert.throws(() => protocol.parseLeadCardDecisionFor(decision, stopped), protocol.ValidationError)
+})
+
+test('Lead text rejects lone surrogates and preserves well-formed Unicode', () => {
+  for (const text of ['before\ud800', '\udfffafter'])
+    assert.throws(() => validator('parseLeadThread')({ ...thread, messages: [{ ...thread.messages[0], text }] }), protocol.ValidationError)
+  const candidate = { ...thread, messages: [{ ...thread.messages[0], text: 'Review 🐈\nRésumé' }] }
+  assert.deepEqual(validator('parseLeadThread')(candidate), candidate)
+})
+
 test('Lead collections validate holes at every position, including inherited indices', () => {
   const parse = validator('parseLeadAcceptanceContract')
   const inherited = Array(1)
