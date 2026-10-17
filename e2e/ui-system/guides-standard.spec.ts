@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { expect, test, type Page } from '@playwright/test'
@@ -65,16 +66,25 @@ const measure = async (page: Page, url: string, hasSteps: boolean) => {
   throw new Error(`guides never settled at ${url}`)
 }
 
-test.use({ viewport: { width: WINDOW.width, height: WINDOW.height }, screenshot: 'off', trace: 'off', video: 'off' })
+// The wall's clock is one instant, and a finding's text is that instant as the
+// browser's zone prints it: on a runner in UTC "9:34 AM" read "4:34 PM", a
+// finding the record (taken in Pacific time) could not have.
+test.use({ viewport: { width: WINDOW.width, height: WINDOW.height }, timezoneId: 'America/Los_Angeles', screenshot: 'off', trace: 'off', video: 'off' })
 if (UPDATE) writeOnceEveryTestPasses(test, () => writeFileSync(TABLE, `${JSON.stringify(observed, null, 2)}\n`))
 
 for (const scene of SCENES) {
-  test(`guides standard: ${scene.id}`, async ({ page }) => {
+  test(`guides standard: ${scene.id}`, async ({ page }, testInfo) => {
     if (scene.width || scene.height) await page.setViewportSize({ width: scene.width ?? WINDOW.width, height: scene.height ?? WINDOW.height })
     await page.emulateMedia({ colorScheme: 'light' })
     const report = await measure(page, sceneUrl(scene, 'light', 'lines'), !!scene.steps?.length)
     const found = Object.fromEntries(KINDS.map((kind) => [kind, tally(report.flatMap((one) => one[kind]))])) as Record<Kind, Record<string, number>>
     observed[scene.id] = found
+    // What this machine measured, kept beside the report whether or not it
+    // matches the record: a runner's artifact is how the record is taken from
+    // the machine that gates (text metrics are the machine's own).
+    const kept = path.join(testInfo.project.outputDir, '..', 'guides-observed')
+    mkdirSync(kept, { recursive: true })
+    writeFileSync(path.join(kept, `${scene.id}.json`), `${JSON.stringify(found, null, 2)}\n`)
     if (UPDATE) return
     const before = recorded()[scene.id]
     expect(before, `${scene.id} has no record; run with UPDATE_GUIDES=1 and review what it shows`).toBeTruthy()
