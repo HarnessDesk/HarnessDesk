@@ -47,7 +47,12 @@ below will get further than the first `-c.mac.notarize=true`.
 
 ## Prepare the release on development
 
-Review and collect the changes on `development`, one commit per change. Close
+The Lead pushes approved changes directly to `development`, one commit per
+change, without a per-change pull request. Each push runs core CI and the
+bounded browser selection reached by its full before-to-HEAD change. A missing,
+all-zero or unavailable before commit runs every browser spec with the bounded
+theme matrix. Native smoke stays full-tier only. The nightly full dispatch has
+a separate concurrency group from pushes, so landings cannot cancel it. Close
 the changelog gap and bump the version there before opening the release pull
 request from `development` into `main`. That pull request runs full CI and lands
 with a merge commit to preserve the changes' own commits. Every merge into
@@ -128,8 +133,9 @@ requires the newest `CI tier: full` check to have succeeded in the same workflow
 check suite as those required checks. An ordinary pull request's bounded run
 checks core CI only; browser shards, server-facing browser specs and native
 smoke are intentionally skipped. Local `pnpm check:push` still selects reached
-and edited browser specs, listed in the CI summary. Bounded success cannot
-land. The `development` release PR always runs full CI; `batch/` heads and
+and edited browser specs, listed in the CI summary. Development pushes also
+run that bounded browser selection; nightly dispatches provide full coverage.
+Bounded success cannot land through `land-safe`. The `development` release PR always runs full CI; `batch/` heads and
 `full-ci` (which starts a new full run) remain full-tier options. Manual dispatches
 and pushes to `main` also run the full suite. The script checks
 that both the head and base branch tip stayed put

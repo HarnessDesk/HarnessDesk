@@ -1,7 +1,7 @@
 name: CI
 
 # Feature branches are covered by pull_request without duplicating push runs.
-# Development gets core checks on every push; its release PR and main run full CI.
+# Development adds reached browser specs on every push; its release PR and main run full CI.
 on:
   push:
     branches: [main, development]
@@ -11,7 +11,7 @@ on:
   # Runs started by hand always prove the full suite.
   workflow_dispatch:
 
-# Supersede runs of the same event and ref. A development core push must not
+# Supersede runs of the same event and ref. A development push must not
 # cancel the nightly full dispatch on that branch.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
@@ -48,11 +48,10 @@ jobs:
         with:
           node-version: 22
       # What each spec ran on the last full run of main (script/ui-impact.mjs). Caches made on
-      # main are readable from a pull request; the newest one is the nearest to its base.
-      # Bounded CI reports the local check-push selection, then defers browser/native
-      # work to the full tier. Without a usable map, local selection samples the suite.
+      # main are readable from PRs and development pushes. The newest map narrows
+      # reached source coverage; without a usable map, bounded selection samples the suite.
       - name: Restore the impact map of main
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/development')
         uses: actions/cache/restore@v6
         with:
           path: ui-impact-map.json
@@ -65,19 +64,34 @@ jobs:
           UI_IMPACT_MAP: ui-impact-map.json
           CI_HEAD_BRANCH: ${{ github.head_ref }}
           CI_REF_NAME: ${{ github.ref_name }}
+          CI_BEFORE: ${{ github.event.before }}
           CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           list="$RUNNER_TEMP/ci-changed-paths"
+          rm -f "$list"
           theme=false
+          base=""
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            # Compare the merge to its base parent. Disable rename detection
-            # so moving an input out of a tested directory still runs its suite.
-            if ! git diff --no-renames --name-only -z HEAD^1 HEAD > "$list"; then
+            # The merge's base parent covers the whole PR, including moved inputs.
+            base=HEAD^1
+          elif [ "$EVENT_NAME" = "push" ] && [ "$CI_REF_NAME" = "development" ]; then
+            # Checkout has only two commits. A multi-commit push can start earlier;
+            # fetch that exact object rather than diffing just the last commit.
+            if [[ "$CI_BEFORE" =~ ^[0-9a-f]{40}$ ]] && [[ "$CI_BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+              if git cat-file -e "$CI_BEFORE^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$CI_BEFORE"; then
+                if git cat-file -e "$CI_BEFORE^{commit}" 2>/dev/null; then
+                  base="$CI_BEFORE"
+                fi
+              fi
+            fi
+          fi
+          # A missing/zero/unavailable before leaves no list: every browser spec runs.
+          if [ -n "$base" ]; then
+            if ! git diff --no-renames --name-only -z "$base" HEAD > "$list"; then
               rm -f "$list"
             fi
-            # Retain theme metadata for the shared local planner. Bounded CI runs
-            # no browsers; full CI reads every spec in both themes.
-            if git diff --no-renames -U0 HEAD^1 HEAD -- packages/ui | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' | grep -Eiq 'dark|theme'; then
+            # Theme metadata uses exactly the same change boundary as the paths.
+            if git diff --no-renames -U0 "$base" HEAD -- packages/ui | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' | grep -Eiq 'dark|theme'; then
               theme=true
             fi
           fi
@@ -573,9 +587,9 @@ jobs:
         # As many shards as the work needs, from one to sixteen: each carries
         # about 1,500 recorded dev-server seconds of tests. Static runs finish
         # earlier; script/ci-browser-shards.mjs still sizes the shards from those
-        # times and script/ci-changes.mjs counts them. Only the full tier runs
-        # browser shards (main, batch/, full-ci or manual dispatch). Bounded CI
-        # keeps [1] with browser=none so the skipped matrix stays well formed.
+        # times and script/ci-changes.mjs counts them. Development pushes also
+        # run the bounded selection. A skipped browser job keeps [1] so its
+        # matrix stays well formed.
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     env:
       # What this run is: its theme matrix and the specs it covers. The shards

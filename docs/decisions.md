@@ -3705,3 +3705,24 @@ diagnostics for cleanup and still lists an entry with a usable copy elsewhere.
 Empty and whitespace-only definitions count as hollow. Descriptions in both
 list and matrix, and in the reading sheet, use sanitized markdown so backticks
 produce inline code.
+
+
+## Development pushes run the browser specs their change reaches — 2026-10-16
+
+Owner's decision: approved work lands on `development` by a Lead push, without
+an individual pull request. Five consecutive landings broke browser specs
+without prompt detection, so every development push now runs core CI plus the
+same bounded browser selection formerly used for pull requests. Diff the
+push's `github.event.before` against `HEAD`, fetching the before commit when
+the shallow checkout lacks it, and compute theme metadata over that same range.
+Restore main's impact map to select reached UI specs, retain edited specs and
+include server-facing coverage when reached. Docs-only pushes open no browser.
+
+A missing, all-zero or unavailable before commit runs every browser spec with
+the bounded theme matrix, bypassing the selection cap rather than guessing at
+the pushed change. Native smoke stays full-tier only. Ordinary pull requests
+remain core-only as decided in #1734. Main pushes, nightly/manual dispatches,
+the development release PR, batch heads and the full-ci label retain their full
+tier. Required check names and intentional-skip success stay stable. Push and
+dispatch concurrency groups remain separate so a landing cannot cancel the
+nightly full run.

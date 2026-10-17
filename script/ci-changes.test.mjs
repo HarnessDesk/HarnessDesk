@@ -450,7 +450,7 @@ test('the shared change plan and CI CLI keep the same output contract', () => {
 test('theme diff selection matches the unchanged CI grep pipeline', () => {
   const real = fileURLToPath(new URL('../', import.meta.url))
   const workflow = readFileSync(join(real, '.github/workflows/ci.yml'), 'utf8')
-  const pipeline = workflow.match(/git diff --no-renames -U0 HEAD\^1 HEAD -- packages\/ui \| (grep[^;]+); then/)?.[1]
+  const pipeline = workflow.match(/git diff --no-renames -U0 "\$base" HEAD -- packages\/ui \| (grep[^;]+); then/)?.[1]
   assert.ok(pipeline, 'CI still exposes its theme pipeline')
   for (const diff of ['+++ b/theme.css\n--- a/dark.css', '+DARK colour', '-theme rule', ' context dark', '+colour: blue', '+--- theme', '\n+theme\n']) {
     const result = spawnSync('bash', ['-c', pipeline], { input: diff, encoding: 'utf8' })
@@ -558,11 +558,48 @@ test('development pushes select the bounded tier, independently of PR metadata',
   assert.equal(plan(['package.json'], { CI_REF_NAME: 'development' }, 'push').tier, 'bounded')
 })
 
-for (const paths of [null, [], ['package.json'], ['docs/architecture.md']]) {
-  test(`CLI runs core only on development pushes: ${JSON.stringify(paths)}`, () => {
-    const run = cliPlan(paths, 'push', { CI_REF_NAME: 'development' })
-    assert.deepEqual([run.tier, run.browser, run.native, run.browser_specs, run.shard_count, run.record], ['bounded', 'none', 'false', '[]', '0', 'false'])
-    assert.match(run.summary, /Core CI only/)
+test('a development push runs reached UI specs against the before revision', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ci-development-map-'))
+  try {
+    const map = join(directory, 'map.json')
+    writeFileSync(map, JSON.stringify(impactMap()))
+    const run = cliPlan(['packages/ui/src/components/BringHome.tsx'], 'push', {
+      CI_REF_NAME: 'development', CI_BEFORE: 'HEAD', UI_IMPACT_MAP: map,
+    })
+    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.record], ['bounded', 'all', 'false', 'pr', 'false'])
+    assert.deepEqual(JSON.parse(run.browser_specs), ['e2e/ui-system/row-box.spec.ts'])
+    assert.match(run.summary, /Development push/)
+    assert.match(run.summary, /Selected by the specs that ran the changed UI source/)
+    assert.match(run.summary, /Native smoke.*full tier/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('a development push touching only docs selects no browser or native job', () => {
+  const run = cliPlan(['docs/architecture.md'], 'push', { CI_REF_NAME: 'development' })
+  assert.deepEqual([run.tier, run.browser, run.native, run.shard_count, run.shards, run.record], ['bounded', 'none', 'false', '0', '[1]', 'false'])
+  assert.match(run.summary, /not needed for this change/)
+})
+
+test('a development push keeps edited specs and server-facing coverage in the bounded matrix', () => {
+  const paths = ['e2e/ui-system/row-box.spec.ts', 'packages/server/src/host.ts']
+  const run = cliPlan(paths, 'push', { CI_REF_NAME: 'development' })
+  assert.deepEqual(JSON.parse(run.browser_specs), JSON.parse(plan(paths).browser_specs))
+  assert.equal(run.native, 'false')
+  assert.equal(run.matrix, 'pr')
+  assert.ok(Number(run.shard_count) <= 4)
+  const server = cliPlan(['packages/server/src/host.ts'], 'push', { CI_REF_NAME: 'development' })
+  assert.equal(server.browser, 'server')
+  assert.equal(server.native, 'false')
+})
+
+for (const before of ['', '0'.repeat(40), 'f'.repeat(40)]) {
+  test(`an unreadable development push range runs every browser spec: ${before || 'missing before'}`, () => {
+    // The workflow removes the path list when before is missing, zero or unavailable.
+    const run = cliPlan(null, 'push', { CI_REF_NAME: 'development', CI_BEFORE: before })
+    assert.deepEqual([run.tier, run.browser, run.native, run.browser_specs, run.matrix, run.record], ['bounded', 'all', 'false', 'all', 'pr', 'false'])
+    assert.match(run.summary, /change range unavailable.*every browser spec/)
   })
 }
 

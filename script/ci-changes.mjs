@@ -171,10 +171,10 @@ function boundedSpecs(root, candidates, inputs, impact) {
   return { selected: selected.sort(), deferred: deferred.sort(), count, overBudget }
 }
 
-export function browserPlan(root, { browser, inputs, serverInputs, event, tier = ciTier({ event }), impact = null }) {
+export function browserPlan(root, { browser, inputs, serverInputs, event, tier = ciTier({ event }), impact = null, unknownChange = false }) {
   const all = specFiles(root).map(spec => `e2e/ui-system/${spec}`)
   let selected = null
-  let basis = ''
+  let basis = unknownChange ? 'change range unavailable; running every browser spec' : ''
   const suiteInputs = inputs.filter(path => path.startsWith('e2e/ui-system/'))
   const uiInputs = inputs.filter(path => !path.startsWith('e2e/ui-system/'))
   if (browser === 'all' && tier === 'bounded' && inputs.length > 0 && uiInputs.every(uiSource) && (uiInputs.length === 0 || impact)) {
@@ -188,7 +188,7 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, tier =
   }
   if (browser === 'all' && selected && selected.length === 0) browser = 'none'
   const matrix = tier === 'bounded' ? 'pr' : 'full'
-  const bounded = tier === 'bounded' && browser === 'all' ? boundedSpecs(root, selected ?? all, inputs, impact) : null
+  const bounded = tier === 'bounded' && browser === 'all' && !unknownChange ? boundedSpecs(root, selected ?? all, inputs, impact) : null
   if (bounded && (selected !== null || bounded.deferred.length > 0)) selected = bounded.selected
   const count = browser === 'all'
     ? bounded?.count ?? shardCount(all.map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix))
@@ -209,6 +209,7 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, tier =
 // base instead, so theme and impact-map freshness answer for the same change.
 export function planChange(root, { event, paths, headBranch = '', refName = '', labels = [], map = null, baseRevision = 'HEAD^1' }) {
   const tier = ciTier({ event, headBranch, refName, labels })
+  const knownPaths = paths?.length > 0 && paths.every(path => path.length > 0 && !path.startsWith('/') && !path.split('/').includes('..') && !/[\u0000-\u001f\u007f]/.test(path))
   const inputs = uiPackages(root)
   const specs = serverSpecs(root, inputs)
   let decision = { browser: 'all', native: true }
@@ -217,7 +218,7 @@ export function planChange(root, { event, paths, headBranch = '', refName = '', 
   if (tier === 'bounded' && paths) {
     try {
       // A name with a control character in it is not one to plan from: run everything.
-      if (paths.length > 0 && paths.every(path => path.length > 0 && !path.startsWith('/') && !path.split('/').includes('..') && !/[\u0000-\u001f\u007f]/.test(path))) {
+      if (knownPaths) {
         const external = uiExternalImports(root)
         const uiInput = path => !DEAL_ONLY.test(path) && (BROWSER.some(pattern => pattern.test(path)) || inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]) || external.has(path))
         browserInputs = paths.filter(uiInput)
@@ -233,6 +234,7 @@ export function planChange(root, { event, paths, headBranch = '', refName = '', 
   }
   const plan = browserPlan(root, {
     browser: decision.browser, inputs: browserInputs, serverInputs, event, tier,
+    unknownChange: event === 'push' && refName === 'development' && !knownPaths,
     impact: map ? { map, baseFiles: () => filesAtBase(root, baseRevision), baseEnvironment: () => environmentAt(root, baseRevision) } : null,
   })
   return {
@@ -251,17 +253,22 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const raw = readFileSync(process.argv[2], 'utf8')
     paths = raw.endsWith('\0') ? raw.slice(0, -1).split('\0') : []
   } catch {
-    // A failed diff leaves no readable list. Non-PR events run everything.
+    // A failed diff leaves no readable list. Development runs every browser spec.
   }
   const mapFile = process.env.UI_IMPACT_MAP
+  const developmentPush = process.env.GITHUB_EVENT_NAME === 'push' && process.env.CI_REF_NAME === 'development'
   const plan = planChange(root, {
     event: process.env.GITHUB_EVENT_NAME, paths,
     headBranch: process.env.CI_HEAD_BRANCH ?? '', refName: process.env.CI_REF_NAME ?? '', labels: JSON.parse(process.env.CI_LABELS || '[]'),
     map: mapFile ? readMap(mapFile) : null,
+    baseRevision: developmentPush ? process.env.CI_BEFORE || 'HEAD^1' : 'HEAD^1',
   })
-  // CI alone defers integration to the full tier. check-push imports planChange
-  // directly and still runs the local selection, including edited/reached specs.
-  if (plan.tier === 'bounded') {
+  // Ordinary PRs defer integration to the full tier. Development pushes keep
+  // the shared bounded browser selection; native smoke remains full-tier only.
+  if (developmentPush) {
+    plan.native = false
+    plan.summary += ' Development push: selected from the pushed change. Native smoke runs in the full tier.'
+  } else if (plan.tier === 'bounded') {
     const localSpecs = plan.browser === 'all'
       ? plan.browser_specs === 'all' ? specFiles(root).map(spec => `e2e/ui-system/${spec}`) : JSON.parse(plan.browser_specs)
       : plan.browser === 'server' ? JSON.parse(plan.server_specs) : []
