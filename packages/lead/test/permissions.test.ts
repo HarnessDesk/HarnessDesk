@@ -220,10 +220,9 @@ test('action-specific run eligibility allows abandon while every answer and miss
     assert.equal(decide({ ...r, params }, context()).effect, 'deny')
 })
 
-test('unapproved starts and inflated, exhausted or malformed allowances fail closed', () => {
+test('unapproved starts and exhausted or malformed allowances fail closed', () => {
   assert.equal(decide(startRequest(), { ...context(), approved: null }).effect, 'deny')
   for (const patch of [
-    { caps: { usdMicros: 501, rounds: 3 } }, { caps: { usdMicros: 500, rounds: 4 } },
     { leadUsdMicros: 480 }, { reservedUsdMicros: 470 },
     { stop: { reason: 'cancelled', revision: 1 } }, { leadUsdMicros: NaN },
   ]) assert.equal(decide(startRequest(), { ...context(), budget: { ...context().budget, ...patch } }).effect, 'deny')

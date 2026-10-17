@@ -22,6 +22,7 @@ export type LeadJournalEvent =
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
   | { readonly type: 'card-decision'; readonly decision: LeadCardDecision; readonly expiresAt: number | null }
+  | { readonly type: 'stop-effects-done'; readonly stopSeq: number }
   | { readonly type: 'stop' | 'recovery-block' | 'recovery-resolved' }
   | { readonly type: 'recovery-report'; readonly id: string }
   | { readonly type: 'team-approved'; readonly teamId: string; readonly contractDigest: string }
@@ -92,7 +93,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    budget: ['event'],
+    budget: ['event'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
@@ -101,6 +102,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   object(source, ['version', 'seq', 'type', ...keys[type]!])
   let event: LeadJournalEvent
   switch (type) {
+    case 'stop-effects-done': event = { type, stopSeq: integer(source.stopSeq, 1) }; break
     case 'budget': event = { type, event: parseLeadBudgetEvent(source.event) }; break
     case 'policy': event = { type, policy: parseLeadPermissionPolicy(source.policy) }; break
     case 'card': event = { type, card: parseLeadCard(source.card) }; break
@@ -169,13 +171,12 @@ export class LeadJournal {
   }
   #budgetWrite<T>(operation: () => Promise<T>, stopEffects?: () => Promise<void>): Promise<T> {
     return this.#queue(async () => {
-      const stopped = this.#state.budget?.stop
       const value = await operation()
-      return { value, stop: !stopped && Boolean(this.#state.budget?.stop) }
+      return { value, stop: this.#state.stopEffectsPending !== null }
     }).then(async ({ value, stop }) => {
       // The latch is already durable. Effects run outside the writer queue so they
       // can use its permission-checked cancellation path without deadlocking it.
-      if (stop) await stopEffects?.()
+      if (stop && stopEffects) await this.runStopEffects(stopEffects)
       return value
     })
   }
@@ -212,7 +213,7 @@ export class LeadJournal {
         return null
       }
       await this.#append({ type: 'card', card: { version: 1, ...card, type: 'budget-change', logicalGoalId: budget.logicalGoalId,
-        contractDigest: this.#state.contract?.digest ?? null, previous: { revision: budget.revision, caps: budget.caps }, proposed: caps } })
+        contractDigest: this.#state.contract?.digest ?? null, previous: { revision: budget.capsRevision, caps: budget.caps }, proposed: caps } })
       return structuredClone(this.#state.cards.at(-1)!)
     }, stopEffects)
   }
@@ -223,7 +224,16 @@ export class LeadJournal {
   /** Step 10 must admit recovery-resolved only from the authenticated window, like
    * card decisions. The model loop must never resolve its own quarantine block. */
   resolveRecovery(): Promise<void> { return this.#queue(() => this.#append({ type: 'recovery-resolved' })) }
-  stop(): Promise<void> { return this.#queue(() => this.#append({ type: 'stop' })) }
+  stop(stopEffects?: () => Promise<void>): Promise<void> { return this.#budgetWrite(() => this.#append({ type: 'stop' }), stopEffects) }
+  /** The supervisor retries pending idempotent cancellation after a crash. */
+  async runStopEffects(effects: () => Promise<void>): Promise<void> {
+    const stopSeq = await this.#queue(async () => this.#state.stopEffectsPending)
+    if (stopSeq === null) return
+    await effects()
+    await this.#queue(async () => {
+      if (this.#state.stopEffectsPending === stopSeq) await this.#append({ type: 'stop-effects-done', stopSeq })
+    })
+  }
   execute(input: LeadToolAttempt, dispatch: LeadDispatch): Promise<{ decision: LeadPermissionDecision; outcome: LeadAttemptOutcome; value?: unknown }> {
     const { id, stepId } = input
     return this.#queue(async () => {
@@ -244,9 +254,15 @@ export class LeadJournal {
       const approved = this.#state.contract && this.#state.consent ? { contract: this.#state.contract, consent: this.#state.consent,
         runIds: this.#state.runs.map(run => run.runId), teamIds: this.#state.teams } : null
       let budget: LeadBudgetState | null = null
-      try { if (this.#state.budget && capturedContext) budget = leadBudgetProjection(this.#state.budget, capturedContext.now) } catch { /* Invalid time cannot manufacture headroom. */ }
+      try { if (this.#state.budget && capturedContext) {
+        budget = leadBudgetProjection(this.#state.budget, capturedContext.now)
+        const unbound = this.#state.runs.some(run => !this.#state.budget!.executionIds.includes(run.runId)) ||
+          this.#state.steps.some(step => ['admitted', 'uncertain'].includes(step.state) && !this.#state.runs.some(run =>
+            run.correlationId === step.attemptId && this.#state.budget!.executionIds.includes(run.runId)))
+        if (unbound) budget = { ...budget, spend: 'unknown' }
+      } } catch { /* Invalid time cannot manufacture headroom. */ }
       let decision = capturedContext === null ? refusal('invalid-input', 'Invalid permission context')
-        : decideLeadPermission(request, { ...capturedContext, budget,
+        : decideLeadPermission(request, { ...capturedContext, budget, now: this.#state.budget ? Math.max(capturedContext.now, this.#state.budget.now) : capturedContext.now,
           desk: this.#state.policy ?? capturedContext.desk, approved })
       const step = this.#state.steps.find(step => step.id === stepId)
       const cancellation = method === 'flow/execution/stop' || method === 'team/intent' && action === 'abandon'

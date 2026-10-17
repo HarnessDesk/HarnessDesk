@@ -9,7 +9,7 @@ const api = (name: string): any => {
 }
 const init = { version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 50 }
 const reserve = (requestId: string, outputTokens = 60) => ({ version: 1, type: 'reserve', now: 100, requestId,
-  inputTokens: 10, maxOutputTokens: outputTokens, inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000 })
+  inputTokens: 10, maxOutputTokens: outputTokens, inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 1_000_000, cacheWriteUsdMicrosPerMillion: 1_000_000 })
 const settle = (requestId: string, outputTokens = 20) => ({ version: 1, type: 'settle', now: 100, requestId, inputTokens: 10, outputTokens })
 const bind = (executionId: string) => ({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId })
 const observe = (patch: Record<string, unknown> = {}) => ({ version: 1, type: 'observe', now: 100, at: 100,
@@ -34,7 +34,7 @@ test('concurrent requests cannot reserve the same remaining allowance', async ()
 
 test('input tokens and fractional prices are rounded up before reservation', () => {
   const state = reduce(reduce(null, init), { ...reserve('request-1', 1), inputTokens: 1,
-    inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1 })
+    inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 1 })
   assert.equal(projection(state).reservedUsdMicros, 2)
   assert.throws(() => reduce(state, { ...reserve('overflow'), inputUsdMicrosPerMillion: Number.MAX_SAFE_INTEGER }))
 })
@@ -55,7 +55,7 @@ test('an uncertain paid request retains its reservation and blocks until settled
   assert.equal(projection(state).reservedUsdMicros, 70)
   assert.throws(() => reduce(state, reserve('request-2', 1)))
   assert.equal(projection(reduce(state, settle('request-1'))).spend, 'known')
-  assert.throws(() => reduce(state, { ...settle('request-1'), outputTokens: 61 }))
+  assert.equal(reduce(state, { ...settle('request-1'), outputTokens: 61 }).leadUsdMicros, 71)
 })
 
 test('replacement and repair executions never reset logical-goal rounds', () => {
@@ -66,13 +66,13 @@ test('replacement and repair executions never reset logical-goal rounds', () => 
     state = reduce(state, { version: 1, type: 'round', now: 100, executionId, roundId: 'round-1' })
   }
   assert.equal(projection(state).roundsAdmitted, 3)
-  assert.equal(projection(state).stop.reason, 'rounds')
+  assert.equal(projection(state).stop, null)
   assert.throws(() => reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-3', roundId: 'round-2' }))
   assert.deepEqual(reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-3', roundId: 'round-1' }), state)
   assert.throws(() => reduce(state, { ...bind('run-other'), goalId: 'different-goal' }))
 })
 
-test('equality with money or rounds refuses the next dispatch', () => {
+test('money equality refuses dispatch and round equality refuses only the next round', () => {
   let state = reduce(reduce(null, init), reserve('request-1', 90))
   assert.equal(projection(state).reservedUsdMicros, 100)
   assert.throws(() => reduce(state, reserve('request-2', 0)))
@@ -83,7 +83,8 @@ test('equality with money or rounds refuses the next dispatch', () => {
   rounds = reduce(rounds, bind('run-1'))
   rounds = reduce(rounds, observe({ usdMicros: 0 }))
   rounds = reduce(rounds, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'round-1' })
-  assert.throws(() => reduce(rounds, reserve('request-1', 0)))
+  assert.doesNotThrow(() => reduce(rounds, reserve('request-1', 0)))
+  assert.throws(() => reduce(rounds, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'round-2' }))
 })
 
 test('overlapping worker observations replace instead of adding and never erase spend', () => {
@@ -180,22 +181,22 @@ test('budget stop effects may use the journal cancellation path after durable ad
   assert.equal(journal.state.phase, 'stopped')
 })
 
-test('a budget stop composes with a previously terminal report', () => {
+test('a late budget stop preserves acceptance while retaining its monetary latch', () => {
   const budget = reduce(reduce(null, init), reserve('request-1', 90))
   const state = { ...lead.initialLeadState(), phase: 'accepted' as const, budget }
   const stopped = lead.reduceLeadRecord(state, { version: 1, seq: 1, type: 'budget', event: settle('request-1', 90) } as any)
-  assert.equal(stopped.phase, 'stopped')
+  assert.equal(stopped.phase, 'accepted')
   assert.equal(stopped.budget!.stop!.reason, 'budget')
 })
 
-test('stale mixed cap cards cannot widen after intervening budget changes', async () => {
+test('stale mixed cap cards cannot widen after intervening cap changes', async () => {
   const journal: any = await open(memory())
   await journal.updateBudget(init)
   const card = await journal.changeBudgetCaps({ usdMicros: 200, rounds: 2 }, { id: 'mixed-1', revision: 1 }, 100)
-  await journal.updateBudget(reserve('request-1', 1))
+  await journal.changeBudgetCaps({ usdMicros: 90, rounds: 3 }, { id: 'narrow', revision: 1 }, 100)
   const click = { version: 1, cardId: card.id, cardType: card.type, expectedRevision: 1, contractDigest: null, choice: 'approve' }
   await assert.rejects(journal.decideCard(click))
-  assert.deepEqual(journal.state.budget.caps, init.caps)
+  assert.deepEqual(journal.state.budget.caps, { usdMicros: 90, rounds: 3 })
   await journal.decideCard({ ...click, choice: 'decline' })
   await assert.rejects(journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 200, rounds: 2 } }))
   await journal.stop()
@@ -249,4 +250,106 @@ test('expired observations and stale observation revisions refuse new admission'
   assert.throws(() => reduce(state, observe({ revision: 2, usdMicros: 21 })))
   assert.deepEqual(reduce(state, observe({ revision: 2 })), state)
   assert.equal(state.workerUsdMicros, 20)
+})
+
+for (const duplicate of ['observation', 'bind', 'round', 'settlement', 'uncertain']) test(`duplicate ${duplicate} advances processed time without double charging`, () => {
+  let state = reduce(reduce(null, init), reserve('paid-1', 1))
+  state = reduce(state, bind('run-1'))
+  state = reduce(state, observe())
+  let event: any
+  if (duplicate === 'observation') event = observe()
+  else if (duplicate === 'bind') event = bind('run-1')
+  else if (duplicate === 'round') event = { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'one' }
+  else if (duplicate === 'settlement') event = settle('paid-1', 1)
+  else event = { version: 1, type: 'uncertain', now: 100, requestId: 'paid-1' }
+  state = reduce(state, event)
+  const spent = state.leadUsdMicros, rounds = state.rounds.length
+  state = reduce(state, { ...event, now: 1000 })
+  assert.equal(state.now, 1000)
+  assert.equal(state.leadUsdMicros, spent)
+  assert.equal(state.rounds.length, rounds)
+  assert.notEqual(state.spend, 'known')
+  assert.throws(() => reduce(state, { ...reserve('paid-2', 1), now: 120 }))
+})
+
+test('round cap one admits its round and still reserves review without cancellation', async () => {
+  const journal: any = await open(memory())
+  await journal.updateBudget({ ...init, caps: { usdMicros: 100, rounds: 1 } })
+  await journal.updateBudget(bind('run-1'))
+  await journal.updateBudget(observe({ usdMicros: 0 }))
+  let stops = 0
+  await journal.updateBudget({ version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'one' }, async () => { stops++ })
+  assert.equal(journal.state.budget.stop, null)
+  assert.equal(stops, 0)
+  await journal.updateBudget(reserve('review-1', 1))
+  await assert.rejects(journal.updateBudget({ version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'two' }))
+})
+
+test('observation and settlement traffic never invalidates a pending cap increase', async () => {
+  const journal: any = await open(memory())
+  await journal.updateBudget(init)
+  await journal.updateBudget(reserve('paid-1', 1))
+  await journal.updateBudget(bind('run-1'))
+  await journal.updateBudget(observe())
+  const card = await journal.changeBudgetCaps({ usdMicros: 200, rounds: 4 }, { id: 'raise-1', revision: 1 }, 100)
+  await journal.updateBudget(observe({ revision: 2, usdMicros: 21 }))
+  await journal.updateBudget(settle('paid-1', 1))
+  await journal.decideCard({ version: 1, cardId: card.id, cardType: card.type, expectedRevision: 1, contractDigest: null, choice: 'approve' })
+  assert.equal(journal.state.budget.caps.usdMicros, 200)
+})
+
+test('usage above reservation including cached input is charged and stops at the cap', () => {
+  let state = reduce(reduce(null, init), { ...reserve('paid-1', 1), inputTokens: 10,
+    cacheReadUsdMicrosPerMillion: 100_000, cacheWriteUsdMicrosPerMillion: 2_000_000 })
+  assert.equal(state.reservedUsdMicros, 21, 'input reserves at the most expensive possible cache rate')
+  const usage = { ...settle('paid-1', 30), inputTokens: 12, cacheReadTokens: 10, cacheWriteTokens: 40 }
+  state = reduce(state, usage)
+  assert.equal(state.leadUsdMicros, 123)
+  assert.equal(state.reservedUsdMicros, 0)
+  assert.equal(state.stop.reason, 'budget')
+  assert.deepEqual(reduce(state, usage), state)
+})
+
+test('settled requests compact to identity digests and do not consume the active request bound', () => {
+  let state = reduce(null, { ...init, caps: { usdMicros: 100_000, rounds: 3 } })
+  for (let i = 0; i < 4100; i++) {
+    state = reduce(state, reserve(`paid-${i}`, 0))
+    state = reduce(state, settle(`paid-${i}`, 0))
+  }
+  assert.equal(state.requests.length, 0)
+  assert.equal(state.leadUsdMicros, 41_000)
+  assert.ok(JSON.stringify(state).length < 600_000)
+  assert.deepEqual(reduce(state, settle('paid-0', 0)), state)
+  assert.throws(() => reduce(state, settle('paid-0', 1)))
+  assert.throws(() => reduce(state, reserve('paid-0')))
+  assert.deepEqual(api('parseLeadBudgetLedger')(state), state)
+})
+
+test('pending stop effects survive reopen and clear only after durable acknowledgement', async () => {
+  const storage = memory(), journal: any = await open(storage)
+  await journal.updateBudget(init)
+  await assert.rejects(journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 3 } }, async () => { throw new Error('crash') }))
+  const recovered: any = await open(storage)
+  assert.ok(recovered.state.stopEffectsPending)
+  let calls = 0
+  await recovered.runStopEffects(async () => { calls++ })
+  assert.equal(calls, 1)
+  assert.equal((await open(storage) as any).state.stopEffectsPending, null)
+  await recovered.runStopEffects(async () => { calls++ })
+  assert.equal(calls, 1)
+  assert.equal(storage.records.at(-1).type, 'stop-effects-done')
+})
+
+test('failed stop-effect acknowledgement remains pending for supervisor retry', async () => {
+  const storage = memory(), append = storage.append.bind(storage), journal: any = await open(storage)
+  await journal.updateBudget(init)
+  storage.append = async record => { if (record.type === 'stop-effects-done') throw new Error('ack failure'); await append(record) }
+  let stops = 0
+  await assert.rejects(journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 3 } }, async () => { stops++ }))
+  storage.append = append
+  const recovered: any = await open(storage)
+  assert.ok(recovered.state.stopEffectsPending)
+  await recovered.runStopEffects(async () => { stops++ })
+  assert.equal(stops, 2)
+  assert.equal((await open(storage)).state.stopEffectsPending, null)
 })

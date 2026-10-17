@@ -364,6 +364,7 @@ test('a conflicting reconciliation identity refuses one call and leaves Stop wri
   await journal.decideCard(click, 200)
   await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
     identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))
+  await observeStarted(journal, 'run-1')
   await journal.execute({ id: 'second', request: { ...request, start: second }, context, stepId: 'second' }, async () => { throw new Error('lost response') })
   await assert.rejects(journal.recover(async () => [{ correlationId: 'second', runId: 'run-1', teamId: 'team-1' }]))
   await journal.stop()
@@ -386,6 +387,7 @@ test('undecided plan survives waiting decisions and reconciliation and can repla
     contractDigest: original.digest, summary: 'Person gate', assertions: [] })
   await journal.decideCard({ version: 1, cardId: 'waiting-1', cardType: 'waiting', expectedRevision: 1, choice: 'accept', contractDigest: original.digest })
   await journal.recover(async () => [{ correlationId: 'first', runId: 'run-1', teamId: 'team-1' }])
+  await observeStarted(journal, 'run-1')
   const nextRequest = { ...request, start: second }
   const blocked = await journal.execute({ id: 'blocked', request: nextRequest, context, stepId: 'second' }, async () => { throw new Error('must not dispatch') })
   assert.equal(blocked.outcome, 'denied', 'a pending plan is independent of phase')
@@ -548,6 +550,7 @@ const runningTwoStepPlan = async () => {
 
 test('declining a running plan revision keeps the approved contract and permits its next step', async () => {
   const { journal, storage, original, next } = await runningTwoStepPlan()
+  await observeStarted(journal, 'run-1')
   const revised = { ...original, revision: 2, digest: 'b'.repeat(64) }
   await journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised })
   await journal.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest, choice: 'decline' })
@@ -575,6 +578,7 @@ test('a plan made stale by a later policy change can be declined without ending 
 
 test('approving a newer plan durably supersedes every lower pending contract revision', async () => {
   const { journal, storage, original, next } = await runningTwoStepPlan()
+  await observeStarted(journal, 'run-1')
   const second = { ...original, revision: 2, digest: 'b'.repeat(64) }, third = { ...original, revision: 3, digest: 'c'.repeat(64) }
   await journal.offerCard({ ...plan, id: 'plan-2', contractDigest: second.digest, contract: second })
   await journal.offerCard({ ...plan, id: 'plan-3', contractDigest: third.digest, contract: third })
@@ -589,6 +593,7 @@ test('approving a newer plan durably supersedes every lower pending contract rev
 test('unapprovable plan revisions are refused at offer time without leaving a pending fence', async () => {
   for (const problem of ['old-revision', 'stale-policy', 'started-prefix', 'project']) {
     const { journal, original, next } = await runningTwoStepPlan()
+    await observeStarted(journal, 'run-1')
     const revised = { ...original, revision: 2, digest: 'b'.repeat(64),
       ...(problem === 'old-revision' ? { revision: 1 } : problem === 'stale-policy' ? { policyRevision: 2 } :
         problem === 'project' ? { project: { ...contract.project, path: '/workspace/other' } } :
@@ -640,6 +645,7 @@ test('historical unapprovable proposals remain dismissible after recovery', asyn
   // proposal must still permit its decline; new offer calls refuse it up front.
   storage.records.push({ version: 1, seq: storage.records.length + 1, type: 'card', card: { ...plan, revision: 2, contract: original } })
   const journal = await open(storage)
+  await observeStarted(journal, 'run-1')
   await journal.decideCard({ ...click, expectedRevision: 2, choice: 'decline' })
   assert.equal(journal.state.phase, 'running')
   assert.equal((await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
@@ -689,6 +695,7 @@ test('undefined array entries and holes remain refused without latching the writ
 
 test('approval durably supersedes equal-revision sibling plans without a pending fence', async () => {
   const { journal, storage, original, next } = await runningTwoStepPlan()
+  await observeStarted(journal, 'run-1')
   const revised = { ...original, revision: 3, digest: 'c'.repeat(64) }
   await journal.offerCard({ ...plan, id: 'plan-left', contractDigest: revised.digest, contract: revised })
   await journal.offerCard({ ...plan, id: 'plan-right', contractDigest: revised.digest, contract: revised })
@@ -755,6 +762,11 @@ test('missing durable budget and invalid budget time refuse with four audit reco
     const legacy = memory()
     legacy.records.push(...storage.records.filter(record => record.type !== 'budget').map((record, i) => ({ ...record, seq: i + 1 })))
     const writer = state === 'missing' ? await open(legacy) : journal
+    if (state === 'time') {
+      await writer.updateBudget({ version: 1, type: 'bind', now: 151, goalId: 'goal-1', executionId: 'run-previous' })
+      await writer.updateBudget({ version: 1, type: 'observe', now: 151, at: 100, revision: 1, source: 'insight/goal', sourceIds: ['corpus-1'],
+        goalId: 'goal-1', executionIds: ['run-previous'], quality: 'known', usdMicros: 0 })
+    }
     const before = writer.state.seq
     const result = await writer.execute({ id: 'first', request, context: { ...context, now: state === 'time' ? 99 : 100 }, stepId: 'implement' },
       async () => { throw new Error('must not dispatch') })
@@ -762,4 +774,80 @@ test('missing durable budget and invalid budget time refuse with four audit reco
     assert.equal(result.decision.floor, 'budget')
     assert.equal(writer.state.seq, before + 4)
   }
+})
+
+const observeStarted = async (journal: any, runId: string, revision = 1) => {
+  await journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId: runId })
+  await journal.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision, source: 'insight/goal', sourceIds: ['corpus-1'],
+    goalId: 'goal-1', executionIds: journal.state.budget.executionIds, quality: 'known', usdMicros: 0 })
+}
+
+test('a start atomically admits its first round and unbound spend fences a second start', async () => {
+  const { journal, next } = await runningTwoStepPlan()
+  assert.equal(journal.state.budget.roundsAdmitted, 1)
+  assert.equal(journal.state.budget.spend, 'unknown')
+  const result = await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => { throw new Error('must not dispatch') })
+  assert.equal(result.decision.floor, 'budget')
+})
+
+for (const moneyStop of [false, true]) test(`cap-one reviewed result accepts after ${moneyStop ? 'money stop' : 'its admitted round'} without new work`, async () => {
+  const storage = memory(), journal = await open(storage)
+  const approved = { ...contract, caps: { usdMicros: 500, rounds: 1 }, steps: [...contract.steps, { ...contract.steps[0]!, id: 'second' }] }
+  await journal.setPolicy(policy)
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: approved.caps, freshnessMs: 50 })
+  await journal.offerCard({ ...plan, contract: approved })
+  await journal.decideCard(click, 200)
+  assert.equal((await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
+    identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))).outcome, 'succeeded')
+  await observeStarted(journal, 'run-1')
+  const refused = await journal.execute({ id: 'second-before-result', request: { ...request, start: approved.steps[1]! }, context, stepId: 'second' },
+    async () => { throw new Error('round two must not dispatch') })
+  assert.equal(refused.decision.floor, 'budget')
+  await journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'review', inputTokens: 1, maxOutputTokens: 1,
+    inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 1_000_000, cacheWriteUsdMicrosPerMillion: 1_000_000 })
+  if (moneyStop) await journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 1 } })
+  await journal.offerCard({ version: 1, id: 'result-1', revision: 1, type: 'result', contractDigest: approved.digest,
+    outcome: 'reviewed', summary: 'Reviewed result', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget, 100) })
+  await journal.decideCard({ version: 1, cardId: 'result-1', cardType: 'result', expectedRevision: 1, contractDigest: approved.digest, choice: 'accept' })
+  assert.equal(journal.state.phase, 'accepted')
+  assert.equal((await journal.execute({ id: 'second', request: { ...request, start: approved.steps[1]! }, context, stepId: 'second' },
+    async () => { throw new Error('must not dispatch') })).outcome, 'denied')
+})
+
+for (const via of ['budget-card', 'plan']) test(`${via} increase updates the effective permission cap while preserving start authority`, async () => {
+  const { journal, original, next } = await runningTwoStepPlan()
+  await observeStarted(journal, 'run-1')
+  const caps = { usdMicros: 700, rounds: 4 }
+  if (via === 'budget-card') {
+    const card = await journal.changeBudgetCaps(caps, { id: 'raise', revision: 1 }, 100)
+    await journal.decideCard({ version: 1, cardId: card.id, cardType: card.type, expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' })
+  } else {
+    const revised = { ...original, revision: 2, digest: 'b'.repeat(64), caps }
+    await journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised })
+    await journal.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest }, 200)
+  }
+  assert.deepEqual(journal.state.budget.caps, caps)
+  assert.equal((await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+    identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
+})
+
+test('processed budget time cannot roll consent back to an unexpired instant', async () => {
+  const journal = await prepare(memory())
+  await journal.updateBudget({ version: 1, type: 'bind', now: 250, goalId: 'goal-1', executionId: 'run-previous' })
+  await journal.updateBudget({ version: 1, type: 'observe', now: 250, at: 250, revision: 1, source: 'insight/goal', sourceIds: ['corpus-1'],
+    goalId: 'goal-1', executionIds: ['run-previous'], quality: 'known', usdMicros: 0 })
+  const result = await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
+    identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))
+  assert.equal(result.decision.floor, 'consent')
+})
+
+test('budget-stop result acceptance never reverses a terminal person decline', async () => {
+  const journal = await prepare(memory())
+  await journal.offerCard({ version: 1, id: 'waiting-1', revision: 1, type: 'waiting', contractDigest: contract.digest,
+    kind: 'person', runId: 'run-1', personCardId: 'gate-1', summary: 'Person decision', assertions: [] })
+  await journal.decideCard({ version: 1, cardId: 'waiting-1', cardType: 'waiting', expectedRevision: 1, contractDigest: contract.digest, choice: 'decline' })
+  await journal.offerCard({ version: 1, id: 'reviewed-1', revision: 1, type: 'result', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed result', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget, 100) })
+  await journal.decideCard({ version: 1, cardId: 'reviewed-1', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' })
+  assert.equal(journal.state.phase, 'declined')
 })

@@ -2,16 +2,17 @@ import { LEAD_LIMITS, nextLeadRevision, parseLeadBudgetEvent, parseLeadBudgetSta
   type LeadBudgetEvent, type LeadBudgetState, type LeadCard, type LeadCardDecision } from '@harnessdesk/protocol'
 
 type Event<T extends LeadBudgetEvent['type']> = Extract<LeadBudgetEvent, { type: T }>
-interface Request {
-  readonly reservation: Event<'reserve'>; readonly settlement: Event<'settle'> | null; readonly uncertain: boolean
-}
-/** Retained identities survive checkpointing. At the bound, refuse admission rather than
- * evicting deduplication evidence and permitting a paid request to be counted twice. */
+interface Request { readonly reservation: Event<'reserve'>; readonly uncertain: boolean }
+interface Settled { readonly id: string; readonly digest: string; readonly usdMicros: number }
+/** Active requests retain reservations; settled requests retain only compact identity,
+ * charge and collision-free usage digests. Neither index is evicted during checkpointing. */
 export interface LeadBudgetLedger extends LeadBudgetState {
   readonly logicalGoalId: string; readonly goalId: string | null; readonly executionIds: readonly string[]
   readonly now: number; readonly freshnessMs: number
+  readonly capsRevision: number
   readonly requests: readonly Request[]
-  readonly rounds: readonly { readonly executionId: string; readonly roundId: string }[]
+  readonly settled: readonly Settled[]
+  readonly rounds: readonly { readonly executionId: string | null; readonly roundId: string; readonly startId: string | null }[]
   readonly observations: Readonly<Record<'insight/goal' | 'worker-samples', Event<'observe'> | null>>
   readonly observation: Event<'observe'> | null
 }
@@ -22,17 +23,23 @@ const cost = (tokens: number, rate: number): number => {
   ensure(value <= BigInt(LEAD_LIMITS.maxUsdMicros))
   return Number(value)
 }
-const charge = (request: Request): number => {
-  const reserve = request.reservation, usage = request.settlement
-  return cost(usage?.inputTokens ?? reserve.inputTokens, reserve.inputUsdMicrosPerMillion) +
-    cost(usage?.outputTokens ?? reserve.maxOutputTokens, reserve.outputUsdMicrosPerMillion)
-}
+// Numeric usage has a compact, lossless base-36 digest; unlike a hash this cannot
+// collide. Time is excluded so retries of the same usage remain idempotent.
+const usageDigest = (usage: Event<'settle'>) => [usage.inputTokens, usage.outputTokens, usage.cacheReadTokens ?? 0,
+  usage.cacheWriteTokens ?? 0].map(value => value.toString(36)).join('.')
+const charge = (reserve: Event<'reserve'>, usage: Event<'settle'> | null): number => usage
+  ? cost(usage.inputTokens, reserve.inputUsdMicrosPerMillion) + cost(usage.outputTokens, reserve.outputUsdMicrosPerMillion) +
+    cost(usage.cacheReadTokens ?? 0, reserve.cacheReadUsdMicrosPerMillion) +
+    cost(usage.cacheWriteTokens ?? 0, reserve.cacheWriteUsdMicrosPerMillion)
+  : cost(reserve.inputTokens, Math.max(reserve.inputUsdMicrosPerMillion, reserve.cacheReadUsdMicrosPerMillion,
+    reserve.cacheWriteUsdMicrosPerMillion)) + cost(reserve.maxOutputTokens, reserve.outputUsdMicrosPerMillion)
 const covers = (state: LeadBudgetLedger, observation: Event<'observe'>) => observation.executionIds.length === state.executionIds.length &&
   state.executionIds.every(id => observation.executionIds.includes(id))
 /** Read-only projection takes time explicitly. Unknown, partial or stale attribution
  * never replaces a cumulative charge with zero. The Lead stops when reported spend reaches the cap. */
 export const leadBudgetProjection = (state: LeadBudgetLedger, now: number): LeadBudgetState => {
-  ensure(Number.isSafeInteger(now) && now >= state.now)
+  ensure(Number.isSafeInteger(now) && now >= 0)
+  now = Math.max(now, state.now)
   const observed = state.observation
   let spend: LeadBudgetState['spend'] = state.executionIds.length === 0 ? 'known' : 'unknown'
   if (observed) {
@@ -41,26 +48,22 @@ export const leadBudgetProjection = (state: LeadBudgetLedger, now: number): Lead
     else if (now - observed.at > state.freshnessMs) spend = 'stale'
     else if (observed.usdMicros !== null && observed.usdMicros < state.workerUsdMicros) spend = 'ambiguous'
   }
-  if (state.requests.some(request => request.uncertain && request.settlement === null)) spend = 'unknown'
+  if (state.requests.some(request => request.uncertain) || state.rounds.some(round => round.startId !== null && round.executionId === null)) spend = 'unknown'
   return parseLeadBudgetState({ version: 1, revision: state.revision, caps: state.caps, leadUsdMicros: state.leadUsdMicros,
     workerUsdMicros: state.workerUsdMicros, reservedUsdMicros: state.reservedUsdMicros, roundsAdmitted: state.rounds.length, spend, stop: state.stop })
 }
 const finish = (state: LeadBudgetLedger): LeadBudgetLedger => {
-  let leadUsdMicros = 0, reservedUsdMicros = 0
-  for (const request of state.requests) {
-    if (request.settlement) leadUsdMicros += charge(request)
-    else reservedUsdMicros += charge(request)
-  }
+  const leadUsdMicros = state.settled.reduce((total, item) => total + item.usdMicros, 0)
+  const reservedUsdMicros = state.requests.reduce((total, request) => total + charge(request.reservation, null), 0)
   const total = leadUsdMicros + state.workerUsdMicros
-  const reason = total >= state.caps.usdMicros || total + reservedUsdMicros > state.caps.usdMicros ? 'budget' :
-    state.rounds.length >= state.caps.rounds ? 'rounds' : null
+  const reason = total >= state.caps.usdMicros ? 'budget' : state.rounds.length > state.caps.rounds ? 'rounds' : null
   const stop = state.stop ?? (reason ? { reason, revision: state.revision } : null)
   const next = { ...state, leadUsdMicros, reservedUsdMicros, roundsAdmitted: state.rounds.length, stop }
   return { ...next, ...leadBudgetProjection(next, state.now) }
 }
-const admit = (state: LeadBudgetLedger, now: number): void => {
+const admit = (state: LeadBudgetLedger, now: number, round = false): void => {
   const view = leadBudgetProjection(state, now)
-  ensure(view.stop === null && view.spend === 'known' && view.roundsAdmitted < view.caps.rounds &&
+  ensure(view.stop === null && view.spend === 'known' && (!round || view.roundsAdmitted < view.caps.rounds) &&
     view.leadUsdMicros + view.workerUsdMicros + view.reservedUsdMicros < view.caps.usdMicros)
 }
 /** Pure state transition; only journal admission may turn its result into an effect. */
@@ -69,65 +72,86 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
   if (event.type === 'initialize') {
     ensure(previous === null)
     return finish({ version: 1, revision: 1, logicalGoalId: event.logicalGoalId, caps: event.caps, freshnessMs: event.freshnessMs,
-      now: event.now, goalId: null, executionIds: [], requests: [], rounds: [], observations: { 'insight/goal': null, 'worker-samples': null },
+      now: event.now, goalId: null, executionIds: [], capsRevision: 1, requests: [], settled: [], rounds: [], observations: { 'insight/goal': null, 'worker-samples': null },
       observation: null, leadUsdMicros: 0, workerUsdMicros: 0, reservedUsdMicros: 0, roundsAdmitted: 0, spend: 'known', stop: null })
   }
   ensure(previous !== null)
   const state = previous!
-  ensure(event.now >= state.now)
-  let next = { ...state, revision: nextLeadRevision(state.revision), now: event.now }
+  const now = Math.max(state.now, event.now)
+  const duplicate = () => finish({ ...state, now })
+  let next = { ...state, revision: nextLeadRevision(state.revision), now }
   switch (event.type) {
-    case 'bind':
+    case 'bind': {
       ensure(state.goalId === null || state.goalId === event.goalId)
-      if (state.executionIds.includes(event.executionId)) return state
-      ensure(state.executionIds.length < LEAD_LIMITS.rounds)
-      next = { ...next, goalId: event.goalId, executionIds: [...state.executionIds, event.executionId] }; break
+      let rounds = state.rounds
+      if (event.startId) {
+        const started = state.rounds.find(round => round.startId === event.startId)
+        ensure(started && (started.executionId === null || started.executionId === event.executionId))
+        rounds = state.rounds.map(round => round === started ? { ...round, executionId: event.executionId } : round)
+      }
+      if (state.executionIds.includes(event.executionId) && same(rounds, state.rounds)) return duplicate()
+      ensure(state.executionIds.includes(event.executionId) || state.executionIds.length < LEAD_LIMITS.rounds)
+      next = { ...next, rounds, goalId: event.goalId, executionIds: [...new Set([...state.executionIds, event.executionId])] }; break
+    }
     case 'reserve': {
-      admit(state, event.now)
-      ensure(state.requests.length < 4096 && !state.requests.some(request => request.reservation.requestId === event.requestId))
-      const request = { reservation: event, settlement: null, uncertain: false }
-      ensure(state.leadUsdMicros + state.workerUsdMicros + state.reservedUsdMicros + charge(request) <= state.caps.usdMicros)
+      admit(state, now)
+      ensure(state.requests.length < 4096 && !state.requests.some(request => request.reservation.requestId === event.requestId) && !state.settled.some(item => item.id === event.requestId))
+      const request = { reservation: event, uncertain: false }
+      ensure(state.leadUsdMicros + state.workerUsdMicros + state.reservedUsdMicros + charge(event, null) <= state.caps.usdMicros)
       next = { ...next, requests: [...state.requests, request] }; break
     }
     case 'settle': case 'uncertain': {
-      const index = state.requests.findIndex(request => request.reservation.requestId === event.requestId)
-      ensure(index !== -1)
-      const request = state.requests[index]!
+      const settled = state.settled.find(item => item.id === event.requestId)
+      if (settled) { ensure(event.type === 'settle' && settled.digest === usageDigest(event)); return duplicate() }
+      const request = state.requests.find(request => request.reservation.requestId === event.requestId)
+      ensure(request)
       if (event.type === 'settle') {
-        ensure(event.inputTokens <= request.reservation.inputTokens && event.outputTokens <= request.reservation.maxOutputTokens)
-        if (request.settlement) { ensure(same({ ...request.settlement, now: event.now }, event)); return state }
-      } else { ensure(request.settlement === null); if (request.uncertain) return state }
-      next = { ...next, requests: state.requests.map((item, i) => i !== index ? item : event.type === 'settle'
-        ? { ...item, settlement: event, uncertain: false } : { ...item, uncertain: true }) }; break
+        next = { ...next, requests: state.requests.filter(item => item !== request),
+          settled: [...state.settled, { id: event.requestId, digest: usageDigest(event), usdMicros: charge(request!.reservation, event) }] }
+      } else {
+        if (request!.uncertain) return duplicate()
+        next = { ...next, requests: state.requests.map(item => item === request ? { ...item, uncertain: true } : item) }
+      }
+      break
     }
     case 'observe': {
       ensure(state.goalId === event.goalId && event.executionIds.every(id => state.executionIds.includes(id)))
       const prior = state.observations[event.source]
-      if (prior && event.revision === prior.revision) { ensure(same({ ...prior, now: event.now }, event)); return state }
+      if (prior && event.revision === prior.revision) { ensure(same({ ...prior, now: event.now }, event)); return duplicate() }
       ensure((!prior || event.revision > prior.revision) && (!state.observation || event.at >= state.observation.at))
       next = { ...next, observations: { ...state.observations, [event.source]: event }, observation: event,
         workerUsdMicros: Math.max(state.workerUsdMicros, event.usdMicros ?? 0) }; break
     }
+    case 'start':
+      if (state.rounds.some(round => round.startId === event.startId)) return duplicate()
+      admit(state, now, true)
+      next = { ...next, rounds: [...state.rounds, { executionId: null, roundId: 'first', startId: event.startId }] }; break
     case 'round':
       ensure(state.executionIds.includes(event.executionId))
-      if (state.rounds.some(round => round.executionId === event.executionId && round.roundId === event.roundId)) return state
-      admit(state, event.now)
+      if (state.rounds.some(round => round.executionId === event.executionId && round.roundId === event.roundId)) return duplicate()
+      admit(state, now, true)
       ensure(state.rounds.length < LEAD_LIMITS.rounds)
-      next = { ...next, rounds: [...state.rounds, { executionId: event.executionId, roundId: event.roundId }] }; break
+      next = { ...next, rounds: [...state.rounds, { executionId: event.executionId, roundId: event.roundId, startId: null }] }; break
     case 'tighten':
       ensure(event.caps.usdMicros <= state.caps.usdMicros && event.caps.rounds <= state.caps.rounds)
-      next = { ...next, caps: event.caps }; break
+      return applyLeadBudgetCaps({ ...state, now }, event.caps)
     case 'stop': next = { ...next, stop: state.stop ?? { reason: event.reason, revision: next.revision } }; break
   }
   return finish(next)
+}
+export const applyLeadBudgetCaps = (state: LeadBudgetLedger, caps: LeadBudgetState['caps']): LeadBudgetLedger => {
+  const revision = nextLeadRevision(state.revision)
+  const tightening = caps.usdMicros < state.caps.usdMicros && state.leadUsdMicros + state.workerUsdMicros + state.reservedUsdMicros > caps.usdMicros
+  return finish({ ...state, caps, revision, capsRevision: nextLeadRevision(state.capsRevision),
+    stop: state.stop ?? (tightening ? { reason: 'budget', revision } : null) })
 }
 /** Only a revision-bound window click can widen allowances; it cannot clear a stop. */
 export const applyLeadBudgetCard = (state: LeadBudgetLedger, decision: LeadCardDecision, card: LeadCard): LeadBudgetLedger => {
   const click = parseLeadCardDecisionFor(decision, card)
   ensure(card.type === 'budget-change')
   if (card.type !== 'budget-change' || click.choice === 'decline') return state
-  ensure(card.logicalGoalId === state.logicalGoalId && card.previous.revision === state.revision && same(card.previous.caps, state.caps))
-  return finish({ ...state, revision: nextLeadRevision(state.revision), caps: card.proposed })
+  ensure(card.logicalGoalId === state.logicalGoalId && card.previous.revision === state.capsRevision && same(card.previous.caps, state.caps))
+  return applyLeadBudgetCaps(state, card.proposed)
 }
 /** Validate reduced checkpoint data without trusting stored projections or losing IDs. */
 export const parseLeadBudgetLedger = (value: unknown): LeadBudgetLedger => {
@@ -142,24 +166,34 @@ export const parseLeadBudgetLedger = (value: unknown): LeadBudgetLedger => {
   for (const executionId of source.executionIds) parseLeadBudgetEvent({ version: 1, type: 'bind', now: source.now, goalId: source.goalId, executionId })
   ensure(source.goalId === null ? source.executionIds.length === 0 : source.executionIds.length > 0)
   ensure(Array.isArray(source.requests) && source.requests.length <= 4096)
+  ensure(Number.isSafeInteger(source.capsRevision) && source.capsRevision >= 1 && source.capsRevision <= source.revision)
   const ids = new Set<string>()
   for (const request of source.requests) {
-    ensure(request && Object.keys(request).sort().join() === ['reservation', 'settlement', 'uncertain'].sort().join() && typeof request.uncertain === 'boolean')
+    ensure(request && Object.keys(request).sort().join() === ['reservation', 'uncertain'].sort().join() && typeof request.uncertain === 'boolean')
     ensure(parseLeadBudgetEvent(request.reservation).type === 'reserve' && request.reservation.now <= source.now && !ids.has(request.reservation.requestId))
     ids.add(request.reservation.requestId)
-    if (request.settlement) {
-      const usage = parseLeadBudgetEvent(request.settlement)
-      ensure(usage.type === 'settle' && usage.requestId === request.reservation.requestId && usage.now <= source.now &&
-        usage.now >= request.reservation.now && usage.inputTokens <= request.reservation.inputTokens && usage.outputTokens <= request.reservation.maxOutputTokens && !request.uncertain)
-    }
+  }
+  ensure(Array.isArray(source.settled))
+  for (const item of source.settled) {
+    ensure(item && Object.keys(item).sort().join() === ['id', 'digest', 'usdMicros'].sort().join())
+    parseLeadBudgetEvent({ version: 1, type: 'uncertain', now: source.now, requestId: item.id })
+    ensure(!ids.has(item.id) && typeof item.digest === 'string' && /^(?:[0-9a-z]{1,6}\.){3}[0-9a-z]{1,6}$/.test(item.digest))
+    ensure(Number.isSafeInteger(item.usdMicros) && item.usdMicros >= 0 && item.usdMicros <= LEAD_LIMITS.maxUsdMicros)
+    ids.add(item.id)
   }
   ensure(Array.isArray(source.rounds) && source.rounds.length <= LEAD_LIMITS.rounds)
-  const rounds = new Set<string>()
+  const rounds = new Set<string>(), starts = new Set<string>()
   for (const round of source.rounds) {
-    ensure(round && Object.keys(round).sort().join() === ['executionId', 'roundId'].sort().join())
-    parseLeadBudgetEvent({ version: 1, type: 'round', now: source.now, ...round })
-    const key = JSON.stringify([round.executionId, round.roundId])
-    ensure(source.executionIds.includes(round.executionId) && !rounds.has(key)); rounds.add(key)
+    ensure(round && Object.keys(round).sort().join() === ['executionId', 'roundId', 'startId'].sort().join())
+    if (round.startId !== null) {
+      parseLeadBudgetEvent({ version: 1, type: 'start', now: source.now, startId: round.startId })
+      ensure(round.roundId === 'first' && !starts.has(round.startId)); starts.add(round.startId)
+    } else ensure(round.executionId !== null)
+    if (round.executionId !== null) {
+      parseLeadBudgetEvent({ version: 1, type: 'round', now: source.now, executionId: round.executionId, roundId: round.roundId })
+      const key = JSON.stringify([round.executionId, round.roundId])
+      ensure(source.executionIds.includes(round.executionId) && !rounds.has(key)); rounds.add(key)
+    }
   }
   ensure(source.observations && Object.keys(source.observations).sort().join() === ['insight/goal', 'worker-samples'].sort().join())
   for (const [key, observation] of Object.entries(source.observations)) if (observation !== null) {

@@ -264,11 +264,12 @@ test('Lead child control/event variants accept valid observations and cancellati
 test('Lead budget snapshots reject unsafe totals and inconsistent open admission', () => {
   const parse = validator('parseLeadBudgetState')
   for (const patch of [
-    { roundsAdmitted: 99 }, { reservedUsdMicros: caps.usdMicros },
+    { roundsAdmitted: 99 },
     { leadUsdMicros: caps.usdMicros }, { workerUsdMicros: Number.MAX_SAFE_INTEGER },
     { leadUsdMicros: 1_000_000_000_001 }, { stop: { reason: 'budget', revision: 2 } },
     { revision: -0 }, { reservedUsdMicros: -0 },
   ]) assert.throws(() => parse({ ...budget, ...patch }), protocol.ValidationError)
+  assert.doesNotThrow(() => parse({ ...budget, reservedUsdMicros: caps.usdMicros }))
   // Tightening below admitted rounds or observed spend must still be representable after latching a stop.
   assert.doesNotThrow(() => parse({ ...budget, roundsAdmitted: 99, stop: { reason: 'rounds', revision: 1 } }))
   assert.doesNotThrow(() => parse({ ...budget, workerUsdMicros: caps.usdMicros + 1, stop: { reason: 'budget', revision: 1 } }))
@@ -359,7 +360,7 @@ test('Lead rules carry actions only for action-tier methods', () => {
 test('Lead budget events validate identity money freshness and complete source qualifications', () => {
   const parse = validator('parseLeadBudgetEvent')
   const event = { version: 1, type: 'reserve', now: 100, requestId: 'request-1', inputTokens: 12, maxOutputTokens: 30,
-    inputUsdMicrosPerMillion: 3, outputUsdMicrosPerMillion: 5 }
+    inputUsdMicrosPerMillion: 3, outputUsdMicrosPerMillion: 5, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 4 }
   assert.deepEqual(parse(event), event)
   for (const patch of [{ version: 2 }, { now: -1 }, { requestId: '' }, { inputTokens: 1.5 }, { maxOutputTokens: -1 },
     { inputUsdMicrosPerMillion: null }, { outputUsdMicrosPerMillion: Number.MAX_SAFE_INTEGER }, { extra: true }])
@@ -389,4 +390,26 @@ test('unavailable worker spend can be recorded without inventing source identiti
   const event = { version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal', sourceIds: [],
     goalId: 'goal-1', executionIds: ['run-1'], quality: 'unknown', usdMicros: null }
   assert.deepEqual(validator('parseLeadBudgetEvent')(event), event)
+})
+
+test('cache usage and cache prices validate independently without weakening numeric refusals', () => {
+  const parse = validator('parseLeadBudgetEvent')
+  const reservation = { version: 1, type: 'reserve', now: 100, requestId: 'paid-1', inputTokens: 10, maxOutputTokens: 20,
+    inputUsdMicrosPerMillion: 3, outputUsdMicrosPerMillion: 5, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 4 }
+  assert.deepEqual(parse(reservation), reservation)
+  for (const patch of [{ cacheReadUsdMicrosPerMillion: -1 }, { cacheWriteUsdMicrosPerMillion: NaN }, { cacheReadUsdMicrosPerMillion: 'free' }])
+    assert.throws(() => parse({ ...reservation, ...patch }), protocol.ValidationError)
+  const usage = { version: 1, type: 'settle', now: 100, requestId: 'paid-1', inputTokens: 12, outputTokens: 21, cacheReadTokens: 20, cacheWriteTokens: 10 }
+  assert.deepEqual(parse(usage), usage)
+  for (const patch of [{ cacheReadTokens: -1 }, { cacheWriteTokens: 0.1 }, { cacheReadTokens: Infinity }])
+    assert.throws(() => parse({ ...usage, ...patch }), protocol.ValidationError)
+})
+
+test('reservations refuse missing cache prices rather than treating them as ordinary input', () => {
+  const event = { version: 1, type: 'reserve', now: 100, requestId: 'paid-1', inputTokens: 10, maxOutputTokens: 20,
+    inputUsdMicrosPerMillion: 3, outputUsdMicrosPerMillion: 5, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 4 }
+  for (const name of ['cacheReadUsdMicrosPerMillion', 'cacheWriteUsdMicrosPerMillion']) {
+    const missing: any = { ...event }; delete missing[name]
+    assert.throws(() => validator('parseLeadBudgetEvent')(missing), protocol.ValidationError)
+  }
 })

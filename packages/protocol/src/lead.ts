@@ -107,14 +107,19 @@ export interface LeadBudgetState {
  * total for this logical goal, not a delta; alternative sources must never be added. */
 export type LeadBudgetEvent = { readonly version: 1; readonly now: number } & (
   | { readonly type: 'initialize'; readonly logicalGoalId: string; readonly caps: LeadCaps; readonly freshnessMs: number }
-  | { readonly type: 'bind'; readonly goalId: string; readonly executionId: string }
+  | { readonly type: 'bind'; readonly goalId: string; readonly executionId: string; readonly startId?: string | null }
+  /** Reserve all potential input at the most expensive input/cache rate. */
   | { readonly type: 'reserve'; readonly requestId: string; readonly inputTokens: number; readonly maxOutputTokens: number;
-      readonly inputUsdMicrosPerMillion: number; readonly outputUsdMicrosPerMillion: number }
-  | { readonly type: 'settle'; readonly requestId: string; readonly inputTokens: number; readonly outputTokens: number }
+      readonly inputUsdMicrosPerMillion: number; readonly outputUsdMicrosPerMillion: number;
+      readonly cacheReadUsdMicrosPerMillion: number; readonly cacheWriteUsdMicrosPerMillion: number }
+  /** Actual inputTokens exclude the separately billed cache-read/write counts. */
+  | { readonly type: 'settle'; readonly requestId: string; readonly inputTokens: number; readonly outputTokens: number;
+      readonly cacheReadTokens?: number; readonly cacheWriteTokens?: number }
   | { readonly type: 'uncertain'; readonly requestId: string }
   | { readonly type: 'observe'; readonly at: number; readonly revision: number; readonly source: 'insight/goal' | 'worker-samples';
       readonly sourceIds: readonly string[]; readonly goalId: string; readonly executionIds: readonly string[];
       readonly quality: LeadBudgetState['spend']; readonly usdMicros: number | null }
+  | { readonly type: 'start'; readonly startId: string }
   | { readonly type: 'round'; readonly executionId: string; readonly roundId: string }
   | { readonly type: 'tighten'; readonly caps: LeadCaps }
   | { readonly type: 'stop'; readonly reason: LeadStopReason }
@@ -343,7 +348,7 @@ export const parseLeadBudgetState: Validator<LeadBudgetState> = (value, path = '
   // Tightening can put observed work above either cap. Such snapshots remain valid only
   // after latching stop; never erase observed spend/rounds to make the new cap fit.
   if (parsed.stop === null && (parsed.roundsAdmitted > parsed.caps.rounds ||
-    reported >= parsed.caps.usdMicros || reported + parsed.reservedUsdMicros > parsed.caps.usdMicros))
+    reported >= parsed.caps.usdMicros))
     fail(path, 'budget above allowance requires a stop latch')
   return parsed
 }
@@ -352,14 +357,16 @@ type BudgetOf<T extends LeadBudgetEvent['type']> = Extract<LeadBudgetEvent, { ty
 const tokenCount = integer(0, 100_000_000)
 const budgetEvent = tag<LeadBudgetEvent>({
   initialize: object<BudgetOf<'initialize'>>({ ...budgetBase, type: literalUnion('initialize'), logicalGoalId: id, caps: parseLeadCaps, freshnessMs: integer(1, 86_400_000) }),
-  bind: object<BudgetOf<'bind'>>({ ...budgetBase, type: literalUnion('bind'), goalId: id, executionId: id }),
+  bind: object<BudgetOf<'bind'>>({ ...budgetBase, type: literalUnion('bind'), goalId: id, executionId: id, startId: optional(nullable(id)) }),
   reserve: object<BudgetOf<'reserve'>>({ ...budgetBase, type: literalUnion('reserve'), requestId: id, inputTokens: tokenCount,
-    maxOutputTokens: tokenCount, inputUsdMicrosPerMillion: micros, outputUsdMicrosPerMillion: micros }),
-  settle: object<BudgetOf<'settle'>>({ ...budgetBase, type: literalUnion('settle'), requestId: id, inputTokens: tokenCount, outputTokens: tokenCount }),
+    maxOutputTokens: tokenCount, inputUsdMicrosPerMillion: micros, outputUsdMicrosPerMillion: micros,
+    cacheReadUsdMicrosPerMillion: micros, cacheWriteUsdMicrosPerMillion: micros }),
+  settle: object<BudgetOf<'settle'>>({ ...budgetBase, type: literalUnion('settle'), requestId: id, inputTokens: tokenCount, outputTokens: tokenCount, cacheReadTokens: optional(tokenCount), cacheWriteTokens: optional(tokenCount) }),
   uncertain: object<BudgetOf<'uncertain'>>({ ...budgetBase, type: literalUnion('uncertain'), requestId: id }),
   observe: object<BudgetOf<'observe'>>({ ...budgetBase, type: literalUnion('observe'), at: integer(), revision, source: literalUnion('insight/goal', 'worker-samples'),
     sourceIds: list(id, 128, 0, item => item), goalId: id, executionIds: list(id, LEAD_LIMITS.rounds, 0, item => item),
     quality: literalUnion('known', 'unknown', 'stale', 'partial', 'ambiguous'), usdMicros: nullable(micros) }),
+  start: object<BudgetOf<'start'>>({ ...budgetBase, type: literalUnion('start'), startId: id }),
   round: object<BudgetOf<'round'>>({ ...budgetBase, type: literalUnion('round'), executionId: id, roundId: id }),
   tighten: object<BudgetOf<'tighten'>>({ ...budgetBase, type: literalUnion('tighten'), caps: parseLeadCaps }),
   stop: object<BudgetOf<'stop'>>({ ...budgetBase, type: literalUnion('stop'), reason: stopReason }),
@@ -368,7 +375,7 @@ export const parseLeadBudgetEvent: Validator<LeadBudgetEvent> = (value, path = '
   const parsed = budgetEvent(value, path)
   if (parsed.type === 'observe' && (parsed.at > parsed.now || parsed.quality === 'known' && (parsed.usdMicros === null || parsed.sourceIds.length === 0)))
     fail(path, 'invalid spend observation')
-  return parsed
+  return Object.fromEntries(Object.entries(parsed).filter(([, item]) => item !== undefined)) as LeadBudgetEvent
 }
 const cardBase = { version, id, revision, contractDigest: digest }
 type CardOf<T extends LeadCard['type']> = Extract<LeadCard, { type: T }>

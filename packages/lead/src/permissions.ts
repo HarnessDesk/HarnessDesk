@@ -151,10 +151,10 @@ const decideParsedPermission = (request: LeadPermissionRequest, context: LeadPer
       return deny('Plan consent is stale or differs from the approved contract', 'consent')
     if (context.budget === null) return deny('Management requires known budget headroom', 'budget')
     const budget = parseLeadBudgetState(context.budget)
-    if (budget.stop !== null || budget.spend !== 'known' || budget.caps.usdMicros > contract.caps.usdMicros ||
-      budget.caps.rounds > contract.caps.rounds || budget.roundsAdmitted >= budget.caps.rounds ||
+    if (budget.stop !== null || budget.spend !== 'known' ||
+      request.method === 'flow/start-goal' && budget.roundsAdmitted >= budget.caps.rounds ||
       budget.leadUsdMicros + budget.workerUsdMicros + budget.reservedUsdMicros >= budget.caps.usdMicros)
-      return deny('Budget is stopped, exhausted, unknown or outside the approved caps', 'budget')
+      return deny('Budget is stopped, exhausted or unknown', 'budget')
     if (request.method === 'flow/start-goal') {
       const step = contract.steps.find(step => step.id === request.start?.id)
       if (!step || !same(step, request.start) || step.assignments.some(assignment => ['publish', 'merge'].includes(assignment.ceiling)))

@@ -382,6 +382,9 @@ test('pending plan remains fenced across reconciliation checkpoint and reopen th
   const reopened = await open(home)
   t.after(() => reopened.close())
   const recovered = await createLeadJournal(reopened)
+  await recovered.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId: 'run-1' })
+  await recovered.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal', sourceIds: ['corpus-1'],
+    goalId: 'goal-1', executionIds: ['run-1'], quality: 'known', usdMicros: 0 })
   const next = { ...request, start: contract.steps[1]! }
   const blocked = await recovered.execute({ id: 'blocked', request: next, context, stepId: 'second' }, async () => ({ value: null,
     identity: { correlationId: 'blocked', runId: 'must-not-exist', teamId: 'team-1' } }))
@@ -576,7 +579,7 @@ test('budget reservations rounds observations and stop survive disk checkpoint a
   await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1',
     caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 50 })
   await journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'planning-1', inputTokens: 10, maxOutputTokens: 20,
-    inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000 })
+    inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 1_000_000, cacheWriteUsdMicrosPerMillion: 1_000_000 })
   await journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId: 'run-1' })
   await journal.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal',
     sourceIds: ['corpus-1'], goalId: 'goal-1', executionIds: ['run-1'], quality: 'known', usdMicros: 0 })
@@ -592,8 +595,14 @@ test('budget reservations rounds observations and stop survive disk checkpoint a
   const reopened: any = await createLeadJournal(recovered)
   assert.equal(reopened.state.phase, 'stopped')
   assert.equal(reopened.state.budget.stop.reason, 'budget')
+  assert.ok(reopened.state.stopEffectsPending)
+  let stops = 0
+  await reopened.runStopEffects(async () => { stops++ })
+  assert.equal(stops, 1)
+  assert.equal(reopened.state.stopEffectsPending, null)
+  assert.equal((await recovered.read()).at(-1).type, 'stop-effects-done')
   assert.equal(reopened.state.budget.requests.length, 1)
   assert.equal(reopened.state.budget.rounds.length, 1)
   await assert.rejects(reopened.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'planning-2', inputTokens: 0, maxOutputTokens: 1,
-    inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1 }))
+    inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 1 }))
 })
