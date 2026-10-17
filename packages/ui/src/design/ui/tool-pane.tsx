@@ -345,14 +345,16 @@ const ToolPaneGuest = ({
 
 /**
  * A manual document tab for native guests that must remain mounted. Its close
- * button is its last child and ends on the tab's own end, so the tab keeps no
- * end padding: a button pulled outward past it drew its hover fill outside the tab.
+ * button is its last child, pulled to the end so its × sits on the tab's text
+ * column, as far in as the title starts. The tab's end padding is the same as
+ * its start and larger than the pull, so the button's hover fill stays inside
+ * the tab.
  */
 const ToolPaneDocumentTab = ({ className, ...props }: React.ComponentProps<'span'>) => (
   <span
     data-slot="tool-pane-document-tab"
     className={cn(
-      'flex h-(--hd-control-h) shrink-0 cursor-pointer items-center gap-1.5 rounded-(--hd-radius-sm) py-0 pr-0 pl-2 text-base leading-(--hd-line) whitespace-nowrap text-(--hd-secondary-foreground)',
+      'flex h-(--hd-control-h) shrink-0 cursor-pointer items-center gap-1.5 rounded-(--hd-radius-sm) py-0 pr-2 pl-2 text-base leading-(--hd-line) whitespace-nowrap text-(--hd-secondary-foreground)',
       'hover:bg-(--hd-hover) hover:text-(--hd-foreground)',
       'data-[active]:bg-(--hd-muted) data-[active]:text-(--hd-foreground) data-[active]:shadow-[inset_0_0_0_1px_var(--hd-border)]',
       // A tab in a strip the person orders draws its move the way every sortable item does.
