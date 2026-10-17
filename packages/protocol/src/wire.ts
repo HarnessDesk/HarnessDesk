@@ -1303,6 +1303,16 @@ export interface HostMethods {
         readonly endpoint: string
         readonly apiKey: string
       }
+      /**
+       * What to call the new account on screen.
+       *
+       * Used by an agent whose account cannot be named from its credential:
+       * the desk reads that an Antigravity row is signed in to "a Google
+       * account" and no more, so the person's own name for it is the only
+       * thing that tells two of them apart. Ignored by an agent that can
+       * answer for itself — Codex names its accounts from `auth.json`.
+       */
+      readonly name?: string
     }
     result: { readonly runtime: RuntimeId; readonly info: RuntimeInfo }
   }

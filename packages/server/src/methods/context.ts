@@ -459,6 +459,8 @@ export interface HostContext {
     add(
       runtime: RuntimeId,
       gateway?: HostParams<'runtime/account/add'>['gateway'],
+      /** The person's own name for the account, when the agent cannot name it. */
+      name?: string,
     ): Promise<{ runtime: RuntimeId; info: RuntimeInfo }>
     remove(runtime: RuntimeId): Promise<void>
     /** Gets a changed secret into the agent that needs it; says which way it went. */

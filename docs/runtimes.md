@@ -283,11 +283,18 @@ acp`, and reads its key from `~/.dsh/.credentials.yaml`. See
   sign-in hands back no URL — the server calls `webbrowser.open` on its own
   auth URL from inside the call — so the window waits for the flow to finish
   rather than offering a link.
-- **A home that does not hold the account:** On macOS, Antigravity's OAuth
-  token lives in the keychain, not under `GEMINI_HOME`. Pointing
-  `GEMINI_HOME` at an empty folder still opens a session as the previous
-  account — the server refreshes the keychain token silently — so a second
-  home is not a second account there.
+- **A home that does not hold the account, unless it is told to:** On macOS,
+  Antigravity's OAuth token lives in the keychain, not under `GEMINI_HOME`.
+  Pointing `GEMINI_HOME` at an empty folder still opens a session as the
+  previous account — the server refreshes the keychain token silently — so a
+  second home *alone* is not a second account there (#749, measured
+  2026-09-17). `AGY_ACP_FORCE_FILE_STORAGE=1` changes that: with it set, the
+  server keeps its token in `<GEMINI_HOME>/antigravity-acp/acp_token.json`,
+  and a `GEMINI_HOME` of its own is an account of its own. Measured with two
+  Google accounts on 2026-10-17: each row's token stayed in its own folder,
+  both survived a restart, signing one out left the other signed in, and the
+  keychain was never touched. This pair is how the desk makes a second
+  Antigravity account — a row of its own, over its own folder.
 - **A listing that is not a status:** `opencode auth list` names the
   providers OpenCode holds a credential for and counts them; it carries no
   account, no address and no `--json`. Read as a status it says "signed
@@ -630,7 +637,28 @@ active account. Other supported runtimes share this single-identity model.
 Supporting multiple accounts therefore requires running an independent
 runtime process with a dedicated credential directory. In HarnessDesk,
 multiple accounts and gateway accounts are currently implemented for
-Codex; other runtimes operate with their single workstation identity.
+Codex, and multiple accounts for Antigravity; other runtimes operate with
+their single workstation identity.
+
+The two work by different mechanisms, because the agents keep their
+credentials differently.
+
+For **Codex**, an extra account is a symlink farm under
+`~/.harnessdesk/accounts/` — see below.
+
+For **Antigravity**, an extra account is an **agent row of its own** running
+the same ACP server with two environment variables of its own:
+`AGY_ACP_FORCE_FILE_STORAGE=1`, which moves the Google token out of the macOS
+keychain and into a file, and `GEMINI_HOME=<stateDir>/accounts/<row id>`, a
+folder only that row uses (measured with two Google accounts on 2026-10-17).
+Its conversations are its own, in `conversations/` under that folder, rather
+than shared the way a Codex account's are — the trade the keychain forces.
+The row is **named by the person**, because the desk cannot read which Google
+account it is signed in to; the name field is the only thing that tells two
+of them apart. The agent's original row is untouched: it keeps the keychain
+and the default home. Removing an extra account signs it out, unregisters the
+row, and then moves its folder to the **Trash** — never deletes it, because
+it holds a live token and a person removing the wrong row wants it back.
 
 What that independence needs on the ACP side is already in place: an
 agent's account commands — status, sign-in and sign-out — run with the

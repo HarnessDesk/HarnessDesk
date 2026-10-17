@@ -7,6 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Antigravity can hold more than one account** — Add another account makes a second row over a folder of its own, with the token kept in that folder so two Google accounts stay signed in side by side; each account keeps its own conversations, is named by you, and can be removed on its own, which signs it out and moves its folder to the Trash.
 - **An agent's account commands answer for its own row** — status, sign-in and sign-out run with the environment the row starts the agent with and the copy of the CLI its start chose, so a row that moves the agent's home shows and signs out its own account, not the default one.
 - **What the Library changed now has its own page**, reached from the Library's menu or from the toast that follows each change, instead of a list at the foot of the page.
 - **Agents nobody has asked yet say "Not checked yet"** instead of "needs no account here", and are listed as Ready. Antigravity's Gemini API key is a key field the agent switches to, and its Agent Platform method shows the setup step it needs instead of a button that could only fail.

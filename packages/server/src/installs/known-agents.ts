@@ -587,11 +587,14 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
       // and the server never reads Gemini CLI's `google_accounts.json`.
       credentials: ['acp_token.json'],
       config: ['settings.json'],
-      // And `GEMINI_HOME` therefore does not separate two Google accounts on
-      // macOS: pointed at an empty folder, the server still refreshes the
-      // last account's token out of the keychain and opens a session as it
-      // (#749, measured 2026-09-17). Only `settings.json` follows the home.
-      note: 'The server is not part of the Antigravity IDE bundle; the registry download is the only copy, and its Google sign-in is its own — neither the IDE’s nor the agy CLI’s keychain session counts. On macOS the token is in the keychain, so GEMINI_HOME moves the settings but not the account.',
+      // And a home alone does not separate two Google accounts on macOS:
+      // pointed at an empty folder, the server still refreshes the last
+      // account's token out of the keychain and opens a session as it
+      // (#749, measured 2026-09-17). `AGY_ACP_FORCE_FILE_STORAGE=1` is what
+      // moves the token into the home instead, and with it a `GEMINI_HOME` of
+      // its own is an account of its own — measured with two Google accounts
+      // on 2026-10-17, and how the desk makes a second one.
+      note: 'The server is not part of the Antigravity IDE bundle; the registry download is the only copy, and its Google sign-in is its own — neither the IDE’s nor the agy CLI’s keychain session counts. On macOS the token is in the keychain unless AGY_ACP_FORCE_FILE_STORAGE=1 moves it into antigravity-acp/acp_token.json under GEMINI_HOME.',
     },
     auth: {
       kind: 'browser',
