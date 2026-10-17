@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { parseLeadAcceptanceContract, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
+import { parseClientMessage, parseLeadAcceptanceContract, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
 import * as lead from '../src/index.js'
 
 const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Repair check',
@@ -609,7 +609,7 @@ test('ordinary header-like ids and short token-like project names remain valid o
 })
 
 test('pagination token names stay literal while credential-shaped pagination values still require a broker', async () => {
-  const variables = { page_token: 'cursor-1', next_token: 'cursor-2', continuation_token: 'cursor-3', page_access_token: 'cursor-4' }
+  const variables = { page_token: 'cursor-1', next_token: 'cursor-2', continuation_token: 'cursor-3', page_cursor: 'cursor-4', next_cursor: 'cursor-5', continuation_cursor: 'cursor-6' }
   for (const configured of [false, true]) {
     let calls = 0
     const journal = await open(memory(), configured ? { brokerReference: () => { calls++; return 'broker:must-not-be-used' } } : {})
@@ -645,4 +645,86 @@ test('declining the first plan remains a durable terminal decision', async () =>
   assert.equal(reopened.state.phase, 'declined')
   assert.equal(reopened.state.contract, null)
   assert.equal((await reopened.execute({ id: 'denied', request, context, stepId: 'implement' }, async () => { throw new Error('must not dispatch') })).outcome, 'denied')
+})
+
+for (const source of ['flow-seat-validator', 'raw-optional']) test(`undefined object properties from ${source} seats are omitted before offering approving and executing`, async () => {
+  // agent/create uses flowSeatValidator directly; retain its actual returned seat.
+  const parsed = parseClientMessage({ id: 1, method: 'agent/create', params: {
+    name: 'Builder', ceiling: 'edit', seat: { runtime: 'fixture' }, to: 'user',
+  } }) as any
+  const seat = source === 'flow-seat-validator' ? parsed.params.seat : { runtime: 'fixture', model: undefined }
+  assert.ok(Object.hasOwn(seat, 'model'))
+  assert.equal(seat.model, undefined)
+  const storage = memory(), journal = await open(storage)
+  const proposed = { ...contract, steps: [{ ...contract.steps[0]!, assignments: [{ ...contract.steps[0]!.assignments[0]!, seat }] }] }
+  await journal.setPolicy(policy)
+  const offered = await journal.offerCard({ ...plan, contract: proposed })
+  assert.deepEqual(offered.contract.steps[0].assignments[0].seat, { runtime: 'fixture' })
+  await journal.decideCard(click, 200)
+  assert.equal((await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
+    identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))).outcome, 'succeeded')
+  assert.equal((await open(storage)).state.steps[0].state, 'started')
+})
+
+test('undefined array entries and holes remain refused without latching the writer', async () => {
+  for (const assertions of [[undefined], new Array(1)]) {
+    const storage = memory(), journal = await open(storage)
+    await journal.setPolicy(policy)
+    await assert.rejects(journal.offerCard({ ...plan, contract: { ...contract, assertions } }))
+    await journal.stop()
+    assert.equal((await open(storage)).state.phase, 'stopped')
+  }
+})
+
+test('approval durably supersedes equal-revision sibling plans without a pending fence', async () => {
+  const { journal, storage, original, next } = await runningTwoStepPlan()
+  const revised = { ...original, revision: 3, digest: 'c'.repeat(64) }
+  await journal.offerCard({ ...plan, id: 'plan-left', contractDigest: revised.digest, contract: revised })
+  await journal.offerCard({ ...plan, id: 'plan-right', contractDigest: revised.digest, contract: revised })
+  await journal.decideCard({ ...click, cardId: 'plan-right', contractDigest: revised.digest }, 300)
+  const reopened = await open(storage)
+  assert.ok(reopened.state.decidedCards.includes('plan-left:1'))
+  assert.equal(reopened.state.phase, 'running')
+  await assert.rejects(reopened.decideCard({ ...click, cardId: 'plan-left', contractDigest: revised.digest }, 300))
+  assert.equal((await reopened.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+    identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
+})
+
+test('pagination prefixes never exempt credential variable names from brokering', async () => {
+  const names = ['next_api_key', 'page_secret', 'next_password', 'page_access_token']
+  for (const name of names) {
+    const journal = await open(memory())
+    await journal.setPolicy(policy)
+    await assert.rejects(journal.offerCard({ ...plan, contract: { ...contract,
+      steps: [{ ...contract.steps[0]!, variables: { [name]: 'SYNTHETIC_INPUT' } }] } }), /broker-reference/)
+    await journal.stop()
+  }
+  const brokered: string[] = [], storage = memory()
+  const journal = await open(storage, { digestContract: () => 'b'.repeat(64), brokerReference: (_value: string, name: string) => {
+    brokered.push(name); return `broker:${name}`
+  } })
+  await journal.setPolicy(policy)
+  const offered = await journal.offerCard({ ...plan, contract: { ...contract,
+    steps: [{ ...contract.steps[0]!, variables: Object.fromEntries(names.map(name => [name, 'SYNTHETIC_INPUT'])) }] } })
+  assert.deepEqual(brokered, names)
+  assert.deepEqual(offered.contract.steps[0].variables, Object.fromEntries(names.map(name => [name, `broker:${name}`])))
+  assert.ok(!JSON.stringify(storage.records).includes('SYNTHETIC_INPUT'))
+})
+
+test('execute captures caller attempt id and step id once at entry', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  let idReads = 0, stepReads = 0
+  const input = { request, context, get id() { return `attempt-${++idReads}` },
+    get stepId() { return ++stepReads === 1 ? 'implement' : 'different-step' } }
+  const result = journal.execute(input, async (_call: unknown, correlationId: string) => ({ value: null,
+    identity: { correlationId, runId: 'run-1', teamId: 'team-1' } }))
+  const entryReads = [idReads, stepReads]
+  // Drain a failed old implementation too, so this probe never leaks a rejection.
+  const outcome = await result.catch((error: unknown) => error)
+  assert.deepEqual(entryReads, [1, 1])
+  assert.deepEqual([idReads, stepReads], [1, 1])
+  assert.equal(outcome.outcome, 'succeeded')
+  const records = storage.records.filter(record => ['attempt', 'decision', 'dispatch-start', 'result'].includes(record.type))
+  assert.deepEqual(records.map(record => record.id), Array(4).fill('attempt-1'))
+  assert.equal(journal.state.steps[0].attemptId, 'attempt-1')
 })

@@ -94,8 +94,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
             consent: { contractDigest: card!.contract.digest, contractRevision: card!.contract.revision,
               policyRevision: card!.contract.policyRevision, expiresAt: event.expiresAt! },
             steps: contract.steps.map(step => locked.find(existing => existing.id === step.id) ?? { id: step.id, state: 'pending', attemptId: null }),
-            decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(other => other.type === 'plan' &&
-              other.contract.revision < contract.revision).map(cardKey)])] }
+            decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(other => other.type === 'plan' && other.id !== card!.id &&
+              other.contract.revision <= contract.revision).map(cardKey)])] }
         } else state = { ...state, phase: state.contract === null ? 'declined' : managementPhase(state) }
       } else if (card!.type === 'permission-change') {
         ensure(state.policy)

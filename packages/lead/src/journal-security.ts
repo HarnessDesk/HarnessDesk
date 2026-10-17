@@ -35,6 +35,8 @@ const snapshotLeadData = (input: unknown): unknown => {
       const descriptor = descriptors[key]!
       if (typeof key !== 'string' || !Object.hasOwn(descriptor, 'value')) throw new Error('lead-journal-plain-data')
       if (array && (!Number.isInteger(Number(key)) || Number(key) < 0 || Number(key) >= length || String(Number(key)) !== key)) throw new Error('lead-journal-array-shape')
+      // Match JSON's optional object fields; array entries still require a value.
+      if (!array && descriptor.value === undefined) continue
       Object.defineProperty(copy, key, { value: capture(descriptor.value), enumerable: true, writable: true, configurable: true })
     }
     active.delete(value)
@@ -48,7 +50,7 @@ const tokens = new RegExp(tokenShape.source, 'g')
 const headers = /\b(Cookie|Authorization|x-api-key):[ \t]*(?:(?:Bearer|Basic|Token)[ \t]+)?[^\s,;]+/gi
 const assignments = /\b(api[_-]?key|access[_-]?token|token|secret|password)\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi
 const secretName = /^(?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|token|secret|password|cookie|authorization|bearer)$/i
-const paginationName = /^(?:page_|next_|continuation_)/i
+const paginationName = /^(?:page|next|continuation)_(?:token|cursor)$/i
 const reference = /^broker:[A-Za-z0-9._:/-]{1,200}$/
 const mask = (text: string) => text.replace(tokens, '[redacted]').replace(headers, '$1: [redacted]').replace(assignments, '$1=[redacted]')
 export const prepareLeadJournalData = (value: unknown, security: LeadJournalSecurity = {}): unknown => {

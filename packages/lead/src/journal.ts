@@ -189,8 +189,9 @@ export class LeadJournal {
   resolveRecovery(): Promise<void> { return this.#queue(() => this.#append({ type: 'recovery-resolved' })) }
   stop(): Promise<void> { return this.#queue(() => this.#append({ type: 'stop' })) }
   execute(input: LeadToolAttempt, dispatch: LeadDispatch): Promise<{ decision: LeadPermissionDecision; outcome: LeadAttemptOutcome; value?: unknown }> {
+    const { id, stepId } = input
     return this.#queue(async () => {
-      if (this.#state.attempts.has(input.id) || this.#state.runs.some(run => run.correlationId === input.id)) throw new Error('lead-journal-duplicate-attempt')
+      if (this.#state.attempts.has(id) || this.#state.runs.some(run => run.correlationId === id)) throw new Error('lead-journal-duplicate-attempt')
       let capturedContext: LeadPermissionContext | null
       try { capturedContext = structuredClone(input.context) } catch { capturedContext = null }
       let request: LeadPermissionRequest
@@ -201,14 +202,14 @@ export class LeadJournal {
       const tier = clientTierFor(method, raw.params)
       const action = Object.hasOwn(CLIENT_ACTION_TIERS, method) && typeof params.action === 'string'
         ? ['abandon', 'done'].includes(params.action) ? params.action : 'invalid' : null
-      await this.#append({ type: 'attempt', id: input.id, correlationId: input.id, method, action, arguments: summarizeLeadArguments(raw.params),
-        kind: tier === 'read' ? 'read' : tier === 'run' ? 'mutation' : 'invalid', stepId: input.stepId ?? null,
+      await this.#append({ type: 'attempt', id, correlationId: id, method, action, arguments: summarizeLeadArguments(raw.params),
+        kind: tier === 'read' ? 'read' : tier === 'run' ? 'mutation' : 'invalid', stepId: stepId ?? null,
         policyRevision: this.#state.policy?.revision ?? null, projectPolicyRevision: capturedContext?.projectPolicy?.revision ?? null, contractRevision: this.#state.contract?.revision ?? null })
       const approved = this.#state.contract && this.#state.consent ? { contract: this.#state.contract, consent: this.#state.consent,
         runIds: this.#state.runs.map(run => run.runId), teamIds: this.#state.teams } : null
       let decision = capturedContext === null ? refusal('invalid-input', 'Invalid permission context')
         : decideLeadPermission(request, { ...capturedContext, desk: this.#state.policy ?? capturedContext.desk, approved })
-      const step = this.#state.steps.find(step => step.id === input.stepId)
+      const step = this.#state.steps.find(step => step.id === stepId)
       const cancellation = method === 'flow/execution/stop' || method === 'team/intent' && action === 'abandon'
       // Status reads remain available after Stop so the final report can observe desk state.
       if (tier !== 'read' && !cancellation && (['stopped', 'accepted', 'declined'].includes(this.#state.phase) || hasPendingLeadPlan(this.#state) ||
@@ -216,23 +217,23 @@ export class LeadJournal {
         decision = refusal('start', 'Management is stopped pending recovery or user action')
       if (method === 'flow/start-goal' && (!step || step.state !== 'pending' || request.start?.id !== step.id ||
         this.#state.steps.find(step => step.state !== 'started')?.id !== step.id)) decision = refusal('start', 'Step is unapproved, out of order or already admitted')
-      await this.#append({ type: 'decision', id: input.id, effect: decision.effect, reason: decision.floor ?? 'policy', rule: decision.rule })
-      await this.#append({ type: 'dispatch-start', id: input.id, dispatched: decision.effect === 'allow' })
+      await this.#append({ type: 'decision', id, effect: decision.effect, reason: decision.floor ?? 'policy', rule: decision.rule })
+      await this.#append({ type: 'dispatch-start', id, dispatched: decision.effect === 'allow' })
       if (decision.effect !== 'allow' || decision.call === null) {
         const outcome = decision.effect === 'ask' ? 'asked' : decision.floor === 'invalid-input' ? 'malformed' : 'denied'
-        await this.#append({ type: 'result', id: input.id, outcome, identity: null })
+        await this.#append({ type: 'result', id, outcome, identity: null })
         return { decision, outcome }
       }
       let result: LeadDispatchResult
-      try { result = await dispatch(decision.call, input.id) } catch {
+      try { result = await dispatch(decision.call, id) } catch {
         const outcome = tier === 'read' || cancellation ? 'failed' : 'uncertain'
-        await this.#append({ type: 'result', id: input.id, outcome, identity: null })
+        await this.#append({ type: 'result', id, outcome, identity: null })
         return { decision, outcome }
       }
       let identity: LeadRunIdentity | null = null
       try { identity = method !== 'flow/start-goal' || result.identity === null ? null : parseLeadRunIdentity(result.identity) } catch { /* An unprovable start is uncertain. */ }
-      const outcome = method === 'flow/start-goal' && (identity === null || identity.correlationId !== input.id) ? 'uncertain' : 'succeeded'
-      await this.#append({ type: 'result', id: input.id, outcome, identity: outcome === 'succeeded' ? identity : null })
+      const outcome = method === 'flow/start-goal' && (identity === null || identity.correlationId !== id) ? 'uncertain' : 'succeeded'
+      await this.#append({ type: 'result', id, outcome, identity: outcome === 'succeeded' ? identity : null })
       return { decision, outcome, value: result?.value }
     })
   }
