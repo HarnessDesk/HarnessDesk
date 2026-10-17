@@ -332,3 +332,13 @@ test('model defaults are ids the client can send', () => {
   for (const id of [lead.LEAD_MESSAGES_DEFAULTS.model, lead.LEAD_MESSAGES_DEFAULTS.observerModel, lead.LEAD_MESSAGES_DEFAULTS.hardPlanModel])
     assert.match(id, /^claude-[a-z]+-\d+-\d+$/)
 })
+
+test('JSON-shaped plain text cannot carry an escaped credential', async () => {
+  const escaped = key.split('').map(char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`).join('')
+  for (const text of [`{"note":"${escaped}"}`, `["${escaped}"]`, `"${escaped}"`]) {
+    const s = await setup([message([{ type: 'text', text }])])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.equal(result.status, 'invalid-response')
+    assert.ok(!JSON.stringify(result).includes(key))
+  }
+})

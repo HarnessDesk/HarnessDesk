@@ -156,20 +156,22 @@ const usage = (value: unknown): MessagesUsage => {
 }
 /** Text that parses as an object naming `type: 'lead-output'` is the structured
  * assistant-output envelope; anything else, brace or not, is ordinary text. A named
- * envelope must then be valid. Proposals are data only; their validators confer no
- * authority to execute them. */
-const proposals = (text: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[] } => {
-  let candidate: unknown = null
-  if (text.trimStart().startsWith('{')) try { candidate = JSON.parse(text) } catch { /* prose */ }
-  if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate) || (candidate as Record<string, unknown>).type !== 'lead-output')
-    return { text, plan: null, cards: [] }
+ * envelope must then be valid. Whatever the text decodes to is returned as `decoded`
+ * so the caller's credential scan sees escaped strings too. Proposals are data only;
+ * their validators confer no authority to execute them. */
+const proposals = (text: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[]; decoded: unknown } => {
+  let decoded: unknown = null
+  try { decoded = JSON.parse(text) } catch { /* prose */ }
+  if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || (decoded as Record<string, unknown>).type !== 'lead-output')
+    return { text, plan: null, cards: [], decoded }
+  const candidate = decoded
   const source = object(candidate, ['version', 'type', 'text', 'plan', 'cards'])
   if (source.version !== 1) return fail()
   if (source.cards !== undefined && (!Array.isArray(source.cards) || source.cards.length > LIMIT.blocks)) return fail()
   const cards = source.cards === undefined ? [] : (source.cards as unknown[]).map(value => parseLeadCard(value))
   if (new Set(cards.map(card => card.id)).size !== cards.length) fail()
   return { text: source.text === undefined ? '' : string(source.text),
-    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards }
+    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards, decoded }
 }
 /** Cancellation also wins when a broken injected operation ignores its signal. */
 const cancellable = async <T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> => {
@@ -253,7 +255,9 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
         // A reply of the wrong shape proves nothing about billing either.
         if (!Number.isSafeInteger(reply.status) || reply.retryAfter !== undefined && typeof reply.retryAfter !== 'string' ||
           reply.processing !== undefined && reply.processing !== 'not-started' && reply.processing !== 'unknown') fail()
-        response = reply as unknown as MessagesHttpResponse
+        // Read each field once: the checked values are the ones acted on.
+        response = Object.freeze({ status: reply.status as number, body: reply.body as string,
+          retryAfter: reply.retryAfter as string | undefined, processing: reply.processing as MessagesHttpResponse['processing'] })
       } catch { return uncertain() }
       if ((response.status === 429 || response.status === 529) && response.processing === 'not-started') {
         const delay = retryDelay(response.retryAfter, now())
@@ -299,6 +303,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       if (parsed.stop_reason === 'tool_use' && !content.some(item => item.type === 'tool_use')) fail()
       if (parsed.stop_reason !== 'tool_use' && parsed.stop_reason !== 'max_tokens' && content.some(item => item.type === 'tool_use')) fail()
       output = proposals(string(content.filter(item => item.type === 'text').map(item => item.text).join('\n')))
+      // Scans the decoded text as well, so an escaped key cannot hide in JSON-shaped prose.
       safeJson(output)
     } catch { return { status: 'invalid-response', reason: 'lead-messages-output', usage: used } }
     const uses = content.flatMap((use, index) => use.type === 'tool_use' ? [{ use, index }] : [])
