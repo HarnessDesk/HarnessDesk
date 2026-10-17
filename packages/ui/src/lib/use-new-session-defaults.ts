@@ -22,9 +22,7 @@ export const useNewSessionDefaults = (runtime: RuntimeId, active: boolean) => {
       if (current()) { setOptions(loaded); setError(null) }
     } catch (failure) {
       if (!current()) return
-      // A signed-out agent's refusal is what its page already says (#1775).
-      setError(explainedBySignIn(failure, account) ? null
-        : failure instanceof Error ? failure.message : 'The runtime could not read its new-conversation defaults. Try again.')
+      setError(failure instanceof Error ? failure.message : 'The runtime could not read its new-conversation defaults. Try again.')
       const choices = await store.newSessionDefaultChoicesFor(runtime).catch(() => [])
       if (current()) setOptions(choices)
     }
@@ -37,7 +35,10 @@ export const useNewSessionDefaults = (runtime: RuntimeId, active: boolean) => {
     return () => { generation.current++ }
   }, [active, store, runtime, health])
 
-  return { options, error,
+  // A signed-out agent's refusal is what its page already says (#1775). Judged
+  // as it is drawn, not when it arrived: the account often turns signed out
+  // just after the refusal that made it so.
+  return { options, error: error !== null && explainedBySignIn(error, account) ? null : error,
     pick: (id: string, value: OptionValue) => { void read(() => store.setNewSessionDefault(runtime, id, value), error !== null) },
     clear: (id: string) => { void read(() => store.clearNewSessionDefault(runtime, id)) },
   }

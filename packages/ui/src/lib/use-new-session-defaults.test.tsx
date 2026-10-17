@@ -42,6 +42,7 @@ const warningFor = async (account: AccountStatus | undefined, said: string): Pro
 it.each([
   ['signed out', { accounts: [], signInMethods: [] }],
   ['not heard from yet', undefined],
+  ['not checked yet', { accounts: [], signInMethods: [], unchecked: true }],
 ] as const)('draws no warning for a sign-in refusal while the agent is %s', async (_, account) => {
   expect(await warningFor(account, refusal)).toBe('no warning')
 })
@@ -52,4 +53,24 @@ it('still warns about a sign-in refusal from an agent the desk shows signed in',
 
 it('still warns about any other failure from a signed-out agent', async () => {
   expect(await warningFor({ accounts: [], signInMethods: [] }, 'The agent could not read its settings.')).toBe('The agent could not read its settings.')
+})
+
+it('drops the warning once the agent turns signed out after its refusal', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  // The adapter records the refusal and reports the account only afterwards,
+  // so the warning arrives while the desk still shows the agent signed in.
+  let snapshot = { ...store.getSnapshot(), accountsByRuntime: { [runtime]: { accounts: [{ kind: 'oauth' as const, label: 'dev@example.com' }], signInMethods: [] } } }
+  const listeners = new Set<() => void>()
+  Object.assign(store, {
+    getSnapshot: () => snapshot,
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+  })
+  vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error(refusal))
+  vi.spyOn(store, 'newSessionDefaultChoicesFor').mockResolvedValue([])
+  await act(async () => root.render(<StoreProvider store={store}><Probe /></StoreProvider>))
+  expect(container.textContent).toBe(refusal)
+
+  snapshot = { ...snapshot, accountsByRuntime: { [runtime]: { accounts: [], signInMethods: [] } } }
+  await act(async () => { for (const listener of listeners) listener() })
+  expect(container.textContent).toBe('no warning')
 })
