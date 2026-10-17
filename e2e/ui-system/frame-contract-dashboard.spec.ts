@@ -1,4 +1,4 @@
-import { expectPageJourney } from './frame-page-contract'
+import { expectPageJourney, expectTitleOnWordmarkLine } from './frame-page-contract'
 import { expect, test } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { PREVIEW_ROOT } from '../../packages/ui/src/preview/sidebar-fixture'
@@ -289,7 +289,10 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
       const body = page.locator('[data-page-destination="dashboard"]:visible [data-slot="page"][data-width="wide"]')
       await expect(body).toBeVisible()
       const measure = await body.evaluate(node => { const box = node.getBoundingClientRect(), css = getComputedStyle(node), parent = node.parentElement!.getBoundingClientRect(); return { width: box.width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight), available: parent.width, padding: [css.paddingLeft, css.paddingRight, css.paddingTop].map(parseFloat), center: (box.left + box.right - parent.left - parent.right) / 2 } })
-      expect(measure.padding).toEqual([FRAME.page.gutter, FRAME.page.gutter, FRAME.page.gutter])
+      // Dashboard opens with its title, so the page starts at the body top and
+      // the title stands on the sidebar wordmark's line.
+      expect(measure.padding).toEqual([FRAME.page.gutter, FRAME.page.gutter, 0])
+      await expectTitleOnWordmarkLine(page, body)
       expect(measure.width).toBeCloseTo(Math.min(FRAME.page.wide, measure.available - 2 * FRAME.page.gutter), 0)
       expect(Math.abs(measure.center)).toBeLessThanOrEqual(1)
       const bar = page.locator('[data-slot="top-bar"]:visible')

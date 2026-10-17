@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { applyPageFrameActions, type PageFrameActions } from './frame-page-actions'
@@ -25,6 +25,24 @@ export const expectSettingsChrome = async (page: Page, width: number): Promise<v
   await expect(bar.getByRole('button', { name: 'Search everything', exact: true })).toHaveCount(0)
   await expect(bar.getByRole('button', { name: 'Back', exact: true })).toHaveCount(0)
   await expect(bar.getByRole('button', { name: 'Forward', exact: true })).toHaveCount(0)
+}
+/**
+ * The title of a page that opens with it centres in a bar-tall row at the
+ * body's top, and, while the sidebar shows, its top is the wordmark's top.
+ */
+export const expectTitleOnWordmarkLine = async (page: Page, column: Locator): Promise<void> => {
+  const title = column.locator('[data-page-head] h1').first()
+  const head = column.locator('[data-page-head]').first()
+  const [titleBox, headBox, columnBox] = [(await title.boundingBox())!, (await head.boundingBox())!, (await column.boundingBox())!]
+  expect(headBox.height, 'the title row is one bar tall').toBeGreaterThanOrEqual(FRAME.bar.height)
+  expect(Math.abs(headBox.y - columnBox.y), 'the title row starts at the body top').toBeLessThanOrEqual(1)
+  expect(Math.abs(titleBox.y + titleBox.height / 2 - (headBox.y + headBox.height / 2)), 'the title centres in its row').toBeLessThanOrEqual(1)
+  const wordmark = page.locator('[data-left-brand] [data-role="wordmark"]:visible')
+  if (await wordmark.count()) {
+    const mark = (await wordmark.first().boundingBox())!
+    expect(Math.abs(titleBox.y - mark.y), 'the title stands on the wordmark line').toBeLessThanOrEqual(0.5)
+    expect(titleBox.height).toBeCloseTo(mark.height, 0)
+  }
 }
 export const measureDestination = async (page: Page, query: string, widthKind: 'reading' | 'wide' | 'canvas', theme: 'light' | 'dark', width: number, actions: PageFrameActions = {}): Promise<void> => {
   await installFramePreviewFixture(page)
@@ -80,10 +98,19 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
         }) }
   })
   const gutter = widthKind === 'canvas' ? FRAME.page.canvasGutter : FRAME.page.gutter
-  const topInset = actions.expectedTopInset === 'page'
-    ? FRAME.page.gutter - FRAME.page.canvasGutter + 1
+  // A page that opens with its title starts at the body's top, its title row
+  // one bar tall, so the title stands on the sidebar wordmark's line
+  // (docs/decisions.md, "A page title stands on the wordmark's line").
+  const opensWithTitle = await column.evaluate(node => {
+    const lead = (element: Element | null) => element?.matches('[data-slot="page-options"]') && !!element.querySelector(':scope > [data-page-head]')
+    const first = node.firstElementChild
+    return !!lead(first) || !!lead(first?.firstElementChild ?? null)
+  })
+  const topInset = opensWithTitle ? 0
+    : actions.expectedTopInset === 'page' ? FRAME.page.gutter - FRAME.page.canvasGutter + 1
     : gutter
   expect([value.left, value.right, value.top]).toEqual([gutter, gutter, topInset])
+  if (opensWithTitle) await expectTitleOnWordmarkLine(page, column)
   const expected = widthKind === 'canvas' ? value.available - 2 * gutter
     : Math.min(FRAME.page[widthKind], value.available - 2 * gutter)
   expect(value.width).toBeCloseTo(expected, 0)

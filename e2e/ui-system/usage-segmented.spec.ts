@@ -255,7 +255,8 @@ for (const [look, theme] of [
       }
     })
     await testInfo.attach('dashboard-reading-layout', { body: JSON.stringify(measurement, null, 2), contentType: 'application/json' })
-    expect(measurement.gutter).toEqual([FRAME.page.gutter, FRAME.page.gutter, FRAME.page.gutter])
+    // The top is 0: Dashboard opens with its title, which stands on the wordmark's line.
+    expect(measurement.gutter).toEqual([0, FRAME.page.gutter, FRAME.page.gutter])
     expect(measurement.width).toBeCloseTo(Math.min(FRAME.page.wide, measurement.available - 2 * FRAME.page.gutter), 0)
     await expect(dashboard.locator('[data-slot="page-head"], [data-slot="app-window-nav"]')).toHaveCount(0)
     expect(measurement.figures.find(figure => figure.reading === '0%')?.color).toBe(measurement.danger)
