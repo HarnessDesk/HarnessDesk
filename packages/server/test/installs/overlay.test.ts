@@ -127,12 +127,15 @@ test("Antigravity's row gets its key, tied to the method it answers, and a step 
   assert.match(overlay.authMethodNotes?.['agent-platform'] ?? '', /GOOGLE_CLOUD_PROJECT/)
 })
 
-test('every key the table declares reaches its row, and a row that names its own keeps them', () => {
+test('only a key whose use was measured reaches its row, and a row that names its own keeps them', () => {
+  /* Gemini CLI's own sign-in setting outranks an environment key, and telling
+     it to switch clears its Google credential — so its key, like the rest
+     not yet measured, is not offered as if it signed the agent in. */
   for (const id of ['gemini', 'cline', 'codebuddy-code', 'kimi', 'grok-build', 'github-copilot-cli']) {
     const known = knownAgent(id)!
+    assert.ok((known.auth.secrets?.length ?? 0) > 0, `${id} still describes a key`)
     const overlay = knowledgeOverlay({ id, name: known.name, command: known.cli.commands[0]! }, known, { env: {} })
-    assert.deepEqual(overlay.secrets, known.auth.secrets, `${id} carries the key its entry describes`)
-    assert.ok(overlay.secrets?.every((secret) => secret.optional), `${id} has another way in, so its key is optional`)
+    assert.equal(overlay.secrets, undefined, `${id}'s key waits for a measurement`)
   }
   const own = [{ env: 'DEEPSEEK_API_KEY', label: 'DeepSeek API key' }]
   const dsh = knowledgeOverlay({ id: 'dsh', name: 'DeepSeek', command: 'dsh', secrets: own }, knownAgent('dsh'), { env: {} })

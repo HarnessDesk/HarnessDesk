@@ -370,6 +370,54 @@ test('a key stored for an agent that must be told to use it is used after the re
   }
 })
 
+test('a key taken away from an agent told to use it leaves it needing a sign-in, not unchecked', async () => {
+  let key: string | undefined = 'placeholder-key'
+  const runtime = keyed(() => key)
+  await runtime.start()
+  try {
+    key = undefined
+    assert.equal(await runtime.reloadSecrets(), 'restarted')
+    const deadline = Date.now() + 5000
+    let status = await runtime.getAccount()
+    while (status.refusal === undefined && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      status = await runtime.getAccount()
+    }
+    assert.equal(status.unchecked, undefined, 'it was pointed at that key, so it is not waiting to be asked')
+    assert.match(status.refusal ?? '', /key was removed/)
+    assert.deepEqual(
+      status.signInMethods.map((method) => method.id),
+      ['apiKey:HD_FAKE_KEY', 'acp:google', 'acp:platform'],
+      'every way back in, and the desk presses none of them itself',
+    )
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a key stored while the agent was starting is not asked for until a process has it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-keyrace-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const log = join(dir, 'auth.log')
+  // The spawn reads the store first and finds nothing; the key lands just
+  // after, while the handshake is still under way.
+  let reads = 0
+  const runtime = keyed(() => (reads++ === 0 ? undefined : 'placeholder-key'), { FAKE_ACP_AUTH_LOG: log })
+  const starting = runtime.start()
+  assert.equal(await runtime.reloadSecrets(), 'restarted')
+  await starting
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    assert.equal(existsSync(log), false, 'the running process never had the key')
+    assert.equal(await runtime.reloadSecrets(), 'restarted')
+    const deadline = Date.now() + 5000
+    while (!existsSync(log) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), ['api-key'], 'told once the key reached a process')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('an agent that refuses a session for want of a sign-in says so, in its declared methods', async () => {
   const runtime = bare({ FAKE_ACP_AUTH_REQUIRED: '1' })
   await runtime.start()

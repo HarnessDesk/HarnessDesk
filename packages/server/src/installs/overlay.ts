@@ -10,10 +10,12 @@ import { commandName } from './service.js'
  * What the desk lays over a row for an agent it knows: today's name where
  * the row still carries a retired one, a reader for who the agent is signed
  * in as, a reader for which vendor its models come from, the store an agent that counts usage off the wire keeps it in,
- * and the keys the desk can hold for it. The keys were declared in the table
- * and never reached a row the ACP registry wrote, so Gemini CLI, Cline and
- * the rest never offered the field their entry describes (#1760); a row that
- * already names its own — a template's — keeps them.
+ * and the keys the desk can hold for it. A key reaches the row only once how
+ * the agent takes it has been measured — named by the ACP method it answers
+ * (#1760). The rest of the table's keys stay descriptions until then: an
+ * optional key beside a sign-in the agent already chose may simply be
+ * ignored, and the card would claim a key sign-in that never happened. A row
+ * that already names its own keys — a template's — keeps them.
  *
  * One function, so the path that spawns agents and the test that holds it
  * read the same thing — the spawn path is a closure inside the host's own
@@ -30,6 +32,7 @@ export const knowledgeOverlay = (
   } = {},
 ): Pick<AcpAgentConfig, 'name' | 'coAuthor' | 'resolveIdentity' | 'resolveProvider' | 'usageRecord' | 'account' | 'sharedSessionProcess' | 'secrets' | 'authMethodNotes'> => {
   const env = options.env ?? { ...process.env, ...agent.env }
+  const measuredKeys = agent.secrets ? [] : (known?.auth?.secrets ?? []).filter((secret) => secret.acpMethod !== undefined)
   const resolveIdentity = identityReaderFor(known, {
     ...(agent.args ? { args: agent.args } : {}),
     ...(agent.cwd ? { cwd: agent.cwd } : {}),
@@ -55,7 +58,7 @@ export const knowledgeOverlay = (
     ...(resolveProvider ? { resolveProvider } : {}),
     ...(usageRecord ? { usageRecord } : {}),
     ...(account ? { account } : {}),
-    ...(!agent.secrets && known?.auth?.secrets ? { secrets: known.auth.secrets } : {}),
+    ...(measuredKeys.length > 0 ? { secrets: measuredKeys } : {}),
     ...(known?.auth?.acpMethodNotes ? { authMethodNotes: known.auth.acpMethodNotes } : {}),
   }
 }

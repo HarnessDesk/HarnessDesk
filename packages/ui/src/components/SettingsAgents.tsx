@@ -157,11 +157,10 @@ export const agentReadiness = (
   // not answered; every other one is waiting on one.
   const relevant = siblings.filter((entry) => entry.capabilities.account)
   if (relevant.length === 0) return 'ready'
-  // An answer that says nobody has asked yet is no answer either (#1759).
-  return relevant.every((entry) => {
-    const status = view.accountsByRuntime[entry.id]
-    return status !== undefined && !status.unchecked
-  }) ? 'signin' : 'unknown'
+  if (!relevant.every((entry) => view.accountsByRuntime[entry.id] !== undefined)) return 'unknown'
+  // An agent nobody has asked yet has not said it is signed out, and only a
+  // session can ask it — so it reads as `readinessOf` reads it (#1759).
+  return relevant.some((entry) => view.accountsByRuntime[entry.id]?.unchecked) ? 'ready' : 'signin'
 }
 
 /**

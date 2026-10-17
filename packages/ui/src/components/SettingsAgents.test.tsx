@@ -710,6 +710,8 @@ it("an agent nobody has asked yet is not called signed out or accountless", asyn
     runtimes: [...ROSTER.runtimes, delta],
     accountsByRuntime: { ...ROSTER.accountsByRuntime, delta: { accounts: [], signInMethods: [], unchecked: true } },
   })
+  // Only a session asks it, so it is listed where a session can be given to it.
+  expect(grouped()['Ready']).toContain('Delta')
   await act(async () => line('Delta').click())
   expect(document.body.textContent).toContain('Not checked yet')
   expect(document.body.textContent).not.toContain('Signed out')

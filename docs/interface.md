@@ -832,7 +832,10 @@ the notice returns to the strip while the conversation panel is hidden.
 A runtime that has not been asked yet — an ACP agent before its first session,
 or an idle one whose status command has not run — is **Not checked yet**, not
 signed out and not accountless: its conversation opens normally, its seat stays
-offered, and Sign in keeps the ways in it declared below that line.
+offered and it is listed as Ready, and Sign in keeps the ways in it declared
+below that line. An agent the desk told to use a stored key is not unchecked
+once that key is removed: it reads as needing a sign-in again, and the desk
+presses none of its other ways in for it.
 
 *The textarea carries intent; chips carry context and capability.* Full design
 in [extending.md](extending.md).

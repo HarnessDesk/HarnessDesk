@@ -110,8 +110,11 @@ export interface KnownAgent {
     readonly terminal?: string
     /**
      * An API key the desk can hold and inject, for agents that take one.
-     * Carried onto the agent's row by `installs/overlay.ts`; `optional` marks a
-     * key beside another way in, so a missing one is not "signed out".
+     * `installs/overlay.ts` carries a key onto the agent's row only once it
+     * names the ACP method it answers (`acpMethod`) — that is, once how the
+     * agent takes it has been measured; the rest describe the agent until
+     * then. `optional` marks a key beside another way in, so a missing one is
+     * not "signed out".
      */
     readonly secrets?: readonly AcpSecretSpec[]
     /** ACP methods the agent declares that need a step no button here can take; see `AcpAgentConfig.authMethodNotes`. */
