@@ -1,10 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 
 import type { Account } from '@harnessdesk/protocol'
 
+import { readForeignDatabase } from '../ledger/foreign-db.js'
 import type { KnownAgent } from './known-agents.js'
 
 /**
@@ -186,22 +186,48 @@ const openCodeIdentity = (context: IdentityContext): Account | null => {
  * table, one row per sign-in, `active` for the one each provider uses — an
  * OpenCode Console sign-in lands only there. Measured on opencode 2.0.32 on
  * 2026-10-17, reading the integration and time columns only (#1776). The
- * provider ids are read and nothing else: `value` is the credential. Opened
- * read-only, so a database OpenCode is writing is never locked or changed;
- * one that is missing, unreadable or shaped otherwise names nobody.
+ * provider ids are read and nothing else: `value` is the credential.
+ *
+ * The file is OpenCode's, in WAL mode, and a plain read-only open would
+ * create `-shm` and `-wal` beside it, so it is read the way the ledger reads
+ * one: `readForeignDatabase` opens a quiet file without writing a byte and
+ * copies a live one to read. The account is asked for on every read of a
+ * row, so the answer is kept until the database or its side files change
+ * size or time, and a live OpenCode's database is not copied each time. One
+ * that is missing, unreadable or shaped otherwise names nobody.
  */
 const openCodeSignIns = (path: string): readonly string[] => {
-  if (!existsSync(path)) return []
-  let db: DatabaseSync | null = null
+  const key = openCodeStamp(path)
+  if (key === null) return []
+  const kept = openCodeRead.get(path)
+  if (kept?.key === key) return kept.providers
+  let providers: readonly string[]
   try {
-    db = new DatabaseSync(path, { readOnly: true })
-    const rows = db.prepare('SELECT DISTINCT integration_id AS provider FROM credential WHERE active = 1').all()
-    return rows.flatMap((row) => typeof row['provider'] === 'string' ? [row['provider']] : [])
+    providers = readForeignDatabase(path, (db) =>
+      db.prepare('SELECT DISTINCT integration_id AS provider FROM credential WHERE active = 1').all()
+        .flatMap((row) => typeof row['provider'] === 'string' ? [row['provider']] : [])) ?? []
   } catch {
-    return []
-  } finally {
-    db?.close()
+    providers = []
   }
+  openCodeRead.set(path, { key, providers })
+  return providers
+}
+
+const openCodeRead = new Map<string, { readonly key: string; readonly providers: readonly string[] }>()
+
+/** The database and its side files' sizes and times; null when there is no database. */
+const openCodeStamp = (path: string): string | null => {
+  const parts: string[] = []
+  for (const file of [path, `${path}-wal`, `${path}-shm`]) {
+    try {
+      const stat = statSync(file)
+      parts.push(`${stat.size}:${stat.mtimeMs}`)
+    } catch {
+      if (file === path) return null
+      parts.push('-')
+    }
+  }
+  return parts.join('|')
 }
 
 /**

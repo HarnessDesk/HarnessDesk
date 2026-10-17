@@ -152,6 +152,8 @@ test('a row that moves its home is offered a sign-in for that home, or told ther
   const store = await tempStore(t, [
     { id: 'opencode', name: 'OpenCode', command: '/opt/homebrew/bin/opencode', args: ['acp'], env: { XDG_DATA_HOME: '/work/rows/opencode two' } },
     { id: 'hermes', name: 'Hermes', command: '/opt/homebrew/bin/hermes', args: ['acp'], env: { HERMES_HOME: '/work/rows/hermes' } },
+    { id: 'hermes-two', name: 'Hermes two', command: '/opt/homebrew/bin/hermes', args: ['acp'], env: { HERMES_HOME: "/work/it's here" } },
+    { id: 'hermes-tilde', name: 'Hermes tilde', command: '/opt/homebrew/bin/hermes', args: ['acp'], env: { HERMES_HOME: '~/hermes' } },
     { id: 'copilot', name: 'Copilot', command: '/opt/homebrew/bin/copilot', args: ['--acp'] },
   ])
   const service = new InstallService({
@@ -164,11 +166,14 @@ test('a row that moves its home is offered a sign-in for that home, or told ther
       '/opt/homebrew/bin/copilot': '1.0.0',
     }),
   })
-  const [opencode, hermes, copilot] = store.configs()
+  const [opencode, hermes, quoted, tilde, copilot] = store.configs()
   const moved = await service.describe(opencode!)
   assert.equal(moved?.signIn?.terminal, undefined, 'a command that signs in the default home is not offered')
   assert.match(moved?.signIn?.note ?? '', /background service/)
   assert.equal((await service.describe(hermes!))?.signIn?.terminal, 'HERMES_HOME=/work/rows/hermes hermes setup')
+  assert.equal((await service.describe(quoted!))?.signIn?.terminal, "HERMES_HOME='/work/it'\\''s here' hermes setup")
+  // The row holds a literal `~`, which a shell would expand: typed as it is held.
+  assert.equal((await service.describe(tilde!))?.signIn?.terminal, "HERMES_HOME='~/hermes' hermes setup")
   assert.equal((await service.describe(copilot!))?.signIn?.terminal, 'copilot login', 'a row that keeps the default home is unchanged')
 })
 

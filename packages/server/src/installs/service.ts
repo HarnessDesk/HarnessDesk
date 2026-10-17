@@ -474,6 +474,10 @@ const signInFor = (known: KnownAgent, config: AcpAgentConfig): NonNullable<Insta
   return { terminal: `${variable}=${shellWord(moved)} ${terminal}`, note: known.auth.note }
 }
 
-/** A value as one word for a POSIX shell: as it is when that is safe, single-quoted otherwise. */
+/**
+ * A value as one word for a POSIX shell: as it is when that is safe,
+ * single-quoted otherwise. A leading `~` is quoted too: the shell would
+ * expand it, and the row holds it literally.
+ */
 const shellWord = (value: string): string =>
-  /^[\w@%+=:,./~-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`
+  /^[\w@%+=:,./-][\w@%+=:,./~-]*$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`
