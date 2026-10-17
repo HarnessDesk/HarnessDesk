@@ -345,7 +345,8 @@ test('a quarantine block fences starts while reads and cancellation remain avail
   assert.equal((await recovered.execute({ id: 'start-2', request: { ...request, start: second }, context, stepId: 'second' }, async () => { throw new Error('must not start') })).decision.effect, 'deny')
   const cancel = { ...request, method: 'flow/execution/stop', params: { run: 'run-1', reason: 'Stop work' }, runId: 'run-1', start: null }
   assert.equal((await recovered.execute({ id: 'stop-1', request: cancel, context }, async () => ({ value: null, identity: null }))).outcome, 'succeeded')
-  assert.equal((await recovered.execute({ id: 'status-1', request: { ...request, method: 'library/usage', params: {}, start: null }, context }, async () => ({ value: 1, identity: null }))).outcome, 'succeeded')
+  await recovered.stop()
+  assert.equal((await recovered.execute({ id: 'status-1', request: { ...request, method: 'flow/execution', params: { run: 'run-1' }, runId: 'run-1', start: null }, context }, async () => ({ value: 1, identity: null }))).outcome, 'succeeded')
 })
 
 

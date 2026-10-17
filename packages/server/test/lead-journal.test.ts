@@ -27,12 +27,12 @@ test('disk journal serializes appends and recovery quarantines a truncated final
   await fs.appendFile(file, '{"version":1,"seq":2')
   const recovered = await open(home)
   t.after(() => recovered.close())
-  assert.equal((await recovered.read()).length, 1)
+  assert.equal((await recovered.read()).length, 2)
   assert.equal(recovered.report.truncatedTail, true)
   assert.ok(recovered.report.quarantine)
   assert.equal(await fs.readFile(recovered.report.quarantine, 'utf8'), '{"version":1,"seq":2')
   assert.ok((await fs.readFile(file, 'utf8')).endsWith('\n'))
-  await recovered.append(parseLeadJournalRecord({ version: 1, seq: 2, type: 'stop' }))
+  await recovered.append(parseLeadJournalRecord({ version: 1, seq: 3, type: 'stop' }))
 })
 
 test('credentials and auth headers in arguments or provider failures never reach disk', async t => {
@@ -125,7 +125,7 @@ test('fsync failure prevents dispatch even when the attempted line was written',
   const recovered = await open(home)
   t.after(() => recovered.close())
   const owner = await createLeadJournal(recovered)
-  assert.equal((await owner.recover(async () => null))[0]?.type, 'not-dispatched')
+  assert.equal((await owner.recover(async () => []))[0]?.type, 'not-dispatched')
 })
 
 test('an OS-released writer lease permits recovery after process death', { timeout: 10_000 }, async t => {
@@ -148,4 +148,190 @@ test('an OS-released writer lease permits recovery after process death', { timeo
   const recovered = await open(home)
   t.after(() => recovered.close())
   assert.deepEqual(await recovered.read(), [])
+})
+
+test('a transition refusal does not poison the disk writer', async t => {
+  const home = await scratch(t), disk = await open(home)
+  t.after(() => disk.close())
+  await assert.rejects(disk.append(parseLeadJournalRecord({ version: 1, seq: 1, type: 'result', id: 'unknown', outcome: 'succeeded', identity: null })))
+  await disk.append(parseLeadJournalRecord({ version: 1, seq: 1, type: 'stop' }))
+  assert.equal((await disk.read())[0].type, 'stop')
+})
+
+test('a hash-valid final frame without newline preserves its Stop', async t => {
+  const home = await scratch(t), disk = await open(home)
+  await disk.append(parseLeadJournalRecord({ version: 1, seq: 1, type: 'stop' }))
+  await disk.close()
+  const file = join(home, 'lead', 'thread-1.ndjson'), body = await fs.readFile(file)
+  await fs.truncate(file, body.length - 1)
+  const recovered = await open(home)
+  t.after(() => recovered.close())
+  assert.equal((await createLeadJournal(recovered)).state.phase, 'stopped')
+  assert.equal(recovered.report.truncatedTail, false)
+  assert.ok((await fs.readFile(file, 'utf8')).endsWith('\n'))
+})
+
+test('torn tails block management durably and reports separate historical quarantines', async t => {
+  const home = await scratch(t), disk = await open(home)
+  await disk.append(parseLeadJournalRecord({ version: 1, seq: 1, type: 'policy', policy }))
+  await disk.close()
+  const file = join(home, 'lead', 'thread-1.ndjson')
+  await fs.appendFile(file, '{"record":')
+  const recovered = await open(home), journal = await createLeadJournal(recovered)
+  t.after(() => recovered.close())
+  assert.equal(journal.state.recoveryBlocked, true)
+  assert.equal(recovered.report.truncatedTail, true)
+  await journal.stop()
+  await recovered.close()
+  const again = await open(home)
+  t.after(() => again.close())
+  const owner = await createLeadJournal(again)
+  assert.equal(owner.state.recoveryBlocked, true)
+  assert.equal(again.report.truncatedTail, false)
+  assert.equal(again.report.quarantine, null)
+  assert.equal(again.report.historicalQuarantines.length, 1)
+  await owner.resolveRecovery()
+  assert.equal(owner.state.recoveryBlocked, false)
+})
+
+test('removing durable whole frames is detected by the lease head anchor', async t => {
+  const home = await scratch(t), disk = await open(home)
+  await disk.append(parseLeadJournalRecord({ version: 1, seq: 1, type: 'policy', policy }))
+  await disk.append(parseLeadJournalRecord({ version: 1, seq: 2, type: 'stop' }))
+  await disk.close()
+  const file = join(home, 'lead', 'thread-1.ndjson'), body = await fs.readFile(file, 'utf8')
+  await fs.writeFile(file, body.slice(0, body.indexOf('\n') + 1))
+  let unexpectedlyOpened: any
+  await assert.rejects(async () => { unexpectedlyOpened = await open(home); await unexpectedlyOpened.close() })
+})
+
+test('host canaries are refused before append without poisoning Stop', async t => {
+  const home = await scratch(t), canary = 'synthetic-window-token-91b0c2d3'
+  const disk = await (server as any).openLeadFileJournal(home, 'thread-1', { canaries: [canary] })
+  t.after(() => disk.close())
+  const journal = await createLeadJournal(disk)
+  await assert.rejects(journal.setPolicy({ ...policy, rules: [{ id: canary, method: 'client/hello', action: null, project: null, effect: 'deny' }] }))
+  await journal.stop()
+  assert.ok(!(await fs.readFile(join(home, 'lead', 'thread-1.ndjson'), 'utf8')).includes(canary))
+})
+
+test('checkpoints compact finished attempts and continue the chain after reopen', async t => {
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  const request = { method: 'library/usage', params: {}, project: null, runId: null, start: null }
+  const context = { desk: policy, projectPolicy: null, project: null, approved: null, budget: null, now: 0, policyInterpretation: 'idle' as const }
+  for (let i = 0; i < 300; i++) await journal.execute({ id: `read-${i}`, request, context }, async () => ({ value: null, identity: null }))
+  await disk.close()
+  const file = join(home, 'lead', 'thread-1.ndjson')
+  assert.equal(JSON.parse((await fs.readFile(file, 'utf8')).split('\n')[0]!).record.type, 'checkpoint')
+  const reopened = await open(home)
+  t.after(() => reopened.close())
+  const recovered = await createLeadJournal(reopened)
+  assert.equal(recovered.state.seq, 1200)
+  assert.ok(recovered.state.attempts.size <= 64)
+  await recovered.stop()
+  assert.equal(recovered.state.phase, 'stopped')
+})
+
+const seedReads = async (home: string, count: number) => {
+  const { createHash } = await import('node:crypto')
+  let previous = '0'.repeat(64), seq = 0
+  const frames: string[] = []
+  for (let n = 0; n < count; n++) for (const event of [
+    { type: 'attempt', id: `read-${n}`, correlationId: `read-${n}`, method: 'library/usage', action: null,
+      kind: 'read', stepId: null, policyRevision: null, projectPolicyRevision: null, contractRevision: null, arguments: { type: 'object', size: 0, fields: [] } },
+    { type: 'decision', id: `read-${n}`, effect: 'allow', reason: 'policy', rule: null },
+    { type: 'dispatch-start', id: `read-${n}`, dispatched: true },
+    { type: 'result', id: `read-${n}`, outcome: 'succeeded', identity: null },
+  ]) {
+    const record = parseLeadJournalRecord({ version: 1, seq: ++seq, ...event })
+    const checksum = createHash('sha256').update(JSON.stringify({ record, previous })).digest('hex')
+    frames.push(JSON.stringify({ record, previous, checksum }) + '\n'); previous = checksum
+  }
+  await fs.mkdir(join(home, 'lead'), { recursive: true })
+  await fs.writeFile(join(home, 'lead', 'thread-1.ndjson'), frames.join(''))
+}
+
+test('checkpoint replacement recovers crashes before and after atomic rename', async t => {
+  for (const boundary of ['before', 'after']) {
+    const home = await scratch(t)
+    await seedReads(home, 256)
+    const rename = fs.rename
+    const fault = t.mock.method(fs, 'rename', async (...args: Parameters<typeof fs.rename>) => {
+      if (boundary === 'after') await rename(...args)
+      throw new Error('simulated rotation death')
+    })
+    await assert.rejects(open(home))
+    fault.mock.restore()
+    const disk = await open(home)
+    t.after(() => disk.close())
+    const journal = await createLeadJournal(disk)
+    assert.equal(journal.state.seq, 1024, boundary)
+    await journal.stop()
+    assert.equal(journal.state.phase, 'stopped')
+  }
+})
+
+test('sealed audit corruption fails closed after compaction', async t => {
+  const home = await scratch(t)
+  await seedReads(home, 256)
+  const disk = await open(home)
+  await disk.close()
+  const segment = (await fs.readdir(join(home, 'lead'))).find(name => name.includes('.sealed-'))!
+  await fs.appendFile(join(home, 'lead', segment), 'corruption')
+  await assert.rejects(open(home))
+})
+
+test('normal state admission reserves space for plan approval Stop and status records', async t => {
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  t.after(() => disk.close())
+  await journal.setPolicy(policy)
+  const contract = { version: 1 as const, revision: 1, digest: 'a'.repeat(64), goal: 'Synthetic capacity probe',
+    project: { id: 'project-demo', path: '/workspace/demo' }, policyRevision: 1,
+    steps: [{ id: 'implement', title: 'Implement', flow: 'lead-reviewed-result', sourceRevision: 'source-1',
+      variables: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`input-${i}`, 'v'.repeat(16_384)])),
+      attendance: 'attended' as const, assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' as const }, ceiling: 'edit' as const }] }],
+    assertions: [{ id: 'check', kind: 'check' as const, description: 'Checks pass' }], caps: { usdMicros: 500, rounds: 3 } }
+  let last = ''
+  for (let i = 0; i < 12; i++) {
+    last = `plan-${i}`
+    await journal.offerCard({ version: 1, id: last, revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+  }
+  await assert.rejects(journal.offerCard({ version: 1, id: 'over-capacity', revision: 1, type: 'plan', contractDigest: contract.digest, contract }))
+  // Approval duplicates the active contract into reduced state. That reserved growth
+  // must not make terminal writes or the final status report fail validation.
+  await journal.decideCard({ version: 1, cardId: last, cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, 200)
+  await journal.stop()
+  assert.equal((await journal.execute({ id: 'status-1', request: { method: 'library/usage', params: {}, project: null, runId: null, start: null },
+    context: { desk: policy, projectPolicy: null, project: null, approved: null, budget: null, now: 0, policyInterpretation: 'idle' } },
+    async () => ({ value: null, identity: null }))).outcome, 'succeeded')
+  await disk.close()
+  const reopened = await open(home)
+  t.after(() => reopened.close())
+  assert.equal((await createLeadJournal(reopened)).state.phase, 'stopped')
+})
+
+test('masked card prose and broker variable references reach disk before their new digest is approved', async t => {
+  const home = await scratch(t), canary = 'synthetic-provider-canary-91b0c2d3', token = 'gho_' + 'A'.repeat(36)
+  const disk = await (server as any).openLeadFileJournal(home, 'thread-1', { canaries: [canary], brokerReference: () => 'broker:input-1' })
+  t.after(() => disk.close())
+  const journal = await createLeadJournal(disk)
+  await journal.setPolicy(policy)
+  const contract = { version: 1 as const, revision: 1, digest: 'a'.repeat(64), goal: `Fix authorization middleware ${token}; Cookie: session=synthetic-cookie-91b0c2d3`,
+    project: { id: 'project-demo', path: '/workspace/demo' }, policyRevision: 1,
+    steps: [{ id: 'implement', title: 'Implement', flow: 'lead-reviewed-result', sourceRevision: 'source-1', variables: { api_key: canary },
+      attendance: 'attended' as const, assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' as const }, ceiling: 'edit' as const }] }],
+    assertions: [{ id: 'check', kind: 'check' as const, description: 'Checks pass' }], caps: { usdMicros: 500, rounds: 3 } }
+  const offered = await journal.offerCard({ version: 1, id: 'plan-1', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+  assert.equal(offered.type, 'plan')
+  if (offered.type !== 'plan') throw new Error('wrong fixture card')
+  assert.equal(offered.contract.steps[0]!.variables.api_key, 'broker:input-1')
+  assert.notEqual(offered.contractDigest, contract.digest)
+  const click = { version: 1 as const, cardId: 'plan-1', cardType: 'plan' as const, expectedRevision: 1, choice: 'approve' as const, contractDigest: contract.digest }
+  await assert.rejects(journal.decideCard(click, 200))
+  await journal.decideCard({ ...click, contractDigest: offered.contractDigest }, 200)
+  await journal.stop()
+  const body = await fs.readFile(join(home, 'lead', 'thread-1.ndjson'), 'utf8')
+  for (const secret of [canary, token, 'session=synthetic-cookie-91b0c2d3']) assert.ok(!body.includes(secret))
+  assert.ok(body.includes('Fix authorization middleware'))
+  assert.ok(body.includes('broker:input-1'))
 })

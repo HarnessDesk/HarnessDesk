@@ -61,3 +61,20 @@ test('journal records bound card bytes and refuse credentials in domain data', (
   assert.throws(() => parseLeadJournalRecord({ version: 1, seq: 1, type: 'card', card: oversized }))
   assert.throws(() => parseLeadJournalRecord({ version: 1, seq: 1, type: 'card', card: { ...card, contract: { ...contract, goal: 'sk-ant-' + 'synthetic-secret-123456789' } } }))
 })
+
+test('checkpoints round trip reduced state and refuse malformed snapshots', () => {
+  const state = replayLeadJournal(records(started()))
+  const checkpoint = lead.leadCheckpoint(state, 'b'.repeat(64))
+  assert.deepEqual(lead.parseLeadCheckpoint(JSON.parse(JSON.stringify(checkpoint))).state, state)
+  for (const change of [
+    (item: any) => { item.extra = true },
+    (item: any) => { item.state.seq++ },
+    (item: any) => { item.state.cardRevisions['plan-1'] = 33 },
+    (item: any) => { item.state.attempts[0][1].phase = 'unrecognized' },
+    (item: any) => { item.state.steps[0].state = 'completed' },
+  ]) {
+    const malformed = structuredClone(checkpoint)
+    change(malformed)
+    assert.throws(() => lead.parseLeadCheckpoint(malformed))
+  }
+})
