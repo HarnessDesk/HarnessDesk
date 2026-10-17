@@ -42,9 +42,14 @@ const charge = (reserve: Event<'reserve'>, usage: Event<'settle'> | null): numbe
   return cost(reserve.inputTokens, maximum) + rounding + cost(reserve.maxOutputTokens, reserve.outputUsdMicrosPerMillion)
 }
 const terminalIds = (state: LeadBudgetLedger) => state.terminalObservations.map(observation => observation.executionIds[0]!)
-const observedCost = (state: LeadBudgetLedger): number => (state.observation?.usdMicros ?? 0) + state.terminalObservations
-  .filter(observation => !state.observation?.executionIds.includes(observation.executionIds[0]!))
-  .reduce((total, observation) => total + observation.usdMicros!, 0)
+const sum = (observations: readonly Event<'observe'>[]) => observations.reduce((total, observation) => total + observation.usdMicros!, 0)
+const goalNamed = (state: LeadBudgetLedger) => state.terminalObservations.filter(observation => state.observation?.executionIds.includes(observation.executionIds[0]!))
+/** Both figures are lower bounds for the runs they share, whatever their quality or age:
+ * the larger one counts, so a final cost is never hidden behind an older goal total. */
+const observedCost = (state: LeadBudgetLedger): number => {
+  const named = goalNamed(state)
+  return Math.max(state.observation?.usdMicros ?? 0, sum(named)) + sum(state.terminalObservations.filter(observation => !named.includes(observation)))
+}
 /** Read-only projection takes time explicitly. Unknown, partial or stale attribution
  * never replaces a cumulative charge with zero. The Lead stops when reported spend reaches the cap. */
 export const leadBudgetProjection = (state: LeadBudgetLedger, now: number): LeadBudgetState => {
@@ -58,6 +63,8 @@ export const leadBudgetProjection = (state: LeadBudgetLedger, now: number): Lead
     spend = observed?.quality ?? 'partial'
     if (!observed || !remaining.every(id => observed.executionIds.includes(id))) spend = 'partial'
     else if (now - observed.at > state.freshnessMs) spend = 'stale'
+    // A goal total below the final costs it names predates them; it cannot vouch for its runs still going.
+    else if (sum(goalNamed(state)) > (observed.usdMicros ?? 0)) spend = 'partial'
   }
   if (spend === 'known' && observedCost(state) < state.workerUsdMicros) spend = 'ambiguous'
   if (state.accountingIncomplete || state.spendOverflow || state.requests.some(request => request.uncertain) || state.rounds.some(round => round.startId !== null && round.executionId === null)) spend = 'unknown'
@@ -152,9 +159,10 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
       ensure((!prior || event.revision > prior.revision && event.at >= prior.at) && (!state.observation || event.at >= state.observation.at))
       let terminalObservations = state.terminalObservations
       if (event.terminal) {
+        // Late billing can correct a final cost upwards; a lower report never lowers it.
         const previous = terminalObservations.find(item => item.executionIds[0] === event.executionIds[0])
-        ensure(!previous || previous.usdMicros === event.usdMicros)
         if (!previous) terminalObservations = [...terminalObservations, event]
+        else if (event.usdMicros! > previous.usdMicros!) terminalObservations = terminalObservations.map(item => item === previous ? event : item)
       }
       next = { ...next, observations: { ...state.observations, [event.source]: event }, terminalObservations,
         observation: event.terminal ? state.observation : event }
@@ -170,6 +178,8 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
       ensure(state.executionIds.includes(event.executionId))
       ensure(!state.rounds.some(round => round.executionId === event.executionId && round.startId !== null && round.roundId === null))
       if (state.rounds.some(round => round.executionId === event.executionId && round.roundId === event.roundId)) return duplicate()
+      // A finished run's cost is final; new work on it would spend unseen.
+      ensure(!terminalIds(state).includes(event.executionId))
       admit(state, now, true)
       ensure(state.rounds.length < LEAD_LIMITS.rounds)
       next = { ...next, rounds: [...state.rounds, { executionId: event.executionId, roundId: event.roundId, startId: null }] }; break
@@ -177,7 +187,8 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
     case 'tighten':
       ensure(event.caps.usdMicros <= state.caps.usdMicros && event.caps.rounds <= state.caps.rounds)
       return applyLeadBudgetCaps({ ...state, now }, event.caps)
-    case 'stop': next = { ...next, stop: state.stop ?? { reason: event.reason, revision: next.revision } }; break
+    case 'stop': next = { ...next, stop: state.stop ?? { reason: event.reason, revision: next.revision },
+      accountingIncomplete: state.accountingIncomplete || event.reason === 'unknown-spend' }; break
   }
   return finish(next)
 }

@@ -193,12 +193,14 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       } else {
         // Recovery has already admitted this host-proven identity and Team. A
         // window resolution may bind accounting, but cannot manufacture authority.
-        ensure(attempt!.outcome === 'succeeded' && identities.length === 1 &&
+        // A conflicting lookup leaves the attempt uncertain; the window may confirm the retained run.
+        ensure(['succeeded', 'uncertain'].includes(attempt!.outcome!) && identities.length === 1 &&
           identities[0]!.correlationId === event.identity.correlationId && identities[0]!.runId === event.identity.runId && identities[0]!.teamId === event.identity.teamId)
         ensure(event.goalId === event.identity.teamId && (state.budget!.goalId === null || state.budget!.goalId === event.goalId))
         ensure(state.teams.includes(event.identity.teamId) && state.runs.some(run => JSON.stringify(run) === JSON.stringify(event.identity)))
         state = { ...state, budget: reduceLeadBudget(state.budget, { version: 1, type: 'bind', now: state.budget!.now,
           startId: event.id, firstRoundId: identities[0]!.firstRoundId, goalId: event.goalId, executionId: event.identity.runId }) }
+        updateAttempt(event.id, attempt => ({ ...attempt, outcome: 'succeeded' }))
       }
       updateAttempt(event.id, attempt => ({ ...attempt, resolutionPending: false }))
       if (![...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'running' }

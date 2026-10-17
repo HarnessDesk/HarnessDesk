@@ -497,7 +497,39 @@ for (const order of ['goal-first', 'terminal-first']) test(`goal and terminal co
   assert.equal(projection(state).workerUsdMicros, 50)
   state = reduce(state, { ...terminal, source: 'worker-samples', revision: 1 })
   assert.equal(projection(state).workerUsdMicros, 50, 'an alternative terminal source never adds the cost again')
-  assert.throws(() => reduce(state, { ...terminal, source: 'worker-samples', revision: 2, usdMicros: 31 }))
+  assert.equal(projection(reduce(state, { ...terminal, source: 'worker-samples', revision: 2, usdMicros: 31 })).workerUsdMicros, 51,
+    'a corrected final cost raises spend')
   state = reduce(state, observe({ revision: 3, executionIds: ['run-1', 'run-2'], usdMicros: 50 }))
   assert.equal(projection(state).workerUsdMicros, 50)
+})
+
+for (const total of [1000, null]) test(`final run costs outweigh an older goal total that names them: ${total}`, () => {
+  let state = reduce(reduce(reduce(null, { ...init, caps: { usdMicros: 100_000_000, rounds: 3 } }), bind('run-1')), bind('run-2'))
+  state = reduce(state, observe({ executionIds: ['run-1', 'run-2'], usdMicros: total, quality: total === null ? 'unknown' : 'known' }))
+  for (const [i, run] of ['run-1', 'run-2'].entries())
+    state = reduce(state, observe({ source: 'worker-samples', revision: i + 1, executionIds: [run], terminal: true, usdMicros: 5_000_000 }))
+  assert.equal(projection(state).workerUsdMicros, 10_000_000)
+  assert.equal(projection(state).spend, 'known')
+})
+
+test('a goal total below the final costs it names cannot vouch for its runs still going', () => {
+  let state = reduce(reduce(reduce(null, init), bind('run-1')), bind('run-2'))
+  state = reduce(state, observe({ executionIds: ['run-1', 'run-2'], usdMicros: 10 }))
+  state = reduce(state, observe({ source: 'worker-samples', executionIds: ['run-1'], terminal: true, usdMicros: 30 }))
+  assert.equal(projection(state).workerUsdMicros, 30)
+  assert.equal(projection(state).spend, 'partial')
+  assert.throws(() => reduce(state, reserve('after-contradiction', 1)))
+})
+
+test('a finished run admits no rounds and a lower final report never lowers its cost', () => {
+  let state = reduce(reduce(reduce(null, init), bind('run-1')), bind('run-2'))
+  state = reduce(state, observe({ executionIds: ['run-2'], usdMicros: 0 }))
+  state = reduce(state, observe({ source: 'worker-samples', executionIds: ['run-1'], terminal: true, usdMicros: 20 }))
+  assert.equal(projection(state).spend, 'known')
+  assert.throws(() => reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'after-finish' }))
+  assert.equal(projection(reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-2', roundId: 'live' })).roundsAdmitted, 1)
+  state = reduce(state, observe({ source: 'worker-samples', revision: 2, executionIds: ['run-1'], terminal: true, usdMicros: 25 }))
+  assert.equal(projection(state).workerUsdMicros, 25)
+  state = reduce(state, observe({ source: 'worker-samples', revision: 3, executionIds: ['run-1'], terminal: true, usdMicros: 22 }))
+  assert.equal(projection(state).workerUsdMicros, 25)
 })

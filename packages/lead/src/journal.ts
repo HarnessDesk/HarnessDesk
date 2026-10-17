@@ -94,10 +94,12 @@ export const parseLeadRunObservation = (value: unknown): LeadRunObservation => {
     firstRoundId: identifier(source.firstRoundId), terminal: source.terminal }
 }
 const runIdentity = (source: LeadRunObservation): LeadRunIdentity => ({ correlationId: source.correlationId, runId: source.runId, teamId: source.teamId })
+const LEAD_EVIDENCE_ROWS = 64
+const sortEvidence = (rows: readonly LeadRunObservation[]) => [...rows].sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0)
 export const parseLeadRunEvidence = (value: unknown): readonly LeadRunObservation[] => {
   if (typeof value !== 'string' || value.length > 131_072) throw new Error('lead-journal-evidence')
   const source: unknown = JSON.parse(value)
-  if (!Array.isArray(source) || source.length > 64) throw new Error('lead-journal-evidence')
+  if (!Array.isArray(source) || source.length > LEAD_EVIDENCE_ROWS) throw new Error('lead-journal-evidence')
   const identities = source.map(parseLeadRunObservation)
   if (new Set(identities.map(identity => identity.runId)).size !== identities.length) throw new Error('lead-journal-evidence')
   return identities
@@ -350,6 +352,23 @@ export class LeadJournal {
       return { decision, outcome, value: result?.value }
     })
   }
+  /** Keeps what replay requires (every tracked run of this start), then live rows
+   * while the run index has room, then finished rows, within the evidence bound. */
+  #fitEvidence(correlationId: string, rows: readonly LeadRunObservation[]): LeadRunObservation[] {
+    const tracked = (run: LeadRunObservation) => this.#state.runs.some(item => item.correlationId === correlationId && item.runId === run.runId)
+    const others = this.#state.runs.filter(run => run.correlationId !== correlationId).length
+    const ordered = sortEvidence(rows)
+    const kept = ordered.filter(tracked)
+    const room = Math.max(0, LEAD_EVIDENCE_ROWS - others - kept.filter(run => !run.terminal).length)
+    kept.push(...ordered.filter(run => !tracked(run) && !run.terminal).slice(0, room), ...ordered.filter(run => !tracked(run) && run.terminal))
+    return kept.slice(0, LEAD_EVIDENCE_ROWS)
+  }
+  /** Latches an unknown-spend stop once; its record also marks accounting incomplete. */
+  async #failClosed(): Promise<void> {
+    const budget = this.#state.budget
+    if (budget) { if (!budget.accountingIncomplete) await this.#append({ type: 'budget', event: { version: 1, type: 'stop', now: budget.now, reason: 'unknown-spend' } }) }
+    else if (this.#state.phase !== 'stopped') await this.#append({ type: 'stop' })
+  }
   /** The host lookup must return every non-terminal run carrying this start's
    * correlation, plus explicit terminal observations for runs that have ended.
    * Every identity proves project membership and its first-round id. Omission,
@@ -371,23 +390,34 @@ export class LeadJournal {
             .filter(identity => pending.method === 'flow/start-goal' && identity.correlationId === pending.correlationId)
         } catch { /* Failed lookups supply no new evidence. */ continue }
         const retained = new Map((pending.evidence === null ? [] : parseLeadRunEvidence(pending.evidence)).map(run => [run.runId, run]))
-        const conflict = observed.some(run => {
+        // A row that contradicts retained evidence keeps the retained identity; one
+        // that comes back to life stays live so it can be cancelled. Every other row
+        // of the same lookup is still recorded.
+        let conflict = false
+        for (const run of observed) {
           const previous = retained.get(run.runId)
-          return previous && (previous.teamId !== run.teamId || previous.firstRoundId !== run.firstRoundId || previous.terminal && !run.terminal)
-        })
-        if (conflict) {
-          await this.#append({ type: 'reconciliation-conflict', id: pending.id })
-          actions.push({ id: pending.id, type: 'needs-user' })
-          continue
+          if (previous && (previous.teamId !== run.teamId || previous.firstRoundId !== run.firstRoundId || previous.terminal && !run.terminal)) {
+            conflict = true
+            if (previous.terminal && !run.terminal) retained.set(run.runId, { ...previous, terminal: false })
+          } else retained.set(run.runId, run)
         }
-        for (const run of observed) retained.set(run.runId, run)
-        observed = [...retained.values()]
-        const evidence = JSON.stringify([...observed].sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0))
-        if (evidence === pending.evidence) continue
-        const live = observed.filter(run => !run.terminal)
-        const identity = live.length === 1 ? runIdentity(live[0]!) : null
-        await this.#append({ type: 'reconciliation', id: pending.id, identity, count: live.length, evidence })
-        actions.push({ id: pending.id, type: identity ? 'reconciled' : 'needs-user', count: live.length })
+        const rows = [...retained.values()]
+        const fitted = this.#fitEvidence(pending.correlationId, rows)
+        // Contradicted or unrepresentable history makes spend unknown: latch the stop
+        // durably before anything else, so nothing can throw first.
+        if (conflict || fitted.length < rows.length) await this.#failClosed()
+        const evidence = JSON.stringify(sortEvidence(fitted))
+        if (evidence !== pending.evidence) {
+          const live = fitted.filter(run => !run.terminal)
+          const identity = live.length === 1 ? runIdentity(live[0]!) : null
+          await this.#append({ type: 'reconciliation', id: pending.id, identity, count: live.length, evidence })
+          if (!conflict) actions.push({ id: pending.id, type: identity ? 'reconciled' : 'needs-user', count: live.length })
+        }
+        if (conflict) {
+          const current = this.#state.attempts.get(pending.id)!
+          if (current.outcome !== 'uncertain' || !current.resolutionPending) await this.#append({ type: 'reconciliation-conflict', id: pending.id })
+          actions.push({ id: pending.id, type: 'needs-user' })
+        }
       }
       return actions
     })

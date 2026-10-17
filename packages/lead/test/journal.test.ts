@@ -1206,3 +1206,66 @@ test('conflicting evidence needs the user while another attempt still recovers',
   assert.equal(restored.state.attempts.get('second').outcome, 'succeeded')
   assert.ok(restored.state.runs.some((run: any) => run.runId === 'run-2'))
 })
+
+test('evidence beyond its row bound latches an unknown-spend stop and keeps live work cancellable', async () => {
+  const storage = memory(), journal = await open(storage)
+  const expanded = { ...contract, caps: { ...contract.caps, rounds: 100 } }
+  await journal.setPolicy(policy)
+  await journal.offerCard({ ...plan, contract: expanded })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: expanded.caps, freshnessMs: 50 })
+  await journal.decideCard(click, 200)
+  await journal.execute({ id: 'wide', request, context, stepId: 'implement' }, async () => { throw new Error('lost response') })
+  const runs = Array.from({ length: 64 }, (_, i) => runEvidence({ correlationId: 'wide', runId: `run-${i + 1}`, teamId: 'team-1' }))
+  await journal.recover(async () => runs)
+  await journal.recover(async () => runs.map((run, i) => ({ ...run, terminal: i < 63 })))
+  await journal.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal', sourceIds: ['corpus-1'],
+    goalId: 'team-1', executionIds: runs.map(run => run.runId), quality: 'known', usdMicros: 0 })
+  assert.equal(journal.state.budget.spend, 'known')
+  const lookup = async () => [runs[63]!, runEvidence({ correlationId: 'wide', runId: 'run-65', teamId: 'team-1' })]
+  await journal.recover(lookup)
+  const restored: any = await checkpointOpen(journal)
+  for (const state of [journal.state, restored.state]) {
+    assert.equal(state.budget.stop.reason, 'unknown-spend')
+    assert.equal(state.budget.spend, 'unknown')
+    assert.ok(state.stopEffectsPending)
+    assert.deepEqual(state.runs.map((run: any) => run.runId).sort(), ['run-64', 'run-65'])
+  }
+  await assert.rejects(restored.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'paid', inputTokens: 1, maxOutputTokens: 1,
+    inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 1 }))
+  const seq = journal.state.seq
+  await journal.recover(lookup)
+  assert.equal(journal.state.seq, seq, 'the same oversized lookup appends nothing again')
+})
+
+test('a conflict records the rest of its lookup, latches once and appends nothing while it stands', async () => {
+  const { journal } = await runningTwoStepPlan()
+  await observeStarted(journal, 'run-1')
+  const run = { correlationId: 'first', runId: 'run-1', teamId: 'team-1' }
+  await journal.recover(async () => [runEvidence(run)])
+  const lookup = async (attempt: any) => attempt.id === 'first'
+    ? [{ ...runEvidence(run), firstRoundId: 'conflicting' }, runEvidence({ ...run, runId: 'run-new' })] : []
+  const actions = await journal.recover(lookup)
+  assert.deepEqual(actions.map((action: any) => [action.id, action.type]), [['first', 'needs-user']])
+  const restored: any = await checkpointOpen(journal)
+  for (const state of [journal.state, restored.state]) {
+    assert.ok(state.runs.some((item: any) => item.runId === 'run-new'), 'the rest of the lookup is recorded for cancellation')
+    assert.equal(state.budget.stop.reason, 'unknown-spend')
+    assert.equal(state.budget.spend, 'unknown')
+    assert.equal(state.attempts.get('first').outcome, 'uncertain')
+  }
+  const seq = journal.state.seq
+  await journal.recover(lookup)
+  assert.equal(journal.state.seq, seq, 'a standing conflict appends nothing')
+})
+
+test('the window can confirm the retained run after a conflicting lookup', async () => {
+  const { journal } = await runningTwoStepPlan()
+  await observeStarted(journal, 'run-1')
+  const run = { correlationId: 'first', runId: 'run-1', teamId: 'team-1' }
+  await journal.recover(async () => [runEvidence(run)])
+  await journal.recover(async () => [{ ...runEvidence(run), firstRoundId: 'conflicting' }])
+  assert.equal(journal.state.attempts.get('first').outcome, 'uncertain')
+  await journal.resolveStart('first', { goalId: 'team-1', identity: run })
+  assert.equal(journal.state.attempts.get('first').outcome, 'succeeded')
+  assert.equal(journal.state.attempts.get('first').resolutionPending, false)
+})
