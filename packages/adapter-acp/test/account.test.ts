@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { ChildProcess } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -1765,4 +1765,124 @@ test('a brace inside quotes in prose hides neither a record nor a sentence after
   // Found by an early round of #134's review; later rounds' scan passes such a brace over, and this pins it.
   assert.equal(parseStatus('[INFO] running "{task"\n{"loggedIn":true,"email":"dev@example.com"}')?.email, 'dev@example.com')
   assert.equal(parseStatus('[INFO] running "{task"\nLogged in as dev@example.com')?.email, 'dev@example.com')
+})
+
+/**
+ * #1761: the account commands are the row's, not the desk's. A row whose
+ * environment moves the agent's home asked, signed in and signed out the
+ * default account, because the commands ran with the host's environment; and
+ * a row whose install the desk chose asked whichever copy came first on PATH.
+ */
+test('the account commands run with the row’s own environment (#1761)', async () => {
+  const calls = mkdtempSync(join(tmpdir(), 'hd-row-env-'))
+  const marker = join(calls, 'logged-out')
+  // The row's environment says signed out, refuses a sign-in, and marks the sign-out.
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    env: { FAKE_CLI_STATE: 'out', FAKE_CLI_LOGIN: 'silent', FAKE_CLI_TOUCH: marker },
+    account: {
+      status: { command: FAKE_CLI, args: ['status'] },
+      login: { command: FAKE_CLI, args: ['login'] },
+      logout: { command: FAKE_CLI, args: ['logout'] },
+    },
+  })
+  await runtime.start()
+  try {
+    assert.deepEqual((await runtime.getAccount()).accounts, [], 'status asked the row’s account')
+    await assert.rejects(runtime.login('cli-browser'), /needs a terminal/, 'sign-in ran in the row’s environment')
+    await runtime.logout()
+    assert.equal(existsSync(marker), true, 'sign-out ran in the row’s environment')
+  } finally {
+    await runtime.dispose()
+    rmSync(calls, { recursive: true, force: true })
+  }
+})
+
+test('a command’s own environment still outranks the row’s (#1761)', async () => {
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    env: { FAKE_CLI_STATE: 'out' },
+    account: { status: { command: FAKE_CLI, args: ['status'], env: { FAKE_CLI_STATE: 'in' } } },
+  })
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts[0]?.email, 'tester@example.com')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+/** A copy of the agent under a name nothing on PATH answers to: its ACP side and its account commands, in one file. */
+const installedCopy = (t: TestContext): string => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-install-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const path = join(dir, 'hd-fake-installed-agent')
+  writeFileSync(
+    path,
+    `#!/bin/sh\ncase "$1" in status|login|logout) exec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_CLI)} "$@";; esac\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_AGENT)} "$@"\n`,
+  )
+  chmodSync(path, 0o755)
+  return path
+}
+
+test('the account commands ask the copy the desk chose to run, not whichever is on PATH (#1761)', async (t) => {
+  const copy = installedCopy(t)
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: 'hd-fake-installed-agent',
+    resolveLaunch: async () => ({ command: copy, args: [], version: '1.0.0' }),
+    account: { status: { command: 'hd-fake-installed-agent', args: ['status'] } },
+  })
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts[0]?.email, 'tester@example.com')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a bridge’s account commands ask the CLI it was pointed at (#1761)', async (t) => {
+  const copy = installedCopy(t)
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    executable: { command: 'hd-fake-installed-agent', env: 'HD_FAKE_AGENT_EXECUTABLE' },
+    resolveExecutable: async () => ({ path: copy, version: '1.0.0' }),
+    account: { status: { command: 'hd-fake-installed-agent', args: ['status'] } },
+  })
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts[0]?.email, 'tester@example.com')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a row run by a launcher keeps its own account commands when the start chose a copy (#1761)', async (t) => {
+  // The row's command is the launcher; an account command run by the same
+  // launcher is the launcher's, not the agent's, and is left as written.
+  const copy = installedCopy(t)
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    resolveLaunch: async () => ({ command: copy, args: [], version: '1.0.0' }),
+    account: { status: { command: process.execPath, args: [FAKE_CLI, 'status'] } },
+  })
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts[0]?.email, 'tester@example.com')
+  } finally {
+    await runtime.dispose()
+  }
 })
