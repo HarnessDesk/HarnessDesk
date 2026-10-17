@@ -31,6 +31,50 @@ const cards = [
   { ...base, type: 'result', outcome: 'reviewed', summary: 'Ready for acceptance', assertions: [result], budget },
   { ...base, type: 'stopped', reason: 'budget', summary: 'Reported spend reached the cap', budget },
 ]
+const thread = { version: 1, id: 'thread-1', revision: 2, state: 'awaiting-plan', project: contract.project,
+  olderMessages: 0, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'user', text: 'Repair the check' }], cards }
+const settings = { version: 1, model: 'model-demo', key: { configured: true, protection: 'encrypted' }, policy, caps }
+
+test('Lead collections validate holes at every position, including inherited indices', () => {
+  const parse = validator('parseLeadAcceptanceContract')
+  const inherited = Array(1)
+  const prototype = Object.create(Array.prototype)
+  prototype[0] = contract.steps[0]
+  Object.setPrototypeOf(inherited, prototype)
+  for (const steps of [Array(1), [contract.steps[0], ,], inherited])
+    assert.throws(() => parse({ ...contract, steps }), protocol.ValidationError)
+  assert.throws(() => parse({ ...contract, assertions: Array(1) }), protocol.ValidationError)
+  assert.throws(() => parse({ ...contract, steps: [{ ...contract.steps[0], assignments: Array(1) }] }), protocol.ValidationError)
+  assert.throws(() => validator('parseLeadPermissionPolicy')({ ...policy, rules: Array(1) }), protocol.ValidationError)
+  assert.throws(() => validator('parseLeadAssertionResult')({ ...result, evidence: Array(1) }), protocol.ValidationError)
+  for (const field of ['messages', 'cards']) {
+    assert.throws(() => validator('parseLeadThread')({ ...thread, [field]: Array(1) }), protocol.ValidationError)
+  }
+})
+
+test('Lead steps, assertions, rules and assignment roles have unique identities', () => {
+  const parse = validator('parseLeadAcceptanceContract')
+  assert.throws(() => parse({ ...contract, steps: [contract.steps[0], { ...contract.steps[0], title: 'Different work' }] }), protocol.ValidationError)
+  assert.throws(() => parse({ ...contract, assertions: [contract.assertions[0], { ...contract.assertions[0], kind: 'review' }] }), protocol.ValidationError)
+  assert.throws(() => parse({ ...contract, steps: [{ ...contract.steps[0], assignments: [contract.steps[0]!.assignments[0], { ...contract.steps[0]!.assignments[0], agent: 'reviewer' }] }] }), protocol.ValidationError)
+  const rule = { id: 'rule-1', effect: 'allow', method: 'flow/preview', action: null, project: null }
+  assert.throws(() => validator('parseLeadPermissionPolicy')({ ...policy, rules: [rule, { ...rule, effect: 'deny' }] }), protocol.ValidationError)
+  assert.doesNotThrow(() => parse({ ...contract, steps: [contract.steps[0], { ...contract.steps[0], id: 'review' }] }))
+})
+
+test('Lead identifiers, prose, project paths and variable keys are confined', () => {
+  const parse = validator('parseLeadAcceptanceContract')
+  for (const id of ['a\nb', '../x\u0007', 'space here', 'x\\y', 'x?y'])
+    assert.throws(() => parse({ ...contract, steps: [{ ...contract.steps[0], id }] }), protocol.ValidationError)
+  for (const goal of ['task\u0007', 'task\nnext', 'task\u007f', 'task\u0085'])
+    assert.throws(() => parse({ ...contract, goal }), protocol.ValidationError)
+  for (const path of ['relative/path', 'rel/../..', '/workspace/../other', '/workspace/..', 'C:\\workspace\\..\\other', '/workspace/\u0007'])
+    assert.throws(() => parse({ ...contract, project: { ...contract.project, path } }), protocol.ValidationError)
+  for (const path of ['/workspace/demo', 'C:\\workspace\\demo', '\\\\server\\share\\demo'])
+    assert.doesNotThrow(() => parse({ ...contract, project: { ...contract.project, path } }))
+  assert.throws(() => parse({ ...contract, steps: [{ ...contract.steps[0], variables: JSON.parse('{"__proto__":"poison"}') }] }), protocol.ValidationError)
+  assert.throws(() => parse({ ...contract, steps: [{ ...contract.steps[0], variables: Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`key-${i}`, 'value'])) }] }), protocol.ValidationError)
+})
 
 test('Lead caps reject non-finite, fractional, unsafe and out-of-range values', () => {
   const parse = validator('parseLeadCaps')
@@ -44,7 +88,7 @@ test('Lead caps reject non-finite, fractional, unsafe and out-of-range values', 
 
 test('Lead card decisions require a version, current revision and contract digest', () => {
   const parse = validator('parseLeadCardDecision')
-  const decision = { version: 1, cardId: 'card-1', expectedRevision: 1, contractDigest: digest, choice: 'approve' }
+  const decision = { version: 1, cardType: 'plan', cardId: 'card-1', expectedRevision: 1, contractDigest: digest, choice: 'approve' }
   assert.deepEqual(parse(decision), decision)
   for (const patch of [{ version: undefined }, { version: 2 }, { expectedRevision: -1 },
     { expectedRevision: Number.MAX_SAFE_INTEGER + 1 }, { cardId: '' }, { contractDigest: '' },
@@ -103,9 +147,6 @@ test('Lead revisions only advance by safe integers and refuse overflow', () => {
 })
 
 test('Lead thread, settings and child projections have no credential or human decision field', () => {
-  const thread = { version: 1, id: 'thread-1', revision: 2, state: 'awaiting-plan', project: contract.project,
-    messages: [{ version: 1, id: 'message-1', revision: 1, role: 'user', text: 'Repair the check' }], cards }
-  const settings = { version: 1, model: 'model-demo', key: { configured: true, protection: 'encrypted' }, policy, caps }
   const projection = { version: 1, revision: 2, thread, settings }
   assert.deepEqual(validator('parseLeadHostProjection')(projection), projection)
   for (const apiKey of ['synthetic-secret']) {
@@ -119,4 +160,89 @@ test('Lead thread, settings and child projections have no credential or human de
   assert.throws(() => validator('parseLeadChildControl')({ version: 1, type: 'decide', cardId: 'person-1' }), protocol.ValidationError)
   assert.throws(() => validator('parseLeadChildEvent')({ version: 1, type: 'decide', cardId: 'person-1' }), protocol.ValidationError)
   assert.throws(() => validator('parseLeadHostProjection')({ ...projection, thread: { ...thread, messages: Array(257).fill(thread.messages[0]) } }), protocol.ValidationError)
+})
+
+test('Lead thread projections are explicit journal windows and IPC has a UTF-8 byte cap', () => {
+  const parseThread = validator('parseLeadThread')
+  assert.deepEqual(parseThread(thread), thread)
+  const window = { ...thread, olderMessages: 1, messages: Array.from({ length: 256 }, (_, i) => ({ ...thread.messages[0], id: `message-${i}` })) }
+  assert.deepEqual(parseThread(window), window)
+  for (const olderMessages of [undefined, -1, Infinity, 0.5])
+    assert.throws(() => parseThread({ ...thread, olderMessages }), protocol.ValidationError)
+  const large = { ...thread, messages: Array.from({ length: 64 }, (_, i) => ({ ...thread.messages[0], id: `message-${i}`, text: 'é'.repeat(8192) })) }
+  // Character count fits one MiB, encoded bytes do not.
+  const event = { version: 1, type: 'projection', thread: large }
+  assert.ok(JSON.stringify(event).length < 1_048_576)
+  assert.throws(() => validator('parseLeadChildEvent')(event), protocol.ValidationError)
+  assert.throws(() => validator('parseLeadChildControl')({ version: 1, type: 'initialize', thread: large, model: 'model-demo', policy, budget }), protocol.ValidationError)
+  assert.throws(() => validator('parseLeadChildControl')({ version: 1, type: 'observe', projection: { version: 1, revision: 2, thread: large, settings } }), protocol.ValidationError)
+})
+
+test('Lead permission cards work before a contract and person cards identify their live gate', () => {
+  const parse = validator('parseLeadCard')
+  const permission = { ...cards[1], contractDigest: null }
+  assert.deepEqual(parse(permission), permission)
+  assert.throws(() => parse({ ...cards[2], personCardId: null }), protocol.ValidationError)
+  assert.throws(() => parse({ ...cards[2], kind: 'worker-approval' }), protocol.ValidationError)
+  assert.doesNotThrow(() => parse({ ...cards[2], kind: 'worker-approval', personCardId: null }))
+  assert.throws(() => parse({ ...permission, proposed: policy }), protocol.ValidationError)
+})
+
+test('Lead decisions match the current card binding and the choices for its type', () => {
+  const member = (protocol as Record<string, unknown>)['parseLeadCardDecisionFor']
+  assert.equal(typeof member, 'function')
+  const parse = member as (value: unknown, card: unknown) => unknown
+  const decision = { version: 1, cardId: 'card-1', expectedRevision: 1, cardType: 'plan', contractDigest: digest, choice: 'approve' }
+  assert.deepEqual(parse(decision, cards[0]), decision)
+  for (const patch of [{ cardId: 'other' }, { expectedRevision: 2 }, { contractDigest: 'b'.repeat(64) }, { choice: 'accept' }, { cardType: 'waiting' }])
+    assert.throws(() => parse({ ...decision, ...patch }, cards[0]), protocol.ValidationError)
+  const permissionDecision = { ...decision, cardType: 'permission-change', contractDigest: null }
+  assert.deepEqual(parse(permissionDecision, { ...cards[1], contractDigest: null }), permissionDecision)
+  const accept = { ...decision, cardType: 'waiting', choice: 'accept' }
+  assert.deepEqual(parse(accept, cards[2]), accept)
+  assert.throws(() => parse({ ...accept, choice: 'approve' }, cards[2]), protocol.ValidationError)
+  assert.throws(() => parse(accept, { ...cards[2], kind: 'worker-approval', personCardId: null }), protocol.ValidationError)
+  assert.deepEqual(parse({ ...accept, cardType: 'result' }, cards[3]), { ...accept, cardType: 'result' })
+  assert.throws(() => parse({ ...accept, cardType: 'result' }, { ...cards[3], outcome: 'accepted' }), protocol.ValidationError)
+  assert.throws(() => parse({ ...accept, cardType: 'stopped' }, cards[4]), protocol.ValidationError)
+})
+
+test('Lead supported versions and thread migration reject unknown or unversioned records', () => {
+  assert.deepEqual((protocol as Record<string, unknown>)['LEAD_SUPPORTED_VERSIONS'], [1])
+  const migrate = validator('migrateLeadThread')
+  assert.deepEqual(migrate(thread), thread)
+  for (const version of [undefined, 0, 2, '1'])
+    assert.throws(() => migrate({ ...thread, version }), protocol.ValidationError)
+  assert.throws(() => migrate({ ...thread, apiKey: 'synthetic-secret' }), protocol.ValidationError)
+})
+
+test('Lead child control/event variants accept valid observations and cancellation', () => {
+  for (const control of [{ version: 1, type: 'cancel', reason: 'cancelled' },
+    { version: 1, type: 'observe', projection: { version: 1, revision: 2, thread, settings } }])
+    assert.deepEqual(validator('parseLeadChildControl')(control), control)
+  for (const event of [{ version: 1, type: 'ready' }, { version: 1, type: 'projection', thread }, { version: 1, type: 'stopped', reason: 'budget' }])
+    assert.deepEqual(validator('parseLeadChildEvent')(event), event)
+})
+
+test('Lead budget snapshots reject unsafe totals and inconsistent open admission', () => {
+  const parse = validator('parseLeadBudgetState')
+  for (const patch of [
+    { roundsAdmitted: 99 }, { reservedUsdMicros: caps.usdMicros },
+    { leadUsdMicros: caps.usdMicros }, { workerUsdMicros: Number.MAX_SAFE_INTEGER },
+    { leadUsdMicros: 1_000_000_000_001 }, { stop: { reason: 'budget', revision: 2 } },
+    { revision: -0 }, { reservedUsdMicros: -0 },
+  ]) assert.throws(() => parse({ ...budget, ...patch }), protocol.ValidationError)
+  // Tightening below admitted rounds or observed spend must still be representable after latching a stop.
+  assert.doesNotThrow(() => parse({ ...budget, roundsAdmitted: 99, stop: { reason: 'rounds', revision: 1 } }))
+  assert.doesNotThrow(() => parse({ ...budget, workerUsdMicros: caps.usdMicros + 1, stop: { reason: 'budget', revision: 1 } }))
+  assert.throws(() => validator('parseLeadCaps')({ ...caps, usdMicros: 1_000_000_000_001 }), protocol.ValidationError)
+  assert.throws(() => validator('nextLeadRevision')(-0), protocol.ValidationError)
+})
+
+test('Lead message, variable and summary text can be empty without admitting controls', () => {
+  assert.doesNotThrow(() => validator('parseLeadThread')({ ...thread, messages: [{ ...thread.messages[0], text: '' }] }))
+  assert.doesNotThrow(() => validator('parseLeadAcceptanceContract')({ ...contract, steps: [{ ...contract.steps[0], variables: { optional: '' } }] }))
+  assert.doesNotThrow(() => validator('parseLeadCard')({ ...cards[3], summary: '' }))
+  assert.throws(() => validator('parseLeadThread')({ ...thread, messages: [{ ...thread.messages[0], text: '\u0007' }] }), protocol.ValidationError)
+  assert.throws(() => validator('parseLeadAcceptanceContract')({ ...contract, goal: '' }), protocol.ValidationError)
 })

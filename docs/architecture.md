@@ -40,13 +40,14 @@ them into one protocol would give up both properties.
 
 ## The packages
 
-Twenty packages make up the repository:
+Twenty-one packages make up the repository:
 
 | Package | Role | Allowed imports |
 | --- | --- | --- |
 | `packages/protocol` | Domain vocabulary, wire methods, validators | Zero dependencies |
 | `packages/desktop` | Electron shell, Keychain broker, packaging, the command-line launcher | `server`, `claude-acp`, `cursor-acp`, `cli`, `mcp-tools` |
 | `packages/client` | Transport-independent client calls and events; local I/O in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
+| `packages/lead` | Portable Lead contracts and injected management ports | `protocol`, `client`; only the exact child.ts and supervisor.ts entries under its src directory may import their allowlisted Node modules and the client's Node entry; the core has no ambient machine or network authority |
 | `packages/cli` | The `harnessdesk` command line over the client library; the app bundles it and installs a launcher for it, and `docs/cli.md` is its reference, generated from its command table | `client`, `protocol` |
 | `packages/ui` | Renderer: AppStore snapshots, slot layout, panels | `protocol`, `client/views` (browser context only, no `node:*`) |
 | `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, adapters, `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools` |

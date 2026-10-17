@@ -3,6 +3,8 @@ import type { Client } from '@harnessdesk/client'
 /** The loop receives cancellation; it never owns a process or a transport. */
 export interface LeadCancellation {
   readonly aborted: boolean
+  /** If already aborted, invoke synchronously before returning. Otherwise invoke at most
+   * once on cancellation. The idempotent detach function prevents any future invocation. */
   onCancel(listener: () => void): () => void
 }
 
@@ -15,14 +17,14 @@ export interface LeadMessagesPort<Request, Response> {
 export type LeadDeskPort = Pick<Client, 'call' | 'events' | 'synced' | 'snapshot'>
 
 /** Append resolves only after durability; rejection must prevent dispatch. */
-export interface LeadPersistencePort<Record> {
-  read(): Promise<readonly Record[]>
-  append(record: Record): Promise<void>
+export interface LeadPersistencePort<JournalEntry> {
+  read(): Promise<readonly JournalEntry[]>
+  append(record: JournalEntry): Promise<void>
 }
 
-export interface LeadPorts<Request, Response, Record> {
+export interface LeadPorts<Request, Response, JournalEntry> {
   readonly messages: LeadMessagesPort<Request, Response>
   readonly desk: LeadDeskPort
-  readonly persistence: LeadPersistencePort<Record>
+  readonly persistence: LeadPersistencePort<JournalEntry>
   readonly cancellation: LeadCancellation
 }

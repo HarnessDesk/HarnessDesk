@@ -19,6 +19,29 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** The designated wiring point where runtimes are chosen. */
 const EXEMPT = new Set([join('packages', 'server', 'src', 'bootstrap.ts')])
+const LEAD_TRANSPORT_MODULES = ['https', 'process', 'readline', 'stream', 'events', 'timers/promises', 'crypto', 'url'].map(name => `node:${name}`)
+const LEAD_ENTRIES = new Map([
+  [join(root, 'packages/lead/src/child.ts'), new Set(LEAD_TRANSPORT_MODULES)],
+  [join(root, 'packages/lead/src/supervisor.ts'), new Set([...LEAD_TRANSPORT_MODULES, 'node:child_process', 'node:path'])],
+])
+
+/** Core code has injected ports, never ambient authority, including aliases. */
+const leadAuthorityOffenders = (source, fileName) => {
+  if (LEAD_ENTRIES.has(resolve(root, fileName))) return []
+  const forbidden = new Set(['process', 'globalThis', 'global', 'require', 'module', 'eval', 'Function',
+    'fetch', 'WebSocket', 'XMLHttpRequest', 'Buffer'])
+  const file = ts.createSourceFile(fileName, withoutComments(source, fileName, { strict: true }), ts.ScriptTarget.Latest, true)
+  const offenders = []
+  const visit = node => {
+    if (ts.isIdentifier(node) && forbidden.has(node.text)) offenders.push(node.text)
+    if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+      ts.isMetaProperty(node.expression) && node.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
+      (ts.isElementAccessExpression(node) || node.name.text === 'resolve')) offenders.push('import.meta.resolve')
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  return offenders
+}
 
 /** Only dependency syntax counts; descriptions of a package are not imports. */
 const importSpecifiers = (source, fileName) => {
@@ -50,7 +73,7 @@ const importBoundary = (pkg, source, fileName) => {
   const inViews = pkg === 'client' && !relative(views, file).startsWith(`..${sep}`) && relative(views, file) !== '..'
   const isNodeEntry = pkg === 'client' && file === join(src, 'node.ts')
   const leadEntries = ['child', 'supervisor'].map(name => join(src, name))
-  const isLeadEntry = pkg === 'lead' && leadEntries.some(entry => file === `${entry}.ts`)
+  const isLeadEntry = pkg === 'lead' && LEAD_ENTRIES.has(file)
   return importSpecifiers(source, fileName).filter((specifier) => {
     // A computed dependency cannot be held to a package boundary.
     if (specifier === null) return true
@@ -71,7 +94,7 @@ const importBoundary = (pkg, source, fileName) => {
     if (specifier === '@harnessdesk/protocol') return false
     if (pkg === 'cli' && (specifier === '@harnessdesk/client' || specifier.startsWith('@harnessdesk/client/'))) return false
     if (pkg === 'lead' && specifier === '@harnessdesk/client') return false
-    if (isLeadEntry && (specifier === '@harnessdesk/client/node' || specifier.startsWith('node:'))) return false
+    if (isLeadEntry && (specifier === '@harnessdesk/client/node' || LEAD_ENTRIES.get(file).has(specifier))) return false
     if (isNodeEntry && (specifier === 'ws' || specifier.startsWith('node:'))) return false
     return true
   })
@@ -86,8 +109,11 @@ export const RULES = [
   {
     label: 'lead import boundary',
     packages: ['lead'],
-    offenders: (source, file) => importBoundary('lead', source, file),
-    remedy: 'Lead core imports only local portable modules, protocol and client core; only src/child.ts and src/supervisor.ts import Node or client/node.',
+    offenders: (source, file) => {
+      const imports = importBoundary('lead', source, file)
+      return imports.length ? imports : leadAuthorityOffenders(source, file)
+    },
+    remedy: 'Lead core uses injected ports, local portable modules, protocol and client core; ambient machine/network authority is forbidden. Only src/child.ts and src/supervisor.ts own transport/process authority.',
   },
   {
     label: 'ui lead import boundary',
@@ -95,6 +121,7 @@ export const RULES = [
     offenders: (source, fileName) => importSpecifiers(source, fileName).filter(specifier => {
       if (specifier === null) return true
       if (/^@harnessdesk\/lead(?:\/|$)/.test(specifier)) return true
+      if (/^(?:[\\/]|[A-Za-z]:[\\/]|file:)/.test(specifier)) return true
       if (!specifier.startsWith('.')) return false
       let decoded
       try { decoded = decodeURIComponent(specifier.split(/[?#]/)[0]) } catch { return true }
@@ -102,7 +129,7 @@ export const RULES = [
       const within = relative(join(root, 'packages', 'lead'), target)
       return within !== '..' && !within.startsWith(`..${sep}`)
     }),
-    remedy: 'The renderer reads Lead projections from protocol over the host wire; it never imports the Lead package.',
+    remedy: 'The renderer reads Lead projections from protocol over the host wire; it never imports the Lead package. Computed dependencies and absolute filesystem specifiers cannot prove this boundary; use literal package or local imports.',
   },
   {
     label: 'ui client import boundary',
@@ -220,7 +247,7 @@ const idComparisonOffenders = () => {
   return out
 }
 
-const walk = (dir) => {
+const walk = (dir, scanAll = false) => {
   const out = []
   let entries
   try {
@@ -229,13 +256,16 @@ const walk = (dir) => {
     return out
   }
   for (const entry of entries) {
-    if (entry === 'node_modules' || entry === 'dist' || entry === 'generated') continue
+    if (!scanAll && ['node_modules', 'dist', 'generated'].includes(entry)) continue
     const full = join(dir, entry)
-    if (statSync(full).isDirectory()) out.push(...walk(full))
+    if (statSync(full).isDirectory()) out.push(...walk(full, scanAll))
     else if (/\.tsx?$/.test(full)) out.push(full)
   }
   return out
 }
+
+/** Lead compiles generated sources too, so none may escape the same boundary. */
+export const sourceFilesOf = (pkg, base = root) => walk(join(base, 'packages', pkg, 'src'), pkg === 'lead')
 
 /**
  * Runtime brand names must not appear in rendered UI text.
@@ -296,7 +326,7 @@ let failed = false
 for (const rule of RULES) {
   const offenders = []
   for (const pkg of rule.packages) {
-    for (const file of walk(join(root, 'packages', pkg, 'src'))) {
+    for (const file of sourceFilesOf(pkg)) {
       const relativePath = relative(root, file)
       if (EXEMPT.has(relativePath)) continue
       // Comments may *explain* a boundary; only code can cross one.

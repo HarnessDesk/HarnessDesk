@@ -3,12 +3,35 @@ import test from 'node:test'
 import { RULES } from './check-layering.mjs'
 import { projectsOf, globToRegExp, TEST_GLOB } from './prune-dist.mjs'
 import { fileURLToPath } from 'node:url'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import * as layering from './check-layering.mjs'
 
 const boundaryRule = (pkg) => {
   const rule = RULES.find((r) => r.label === `${pkg} import boundary`)
   assert.ok(rule, `${pkg} import boundary exists`)
   return rule
 }
+
+test('Lead core refuses ambient machine, loader, evaluator and network authority', () => {
+  const rule = boundaryRule('lead')
+  for (const source of [
+    "process.getBuiltinModule('node:fs')", "process.getBuiltinModule('node:child_process')",
+    'const p = process', 'globalThis.process', "globalThis['fetch']('https://example.com')",
+    'global.process', "const r = require; r('node:fs')", "module.require('node:fs')",
+    "eval('process')", "(0, eval)('process')", "new Function('return process')()",
+    "Function('return process')()", 'const F = Function', 'import.meta.resolve',
+    "import.meta['resolve']", "fetch('https://example.com')", 'const send = fetch',
+    "new WebSocket('wss://example.com')", 'new XMLHttpRequest()', "Buffer.from('x')",
+  ]) {
+    for (const file of ['loop.ts', 'nested/helper.ts', 'nested/child.ts', 'nested/supervisor.ts'])
+      assert.ok(rule.offenders(source, `packages/lead/src/${file}`).length > 0, `${file}: ${source}`)
+    for (const file of ['child.ts', 'supervisor.ts'])
+      assert.deepEqual(rule.offenders(source, `packages/lead/src/${file}`), [], `${file}: ${source}`)
+  }
+  assert.deepEqual(rule.offenders("// process.getBuiltinModule('node:fs')\nconst explanation = 'fetch eval Function globalThis'", 'packages/lead/src/loop.ts'), [])
+})
 
 test('Lead loop refuses machine, host, adapter, computed and escaping dependencies', () => {
   const rule = boundaryRule('lead')
@@ -34,7 +57,7 @@ test('Lead loop refuses machine, host, adapter, computed and escaping dependenci
 
 test('only exact Lead child and supervisor entries may import Node and client transport', () => {
   const rule = boundaryRule('lead')
-  for (const source of ["import 'node:process'", "import 'node:child_process'", "import 'node:https'", "import '@harnessdesk/client/node'"]) {
+  for (const source of ["import 'node:process'", "import 'node:https'", "import '@harnessdesk/client/node'"]) {
     for (const entry of ['child', 'supervisor']) {
       assert.deepEqual(rule.offenders(source, `packages/lead/src/${entry}.ts`), [], source)
       assert.equal(rule.offenders(source, `packages/lead/src/nested/${entry}.ts`).length, 1, source)
@@ -45,11 +68,53 @@ test('only exact Lead child and supervisor entries may import Node and client tr
     assert.equal(rule.offenders(source, 'packages/lead/src/child.ts').length, 1, source)
 })
 
+test('Lead entries have explicit Node module allowlists', () => {
+  const rule = boundaryRule('lead')
+  for (const module of ['https', 'process', 'readline', 'stream', 'events', 'timers/promises', 'crypto', 'url'])
+    for (const entry of ['child', 'supervisor'])
+      assert.deepEqual(rule.offenders(`import 'node:${module}'`, `packages/lead/src/${entry}.ts`), [])
+  for (const module of ['child_process', 'path']) {
+    assert.deepEqual(rule.offenders(`import 'node:${module}'`, 'packages/lead/src/supervisor.ts'), [])
+    assert.equal(rule.offenders(`import 'node:${module}'`, 'packages/lead/src/child.ts').length, 1)
+  }
+  for (const module of ['fs', 'fs/promises', 'vm', 'module', 'worker_threads'])
+    for (const entry of ['child', 'supervisor'])
+      for (const source of [`import 'node:${module}'`, `export * from 'node:${module}'`, `await import('node:${module}')`])
+        assert.equal(rule.offenders(source, `packages/lead/src/${entry}.ts`).length, 1, source)
+})
+
+test('Lead generated sources remain in the layering scan', t => {
+  const root = mkdtempSync(join(tmpdir(), 'hd-lead-layering-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  for (const pkg of ['lead', 'client'])
+    for (const name of ['generated', 'dist', 'node_modules']) {
+      const directory = join(root, 'packages', pkg, 'src', name)
+      mkdirSync(directory, { recursive: true })
+      writeFileSync(join(directory, 'helper.ts'), "export const fs = process.getBuiltinModule('node:fs')")
+    }
+  assert.equal(typeof layering.sourceFilesOf, 'function')
+  const files = layering.sourceFilesOf('lead', root)
+  assert.deepEqual(files.sort(), ['dist', 'generated', 'node_modules'].map(name => join(root, 'packages/lead/src', name, 'helper.ts')).sort())
+  for (const file of files)
+    assert.ok(boundaryRule('lead').offenders("export const fs = process.getBuiltinModule('node:fs')", file).length > 0)
+  assert.deepEqual(layering.sourceFilesOf('client', root), [])
+})
+
 test('renderer cannot import or re-export Lead by package or relative path', () => {
   const rule = boundaryRule('ui lead')
   for (const source of ["import '@harnessdesk/lead'", "export * from '@harnessdesk/lead/supervisor'", "await import('../../../lead/src/index.js')", "type Lead = import('../../../lead/src/ports.js').LeadPorts", "require('../../../lead/dist/src/index.js')"])
     assert.equal(rule.offenders(source, 'packages/ui/src/lib/lead.ts').length, 1, source)
   assert.deepEqual(rule.offenders("import type { LeadThread } from '@harnessdesk/protocol'", 'packages/ui/src/state/lead.ts'), [])
+})
+
+test('renderer refuses absolute filesystem and computed specifiers with an explicit remedy', () => {
+  const rule = boundaryRule('ui lead')
+  const absolute = fileURLToPath(new URL('../packages/lead/src/index.ts', import.meta.url))
+  for (const source of [`import ${JSON.stringify(absolute)}`, `export * from ${JSON.stringify(absolute)}`,
+    "import 'C:/workspace/demo/packages/lead/src/index.js'", "import 'file:///workspace/demo/packages/lead/src/index.js'", 'await import(dependency)'])
+    assert.ok(rule.offenders(source, 'packages/ui/src/state/lead.ts').length > 0, source)
+  assert.match(rule.remedy, /computed/i)
+  assert.match(rule.remedy, /absolute/i)
 })
 
 test('Lead also belongs to the Codex, Cordis and keystore prohibitions', () => {
