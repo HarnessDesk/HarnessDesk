@@ -93,8 +93,9 @@ try {
       const name = contest ? 'Mechanical contest' : template === 'comparison' ? 'Side by side' : 'Write and review'
       await newTeam.getByRole('button', { name, exact: true }).click()
       // The first dry run can still be installing the project's suggested
-      // check when the task field appears. Wait for its editable Seat controls.
-      await expect(newTeam.getByRole('combobox', { name: /^Runtime for / }).first()).toBeEnabled({ timeout: 30000 })
+      // check when the task field appears. Wait for its editable Seat controls,
+      // buttons that open a menu of runtimes.
+      await expect(newTeam.getByRole('button', { name: /^Runtime for / }).first()).toBeEnabled({ timeout: 30000 })
       const task = template === 'comparison' || contest ? TEMPLATE_TASK : `${TEMPLATE_TASK} for review`
       await newTeam.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).fill(task)
       if (template === 'comparison' || contest) {
@@ -105,14 +106,16 @@ try {
         await expect(command).toHaveValue(chosenCheck)
       }
       await expect(newTeam.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled({ timeout: 30000 }).catch(async error => { throw new Error(`${error.message}\n${template}: ${await newTeam.innerText()}`) })
-      await expect(newTeam.getByRole('combobox', { name: /^Model for / }).first()).toBeVisible()
+      await expect(newTeam.getByRole('button', { name: /^Model for / }).first()).toBeVisible()
       await newTeam.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).scrollIntoViewIfNeeded()
       await photograph('02-task')
       await newTeam.getByRole('button', { name: 'Details', exact: true }).click()
       if (!contest) {
-        const reviewer = newTeam.getByRole('combobox', { name: template === 'comparison' ? 'Runtime for Judge' : 'Runtime for Reviews', exact: true })
-        await reviewer.selectOption('codex-review')
-        await expect(reviewer).toHaveValue('codex-review')
+        // The rig names the `codex-review` runtime "Scripted reviewer".
+        const reviewer = newTeam.getByRole('button', { name: template === 'comparison' ? 'Runtime for Judge' : 'Runtime for Reviews', exact: true })
+        await reviewer.click()
+        await page.getByRole('menuitemradio', { name: 'Scripted reviewer', exact: true }).click()
+        await expect(reviewer).toHaveText('Scripted reviewer')
       }
       await newTeam.getByRole('button', { name: 'Dry run', exact: true }).click()
       const dryRun = newTeam.getByRole('region', { name: 'Dry run', exact: true })

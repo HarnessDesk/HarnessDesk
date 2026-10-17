@@ -20,7 +20,7 @@ Options:
   --port <number>        Listen on this port (default: HARNESSDESK_PORT or 0)
   --ui <directory>       Serve this UI directory
   --log-level <level>    Log level (debug or info; default: info)
-  --codex-binary <path>  Use this agent binary
+  --codex-binary <path>  Use this runtime binary
 `
 
 let values: Record<string, string | boolean | undefined>
