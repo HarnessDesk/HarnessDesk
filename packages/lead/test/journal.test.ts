@@ -368,7 +368,10 @@ test('a conflicting reconciliation identity refuses one call and leaves Stop wri
     identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))
   await observeStarted(journal, 'run-1')
   await journal.execute({ id: 'second', request: { ...request, start: second }, context, stepId: 'second' }, async () => { throw new Error('lost response') })
-  await assert.rejects(journal.recover(async () => ([{ correlationId: 'second', runId: 'run-1', teamId: 'team-1' }]).map(identity => runEvidence(identity))))
+  const actions = await journal.recover(async () => ([{ correlationId: 'second', runId: 'run-1', teamId: 'team-1' }]).map(identity => runEvidence(identity)))
+  assert.deepEqual(actions.map((action: any) => [action.id, action.type]), [['second', 'needs-user']])
+  assert.equal(journal.state.budget.stop.reason, 'unknown-spend')
+  assert.deepEqual(journal.state.runs, [{ correlationId: 'first', runId: 'run-1', teamId: 'team-1' }])
   await journal.stop()
   assert.equal((await open(storage)).state.phase, 'stopped')
 })
@@ -1044,7 +1047,10 @@ test('a witnessed Team cannot be bound to a different already-bound Goal', async
   const { journal } = await lostStart()
   await journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'team-existing', executionId: 'earlier-run' })
   const identity = witnessed()
-  await assert.rejects(journal.recover(async () => [runEvidence(identity)]))
+  const actions = await journal.recover(async () => [runEvidence(identity)])
+  assert.deepEqual(actions.map((action: any) => [action.id, action.type]), [['lost', 'needs-user']])
+  assert.equal(journal.state.budget.stop.reason, 'unknown-spend')
+  assert.ok(!journal.state.runs.some((run: any) => run.runId === identity.runId), 'a run on another Goal is never bound')
   await assert.rejects(journal.resolveStart('lost', { goalId: 'team-1', identity }))
   await journal.stop()
 })
@@ -1268,4 +1274,66 @@ test('the window can confirm the retained run after a conflicting lookup', async
   await journal.resolveStart('first', { goalId: 'team-1', identity: run })
   assert.equal(journal.state.attempts.get('first').outcome, 'succeeded')
   assert.equal(journal.state.attempts.get('first').resolutionPending, false)
+})
+
+test('a lookup row naming another start\'s run is a conflict that never stops the rest of recovery', async () => {
+  const { journal, next } = await runningTwoStepPlan()
+  await observeStarted(journal, 'run-1')
+  await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => { throw new Error('lost response') })
+  await journal.recover(async (attempt: any) => attempt.id === 'second' ? [runEvidence({ correlationId: 'second', runId: 'run-2', teamId: 'team-1' })] : [])
+  assert.equal(journal.state.attempts.get('first').evidence, null, 'a lookup that omits a tracked run proves nothing and records nothing')
+  assert.equal(journal.state.budget.stop, null)
+  assert.ok(journal.state.runs.some((run: any) => run.runId === 'run-1'))
+  const lookup = async (attempt: any) => attempt.id === 'first'
+    ? [runEvidence({ correlationId: 'first', runId: 'run-1', teamId: 'team-1' }), runEvidence({ correlationId: 'first', runId: 'run-2', teamId: 'team-1' })]
+    : [runEvidence({ correlationId: 'second', runId: 'run-2', teamId: 'team-1' }), runEvidence({ correlationId: 'second', runId: 'run-3', teamId: 'team-1' })]
+  const actions = await journal.recover(lookup)
+  assert.deepEqual(actions.map((action: any) => [action.id, action.type]), [['first', 'needs-user'], ['second', 'needs-user']])
+  const restored: any = await checkpointOpen(journal)
+  for (const state of [journal.state, restored.state]) {
+    assert.equal(state.budget.stop.reason, 'unknown-spend')
+    assert.equal(state.budget.spend, 'unknown')
+    assert.deepEqual(state.runs.map((run: any) => [run.correlationId, run.runId]).sort(), [['first', 'run-1'], ['second', 'run-2'], ['second', 'run-3']])
+  }
+  const seq = journal.state.seq
+  await journal.recover(lookup)
+  assert.equal(journal.state.seq, seq, 'a standing cross-start conflict appends nothing')
+})
+
+test('a full start that finishes every run still records the new live run beside them', async () => {
+  const storage = memory(), journal = await open(storage)
+  const expanded = { ...contract, caps: { ...contract.caps, rounds: 100 } }
+  await journal.setPolicy(policy)
+  await journal.offerCard({ ...plan, contract: expanded })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: expanded.caps, freshnessMs: 50 })
+  await journal.decideCard(click, 200)
+  await journal.execute({ id: 'wide', request, context, stepId: 'implement' }, async () => ({ value: null,
+    identity: { correlationId: 'wide', runId: 'run-1', teamId: 'team-1' } }))
+  const runs = Array.from({ length: 64 }, (_, i) => runEvidence({ correlationId: 'wide', runId: `run-${i + 1}`, teamId: 'team-1' }))
+  await journal.recover(async () => runs)
+  assert.equal(journal.state.attempts.get('wide').outcome, 'succeeded')
+  assert.equal(journal.state.runs.length, 64)
+  const lookup = async () => [...runs.map(run => ({ ...run, terminal: true })), runEvidence({ correlationId: 'wide', runId: 'run-65', teamId: 'team-1' })]
+  await journal.recover(lookup)
+  const restored: any = await checkpointOpen(journal)
+  for (const state of [journal.state, restored.state]) {
+    assert.equal(state.budget.stop.reason, 'unknown-spend')
+    assert.deepEqual(state.runs.map((run: any) => run.runId), ['run-65'], 'the new live run stays cancellable')
+  }
+  const seq = journal.state.seq
+  await journal.recover(lookup)
+  assert.equal(journal.state.seq, seq, 'the same lookup appends nothing again')
+})
+
+test('a window click shown before a conflict cannot resolve it', async () => {
+  const { journal } = await runningTwoStepPlan()
+  await observeStarted(journal, 'run-1')
+  const run = { correlationId: 'first', runId: 'run-1', teamId: 'team-1' }
+  await journal.recover(async () => [runEvidence(run)])
+  const shown = journal.state.attempts.get('first').evidenceSeq
+  await journal.recover(async () => [{ ...runEvidence(run), firstRoundId: 'conflicting' }])
+  await assert.rejects(journal.resolveStart('first', { goalId: 'team-1', identity: run }, shown))
+  assert.equal(journal.state.attempts.get('first').resolutionPending, true)
+  await journal.resolveStart('first', { goalId: 'team-1', identity: run })
+  assert.equal(journal.state.attempts.get('first').outcome, 'succeeded')
 })

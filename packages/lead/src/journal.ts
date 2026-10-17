@@ -390,32 +390,52 @@ export class LeadJournal {
             .filter(identity => pending.method === 'flow/start-goal' && identity.correlationId === pending.correlationId)
         } catch { /* Failed lookups supply no new evidence. */ continue }
         const retained = new Map((pending.evidence === null ? [] : parseLeadRunEvidence(pending.evidence)).map(run => [run.runId, run]))
+        // A run another start owns, or one on another Goal, belongs to no record of this start.
+        const foreign = new Set([...this.#state.runs.filter(run => run.correlationId !== pending.correlationId).map(run => run.runId),
+          ...[...this.#state.attempts.values()].filter(other => other.id !== pending.id && other.evidence !== null)
+            .flatMap(other => parseLeadRunEvidence(other.evidence!).map(run => run.runId))])
+        const goalId = this.#state.budget?.goalId ?? null
         // A row that contradicts retained evidence keeps the retained identity; one
         // that comes back to life stays live so it can be cancelled. Every other row
         // of the same lookup is still recorded.
         let conflict = false
         for (const run of observed) {
           const previous = retained.get(run.runId)
-          if (previous && (previous.teamId !== run.teamId || previous.firstRoundId !== run.firstRoundId || previous.terminal && !run.terminal)) {
+          if (foreign.has(run.runId) || goalId !== null && run.teamId !== goalId) conflict = true
+          else if (previous && (previous.teamId !== run.teamId || previous.firstRoundId !== run.firstRoundId || previous.terminal && !run.terminal)) {
             conflict = true
             if (previous.terminal && !run.terminal) retained.set(run.runId, { ...previous, terminal: false })
           } else retained.set(run.runId, run)
         }
         const rows = [...retained.values()]
-        const fitted = this.#fitEvidence(pending.correlationId, rows)
-        // Contradicted or unrepresentable history makes spend unknown: latch the stop
-        // durably before anything else, so nothing can throw first.
-        if (conflict || fitted.length < rows.length) await this.#failClosed()
-        const evidence = JSON.stringify(sortEvidence(fitted))
-        if (evidence !== pending.evidence) {
+        // Replay needs every tracked run in the next record, so a run that finishing
+        // runs make room for is recorded by a second record against the new state.
+        let recorded = false
+        for (let pass = 0; pass < 2; pass++) {
+          const fitted = this.#fitEvidence(pending.correlationId, rows)
+          // A tracked run the lookup omits has not ended, and its row is the proof
+          // replay needs: record nothing, and fail closed if rows go unrecorded.
+          const current = this.#state.attempts.get(pending.id)!
+          const known = current.evidence === null ? [] : parseLeadRunEvidence(current.evidence).map(run => run.runId)
+          const omitted = this.#state.runs.some(run => run.correlationId === pending.correlationId && !fitted.some(row => row.runId === run.runId))
+          // Contradicted or unrepresentable history makes spend unknown: latch the stop
+          // durably before anything else, so nothing can throw first.
+          if (conflict || fitted.length < rows.length || omitted && rows.some(row => !known.includes(row.runId))) await this.#failClosed()
+          if (omitted) { conflict ||= rows.some(row => !known.includes(row.runId)); break }
+          const evidence = JSON.stringify(sortEvidence(fitted))
+          if (evidence === current.evidence) break
           const live = fitted.filter(run => !run.terminal)
-          const identity = live.length === 1 ? runIdentity(live[0]!) : null
-          await this.#append({ type: 'reconciliation', id: pending.id, identity, count: live.length, evidence })
-          if (!conflict) actions.push({ id: pending.id, type: identity ? 'reconciled' : 'needs-user', count: live.length })
+          await this.#append({ type: 'reconciliation', id: pending.id, identity: live.length === 1 ? runIdentity(live[0]!) : null, count: live.length, evidence })
+          recorded = true
+          if (fitted.length === rows.length) break
+        }
+        if (recorded && !conflict) {
+          const live = parseLeadRunEvidence(this.#state.attempts.get(pending.id)!.evidence!).filter(run => !run.terminal)
+          actions.push({ id: pending.id, type: live.length === 1 ? 'reconciled' : 'needs-user', count: live.length })
         }
         if (conflict) {
           const current = this.#state.attempts.get(pending.id)!
-          if (current.outcome !== 'uncertain' || !current.resolutionPending) await this.#append({ type: 'reconciliation-conflict', id: pending.id })
+          if (current.evidence !== null && (current.outcome !== 'uncertain' || !current.resolutionPending)) await this.#append({ type: 'reconciliation-conflict', id: pending.id })
           actions.push({ id: pending.id, type: 'needs-user' })
         }
       }

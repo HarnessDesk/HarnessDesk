@@ -209,14 +209,17 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'reconciliation-conflict':
       updateAttempt(event.id, attempt => {
         ensure(attempt.phase === 'finished' && attempt.kind === 'mutation' && attempt.evidence !== null)
-        return { ...attempt, outcome: 'uncertain', resolutionPending: true }
+        // A click the window showed before this conflict answers older evidence.
+        return { ...attempt, outcome: 'uncertain', resolutionPending: true, evidenceSeq: event.seq }
       })
       state = { ...state, phase: 'waiting-for-user' }; break
     case 'reconciliation': {
       const attempt = state.attempts.get(event.id)
-      ensure(attempt?.phase === 'finished' && attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.resolutionPending || state.runs.some(run => run.correlationId === attempt.correlationId)))
-      ensure(attempt!.evidence !== event.evidence)
       const identities = parseLeadRunEvidence(event.evidence)
+      // Host-proven live work is always recordable, even after every tracked run ended.
+      ensure(attempt?.phase === 'finished' && attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.resolutionPending ||
+        state.runs.some(run => run.correlationId === attempt.correlationId) || attempt.evidence !== null && identities.some(run => !run.terminal)))
+      ensure(attempt!.evidence !== event.evidence)
       ensure(identities.every(identity => identity.correlationId === attempt!.correlationId &&
         !state.runs.some(run => run.runId === identity.runId && run.correlationId !== identity.correlationId)))
       const live = identities.filter(run => !run.terminal)
