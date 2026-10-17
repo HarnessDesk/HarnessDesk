@@ -192,31 +192,53 @@ const openCodeIdentity = (context: IdentityContext): Account | null => {
  * create `-shm` and `-wal` beside it, so it is read the way the ledger reads
  * one: `readForeignDatabase` opens a quiet file without writing a byte and
  * copies a live one to read. The account is asked for on every read of a
- * row, so the answer is kept until the database or its side files change
- * size or time, and a live OpenCode's database is not copied each time. One
- * that is missing, unreadable or shaped otherwise names nobody.
+ * row, so an answer is kept until the database changes size or time, or its
+ * side files do and `LOG_INTERVAL_MS` has passed, so a live OpenCode's
+ * database is not copied each time. One that is missing, unreadable or
+ * shaped otherwise names nobody.
  */
 const openCodeSignIns = (path: string): readonly string[] => {
-  const key = openCodeStamp(path)
-  if (key === null) return []
+  const stamp = openCodeStamp(path)
+  if (stamp === null) return []
   const kept = openCodeRead.get(path)
-  if (kept?.key === key) return kept.providers
-  let providers: readonly string[]
-  try {
-    providers = readForeignDatabase(path, (db) =>
-      db.prepare('SELECT DISTINCT integration_id AS provider FROM credential WHERE active = 1').all()
-        .flatMap((row) => typeof row['provider'] === 'string' ? [row['provider']] : [])) ?? []
-  } catch {
-    providers = []
+  if (kept && (kept.stamp === stamp.stamp || (kept.database === stamp.database && Date.now() - kept.at < LOG_INTERVAL_MS))) {
+    return kept.providers
   }
-  openCodeRead.set(path, { key, providers })
-  return providers
+  try {
+    const providers = readForeignDatabase(path, (db) =>
+      db.prepare('SELECT DISTINCT integration_id AS provider FROM credential WHERE active = 1').all()
+        .flatMap((row) => typeof row['provider'] === 'string' ? [row['provider']] : []))
+    // Null is not a database, or not one that could be opened — found from
+    // its first bytes, so it is cheap to ask again and is not kept.
+    if (providers === null) return []
+    openCodeRead.set(path, { ...stamp, at: Date.now(), providers })
+    return providers
+  } catch {
+    // Too large, changing under the read, or shaped otherwise: nobody for
+    // now, and asked again next time rather than kept.
+    return []
+  }
 }
 
-const openCodeRead = new Map<string, { readonly key: string; readonly providers: readonly string[] }>()
+/**
+ * A running OpenCode writes its log on every turn, so the log changing alone
+ * re-reads (a copy, for a live database) at most this often; the database
+ * itself changing always does. A sign-in that is still in the log shows
+ * within it.
+ */
+const LOG_INTERVAL_MS = 30_000
 
-/** The database and its side files' sizes and times; null when there is no database. */
-const openCodeStamp = (path: string): string | null => {
+interface OpenCodeStamp {
+  /** The database and both side files, sizes and times. */
+  readonly stamp: string
+  /** The database alone. */
+  readonly database: string
+}
+
+const openCodeRead = new Map<string, OpenCodeStamp & { readonly at: number; readonly providers: readonly string[] }>()
+
+/** Sizes and times of the database and its side files; null when there is no database. */
+const openCodeStamp = (path: string): OpenCodeStamp | null => {
   const parts: string[] = []
   for (const file of [path, `${path}-wal`, `${path}-shm`]) {
     try {
@@ -227,7 +249,7 @@ const openCodeStamp = (path: string): string | null => {
       parts.push('-')
     }
   }
-  return parts.join('|')
+  return { stamp: parts.join('|'), database: parts[0]! }
 }
 
 /**

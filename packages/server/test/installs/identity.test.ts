@@ -224,9 +224,31 @@ test('an unchanged OpenCode database is not read again on every account check �
   chmodSync(join(folder, 'opencode.db'), 0o600)
   // Changed: read again.
   const db = new DatabaseSync(join(folder, 'opencode.db'))
-  db.exec("UPDATE credential SET active = 0")
+  db.exec("UPDATE credential SET active = 0; INSERT INTO credential (id, integration_id, value, active) VALUES ('later', 'anthropic', 'x', 0)")
   db.close()
   assert.equal(read('opencode', { home: dir, env: {} }), null)
+})
+
+test('a read of OpenCode\'s database that failed is tried again, not kept — #1776', (t) => {
+  const dir = home(t, {})
+  const folder = join(dir, '.local/share/opencode')
+  credentials(folder, [{ integration: 'opencode', active: 1 }])
+  chmodSync(join(folder, 'opencode.db'), 0o000)
+  if (process.getuid?.() !== 0) assert.equal(read('opencode', { home: dir, env: {} }), null)
+  chmodSync(join(folder, 'opencode.db'), 0o600)
+  assert.equal(read('opencode', { home: dir, env: {} })?.label, 'opencode')
+})
+
+test('a busy OpenCode\'s log is not copied on every account check — #1776', (t) => {
+  // Every turn writes the log, so its size and time alone would mean a copy
+  // per check; a sign-in in the log shows within the short interval instead.
+  const dir = home(t, {})
+  const folder = join(dir, '.local/share/opencode')
+  const owner = credentials(folder, [{ integration: 'opencode', active: 1 }], { wal: true, keepOpen: true })!
+  t.after(() => owner.close())
+  assert.equal(read('opencode', { home: dir, env: {} })?.label, 'opencode')
+  owner.exec("INSERT INTO credential (id, integration_id, value, active) VALUES ('turn', 'deepseek', 'x', 1)")
+  assert.equal(read('opencode', { home: dir, env: {} })?.label, 'opencode', 'the log changed, the database did not')
 })
 
 test('an OpenCode database the reader does not recognise names nobody', (t) => {
