@@ -112,6 +112,7 @@ const rig = (
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     workSubject: () => one ? `session:${KEY}` : 'draft:p1',
     send: vi.fn(),
@@ -321,7 +322,7 @@ it('keeps one short draft pitch with a chosen project', () => {
   })
   render(store, null)
 
-  expect(container.textContent).toContain('Describe a task, then choose the folder it runs in.')
+  expect(container.textContent).toContain('Describe a task.')
   expect(container.textContent).not.toContain('Pick a project folder')
 })
 
@@ -1093,7 +1094,7 @@ it('keeps other clients out of the draft pitch even with legacy history metadata
   }))
   render(rig(null, new Map(), { runtimes, activeRuntime: runtimes[0]!.id }).store, null)
   const text = container.querySelector('[data-slot="conversation-empty-state"]')!.textContent
-  expect(text).toContain('Describe a task, then choose the folder it runs in.')
+  expect(text).toContain('Describe a task.')
   expect(text).not.toContain('Sessions you start in')
   expect(text).not.toContain('Gamma CLI')
   expect(text).not.toContain('Codex')

@@ -2345,3 +2345,15 @@ whole; other membership stacks retain their overlap.
 Add a runtime keeps the machine's catalogue first. Browse more… reveals the
 registry, with one MenuNote for its third-party, unreviewed status. It does not
 change an entry's add, download, blocked or registered behaviour.
+
+A folder choice is optional for a new conversation. The composer's **No folder**
+label keeps the same single toolbar line; its hover title names the host's chats
+folder. **No folder** is the first menu choice and clears a chosen folder. In
+Settings, **Chats folder** earns a path hint, shortened with `MiddleTruncate`,
+beside **Change…** and **Reset**. The sidebar's **Chats** group joins managed
+chats with unknown-folder conversations and is omitted when empty.
+Only folders recorded as host allocations belong to that group. A refused
+Chats folder pick explains the conflicting opened project in the picker's
+description and a Settings note. Project lists omit managed chats. The composer
+refreshes repository facts on mount before deciding whether to show its worktree
+control; an unread recent-folder entry cannot permanently hide that control.

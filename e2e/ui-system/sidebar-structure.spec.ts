@@ -11,7 +11,7 @@ for (const theme of ['light', 'dark'] as const) test(`activation reveals a folde
   const column = sidebar.locator(`[style*="width: ${FRAME.sidebar.width}px"]`)
   await column.evaluate(node => { (node as HTMLElement).style.height = '1000px' })
   const group = sidebar.locator('[data-no-folder]')
-  const head = group.getByRole('button', { name: 'No folder', exact: true })
+  const head = group.getByRole('button', { name: 'Chats', exact: true })
   await expect(head).toHaveAttribute('aria-expanded', 'false')
   await page.evaluate(() => {
     const { sidebarFolderlessStore: store } = (window as unknown as { __hdPreview: { sidebarFolderlessStore: {
@@ -57,7 +57,7 @@ for (const theme of ['light', 'dark'] as const) test(`folderless conversations h
   await page.goto(`/preview.html?sidebar=folderless&theme=${theme}`)
   const sidebar = page.locator('[data-frame-id="sidebar-column"]')
   const group = sidebar.locator('[data-no-folder]')
-  const head = group.getByRole('button', { name: 'No folder', exact: true })
+  const head = group.getByRole('button', { name: 'Chats', exact: true })
   await expect(head).toHaveAttribute('aria-expanded', 'false')
   await expect(group.locator('[data-slot="sidebar-menu-action"]')).toHaveCount(0)
   await expect(sidebar.locator('[data-project-root=""]')).toHaveCount(0)

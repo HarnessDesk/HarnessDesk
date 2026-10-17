@@ -1370,8 +1370,9 @@ export interface HostMethods {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
     result: Session
   }
+  /** With no cwd, the host creates a fresh directory inside its configured chats folder. */
   'session/create': {
-    params: { readonly runtime: RuntimeId; readonly options: SessionOptions }
+    params: { readonly runtime: RuntimeId; readonly options: Omit<SessionOptions, 'cwd'> & { readonly cwd?: string } }
     result: Session
   }
   'session/resume': {

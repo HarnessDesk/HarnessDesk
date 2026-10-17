@@ -1262,7 +1262,7 @@ const EmptyBoard = () => (
           <ConversationEmptyState data-catalog-variant="column">
             <Text as="div" role="page" weight="medium">What should we build?</Text>
             <Text as="p" role="prose" className="m-0">
-              Describe a task, then choose the folder it runs in.
+              Describe a task.
             </Text>
           </ConversationEmptyState>
         </div>
@@ -1270,7 +1270,7 @@ const EmptyBoard = () => (
           <ConversationEmptyState height="content" data-catalog-variant="content">
             <Text as="div" role="page" weight="medium">What should we build?</Text>
             <Text as="p" role="prose" className="m-0">
-              Describe a task, then choose the folder it runs in.
+              Describe a task.
             </Text>
           </ConversationEmptyState>
           <ToolPaneNotice tone="warning">A tool was unavailable when this conversation opened.</ToolPaneNotice>

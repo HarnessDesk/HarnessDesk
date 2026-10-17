@@ -581,7 +581,7 @@ it('No folder and Other projects follow the same name-then-disclosure rule', () 
   treeWith([], [summary({ id: 'unknown', runtime: runtimeId('agent'), cwd: '' }),
     summary({ id: 'one', runtime: runtimeId('agent'), cwd: '/one' }),
     summary({ id: 'two', runtime: runtimeId('agent'), cwd: '/two' })])
-  for (const label of ['No folder', 'Other projects']) {
+  for (const label of ['Chats', 'Other projects']) {
     const heading = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
     expect(heading).not.toBeNull()
     const name = heading.querySelector('[data-left-fold-name]') ?? heading.querySelector('[data-slot="sidebar-menu-label-content"]')!

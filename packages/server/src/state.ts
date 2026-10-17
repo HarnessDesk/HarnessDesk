@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { lanePreferences } from '@harnessdesk/protocol'
+import { isManagedChatFolder } from './chats.js'
 
 /**
  * HarnessDesk-side persistence.
@@ -161,7 +162,14 @@ export class StateStore {
     const existing = this.#state.workspaces.find((entry) => entry.path === record.path)
     const id = record.id ?? existing?.id ?? randomUUID()
     const others = this.#state.workspaces.filter((entry) => entry.path !== record.path)
-    this.#state = { ...this.#state, workspaces: [{ ...record, id }, ...others].slice(0, 50) }
+    let keptChat = false, projects = 0
+    const workspaces = [{ ...record, id }, ...others].filter(entry => {
+      if (!isManagedChatFolder(this, entry.path)) return ++projects <= 50
+      if (keptChat) return false
+      keptChat = true
+      return true
+    })
+    this.#state = { ...this.#state, workspaces }
     await this.#persist()
     return this.#state.workspaces
   }

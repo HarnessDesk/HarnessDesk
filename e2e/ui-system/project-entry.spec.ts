@@ -4,10 +4,11 @@ const preview = '/src/preview/project-entry.html'
 
 test('the empty composer and both sidebar entries open one folder picker with keyboard access', async ({ page }) => {
   await page.goto(preview)
-  const open = page.getByRole('button', { name: 'Choose folder', exact: true })
+  const open = page.getByRole('button', { name: 'No folder', exact: true })
   await expect(open).toBeEnabled()
   await open.focus()
   await page.keyboard.press('Enter')
+  await page.getByRole('menuitem', { name: 'Choose folder…', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Open a project folder' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(open).toBeFocused()

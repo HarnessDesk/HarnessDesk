@@ -449,12 +449,19 @@ and fallback commands), `credentials.json`, `usage.sqlite` (the spend ledger),
 `sessions.sqlite` (the conversation index, turn metadata, items and search),
 `sessions-YYYY-MM-DD.sqlite` (the newest three daily snapshots),
 `transcripts/` (legacy files retained after the list-only seed),
-`plugins/`, `worktrees/`, `logs/` (`host.ndjson`),
+`plugins/`, `worktrees/`, `chats/` (the default location for fresh per-conversation
+folders when no project is chosen), `logs/` (`host.ndjson`),
 `audit.ndjson`, `run/` (`tools.sock`), `accounts.json`, `archive.json`,
 `names.json`, `team/`, `acp-registry.json`, `downloads/`,
 `attachment-trust.json` and `attachments/seats/` (a person's local approvals
 and every Seat's frozen attachment history), and `goals/memory-archive/`
 (retained citation snapshots, beside `goals/` itself).
+
+The state store records successful host-created chat folders independently of
+the configured chats location. Their paths, including canonical aliases, are
+host-owned preferences; clients cannot patch them. Recent folders retain fifty
+projects plus at most one managed chat for launch restoration. Failed session
+starts remove only their own empty allocation, preserving anything written there.
 
 ## The extension plane
 

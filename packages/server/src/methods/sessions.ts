@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
+import { rmdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import {
   folderGoneOf,
@@ -14,8 +15,10 @@ import {
   type Session,
   type RuntimeId,
   type SessionId,
+  type SessionOptions,
 } from '@harnessdesk/protocol'
 
+import { createChatFolder, rememberChatFolder } from '../chats.js'
 import * as gitOps from '../git-ops.js'
 import { resumeSeatSession } from '../session-resume.js'
 import { laneEnvironmentFor } from '../goals/lane-environment.js'
@@ -163,15 +166,22 @@ export const sessionMethods = {
     const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, routeId, ...rest } = params.options as typeof params.options & {
       routeId?: string
     }
-    let options = rest as typeof params.options
-    if (typeof routeId === 'string') {
-      options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
-    }
+    const route = typeof routeId === 'string' ? await ctx.routes.resolve(runtime, routeId) : undefined
+    const allocated = rest.cwd === undefined ? await createChatFolder(ctx.state) : null
+    const options: SessionOptions = { ...rest, cwd: rest.cwd ?? allocated!, ...(route ? { route } : {}) }
     // A lane's checkout is its cwd, which every runtime takes; its variables
     // go only to a runtime that can take them per session (`laneEnvironmentFor`).
-    await ctx.runtimes.ensureStarted(runtime)
-    const environment = laneEnvironmentFor(runtime, ctx.laneEnvironment.forCheckout(options.cwd))
-    const live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
+    let live: AgentSession
+    try {
+      await ctx.runtimes.ensureStarted(runtime)
+      const environment = laneEnvironmentFor(runtime, ctx.laneEnvironment.forCheckout(options.cwd))
+      live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
+    } catch (error) {
+      // Never remove a caller's folder or files a runtime managed to write.
+      if (allocated) await rmdir(allocated).catch(() => {})
+      throw error
+    }
+    if (allocated) await rememberChatFolder(ctx.state, allocated)
     const session = await ctx.sessions.attach(runtime, live.id, live)
     await announceUnavailableTools(ctx, runtime, session)
     return session

@@ -305,11 +305,12 @@ is replaced by **Make a first commit to work in a worktree**, with a **Commit**
 button that opens the existing commit flow. After that commit the normal
 worktree choice returns. Menus re-read the checkout when opened, so commits
 made by an agent or terminal also restore the choice. This applies to the
-composer and project menu too. With no project open, the composer keeps an enabled text box and a **Choose folder**
-control in its toolbar. It and **Open folder…** use the same folder picker
-as the + beside Projects, and both are reachable by keyboard. Sending a task
-without a folder opens that picker; choosing sends into the chosen folder,
-and cancelling leaves the draft untouched. A conversation always has a folder.
+composer and project menu too. With no project open, the composer keeps an enabled text box and a **No folder**
+control in its toolbar. Its menu lists **No folder** first, then **Choose folder…**,
+which uses the same folder picker as the + beside Projects. Sending without a
+chosen folder starts immediately in a fresh host-created directory under the
+chats folder; it opens no picker. The control's hover title names that location.
+Choosing **No folder** clears a prior choice without losing the draft.
 New Team opens the shared dialog with its task, searchable Flow picker, roles
 and optional Done when. Runtime, model and effort use the shared choice menus.
 The automatic runtime supplies its models immediately; changing a model or
@@ -380,8 +381,9 @@ Each conversation's branch still says where it ran. Runtimes that report no git
 join the project another session placed their folder in. The current project
 stays open; the rest fold under **Other projects**.
 
-Conversations whose folder is unknown wait in **No folder**, folded by default
-below the projects. It has no new-conversation or project-menu actions; each
+Conversations in folders created by the host, including under previous chats locations,
+and conversations whose folder is unknown share **Chats**, folded by default
+below the projects. An empty Chats group is omitted. It has no new-conversation or project-menu actions; each
 conversation keeps its own menu and first-prompt label. A ready runtime's history
 can recover a missing folder in the background, and opening a conversation can
 recover it too. A conversation in `/` still belongs to the `/` project.
@@ -805,9 +807,9 @@ Library’s **Declared by** filter selects Agent roles, while **Loaded by**,
 **Install for**, and **Which runtimes load it** describe runtimes.
 
 A fresh draft focuses its enabled text box and asks **What should we build?**,
-with one line: **Describe a task, then choose the folder it runs in.** The
+with one line: **Describe a task.** The
 folder control shares the toolbar's centre line and spacing. It shows
-**Choose folder** until a folder is chosen, then its name with the full path
+**No folder** until a folder is chosen, then its name with the full path
 on hover; worktree choices remain beside it. Choosing a folder keeps the box's
 height. Details shows **Not chosen** or the folder name (full path on hover),
 and **No usage yet**. Drafts omit unreported permissions and branches and an
@@ -946,6 +948,26 @@ backup and diagnostics remain on General. If an adapter refuses its recommendati
 General, the runtime's New sessions section and Permissions › Approvals show
 the reason and keep the runtime's choices available for an explicit pick;
 a new conversation waits until its start values can be validated.
+
+Settings › General shows **Chats folder** with the host's current path, shortened
+in the middle when needed. **Change…** uses the existing folder picker and
+**Reset** restores `chats/` inside the host's data directory. The setting persists
+on the host and affects only new conversations; existing folders are not moved.
+Picking an opened project or a folder containing one is refused with a short
+reason in Settings and its folder picker. Other folders beneath a chats location
+remain projects. Managed chats are omitted from Settings' folder list, History's
+project filter and the Flows catalogue; only the latest occupies a recent-folder
+entry, separate from the fifty remembered projects.
+Each conversation gets a unique dated subfolder, including a new draft,
+hand-off or suggested task from an existing chat. A hand-off retains its source
+folder as provenance without reusing it. A chat's conversation and panels are
+saved under its host-created folder and restored on the next launch, just as
+for a project. A delayed chat-folder open preserves a newer project selection
+and its draft. A recent chat without a saved workbench leaves the composer at
+No folder, whichever startup read finishes first. Suggested tasks whose source
+folder is unknown use the open project. An explicit No folder start uses folderless runtime recommendations,
+even while another project is open. Non-repository conversations
+use the existing repository-state checks to omit Git and worktree controls.
 
 **Conversations › Storage** shows the database, snapshots, cached previews and
 managed worktrees as single-line rows with counts and sizes. Worktree sizes say

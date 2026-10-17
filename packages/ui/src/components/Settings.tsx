@@ -1,3 +1,5 @@
+import SettingsChatsFolder from './SettingsChatsFolder'
+import { projectWorkspaces } from '../lib/chats'
 import SettingsNewConversations from './SettingsNewConversations'
 import { Toolbar } from '../design'
 import type { SettingsRoute, SettingsSection } from '../state/destinations'
@@ -1441,6 +1443,7 @@ const BrowserSection = () => {
  */
 export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focus?:string|null;readonly project:string|null;readonly onProject:(root:string|null)=>void}) => {
   const snapshot = useSnapshot()
+  const workspaces = projectWorkspaces(snapshot.workspaces, snapshot.chatsFolderRoots)
   const open=project,setOpen=onProject
   if (open) return <ProjectPage key={open} root={open} onBack={() => setOpen(null)} />
 
@@ -1448,12 +1451,12 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
     <>
       <PageExplanation>Every folder HarnessDesk has opened, and each project’s own page. Forgetting one touches nothing on disk.</PageExplanation>
 
-      <Section title={withCount('Folders', snapshot.workspaces.length)}>
+      <Section title={withCount('Folders', workspaces.length)}>
       <Rows>
-        {snapshot.workspaces.length === 0 && (
+        {workspaces.length === 0 && (
           <EmptyState variant="row" title="No folders opened yet" description="Open one from File › Open Folder, or ⌘O." />
         )}
-        {snapshot.workspaces.map((workspace) => (
+        {workspaces.map((workspace) => (
           <RowButton
             key={workspace.path}
             kind="record"
@@ -1484,6 +1487,7 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
 export const GeneralSectionRows = () => (
   <>
     <SettingsNewConversations />
+    <SettingsChatsFolder />
     <SectionHead name="Backup" />
     <BackupRows />
 

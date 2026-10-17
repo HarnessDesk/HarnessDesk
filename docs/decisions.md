@@ -3759,3 +3759,51 @@ A standalone page's title and the sidebar's wordmark are the same type, 20px on 
 The title now shares the wordmark's line. Its head row is one bar tall (`--hd-bar-h`), the brand row's counterpart, and a page that opens with its title drops its top gutter, so both rows start at the bar's bottom and centre on the same line. The title, the wordmark and their baselines coincide, and the page's verb (Refresh, New Team) centres on that line too. Nothing hand-tunes a screen: `PageOptions` sizes the row and `Page` drops the gutter when its first block leads with that row, so every page built from them follows, including one whose head sits inside a toolbar (Teams).
 
 Why the line rather than more air: the window already reads along its bars, and the content's first row is a bar-height row beside the sidebar's. The 6px between the bar and the title is the wordmark's own distance from the row above it, so the two columns open the same way. The title keeps its place when the sidebar is hidden, because the row is measured from the bar, not from the sidebar. Pages without a body title (conversations, canvases, a session or a Team with its subject menu in the bar) keep their insets.
+
+## Conversations can start without a project — 2026-10-16
+
+For #1727 the owner chose option A. This reverses decision 3 of #1721's
+first-run entry: Send no longer opens a folder picker or requires a project.
+The host creates a fresh dated directory with a short unique suffix inside
+its chats folder, defaulting to `chats/` under `HARNESSDESK_HOME`. The renderer
+never constructs that path.
+
+The folder menu starts with **No folder**, which clears a prior choice while
+retaining the draft. Its hover title carries the chats location. Managed chats
+and conversations with unknown folders share one **Chats** group; an empty
+group is omitted. Existing repository-state checks govern folder-only tools.
+
+Settings › General exposes **Chats folder**, **Change…** and **Reset** through
+the existing folder picker and host preferences. Changes affect only future
+conversations. The host retains previous chats roots so existing conversations
+keep both their original folder and their Chats grouping. New drafts and
+hand-offs from a managed chat allocate fresh folders; the hand-off packet
+retains its source location as provenance.
+
+The host-created folder becomes the chat's open workspace before its first
+layout is saved. A recent chat with a saved workbench restores that workbench
+on launch; a recent chat with no saved workbench does not choose a folder for
+an empty draft. Suggested tasks from chats request a fresh folder explicitly,
+even when a different project is open, while tasks from projects retain their
+sender's folder.
+
+## A chats location never claims an existing project — 2026-10-16
+
+The owner's repair to #1727 makes chat identity a record of folders the host
+created, rather than a property inherited from a configured parent. Selecting
+an opened project, or a parent containing one, is refused in Settings, including
+when the location reaches it through a symlink. Changing or resetting the
+location never broadens the recorded set; previous chat allocations keep their
+identity. A pre-existing folder with a dated name is still a project.
+
+Only the latest managed chat appears in recent folders, alongside the fifty
+remembered projects. Settings' folder list, History's project choices and the
+Flows catalogue exclude managed chats. Startup restores a chat only with its
+saved workbench, regardless of read order; an explicit folder choice made while
+preferences load takes precedence. Failed starts remove only empty allocations.
+
+The draft's folder control refreshes Git facts when mounted. Recent entries
+other than the first carry unread facts, so refreshing them preserves the open
+repository's known state. Suggested tasks from a source with an unknown folder
+keep the open project's folder; a recorded managed chat explicitly requests a
+fresh allocation.

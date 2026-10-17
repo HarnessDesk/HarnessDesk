@@ -114,7 +114,7 @@ it('files unknown folders in one folded group after projects, keeping root and r
   const group = container.querySelector('[data-no-folder]')!
   expect(group).not.toBeNull()
   const head = group.querySelector<HTMLButtonElement>('button[aria-expanded]')!
-  expect(head.textContent).toContain('No folder')
+  expect(head.textContent).toContain('Chats')
   expect(head.getAttribute('aria-expanded')).toBe('false')
   expect(group.querySelector('[data-slot="sidebar-menu-action"]')).toBeNull()
   expect(group.compareDocumentPosition(container.querySelector('[data-project-root="/"]')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
@@ -364,4 +364,58 @@ it('a trigger Goal’s room is named by its Goal, with no origin line of its own
   expect(triggerGoal).not.toHaveBeenCalled()
   expect(container.textContent).toContain('Fix the retry bug')
   expect(container.textContent).not.toContain('from PR #12')
+})
+
+ it('groups managed chats and unknown folders together, excluding path-prefix neighbours', () => {
+  const chats = '/data/chats'
+  render([
+    { ...session('managed', `${chats}/2026-10-16-one`, { root: '', worktree: false }), repo: null },
+    { ...session('unknown', '', { root: '', worktree: false }), repo: null },
+    { ...session('neighbour', '/data/chats-project', { root: '/data/chats-project', worktree: false }) },
+  ], workspace(REPO, { root: REPO, worktree: false }), { chatsFolder: chats, chatsFolderRoots: [`${chats}/2026-10-16-one`] })
+  const group = container.querySelector('[data-no-folder]')!
+  expect(group?.textContent).toContain('Chats')
+  act(() => group.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click())
+  expect(group.textContent).toContain('managed')
+  expect(group.textContent).toContain('unknown')
+  expect(group.textContent).not.toContain('neighbour')
+  expect(projects()).not.toContain('2026-10-16-one')
+})
+
+it('omits an empty Chats group', () => {
+  render([], workspace(REPO, { root: REPO, worktree: false }), { chatsFolder: '/data/chats', chatsFolderRoots: [] })
+  expect(container.querySelector('[data-no-folder]')).toBeNull()
+})
+
+it.each([false, true])('keeps a Team visible in a host-created chat folder (conversation: %s)', (withConversation) => {
+  const room = { id: 'chat-room', name: 'Plan the retry work', root: REPO, updatedAt: 2,
+    members: [], intents: [], channel: [], messaging: true } as unknown as import('@harnessdesk/protocol').TeamState
+  const goal = { goal: { id: room.id, root: REPO, cwd: REPO, sentence: room.name, state: 'open', revision: 1,
+    checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 2, receipt: null }, activity: 'working',
+    waitingOn: [], members: [], board: room, receipt: null, problem: null } as unknown as import('@harnessdesk/protocol').GoalView
+  render(withConversation ? [session('chat', REPO, { root: REPO, worktree: false })] : [],
+    workspace(REPO, { root: REPO, worktree: false }), {
+      chatsFolder: '/data/chats', chatsFolderRoots: [REPO], teams: new Map([[room.id, room]]), goals: new Map([[room.id, goal]]),
+    })
+  const chats = container.querySelector('[data-no-folder]')
+  expect(chats).not.toBeNull()
+  act(() => chats!.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click())
+  expect(chats!.textContent).toContain(room.name)
+  expect(container.querySelector('[data-project-root="/repo"]')).toBeNull()
+})
+
+it('does not pull a parent repository Team into Chats through a chat session’s repo facts', () => {
+  const chatsRoot = `${REPO}/chats`
+  const room = { id: 'parent-room', name: 'Parent repository work', root: REPO, updatedAt: 2,
+    members: [], intents: [], channel: [], messaging: true } as unknown as import('@harnessdesk/protocol').TeamState
+  const goal = { goal: { id: room.id, root: REPO, cwd: REPO, sentence: room.name, state: 'open', revision: 1,
+    checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 2, receipt: null },
+    activity: 'working', waitingOn: [], members: [], board: room, receipt: null, problem: null } as unknown as import('@harnessdesk/protocol').GoalView
+  render([session('managed', `${chatsRoot}/2026-10-16-one`, { root: REPO, worktree: false })],
+    workspace(REPO, { root: REPO, worktree: false }), { chatsFolder: chatsRoot, chatsFolderRoots: [`${chatsRoot}/2026-10-16-one`],
+      teams: new Map([[room.id, room]]), goals: new Map([[room.id, goal]]) })
+  const chats = container.querySelector('[data-no-folder]')!
+  act(() => chats.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click())
+  expect(chats.textContent).not.toContain(room.name)
+  expect(container.querySelector('[data-project-root="/repo"]')?.textContent).toContain(room.name)
 })

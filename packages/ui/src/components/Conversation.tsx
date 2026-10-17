@@ -261,7 +261,7 @@ const ConversationEmpty = ({
     <ConversationEmptyState height={height}>
       <EmptyTitle>What should we build?</EmptyTitle>
       <EmptyBody>
-        {session ? `Describe what you want done in ${folder}.` : 'Describe a task, then choose the folder it runs in.'}
+        {session ? `Describe what you want done in ${folder}.` : 'Describe a task.'}
       </EmptyBody>
       {/* This pane already knows its folder — the front door reads the same
           root. With none chosen yet there is no catalogue to read, so the
@@ -806,6 +806,8 @@ export const GitControl = ({
   const summary = session
     ? snapshot.history.find((entry) => entry.runtime === session.runtime && entry.id === session.id)
     : undefined
+  const hasRepository = Boolean(branch || checkout || session?.git || summary?.repo
+    || (cwd === snapshot.workspace?.path && (snapshot.workspace?.repo || snapshot.workspace?.git)))
   const linked =
     armed !== null ||
     pointedAway ||
@@ -850,7 +852,7 @@ export const GitControl = ({
                 disabled
                 onSelect={() => {}}
               />
-            ) : (
+            ) : hasRepository && (
               <>
                 <MenuItem
                   icon={<HistoryIcon size={16} />}
@@ -886,7 +888,7 @@ export const GitControl = ({
                 onSelect={onRemoveWorktree}
               />
             )}
-            {session && key && runtime.capabilities.review && (
+            {hasRepository && session && key && runtime.capabilities.review && (
               <MenuItem
                 icon={<ReviewIcon size={16} />}
                 label="Review uncommitted changes"
@@ -895,7 +897,7 @@ export const GitControl = ({
                 onSelect={() => void store.review({ type: 'uncommitted', delivery: 'detached' }, key)}
               />
             )}
-            {session && !sessionUnavailable(snapshot, session) && (
+            {hasRepository && session && !sessionUnavailable(snapshot, session) && (
               <MenuItem
                 icon={<CommitIcon size={16} />}
                 label="Commit the changes"

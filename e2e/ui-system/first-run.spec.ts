@@ -53,13 +53,13 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) for (const width of [1280, 1600]) {
-  test(`folderless drafts type, cancel and send without a height jump at ${width}px in ${theme}`, async ({ page }) => {
+  test(`folderless drafts send and choose a folder without a height jump at ${width}px in ${theme}`, async ({ page }) => {
     await open(page, theme)
     await page.setViewportSize({ width, height: 900 })
     const text = page.locator('[data-slot="composer-text"]')
     const composer = page.locator('[data-slot="composer"]')
     const send = page.locator('[data-slot="composer-send"]')
-    const folder = page.getByRole('button', { name: 'Choose folder', exact: true })
+    const folder = page.getByRole('button', { name: 'No folder', exact: true })
     await expect(text).toBeEnabled()
     await expect(text).toBeFocused()
     await expect(folder).toBeVisible()
@@ -76,12 +76,20 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 1600]
     expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(1)
     await send.click()
     const picker = page.getByRole('dialog', { name: 'Choose a project folder' })
+    await expect(picker).toHaveCount(0)
+    await expect(page.locator('html')).toHaveAttribute('data-sent-folder', '')
+    await expect(page.locator('html')).toHaveAttribute('data-sent-text', 'Build the checkout task')
+    await expect(text).toHaveValue('')
+    await text.fill('Build the checkout task')
+    await folder.click()
+    await page.getByRole('menuitem', { name: 'Choose folder…', exact: true }).click()
     await expect(picker).toBeVisible()
-    await expect(page.locator('html')).not.toHaveAttribute('data-sent-folder')
     await picker.getByRole('button', { name: 'Cancel', exact: true }).click()
     await expect(text).toHaveValue('Build the checkout task')
-    await send.click()
+    await folder.click()
+    await page.getByRole('menuitem', { name: 'Choose folder…', exact: true }).click()
     await picker.getByRole('button', { name: 'Open “storefront”', exact: true }).click()
+    await send.click()
     await expect(page.locator('html')).toHaveAttribute('data-sent-folder', '/work/storefront')
     await expect(page.locator('html')).toHaveAttribute('data-sent-text', 'Build the checkout task')
     await expect(text).toHaveValue('')

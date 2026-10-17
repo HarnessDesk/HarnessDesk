@@ -1233,11 +1233,20 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   const session = useActiveSession()
   const { ref } = useNarrowToolbar('work-in')
   const workspace = snapshot.workspace
+  useEffect(() => { if (!session && workspace) void store.refreshWorkspaceGit(workspace.path) }, [store, workspace?.path, !!session])
   if (session) return null
+  const folderPicker = <Popover title={workspace?.path ?? `Starts in ${snapshot.chatsFolder}`} drop="up" align="left"
+    triggerVariant={{ variant: 'ghost', size: 'content-min' }}
+    label={<><FolderOpenIcon size={13} /><Text role="row" truncate className={sheet.word}>{workspace?.name ?? 'No folder'}</Text></>}>
+    {close => <Menu close={close}>
+      <MenuItem label="No folder" selected={!workspace} title={`Starts in ${snapshot.chatsFolder}`} onSelect={() => store.clearDraftFolder()} />
+      {onChooseProject && <MenuItem label="Choose folder…" icon={<FolderOpenIcon size={14} />} onSelect={onChooseProject} />}
+    </Menu>}
+  </Popover>
   if (!workspace) {
     return (
       <ComposerTrack name="work-in" contentSized shrinkable>
-        <InToolbar refer={ref}><Button variant="ghost" size="content-min" onClick={onChooseProject}><FolderOpenIcon size={13} /><Text role="row">Choose folder</Text></Button></InToolbar>
+        <InToolbar refer={ref}>{folderPicker}</InToolbar>
       </ComposerTrack>
     )
   }
@@ -1324,10 +1333,8 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   return (
     <ComposerTrack name="work-in" contentSized shrinkable>
       <InToolbar refer={ref}>
-        {onChooseProject && <Button variant="ghost" size="content-min" title={workspace.path} onClick={onChooseProject}>
-          <FolderOpenIcon size={13} /><Text role="row" truncate className={sheet.word}>{folder}</Text>
-        </Button>}
-        <Popover
+        {onChooseProject && folderPicker}
+        {(workspace.repo || workspace.git) && <Popover
           fullWidth={!onChooseProject}
           triggerVariant={onChooseProject && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
           title={title}
@@ -1411,7 +1418,7 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
             )}
           </Menu>
         )}
-        </Popover>
+        </Popover>}
       </InToolbar>
     </ComposerTrack>
   )

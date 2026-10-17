@@ -671,10 +671,6 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
     }
 
     if (!canSend) return
-    if (!key && !store.getSnapshot().workspace) {
-      const chosen = await onChooseProject()
-      if (!chosen || !store.getSnapshot().workspace) return
-    }
     if (images.length > 0 && !acceptsImages) {
       store.notice(
         'warning',
