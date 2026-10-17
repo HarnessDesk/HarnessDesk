@@ -91,6 +91,7 @@ export const SIGN_IN_SCENES = [
   'code',
   'paste code',
   'connected',
+  'not checked',
 ] as const
 export type SignInScene = (typeof SIGN_IN_SCENES)[number]
 
@@ -105,6 +106,7 @@ export const SIGN_IN_SELECTED: Record<SignInScene, RuntimeId> = {
   code: runtimeId('devin'),
   'paste code': runtimeId('claude'),
   connected: runtimeId('claude'),
+  'not checked': runtimeId('gemini'),
 }
 
 /**
@@ -135,6 +137,10 @@ const KEY_ELSEWHERE: Partial<Record<SignInScene, Record<string, unknown>>> = {
 
 const accountsFor = (scene: SignInScene): Record<string, AccountStatus> => {
   if (scene === 'paste code') return PASTE_CODE_ACCOUNTS
+  // Nobody has asked Gemini yet (#1759): no verdict, its own ways in kept.
+  if (scene === 'not checked') {
+    return { ...ACCOUNTS, gemini: { ...ACCOUNTS['gemini']!, unchecked: true } } as unknown as Record<string, AccountStatus>
+  }
   const elsewhere = KEY_ELSEWHERE[scene]
   if (!elsewhere) return ACCOUNTS
   return {

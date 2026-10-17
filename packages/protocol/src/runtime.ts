@@ -153,6 +153,16 @@ export interface AccountStatus {
    * printed the same sentence under every one of them.
    */
   readonly refusal?: string
+  /**
+   * True while the agent has not been asked yet: nobody is listed because
+   * nothing has shown either way, not because nobody is signed in. An ACP
+   * agent says whether it is signed in only when a session opens (or is
+   * refused), so until then an empty list is "not checked", and a surface
+   * that read it as "needs no account" or "not signed in" was wrong both
+   * ways (#1759). `signInMethods` may still carry the ways in the agent
+   * declared; they are its offer, not a verdict.
+   */
+  readonly unchecked?: boolean
 }
 
 /**

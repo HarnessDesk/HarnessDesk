@@ -31,7 +31,7 @@ export const terminalMethods = {
         for (const candidate of tier) {
           const result = await within(async () => {
             const account = await candidate.getAccount()
-            return account.accounts.length === 0 && account.signInMethods.length > 0
+            return account.accounts.length === 0 && account.signInMethods.length > 0 && !account.unchecked
           }, TERMINAL_ACCOUNT_READ_DEADLINE_MS)
           if (result.settled !== 'value') {
             ctx.logger.warn('a terminal provider account read did not answer, so other providers are preferred', {

@@ -7,6 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Agents nobody has asked yet say "Not checked yet"** instead of "needs no account here", and are listed as Ready. Antigravity's Gemini API key is a key field the agent switches to, and its Agent Platform method shows the setup step it needs instead of a button that could only fail.
 - **Skills are cards under filter chips.** The Library's skills page is now a grid of cards with filter chips (All, Needs you, One runtime, Nobody) and an Add skill menu; the problems stay on the card, and the list view is replaced by cards and the matrix.
 
 ## 0.5.1 — 2026-10-17

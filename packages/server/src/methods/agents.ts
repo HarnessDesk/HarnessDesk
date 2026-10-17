@@ -1287,7 +1287,9 @@ export const offerOf = async (
     if (account.settled === 'error') {
       return only({ runtime: id, unavailable: `its account could not be read — ${messageOf(account.error)}`, ...unread })
     }
-    signedIn = account.value.accounts.length > 0
+    // Nobody has asked an unchecked agent yet (#1759), and its first session
+    // is what does: refusing it a seat for that would mean it is never asked.
+    signedIn = account.value.accounts.length > 0 || account.value.unchecked === true
   }
   const catalogue = await catalogueOf(runtime, deadline)
   const resolved = await reports

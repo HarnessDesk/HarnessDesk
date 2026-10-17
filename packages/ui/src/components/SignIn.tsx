@@ -105,7 +105,7 @@ import own from './SignIn.module.css'
  * where the missing ones are offered.
  */
 
-type Status = 'in' | 'key' | 'out' | 'manual' | 'none' | 'asking'
+type Status = 'in' | 'key' | 'out' | 'manual' | 'none' | 'asking' | 'unchecked'
 
 interface Row {
   readonly info: RuntimeInfo
@@ -123,6 +123,7 @@ const STATUS_LABEL: Record<Status, string> = {
   manual: 'Signed in elsewhere',
   none: 'No account',
   asking: 'Starting…',
+  unchecked: 'Not checked yet',
 }
 
 /** What a runtime's account and methods add up to, with no vendor in sight. */
@@ -154,6 +155,11 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
       methods,
       pending,
     }
+  }
+  // Nobody listed because nobody has asked yet: not signed out, and not an
+  // agent that needs no account either — its first session says which (#1759).
+  if (status?.unchecked) {
+    return { info, status: 'unchecked', state, detail: STATUS_LABEL.unchecked, methods, pending }
   }
   if (driveable.length > 0) {
     return { info, status: 'out', state, detail: STATUS_LABEL.out, methods, pending }
@@ -401,7 +407,8 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
  * are not connected, where its "Starting…" is read. One whose only ways in
  * are taken elsewhere is signed out all the same.
  */
-const isConnected = (row: Row): boolean => row.status !== 'out' && row.status !== 'asking' && row.status !== 'manual'
+const isConnected = (row: Row): boolean =>
+  row.status !== 'out' && row.status !== 'asking' && row.status !== 'manual' && row.status !== 'unchecked'
 
 /**
  * A rail row's second line: only what its group does not already say. Under
@@ -413,7 +420,9 @@ const railLine = (row: Row): ReactNode => {
   if (row.pending) return <Text role="meta" tone="brand">Waiting…</Text>
   if (!isConnected(row)) {
     if (row.state === 'broken') return <Text role="meta" tone="danger">Did not start</Text>
-    return row.status === 'asking' || row.status === 'manual' ? <Text role="meta">{row.detail}</Text> : undefined
+    return row.status === 'asking' || row.status === 'manual' || row.status === 'unchecked'
+      ? <Text role="meta">{row.detail}</Text>
+      : undefined
   }
   // Nor under "Connected": an account with no name of its own says only that
   // it is signed in, which is the group's word again.
@@ -642,6 +651,15 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
         <Note className={own.noteFlush} icon={<AlertIcon size={14} />}><Prose text={status.refusal} /></Note>
       ) : null}
 
+      {/* Not asked yet, which is neither signed out nor "needs no account":
+          the agent answers when a conversation opens, and its own ways in
+          stay below in case it is not signed in (#1759). */}
+      {status?.unchecked && !account && !pending ? (
+        <Note className={own.noteFlush}>
+          Not checked yet. {info.presentation.name} says whether it is signed in when its first conversation opens.
+        </Note>
+      ) : null}
+
       {login && pending ? (
         <Pending
           runtime={info.id}
@@ -761,7 +779,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           on "as soon as it answers" for an answer that is not coming. */}
       {/* A signed-in agent that offers no way in has nothing missing: its
           account is the answer, and "needs no account" would contradict it. */}
-      {row.methods.length === 0 && !account && !status?.refusal ? (
+      {row.methods.length === 0 && !account && !status?.refusal && !status?.unchecked ? (
         status === null ? (
           broken ? (
             <div className={own.stack}>
