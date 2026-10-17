@@ -128,7 +128,7 @@ export const ShapeGraph = ({ policy, selected, selectedRule, onSelect, onPositio
 
       {selected && policy.roles.some((role) => role.id === selected) && (
         <section aria-label={`Position of ${selected}`}>
-          <SectionHead name={`Position — ${selected}`} />
+          <SectionHead level="label" name={`Position — ${selected}`} />
           <Card spacing="compact">
             <span className="flex gap-3">
               <Field label="Horizontal">

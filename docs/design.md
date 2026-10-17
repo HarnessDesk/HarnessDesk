@@ -226,6 +226,8 @@ by its line box, because a text Range includes unused font-em space outside it.
 
 ## Named text roles
 
+A head naming a band of a page’s body uses the 16px semibold `section` role; field groups, Settings forms, dialog groups and right-rail card labels stay small (`SectionHead level="label"`).
+
 A size and a weight together name a *role*. A role describes what the words
 are doing; screens do not invent a new spelling for the same job:
 
@@ -233,8 +235,8 @@ are doing; screens do not invent a new spelling for the same job:
 | --- | --- | --- |
 | wordmark | 20 / semibold | the product name beside its mark |
 | page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
-| section | 16 / semibold | a page band's heading (a Dashboard band) — below the page title, above a subject (#1122) |
-| group label | 13 / medium, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
+| section | 16 / semibold | a page band's heading (Teams, Agents, Library, Plugins, Dashboard and detail-page bands) — below the page title, above a subject (#1122) |
+| group label | 13 / medium, secondary ink | the word over a group — a card of rows, a rail's list or a Settings form (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | member | 14 / medium | the name of someone — an agent at work or a person — beside its face: a chat's sender, a member named inside a sentence (`MemberName`); `--hd-member-weight` owns the weight |
 | row | 13 / medium | the title of a setting, and the word above a control |
@@ -299,8 +301,8 @@ from. The word over a group was 13px secondary in the sidebar, 13px in the
 faint ink over a settings card, and 12px tracked capitals in the room's rail,
 the trajectory's roles and the agent card.
 
-Now every page head is the page role, and every group heading is
-`GroupLabel`. The interfaces share its medium weight and vary the air above a
+Now every page head is the page role, page-body bands use the section role,
+and field groups and rail labels use `GroupLabel`. The interfaces share its medium weight and vary the air above a
 group, never its size, its ink or its case. Capitals are counted: the design
 audit's `uppercaseLabel` finds every `text-transform: uppercase`, `uppercase`
 utility and inline `textTransform` outside a `Keycap`, and its ceiling may only

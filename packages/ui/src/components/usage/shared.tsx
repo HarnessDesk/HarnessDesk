@@ -426,7 +426,7 @@ export const Runway = ({
   })
   if (cards.length === 0) return null
   return (
-    <Section title="Will it last" description="What is left against an even burn to the reset. Above the dashed line is headroom; below it is borrowing from the rest of the window.">
+    <Section level="heading" title="Will it last" description="What is left against an even burn to the reset. Above the dashed line is headroom; below it is borrowing from the rest of the window.">
       <DashboardAccounts accounts={cards.map(({ lane, account, report }) => (
           <BurnCard
             key={`${report.runtime}:${report.account ?? ''}:${lane.id}`}
@@ -770,7 +770,7 @@ export const Spend = ({
   const todayIndex = buckets.length - 1
 
   return (
-    <Section title={words.title} action={<PageOptions choices={[{id:'mode',label:'Bars or line',value:mode,items:MODE_OPTIONS,change:next=>onModeChange(next as 'bars' | 'line') }]} read={rangeControl} />}>
+    <Section level="heading" title={words.title} action={<PageOptions choices={[{id:'mode',label:'Bars or line',value:mode,items:MODE_OPTIONS,change:next=>onModeChange(next as 'bars' | 'line') }]} read={rangeControl} />}>
       <ChartFrame>
         <ChartCard >
           <ChartHead>

@@ -333,7 +333,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
         return Math.round((node.matches('[data-slot=table-head]') ? range.getBoundingClientRect().left : node.getBoundingClientRect().left) - element.getBoundingClientRect().left)
       }
       return {
-        run: start(run.closest('[data-slot="card"]') ?? run), labels: [needs, seats].map(section => start(section.querySelector('[data-slot="group-label"]')!)),
+        run: start(run.closest('[data-slot="card"]') ?? run), labels: [needs, seats].map(section => start(section.querySelector('[data-section-name]')!)),
         bodies: [needs, seats].map(section => {
           const content = section.querySelector('[data-slot="list-row-lead"], [data-slot="list-row-title"], [data-slot="table-head"]')!
           const row = content.closest('[data-slot="list-row"], [data-slot="table-head"]')!
@@ -350,7 +350,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       const section = element.querySelector('section[aria-label="Seats"]')!
       const page = element.querySelector('[data-slot="page"]')!
       const head = section.querySelector('[data-slot="section-head"]')!
-      const label = head.querySelector('[data-slot="group-label"]')!
+      const label = head.querySelector('[data-section-name]')!
       const empty = section.querySelector('[data-slot="empty-state"]')!
       const range = document.createRange(); range.selectNodeContents(empty)
       const text = range.getBoundingClientRect(), bounds = empty.getBoundingClientRect()

@@ -4,6 +4,7 @@ import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
 import { GroupLabel } from './group-label'
+import { Text } from '../patterns/Settings'
 
 /**
  * The card with a job: a titled region of a page.
@@ -89,7 +90,8 @@ const sectionVariants = cva('flex flex-col', {
  *                          runtimes read as groups of one section rather
  *                          than twelve sections
  *
- * The heading is a `GroupLabel` (13px, secondary ink, sentence case). The
+ * The heading is a small `GroupLabel` for forms and inspector groups; page-body
+ * bands use `level="heading"` and the 16px semibold section role. The
  * `description` is one muted sentence directly under it — what the section is,
  * never a paragraph of how it works (that belongs on the row it explains, or
  * nowhere). The `action` belongs to the section rather than to any row in it,
@@ -101,6 +103,8 @@ const sectionVariants = cva('flex flex-col', {
  */
 type PageSectionProps = Omit<React.ComponentProps<'section'>, 'title'> & {
   title: string
+  /** Page-body bands use the section role; forms and inspector groups stay labels. */
+  level?: 'label' | 'heading'
   description?: React.ReactNode
   action?: React.ReactNode
   /** @deprecated Page section headings stay on their content edge. */
@@ -112,6 +116,7 @@ type PageSectionProps = Omit<React.ComponentProps<'section'>, 'title'> & {
 type RegionProps = React.ComponentProps<'section'> & {
   variant?: Exclude<VariantProps<typeof sectionVariants>['variant'], 'page'>
   title?: never
+  level?: never
   description?: never
   action?: never
 }
@@ -130,7 +135,7 @@ const useInPageSection = (): boolean => useContext(InPageSection)
 
 const Section = (props: SectionProps) => {
   if (isPageSection(props)) {
-    const { className, title, description, action, inset, children, ...rest } = props
+    const { className, title, description, action, inset, level = 'label', children, ...rest } = props
     void inset
     return (
       <section
@@ -148,7 +153,9 @@ const Section = (props: SectionProps) => {
              beside the title, so it always starts below the heading. */
           className="flex min-w-0 flex-wrap items-end gap-x-(--hd-space-3) gap-y-(--hd-space-0-5)"
         >
-          <GroupLabel as="h2" data-section-name="" className="min-w-0 flex-[1_1_20ch] truncate">{title}</GroupLabel>
+          {level === 'heading'
+            ? <Text as="h2" role="section" data-section-name="" className="m-0 min-w-0 flex-[1_1_20ch] truncate">{title}</Text>
+            : <GroupLabel as="h2" data-section-name="" className="min-w-0 flex-[1_1_20ch] truncate">{title}</GroupLabel>}
           {action != null && (
             <div data-slot="section-action" className="flex max-w-full flex-none flex-wrap items-center gap-(--hd-space-2)">
               {action}

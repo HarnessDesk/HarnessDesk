@@ -107,7 +107,7 @@ const StartPreview = () => {
   const initial = useMemo(() => ({ source: RUN_FLOW_SOURCE, vars: {
     task: 'Retry the checkout call on a 502', brief: 'Bound the retry attempts and keep the final failure visible.' }, attended: true }), [])
   return <PaneColumn inset="reading" className="py-6"><FormStack>
-    <SectionHead name="Start with a team" />
+    <SectionHead level="label" name="Start with a team" />
     <FlowStart root="/work/storefront" initial={initial} onChange={setChoice} />
     <Bar><Button disabled={!choice}>Start</Button><Button variant="secondary">Cancel</Button></Bar>
   </FormStack></PaneColumn>

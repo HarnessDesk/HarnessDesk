@@ -62,7 +62,7 @@ export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) 
           {role.kind === 'agent' && (
             <>
               <section aria-label={`Agents for ${role.id}`}>
-                <SectionHead name="Uses" />
+                <SectionHead level="label" name="Uses" />
                 <Rows>
                   {agents.length === 0 && <Row title="No Agents to choose from yet" />}
                   {agents.map((entry) => (
@@ -101,7 +101,7 @@ export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) 
                 )}
               </Field>
               <section aria-label={`Seat override for ${role.id}`}>
-                <SectionHead
+                <SectionHead level="label"
                   name="Seat override"
                   action={
                     <DropdownMenu wide icons="none">

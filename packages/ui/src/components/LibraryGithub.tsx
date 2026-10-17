@@ -53,7 +53,7 @@ export const LibraryGithub = ({ library, columns, onClose, onPlan }: {
     {failed !== null && <ActionError>{failed}</ActionError>}
     {result && <FormStack>
       {result.skills.length > 0 && <>
-        <SectionHead name={`Found ${result.skills.length} skills · ${result.repo} @ ${result.commit.slice(0, 7)}`} />
+        <SectionHead level="label" name={`Found ${result.skills.length} skills · ${result.repo} @ ${result.commit.slice(0, 7)}`} />
         <Rows>{result.skills.map(skill => <Row key={skill.dir} title={<Checkbox label={skill.name} checked={skills.has(skill.dir)} onCheckedChange={checked => setSkills(current => { const next = new Set(current); if (checked) next.add(skill.dir); else next.delete(skill.dir); return next })} />}
           desc={skill.dir || result.repo}
           control={<Toolbar><Text role="meta">{skill.files} {skill.files === 1 ? 'file' : 'files'}</Text>{skill.runnable > 0 && <Chip tone="warning" size="sm">{skill.runnable} can run</Chip>}{skill.binary > 0 && <Chip tone="warning" size="sm">{skill.binary} binary</Chip>}</Toolbar>} />)}</Rows>

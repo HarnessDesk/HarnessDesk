@@ -849,7 +849,7 @@ export const CANONICAL_UI_MODULES = [
   ['dropdown-menu', 'propagation', 'Base UI dropdown-menu parts'],
   ['empty-state', 'empty', 'Empty and unavailable states'],
   ['field', 'field', 'Label, help and validation anatomy'],
-  ['group-label', 'section', 'The one group heading: 13px, secondary, sentence case'],
+  ['group-label', 'section', 'Field and rail labels: 13px, secondary, sentence case; page bands use the section role'],
   ['hover-card', 'adopted', 'Preview-card behavior'],
   ['icon-tile', 'tile', 'Icon and mark plate'],
   ['input', 'field', 'Single-line text input'],

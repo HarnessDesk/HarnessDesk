@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { SectionHead } from './Settings'
+import { DialogFormScope } from './DialogForm'
 import css from './Settings.module.css?raw'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -21,13 +22,12 @@ afterEach(() => {
   container.remove()
 })
 
-it('keeps card labels distinct from an explicit page-section heading', () => {
+it('defaults page bands to headings and keeps explicit card labels small', () => {
   act(() =>
     root.render(
       <>
-        <SectionHead name="Your data" />
+        <SectionHead level="label" name="Your data" />
         <SectionHead
-          level="heading"
           name="What is left"
           description="The selected account is out of quota."
           action={<button>Range</button>}
@@ -41,6 +41,7 @@ it('keeps card labels distinct from an explicit page-section heading', () => {
   expect(label?.tagName).toBe('H2')
   expect(heading?.dataset['level']).toBe('heading')
   expect(heading?.tagName).toBe('H2')
+  expect(heading?.className).toContain('text-(length:--hd-text-lg)')
   expect(heading?.getAttribute('data-slot')).toBe('section-name')
   const name = heading?.querySelector<HTMLElement>('[data-slot="text"]')
   expect(name?.getAttribute('data-role')).toBe('section')
@@ -81,4 +82,12 @@ it('keeps page section heads on one text edge regardless of their body', () => {
   expect(css).not.toMatch(/\.sectionHead:has\(\+ \[data-slot='summary-list'\]\)/)
   const bare = /\.sectionHead\s*\{([^}]*)\}/s.exec(css)?.[1] ?? ''
   expect(bare).not.toMatch(/padding(?:-inline)?\s*:/)
+})
+
+it.each(['heading', 'label'] as const)('a dialog form keeps its legend at level %s', level => {
+  act(() => root.render(<DialogFormScope><SectionHead name="Where it is kept" level={level} description="Choose a folder." action={<button>Browse</button>} /></DialogFormScope>))
+  const legend = container.querySelector('[data-slot="fieldset-legend"]')
+  expect(legend?.textContent).toBe('Where it is keptChoose a folder.Browse')
+  expect(container.querySelector('h2, h3, [data-role="section"]')).toBeNull()
+  expect(legend?.querySelector('button')?.textContent).toBe('Browse')
 })

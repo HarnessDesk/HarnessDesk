@@ -217,7 +217,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
   const view = describeLimits(limits)
   return (
     <>
-      <SectionHead name="Usage" />
+      <SectionHead level="label" name="Usage" />
       {view?.blocked && (
         <Text role="muted" as="p" tone="danger" >
           {view.blocked.title} — {view.blocked.detail}
@@ -614,7 +614,7 @@ const AgentAccounts = ({
     <>
       {/* The ways to add another stand in the section's head, where a card's
           own actions stand on a page, rather than in a bar under the list. */}
-      <SectionHead
+      <SectionHead level="label"
         name="Accounts"
         action={
           info.slot?.canAdd || (rows.length > 0 && info.capabilities.account && canSignIn) ? (
@@ -1214,7 +1214,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
           aria-expanded={browsing} />
       </Rows>
       {browsing && <>
-      <SectionHead name="From the ACP registry" />
+      <SectionHead level="label" name="From the ACP registry" />
       <MenuNote>Third-party entries from the ACP registry. HarnessDesk has not reviewed them.</MenuNote>
       {(registry?.agents.length ?? 0) > 8 && (
         <PageControls search={{label:"Search the ACP registry",placeholder:"Search the registry",value:registryQuery,change:setRegistryQuery}}/>
@@ -1254,7 +1254,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
 
       </>}
 
-      <SectionHead name="Something else" />
+      <SectionHead level="label" name="Something else" />
       <Rows>
         <Row
           title="A command of your own"
@@ -1582,7 +1582,7 @@ export const NewSessionDefaults = ({
   const staleListed = only ? stale.filter((one) => only({ id: one.id, label: one.label, category: one.category } as ConfigOption)) : stale
   return (
     <>
-      <SectionHead
+      <SectionHead level="label"
         name={
           mark ? (
             <Text as="span" role="row">
@@ -1707,7 +1707,7 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
           : 'No copy is installed; install one and it is picked up on the next check.'
   return (
     <>
-      <SectionHead name="Install" />
+      <SectionHead level="label" name="Install" />
       <Rows>
         <Row
           title={installSummary(install)}
@@ -1894,7 +1894,7 @@ const AgentDetail = ({
 
       {health?.state === 'unavailable' && (
         <>
-          <SectionHead name="Why it will not start" />
+          <SectionHead level="label" name="Why it will not start" />
           <Rows>
             <HealthBlock health={health} />
           </Rows>
@@ -1915,7 +1915,7 @@ const AgentDetail = ({
 
       {update && (
         <>
-          <SectionHead name="Update" />
+          <SectionHead level="label" name="Update" />
           <Rows>
             <Row
               title={`${info.update?.version} available`}
@@ -1944,14 +1944,14 @@ const AgentDetail = ({
 
       {options.length > 0 && (
         <>
-          <SectionHead name="Settings" />
+          <SectionHead level="label" name="Settings" />
           <OptionRows options={options} onSet={setOption} />
         </>
       )}
 
       {info.origin === 'registry' && (
         <>
-          <SectionHead name="Registration" />
+          <SectionHead level="label" name="Registration" />
           <Rows>
             <Row
               title="Remove from HarnessDesk"
@@ -2133,7 +2133,7 @@ export const RuntimesSection = ({
           /* No accessible name of its own: the head names the group, and a
              label beside it was announced twice. */
           <div key={section.name} data-group={section.name}>
-            <SectionHead
+            <SectionHead level="label"
               name={withCount(section.name, section.agents.length)}
             />
             <Rows>

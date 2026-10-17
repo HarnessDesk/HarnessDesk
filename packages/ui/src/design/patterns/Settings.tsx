@@ -630,19 +630,24 @@ export const SegmentedReadout = <T extends string>({
 
 /* --- page furniture ------------------------------------------------------ */
 
+/**
+ * Names a band of a page’s body with the existing section text role (16px,
+ * semibold). `level="label"` keeps field groups, Settings forms and rail cards
+ * small. A dialog form always draws its group legend, independent of level.
+ */
 export const SectionHead = ({
   name,
   description,
   action,
   sticky,
-  level = 'label',
+  level = 'heading',
   className,
 }: {
   name: ReactNode
   description?: ReactNode
   action?: ReactNode
   sticky?: boolean
-  /** Card groups are labels by default; page bands opt into a real heading. */
+  /** Page bands are headings; field groups and card labels opt into the small label. */
   level?: 'label' | 'heading'
   className?: string
 }) => {
@@ -656,10 +661,10 @@ export const SectionHead = ({
     <div className={styles.sectionHeadContent}>
       <div className={styles.sectionHeadText}>
         {level === 'heading' ? (
-          /* The heading keeps its own slot for everything that finds a section by
-             it; the type is the named role's, inside it, so the one rule that
-             measures names measures this one too. */
-          <h2 className={styles.sectionName} data-slot="section-name" data-level={level}><Text role="section">{name}</Text></h2>
+          /* The heading and its inline text share the section role, so the
+             column sizes the name at the same type it paints. The heading
+             owns truncation and the slot used to measure section names. */
+          createElement(inSection ? 'h3' : 'h2', { className: cx(styles.sectionName, TEXT_ROLE.section), 'data-slot': 'section-name', 'data-level': level }, <Text role="section">{name}</Text>)
         ) : (
           <GroupLabel as={inSection ? 'h3' : 'h2'} className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
         )}

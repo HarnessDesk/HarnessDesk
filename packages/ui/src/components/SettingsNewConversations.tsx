@@ -57,7 +57,7 @@ export default function SettingsNewConversations() {
     },
   }]} />
   return <>
-    <SectionHead name="New conversations" />
+    <SectionHead level="label" name="New conversations" />
     {error && <Banner tone="warning">{error}</Banner>}
     <Rows>
       <Row title="Default runtime" control={snapshot.runtimes.length === 0 ? <RowValue>No runtime added</RowValue> : <PageOptions choices={[{

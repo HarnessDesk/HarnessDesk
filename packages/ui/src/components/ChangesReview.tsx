@@ -167,7 +167,7 @@ const ReviewBody = ({ root, returnTo }: ReviewProps) => {
         </>}
 
         {groups.map((group) => (
-          <Section key={group.folder || '.'} title={group.folder || 'in this folder'}>
+          <Section level="heading" key={group.folder || '.'} title={group.folder || 'in this folder'}>
             {group.files.map((file) => {
               const diff = diffs.get(file.path) ?? ''
               const hunks = splitHunks(diff)

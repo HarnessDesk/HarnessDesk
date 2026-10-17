@@ -61,7 +61,7 @@ export const RuntimeResources = ({ runtime }: { readonly runtime?: RuntimeId }) 
   const reasons = [...new Set(rows.map(cost => cost.reason).filter((reason): reason is string => reason !== null))]
   if (shown.length === 0 && !problem) return null
   return <>
-    <SectionHead name="Process resources" />
+    <SectionHead level="label" name="Process resources" />
     {shown.some(cost => cost.processes === 0) && <Chip tone="neutral">Not running</Chip>}
     {rows.length > 0 && <Table density="compact" inset="row">
       <TableHeader><TableRow><TableHead>Runtime</TableHead><TableHead numeric>Processes</TableHead><TableHead numeric>Resident memory</TableHead><TableHead align="end"><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader>

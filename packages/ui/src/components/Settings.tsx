@@ -264,7 +264,7 @@ const RoutesRows = () => {
 
   return (
     <>
-      <SectionHead
+      <SectionHead level="label"
         name={withCount('Custom endpoints', snapshot.routes.length)}
         action={
           <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
@@ -395,7 +395,7 @@ const KeysRows = () => {
 
   return (
     <>
-      <SectionHead name={withCount('Stored keys', routeKeys.length)} />
+      <SectionHead level="label" name={withCount('Stored keys', routeKeys.length)} />
       <Rows>
         {routeKeys.map((key) => {
           const owners = usedBy.get(key.ref) ?? []
@@ -821,7 +821,7 @@ const PresetsRows = () => {
 
   return (
     <>
-      <SectionHead
+      <SectionHead level="label"
         name={withCount('Presets', presets.length)}
         action={
           <Button variant="outline" size="sm" disabled={!options} onClick={() => setSaving(true)}>
@@ -910,7 +910,7 @@ const ModelsSection = () => {
     <>
       <PageExplanation>{`Which of ${runtime.presentation.name}’s models the composer offers.`}</PageExplanation>
 
-      <SectionHead
+      <SectionHead level="label"
         name={withCount('Models', total)}
         action={
           <>
@@ -1028,7 +1028,7 @@ const HooksList = () => {
   if (!runtime.capabilities.hooks || !hooks || hooks.length === 0) return null
   return (
     <>
-      <SectionHead name={withCount('Hooks', hooks.length)} />
+      <SectionHead level="label" name={withCount('Hooks', hooks.length)} />
       <Note>Run by {runtime.presentation.name} around the runtime’s work, configured on disk.</Note>
       <Rows>
         {hooks.map((hook) => (
@@ -1146,12 +1146,12 @@ const SkillPage = ({
 
       {skill.description && skill.description !== skill.shortDescription && (
         <>
-          <SectionHead name="What it does" />
+          <SectionHead level="label" name="What it does" />
           <PreservedText value={skill.description}/>
         </>
       )}
 
-      <SectionHead name="About" />
+      <SectionHead level="label" name="About" />
       <Rows>
         <Row title="Identifier" control={<Text role="meta"><CodeText>{skill.name}</CodeText></Text>} />
         {skill.path && (
@@ -1305,7 +1305,7 @@ const BrowserSection = () => {
     <>
       <PageExplanation>Where the pages runtimes open appear, and what those pages may keep.</PageExplanation>
 
-      <SectionHead name="Pages open" />
+      <SectionHead level="label" name="Pages open" />
       <Rows role="radiogroup" aria-label="Pages open">
         {PLACEMENTS.map((option) => (
           <RowChoice
@@ -1320,7 +1320,7 @@ const BrowserSection = () => {
 
       {prefs.placement === 'window' && (
         <>
-          <SectionHead name="Which browser" />
+          <SectionHead level="label" name="Which browser" />
           <Rows role="radiogroup" aria-label="Which browser">
             <RowChoice
               title="Whichever is installed"
@@ -1376,7 +1376,7 @@ const BrowserSection = () => {
 
       {prefs.placement === 'pane' && (
         <>
-          <SectionHead name="The pane" />
+          <SectionHead level="label" name="The pane" />
           <Rows>
             <Row
               title="Open links in the pane"
@@ -1488,10 +1488,10 @@ export const GeneralSectionRows = () => (
   <>
     <SettingsNewConversations />
     <SettingsChatsFolder />
-    <SectionHead name="Backup" />
+    <SectionHead level="label" name="Backup" />
     <BackupRows />
 
-    <SectionHead name="Support" />
+    <SectionHead level="label" name="Support" />
     <Rows>
       <Row
         title="Diagnostics"

@@ -5,6 +5,12 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **Page sections read as headings.** Page section headings are a size larger
+  and bolder, so the groups on the Teams, Agents, Library and Plugins pages
+  read as headings rather than labels.
+
 ## 0.5.0 — 2026-10-16
 
 Flows now have their own page, with a canvas for building the work a Team will

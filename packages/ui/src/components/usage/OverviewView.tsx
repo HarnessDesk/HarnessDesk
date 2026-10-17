@@ -102,7 +102,7 @@ export const OverviewView = ({
         onOpenPlan={onOpenPlan}
       />
 
-      <Section title="What is left" description={summary.headline ?? undefined}>
+      <Section level="heading" title="What is left" description={summary.headline ?? undefined}>
         {remaining.length > 0 ? (
           <DashboardAccounts accounts={remaining.map((report) => (
               <Card
@@ -142,7 +142,7 @@ export const OverviewView = ({
             onScan={onScan}
             metric={stripChartMetric(stripMetric)}
           />
-        } secondary={<Section title="Where it went" action={
+        } secondary={<Section level="heading" title="Where it went" action={
               <PageOptions choices={[{id:'pivot',label:'Group spend by',value:pivot,items:PIVOTS,change:next=>onPivotChange(next as Pivot)}]} />
             }>
           <Ranked

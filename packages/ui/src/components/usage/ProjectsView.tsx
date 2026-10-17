@@ -32,7 +32,7 @@ export const ProjectsView = ({
   rangeDays: number
   onRangeChange: (days: number) => void
 }) => (
-  <Section title={`${insightView === 'goal' ? 'Team' : 'Agent'} usage${root ? ` in ${folderName(root)}` : ''}`} action={<PageOptions choices={[
+  <Section level="heading" title={`${insightView === 'goal' ? 'Team' : 'Agent'} usage${root ? ` in ${folderName(root)}` : ''}`} action={<PageOptions choices={[
     {id:'range',label:'Project usage range',value:String(rangeDays),items:[{value:'1',label:'Last 24 hours'},{value:'30',label:'Last 30 days'}],change:value=>onRangeChange(Number(value))},
     {id:'view',label:'Project usage view',value:insightView,items:INSIGHT_OPTIONS,change:value=>onInsightViewChange(value as 'goal' | 'agent')},
   ]} />}>

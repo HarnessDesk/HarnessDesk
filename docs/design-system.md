@@ -465,7 +465,7 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 
 ### The section label
 
-The word over a group of rows — "Workspaces", "Capabilities", "Agents". There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own 13px chrome step, the secondary ink, sentence case, so it names the group quietly and the rows stay the subject. Both interfaces use medium weight; Studio adds more air above a rail's group; neither interface sets a label in capitals — the only capitals in the app are printed on a `Keycap`, and the design audit counts any other (`uppercaseLabel`).
+The word over a field group, a Settings form or a rail card. Page-body bands use the section text role; small groups use `GroupLabel` (design/ui/group-label.tsx): the rows' own 13px chrome step, the secondary ink, sentence case, so it names the group quietly and the rows stay the subject. Both interfaces use medium weight; Studio adds more air above a rail's group; neither interface sets a label in capitals — the only capitals in the app are printed on a `Keycap`, and the design audit counts any other (`uppercaseLabel`).
 
 ### The card
 
@@ -927,7 +927,7 @@ having written the judgement down.
 
 ### `GroupLabel`
 
-**Use** — The word over any group — a card of rows, a rail's list, a section of a page: 13px, the secondary ink, sentence case. `SectionHead`, `Section`, `NavigationGroupHeader` and the catalogue rail all draw it.
+**Use** — Field groups, Settings forms, dialog groups and rail cards: 13px, the secondary ink, sentence case. `SectionHead level="label"`, `Section`, `NavigationGroupHeader` and the catalogue rail draw it; page-body bands use the section role.
 
 **Not** — Capitals. No label outside a `Keycap` is set in uppercase, tracked or not; the design audit counts every one (`uppercaseLabel`) and its ceiling may only fall.
 
@@ -935,7 +935,7 @@ having written the judgement down.
 
 ### `page`
 
-**Use** — Any part of a page: `<Section title description action>` around its card. It owns the rhythm — label to card 8px, section to section 32px, the first one after the head at the same 32px — and drops its children's own margins.
+**Use** — A part of a page: `<Section title description action>` around its card, with `level="heading"` for page-body bands and `level="label"` for form groups. It owns the rhythm — label to card 8px, section to section 32px, the first one after the head at the same 32px — and drops its children's own margins.
 
 **Not** — A `SectionHead`, a free `Note` and a `Rows` stacked by hand, or a screen margin between sections. The label then belongs to neither card and every page spaces itself.
 
@@ -2374,6 +2374,14 @@ An unavailable answer takes a disabled reason, kept in its hover title.
 `packages/ui/src/design/patterns/Settings.tsx`
 
 The same segmented setting when it reports a value instead of changing it.
+
+### `SectionHead`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Names a band of a page’s body with the existing section text role (16px,
+semibold). `level="label"` keeps field groups, Settings forms and rail cards
+small. A dialog form always draws its group legend, independent of level.
 
 ### `Text`
 

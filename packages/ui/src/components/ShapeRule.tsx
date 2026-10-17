@@ -85,7 +85,7 @@ export const ShapeRule = ({ rule, policy, onChange }: ShapeRuleProps) => {
           </Field>
 
           <section aria-label={`Evidence guards for ${rule.id}`}>
-            <SectionHead name="Evidence" action={<Button size="sm" variant="outline" onClick={addGuard}><PlusIcon size={14} />Add a guard</Button>} />
+            <SectionHead level="label" name="Evidence" action={<Button size="sm" variant="outline" onClick={addGuard}><PlusIcon size={14} />Add a guard</Button>} />
             <Rows>
               {evidence.length === 0 && <Row title="No evidence guard — this rule fires on answers alone" />}
               {evidence.map((guard, index) => {
