@@ -23,7 +23,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const policy = source.policy === null ? null : parseLeadPermissionPolicy(source.policy)
   const contract = source.contract === null ? null : parseLeadAcceptanceContract(source.contract)
   const budget = source.budget === null ? null : parseLeadBudgetLedger(source.budget)
-  assert(!budget?.stop || ['stopped', 'accepted'].includes(source.phase))
+  assert(!budget?.stop || ['stopped', 'accepted', 'declined'].includes(source.phase))
   assert(source.stopEffectsPending === null || Number.isSafeInteger(source.stopEffectsPending) && source.stopEffectsPending > 0 && source.stopEffectsPending <= source.seq && (budget?.stop || source.phase === 'stopped'))
   assert(typeof source.recoveryBlocked === 'boolean' && Array.isArray(source.cards) && source.cards.length <= 64)
   const cards = source.cards.map(card => parseLeadCard(card))

@@ -1,7 +1,7 @@
 import { clientTierFor, parseLeadCardDecisionFor, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy } from '@harnessdesk/protocol'
 import { applyLeadPolicyDecision, compareLeadPolicyAuthority } from './permissions.js'
 import { parseLeadJournalRecord, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity } from './journal.js'
-import { reduceLeadBudget, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
+import { reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
 
 export interface LeadAttemptState {
   readonly id: string; readonly correlationId: string; readonly method: string; readonly action: string | null
@@ -69,9 +69,19 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     state = { ...state, teams: [...new Set([...state.teams, identity.teamId])], runs: [...state.runs.filter(run => run.correlationId !== identity.correlationId), identity],
       steps: state.steps.map(step => step.id === attempt.stepId ? { ...step, state: 'started' as const } : step) }
   }
+  const releaseStart = (id: string) => {
+    if (state.budget) state = { ...state, budget: releaseLeadStart(state.budget, id) }
+    state = { ...state, steps: state.steps.map(step => step.attemptId === id ? { ...step, state: 'pending' as const, attemptId: null } : step) }
+  }
   switch (event.type) {
     case 'budget': {
-      if (['reserve', 'round', 'start'].includes(event.event.type)) ensure(!['stopped', 'accepted', 'declined'].includes(state.phase))
+      if (['reserve', 'start'].includes(event.event.type)) ensure(!['stopped', 'accepted', 'declined'].includes(state.phase))
+      if (event.event.type === 'round' && ['stopped', 'accepted', 'declined'].includes(state.phase)) {
+        const roundEvent = event.event
+        // Recording an already admitted host round is bookkeeping, not new work.
+        ensure(state.budget?.rounds.some(round => round.executionId === roundEvent.executionId &&
+          (round.roundId === roundEvent.roundId || round.startId !== null && round.roundId === null)))
+      }
       const executionId = event.event.type === 'bind' ? event.event.executionId : null
       const binding = state.runs.find(run => run.runId === executionId)
       let budget = reduceLeadBudget(state.budget, binding ? { ...event.event, startId: binding.correlationId } : event.event)
@@ -165,9 +175,24 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(event.identity === null || event.outcome === 'succeeded')
       if (event.outcome === 'succeeded' && attempt!.method === 'flow/start-goal') { ensure(event.identity); complete(event.id, event.identity!) }
       else ensure(event.identity === null)
+      if (event.outcome === 'failed' && attempt!.method === 'flow/start-goal') releaseStart(event.id)
       updateAttempt(event.id, attempt => ({ ...attempt, phase: 'finished', outcome: event.outcome }))
       if (event.outcome === 'uncertain' && attempt!.kind !== 'read') state = { ...state, phase: 'waiting-for-user',
         steps: state.steps.map(step => step.attemptId === event.id ? { ...step, state: 'uncertain' } : step) }
+      break
+    }
+    case 'start-resolution': {
+      const attempt = state.attempts.get(event.id)
+      ensure(attempt?.phase === 'finished' && attempt.outcome === 'uncertain' && attempt.method === 'flow/start-goal' && attempt.evidence !== null)
+      if (event.identity === null) releaseStart(event.id)
+      else {
+        complete(event.id, event.identity)
+        ensure(state.budget)
+        state = { ...state, budget: reduceLeadBudget(state.budget, { version: 1, type: 'bind', now: state.budget!.now,
+          startId: event.id, goalId: event.goalId, executionId: event.identity.runId }) }
+      }
+      updateAttempt(event.id, attempt => ({ ...attempt, outcome: event.identity ? 'succeeded' : 'failed' }))
+      if (![...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'running' }
       break
     }
     case 'reconciliation': {
@@ -200,8 +225,14 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   const acceptsResult = previous.phase === 'stopped' && previous.budget?.stop && ['budget', 'rounds'].includes(previous.budget.stop.reason) &&
     event.type === 'card-decision' && event.decision.cardType === 'result' && event.decision.choice === 'accept'
   if (['stopped', 'accepted', 'declined'].includes(previous.phase) && !acceptsResult) state = { ...state, phase: previous.phase }
-  if (state.budget?.stop && state.phase !== 'accepted') state = { ...state, phase: 'stopped' }
-  if (state.budget?.stop && !previous.budget?.stop || event.type === 'stop' && previous.phase !== 'stopped' && !previous.budget?.stop)
+  if (state.budget?.stop && !['accepted', 'declined'].includes(state.phase)) state = { ...state, phase: 'stopped' }
+  // Discovery is a new cancellation generation, even if an older cleanup is
+  // currently running or has already acknowledged the original stop.
+  const discovered = state.runs.some(run => !previous.runs.some(old => old.runId === run.runId)) ||
+    (state.budget?.executionIds.some(id => !previous.budget?.executionIds.includes(id)) ?? false)
+  const stopped = state.budget?.stop || previous.phase === 'stopped'
+  if (state.budget?.stop && !previous.budget?.stop || discovered && stopped ||
+    event.type === 'stop' && previous.phase !== 'stopped' && !previous.budget?.stop)
     state = { ...state, stopEffectsPending: event.seq }
   return state
 }

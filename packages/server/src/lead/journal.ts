@@ -12,8 +12,8 @@ const NORMAL_STATE_BYTES = 8 * 1024 * 1024
 const NORMAL_BYTES = 48 * 1024 * 1024 // Leave 16 MiB for Stop, terminal decisions and reconciliation.
 const TOTAL_BYTES = 64 * 1024 * 1024
 const criticalRecord = (record: LeadJournalRecord): boolean =>
-  record.type === 'budget' && !['initialize', 'bind', 'reserve', 'round', 'start'].includes(record.event.type) ||
-  ['stop', 'stop-effects-done', 'card-decision', 'reconciliation', 'recovery-report', 'recovery-block', 'recovery-resolved', 'decision', 'dispatch-start', 'result'].includes(record.type) ||
+  record.type === 'budget' && !['initialize', 'reserve', 'round', 'start'].includes(record.event.type) ||
+  ['start-resolution', 'stop', 'stop-effects-done', 'card-decision', 'reconciliation', 'recovery-report', 'recovery-block', 'recovery-resolved', 'decision', 'dispatch-start', 'result'].includes(record.type) ||
   record.type === 'attempt' && (record.kind === 'read' || record.method === 'flow/execution/stop' || record.method === 'team/intent' && record.action === 'abandon')
 const checksum = (record: LeadJournalRecord | LeadJournalCheckpoint, previous: string) => createHash('sha256').update(JSON.stringify({ record, previous })).digest('hex')
 const syncDirectory = async (path: string) => { const file = await fs.open(path, 'r'); try { await file.sync() } finally { await file.close() } }

@@ -130,12 +130,13 @@ test('budget stop is durable before effects and survives crash and reopen', asyn
   await journal.updateBudget(init)
   await journal.updateBudget(bind('run-1'))
   await journal.updateBudget(observe({ usdMicros: 0 }))
-  await assert.rejects(journal.updateBudget(observe({ revision: 2, usdMicros: 100 }), async () => {
+  await journal.updateBudget(observe({ revision: 2, usdMicros: 100 }), async () => {
     const recovered: any = await open(storage)
     assert.equal(recovered.state.phase, 'stopped')
     assert.equal(recovered.state.budget.stop.reason, 'budget')
     throw new Error('crash during stop effects')
-  }), /crash/)
+  })
+  assert.equal(journal.stopEffectFailure.reason, 'stop-effects-failed')
   const recovered: any = await open(storage)
   await assert.rejects(recovered.updateBudget(reserve('request-1')))
   assert.equal(recovered.state.budget.workerUsdMicros, 100)
@@ -328,7 +329,8 @@ test('settled requests compact to identity digests and do not consume the active
 test('pending stop effects survive reopen and clear only after durable acknowledgement', async () => {
   const storage = memory(), journal: any = await open(storage)
   await journal.updateBudget(init)
-  await assert.rejects(journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 3 } }, async () => { throw new Error('crash') }))
+  await journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 3 } }, async () => { throw new Error('crash') })
+  assert.equal(journal.stopEffectFailure.reason, 'stop-effects-failed')
   const recovered: any = await open(storage)
   assert.ok(recovered.state.stopEffectsPending)
   let calls = 0
@@ -345,7 +347,8 @@ test('failed stop-effect acknowledgement remains pending for supervisor retry', 
   await journal.updateBudget(init)
   storage.append = async record => { if (record.type === 'stop-effects-done') throw new Error('ack failure'); await append(record) }
   let stops = 0
-  await assert.rejects(journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 3 } }, async () => { stops++ }))
+  await journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 3 } }, async () => { stops++ })
+  assert.equal(journal.stopEffectFailure.reason, 'stop-effects-failed')
   storage.append = append
   const recovered: any = await open(storage)
   assert.ok(recovered.state.stopEffectsPending)
@@ -365,4 +368,60 @@ test('cache reservations cover independent micro-unit rounding across all input 
     const state = reduce(reduce(null, init), { ...reservation, inputTokens })
     assert.equal(state.reservedUsdMicros, expected)
   }
+})
+
+
+test('unrepresentable settlement saturates, stops and stays unknown through replay', async () => {
+  const storage = memory(), journal: any = await open(storage)
+  await journal.updateBudget({ ...init, caps: { usdMicros: 1_000_000_000_000, rounds: 3 } })
+  await journal.updateBudget({ ...reserve('overflow', 0), inputTokens: 999_999,
+    inputUsdMicrosPerMillion: 1_000_000_000_000, cacheReadUsdMicrosPerMillion: 0, cacheWriteUsdMicrosPerMillion: 0 })
+  const ledger = await journal.updateBudget({ ...settle('overflow', 0), inputTokens: 1_000_001 })
+  assert.equal(ledger.leadUsdMicros, 1_000_000_000_000)
+  assert.equal(ledger.stop.reason, 'budget')
+  assert.equal(ledger.spend, 'unknown')
+  await journal.stop()
+  const restored: any = await open(storage)
+  assert.equal(restored.state.budget.spend, 'unknown')
+  assert.deepEqual(api('parseLeadBudgetLedger')(restored.state.budget), restored.state.budget)
+  await assert.rejects(restored.updateBudget(reserve('next', 0)))
+})
+
+test('aggregate actual usage saturates without preventing later stop records', () => {
+  let state = reduce(null, { ...init, caps: { usdMicros: 1_000_000_000_000, rounds: 3 } })
+  for (const id of ['a', 'b']) state = reduce(state, { ...reserve(id, 0), inputTokens: 1,
+    inputUsdMicrosPerMillion: 1_000_000_000_000 })
+  for (const id of ['a', 'b']) state = reduce(state, { ...settle(id, 0), inputTokens: 750_000 })
+  assert.equal(state.leadUsdMicros, 1_000_000_000_000)
+  assert.equal(state.spend, 'unknown')
+  assert.equal(reduce(state, { version: 1, type: 'stop', now: 101, reason: 'cancelled' }).stop.reason, 'budget')
+})
+
+test('host first round adopts the admitted start instead of spending a second round', () => {
+  let state = reduce(null, { ...init, caps: { usdMicros: 100, rounds: 2 } })
+  state = reduce(state, { version: 1, type: 'start', now: 100, startId: 's1' })
+  state = reduce(state, { ...bind('run-1'), startId: 's1' })
+  state = reduce(state, observe({ usdMicros: 0 }))
+  const round = (roundId: string) => ({ version: 1, type: 'round', now: 100, executionId: 'run-1', roundId })
+  state = reduce(state, round('1'))
+  assert.equal(state.roundsAdmitted, 1)
+  state = reduce(state, round('2'))
+  assert.equal(state.roundsAdmitted, 2)
+  assert.deepEqual(reduce(state, round('1')), state)
+  assert.deepEqual(api('parseLeadBudgetLedger')(state), state)
+  assert.throws(() => reduce(state, round('3')))
+})
+
+test('a durable settlement resolves independently of failed cancellation effects', async () => {
+  const storage = memory(), journal: any = await open(storage)
+  await journal.updateBudget(init)
+  await journal.updateBudget(reserve('paid', 1))
+  const settled = await journal.updateBudget(settle('paid', 100), async () => { throw new Error('synthetic cleanup failure') })
+  assert.equal(settled.leadUsdMicros, 110)
+  assert.ok(journal.state.stopEffectsPending)
+  assert.equal(journal.stopEffectFailure.reason, 'stop-effects-failed')
+  assert.ok(!JSON.stringify(journal.stopEffectFailure).includes('synthetic cleanup'))
+  await journal.runStopEffects(async () => {})
+  assert.equal(journal.stopEffectFailure, null)
+  assert.equal(journal.state.stopEffectsPending, null)
 })

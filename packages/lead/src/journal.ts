@@ -22,6 +22,7 @@ export type LeadJournalEvent =
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
   | { readonly type: 'card-decision'; readonly decision: LeadCardDecision; readonly expiresAt: number | null }
+  | { readonly type: 'start-resolution'; readonly id: string; readonly identity: LeadRunIdentity | null; readonly goalId: string | null }
   | { readonly type: 'stop-effects-done'; readonly stopSeq: number }
   | { readonly type: 'stop' | 'recovery-block' | 'recovery-resolved' }
   | { readonly type: 'recovery-report'; readonly id: string }
@@ -93,7 +94,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    budget: ['event'], 'stop-effects-done': ['stopSeq'],
+    budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
@@ -102,6 +103,11 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   object(source, ['version', 'seq', 'type', ...keys[type]!])
   let event: LeadJournalEvent
   switch (type) {
+    case 'start-resolution': {
+      const identity = nullable(source.identity, parseLeadRunIdentity), goalId = nullable(source.goalId, identifier)
+      if ((identity === null) !== (goalId === null)) throw new Error('lead-journal-start-resolution')
+      event = { type, id: identifier(source.id), identity, goalId }; break
+    }
     case 'stop-effects-done': event = { type, stopSeq: integer(source.stopSeq, 1) }; break
     case 'budget': event = { type, event: parseLeadBudgetEvent(source.event) }; break
     case 'policy': event = { type, policy: parseLeadPermissionPolicy(source.policy) }; break
@@ -147,7 +153,12 @@ export const prepareLeadJournalRecord = (value: unknown, security: LeadJournalSe
   parseLeadJournalRecord(prepareLeadJournalData(value, security))
 
 export interface LeadToolAttempt { readonly id: string; readonly request: LeadPermissionRequest; readonly context: LeadPermissionContext; readonly stepId?: string | null }
-export interface LeadDispatchResult { readonly value: unknown; readonly identity: LeadRunIdentity | null }
+/** The trusted host may explicitly prove a start created nothing. A thrown or
+ * ambiguous response never supplies that proof. */
+export type LeadDispatchResult = { readonly value: unknown } & (
+  | { readonly identity: LeadRunIdentity | null; readonly created?: never }
+  | { readonly identity: null; readonly created: false }
+)
 export type LeadDispatch = (call: LeadPermissionCall, correlationId: string) => Promise<LeadDispatchResult>
 export interface LeadRecoveryAction { readonly id: string; readonly type: 'retry-read' | 'reconciled' | 'needs-user' | 'not-dispatched'; readonly count?: number }
 const refusal = (floor: 'start' | 'invalid-input', reason: string): LeadPermissionDecision => ({ effect: 'deny', floor, reason, rule: null, call: null })
@@ -158,11 +169,14 @@ export class LeadJournal {
   #state: LeadState
   #tail: Promise<unknown> = Promise.resolve()
   #failed = false
+  #stopEffectFailure: { readonly reason: 'stop-effects-failed'; readonly stopSeq: number } | null = null
   private readonly security: LeadJournalSecurity
   constructor(private readonly storage: LeadJournalStorage, records: readonly LeadJournalRecord[], security: LeadJournalSecurity = {}, checkpoint: LeadState | null = null) {
     this.security = mergeLeadJournalSecurity(storage.journalSecurity?.() ?? {}, security)
     this.#state = records.reduce(reduceLeadRecord, checkpoint ?? replayLeadJournal([]))
   }
+  /** Separate effect report: a durable ledger acknowledgement must not be rejected by cleanup failure. */
+  get stopEffectFailure() { return this.#stopEffectFailure && { ...this.#stopEffectFailure } }
   get state(): LeadState { return structuredClone(this.#state) }
   #queue<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.#tail.then(async () => { if (this.#failed) throw new Error('lead-journal-writer-failed'); return operation() })
@@ -176,7 +190,9 @@ export class LeadJournal {
     }).then(async ({ value, stop }) => {
       // The latch is already durable. Effects run outside the writer queue so they
       // can use its permission-checked cancellation path without deadlocking it.
-      if (stop && stopEffects) await this.runStopEffects(stopEffects)
+      if (stop && stopEffects) {
+        try { await this.runStopEffects(stopEffects) } catch { /* Reported separately; the ledger write succeeded. */ }
+      }
       return value
     })
   }
@@ -224,15 +240,26 @@ export class LeadJournal {
   /** Step 10 must admit recovery-resolved only from the authenticated window, like
    * card decisions. The model loop must never resolve its own quarantine block. */
   resolveRecovery(): Promise<void> { return this.#queue(() => this.#append({ type: 'recovery-resolved' })) }
+  /** Only the authenticated window may resolve a needs-user start. Step 10 supplies
+   * that click; the model must never attest that its own lost start created nothing. */
+  resolveStart(id: string, resolution: { readonly goalId: string; readonly identity: LeadRunIdentity } | null): Promise<void> {
+    return this.#queue(() => this.#append({ type: 'start-resolution', id, goalId: resolution?.goalId ?? null, identity: resolution?.identity ?? null }))
+  }
   stop(stopEffects?: () => Promise<void>): Promise<void> { return this.#budgetWrite(() => this.#append({ type: 'stop' }), stopEffects) }
   /** The supervisor retries pending idempotent cancellation after a crash. */
   async runStopEffects(effects: () => Promise<void>): Promise<void> {
     const stopSeq = await this.#queue(async () => this.#state.stopEffectsPending)
     if (stopSeq === null) return
-    await effects()
-    await this.#queue(async () => {
-      if (this.#state.stopEffectsPending === stopSeq) await this.#append({ type: 'stop-effects-done', stopSeq })
-    })
+    try {
+      await effects()
+      await this.#queue(async () => {
+        if (this.#state.stopEffectsPending === stopSeq) await this.#append({ type: 'stop-effects-done', stopSeq })
+      })
+      this.#stopEffectFailure = null
+    } catch {
+      this.#stopEffectFailure = { reason: 'stop-effects-failed', stopSeq }
+      throw new Error('lead-stop-effects-failed')
+    }
   }
   execute(input: LeadToolAttempt, dispatch: LeadDispatch): Promise<{ decision: LeadPermissionDecision; outcome: LeadAttemptOutcome; value?: unknown }> {
     const { id, stepId } = input
@@ -284,6 +311,10 @@ export class LeadJournal {
         const outcome = tier === 'read' || cancellation ? 'failed' : 'uncertain'
         await this.#append({ type: 'result', id, outcome, identity: null })
         return { decision, outcome }
+      }
+      if (method === 'flow/start-goal' && result?.created === false && result.identity === null) {
+        await this.#append({ type: 'result', id, outcome: 'failed', identity: null })
+        return { decision, outcome: 'failed', value: result.value }
       }
       let identity: LeadRunIdentity | null = null
       try { identity = method !== 'flow/start-goal' || result.identity === null ? null : parseLeadRunIdentity(result.identity) } catch { /* An unprovable start is uncertain. */ }

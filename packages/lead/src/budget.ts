@@ -10,9 +10,11 @@ export interface LeadBudgetLedger extends LeadBudgetState {
   readonly logicalGoalId: string; readonly goalId: string | null; readonly executionIds: readonly string[]
   readonly now: number; readonly freshnessMs: number
   readonly capsRevision: number
+  /** A reported charge exceeded the portable protocol range; never infer headroom from its saturated total. */
+  readonly spendOverflow: boolean
   readonly requests: readonly Request[]
   readonly settled: readonly Settled[]
-  readonly rounds: readonly { readonly executionId: string | null; readonly roundId: string; readonly startId: string | null }[]
+  readonly rounds: readonly { readonly executionId: string | null; readonly roundId: string | null; readonly startId: string | null }[]
   readonly observations: Readonly<Record<'insight/goal' | 'worker-samples', Event<'observe'> | null>>
   readonly observation: Event<'observe'> | null
 }
@@ -20,7 +22,6 @@ const ensure = (condition: unknown): void => { if (!condition) throw new Error('
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const cost = (tokens: number, rate: number): number => {
   const value = (BigInt(tokens) * BigInt(rate) + 999_999n) / 1_000_000n
-  ensure(value <= BigInt(LEAD_LIMITS.maxUsdMicros))
   return Number(value)
 }
 // Numeric usage has a compact, lossless base-36 digest; unlike a hash this cannot
@@ -52,17 +53,19 @@ export const leadBudgetProjection = (state: LeadBudgetLedger, now: number): Lead
     else if (now - observed.at > state.freshnessMs) spend = 'stale'
     else if (observed.usdMicros !== null && observed.usdMicros < state.workerUsdMicros) spend = 'ambiguous'
   }
-  if (state.requests.some(request => request.uncertain) || state.rounds.some(round => round.startId !== null && round.executionId === null)) spend = 'unknown'
+  if (state.spendOverflow || state.requests.some(request => request.uncertain) || state.rounds.some(round => round.startId !== null && round.executionId === null)) spend = 'unknown'
   return parseLeadBudgetState({ version: 1, revision: state.revision, caps: state.caps, leadUsdMicros: state.leadUsdMicros,
     workerUsdMicros: state.workerUsdMicros, reservedUsdMicros: state.reservedUsdMicros, roundsAdmitted: state.rounds.length, spend, stop: state.stop })
 }
 const finish = (state: LeadBudgetLedger): LeadBudgetLedger => {
-  const leadUsdMicros = state.settled.reduce((total, item) => total + item.usdMicros, 0)
+  const charged = state.settled.reduce((total, item) => Math.min(LEAD_LIMITS.maxUsdMicros + 1, total + item.usdMicros), 0)
+  const leadUsdMicros = Math.min(LEAD_LIMITS.maxUsdMicros, charged)
   const reservedUsdMicros = state.requests.reduce((total, request) => total + charge(request.reservation, null), 0)
   const total = leadUsdMicros + state.workerUsdMicros
-  const reason = total >= state.caps.usdMicros ? 'budget' : state.rounds.length > state.caps.rounds ? 'rounds' : null
+  const spendOverflow = state.spendOverflow || charged > LEAD_LIMITS.maxUsdMicros || total > LEAD_LIMITS.maxUsdMicros
+  const reason = spendOverflow || total >= state.caps.usdMicros ? 'budget' : state.rounds.length > state.caps.rounds ? 'rounds' : null
   const stop = state.stop ?? (reason ? { reason, revision: state.revision } : null)
-  const next = { ...state, leadUsdMicros, reservedUsdMicros, roundsAdmitted: state.rounds.length, stop }
+  const next = { ...state, spendOverflow, leadUsdMicros, reservedUsdMicros, roundsAdmitted: state.rounds.length, stop }
   return { ...next, ...leadBudgetProjection(next, state.now) }
 }
 const admit = (state: LeadBudgetLedger, now: number, round = false): void => {
@@ -76,7 +79,7 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
   if (event.type === 'initialize') {
     ensure(previous === null)
     return finish({ version: 1, revision: 1, logicalGoalId: event.logicalGoalId, caps: event.caps, freshnessMs: event.freshnessMs,
-      now: event.now, goalId: null, executionIds: [], capsRevision: 1, requests: [], settled: [], rounds: [], observations: { 'insight/goal': null, 'worker-samples': null },
+      now: event.now, goalId: null, executionIds: [], capsRevision: 1, spendOverflow: false, requests: [], settled: [], rounds: [], observations: { 'insight/goal': null, 'worker-samples': null },
       observation: null, leadUsdMicros: 0, workerUsdMicros: 0, reservedUsdMicros: 0, roundsAdmitted: 0, spend: 'known', stop: null })
   }
   ensure(previous !== null)
@@ -110,8 +113,10 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
       const request = state.requests.find(request => request.reservation.requestId === event.requestId)
       ensure(request)
       if (event.type === 'settle') {
+        const actual = charge(request!.reservation, event)
         next = { ...next, requests: state.requests.filter(item => item !== request),
-          settled: [...state.settled, { id: event.requestId, digest: usageDigest(event), usdMicros: charge(request!.reservation, event) }] }
+          spendOverflow: state.spendOverflow || actual > LEAD_LIMITS.maxUsdMicros,
+          settled: [...state.settled, { id: event.requestId, digest: usageDigest(event), usdMicros: Math.min(LEAD_LIMITS.maxUsdMicros, actual) }] }
       } else {
         if (request!.uncertain) return duplicate()
         next = { ...next, requests: state.requests.map(item => item === request ? { ...item, uncertain: true } : item) }
@@ -129,13 +134,21 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
     case 'start':
       if (state.rounds.some(round => round.startId === event.startId)) return duplicate()
       admit(state, now, true)
-      next = { ...next, rounds: [...state.rounds, { executionId: null, roundId: 'first', startId: event.startId }] }; break
-    case 'round':
+      next = { ...next, rounds: [...state.rounds, { executionId: null, roundId: null, startId: event.startId }] }; break
+    case 'round': {
       ensure(state.executionIds.includes(event.executionId))
       if (state.rounds.some(round => round.executionId === event.executionId && round.roundId === event.roundId)) return duplicate()
+      const first = state.rounds.find(round => round.executionId === event.executionId && round.startId !== null && round.roundId === null)
+      if (first) {
+        // The dispatch admitted this round already. Its host identity spends no
+        // further allowance, including after a stop or observation expiry.
+        next = { ...next, rounds: state.rounds.map(round => round === first ? { ...round, roundId: event.roundId } : round) }
+        break
+      }
       admit(state, now, true)
       ensure(state.rounds.length < LEAD_LIMITS.rounds)
       next = { ...next, rounds: [...state.rounds, { executionId: event.executionId, roundId: event.roundId, startId: null }] }; break
+    }
     case 'tighten':
       ensure(event.caps.usdMicros <= state.caps.usdMicros && event.caps.rounds <= state.caps.rounds)
       return applyLeadBudgetCaps({ ...state, now }, event.caps)
@@ -169,6 +182,7 @@ export const parseLeadBudgetLedger = (value: unknown): LeadBudgetLedger => {
   ensure(Array.isArray(source.executionIds) && source.executionIds.length <= LEAD_LIMITS.rounds && new Set(source.executionIds).size === source.executionIds.length)
   for (const executionId of source.executionIds) parseLeadBudgetEvent({ version: 1, type: 'bind', now: source.now, goalId: source.goalId, executionId })
   ensure(source.goalId === null ? source.executionIds.length === 0 : source.executionIds.length > 0)
+  ensure(typeof source.spendOverflow === 'boolean')
   ensure(Array.isArray(source.requests) && source.requests.length <= 4096)
   ensure(Number.isSafeInteger(source.capsRevision) && source.capsRevision >= 1 && source.capsRevision <= source.revision)
   const ids = new Set<string>()
@@ -191,9 +205,12 @@ export const parseLeadBudgetLedger = (value: unknown): LeadBudgetLedger => {
     ensure(round && Object.keys(round).sort().join() === ['executionId', 'roundId', 'startId'].sort().join())
     if (round.startId !== null) {
       parseLeadBudgetEvent({ version: 1, type: 'start', now: source.now, startId: round.startId })
-      ensure(round.roundId === 'first' && !starts.has(round.startId)); starts.add(round.startId)
-    } else ensure(round.executionId !== null)
+      ensure(!starts.has(round.startId)); starts.add(round.startId)
+    } else ensure(round.executionId !== null && round.roundId !== null)
+    if (round.executionId === null) ensure(round.roundId === null)
     if (round.executionId !== null) {
+      ensure(source.executionIds.includes(round.executionId))
+      if (round.roundId === null) continue
       parseLeadBudgetEvent({ version: 1, type: 'round', now: source.now, executionId: round.executionId, roundId: round.roundId })
       const key = JSON.stringify([round.executionId, round.roundId])
       ensure(source.executionIds.includes(round.executionId) && !rounds.has(key)); rounds.add(key)
@@ -211,4 +228,11 @@ export const parseLeadBudgetLedger = (value: unknown): LeadBudgetLedger => {
     leadUsdMicros: source.leadUsdMicros, workerUsdMicros: source.workerUsdMicros, reservedUsdMicros: source.reservedUsdMicros,
     roundsAdmitted: source.roundsAdmitted, spend: source.spend, stop: source.stop }))
   return structuredClone(source)
+}
+
+/** Only proof that a start created nothing may release its admitted round. */
+export const releaseLeadStart = (state: LeadBudgetLedger, startId: string): LeadBudgetLedger => {
+  const round = state.rounds.find(round => round.startId === startId)
+  ensure(round && round.executionId === null)
+  return finish({ ...state, revision: nextLeadRevision(state.revision), rounds: state.rounds.filter(item => item !== round) })
 }

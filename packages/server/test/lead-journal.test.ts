@@ -584,10 +584,11 @@ test('budget reservations rounds observations and stop survive disk checkpoint a
   await journal.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal',
     sourceIds: ['corpus-1'], goalId: 'goal-1', executionIds: ['run-1'], quality: 'known', usdMicros: 0 })
   await journal.updateBudget({ version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'round-1' })
-  await assert.rejects(journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 20, rounds: 3 } }, async () => {
+  await journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 20, rounds: 3 } }, async () => {
     assert.equal(journal.state.phase, 'stopped')
     throw new Error('synthetic crash after durable stop')
-  }), /crash/)
+  })
+  assert.equal(journal.stopEffectFailure.reason, 'stop-effects-failed')
   for (let i = 0; i < 1024; i++) await disk.append(parseLeadJournalRecord({ version: 1, seq: journal.state.seq + i + 1, type: 'recovery-resolved' }))
   await disk.close()
   const recovered = await open(home)
@@ -605,4 +606,49 @@ test('budget reservations rounds observations and stop survive disk checkpoint a
   assert.equal(reopened.state.budget.rounds.length, 1)
   await assert.rejects(reopened.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'planning-2', inputTokens: 0, maxOutputTokens: 1,
     inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 1 }))
+})
+
+
+test('newly bound work re-arms an acknowledged budget stop across disk checkpoint and reopen', async t => {
+  const home = await scratch(t), disk = await open(home), journal: any = await createLeadJournal(disk)
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 50 })
+  await journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 3 } })
+  const original = journal.state.stopEffectsPending
+  await journal.runStopEffects(async () => {})
+  for (let i = 0; i < 1024; i++) await journal.resolveRecovery()
+  await disk.close()
+  const disk2 = await open(home), restored: any = await createLeadJournal(disk2)
+  assert.equal(restored.state.stopEffectsPending, null)
+  await restored.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId: 'live-1' })
+  const generation = restored.state.stopEffectsPending
+  assert.ok(generation > original)
+  await restored.runStopEffects(async () => {
+    await restored.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId: 'live-2' })
+  })
+  assert.ok(restored.state.stopEffectsPending > generation)
+  await disk2.close()
+  const disk3 = await open(home)
+  t.after(() => disk3.close())
+  const reopened: any = await createLeadJournal(disk3)
+  assert.ok(reopened.state.stopEffectsPending > generation)
+  assert.deepEqual(reopened.state.budget.executionIds, ['live-1', 'live-2'])
+  await reopened.runStopEffects(async () => {})
+  assert.equal(reopened.state.stopEffectsPending, null)
+})
+
+test('unrepresentable charges remain unknown and stopped through a disk checkpoint', async t => {
+  const home = await scratch(t), disk = await open(home), journal: any = await createLeadJournal(disk)
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: { usdMicros: 1_000_000_000_000, rounds: 3 }, freshnessMs: 50 })
+  await journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'paid', inputTokens: 999_999, maxOutputTokens: 0,
+    inputUsdMicrosPerMillion: 1_000_000_000_000, outputUsdMicrosPerMillion: 0, cacheReadUsdMicrosPerMillion: 0, cacheWriteUsdMicrosPerMillion: 0 })
+  await journal.updateBudget({ version: 1, type: 'settle', now: 100, requestId: 'paid', inputTokens: 1_000_001, outputTokens: 0 })
+  for (let i = 0; i < 1024; i++) await journal.resolveRecovery()
+  await disk.close()
+  const disk2 = await open(home)
+  t.after(() => disk2.close())
+  const restored: any = await createLeadJournal(disk2)
+  assert.equal(restored.state.budget.leadUsdMicros, 1_000_000_000_000)
+  assert.equal(restored.state.budget.spend, 'unknown')
+  assert.equal(restored.state.budget.stop.reason, 'budget')
+  await restored.stop()
 })

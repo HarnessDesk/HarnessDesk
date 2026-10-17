@@ -851,3 +851,109 @@ test('budget-stop result acceptance never reverses a terminal person decline', a
   await journal.decideCard({ version: 1, cardId: 'reviewed-1', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' })
   assert.equal(journal.state.phase, 'declined')
 })
+
+
+const checkpointOpen = async (journal: any) => {
+  const { state } = lead.parseLeadCheckpoint(lead.leadCheckpoint(journal.state, 'a'.repeat(64)))
+  return lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+}
+
+for (const duringCleanup of [false, true]) test(`reconciled work re-arms stop generation ${duringCleanup ? 'during cleanup' : 'after acknowledgement and checkpoint'}`, async () => {
+  const journal = await prepare(memory())
+  await journal.execute({ id: 'lost', request, context, stepId: 'implement' }, async () => { throw new Error('lost response') })
+  await journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 3 } })
+  const firstGeneration = journal.state.stopEffectsPending
+  let writer: any = journal
+  if (!duringCleanup) {
+    await journal.runStopEffects(async () => {})
+    writer = await checkpointOpen(journal)
+  }
+  const discover = () => writer.recover(async () => [{ correlationId: 'lost', runId: 'live', teamId: 'team-1' }])
+  if (duringCleanup) await writer.runStopEffects(discover)
+  else await discover()
+  assert.ok(writer.state.stopEffectsPending > firstGeneration)
+  writer = await checkpointOpen(writer)
+  assert.ok(writer.state.stopEffectsPending)
+  await writer.runStopEffects(async () => {})
+  assert.equal(writer.state.stopEffectsPending, null)
+  await writer.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId: 'live' })
+  assert.ok(writer.state.stopEffectsPending, 'a new budget binding also needs cancellation acknowledgement')
+})
+
+test('late spend cannot revive a declined thread through a reviewed result or checkpoint', async () => {
+  const journal = await prepare(memory())
+  await journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'paid', inputTokens: 1, maxOutputTokens: 1,
+    inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 0, cacheWriteUsdMicrosPerMillion: 0 })
+  await journal.offerCard({ version: 1, id: 'waiting-1', revision: 1, type: 'waiting', contractDigest: contract.digest,
+    kind: 'person', runId: 'run-1', personCardId: 'gate-1', summary: 'Person decision', assertions: [] })
+  await journal.decideCard({ version: 1, cardId: 'waiting-1', cardType: 'waiting', expectedRevision: 1, contractDigest: contract.digest, choice: 'decline' })
+  await journal.updateBudget({ version: 1, type: 'settle', now: 100, requestId: 'paid', inputTokens: 500, outputTokens: 0 })
+  assert.equal(journal.state.phase, 'declined')
+  const restored: any = await checkpointOpen(journal)
+  await restored.offerCard({ version: 1, id: 'reviewed-1', revision: 1, type: 'result', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed result', assertions: [], budget: lead.leadBudgetProjection(restored.state.budget, 100) })
+  await restored.decideCard({ version: 1, cardId: 'reviewed-1', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' })
+  assert.equal(restored.state.phase, 'declined')
+})
+
+test('a definite start refusal releases its placeholder and permits a new attempt', async () => {
+  const journal = await prepare(memory())
+  const result = await journal.execute({ id: 'refused', request, context, stepId: 'implement' }, async () => ({ created: false, value: 'host refusal', identity: null }))
+  assert.equal(result.outcome, 'failed')
+  assert.equal(journal.state.budget.roundsAdmitted, 0)
+  assert.equal(journal.state.budget.spend, 'known')
+  const restored: any = await checkpointOpen(journal)
+  assert.equal((await restored.execute({ id: 'retry', request, context, stepId: 'implement' }, async () => ({ value: null,
+    identity: { correlationId: 'retry', runId: 'run-1', teamId: 'team-1' } }))).outcome, 'succeeded')
+})
+
+for (const found of [false, true]) test(`window start resolution durably ${found ? 'binds the proven run' : 'releases a no-run placeholder'}`, async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.execute({ id: 'lost', request, context, stepId: 'implement' }, async () => { throw new Error('lost response') })
+  await journal.recover(async () => [])
+  const reserve = { version: 1, type: 'reserve', now: 100, requestId: 'explain', inputTokens: 1, maxOutputTokens: 1,
+    inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 0, cacheWriteUsdMicrosPerMillion: 0 }
+  await assert.rejects(journal.updateBudget(reserve))
+  assert.equal(journal.state.attempts.get('lost').outcome, 'uncertain')
+  assert.equal(typeof journal.resolveStart, 'function')
+  await assert.rejects(journal.resolveStart('lost', { goalId: 'goal-1', identity: { correlationId: 'wrong', runId: 'run-1', teamId: 'team-1' } }))
+  await journal.resolveStart('lost', found ? { goalId: 'goal-1', identity: { correlationId: 'lost', runId: 'run-1', teamId: 'team-1' } } : null)
+  const restored: any = await checkpointOpen(await open(storage))
+  assert.equal(restored.state.attempts.get('lost').outcome, found ? 'succeeded' : 'failed')
+  assert.equal(restored.state.steps[0].state, found ? 'started' : 'pending')
+  assert.equal(restored.state.budget.roundsAdmitted, found ? 1 : 0)
+  if (found) {
+    assert.deepEqual(restored.state.budget.executionIds, ['run-1'])
+    assert.equal(restored.state.budget.spend, 'unknown', 'bound work still needs an observation')
+  } else {
+    assert.equal(restored.state.budget.spend, 'known')
+    await restored.updateBudget(reserve)
+  }
+  await assert.rejects(restored.resolveStart('lost', null))
+  assert.equal((await restored.recover(async () => [])).length, 0)
+})
+
+
+test('above-range reported usage denies the next Flow instead of retaining known headroom', async () => {
+  const journal = await open(memory())
+  const approved = { ...contract, caps: { usdMicros: 1_000_000_000_000, rounds: 3 } }
+  await journal.setPolicy(policy)
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: approved.caps, freshnessMs: 50 })
+  await journal.offerCard({ ...plan, contract: approved })
+  await journal.decideCard(click, 200)
+  await journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'paid', inputTokens: 999_999, maxOutputTokens: 0,
+    inputUsdMicrosPerMillion: 1_000_000_000_000, outputUsdMicrosPerMillion: 0, cacheReadUsdMicrosPerMillion: 0, cacheWriteUsdMicrosPerMillion: 0 })
+  await journal.updateBudget({ version: 1, type: 'settle', now: 100, requestId: 'paid', inputTokens: 1_000_001, outputTokens: 0 })
+  let calls = 0
+  const result = await journal.execute({ id: 'next', request, context, stepId: 'implement' }, async () => { calls++; return { value: null, identity: null } })
+  assert.equal(result.outcome, 'denied')
+  assert.equal(calls, 0)
+  assert.equal(journal.state.budget.spend, 'unknown')
+})
+
+test('start resolution records reject mismatched nullable fields and unknown fields', () => {
+  const record = { version: 1, seq: 1, type: 'start-resolution', id: 'lost', identity: null, goalId: null }
+  assert.deepEqual(lead.parseLeadJournalRecord(record), record)
+  for (const patch of [{ goalId: 'goal-1' }, { identity: { correlationId: 'lost', runId: 'run-1', teamId: 'team-1' } },
+    { extra: true }, { id: '' }]) assert.throws(() => lead.parseLeadJournalRecord({ ...record, ...patch }))
+})
