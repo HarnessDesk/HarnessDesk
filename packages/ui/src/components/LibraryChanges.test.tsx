@@ -15,13 +15,14 @@ const entry = (name: string, at: number, extra = {}) => ({ kind: 'library/write'
 const rows = [entry('today', now, { backupPath: '/home/jane/backups/today' }), entry('yesterday', now - day, { op: 'skill/remove' }), entry('earlier', now - 5 * day, { op: 'skill/replace' }), entry('failed', now, { status: 'failed', detail: 'Permission denied', backupPath: '/home/jane/backups/failed' }), entry('installed', now, { op: 'skill/create' })]
 const button = (text: string) => [...container.querySelectorAll('button')].find(el => el.textContent?.startsWith(text))!
 const click = async (text: string) => { await act(async () => button(text).click()) }
-const mount = async (entries = [...rows, { ...entry('other work', now), kind: 'turn' }]) => {
+const mount = async (entries = [...rows, { ...entry('other work', now), kind: 'turn' }], outcome: 'done' | 'failed' = 'done') => {
   const snapshot = { runtimes: [{ id: 'alpha', presentation: { name: 'Alpha' } }] }
+  let applied = false
   const request = vi.fn(async (method: string) => {
-    if (method === 'audit/query') return entries
+    if (method === 'audit/query') return applied && outcome === 'failed' ? [...entries, entry('restore-attempt', now + 1000, { op: 'skill/replace', status: 'failed', detail: 'Permission denied' })] : entries
     if (method === 'library/read') return { generatedAt: 1, home: '/home/jane', runtimes: ['alpha'], locations: [], entries: [], gaps: [] }
     if (method === 'library/plan') return { plannedAt: 1, ops: [{ id: 'restore', kind: 'skill', name: 'today', action: 'replace', targetPath: '/home/jane/skills/today', guardDigest: null, backup: true }] }
-    if (method === 'library/apply') return [{ id: 'restore', outcome: 'done' }]
+    if (method === 'library/apply') { applied = true; return [{ id: 'restore', outcome, detail: 'Permission denied' }] }
     throw new Error(method)
   })
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, transport: { request }, openDestination: vi.fn() } as unknown as AppStore
@@ -86,4 +87,12 @@ it('keeps MCP failure wording on the changes page', async () => {
   await mount([entry('fetcher', now, { op: 'mcp/create', status: 'failed', detail: 'No write permission' })])
   expect(container.textContent).toContain('Failed to add fetcher — No write permission')
   expect([...container.querySelectorAll('button')].filter(el => el.textContent === 'Restore…')).toHaveLength(0)
+})
+
+it('refetches failed restore attempts so View changes includes the failure', async () => {
+  const request = await mount(rows, 'failed')
+  await click('Restore…')
+  await act(async () => [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(el => el.textContent === 'Apply 1 change')!.click())
+  expect(request.mock.calls.filter(([method]) => method === 'audit/query')).toHaveLength(2)
+  expect(container.textContent).toContain('Failed to replace a copy of restore-attempt — Permission denied')
 })

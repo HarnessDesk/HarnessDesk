@@ -231,7 +231,8 @@ export const PlanDialog = ({
       })
       setResults(answer)
       libraryWriteToasts(plan.ops, answer, () => { onClose(); store.openDestination({ kind: 'library', section: 'changes' }) })
-      if (answer.some((one) => one.outcome === 'done')) onApplied()
+      // Failed attempts are audit entries too; an open changes page must read them.
+      if (answer.some((one) => one.outcome === 'done' || one.outcome === 'failed')) onApplied()
     } catch (error) {
       setFailed(error instanceof Error ? error.message : String(error))
     } finally {
