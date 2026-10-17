@@ -89,11 +89,7 @@ export class CliAccount {
   readonly #codeSinks = new Map<string, (code: string) => Promise<void>>()
 
   constructor(
-    /**
-     * The commands, or how to read them as they run now: a row's commands
-     * take its environment and the copy of the CLI its start chose, and both
-     * are known only once it has started (#1761).
-     */
+    /** The commands, or how to read them as they run now (the row's environment and chosen copy, #1761). */
     private readonly commandsNow: AcpAccountCommands | (() => AcpAccountCommands),
     private readonly runtime: RuntimeId,
     private readonly emit: (event: AgentEvent) => void,

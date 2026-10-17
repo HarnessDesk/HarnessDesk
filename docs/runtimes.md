@@ -634,8 +634,9 @@ Codex; other runtimes operate with their single workstation identity.
 
 What that independence needs on the ACP side is already in place: an
 agent's account commands — status, sign-in and sign-out — run with the
-environment its row starts the agent with, under the command's own, and a
-command that names the agent's CLI runs the copy that start chose. A row
+environment its row starts the agent with, under the command's own, and
+once the agent has started, a command that names its CLI runs the copy
+that start chose (before then, the name is looked up on PATH). A row
 whose environment moves the agent's home therefore asks about, signs in
 and signs out its own account rather than the default one (#1761).
 

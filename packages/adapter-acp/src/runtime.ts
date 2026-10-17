@@ -1449,7 +1449,8 @@ export class AcpRuntime implements AgentRuntime {
    * first on PATH. Each now takes the environment the agent is started with,
    * under the command's own, and a command that names the agent's CLI runs
    * the copy this start chose. Before a start has chosen one, the name is
-   * run as written, as it always was.
+   * run as written, as it always was. Stored keys stay out: only the agent's
+   * own process is handed them, at spawn.
    */
   #accountCommands(): AcpAccountCommands {
     const { account = {}, env } = this.#config
@@ -1469,7 +1470,10 @@ export class AcpRuntime implements AgentRuntime {
   /** The path this start chose for `command` when it names the agent's own CLI, else `command`. */
   #chosenCopyOf(command: string, launch: Extract<AcpLaunchDecision, { command: string }> | null): string {
     const name = cliName(command)
-    if (launch && (name === cliName(launch.command) || name === cliName(this.#config.command))) return launch.command
+    // Matched on the chosen copy's own name, never the row's: a row run by a
+    // launcher (`npx …`) would otherwise have every `npx` command swapped
+    // for the agent itself.
+    if (launch && name === cliName(launch.command)) return launch.command
     const executable = this.#config.executable
     if (executable && this.#executable && name === cliName(executable.command)) return this.#executable.path
     return command
@@ -3778,8 +3782,9 @@ type SignInObservation =
  * them back; the agent's own id is whatever follows.
  */
 const ACP_METHOD = 'acp:'
-/** A command's name without its folder or a Windows launcher's extension: `/opt/bin/claude` and `claude.cmd` are both `claude`. */
-const cliName = (command: string): string => basename(command).replace(/\.(exe|cmd|bat)$/i, '')
+/** A command's name without its folder or a Windows launcher's extension, as the host's `commandName` reads it: `/opt/bin/claude` and `claude.cmd` are both `claude`. */
+const cliName = (command: string): string =>
+  basename(command.replaceAll('\\', '/')).replace(/\.(?:exe|cmd|bat|com)$/i, '').toLowerCase()
 /** Said when the key an agent was told to use is taken away (`#authenticateWithStoredKey`). */
 const KEY_REMOVED = 'Its key was removed. Sign in again, or store a key.'
 

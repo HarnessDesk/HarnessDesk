@@ -1866,3 +1866,23 @@ test('a bridge’s account commands ask the CLI it was pointed at (#1761)', asyn
     await runtime.dispose()
   }
 })
+
+test('a row run by a launcher keeps its own account commands when the start chose a copy (#1761)', async (t) => {
+  // The row's command is the launcher; an account command run by the same
+  // launcher is the launcher's, not the agent's, and is left as written.
+  const copy = installedCopy(t)
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    resolveLaunch: async () => ({ command: copy, args: [], version: '1.0.0' }),
+    account: { status: { command: process.execPath, args: [FAKE_CLI, 'status'] } },
+  })
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts[0]?.email, 'tester@example.com')
+  } finally {
+    await runtime.dispose()
+  }
+})
