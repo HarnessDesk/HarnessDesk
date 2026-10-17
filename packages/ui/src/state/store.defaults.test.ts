@@ -492,6 +492,35 @@ it('reports a refused recommendation during composer refresh without rejecting t
   expect(notice).toHaveBeenCalledWith('warning', 'The runtime refused its recommendation.')
 })
 
+/* An agent that is signed out refuses this read in so many words, and its
+   page already says it is not signed in: the banner, and the Accounts card.
+   The refusal as a toast repeated that as a paragraph of protocol text, and
+   stayed up on the next agent's page (#1775). */
+const refusal = 'Authentication required — No authentication method selected. Either call the `authenticate` method, or set `auth.type` in settings.json.'
+
+it.each([
+  ['signed out', { accounts: [], signInMethods: [] }],
+  ['not heard from yet', undefined],
+] as const)('keeps a sign-in refusal out of the toasts while the agent is %s', async (_, account) => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { activeRuntime: runtime, accountsByRuntime: account ? { [runtime]: account } : {} })
+  vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error(refusal))
+  const notice = vi.spyOn(store, 'resultNotice')
+  await store.loadDraftOptions()
+  expect(notice).not.toHaveBeenCalled()
+})
+
+it('still raises a sign-in refusal from an agent the desk shows as signed in', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { activeRuntime: runtime, accountsByRuntime: {
+    [runtime]: { accounts: [{ kind: 'oauth', label: 'dev@example.com' }], signInMethods: [] },
+  } })
+  vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error(refusal))
+  const notice = vi.spyOn(store, 'resultNotice')
+  await store.loadDraftOptions()
+  expect(notice).toHaveBeenCalledWith('warning', refusal)
+})
+
 
 it.each(['accepts', 'ignores', 'fails again'] as const)('resolves recommendations after discovery retries and the runtime %s them', async (reply) => {
   const store = new AppStore('ws://localhost:0/')

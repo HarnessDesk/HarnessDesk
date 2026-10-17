@@ -179,6 +179,7 @@ import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
+import { explainedBySignIn } from '../lib/sign-in-refusal'
 import { BrowserTileRegistry, browserProfileKey, type BrowserTileMount } from '../lib/browser-tiles'
 import { focusTile, fromStored, toStored, type SideBySideState } from '../lib/side-by-side'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
@@ -1249,7 +1250,7 @@ export class AppStore {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     const options = await this.newSessionDefaultsFor(runtime).catch(error => {
-      if (this.#snapshot.activeRuntime === runtime) this.resultNotice('warning', describe(error))
+      if (this.#snapshot.activeRuntime === runtime && !explainedBySignIn(error, this.#snapshot.accountsByRuntime[runtime])) this.resultNotice('warning', describe(error))
       return []
     })
     if (this.#snapshot.activeRuntime !== runtime) return

@@ -7,6 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A signed-out agent no longer raises its raw sign-in refusal** — the agent's "Authentication required" answer, with its method names and settings path, is no longer shown as a toast or as a warning in its page's new-conversation section while the desk already shows it signed out; its banner and Accounts card say it. A refusal from an agent shown as signed in is still reported.
 - **An agent's account commands answer for its own row** — status, sign-in and sign-out run with the environment the row starts the agent with and the copy of the CLI its start chose, so a row that moves the agent's home shows and signs out its own account, not the default one.
 - **What the Library changed now has its own page**, reached from the Library's menu or from the toast that follows each change, instead of a list at the foot of the page.
 - **Agents nobody has asked yet say "Not checked yet"** instead of "needs no account here", and are listed as Ready. Antigravity's Gemini API key is a key field the agent switches to, and its Agent Platform method shows the setup step it needs instead of a button that could only fail.
