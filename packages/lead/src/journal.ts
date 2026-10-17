@@ -10,6 +10,7 @@ import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 
 export const LEAD_JOURNAL_BYTES = 1_048_576
 export interface LeadRunIdentity { readonly correlationId: string; readonly runId: string; readonly teamId: string }
+export interface LeadRunObservation extends LeadRunIdentity { readonly firstRoundId: string; readonly terminal: boolean }
 export interface LeadArgumentSummary {
   readonly type: string
   readonly size: number
@@ -86,11 +87,18 @@ export const parseLeadRunIdentity = (value: unknown): LeadRunIdentity => {
   return { correlationId: identifier(source.correlationId), runId: identifier(source.runId), teamId: identifier(source.teamId) }
 }
 /** The host lookup's exact identity set is retained for both recovery and window decisions. */
-export const parseLeadRunEvidence = (value: unknown): readonly LeadRunIdentity[] => {
+export const parseLeadRunObservation = (value: unknown): LeadRunObservation => {
+  const source = object(value, ['correlationId', 'runId', 'teamId', 'firstRoundId', 'terminal'])
+  if (typeof source.terminal !== 'boolean') throw new Error('lead-journal-run-terminal')
+  return { correlationId: identifier(source.correlationId), runId: identifier(source.runId), teamId: identifier(source.teamId),
+    firstRoundId: identifier(source.firstRoundId), terminal: source.terminal }
+}
+const runIdentity = (source: LeadRunObservation): LeadRunIdentity => ({ correlationId: source.correlationId, runId: source.runId, teamId: source.teamId })
+export const parseLeadRunEvidence = (value: unknown): readonly LeadRunObservation[] => {
   if (typeof value !== 'string' || value.length > 131_072) throw new Error('lead-journal-evidence')
   const source: unknown = JSON.parse(value)
   if (!Array.isArray(source) || source.length > 64) throw new Error('lead-journal-evidence')
-  const identities = source.map(parseLeadRunIdentity)
+  const identities = source.map(parseLeadRunObservation)
   if (new Set(identities.map(identity => identity.runId)).size !== identities.length) throw new Error('lead-journal-evidence')
   return identities
 }
@@ -147,9 +155,10 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
       identity: nullable(source.identity, parseLeadRunIdentity) }; break
     case 'reconciliation': {
       const identities = parseLeadRunEvidence(source.evidence)
+      const live = identities.filter(identity => !identity.terminal)
       const identity = nullable(source.identity, parseLeadRunIdentity), count = integer(source.count)
-      if (identities.length !== count || identities.some(item => item.correlationId !== source.id) ||
-        JSON.stringify(identity) !== JSON.stringify(count === 1 ? identities[0] : null)) throw new Error('lead-journal-match-count')
+      if (live.length !== count || identities.some(item => item.correlationId !== source.id) ||
+        JSON.stringify(identity) !== JSON.stringify(count === 1 ? runIdentity(live[0]!) : null)) throw new Error('lead-journal-match-count')
       event = { type, id: identifier(source.id), identity, count, evidence: source.evidence as string }; break
     }
     default: throw new Error('lead-journal-type')
@@ -282,7 +291,7 @@ export class LeadJournal {
   execute(input: LeadToolAttempt, dispatch: LeadDispatch): Promise<{ decision: LeadPermissionDecision; outcome: LeadAttemptOutcome; value?: unknown }> {
     const { id, stepId } = input
     return this.#queue(async () => {
-      if (this.#state.attempts.has(id) || this.#state.runs.some(run => run.correlationId === id)) throw new Error('lead-journal-duplicate-attempt')
+      if (this.#state.attempts.has(id) || this.#state.runs.some(run => run.correlationId === id) || this.#state.budget?.rounds.some(round => round.startId === id)) throw new Error('lead-journal-duplicate-attempt')
       let capturedContext: LeadPermissionContext | null
       try { capturedContext = structuredClone(input.context) } catch { capturedContext = null }
       let request: LeadPermissionRequest
@@ -341,12 +350,14 @@ export class LeadJournal {
       return { decision, outcome, value: result?.value }
     })
   }
-  /** The injected read-only lookup must prove host-owned correlation and project membership;
-   * a matching-looking run name is not proof. No recovery path calls the dispatch port. */
-  recover(reconcile: (attempt: { id: string; correlationId: string; method: string }) => Promise<readonly LeadRunIdentity[]>): Promise<readonly LeadRecoveryAction[]> {
+  /** The host lookup must return every non-terminal run carrying this start's
+   * correlation, plus explicit terminal observations for runs that have ended.
+   * Every identity proves project membership and its first-round id. Omission,
+   * paging and lookup failure never prove termination. No recovery path dispatches. */
+  recover(reconcile: (attempt: { id: string; correlationId: string; method: string }) => Promise<readonly LeadRunObservation[]>): Promise<readonly LeadRecoveryAction[]> {
     return this.#queue(async () => {
       const actions: LeadRecoveryAction[] = []
-      for (const pending of [...this.#state.attempts.values()].filter(attempt => !attempt.recoveryReported && (attempt.phase !== 'finished' || attempt.outcome === 'uncertain'))) {
+      for (const pending of [...this.#state.attempts.values()].filter(attempt => !attempt.recoveryReported && (attempt.phase !== 'finished' || attempt.outcome === 'uncertain' || attempt.resolutionPending || this.#state.runs.some(run => run.correlationId === attempt.correlationId)))) {
         if (pending.phase === 'attempted') await this.#append({ type: 'decision', id: pending.id, effect: 'deny', reason: 'recovery', rule: null })
         if (pending.phase === 'attempted' || pending.phase === 'decided') await this.#append({ type: 'dispatch-start', id: pending.id, dispatched: false })
         if (pending.phase !== 'finished') await this.#append({ type: 'result', id: pending.id,
@@ -354,16 +365,25 @@ export class LeadJournal {
         if (!pending.dispatched) { await this.#append({ type: 'recovery-report', id: pending.id }); actions.push({ id: pending.id, type: 'not-dispatched' }); continue }
         if (pending.kind === 'read') { await this.#append({ type: 'recovery-report', id: pending.id }); actions.push({ id: pending.id, type: 'retry-read' }); continue }
         if (pending.method === 'flow/execution/stop' || pending.method === 'team/intent' && pending.action === 'abandon') continue
-        let observed: readonly LeadRunIdentity[] = []
+        let observed: readonly LeadRunObservation[] = []
         try {
-          observed = (await reconcile({ id: pending.id, correlationId: pending.correlationId, method: pending.method })).map(parseLeadRunIdentity)
+          observed = (await reconcile({ id: pending.id, correlationId: pending.correlationId, method: pending.method })).map(parseLeadRunObservation)
             .filter(identity => pending.method === 'flow/start-goal' && identity.correlationId === pending.correlationId)
         } catch { /* Failed lookups supply no new evidence. */ continue }
+        const retained = new Map((pending.evidence === null ? [] : parseLeadRunEvidence(pending.evidence)).map(run => [run.runId, run]))
+        for (const run of observed) {
+          const previous = retained.get(run.runId)
+          if (previous && (previous.teamId !== run.teamId || previous.firstRoundId !== run.firstRoundId || previous.terminal && !run.terminal))
+            throw new Error('lead-journal-conflicting-run-evidence')
+          retained.set(run.runId, run)
+        }
+        observed = [...retained.values()]
         const evidence = JSON.stringify([...observed].sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0))
         if (evidence === pending.evidence) continue
-        const identity = observed.length === 1 ? observed[0]! : null
-        await this.#append({ type: 'reconciliation', id: pending.id, identity, count: observed.length, evidence })
-        actions.push({ id: pending.id, type: identity ? 'reconciled' : 'needs-user', count: observed.length })
+        const live = observed.filter(run => !run.terminal)
+        const identity = live.length === 1 ? runIdentity(live[0]!) : null
+        await this.#append({ type: 'reconciliation', id: pending.id, identity, count: live.length, evidence })
+        actions.push({ id: pending.id, type: identity ? 'reconciled' : 'needs-user', count: live.length })
       }
       return actions
     })

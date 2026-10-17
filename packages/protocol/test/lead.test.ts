@@ -422,3 +422,11 @@ test('first-round proof requires the bound start and a valid host round identity
   for (const patch of [{ startId: null }, { startId: undefined }, { firstRoundId: '' }, { firstRoundId: false }, { firstRoundId: 1 }])
     assert.throws(() => parse({ ...event, ...patch }), protocol.ValidationError)
 })
+
+
+test('every start binding requires first-round proof in the protocol', () => {
+  const parse = validator('parseLeadBudgetEvent')
+  const event = { version: 1, type: 'bind', now: 100, goalId: 'team-1', executionId: 'run-1', startId: 'start-1' }
+  assert.throws(() => parse(event), protocol.ValidationError)
+  assert.deepEqual(parse({ ...event, firstRoundId: '1' }), { ...event, firstRoundId: '1' })
+})

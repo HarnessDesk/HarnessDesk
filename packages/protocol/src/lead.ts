@@ -107,9 +107,11 @@ export interface LeadBudgetState {
  * total for this logical goal, not a delta; alternative sources must never be added. */
 export type LeadBudgetEvent = { readonly version: 1; readonly now: number } & (
   | { readonly type: 'initialize'; readonly logicalGoalId: string; readonly caps: LeadCaps; readonly freshnessMs: number }
-  | { readonly type: 'bind'; readonly goalId: string; readonly executionId: string; readonly startId?: string | null;
-      /** Host-proven first-round identity for this start, never inferred from arrival order. */
-      readonly firstRoundId?: string }
+  | ({ readonly type: 'bind'; readonly goalId: string; readonly executionId: string } & (
+      /** A start binding always carries its host-proven first-round identity. */
+      | { readonly startId: string; readonly firstRoundId: string }
+      | { readonly startId?: null; readonly firstRoundId?: never }
+    ))
   /** Reserve all potential input at the most expensive input/cache rate. */
   | { readonly type: 'reserve'; readonly requestId: string; readonly inputTokens: number; readonly maxOutputTokens: number;
       readonly inputUsdMicrosPerMillion: number; readonly outputUsdMicrosPerMillion: number;
@@ -359,7 +361,14 @@ type BudgetOf<T extends LeadBudgetEvent['type']> = Extract<LeadBudgetEvent, { ty
 const tokenCount = integer(0, 100_000_000)
 const budgetEvent = tag<LeadBudgetEvent>({
   initialize: object<BudgetOf<'initialize'>>({ ...budgetBase, type: literalUnion('initialize'), logicalGoalId: id, caps: parseLeadCaps, freshnessMs: integer(1, 86_400_000) }),
-  bind: object<BudgetOf<'bind'>>({ ...budgetBase, type: literalUnion('bind'), goalId: id, executionId: id, startId: optional(nullable(id)), firstRoundId: optional(id) }),
+  bind: (value, path) => {
+    const { startId, firstRoundId, ...base } = object<Omit<BudgetOf<'bind'>, 'startId' | 'firstRoundId'> & {
+      startId?: string | null; firstRoundId?: string
+    }>({ ...budgetBase, type: literalUnion('bind'), goalId: id, executionId: id, startId: optional(nullable(id)), firstRoundId: optional(id) })(value, path)
+    if (typeof startId === 'string') return { ...base, startId, firstRoundId: id(firstRoundId, path) }
+    if (firstRoundId !== undefined) fail(path ?? '', 'first round requires its bound start')
+    return startId === null ? { ...base, startId } : base
+  },
   reserve: object<BudgetOf<'reserve'>>({ ...budgetBase, type: literalUnion('reserve'), requestId: id, inputTokens: tokenCount,
     maxOutputTokens: tokenCount, inputUsdMicrosPerMillion: micros, outputUsdMicrosPerMillion: micros,
     cacheReadUsdMicrosPerMillion: micros, cacheWriteUsdMicrosPerMillion: micros }),
@@ -375,7 +384,6 @@ const budgetEvent = tag<LeadBudgetEvent>({
 })
 export const parseLeadBudgetEvent: Validator<LeadBudgetEvent> = (value, path = '') => {
   const parsed = budgetEvent(value, path)
-  if (parsed.type === 'bind' && parsed.firstRoundId !== undefined && !parsed.startId) fail(path, 'first round requires its bound start')
   if (parsed.type === 'observe' && (parsed.at > parsed.now || parsed.quality === 'known' && (parsed.usdMicros === null || parsed.sourceIds.length === 0)))
     fail(path, 'invalid spend observation')
   return Object.fromEntries(Object.entries(parsed).filter(([, item]) => item !== undefined)) as LeadBudgetEvent

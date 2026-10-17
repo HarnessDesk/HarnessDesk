@@ -430,10 +430,42 @@ test('a durable settlement resolves independently of failed cancellation effects
 for (const proven of [false, true]) test(`reordered round two cannot adopt a start under cap one ${proven ? 'with' : 'without'} first-round proof`, () => {
   let state = reduce(null, { ...init, caps: { usdMicros: 100, rounds: 1 } })
   state = reduce(state, { version: 1, type: 'start', now: 100, startId: 's1' })
-  state = reduce(state, { ...bind('run-1'), startId: 's1', ...(proven ? { firstRoundId: '1' } : {}) })
+  if (!proven) {
+    assert.throws(() => reduce(state, { ...bind('run-1'), startId: 's1' }))
+    return
+  }
+  state = reduce(state, { ...bind('run-1'), startId: 's1', firstRoundId: '1' })
   state = reduce(state, observe({ usdMicros: 0 }))
   assert.throws(() => reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: '2' }))
   assert.equal(state.roundsAdmitted, 1)
   if (proven) assert.equal(reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: '1' }).roundsAdmitted, 1)
   assert.deepEqual(api('parseLeadBudgetLedger')(state), state)
+})
+
+
+test('binding a start without first-round proof refuses before it can double-charge', () => {
+  let state = reduce(null, { ...init, caps: { usdMicros: 100, rounds: 2 } })
+  state = reduce(state, { version: 1, type: 'start', now: 100, startId: 's1' })
+  assert.throws(() => reduce(state, { ...bind('run-1'), startId: 's1' }))
+  assert.equal(state.roundsAdmitted, 1)
+  state = reduce(state, { ...bind('run-1'), startId: 's1', firstRoundId: '1' })
+  state = reduce(state, observe({ usdMicros: 0 }))
+  for (const roundId of ['1', '2']) state = reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId })
+  assert.equal(state.roundsAdmitted, 2)
+})
+
+test('a legacy start awaiting its host round id refuses round reports without charging', () => {
+  let state = reduce(reduce(null, { ...init, caps: { usdMicros: 100, rounds: 2 } }), bind('run-1'))
+  state = reduce(state, observe({ usdMicros: 0 }))
+  state = { ...state, rounds: [{ executionId: 'run-1', roundId: null, startId: 's1' }], roundsAdmitted: 1 }
+  assert.throws(() => reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: '1' }))
+  assert.equal(state.roundsAdmitted, 1)
+})
+
+
+test('historical start binding still requires proof after live tracking has ended', () => {
+  let state = reduce(reduce(null, init), { version: 1, type: 'start', now: 100, startId: 's1' })
+  state = reduce(state, { ...bind('run-1'), startId: 's1', firstRoundId: '1' })
+  assert.throws(() => reduce(state, bind('run-1')))
+  assert.equal(state.roundsAdmitted, 1)
 })

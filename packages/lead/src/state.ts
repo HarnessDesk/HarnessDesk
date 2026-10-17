@@ -8,7 +8,7 @@ export interface LeadAttemptState {
   readonly kind: 'read' | 'mutation' | 'invalid'; readonly stepId: string | null; readonly arguments: LeadArgumentSummary
   readonly phase: 'attempted' | 'decided' | 'started' | 'finished'; readonly effect: 'allow' | 'ask' | 'deny' | null
   readonly dispatched: boolean; readonly outcome: LeadAttemptOutcome | null
-  readonly recoveryReported: boolean; readonly evidence: string | null; readonly evidenceSeq: number | null
+  readonly recoveryReported: boolean; readonly evidence: string | null; readonly evidenceSeq: number | null; readonly resolutionPending: boolean
 }
 export interface LeadStepState { readonly id: string; readonly state: 'pending' | 'admitted' | 'started' | 'uncertain'; readonly attemptId: string | null }
 export interface LeadState {
@@ -147,11 +147,11 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const tier = clientTierFor(event.method, event.action === null ? {} : { action: event.action })
       ensure(event.kind === (tier === 'read' ? 'read' : tier === 'run' ? 'mutation' : 'invalid'))
       ensure(event.id === event.correlationId)
-      ensure(!state.attempts.has(event.id) && !state.runs.some(run => run.correlationId === event.id))
+      ensure(!state.attempts.has(event.id) && !state.runs.some(run => run.correlationId === event.id) && !state.budget?.rounds.some(round => round.startId === event.id))
       ensure(event.policyRevision === (state.policy?.revision ?? null) && event.contractRevision === (state.contract?.revision ?? null))
       state = { ...state, attempts: new Map([...state.attempts, [event.id, { id: event.id, correlationId: event.correlationId, method: event.method,
         action: event.action, kind: event.kind, stepId: event.stepId, arguments: event.arguments,
-        phase: 'attempted', effect: null, dispatched: false, outcome: null, recoveryReported: false, evidence: null, evidenceSeq: null }]]) }; break
+        phase: 'attempted', effect: null, dispatched: false, outcome: null, recoveryReported: false, evidence: null, evidenceSeq: null, resolutionPending: false }]]) }; break
     }
     case 'decision':
       updateAttempt(event.id, attempt => { ensure(attempt.phase === 'attempted'); return { ...attempt, phase: 'decided', effect: event.effect } }); break
@@ -184,8 +184,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'start-resolution': {
       const attempt = state.attempts.get(event.id)
       ensure(attempt?.phase === 'finished' && attempt.method === 'flow/start-goal' && attempt.evidence !== null && attempt.evidenceSeq === event.evidenceSeq)
-      const identities = parseLeadRunEvidence(attempt!.evidence)
-      ensure(state.budget?.rounds.some(round => round.startId === event.id && round.executionId === null))
+      const identities = parseLeadRunEvidence(attempt!.evidence).filter(run => !run.terminal)
+      ensure(attempt!.resolutionPending)
       if (event.identity === null) {
         ensure(attempt!.outcome === 'uncertain' && identities.length === 0)
         releaseStart(event.id)
@@ -194,34 +194,46 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         // Recovery has already admitted this host-proven identity and Team. A
         // window resolution may bind accounting, but cannot manufacture authority.
         ensure(attempt!.outcome === 'succeeded' && identities.length === 1 &&
-          JSON.stringify(identities[0]) === JSON.stringify(event.identity))
+          identities[0]!.correlationId === event.identity.correlationId && identities[0]!.runId === event.identity.runId && identities[0]!.teamId === event.identity.teamId)
         ensure(event.goalId === event.identity.teamId && (state.budget!.goalId === null || state.budget!.goalId === event.goalId))
         ensure(state.teams.includes(event.identity.teamId) && state.runs.some(run => JSON.stringify(run) === JSON.stringify(event.identity)))
         state = { ...state, budget: reduceLeadBudget(state.budget, { version: 1, type: 'bind', now: state.budget!.now,
-          startId: event.id, goalId: event.goalId, executionId: event.identity.runId }) }
+          startId: event.id, firstRoundId: identities[0]!.firstRoundId, goalId: event.goalId, executionId: event.identity.runId }) }
       }
+      updateAttempt(event.id, attempt => ({ ...attempt, resolutionPending: false }))
       if (![...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'running' }
       break
     }
     case 'reconciliation': {
       const attempt = state.attempts.get(event.id)
-      ensure(attempt?.phase === 'finished' && attempt.outcome === 'uncertain' && attempt.kind === 'mutation')
+      ensure(attempt?.phase === 'finished' && attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.resolutionPending || state.runs.some(run => run.correlationId === attempt.correlationId)))
       ensure(attempt!.evidence !== event.evidence)
       const identities = parseLeadRunEvidence(event.evidence)
       ensure(identities.every(identity => identity.correlationId === attempt!.correlationId &&
         !state.runs.some(run => run.runId === identity.runId && run.correlationId !== identity.correlationId)))
-      const runs = [...state.runs.filter(run => run.correlationId !== attempt!.correlationId), ...identities]
+      const live = identities.filter(run => !run.terminal)
+      // A missing lookup row is not a terminal report. The port merges evidence;
+      // replay independently refuses a record that would silently drop a live run.
+      ensure(state.runs.filter(run => run.correlationId === attempt!.correlationId).every(run => identities.some(identity => identity.runId === run.runId)))
+      const runs = [...state.runs.filter(run => run.correlationId !== attempt!.correlationId), ...live.map(run => ({ correlationId: run.correlationId, runId: run.runId, teamId: run.teamId }))]
+      let budget = state.budget
+      for (const run of identities) if (budget) budget = reduceLeadBudget(budget, { version: 1, type: 'bind', now: budget.now,
+        goalId: run.teamId, executionId: run.runId, startId: event.id, firstRoundId: run.firstRoundId })
       const teams = [...new Set([...state.teams, ...identities.map(identity => identity.teamId)])]
       ensure(runs.length <= 64 && teams.length <= 4096)
       // Even ambiguous positive evidence is live work: retain it for cancellation
       // and keep new spending blocked until a fresh host lookup resolves it.
-      state = { ...state, runs, teams }
-      updateAttempt(event.id, attempt => ({ ...attempt, evidence: event.evidence, evidenceSeq: event.seq }))
+      state = { ...state, runs, teams, budget }
+      const resolutionPending = attempt!.resolutionPending || attempt!.outcome === 'uncertain'
+      updateAttempt(event.id, attempt => ({ ...attempt, evidence: event.evidence, evidenceSeq: event.seq, resolutionPending }))
       if (event.identity !== null) {
         complete(event.id, event.identity)
         updateAttempt(event.id, attempt => ({ ...attempt, outcome: 'succeeded' }))
         if (![...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'running' }
-      } else state = { ...state, phase: 'waiting-for-user' }
+      } else if (resolutionPending) {
+        updateAttempt(event.id, attempt => ({ ...attempt, outcome: 'uncertain' }))
+        state = { ...state, phase: 'waiting-for-user' }
+      }
       break
     }
   }
@@ -230,7 +242,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     const attempts = new Map(state.attempts)
     for (const [id, attempt] of attempts) {
       if (attempts.size <= 64) break
-      if (attempt.phase === 'finished' && (attempt.outcome !== 'uncertain' && attempt.outcome !== 'interrupted' || attempt.recoveryReported)) attempts.delete(id)
+      const unbound = state.budget?.rounds.some(round => round.startId === id && round.executionId === null)
+      if (!unbound && !attempt.resolutionPending && !state.runs.some(run => run.correlationId === attempt.correlationId) && attempt.phase === 'finished' && (attempt.outcome !== 'uncertain' && attempt.outcome !== 'interrupted' || attempt.recoveryReported)) attempts.delete(id)
     }
     state = { ...state, attempts }
   }

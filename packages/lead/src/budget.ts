@@ -90,16 +90,23 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
   switch (event.type) {
     case 'bind': {
       ensure(state.goalId === null || state.goalId === event.goalId)
+      const recordedStart = state.rounds.find(round => round.executionId === event.executionId && round.startId !== null)
+      ensure(!recordedStart || event.startId === recordedStart.startId)
       let rounds = state.rounds
       if (event.startId) {
-        const started = state.rounds.find(round => round.startId === event.startId)
-        ensure(started && (started.executionId === null || started.executionId === event.executionId))
-        ensure(!event.firstRoundId || started!.roundId === null || started!.roundId === event.firstRoundId)
-        ensure(!event.firstRoundId || !state.rounds.some(round => round !== started && round.executionId === event.executionId && round.roundId === event.firstRoundId))
-        // The host binds the already admitted first round explicitly. Reporting
-        // some other round first cannot rename this placeholder or bypass admission.
-        rounds = state.rounds.map(round => round === started ? { ...round, executionId: event.executionId,
-          roundId: event.firstRoundId ?? round.roundId } : round)
+        const existing = state.rounds.filter(round => round.startId === event.startId)
+        ensure(existing.length > 0 && event.firstRoundId)
+        const started = existing.find(round => round.executionId === event.executionId) ?? existing.find(round => round.executionId === null)
+        ensure(!state.rounds.some(round => round !== started && round.executionId === event.executionId && round.roundId === event.firstRoundId))
+        if (started) {
+          ensure(started.roundId === null || started.roundId === event.firstRoundId)
+          rounds = state.rounds.map(round => round === started ? { ...round, executionId: event.executionId, roundId: event.firstRoundId! } : round)
+        } else {
+          // This run already exists. Discovery records consumption even beyond a
+          // cap; it cannot refuse history as though it were admitting new work.
+          ensure(state.rounds.length < LEAD_LIMITS.rounds)
+          rounds = [...state.rounds, { executionId: event.executionId, roundId: event.firstRoundId!, startId: event.startId }]
+        }
       }
       if (state.executionIds.includes(event.executionId) && same(rounds, state.rounds)) return duplicate()
       ensure(state.executionIds.includes(event.executionId) || state.executionIds.length < LEAD_LIMITS.rounds)
@@ -142,6 +149,7 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
       next = { ...next, rounds: [...state.rounds, { executionId: null, roundId: null, startId: event.startId }] }; break
     case 'round': {
       ensure(state.executionIds.includes(event.executionId))
+      ensure(!state.rounds.some(round => round.executionId === event.executionId && round.startId !== null && round.roundId === null))
       if (state.rounds.some(round => round.executionId === event.executionId && round.roundId === event.roundId)) return duplicate()
       admit(state, now, true)
       ensure(state.rounds.length < LEAD_LIMITS.rounds)
@@ -203,7 +211,9 @@ export const parseLeadBudgetLedger = (value: unknown): LeadBudgetLedger => {
     ensure(round && Object.keys(round).sort().join() === ['executionId', 'roundId', 'startId'].sort().join())
     if (round.startId !== null) {
       parseLeadBudgetEvent({ version: 1, type: 'start', now: source.now, startId: round.startId })
-      ensure(!starts.has(round.startId)); starts.add(round.startId)
+      const startKey = JSON.stringify([round.startId, round.executionId])
+      ensure(!starts.has(startKey)); starts.add(startKey)
+      ensure(!source.rounds.some(other => other !== round && other.startId === round.startId && (other.executionId === null || round.executionId === null)))
     } else ensure(round.executionId !== null && round.roundId !== null)
     if (round.executionId === null) ensure(round.roundId === null)
     if (round.executionId !== null) {
@@ -228,9 +238,12 @@ export const parseLeadBudgetLedger = (value: unknown): LeadBudgetLedger => {
   return structuredClone(source)
 }
 
-/** Only proof that a start created nothing may release its admitted round. */
+/** Release only an unproved placeholder; positive execution history is retained. */
 export const releaseLeadStart = (state: LeadBudgetLedger, startId: string): LeadBudgetLedger => {
   const round = state.rounds.find(round => round.startId === startId)
-  ensure(round && round.executionId === null)
+  ensure(round)
+  // Releasing an unresolved placeholder never releases rounds already proved to
+  // have run. Their execution attribution and consumption outlive live evidence.
+  if (round!.executionId !== null) return state
   return finish({ ...state, revision: nextLeadRevision(state.revision), rounds: state.rounds.filter(item => item !== round) })
 }
