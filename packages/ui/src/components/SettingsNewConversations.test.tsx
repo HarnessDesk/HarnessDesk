@@ -63,3 +63,28 @@ it('keeps explicit choices reachable after a recommendation is refused, and star
   await act(async () => store.newSession({ runtime, cwd: '/workspace' }))
   expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1]).toMatchObject({ options: { options: { access: 'full' } } })
 })
+
+/* General drew the default agent's sign-in refusal as a warning too (#1775). */
+const refusal = 'Authentication required — No authentication method selected. Either call the `authenticate` method, or set `auth.type` in settings.json.'
+const drawRefused = async (accounts: readonly { kind: 'oauth'; label: string }[]): Promise<string> => {
+  const store = new AppStore('ws://localhost:0/')
+  const runtime = runtimeId('demo')
+  Object.assign(store.getSnapshot(), emptySnapshot(), { activeRuntime: runtime,
+    runtimes: [{ id: runtime, presentation: { name: 'Demo runtime' }, capabilities: NO_CAPABILITIES }],
+    accountsByRuntime: { [runtime]: { accounts, signInMethods: [] } } })
+  vi.spyOn(store.transport, 'request').mockResolvedValue([] as never)
+  vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error(refusal))
+  vi.spyOn(store, 'newSessionDefaultChoicesFor').mockResolvedValue([])
+  await act(async () => root.render(<StoreProvider store={store}><SettingsTestPage section="general" onSignIn={() => {}} /></StoreProvider>))
+  return host.textContent ?? ''
+}
+
+it('draws no warning for a signed-out default agent\'s sign-in refusal', async () => {
+  const text = await drawRefused([])
+  expect(text).toContain('New conversations')
+  expect(text).not.toContain('Authentication required')
+})
+
+it('still warns about a sign-in refusal from a default agent shown signed in', async () => {
+  expect(await drawRefused([{ kind: 'oauth', label: 'dev@example.com' }])).toContain('Authentication required')
+})
