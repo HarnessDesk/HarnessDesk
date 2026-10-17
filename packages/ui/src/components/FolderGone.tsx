@@ -1,7 +1,7 @@
-import { sessionKey } from '@harnessdesk/protocol'
+import { sessionKey, splitSessionKey } from '@harnessdesk/protocol'
 
-import { useSnapshot, useStore } from '../state/context'
-import { Banner, BannerAction } from '../design'
+import { useSessionKey, useSnapshot, useStore } from '../state/context'
+import { Banner, BannerAction, MiddleTruncate } from '../design'
 
 /**
  * What a conversation says when the folder it ran in is gone.
@@ -14,13 +14,16 @@ import { Banner, BannerAction } from '../design'
  * three conversations from one deleted worktree were three identical toasts
  * over three perfectly readable transcripts.
  *
- * The refusal is printed in the agent's own words rather than paraphrased: it
- * names the agent, the folder, and why, and a second sentence written here
- * would only be a worse version of one we already have.
+ * Keep the agent's refusal, shortening only the folder path to its name. The
+ * full path stays on hover; a refusal that omits it gets the name as a prefix.
  */
 export const FolderGone = ({ folder, said }: { readonly folder: string; readonly said: string }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const key = useSessionKey()
+  const name = folder.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || folder
+  const folderName = <MiddleTruncate title={folder}>{name}</MiddleTruncate>
+  const parts = said.split(folder)
   /* Every conversation this folder took, not only the one in front. A deleted
      worktree is one piece of news however many conversations ran in it, and
      the count is what tells the reader whether the row they are looking at is
@@ -45,9 +48,21 @@ export const FolderGone = ({ folder, said }: { readonly folder: string; readonly
       tone="warning"
       role="status"
       title="This conversation's folder is gone"
-      actions={<BannerAction onClick={() => void store.openCopyElsewhere()}>Open a copy in another folder</BannerAction>}
+      actions={<>
+        <BannerAction
+          title="Starts a new conversation with this one's summary; you choose the folder."
+          onClick={() => { if (key) void store.openCopyElsewhere(key) }}
+        >Open a copy in another folder</BannerAction>
+        <BannerAction variant="secondary" onClick={() => {
+          if (!key) return
+          const { runtime, id } = splitSessionKey(key)
+          void store.archiveSession(id, runtime)
+        }}>Archive</BannerAction>
+      </>}
     >
-      {said} The transcript is here to read; nothing more can be sent to it.
+      {parts.length > 1
+        ? parts.map((part, index) => <span key={index}>{index > 0 && folderName}{part}</span>)
+        : <>{folderName}: {said}</>} The transcript is here to read; nothing more can be sent to it.
       {also > 0 && ` ${also === 1 ? 'One other conversation' : `${also} other conversations`} ran in the same folder.`}
     </Banner>
   )

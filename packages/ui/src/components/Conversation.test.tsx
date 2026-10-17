@@ -460,8 +460,11 @@ it('puts the reason where the composer would be, in the agent’s own words', ()
   render(rig(session({ updatedAt: 9_000 }), new Map([['/repo', said]])).store)
 
   expect(container.textContent).toContain('folder is gone')
-  expect(container.textContent).toContain(said)
+  expect(container.textContent).toContain('Codex cannot open this conversation: its folder no longer exists (')
+  expect(container.textContent).not.toContain('/repo')
+  expect(container.querySelector('[title="/repo"] .sr-only')?.textContent).toBe('repo')
   expect(container.textContent).toContain('Open a copy in another folder')
+  expect(container.textContent).toContain('Archive')
   // Nothing to type into: there is nowhere for it to go.
   expect(container.querySelector('textarea')).toBeNull()
 })

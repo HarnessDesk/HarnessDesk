@@ -899,7 +899,11 @@ in [extending.md](extending.md).
   stays available when reopening fails.
 - **A conversation whose folder has been deleted has no composer**, because
   there is nowhere for a message to go. In its place the pane states the fact
-  in the runtime's own words and offers *Open a copy in another folder*, which
+  in the runtime's own words, naming the folder by its last path segment with
+  the full path on hover. The name truncates while the sentence wraps. It offers
+  *Open a copy in another folder*, whose hover text explains the summary and
+  folder choice, followed by *Archive*. Archive uses the sidebar's action,
+  closes the conversation pane and offers Undo without a confirmation. The copy
   carries the conversation across as a hand-off packet and starts the copy in
   the open folder — the one the composer's *Work in* control names, and which
   you can point elsewhere before sending. The transcript above it

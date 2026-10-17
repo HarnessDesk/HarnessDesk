@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Conversations whose folder is gone can be archived from their banner.** The folder name stays short with its full path on hover, and the copy action explains that it starts a conversation with a summary.
+
 - **A signed-out agent no longer raises its raw sign-in refusal** — the agent's "Authentication required" answer, with its method names and settings path, is no longer shown as a toast, or as a warning under New conversations on its page or in General, while the desk already shows it signed out; its banner and Accounts card say it. A refusal from an agent shown as signed in is still reported.
 - **An agent that could not start no longer reads Ready after a restart** — one whose program was missing, would not report its version or was too old is checked again in the background as the desk opens, so Settings › Runtimes lists it under Needs attention with its reason instead of Ready until its page is opened.
 - **An agent's account commands answer for its own row** — status, sign-in and sign-out run with the environment the row starts the agent with and the copy of the CLI its start chose, so a row that moves the agent's home shows and signs out its own account, not the default one.

@@ -228,7 +228,9 @@ export const TranscriptFrames = () => {
       </Frame>
       <Frame id="transcript-missing-folder" title="A folder that no longer exists">
         <div className="p-4">
-          <FolderGone folder="/work/storefront" said="No such file or directory" />
+          <PaneProvider scope={{ paneId: 'preview-folder-gone' as never, view: { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: PREVIEW_SESSION_KEY }}>
+            <FolderGone folder="/home/jane/storefront/.worktrees/agent-inventory-retry-long-worktree-name-1771" said="The folder /home/jane/storefront/.worktrees/agent-inventory-retry-long-worktree-name-1771 no longer exists." />
+          </PaneProvider>
         </div>
       </Frame>
       <Frame id="transcript-background-tasks" title="Background tasks — this conversation's own">
