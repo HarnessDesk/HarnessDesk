@@ -141,6 +141,37 @@ test("the person's newest usable copy runs in place of the row's command", async
   assert.equal(service.last('opencode'), info)
 })
 
+/**
+ * The sign-in a row's page offers is typed in a terminal, outside the row's
+ * environment. For a row that moves the agent's home it signed in the default
+ * home instead (#1776): the command now carries the row's home, and where
+ * measured that the agent ignores it, the page says so rather than offering a
+ * command that cannot sign this row in.
+ */
+test('a row that moves its home is offered a sign-in for that home, or told there is none', async (t) => {
+  const store = await tempStore(t, [
+    { id: 'opencode', name: 'OpenCode', command: '/opt/homebrew/bin/opencode', args: ['acp'], env: { XDG_DATA_HOME: '/work/rows/opencode two' } },
+    { id: 'hermes', name: 'Hermes', command: '/opt/homebrew/bin/hermes', args: ['acp'], env: { HERMES_HOME: '/work/rows/hermes' } },
+    { id: 'copilot', name: 'Copilot', command: '/opt/homebrew/bin/copilot', args: ['--acp'] },
+  ])
+  const service = new InstallService({
+    stateDir: STATE,
+    store,
+    now: () => 1000,
+    locate: machine({
+      '/opt/homebrew/bin/opencode': 'opencode 2.0.32',
+      '/opt/homebrew/bin/hermes': 'hermes 1.0.0',
+      '/opt/homebrew/bin/copilot': '1.0.0',
+    }),
+  })
+  const [opencode, hermes, copilot] = store.configs()
+  const moved = await service.describe(opencode!)
+  assert.equal(moved?.signIn?.terminal, undefined, 'a command that signs in the default home is not offered')
+  assert.match(moved?.signIn?.note ?? '', /background service/)
+  assert.equal((await service.describe(hermes!))?.signIn?.terminal, 'HERMES_HOME=/work/rows/hermes hermes setup')
+  assert.equal((await service.describe(copilot!))?.signIn?.terminal, 'copilot login', 'a row that keeps the default home is unchanged')
+})
+
 test('a pin is persisted in the row and honoured over the newest copy', async (t) => {
   const store = await tempStore(t, [{ id: 'opencode', name: 'OpenCode', command: 'npx', args: ['-y', 'opencode-ai@1.18.27', 'acp'] }])
   const service = new InstallService({

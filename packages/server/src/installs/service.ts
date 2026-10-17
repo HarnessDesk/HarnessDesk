@@ -212,10 +212,7 @@ export class InstallService {
         ...(known.home.env ? { env: known.home.env } : {}),
         ...(known.home.note ? { note: known.home.note } : {}),
       },
-      signIn: {
-        ...(known.auth.terminal ? { terminal: known.auth.terminal } : {}),
-        note: known.auth.note,
-      },
+      signIn: signInFor(known, config),
       installCommand: known.publish.installCommand,
       checkedAt: (this.options.now ?? Date.now)(),
     }
@@ -458,3 +455,25 @@ const isNewer = (latest: string, running: string): boolean => {
   if (!a || !b) return false
   return (a[0]! - b[0]! || a[1]! - b[1]! || a[2]! - b[2]!) > 0
 }
+
+/**
+ * The sign-in a row's page offers. It is typed in a terminal, outside the
+ * row's environment, so for a row that moves the agent's home the plain
+ * command signed in the default home instead (#1776). That row is offered the
+ * command with its home in front — or, where it is measured that the agent
+ * ignores the variable for a sign-in, told so instead of offered a command
+ * that cannot sign it in.
+ */
+const signInFor = (known: KnownAgent, config: AcpAgentConfig): NonNullable<InstallInfo['signIn']> => {
+  const terminal = known.auth.terminal
+  const variable = known.home.env
+  const moved = variable ? config.env?.[variable] : undefined
+  if (!terminal) return { note: known.auth.note }
+  if (!variable || !moved) return { terminal, note: known.auth.note }
+  if (known.auth.terminalIgnoresHome) return { note: known.auth.terminalIgnoresHome }
+  return { terminal: `${variable}=${shellWord(moved)} ${terminal}`, note: known.auth.note }
+}
+
+/** A value as one word for a POSIX shell: as it is when that is safe, single-quoted otherwise. */
+const shellWord = (value: string): string =>
+  /^[\w@%+=:,./~-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`

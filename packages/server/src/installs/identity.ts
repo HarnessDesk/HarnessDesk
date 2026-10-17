@@ -1,6 +1,7 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 
 import type { Account } from '@harnessdesk/protocol'
 
@@ -167,16 +168,40 @@ const openCodeIdentity = (context: IdentityContext): Account | null => {
   const env = context.env ?? process.env
   const data = nonEmpty(env['XDG_DATA_HOME']) ?? join(context.home ?? homedir(), '.local', 'share')
   const auth = readJson(join(data, 'opencode', 'auth.json'))
-  if (typeof auth !== 'object' || auth === null || Array.isArray(auth)) return null
   // Only the keys. The values are the credentials themselves, and nothing
   // here reads one — see the note at the top of this file.
-  const providers = Object.keys(auth).filter((name) => name.trim() !== '')
+  const files = typeof auth === 'object' && auth !== null && !Array.isArray(auth) ? Object.keys(auth) : []
+  const providers = [...new Set([...files, ...openCodeSignIns(join(data, 'opencode', 'opencode.db'))])]
+    .filter((name) => name.trim() !== '')
   if (providers.length === 0) return null
   return signedInWith(
     providers.length > 3
       ? `${providers.slice(0, 3).join(', ')} +${providers.length - 3} more`
       : providers.join(', '),
   )
+}
+
+/**
+ * OpenCode 2 keeps its sign-ins in `opencode.db` as well: a `credential`
+ * table, one row per sign-in, `active` for the one each provider uses — an
+ * OpenCode Console sign-in lands only there. Measured on opencode 2.0.32 on
+ * 2026-10-17, reading the integration and time columns only (#1776). The
+ * provider ids are read and nothing else: `value` is the credential. Opened
+ * read-only, so a database OpenCode is writing is never locked or changed;
+ * one that is missing, unreadable or shaped otherwise names nobody.
+ */
+const openCodeSignIns = (path: string): readonly string[] => {
+  if (!existsSync(path)) return []
+  let db: DatabaseSync | null = null
+  try {
+    db = new DatabaseSync(path, { readOnly: true })
+    const rows = db.prepare('SELECT DISTINCT integration_id AS provider FROM credential WHERE active = 1').all()
+    return rows.flatMap((row) => typeof row['provider'] === 'string' ? [row['provider']] : [])
+  } catch {
+    return []
+  } finally {
+    db?.close()
+  }
 }
 
 /**
