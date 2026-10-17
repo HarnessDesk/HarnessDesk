@@ -92,7 +92,7 @@ const DT = FAST ? 0.05 : 1
 const RECORDED_RUNTIME = TEMPLATES['turnStarted']!.runtime
 const RECORDED_TURN_START = ((TEMPLATES['turnStarted']!.event as { turn?: { startedAt?: number } }).turn?.startedAt) ?? CAPTURED_NOW
 
-const DOWNLOAD = 'https://github.com/HarnessDesk/HarnessDesk/releases/download/v0.5.0/HarnessDesk-0.5.0-arm64.dmg'
+const DOWNLOAD = 'https://github.com/HarnessDesk/HarnessDesk/releases/download/v0.5.1/HarnessDesk-0.5.1-arm64.dmg'
 const DOWNLOADS = `[Apple silicon](${DOWNLOAD}) · [Intel](${DOWNLOAD.replace('-arm64.dmg', '-x64.dmg')})`
 
 /**
