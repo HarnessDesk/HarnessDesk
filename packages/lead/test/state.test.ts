@@ -82,7 +82,7 @@ test('checkpoints round trip reduced state and refuse malformed snapshots', () =
 test('pending plan blocks every mutation dispatch in replay except stop and abandon', () => {
   for (const [method, action] of [['workspace/open', null], ['flow/execution/stop', null], ['team/intent', 'abandon']] as const) {
     const history = records([...prefix(),
-      { type: 'card', card: { version: 1, id: 'plan-1', revision: 2, type: 'plan', contractDigest: contract.digest, contract } },
+      { type: 'card', card: { version: 1, id: 'plan-1', revision: 2, type: 'plan', contractDigest: contract.digest, contract: { ...contract, revision: 2 } } },
       { type: 'attempt', id: 'attempt-1', correlationId: 'attempt-1', method, action, arguments: summarizeLeadArguments({}), kind: 'mutation',
         stepId: null, policyRevision: 1, projectPolicyRevision: null, contractRevision: 1 },
       { type: 'decision', id: 'attempt-1', effect: 'allow', reason: 'policy', rule: null },

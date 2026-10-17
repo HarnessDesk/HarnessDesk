@@ -33,6 +33,20 @@ const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.r
 /** Card decisions, not phase changes or recovery, release the plan fence. */
 export const hasPendingLeadPlan = (state: LeadState): boolean => state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(cardKey(card)))
 
+export const assertPlanApprovable = (state: LeadState, contract: LeadAcceptanceContract): void => {
+  ensure(state.policy?.revision === contract.policyRevision)
+  ensure(state.contract === null || contract.revision > state.contract.revision)
+  // An admitted attempt may already have spent, even when its response is uncertain.
+  const locked = state.steps.filter(step => step.state !== 'pending')
+  if (locked.length) {
+    ensure(contract.project.id === state.contract?.project.id && contract.project.path === state.contract.project.path)
+    ensure(locked.every((step, index) => step.id === contract.steps[index]?.id &&
+      JSON.stringify(contract.steps[index]) === JSON.stringify(state.contract?.steps[index])))
+  }
+}
+const managementPhase = (state: LeadState): LeadState['phase'] => state.phase !== 'awaiting-plan' ? state.phase :
+  [...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain') ? 'waiting-for-user' : 'running'
+
 /** Replay is a pure reducer. A syntactically valid line is not enough: every transition
  * must be possible from its durable prefix, with no second admission of the same step. */
 export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState => {
@@ -71,24 +85,18 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const decision = parseLeadCardDecisionFor(event.decision, card)
       ensure(card)
       if (card!.type === 'plan') {
-        ensure(state.policy?.revision === card!.contract.policyRevision)
         if (decision.choice === 'approve') {
+          assertPlanApprovable(state, card!.contract)
           ensure(event.expiresAt !== null && event.expiresAt > 0)
           const contract = card!.contract
-          ensure(state.contract === null || contract.revision > state.contract.revision)
-          // Dispatch admission may already have spent. Preserve that prefix, even if
-          // its response is still uncertain; a new approval changes only future steps.
           const locked = state.steps.filter(step => step.state !== 'pending')
-          if (locked.length) {
-            ensure(contract.project.id === state.contract?.project.id && contract.project.path === state.contract.project.path)
-            ensure(locked.every((step, index) => step.id === contract.steps[index]?.id &&
-              JSON.stringify(contract.steps[index]) === JSON.stringify(state.contract?.steps[index])))
-          }
           state = { ...state, contract, phase: 'running', teams: locked.length ? state.teams : [], runs: locked.length ? state.runs : [],
             consent: { contractDigest: card!.contract.digest, contractRevision: card!.contract.revision,
               policyRevision: card!.contract.policyRevision, expiresAt: event.expiresAt! },
-            steps: contract.steps.map(step => locked.find(existing => existing.id === step.id) ?? { id: step.id, state: 'pending', attemptId: null }) }
-        } else state = { ...state, phase: 'declined' }
+            steps: contract.steps.map(step => locked.find(existing => existing.id === step.id) ?? { id: step.id, state: 'pending', attemptId: null }),
+            decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(other => other.type === 'plan' &&
+              other.contract.revision < contract.revision).map(cardKey)])] }
+        } else state = { ...state, phase: state.contract === null ? 'declined' : managementPhase(state) }
       } else if (card!.type === 'permission-change') {
         ensure(state.policy)
         state = { ...state, policy: applyLeadPolicyDecision(event.decision, card, state.policy!, state.contract?.digest ?? null) }

@@ -505,7 +505,8 @@ test('existing anchored journals upgrade segment metadata without replay-time ma
     const get = (key: string) => JSON.parse((db.prepare('SELECT value FROM journal WHERE key = ?').get(key) as { value: string }).value)
     const head = get('head'), segments = get('segments').map((segment: any) => ({ name: segment.name, hash: segment.hash }))
     db.prepare("UPDATE journal SET value = ? WHERE key = 'head'").run(JSON.stringify({ seq: head.seq, hash: head.hash }))
-    db.prepare("UPDATE journal SET value = ? WHERE key = 'segments'").run(JSON.stringify(segments)); db.close()
+    db.prepare("UPDATE journal SET value = ? WHERE key = 'segments'").run(JSON.stringify(segments))
+    db.exec("DELETE FROM journal WHERE key = 'format'"); db.close()
     if (damage === 'older-corrupt') {
       await fs.appendFile(join(home, 'lead', segments[0].name), 'synthetic corruption')
       await assert.rejects(open(home))
@@ -513,6 +514,56 @@ test('existing anchored journals upgrade segment metadata without replay-time ma
       const recovered = await open(home)
       t.after(() => recovered.close())
       assert.equal((await createLeadJournal(recovered)).state.phase, 'stopped')
+      const upgraded = new DatabaseSync(join(home, 'lead', 'thread-1.writer.sqlite'))
+      try { assert.equal((upgraded.prepare("SELECT value FROM journal WHERE key = 'format'").get() as { value: string }).value, '2') }
+      finally { upgraded.close() }
     }
   }
+})
+
+for (const probe of ['switching-getter', 'inherited-array']) test(`core-only canaries reject ${probe} before any caller graph can be rescanned`, async t => {
+  const home = await scratch(t), disk = await open(home), canary = 'synthetic-core-canary-91b0c2d3'
+  t.after(() => disk.close())
+  const journal = await createLeadJournal(disk, { canaries: [canary] })
+  await journal.setPolicy(policy)
+  const contract = { version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Ordinary snapshot goal',
+    project: { id: 'project-demo', path: '/workspace/demo' }, policyRevision: 1,
+    steps: [{ id: 'first', title: 'First', flow: 'lead-reviewed-result', sourceRevision: 'source-1', variables: {}, attendance: 'attended',
+      assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' }, ceiling: 'edit' }] }],
+    assertions: [{ id: 'check', kind: 'check', description: 'Checks pass' }], caps: { usdMicros: 500, rounds: 3 } }
+  let reads = 0
+  if (probe === 'switching-getter') Object.defineProperty(contract, 'goal', { enumerable: true, get() { return ++reads === 1 ? 'Ordinary snapshot goal' : canary } })
+  else {
+    const assertions = new Array(1)
+    Object.setPrototypeOf(assertions, Object.create(Array.prototype, { 0: { enumerable: true,
+      value: { id: 'check', kind: 'check', description: canary } } }))
+    contract.assertions = assertions
+  }
+  await assert.rejects(journal.offerCard({ version: 1, id: 'plan-1', revision: 1, type: 'plan', contractDigest: contract.digest, contract } as any))
+  assert.equal(reads, 0, 'accessors are not plain-data properties')
+  await journal.stop()
+  assert.ok(!(await fs.readFile(join(home, 'lead', 'thread-1.ndjson'), 'utf8')).includes(canary))
+})
+
+test('format two metadata refuses a legacy-head downgrade after opening successfully', async t => {
+  const { DatabaseSync } = await import('node:sqlite')
+  const home = await scratch(t)
+  await seedReads(home, 256)
+  const disk = await open(home)
+  await disk.close()
+  const db = new DatabaseSync(join(home, 'lead', 'thread-1.writer.sqlite'))
+  const head = JSON.parse((db.prepare("SELECT value FROM journal WHERE key = 'head'").get() as { value: string }).value)
+  const segments = JSON.parse((db.prepare("SELECT value FROM journal WHERE key = 'segments'").get() as { value: string }).value)
+  db.prepare("UPDATE journal SET value = ? WHERE key = 'head'").run(JSON.stringify({ seq: head.seq, hash: head.hash }))
+  db.prepare("UPDATE journal SET value = ? WHERE key = 'segments'").run(JSON.stringify(segments.map((segment: any) => ({ name: segment.name, hash: segment.hash })))); db.close()
+  await assert.rejects(async () => { const unexpected = await open(home); await unexpected.close() })
+})
+
+test('fresh journals persist the metadata format two marker', async t => {
+  const { DatabaseSync } = await import('node:sqlite')
+  const home = await scratch(t), disk = await open(home)
+  await disk.close()
+  const db = new DatabaseSync(join(home, 'lead', 'thread-1.writer.sqlite'))
+  try { assert.equal((db.prepare("SELECT value FROM journal WHERE key = 'format'").get() as { value: string } | undefined)?.value, '2') }
+  finally { db.close() }
 })

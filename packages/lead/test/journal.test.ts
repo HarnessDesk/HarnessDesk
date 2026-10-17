@@ -245,8 +245,8 @@ test('exact canaries refuse one record without latching and secret variables use
 })
 
 test('token-shaped prose and credential headers are masked before approval', async () => {
-  const tokens = ['gho_' + 'A'.repeat(36), 'github_pat_' + 'B'.repeat(40), 'sk-ant-' + 'c'.repeat(30), 'sk_live_' + 'D'.repeat(30),
-    'xoxb-' + '5'.repeat(30), 'AKIA' + 'E'.repeat(16), 'eyJdemo.payload.signature',
+  const tokens = ['gho_' + 'A'.repeat(36), 'github_pat_' + 'B'.repeat(60), 'sk-ant-' + 'c'.repeat(30), 'sk_live_' + 'D'.repeat(30),
+    'xoxb-' + '1'.repeat(12) + '-' + '2'.repeat(12) + '-' + 'A'.repeat(24), 'AKIA' + 'E'.repeat(16), 'eyJ' + 'A'.repeat(20) + '.' + 'B'.repeat(24) + '.' + 'C'.repeat(32),
     'Cookie: session=synthetic-cookie-91b0c2d3', 'Authorization: Bearer synthetic-header-value',
     'x-api-key: synthetic-api-value', 'api_key=synthetic-api-value-91b0c2d3', 'token=synthetic-token-value']
   for (const token of tokens) {
@@ -283,7 +283,7 @@ test('cancellation bypasses uncertain mutation fencing and thrown cancellation i
 
 test('pending plan blocks mutations and stopped state still permits status reads', async () => {
   const storage = memory(), journal = await prepare(storage)
-  await journal.offerCard({ ...plan, revision: 2 })
+  await journal.offerCard({ ...plan, revision: 2, contract: { ...contract, revision: 2 } })
   assert.equal((await journal.execute({ id: 'start-1', request, context, stepId: 'implement' }, async () => ({ value: null, identity: null }))).outcome, 'denied')
   await journal.stop()
   assert.equal((await journal.execute({ id: 'status-1', request: { ...request, method: 'library/usage', params: {}, start: null }, context }, async () => ({ value: 1, identity: null }))).outcome, 'succeeded')
@@ -324,8 +324,8 @@ test('recovered reads are reported only once across restarts', async () => {
 
 test('card revisions and retained finished attempts are bounded', async () => {
   const storage = memory(), journal = await prepare(storage)
-  for (let revision = 2; revision <= 32; revision++) await journal.offerCard({ ...plan, revision })
-  await assert.rejects(journal.offerCard({ ...plan, revision: 33 }))
+  for (let revision = 2; revision <= 32; revision++) await journal.offerCard({ ...plan, revision, contract: { ...contract, revision: 2 } })
+  await assert.rejects(journal.offerCard({ ...plan, revision: 33, contract: { ...contract, revision: 2 } }))
   await journal.stop()
   for (let i = 0; i < 300; i++) await journal.execute({ id: `read-${i}`, request: { ...request, method: 'library/usage', params: {}, start: null }, context }, async () => ({ value: 1, identity: null }))
   assert.ok(journal.state.attempts instanceof Map)
@@ -396,8 +396,7 @@ test('plan revision approval preserves admitted steps and refuses changes to the
     await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => { throw new Error('lost response') })
     const revised = { ...contract, revision: 2, digest: 'b'.repeat(64),
       ...(change === 'project' ? { project: { ...contract.project, path: '/workspace/other' } } : { steps: [{ ...contract.steps[0]!, title: 'Changed admitted work' }] }) }
-    await journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised })
-    await assert.rejects(journal.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest }, 300))
+    await assert.rejects(journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised }))
     await journal.stop()
     assert.equal((await open(storage)).state.phase, 'stopped')
   }
@@ -417,7 +416,7 @@ test('a running plan revision approves without resetting started steps or run id
 
 test('an undecided plan cannot be replaced by a different card kind', async () => {
   const storage = memory(), journal = await prepare(storage)
-  await journal.offerCard({ ...plan, revision: 2 })
+  await journal.offerCard({ ...plan, revision: 2, contract: { ...contract, revision: 2 } })
   await assert.rejects(journal.offerCard({ version: 1, id: plan.id, revision: 3, type: 'waiting', kind: 'person', runId: 'run-1', personCardId: 'gate-1',
     contractDigest: contract.digest, summary: 'Person gate', assertions: [] }))
   await journal.stop()
@@ -511,4 +510,139 @@ test('loading validates historical prose without running current write masks', a
   const journal = await open({ async read() { return history }, async append() {} })
   assert.equal(journal.state.contract.goal, history[1]!.card!.contract.goal)
   await journal.stop()
+})
+
+test('card preparation and its returned card use one snapshot despite a broker mutating the caller', async () => {
+  const storage = memory(), input: any = structuredClone(plan)
+  const journal = await open(storage, { canaries: ['synthetic-caller-canary'], digestContract: () => 'b'.repeat(64), brokerReference: () => {
+    input.id = 'synthetic-caller-canary'; input.contract.goal = 'synthetic-caller-canary'
+    return 'broker:input-1'
+  } })
+  input.contract.steps[0]!.variables = { api_key: 'SYNTHETIC_INPUT' }
+  await journal.setPolicy(policy)
+  const offered = await journal.offerCard(input)
+  assert.equal(offered.id, plan.id)
+  assert.equal(offered.contract.goal, contract.goal)
+  assert.ok(!JSON.stringify(storage.records).includes('synthetic-caller-canary'))
+})
+
+const runningTwoStepPlan = async () => {
+  const storage = memory(), journal = await open(storage)
+  const original = { ...contract, steps: [...contract.steps, { ...contract.steps[0]!, id: 'second' }] }
+  await journal.setPolicy(policy)
+  await journal.offerCard({ ...plan, contract: original })
+  await journal.decideCard(click, 200)
+  await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
+    identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))
+  return { journal, storage, original, next: { ...request, start: original.steps[1]! } }
+}
+
+test('declining a running plan revision keeps the approved contract and permits its next step', async () => {
+  const { journal, storage, original, next } = await runningTwoStepPlan()
+  const revised = { ...original, revision: 2, digest: 'b'.repeat(64) }
+  await journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised })
+  await journal.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest, choice: 'decline' })
+  assert.equal(journal.state.phase, 'running')
+  assert.equal(journal.state.contract.digest, original.digest)
+  const reopened = await open(storage)
+  assert.equal((await reopened.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+    identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
+})
+
+test('a plan made stale by a later policy change can be declined without ending the thread', async () => {
+  const { journal, original } = await runningTwoStepPlan()
+  const revised = { ...original, revision: 2, digest: 'b'.repeat(64) }
+  await journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised })
+  await journal.setPolicy({ ...policy, revision: 2 })
+  await journal.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest, choice: 'decline' })
+  assert.equal(journal.state.phase, 'running')
+  assert.equal(journal.state.contract.digest, original.digest)
+  assert.ok(journal.state.decidedCards.includes('plan-1:2'))
+  const fresh = { ...revised, policyRevision: 2 }
+  await journal.offerCard({ ...plan, revision: 3, contractDigest: fresh.digest, contract: fresh })
+  await journal.decideCard({ ...click, expectedRevision: 3, contractDigest: fresh.digest }, 300)
+  assert.equal(journal.state.contract.policyRevision, 2)
+})
+
+test('approving a newer plan durably supersedes every lower pending contract revision', async () => {
+  const { journal, storage, original, next } = await runningTwoStepPlan()
+  const second = { ...original, revision: 2, digest: 'b'.repeat(64) }, third = { ...original, revision: 3, digest: 'c'.repeat(64) }
+  await journal.offerCard({ ...plan, id: 'plan-2', contractDigest: second.digest, contract: second })
+  await journal.offerCard({ ...plan, id: 'plan-3', contractDigest: third.digest, contract: third })
+  await journal.decideCard({ ...click, cardId: 'plan-3', contractDigest: third.digest }, 300)
+  const reopened = await open(storage)
+  assert.ok(reopened.state.decidedCards.includes('plan-2:1'))
+  await assert.rejects(reopened.decideCard({ ...click, cardId: 'plan-2', contractDigest: second.digest }, 300))
+  assert.equal((await reopened.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+    identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
+})
+
+test('unapprovable plan revisions are refused at offer time without leaving a pending fence', async () => {
+  for (const problem of ['old-revision', 'stale-policy', 'started-prefix', 'project']) {
+    const { journal, original, next } = await runningTwoStepPlan()
+    const revised = { ...original, revision: 2, digest: 'b'.repeat(64),
+      ...(problem === 'old-revision' ? { revision: 1 } : problem === 'stale-policy' ? { policyRevision: 2 } :
+        problem === 'project' ? { project: { ...contract.project, path: '/workspace/other' } } :
+          { steps: [{ ...original.steps[0]!, title: 'Changed started work' }, original.steps[1]!] }) }
+    await assert.rejects(journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised }))
+    assert.equal((await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+      identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded', problem)
+  }
+})
+
+test('ordinary header-like ids and short token-like project names remain valid opaque fields', async () => {
+  for (const field of ['assertion', 'step', 'project', 'source']) {
+    const storage = memory(), journal = await open(storage)
+    const approved = { ...contract,
+      ...(field === 'assertion' ? { assertions: [{ ...contract.assertions[0]!, id: 'cookie:consent' }] } :
+        field === 'step' ? { steps: [{ ...contract.steps[0]!, id: 'authorization:middleware' }] } :
+          field === 'project' ? { project: { ...contract.project, path: '/workspace/ghs_tools_repo' } } :
+            { steps: [{ ...contract.steps[0]!, sourceRevision: 'token=published-summary' }] }) }
+    await journal.setPolicy(policy)
+    const offered = await journal.offerCard({ ...plan, contract: approved })
+    assert.deepEqual(offered.contract, approved)
+    await journal.decideCard(click, 200)
+    assert.equal((await journal.execute({ id: 'first', context: { ...context, project: approved.project }, stepId: approved.steps[0]!.id,
+      request: { ...request, project: approved.project, start: approved.steps[0], params: { ...request.params, root: approved.project.path } } },
+      async () => ({ value: null, identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))).outcome, 'succeeded', field)
+  }
+})
+
+test('pagination token names stay literal while credential-shaped pagination values still require a broker', async () => {
+  const variables = { page_token: 'cursor-1', next_token: 'cursor-2', continuation_token: 'cursor-3', page_access_token: 'cursor-4' }
+  for (const configured of [false, true]) {
+    let calls = 0
+    const journal = await open(memory(), configured ? { brokerReference: () => { calls++; return 'broker:must-not-be-used' } } : {})
+    await journal.setPolicy(policy)
+    const offered = await journal.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0]!, variables }] } })
+    assert.deepEqual(offered.contract.steps[0].variables, variables)
+    assert.equal(calls, 0)
+  }
+  const journal = await open(memory())
+  await journal.setPolicy(policy)
+  await assert.rejects(journal.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0]!, variables: { page_token: 'ghp_' + 'A'.repeat(36) } }] } }), /broker-reference/)
+  await journal.stop()
+})
+
+test('historical unapprovable proposals remain dismissible after recovery', async () => {
+  const { storage, original, next } = await runningTwoStepPlan()
+  // Earlier writers admitted this same-contract revision. Loading the durable
+  // proposal must still permit its decline; new offer calls refuse it up front.
+  storage.records.push({ version: 1, seq: storage.records.length + 1, type: 'card', card: { ...plan, revision: 2, contract: original } })
+  const journal = await open(storage)
+  await journal.decideCard({ ...click, expectedRevision: 2, choice: 'decline' })
+  assert.equal(journal.state.phase, 'running')
+  assert.equal((await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+    identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
+})
+
+test('declining the first plan remains a durable terminal decision', async () => {
+  const storage = memory(), journal = await open(storage)
+  await journal.setPolicy(policy)
+  await journal.offerCard(plan)
+  await journal.decideCard({ ...click, choice: 'decline' })
+  const reopened = await open(storage)
+  assert.equal(reopened.state.phase, 'declined')
+  assert.equal(reopened.state.contract, null)
+  assert.equal((await reopened.execute({ id: 'denied', request, context, stepId: 'implement' }, async () => { throw new Error('must not dispatch') })).outcome, 'denied')
 })

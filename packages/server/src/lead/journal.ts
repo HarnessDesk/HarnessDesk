@@ -135,6 +135,8 @@ export class LeadFileJournal implements LeadJournalStorage {
   private async load(): Promise<void> {
     const basename = this.file.slice(this.directory.length + 1)
     const files = await fs.readdir(this.directory)
+    const format = this.#get<number | null>('format', null)
+    if (format !== null && format !== 2) throw new Error('lead-journal-format')
     let anchor = this.#get<Anchor | null>('head', null)
     const hasHistory = (await this.handle.stat()).size > 0 || files.some(name => name.startsWith(`${basename}.sealed-`) || name.startsWith(`${basename}.checkpoint-`))
     if (anchor === null) {
@@ -145,6 +147,7 @@ export class LeadFileJournal implements LeadJournalStorage {
     // unchained manifest only after a one-time verification of every sealed file.
     // Missing anchors never take this compatibility path.
     if (!Object.hasOwn(anchor, 'segments')) {
+      if (format === 2) throw new Error('lead-journal-format-downgrade')
       if (Object.keys(anchor).sort().join() !== ['seq', 'hash'].sort().join() || !Number.isSafeInteger(anchor.seq) || anchor.seq < 0 || !/^[a-f0-9]{64}$/.test(anchor.hash))
         throw new Error('lead-journal-invalid-anchor')
       const legacy = this.#get<{ name: string; hash: string }[]>('segments', [])
@@ -159,7 +162,7 @@ export class LeadFileJournal implements LeadJournalStorage {
       }
       anchor = { ...anchor, segments: previous }
       this.metadata.exec('BEGIN IMMEDIATE')
-      try { this.#put('segments', upgraded); this.#put('head', anchor); this.metadata.exec('COMMIT') }
+      try { this.#put('segments', upgraded); this.#put('head', anchor); this.#put('format', 2); this.metadata.exec('COMMIT') }
       catch (error) { this.metadata.exec('ROLLBACK'); throw error }
     }
     if (!anchor || Object.keys(anchor).sort().join() !== ['seq', 'hash', 'segments'].sort().join() ||
@@ -239,7 +242,7 @@ export class LeadFileJournal implements LeadJournalStorage {
       }
     }
     if (!reached) throw new Error('lead-journal-lost-head')
-    this.#bytes = offset; this.#anchor()
+    this.#bytes = offset; this.#anchor(); this.#put('format', 2)
     if (this.#get('blocked', false) && !this.#state.recoveryBlocked) await this.append({ version: 1, seq: this.#state.seq + 1, type: 'recovery-block' })
     if (this.#records.length >= 1024 || this.#bytes > NORMAL_BYTES) await this.#rotate()
   }

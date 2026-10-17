@@ -5,7 +5,7 @@ import {
 import { decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, type LeadState } from './state.js'
+import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, assertPlanApprovable, type LeadState } from './state.js'
 
 export const LEAD_JOURNAL_BYTES = 1_048_576
 export interface LeadRunIdentity { readonly correlationId: string; readonly runId: string; readonly teamId: string }
@@ -167,13 +167,16 @@ export class LeadJournal {
     const raw = { version: 1, seq: this.#state.seq + 1, ...event }
     const prepared = prepareLeadJournalRecord(raw, this.security)
     const record = this.storage.prepare ? this.storage.prepare(prepared) : prepared
+    // Offer admission is a write-time check. Historical proposals must remain
+    // replayable and dismissible even if today's state would refuse to offer them.
+    if (record.type === 'card' && record.card.type === 'plan') assertPlanApprovable(this.#state, record.card.contract)
     const next = reduceLeadRecord(this.#state, record)
     try { await this.storage.append(record) }
     catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
     this.#state = next
   }
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
-  offerCard(card: LeadCard): Promise<LeadCard> { return this.#queue(async () => { await this.#append({ type: 'card', card }); return structuredClone(this.#state.cards.find(item => item.id === card.id)!) }) }
+  offerCard(card: LeadCard): Promise<LeadCard> { return this.#queue(async () => { await this.#append({ type: 'card', card }); return structuredClone(this.#state.cards.at(-1)!) }) }
   decideCard(decision: LeadCardDecision, expiresAt: number | null = null): Promise<void> {
     return this.#queue(() => this.#append({ type: 'card-decision', decision, expiresAt }))
   }
