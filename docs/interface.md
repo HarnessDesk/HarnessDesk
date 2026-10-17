@@ -1090,7 +1090,7 @@ reaching runtimes selects Nobody or One runtime. Chips, the state and Declared
 by choices in Filter, and search narrow together. Cards and Matrix use the same
 filtered rows; these choices are local to the viewer and are not persisted.
 Empty-directory cleanup and runtime catalogue banners appear only under Needs
-you. The history remains at the foot. Empty regions have a short title and no
+you. Empty regions have a short title and no
 description: No skills yet offers Write a skill and From GitHub; Nothing
 matches offers Clear the filters; Nothing needs you has no action. Loading
 says Reading skills… and failures retain their ActionError.

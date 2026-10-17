@@ -15,10 +15,11 @@ const entry = (name: string, at: number, extra = {}) => ({ kind: 'library/write'
 const rows = [entry('today', now, { backupPath: '/home/jane/backups/today' }), entry('yesterday', now - day, { op: 'skill/remove' }), entry('earlier', now - 5 * day, { op: 'skill/replace' }), entry('failed', now, { status: 'failed', detail: 'Permission denied', backupPath: '/home/jane/backups/failed' }), entry('installed', now, { op: 'skill/create' })]
 const button = (text: string) => [...container.querySelectorAll('button')].find(el => el.textContent?.startsWith(text))!
 const click = async (text: string) => { await act(async () => button(text).click()) }
-const mount = async (entries = [...rows, { ...entry('other work', now), kind: 'turn' }], outcome: 'done' | 'failed' = 'done') => {
-  const snapshot = { runtimes: [{ id: 'alpha', presentation: { name: 'Alpha' } }] }
+const mount = async (entries = [...rows, { ...entry('other work', now), kind: 'turn' }], outcome: 'done' | 'failed' = 'done', workspace?: string, audit?: () => Promise<unknown>) => {
+  const snapshot = { runtimes: [{ id: 'alpha', presentation: { name: 'Alpha' } }], ...(workspace ? { workspace: { path: workspace } } : {}) }
   let applied = false
   const request = vi.fn(async (method: string) => {
+    if (method === 'audit/query' && audit) return audit()
     if (method === 'audit/query') return applied && outcome === 'failed' ? [...entries, entry('restore-attempt', now + 1000, { op: 'skill/replace', status: 'failed', detail: 'Permission denied' })] : entries
     if (method === 'library/read') return { generatedAt: 1, home: '/home/jane', runtimes: ['alpha'], locations: [], entries: [], gaps: [] }
     if (method === 'library/plan') return { plannedAt: 1, ops: [{ id: 'restore', kind: 'skill', name: 'today', action: 'replace', targetPath: '/home/jane/skills/today', guardDigest: null, backup: true }] }
@@ -95,4 +96,22 @@ it('refetches failed restore attempts so View changes includes the failure', asy
   await act(async () => [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(el => el.textContent === 'Apply 1 change')!.click())
   expect(request.mock.calls.filter(([method]) => method === 'audit/query')).toHaveLength(2)
   expect(container.textContent).toContain('Failed to replace a copy of restore-attempt — Permission denied')
+})
+
+it('plans a restore in the open workspace, so a project copy can come back', async () => {
+  const request = await mount(rows, 'done', '/home/jane/project')
+  await click('Restore…')
+  expect(request).toHaveBeenCalledWith('library/plan', { intents: [{ kind: 'restoreCopy', name: 'today', backupPath: '/home/jane/backups/today', targetPath: '/home/jane/skills/today' }], cwd: '/home/jane/project' })
+})
+
+it('says why the changes could not be read instead of showing none', async () => {
+  await mount(rows, 'done', undefined, async () => { throw new Error('Audit log unreadable') })
+  expect(container.textContent).toContain('Audit log unreadable')
+  expect(container.textContent).not.toContain('Nothing has been changed from here.')
+})
+
+it('puts the newest change first within a day and leaves out a runtime it cannot name', async () => {
+  await mount([entry('older', now - 60000), entry('newer', now), entry('gone', now - 120000, { runtime: 'host' })])
+  expect([...container.querySelectorAll('[role="listitem"]')].map(el => el.textContent?.match(/Updated ([a-z]+)/)?.[1])).toEqual(['newer', 'older', 'gone'])
+  expect(container.textContent).not.toContain('Unavailable runtime')
 })

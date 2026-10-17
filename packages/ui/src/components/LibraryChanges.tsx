@@ -70,11 +70,11 @@ export const LibraryChanges = ({ onBack, now = Date.now() }: { readonly onBack: 
           return <Row key={`${entry.at}-${index}`} role="listitem" layout="record" kind="record" mark={<Icon size={16} />}
             title={<Text role="navigation" {...(entry.status === 'failed' ? { tone: 'warning' as const } : {})}>{entry.status === 'failed' ? `Failed to ${HISTORY_TRY[op] ?? op} ${name}${entry.detail ? ` — ${entry.detail}` : ''}` : `${HISTORY_VERB[op] ?? op} ${name}`}</Text>}
             desc={<Toolbar><Text role="meta" numeric>{new Date(entry.at).toLocaleString(undefined, { ...(group.earlier ? { dateStyle: 'medium' as const } : {}), timeStyle: 'short' })}</Text><Text role="meta">·</Text>
-              <Toolbar>{runtime && <RuntimeMark runtime={runtime} size={13} />}<Text role="meta">{runtime?.presentation.name ?? 'Unavailable runtime'}</Text></Toolbar><Text role="meta">·</Text>
+              {runtime && <><Toolbar><RuntimeMark runtime={runtime} size={13} /><Text role="meta">{runtime.presentation.name}</Text></Toolbar><Text role="meta">·</Text></>}
               <Text role="meta" title={path} truncate dir="rtl"><bdi dir="ltr"><CodeText as="code" size="inherit">{shortPath(path, library?.home)}</CodeText></bdi></Text></Toolbar>}
             control={canRestore(entry) ? <Button variant="outline" size="sm" onClick={() => setFlow({ type: 'plan', title: `Restore ${name}`, intents: [{ kind: 'restoreCopy', name, backupPath: entry.backupPath!, targetPath: path }] })}>Restore…</Button> : undefined} />
         })}</Rows>
       </FormStack>)}
-    <LibraryFlows flow={flow} setFlow={setFlow} library={library} columns={columns} onApplied={() => setRevision(value => value + 1)} />
+    <LibraryFlows flow={flow} setFlow={setFlow} library={library} columns={columns} cwd={snapshot.workspace?.path} onApplied={() => setRevision(value => value + 1)} />
   </>
 }
