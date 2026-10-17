@@ -7,6 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A background task whose command shows nothing is still named** — a command made only of blanks or display breaks shows as "Shell" instead of an empty label or a bare "…", and no title keeps an invisible blank at either end.
 - **Drafts explain why Send is disabled** while the runtime starts or is unavailable, with a short readiness chip and the reason on Send’s hover title; an unavailable runtime’s chip opens its Settings page.
 
 - **Conversations whose folder is gone can be archived from their banner.** The folder name stays short with its full path on hover, and the copy action explains that it starts a conversation with a summary.
