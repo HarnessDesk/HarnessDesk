@@ -103,8 +103,9 @@ export interface LeadBudgetState {
   /** Durable latch; a higher cap alone does not clear it. */
   readonly stop: { readonly reason: LeadStopReason; readonly revision: LeadRevision } | null
 }
-/** Trusted owner input, never model output. Each observation is a cumulative worker-only
- * total for this logical goal, not a delta; alternative sources must never be added. */
+/** Trusted owner input, never model output. Observations are cumulative worker-only
+ * totals for their named executions; alternative sources must never be added.
+ * A terminal observation names one run and its final cost, retained without expiry. */
 export type LeadBudgetEvent = { readonly version: 1; readonly now: number } & (
   | { readonly type: 'initialize'; readonly logicalGoalId: string; readonly caps: LeadCaps; readonly freshnessMs: number }
   | ({ readonly type: 'bind'; readonly goalId: string; readonly executionId: string } & (
@@ -122,7 +123,7 @@ export type LeadBudgetEvent = { readonly version: 1; readonly now: number } & (
   | { readonly type: 'uncertain'; readonly requestId: string }
   | { readonly type: 'observe'; readonly at: number; readonly revision: number; readonly source: 'insight/goal' | 'worker-samples';
       readonly sourceIds: readonly string[]; readonly goalId: string; readonly executionIds: readonly string[];
-      readonly quality: LeadBudgetState['spend']; readonly usdMicros: number | null }
+      readonly quality: LeadBudgetState['spend']; readonly usdMicros: number | null; readonly terminal?: boolean }
   | { readonly type: 'start'; readonly startId: string }
   | { readonly type: 'round'; readonly executionId: string; readonly roundId: string }
   | { readonly type: 'tighten'; readonly caps: LeadCaps }
@@ -365,7 +366,7 @@ const budgetEvent = tag<LeadBudgetEvent>({
     const { startId, firstRoundId, ...base } = object<Omit<BudgetOf<'bind'>, 'startId' | 'firstRoundId'> & {
       startId?: string | null; firstRoundId?: string
     }>({ ...budgetBase, type: literalUnion('bind'), goalId: id, executionId: id, startId: optional(nullable(id)), firstRoundId: optional(id) })(value, path)
-    if (typeof startId === 'string') return { ...base, startId, firstRoundId: id(firstRoundId, path) }
+    if (typeof startId === 'string') return { ...base, startId, firstRoundId: id(firstRoundId, path ? `${path}.firstRoundId` : 'firstRoundId') }
     if (firstRoundId !== undefined) fail(path ?? '', 'first round requires its bound start')
     return startId === null ? { ...base, startId } : base
   },
@@ -376,7 +377,7 @@ const budgetEvent = tag<LeadBudgetEvent>({
   uncertain: object<BudgetOf<'uncertain'>>({ ...budgetBase, type: literalUnion('uncertain'), requestId: id }),
   observe: object<BudgetOf<'observe'>>({ ...budgetBase, type: literalUnion('observe'), at: integer(), revision, source: literalUnion('insight/goal', 'worker-samples'),
     sourceIds: list(id, 128, 0, item => item), goalId: id, executionIds: list(id, LEAD_LIMITS.rounds, 0, item => item),
-    quality: literalUnion('known', 'unknown', 'stale', 'partial', 'ambiguous'), usdMicros: nullable(micros) }),
+    quality: literalUnion('known', 'unknown', 'stale', 'partial', 'ambiguous'), usdMicros: nullable(micros), terminal: optional(isBoolean) }),
   start: object<BudgetOf<'start'>>({ ...budgetBase, type: literalUnion('start'), startId: id }),
   round: object<BudgetOf<'round'>>({ ...budgetBase, type: literalUnion('round'), executionId: id, roundId: id }),
   tighten: object<BudgetOf<'tighten'>>({ ...budgetBase, type: literalUnion('tighten'), caps: parseLeadCaps }),
@@ -384,7 +385,8 @@ const budgetEvent = tag<LeadBudgetEvent>({
 })
 export const parseLeadBudgetEvent: Validator<LeadBudgetEvent> = (value, path = '') => {
   const parsed = budgetEvent(value, path)
-  if (parsed.type === 'observe' && (parsed.at > parsed.now || parsed.quality === 'known' && (parsed.usdMicros === null || parsed.sourceIds.length === 0)))
+  if (parsed.type === 'observe' && (parsed.at > parsed.now || parsed.quality === 'known' && (parsed.usdMicros === null || parsed.sourceIds.length === 0) ||
+    parsed.terminal && (parsed.executionIds.length !== 1 || parsed.quality !== 'known')))
     fail(path, 'invalid spend observation')
   return Object.fromEntries(Object.entries(parsed).filter(([, item]) => item !== undefined)) as LeadBudgetEvent
 }

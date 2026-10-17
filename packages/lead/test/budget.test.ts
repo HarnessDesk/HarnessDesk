@@ -469,3 +469,35 @@ test('historical start binding still requires proof after live tracking has ende
   assert.throws(() => reduce(state, bind('run-1')))
   assert.equal(state.roundsAdmitted, 1)
 })
+
+
+test('terminal per-run observations cover every bound run across checkpoint', async () => {
+  const storage = memory(), journal: any = await open(storage)
+  await journal.updateBudget(init)
+  for (const run of ['run-1', 'run-2']) await journal.updateBudget(bind(run))
+  await journal.updateBudget(observe({ terminal: true, usdMicros: 20 }))
+  assert.notEqual(journal.state.budget.spend, 'known')
+  const { state } = lead.parseLeadCheckpoint(lead.leadCheckpoint(journal.state, 'a'.repeat(64)))
+  const restored = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  await restored.updateBudget(observe({ revision: 2, executionIds: ['run-2'], terminal: true, usdMicros: 30 }) as any)
+  assert.equal(restored.state.budget?.spend, 'known')
+  assert.equal(restored.state.budget?.workerUsdMicros, 50)
+  assert.equal(lead.parseLeadCheckpoint(lead.leadCheckpoint(restored.state, 'b'.repeat(64))).state.budget?.spend, 'known')
+  await restored.updateBudget(reserve('after-coverage', 1) as any)
+  assert.equal(api('leadBudgetProjection')(restored.state.budget, 1000).spend, 'known', 'terminal costs do not expire')
+})
+
+for (const order of ['goal-first', 'terminal-first']) test(`goal and terminal coverage combine without double counting: ${order}`, () => {
+  let state = reduce(reduce(reduce(null, init), bind('run-1')), bind('run-2'))
+  const goal = observe({ executionIds: ['run-1'], usdMicros: 20 })
+  const terminal = observe({ executionIds: ['run-2'], terminal: true, usdMicros: 30 })
+  const events = order === 'goal-first' ? [goal, terminal] : [terminal, goal]
+  for (const [i, event] of events.entries()) state = reduce(state, { ...event, revision: i + 1 })
+  assert.equal(projection(state).spend, 'known')
+  assert.equal(projection(state).workerUsdMicros, 50)
+  state = reduce(state, { ...terminal, source: 'worker-samples', revision: 1 })
+  assert.equal(projection(state).workerUsdMicros, 50, 'an alternative terminal source never adds the cost again')
+  assert.throws(() => reduce(state, { ...terminal, source: 'worker-samples', revision: 2, usdMicros: 31 }))
+  state = reduce(state, observe({ revision: 3, executionIds: ['run-1', 'run-2'], usdMicros: 50 }))
+  assert.equal(projection(state).workerUsdMicros, 50)
+})

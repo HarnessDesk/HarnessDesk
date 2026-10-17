@@ -26,7 +26,7 @@ export type LeadJournalEvent =
   | { readonly type: 'start-resolution'; readonly evidenceSeq: number; readonly id: string; readonly identity: LeadRunIdentity | null; readonly goalId: string | null }
   | { readonly type: 'stop-effects-done'; readonly stopSeq: number }
   | { readonly type: 'stop' | 'recovery-block' | 'recovery-resolved' }
-  | { readonly type: 'recovery-report'; readonly id: string }
+  | { readonly type: 'recovery-report' | 'reconciliation-conflict'; readonly id: string }
   | { readonly type: 'team-approved'; readonly teamId: string; readonly contractDigest: string }
   | { readonly type: 'attempt'; readonly id: string; readonly correlationId: string; readonly method: string; readonly action: string | null;
       readonly arguments: LeadArgumentSummary; readonly kind: 'read' | 'mutation' | 'invalid'; readonly stepId: string | null;
@@ -112,7 +112,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
     budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
-    policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'team-approved': ['teamId', 'contractDigest'],
+    policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
   }
@@ -131,7 +131,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'card': event = { type, card: parseLeadCard(source.card) }; break
     case 'card-decision': event = { type, decision: parseLeadCardDecision(source.decision), expiresAt: nullable(source.expiresAt, integer) }; break
     case 'stop': case 'recovery-block': case 'recovery-resolved': event = { type }; break
-    case 'recovery-report': event = { type, id: identifier(source.id) }; break
+    case 'recovery-report': case 'reconciliation-conflict': event = { type, id: identifier(source.id) }; break
     case 'team-approved':
       if (typeof source.contractDigest !== 'string' || !/^[a-f0-9]{64}$/.test(source.contractDigest)) throw new Error('lead-journal-digest')
       event = { type, teamId: identifier(source.teamId), contractDigest: source.contractDigest }; break
@@ -371,12 +371,16 @@ export class LeadJournal {
             .filter(identity => pending.method === 'flow/start-goal' && identity.correlationId === pending.correlationId)
         } catch { /* Failed lookups supply no new evidence. */ continue }
         const retained = new Map((pending.evidence === null ? [] : parseLeadRunEvidence(pending.evidence)).map(run => [run.runId, run]))
-        for (const run of observed) {
+        const conflict = observed.some(run => {
           const previous = retained.get(run.runId)
-          if (previous && (previous.teamId !== run.teamId || previous.firstRoundId !== run.firstRoundId || previous.terminal && !run.terminal))
-            throw new Error('lead-journal-conflicting-run-evidence')
-          retained.set(run.runId, run)
+          return previous && (previous.teamId !== run.teamId || previous.firstRoundId !== run.firstRoundId || previous.terminal && !run.terminal)
+        })
+        if (conflict) {
+          await this.#append({ type: 'reconciliation-conflict', id: pending.id })
+          actions.push({ id: pending.id, type: 'needs-user' })
+          continue
         }
+        for (const run of observed) retained.set(run.runId, run)
         observed = [...retained.values()]
         const evidence = JSON.stringify([...observed].sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0))
         if (evidence === pending.evidence) continue

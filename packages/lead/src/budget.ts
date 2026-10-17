@@ -12,6 +12,9 @@ export interface LeadBudgetLedger extends LeadBudgetState {
   readonly capsRevision: number
   /** A reported charge exceeded the portable protocol range; never infer headroom from its saturated total. */
   readonly spendOverflow: boolean
+  /** History exceeded the bounded accounting index; only live cancellation evidence remains complete. */
+  readonly accountingIncomplete: boolean
+  readonly terminalObservations: readonly Event<'observe'>[]
   readonly requests: readonly Request[]
   readonly settled: readonly Settled[]
   readonly rounds: readonly { readonly executionId: string | null; readonly roundId: string | null; readonly startId: string | null }[]
@@ -38,22 +41,26 @@ const charge = (reserve: Event<'reserve'>, usage: Event<'settle'> | null): numbe
   const rounding = maximum % 1_000_000 === 0 ? 0 : Math.min(Math.max(0, reserve.inputTokens - 1), rates.filter(rate => rate > 0).length - 1)
   return cost(reserve.inputTokens, maximum) + rounding + cost(reserve.maxOutputTokens, reserve.outputUsdMicrosPerMillion)
 }
-const covers = (state: LeadBudgetLedger, observation: Event<'observe'>) => observation.executionIds.length === state.executionIds.length &&
-  state.executionIds.every(id => observation.executionIds.includes(id))
+const terminalIds = (state: LeadBudgetLedger) => state.terminalObservations.map(observation => observation.executionIds[0]!)
+const observedCost = (state: LeadBudgetLedger): number => (state.observation?.usdMicros ?? 0) + state.terminalObservations
+  .filter(observation => !state.observation?.executionIds.includes(observation.executionIds[0]!))
+  .reduce((total, observation) => total + observation.usdMicros!, 0)
 /** Read-only projection takes time explicitly. Unknown, partial or stale attribution
  * never replaces a cumulative charge with zero. The Lead stops when reported spend reaches the cap. */
 export const leadBudgetProjection = (state: LeadBudgetLedger, now: number): LeadBudgetState => {
   ensure(Number.isSafeInteger(now) && now >= 0)
   now = Math.max(now, state.now)
   const observed = state.observation
-  let spend: LeadBudgetState['spend'] = state.executionIds.length === 0 ? 'known' : 'unknown'
-  if (observed) {
-    spend = observed.quality
-    if (!covers(state, observed)) spend = 'partial'
+  const terminal = terminalIds(state)
+  const remaining = state.executionIds.filter(id => !terminal.includes(id))
+  let spend: LeadBudgetState['spend'] = remaining.length === 0 ? 'known' : 'unknown'
+  if (remaining.length > 0 && (observed || terminal.length > 0)) {
+    spend = observed?.quality ?? 'partial'
+    if (!observed || !remaining.every(id => observed.executionIds.includes(id))) spend = 'partial'
     else if (now - observed.at > state.freshnessMs) spend = 'stale'
-    else if (observed.usdMicros !== null && observed.usdMicros < state.workerUsdMicros) spend = 'ambiguous'
   }
-  if (state.spendOverflow || state.requests.some(request => request.uncertain) || state.rounds.some(round => round.startId !== null && round.executionId === null)) spend = 'unknown'
+  if (spend === 'known' && observedCost(state) < state.workerUsdMicros) spend = 'ambiguous'
+  if (state.accountingIncomplete || state.spendOverflow || state.requests.some(request => request.uncertain) || state.rounds.some(round => round.startId !== null && round.executionId === null)) spend = 'unknown'
   return parseLeadBudgetState({ version: 1, revision: state.revision, caps: state.caps, leadUsdMicros: state.leadUsdMicros,
     workerUsdMicros: state.workerUsdMicros, reservedUsdMicros: state.reservedUsdMicros, roundsAdmitted: state.rounds.length, spend, stop: state.stop })
 }
@@ -79,7 +86,7 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
   if (event.type === 'initialize') {
     ensure(previous === null)
     return finish({ version: 1, revision: 1, logicalGoalId: event.logicalGoalId, caps: event.caps, freshnessMs: event.freshnessMs,
-      now: event.now, goalId: null, executionIds: [], capsRevision: 1, spendOverflow: false, requests: [], settled: [], rounds: [], observations: { 'insight/goal': null, 'worker-samples': null },
+      now: event.now, goalId: null, executionIds: [], capsRevision: 1, spendOverflow: false, accountingIncomplete: false, terminalObservations: [], requests: [], settled: [], rounds: [], observations: { 'insight/goal': null, 'worker-samples': null },
       observation: null, leadUsdMicros: 0, workerUsdMicros: 0, reservedUsdMicros: 0, roundsAdmitted: 0, spend: 'known', stop: null })
   }
   ensure(previous !== null)
@@ -92,6 +99,9 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
       ensure(state.goalId === null || state.goalId === event.goalId)
       const recordedStart = state.rounds.find(round => round.executionId === event.executionId && round.startId !== null)
       ensure(!recordedStart || event.startId === recordedStart.startId)
+      const exhausted = () => finish({ ...next, accountingIncomplete: true,
+        stop: state.stop ?? { reason: 'unknown-spend', revision: next.revision } })
+      if (!state.executionIds.includes(event.executionId) && state.executionIds.length >= LEAD_LIMITS.rounds) return exhausted()
       let rounds = state.rounds
       if (event.startId) {
         const existing = state.rounds.filter(round => round.startId === event.startId)
@@ -104,7 +114,7 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
         } else {
           // This run already exists. Discovery records consumption even beyond a
           // cap; it cannot refuse history as though it were admitting new work.
-          ensure(state.rounds.length < LEAD_LIMITS.rounds)
+          if (state.rounds.length >= LEAD_LIMITS.rounds) return exhausted()
           rounds = [...state.rounds, { executionId: event.executionId, roundId: event.firstRoundId!, startId: event.startId }]
         }
       }
@@ -139,9 +149,18 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
       ensure(state.goalId === event.goalId && event.executionIds.every(id => state.executionIds.includes(id)))
       const prior = state.observations[event.source]
       if (prior && event.revision === prior.revision) { ensure(same({ ...prior, now: event.now }, event)); return duplicate() }
-      ensure((!prior || event.revision > prior.revision) && (!state.observation || event.at >= state.observation.at))
-      next = { ...next, observations: { ...state.observations, [event.source]: event }, observation: event,
-        workerUsdMicros: Math.max(state.workerUsdMicros, event.usdMicros ?? 0) }; break
+      ensure((!prior || event.revision > prior.revision && event.at >= prior.at) && (!state.observation || event.at >= state.observation.at))
+      let terminalObservations = state.terminalObservations
+      if (event.terminal) {
+        const previous = terminalObservations.find(item => item.executionIds[0] === event.executionIds[0])
+        ensure(!previous || previous.usdMicros === event.usdMicros)
+        if (!previous) terminalObservations = [...terminalObservations, event]
+      }
+      next = { ...next, observations: { ...state.observations, [event.source]: event }, terminalObservations,
+        observation: event.terminal ? state.observation : event }
+      const workerCost = observedCost(next)
+      next = { ...next, workerUsdMicros: Math.max(state.workerUsdMicros, Math.min(LEAD_LIMITS.maxUsdMicros, workerCost)),
+        spendOverflow: state.spendOverflow || workerCost > LEAD_LIMITS.maxUsdMicros }; break
     }
     case 'start':
       if (state.rounds.some(round => round.startId === event.startId)) return duplicate()
@@ -188,7 +207,8 @@ export const parseLeadBudgetLedger = (value: unknown): LeadBudgetLedger => {
   ensure(Array.isArray(source.executionIds) && source.executionIds.length <= LEAD_LIMITS.rounds && new Set(source.executionIds).size === source.executionIds.length)
   for (const executionId of source.executionIds) parseLeadBudgetEvent({ version: 1, type: 'bind', now: source.now, goalId: source.goalId, executionId })
   ensure(source.goalId === null ? source.executionIds.length === 0 : source.executionIds.length > 0)
-  ensure(typeof source.spendOverflow === 'boolean')
+  ensure(typeof source.spendOverflow === 'boolean' && typeof source.accountingIncomplete === 'boolean')
+  ensure(!source.accountingIncomplete || source.stop !== null)
   ensure(Array.isArray(source.requests) && source.requests.length <= 4096)
   ensure(Number.isSafeInteger(source.capsRevision) && source.capsRevision >= 1 && source.capsRevision <= source.revision)
   const ids = new Set<string>()
@@ -230,7 +250,17 @@ export const parseLeadBudgetLedger = (value: unknown): LeadBudgetLedger => {
     ensure(parsed.type === 'observe' && parsed.source === key && parsed.now <= source.now && parsed.goalId === source.goalId &&
       parsed.executionIds.every(id => source.executionIds.includes(id)) && (parsed.usdMicros ?? 0) <= source.workerUsdMicros)
   }
-  ensure(source.observation === null || same(source.observation, source.observations[source.observation.source]))
+  const validateObservation = (observation: Event<'observe'>) => {
+    const parsed = parseLeadBudgetEvent(observation)
+    ensure(parsed.type === 'observe' && parsed.now <= source.now && parsed.goalId === source.goalId &&
+      parsed.executionIds.every(id => source.executionIds.includes(id)) && (parsed.usdMicros ?? 0) <= source.workerUsdMicros &&
+      parsed.revision <= (source.observations[parsed.source]?.revision ?? 0))
+  }
+  ensure(Array.isArray(source.terminalObservations) && source.terminalObservations.length <= LEAD_LIMITS.rounds)
+  ensure(new Set(terminalIds(source)).size === source.terminalObservations.length)
+  for (const observation of source.terminalObservations) { validateObservation(observation); ensure(observation.terminal === true) }
+  if (source.observation !== null) { validateObservation(source.observation); ensure(!source.observation.terminal) }
+  ensure(observedCost(source) <= source.workerUsdMicros || source.spendOverflow)
   const rebuilt = finish(source)
   ensure(same(leadBudgetProjection(rebuilt, source.now), { version: source.version, revision: source.revision, caps: source.caps,
     leadUsdMicros: source.leadUsdMicros, workerUsdMicros: source.workerUsdMicros, reservedUsdMicros: source.reservedUsdMicros,

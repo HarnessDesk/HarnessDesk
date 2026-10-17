@@ -204,6 +204,12 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       if (![...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'running' }
       break
     }
+    case 'reconciliation-conflict':
+      updateAttempt(event.id, attempt => {
+        ensure(attempt.phase === 'finished' && attempt.kind === 'mutation' && attempt.evidence !== null)
+        return { ...attempt, outcome: 'uncertain', resolutionPending: true }
+      })
+      state = { ...state, phase: 'waiting-for-user' }; break
     case 'reconciliation': {
       const attempt = state.attempts.get(event.id)
       ensure(attempt?.phase === 'finished' && attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.resolutionPending || state.runs.some(run => run.correlationId === attempt.correlationId)))

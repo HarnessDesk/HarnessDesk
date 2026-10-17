@@ -1140,3 +1140,69 @@ test('an inferred start binding requires first-round proof as an explicit bindin
   await assert.rejects(journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'team-1', executionId: 'run-1' }))
   await journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'team-1', executionId: 'run-1', startId: 'first', firstRoundId: '1' })
 })
+
+
+test('history exhaustion records execution 101 and its stop atomically across checkpoint', async () => {
+  const storage = memory(), journal = await open(storage)
+  const expanded = { ...contract, caps: { ...contract.caps, rounds: 100 } }
+  await journal.setPolicy(policy)
+  await journal.offerCard({ ...plan, contract: expanded })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: expanded.caps, freshnessMs: 50 })
+  await journal.decideCard(click, 200)
+  const start = (id: string) => journal.execute({ id, request, context, stepId: 'implement' }, async () => { throw new Error('lost response') })
+  const group = (correlationId: string, count: number, offset: number) => Array.from({ length: count }, (_, i) =>
+    runEvidence({ correlationId, runId: `run-${offset + i + 1}`, teamId: 'team-1' }))
+  await start('first-64')
+  const first = group('first-64', 64, 0)
+  await journal.recover(async () => first)
+  await journal.recover(async () => first.map(run => ({ ...run, terminal: true })))
+  await journal.resolveStart('first-64', null)
+  await journal.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal', sourceIds: ['corpus-1'],
+    goalId: 'team-1', executionIds: first.map(run => run.runId), quality: 'known', usdMicros: 0 })
+  await start('next-36')
+  const second = group('next-36', 36, 64)
+  await journal.recover(async (attempt: any) => attempt.id === 'next-36' ? second : [])
+  await journal.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 2, source: 'insight/goal', sourceIds: ['corpus-1'],
+    goalId: 'team-1', executionIds: [...first, ...second].map(run => run.runId), quality: 'known', usdMicros: 0 })
+  assert.equal(journal.state.budget.spend, 'known')
+  assert.equal(journal.state.budget.roundsAdmitted, 100)
+  const { state } = lead.parseLeadCheckpoint(lead.leadCheckpoint(journal.state, 'a'.repeat(64)))
+  const tail = memory()
+  const writer = await lead.createLeadJournal({ ...tail, checkpoint() { return state } })
+  await writer.recover(async attempt => attempt.id === 'next-36' ? [...second, ...group('next-36', 1, 100)] : [])
+  assert.equal(tail.records.length, 1, 'evidence, incomplete accounting and stop share one reconciliation record')
+  assert.equal(tail.records[0].type, 'reconciliation')
+  const restored: any = await checkpointOpen(await lead.createLeadJournal({ ...tail, checkpoint() { return state } }))
+  assert.equal(restored.state.budget.spend, 'unknown')
+  assert.ok(restored.state.budget.stop)
+  assert.ok(restored.state.stopEffectsPending)
+  assert.ok(restored.state.runs.some((run: any) => run.runId === 'run-101'))
+  await restored.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 3, source: 'insight/goal', sourceIds: ['corpus-1'],
+    goalId: 'team-1', executionIds: restored.state.budget.executionIds, quality: 'known', usdMicros: 0 })
+  assert.equal(restored.state.budget.spend, 'unknown', 'coverage of the retained index cannot repair exhausted accounting')
+  let cancelled = false
+  assert.equal((await restored.execute({ id: 'cancel-101', request: { ...request, method: 'flow/execution/stop',
+    params: { run: 'run-101', reason: 'Stop discovered work' }, runId: 'run-101', start: null }, context }, async () => {
+    cancelled = true; return { value: null, identity: null }
+  })).outcome, 'succeeded')
+  assert.equal(cancelled, true)
+  await assert.rejects(restored.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'paid', inputTokens: 1, maxOutputTokens: 1,
+    inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 1 }))
+})
+
+test('conflicting evidence needs the user while another attempt still recovers', async () => {
+  const { journal, next } = await runningTwoStepPlan()
+  await observeStarted(journal, 'run-1')
+  await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => { throw new Error('lost response') })
+  await journal.recover(async (attempt: any) => attempt.id === 'first'
+    ? [runEvidence({ correlationId: 'first', runId: 'run-1', teamId: 'team-1' })] : [])
+  const actions = await journal.recover(async (attempt: any) => attempt.id === 'first'
+    ? [{ ...runEvidence({ correlationId: 'first', runId: 'run-1', teamId: 'team-1' }), firstRoundId: 'conflicting' }]
+    : [runEvidence({ correlationId: 'second', runId: 'run-2', teamId: 'team-1' })])
+  assert.deepEqual(actions.map((action: any) => [action.id, action.type]), [['first', 'needs-user'], ['second', 'reconciled']])
+  const restored: any = await checkpointOpen(journal)
+  assert.equal(restored.state.attempts.get('first').outcome, 'uncertain')
+  assert.equal(restored.state.attempts.get('first').resolutionPending, true)
+  assert.equal(restored.state.attempts.get('second').outcome, 'succeeded')
+  assert.ok(restored.state.runs.some((run: any) => run.runId === 'run-2'))
+})

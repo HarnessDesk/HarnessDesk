@@ -430,3 +430,19 @@ test('every start binding requires first-round proof in the protocol', () => {
   assert.throws(() => parse(event), protocol.ValidationError)
   assert.deepEqual(parse({ ...event, firstRoundId: '1' }), { ...event, firstRoundId: '1' })
 })
+
+
+test('a missing first-round identity names its field including a nested path', () => {
+  const event = { version: 1, type: 'bind', now: 100, goalId: 'team-1', executionId: 'run-1', startId: 'start-1' }
+  for (const path of ['', 'event']) assert.throws(() => protocol.parseLeadBudgetEvent(event, path),
+    (error: unknown) => error instanceof protocol.ValidationError && error.path === (path ? `${path}.firstRoundId` : 'firstRoundId'))
+})
+
+
+test('terminal spend observations require one run and a known final cost', () => {
+  const event = { version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'worker-samples', sourceIds: ['sample-1'],
+    goalId: 'goal-1', executionIds: ['run-1'], quality: 'known', usdMicros: 20, terminal: true }
+  assert.deepEqual(protocol.parseLeadBudgetEvent(event), event)
+  for (const patch of [{ executionIds: [] }, { executionIds: ['run-1', 'run-2'] }, { quality: 'partial' }, { usdMicros: null }, { terminal: 'yes' }])
+    assert.throws(() => protocol.parseLeadBudgetEvent({ ...event, ...patch }), protocol.ValidationError)
+})
