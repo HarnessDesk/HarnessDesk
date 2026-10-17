@@ -2717,12 +2717,14 @@ list only goes down, except when the audit learns to see something it was blind 
 The rest of this page is the system as written. This is the app as drawn: every
 scene of the review board (`pnpm design`, then `/review.html`), measured by its
 own guides and recorded in
-`packages/ui/src/design/guides-standard.json`. *Off-line* is an edge 0.5–3px off a
+`packages/ui/src/design/guides-standard.json`, once per platform: text widths are the
+platform's own, so the same scene measures a little differently on a Mac and on a Linux
+runner. The counts below are the Linux record, the one CI gates on. *Off-line* is an edge 0.5–3px off a
 line three others share; *overflow* is content that spills, is clipped without an
 ellipsis, leaves its window, or touches the edge of its card; *off-scale* is a
 value no token names. The guides standard spec fails a count that rises, so these
 numbers only go down until someone re-records them on purpose
-(`UPDATE_GUIDES=1`, then `pnpm design:doc`). The board's *View: fixed* switch (or
+(`UPDATE_GUIDES=1` on each platform, from one commit, then `pnpm design:doc`). The board's *View: fixed* switch (or
 `?fix=1`) shows each screen with every finding it can correct corrected — an
 off-line edge moved onto its line, text given its card's edge, an off-scale value
 set to the nearest token — and measures again, so a reviewer sees the target
@@ -2736,54 +2738,54 @@ before anyone edits the source.
 | `conversation-details` | 8 | 3 | 0 |
 | `conversation-details-no-background` | 6 | 3 | 0 |
 | `conversation-changes` | 8 | 3 | 0 |
-| `conversation-browser` | 11 | 3 | 0 |
-| `conversation-git` | 13 | 3 | 0 |
-| `conversation-file` | 10 | 3 | 1 |
-| `conversation-terminal` | 10 | 3 | 0 |
-| `conversation-tasks` | 10 | 3 | 0 |
+| `conversation-browser` | 8 | 3 | 0 |
+| `conversation-git` | 12 | 3 | 0 |
+| `conversation-file` | 9 | 3 | 1 |
+| `conversation-terminal` | 9 | 3 | 0 |
+| `conversation-tasks` | 9 | 3 | 0 |
 | `changes-review` | 5 | 1 | 0 |
 | `conversation-update` | 8 | 3 | 0 |
 | `conversation-disconnected` | 8 | 3 | 0 |
 | `conversation-status-tasks` | 8 | 3 | 0 |
-| `team-reconnecting` | 14 | 1 | 0 |
+| `team-reconnecting` | 15 | 1 | 0 |
 | `plugin-unavailable` | 9 | 3 | 0 |
 | `width-1100` | 9 | 3 | 0 |
-| `width-720` | 10 | 2 | 0 |
-| `team-overview` | 14 | 1 | 0 |
-| `team-run` | 11 | 1 | 0 |
+| `width-720` | 11 | 2 | 0 |
+| `team-overview` | 15 | 1 | 0 |
+| `team-run` | 12 | 1 | 0 |
 | `team-run-flow` | 11 | 7 | 0 |
-| `team-run-not-reached` | 12 | 1 | 0 |
-| `team-run-repeated` | 19 | 1 | 0 |
-| `team-run-equivalent` | 13 | 1 | 0 |
-| `team-board` | 11 | 1 | 0 |
-| `team-board-list` | 10 | 1 | 0 |
-| `team-chat` | 11 | 1 | 0 |
-| `team-chat-side` | 13 | 1 | 0 |
+| `team-run-not-reached` | 16 | 1 | 0 |
+| `team-run-repeated` | 24 | 1 | 0 |
+| `team-run-equivalent` | 16 | 1 | 0 |
+| `team-board` | 10 | 1 | 0 |
+| `team-board-list` | 11 | 1 | 0 |
+| `team-chat` | 12 | 1 | 0 |
+| `team-chat-side` | 14 | 1 | 0 |
 | `team-findings` | 11 | 1 | 0 |
 | `team-runs` | 10 | 1 | 0 |
-| `team-receipt` | 14 | 1 | 0 |
-| `team-details` | 14 | 1 | 0 |
+| `team-receipt` | 12 | 1 | 0 |
+| `team-details` | 15 | 1 | 0 |
 | `teams` | 6 | 1 | 0 |
-| `agents-roster` | 4 | 3 | 0 |
-| `agent-detail` | 5 | 3 | 0 |
+| `agents-roster` | 6 | 3 | 0 |
+| `agent-detail` | 4 | 3 | 0 |
 | `agent-parse` | 5 | 3 | 0 |
 | `agent-refused` | 8 | 3 | 0 |
-| `agent-missing` | 4 | 3 | 0 |
-| `library` | 11 | 1 | 0 |
+| `agent-missing` | 6 | 3 | 0 |
+| `library` | 12 | 1 | 0 |
 | `plugins-installed` | 4 | 1 | 0 |
-| `plugins-capabilities` | 6 | 1 | 0 |
+| `plugins-capabilities` | 13 | 1 | 0 |
 | `plugins-detail` | 5 | 1 | 0 |
 | `plugins-failed` | 4 | 1 | 0 |
-| `dashboard-overview` | 14 | 2 | 0 |
-| `dashboard-plans` | 8 | 5 | 0 |
+| `dashboard-overview` | 16 | 2 | 0 |
+| `dashboard-plans` | 9 | 5 | 0 |
 | `dashboard-spend` | 6 | 2 | 1 |
-| `dashboard-activity` | 8 | 4 | 1 |
+| `dashboard-activity` | 7 | 4 | 1 |
 | `dashboard-projects` | 5 | 1 | 0 |
 | `dashboard-empty` | 7 | 4 | 2 |
 | `settings-general` | 3 | 0 | 0 |
-| `settings-appearance` | 4 | 0 | 5 |
+| `settings-appearance` | 3 | 0 | 5 |
 | `settings-notifications` | 3 | 0 | 0 |
-| `settings-shortcuts` | 7 | 0 | 0 |
+| `settings-shortcuts` | 8 | 0 | 0 |
 | `settings-workspaces` | 5 | 0 | 0 |
 | `settings-archive` | 3 | 0 | 0 |
 | `settings-history` | 3 | 0 | 0 |
@@ -2796,18 +2798,18 @@ before anyone edits the source.
 | `settings-browser` | 3 | 0 | 0 |
 | `settings-profile` | 5 | 0 | 0 |
 | `settings-runtime` | 5 | 0 | 0 |
-| `settings-account` | 4 | 0 | 0 |
+| `settings-account` | 3 | 0 | 0 |
 | `settings-project` | 3 | 0 | 0 |
 | `settings-skill` | 3 | 0 | 0 |
 | `left-work` | 9 | 1 | 0 |
-| `navigation` | 10 | 4 | 0 |
+| `navigation` | 9 | 4 | 0 |
 | `left-start` | 8 | 3 | 0 |
 | `left-account` | 8 | 3 | 0 |
 | `left-inbox` | 8 | 3 | 0 |
 | `left-session-menu` | 9 | 1 | 0 |
 | `menu-model` | 8 | 3 | 0 |
 | `menu-permissions` | 8 | 3 | 0 |
-| `menu-icons` | 12 | 3 | 0 |
+| `menu-icons` | 8 | 3 | 0 |
 | `menu-disabled` | 8 | 3 | 0 |
 | `menu-wide` | 8 | 3 | 0 |
 | `menu-metered` | 8 | 3 | 0 |
@@ -2815,4 +2817,4 @@ before anyone edits the source.
 | `menu-suggestions` | 8 | 3 | 0 |
 | `menu-inbox` | 8 | 3 | 0 |
 | `menu-palette` | 8 | 3 | 0 |
-| **total** | 661 | 158 | 10 |
+| **total** | 678 | 158 | 10 |

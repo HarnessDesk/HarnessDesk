@@ -1481,7 +1481,11 @@ The same scene list is the **guides standard**:
 and holds the findings to `packages/ui/src/design/guides-standard.json`. A
 count may fall but not rise, and a finding not on the record fails;
 `UPDATE_GUIDES=1` re-records, which is a decision to accept what the board
-shows. A new state of the app belongs on the board — add its scene — and is
+shows. The record is kept per platform, `linux` and `darwin`, because a finding
+carries how far an edge sits from its rail and which edges form a rail at all,
+and both follow text widths that are the platform's own. CI is Linux and the
+docs count its record; a run on a platform with no record fails rather than
+read another's. Re-record each platform from the same commit. A new state of the app belongs on the board — add its scene — and is
 held to the standard from then on.
 
 ### What the engine checks
