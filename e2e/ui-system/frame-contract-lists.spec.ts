@@ -38,7 +38,7 @@ test('Lists R9 Library warning fills the card grid measure under Needs you', asy
   expect(Math.abs(widths[0]! - widths[1]!)).toBeLessThanOrEqual(1)
 })
 
-test('Lists R9 Library list description occupies no more than two lines', async ({ page }) => {
+test('Lists R9 Library card description occupies no more than two lines', async ({ page }) => {
   await openFrame(page, 'frame-wall=library', 'light', 1440)
   const description = page.locator('[data-page-destination="library"]:visible [data-detail-lines]').first()
   await description.evaluate(node => {

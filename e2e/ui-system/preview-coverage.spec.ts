@@ -826,8 +826,13 @@ test.describe('preview coverage', () => {
         return heading?.textContent?.trim() === 'Product Surfaces'
       })
       if (isProductSurface) await waitForLazyBoardToSettle(page, label)
+      if (label === 'Library') {
+        await expect(page.locator('[data-slot="skill-card"]').first()).toBeVisible()
+        await expect(page.locator('[data-slot="skill-list"] [data-slot="skill-row"]').first()).toBeVisible()
+      }
       const result = await collectCoverage(page)
       for (const file of result.covered) covered.add(file)
+      if (label === 'Library') expect(result.covered).toEqual(expect.arrayContaining(['components/SkillRow.tsx#SkillList', 'components/SkillRow.tsx#SkillRow']))
       if (label === 'Panels') expect(result.covered).toContain('panels/Workbench.tsx#Workbench')
     })
   })

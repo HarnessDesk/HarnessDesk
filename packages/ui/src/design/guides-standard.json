@@ -2034,7 +2034,10 @@
         "span[text] \"HarnessDesk\" Δ2": 1
       },
       "overflow": {
-        "span[search] spills": 1
+        "span[search] spills": 1,
+        "span[text] \"Designer’s eye QA: finds vi…\" clipped": 1,
+        "span[text] \"Use before any creative wor…\" clipped": 1,
+        "span[text] \"Use when encountering any b…\" clipped": 1
       },
       "offScale": {}
     },

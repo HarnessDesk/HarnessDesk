@@ -2926,7 +2926,10 @@ const PlansTableBoard = () => {
 
 const LibraryBoard = () => {
   const [store] = useState(previewStore)
-  return <div className="h-screen"><PagePreview fixture={store} page={{kind:'library',section:'skill'}} /></div>
+  return <div className="flex flex-col gap-6">{(['skill', 'mcp'] as const).map(section =>
+    <Case key={section} label={section === 'skill' ? 'Skills — cards and chips' : 'MCP servers — list and matrix'}>
+      <div className="h-screen w-full"><PagePreview fixture={store} page={{kind:'library',section}} /></div>
+    </Case>)}</div>
 }
 
 const HeaderStatusBoard = () => (
@@ -3229,7 +3232,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'comparison-summary', title:'Comparison summary', about:'The merged receipt in the same Side by side body.', render:ComparisonSummaryBoard },
   { id: 'comparison-notice', title: 'Comparison notice', about: 'The real comparison shelf, with a recorded pick, a waiting person and text that scrolls without moving the tiles.', render: ComparisonNoticeBoard },
   { id: 'header-status', title: 'Header status group', about: 'One chip ground, neutral at rest. Hover or focus names every reading; only a condition needing attention takes a tone.', render: HeaderStatusBoard },
-  { id: 'library', title: 'Library', about: 'The real skill and server lists: state, loaded-by faces, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
+  { id: 'library', title: 'Library', about: 'Skills cards and the MCP server list: state, runtime reach, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
   {
     id: 'tables',
     title: 'Tables',
