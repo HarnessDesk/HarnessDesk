@@ -4,6 +4,7 @@ import { TeamFramePreview } from './TeamFramePreview'
 import { SessionTree } from '../components/SessionTree'
 import { RailSection } from '../design'
 import { StoreProvider } from '../state/context'
+import { sidebarTeamAttention } from './sidebar-fixture'
 import { previewStore } from './harness'
 import { overviewModel, overviewTeamStore, OVERVIEW_STATES, type OverviewScene } from './team-overview-fixture'
 import { needsYouAnswers, needsYouModel, NEEDS_YOU_STATES, type NeedsYouScene } from './needs-you-fixture'
@@ -30,7 +31,7 @@ export const NeedsYouExample = ({ scene }: { scene: NeedsYouScene }) => {
 export const OverviewExample = ({scene}:{scene:OverviewScene}) => {
  const model=overviewModel(scene)
  const runtimeName=previewStore().getSnapshot().runtimes[0]!.presentation.name
- return <TeamOverview model={model} runtimeNames={new Map(model.seats.map(seat=>[seat.seat,runtimeName]))} runRules={[{id:'to-referee'}]} runName={scene==='comparison'?'Compare the changes':'Build and review'} runReason={scene==='comparison'?'Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved.':scene==='stalled'?'Choose the target before this Run can continue':null} defaultExpanded={scene==='done-open'||scene==='comparison'} onOpen={() => {}} onFindings={() => {}} />
+ return <TeamOverview uncheckedDone={scene==='unchecked'?141:0} onBoard={()=>{}} onWrap={scene==='unchecked'?()=>{}:undefined} model={model} runtimeNames={new Map(model.seats.map(seat=>[seat.seat,runtimeName]))} runRules={[{id:'to-referee'}]} runName={scene==='comparison'?'Compare the changes':'Build and review'} runReason={scene==='comparison'?'Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved.':scene==='stalled'?'Choose the target before this Run can continue':null} defaultExpanded={scene==='done-open'||scene==='comparison'} onOpen={() => {}} onFindings={() => {}} />
 }
 
 export const TeamOverviewBoard = () => <div className="flex flex-col gap-4">{OVERVIEW_STATES.map(scene=><section key={scene} data-catalog-state={scene} className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></section>)}
@@ -38,10 +39,16 @@ export const TeamOverviewBoard = () => <div className="flex flex-col gap-4">{OVE
 export const TeamOverviewFrames = () => {
  const store=useMemo(() => overviewTeamStore(),[])
  const sidebarStore=useMemo(() => overviewTeamStore('running'),[])
- const liveStores=useMemo(() => (['running','needs-you','stalled','waiting-evidence','unreadable-ledger','findings-and-posting','stopped-unknown','unrouted'] as const).map(scene=>({scene,store:overviewTeamStore(scene)})),[])
+ const attentionStore=useMemo(() => {
+   const source=overviewTeamStore('done').getSnapshot()
+   const rows=sidebarTeamAttention(source.goals.get('overview-team')!)
+   return previewStore({...source,goals:new Map(rows.map(view=>[view.goal.id,view])),teams:new Map(rows.map(view=>[view.board.id,view.board])),flowExecutions:new Map(),sessions:new Map(),history:[],inbox:[]})
+ },[])
+ const liveStores=useMemo(() => (['running','needs-you','stalled','waiting-evidence','unreadable-ledger','findings-and-posting','stopped-unknown','unrouted','unchecked'] as const).map(scene=>({scene,store:overviewTeamStore(scene)})),[])
  return <div className="flex flex-col gap-4 p-4">{OVERVIEW_STATES.map(scene=><section key={scene} id={`team-overview-${scene}`} className={scene==='narrow'?'max-w-sm':''}><h2>{scene}</h2><div className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></div></section>)}
  {NEEDS_YOU_STATES.map(scene=><section key={scene} id={`team-overview-answer-${scene}`} className={scene==='narrow'?'max-w-sm':''}><h2>answer {scene}</h2><NeedsYouExample scene={scene} /></section>)}
  {liveStores.map(({scene,store})=><section key={scene} id={`team-overview-live-${scene}`} className="h-144"><StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider></section>)}
  <section id="team-overview-team" className="h-96"><StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider></section>
+ <section id="team-attention-sidebar" className="w-72"><StoreProvider store={attentionStore}><RailSection stretch="list"><SessionTree now={Date.now()} /></RailSection></StoreProvider></section>
  <section id="team-overview-sidebar" className="w-72"><StoreProvider store={sidebarStore}><RailSection stretch="list"><SessionTree now={Date.now()} /></RailSection></StoreProvider></section></div>
 }

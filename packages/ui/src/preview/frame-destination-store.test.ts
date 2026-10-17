@@ -191,3 +191,12 @@ it('retains the non-repository review failure through a nested frame store', asy
   const store = frameDestinationStore(reviewPageStore('not-repository'))
   await expect(store.transport.request('git/status', { root: store.getSnapshot().workspace!.path })).rejects.toThrow('Synthetic non-repository')
 })
+
+it('the frame wire records Team seen time on the real store snapshot', async () => {
+ const fixture=previewStore()
+ const goal=[...fixture.getSnapshot().goals.keys()][0]!
+ const store=frameDestinationStore(fixture)
+ store.markTeamSeen(goal)
+ await new Promise(resolve=>setTimeout(resolve,0))
+ expect(store.getSnapshot().goals.get(goal)?.lastSeenAt).toBeGreaterThan(0)
+})

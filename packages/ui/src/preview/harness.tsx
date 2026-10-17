@@ -1477,7 +1477,11 @@ class PreviewStore {
     const base = room ?? (pane?.view.kind === 'room' ? pane.view.room : undefined)
     if (base) this.requestTeamFrame(base, 'board')
   }
-  openTeamRoom(room: string): void { this.showViewIn('main', { kind: 'room', room }) }
+  markTeamSeen(room: string): void {
+    const view = this.#snapshot.goals.get(room)
+    if (view) this.patch({ goals: new Map(this.#snapshot.goals).set(room, { ...view, lastSeenAt: Date.now() }) })
+  }
+  openTeamRoom(room: string): void { this.markTeamSeen(room); this.showViewIn('main', { kind: 'room', room }) }
 
   togglePanel(area: DockId): void {
     this.#workbench(toggleDock(this.#snapshot.workbench, area))

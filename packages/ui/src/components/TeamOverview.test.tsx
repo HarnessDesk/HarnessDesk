@@ -233,7 +233,7 @@ it('explains unavailable Run usage',()=>{
 
 it('keeps the ready Team Wrap action outlined',()=>{
  act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats:[]}} onWrap={()=>{}} />))
- expect(box.querySelector('[data-slot="overview-header"] button')?.getAttribute('data-variant')).toBe('outline')
+ expect(box.querySelector('[data-slot="list-row-trail"] button')?.getAttribute('data-variant')).toBe('outline')
 })
 
 it('wraps the Agent work sentence in compact rows while names still truncate',()=>{
@@ -325,4 +325,39 @@ it('summarises comparison attempts and the recorded referee pick without countin
  act(() => root.render(<TeamOverview model={model} timeline={runTimeline(noPick)} />))
  expect(box.textContent).toContain('2 attempts')
  expect(box.textContent).not.toContain('Referee picked')
+})
+
+
+it('unchecked cards have a quiet count and Board action without adding attention rows', async () => {
+ const board=vi.fn()
+ const props={uncheckedDone:141,onBoard:board}
+ act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats:[]}} {...props} />))
+ expect(box.textContent).toContain('141 cards finished without a check')
+ const link=[...box.querySelectorAll('button')].find(one=>one.textContent==='Open Board')!
+ expect(link).toBeTruthy()
+ act(()=>link.click())
+ expect(board).toHaveBeenCalledOnce()
+ expect(box.querySelector('[aria-label="Needs you"]')).toBeNull()
+})
+
+it('Overview counts the exact attention rows it renders, including Run and Board waits', async () => {
+ const {overviewAttention}=await import('../lib/overview-attention')
+ const model=overviewModel('needs-you')
+ const attention=overviewAttention(model,{needsYou:true})
+ act(()=>root.render(<TeamOverview model={model} attention={attention} onBoard={()=>{}} onRun={()=>{}} onFindings={()=>{}} />))
+ expect(box.querySelectorAll('[aria-label="Needs you"] [data-slot="list-row"]')).toHaveLength(attention.length)
+ expect(attention.length).toBeGreaterThan(0)
+})
+
+
+it('keeps unchecked news and both actions in one row after Needs you', () => {
+ const model=overviewModel('needs-you')
+ act(()=>root.render(<TeamOverview model={model} uncheckedDone={1} onBoard={()=>{}} onWrap={()=>{}} />))
+ const needs=box.querySelector('[aria-label="Needs you"]')!
+ const summary=box.querySelector('[data-unchecked-done]')!
+ expect(needs.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+ expect(summary.textContent).toBe('1 card finished without a checkOpen BoardWrap')
+ const trail=summary.querySelector('[data-slot="list-row-trail"]')!
+ expect([...trail.querySelectorAll('button')].map(one=>one.textContent)).toEqual(['Open Board','Wrap'])
+ expect(box.querySelector('[data-slot="overview-header"]')).toBeNull()
 })

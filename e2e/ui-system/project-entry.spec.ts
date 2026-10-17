@@ -30,14 +30,17 @@ test('catalogue totals leave sidebar labels quiet', async ({ page }) => {
   }
 })
 
-test('a finished Team stays under its project with attention until wrapped', async ({ page }) => {
+test('a finished Team stays under its project with blue news until opened or wrapped', async ({ page }) => {
   await page.goto(`${preview}?scene=finished`)
   const team = page.getByRole('button', { name: 'Room Finish checkout retry', exact: true })
   await expect(team).toBeVisible()
   const attention = team.locator('..').locator('[data-slot="sidebar-menu-state"]')
-  await expect(attention).toHaveAccessibleName('Ready to wrap')
+  await expect(attention).toHaveAccessibleName('New')
+  await expect(attention.locator('[data-slot="dot"]')).toHaveAttribute('data-state','new')
   await expect(attention).toBeVisible()
   await expect(team.locator('xpath=ancestor::*[@data-project-root]')).toHaveAttribute('data-project-root', '/work/storefront')
+  await team.click()
+  await expect(attention).toHaveCount(0)
   await page.getByRole('button', { name: 'Wrap Team', exact: true }).click()
   await expect(team).toHaveCount(0)
 })

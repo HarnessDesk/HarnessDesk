@@ -113,6 +113,14 @@ export const frameDestinationStore = (fixture: AppStore, { workspaceOutsideGit =
       ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onNotification({ method: 'team/changed', params: { state } })
       return null
     }
+    if (method === 'goal/seen') {
+      const { goal } = params as HostParams<'goal/seen'>
+      const view = store.getSnapshot().goals.get(goal)
+      if (!view) throw new Error('Synthetic Team is unavailable')
+      const next = { ...view, lastSeenAt: Date.now() }
+      ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onNotification({ method: 'goal/changed', params: { view: next } })
+      return next
+    }
     if (method === 'app/state/get') return {}
     if (method === 'app/state/set') return {}
     const query = params as { runtime: RuntimeId; root: string; project: string; account: string; plan?: string|null }

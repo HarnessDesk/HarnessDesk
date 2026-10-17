@@ -404,6 +404,7 @@ const goalValidators = {
   'flow/executions': goalShape({ team: optional(goalId), project: optional(atMost(4096, isFilled)), active: optional(isBoolean) }),
   'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
   'goal/read': goalShape({ goal: goalId }),
+  'goal/seen': goalShape({ goal: goalId }),
   'goal/create': goalShape({
     root: atMost(4096, isFilled), cwd: optional(atMost(4096, isFilled)), sentence: goalSentence,
     checkout: optional(literalUnion('shared', 'isolated')), dependsOn: optional(goalDependencies),

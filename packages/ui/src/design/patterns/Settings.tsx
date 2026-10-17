@@ -50,7 +50,7 @@ export const Dot = ({
   ...props
 }: HTMLAttributes<HTMLSpanElement> & {
   /** Absent: the neutral light — a state that is neither good nor bad news. */
-  state?: Readiness
+  state?: Readiness | 'new'
   /**
    * A judged tone in place of a readiness state — for a dot that must keep
    * its own colour apart from whatever ground it sits on, such as a chip

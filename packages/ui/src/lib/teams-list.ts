@@ -1,4 +1,4 @@
-/** Plain held facts in, project groups and window-only read/Hide marks out. */
+/** Plain held facts in, project groups and host read marks out. */
 import type { FlowExecution, GoalView, TeamState } from '@harnessdesk/protocol'
 import { stepName } from './flow-model'
 import { runReasonWords } from './run-reason'
@@ -16,7 +16,6 @@ export interface TeamListInput {
 }
 export interface TeamsPrefs {
  readonly hidden: Readonly<Record<string, string>>
- readonly seen: Readonly<Record<string, string>>
 }
 export type TeamFilter = 'active' | 'needs-you' | 'settled'
 export type TeamListState = SeatRow['state'] | 'settled' | 'wrapped' | 'wrapping' | 'stopped' | 'stopping'
@@ -45,9 +44,9 @@ const strings = (raw: unknown): Record<string,string> => Object.fromEntries(
   ? Object.entries(raw).filter((entry): entry is [string,string] => typeof entry[1] === 'string') : [])
 export const readTeamsPrefs = (value: unknown): TeamsPrefs => {
  const raw = typeof value === 'object' && value !== null ? value as Record<string,unknown> : {}
- return {hidden:strings(raw.hidden),seen:strings(raw.seen)}
+ return {hidden:strings(raw.hidden)}
 }
-const emptyPrefs: TeamsPrefs = {hidden:{},seen:{}}
+const emptyPrefs: TeamsPrefs = {hidden:{}}
 const firstTime = (values: readonly (number | null | undefined)[]): number | null => {
  const known = values.filter((one): one is number => typeof one === 'number' && one > 0 && Number.isFinite(one))
  return known.length ? Math.min(...known) : null
@@ -63,12 +62,12 @@ export const teamListRow = ({team,goal,execution,overview,total,stopping}: TeamL
  const workingSeats = seats.filter(one => one.state === 'working')
  const unfinished = team.intents.some(card => card.state !== 'done' && card.state !== 'abandoned')
  const settled = !needs && workingSeats.length === 0 && !unfinished && !goal?.waitingOn?.length &&
-  execution?.state !== 'running' && execution?.state !== 'stalled' &&
+  execution?.state !== 'running' && execution?.state !== 'stalled' && execution?.state !== 'stopped' &&
   (goal ? goal.activity === 'ready-to-wrap' : execution?.state === 'settled')
  const state: TeamListState = wrapped ? 'wrapped' : execution?.state === 'stopped' && stopping ? 'stopping' : needs ? 'needs-you' : unreadSeats.length ? 'unread'
   : goal?.goal.state === 'wrapping' ? 'wrapping' : execution?.state === 'stopped' ? 'stopped' : workingSeats.length ? 'working'
    : settled ? 'settled' : 'idle'
- const ready = settled && !wrapped && state === 'settled'
+ const ready = settled && !wrapped && goal?.goal.state !== 'wrapping'
  const active = !wrapped && !ready
  // The Run has start/end stamps, but no per-round transition timestamps.
  // Use attention/claim observations when present; do not invent a round age.
@@ -95,7 +94,9 @@ export const teamListRow = ({team,goal,execution,overview,total,stopping}: TeamL
   overview.needsYou.map(one => [one.kind,one.seat,one.card,one.since])])
  return {id:team.id,project:team.root,sentence:goal ? goalName(goal.goal) : team.name,seats,state,since,detail,
   total:total ?? round?.total ?? {money:null,turns:null},active,ready,change,
-  unread:prefs.seen[team.id] !== change,hidden:ready && prefs.hidden[team.id] === change}
+  unread:!wrapped && Math.max(settled ? goal?.readyAt ?? Math.max(team.updatedAt, goal?.goal.updatedAt ?? 0) : 0,
+    execution?.state !== 'running' && execution?.state !== 'stalled' ? execution?.endedAt ?? 0 : 0,
+    ...unreadSeats.map(seat => seat.since ?? 0)) > (goal?.lastSeenAt ?? 0),hidden:ready && prefs.hidden[team.id] === change}
 }
 const precedence: Record<TeamListState,number> = {'needs-you':0,unread:1,working:2,wrapping:2,stopping:2,idle:3,stopped:3,settled:4,wrapped:5}
 const grouped = (rows: readonly TeamListRow[]): TeamListGroup[] => {

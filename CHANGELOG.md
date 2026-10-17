@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Team marks distinguish waiting from news.** Orange means someone needs your answer; blue means unseen activity, an ended Run or work ready to wrap. Opening the Team clears blue across windows. After this update, finished Teams show the blue mark once. Unchecked finished cards keep their Board reason and get a quiet Overview count without raising attention.
+
 - **A background task whose command shows nothing is still named** — a command made only of blanks or display breaks shows as "Shell" instead of an empty label or a bare "…", and no title keeps an invisible blank at either end.
 - **Drafts explain why Send is disabled** while the runtime starts or is unavailable, with a short readiness chip and the reason on Send’s hover title; an unavailable runtime’s chip opens its Settings page.
 

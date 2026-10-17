@@ -1988,7 +1988,7 @@ it('keeps a pinned gone-folder row’s worktree and Needs you marks without dupl
 it.each([
   ['needs-you', 'Needs you', 'warning', 'limit'],
   ['working', 'Running', 'info', 'signin'],
-  ['ready-to-wrap', 'Ready to wrap', 'warning', 'limit'],
+  ['ready-to-wrap', 'New', 'info', 'new'],
 ] as const)('keeps a Goal’s %s signal in its compact state without a member approval', (activity, label, tone, state) => {
   const board = room({ id: 'goal-signal', name: 'Check the rail' })
   const { container: tree } = treeWith([board], [], [], {}, undefined, null,
@@ -2032,7 +2032,7 @@ it('keeps a finished Team with attention until wrapped, without listing its Seat
  const {container:tree,update}=treeWith([board],[seat],[],{},undefined,null,new Map([[board.id,view]]))
  const finished = tree.querySelector('[aria-label="Room Settled Team"]')!
  expect(finished).not.toBeNull()
- expect(finished.parentElement?.querySelector('[aria-label="Ready to wrap"]')).not.toBeNull()
+ expect(finished.parentElement?.querySelector('[aria-label="New"]')).not.toBeNull()
  expect(rowTitles(tree)).not.toContain('finished-seat')
  update({goals:new Map([[board.id,{...view,activity:'needs-you'}]])})
  expect(tree.querySelector('[aria-label="Room Settled Team"]')).not.toBeNull()
@@ -2161,7 +2161,7 @@ it.each([false, true])('keeps Team unread, running and urgent facts in one prior
     from: { runtime: busy.runtime, sessionId: sameSeat ? busy.id : unread.id, name: 'Reviewer' } }] })
   const item = roomRow(view.container, board.name).closest('[data-left-row]')!
   expect(view.container.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
-  expect(item.querySelector('[aria-label="Unread activity"]')).toBeNull()
+  expect(item.querySelector('[aria-label="New"] [data-state="new"]')).not.toBeNull()
   expect(roomRow(view.container, board.name).title).toContain('Unread activity')
   expect(roomRow(view.container, board.name).title).toContain('Working')
   expect(item.textContent).not.toContain('Working')
@@ -2170,7 +2170,7 @@ it.each([false, true])('keeps Team unread, running and urgent facts in one prior
   expect(item.querySelector('[aria-label="Needs you"]')).not.toBeNull()
   view.update({ approvals: [], sessions: new Map([[sessionKey(busy.runtime, busy.id), { ...busy, status: { type: 'idle' }, turns: [] }]]) })
   expect(item.querySelector('[data-slot="spinner"]')).toBeNull()
-  expect(item.querySelector('[aria-label="Unread activity"]')).toBeNull()
+  expect(item.querySelector('[aria-label="New"] [data-state="new"]')).not.toBeNull()
   expect(roomRow(view.container, board.name).title).toContain('Unread activity')
 })
 
@@ -2571,4 +2571,41 @@ it('keeps the main Team in the fifth slot when no conversation is active', () =>
   const rows = view.container.querySelectorAll('[data-project-root="/repo"] [data-virtual-index]')
   expect(rows).toHaveLength(5)
   expect(rows[4]!.textContent).toContain('Main Team')
+})
+
+
+it('opening a settled Team clears its blue mark, and orange wins over unseen news', () => {
+ const board=room({id:'news-team',name:'Finished work'})
+ const view={...triggerGoalView(board),activity:'ready-to-wrap',readyAt:100,lastSeenAt:0} as GoalView
+ const {container:tree,update}=treeWith([board],[],[],{},undefined,null,new Map([[board.id,view]]))
+ const mark=()=>roomRow(tree,board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')
+ expect(mark()?.getAttribute('aria-label')).toBe('New')
+ expect(mark()?.querySelector('[data-slot="dot"]')?.getAttribute('data-state')).toBe('new')
+ update({goals:new Map([[board.id,{...view,...{lastSeenAt:100}}]])})
+ expect(mark()).toBeNull()
+ update({goals:new Map([[board.id,{...view,activity:'needs-you'}]])})
+ expect(mark()?.getAttribute('aria-label')).toBe('Needs you')
+})
+
+
+it('news arriving in the selected Team never draws a blue mark', () => {
+ const board=room({id:'open-news',name:'Open work'})
+ const goal={...triggerGoalView(board),activity:'ready-to-wrap',readyAt:100,lastSeenAt:100} as GoalView
+ const view=treeWith([board],[],[],{},undefined,null,new Map([[board.id,goal]]))
+ view.update({layout:{root:{kind:'pane',id:'main',view:{kind:'room',room:board.id}},focused:'main',expanded:null},
+  goals:new Map([[board.id,{...goal,readyAt:200}]])})
+ expect(roomRow(view.container,board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')).toBeNull()
+ view.update({goals:new Map([[board.id,{...goal,activity:'needs-you',readyAt:200}]])})
+ expect(roomRow(view.container,board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Needs you')
+})
+
+it('a stopped Run with run stopped cards still asks the person to review it', () => {
+ const board=room({id:'stopped-attention',name:'Stopped work',intents:[{id:1,title:'Review stopped work',state:'blocked',blockedReason:'run stopped',files:[],dependsOn:[],claim:null,createdAt:1,updatedAt:2} as import('@harnessdesk/protocol').Intent]})
+ const goal={...triggerGoalView(board),activity:'needs-you'} as GoalView
+ const view=treeWith([board],[],[],{},undefined,null,new Map([[board.id,goal]]))
+ view.update({flowExecutions:new Map([['stopped',{id:'stopped',goal:board.id,state:'stopped',end:{kind:'stopped',by:'person'},rounds:[],document:{format:'agents',flow:{version:2,name:'Review',roles:[],rules:[],inputs:[],seed:{role:'reviewer',title:'Review'},messaging:'board-only',wait:240}}} as unknown as import('@harnessdesk/protocol').FlowExecution]])})
+ const row=roomRow(view.container,board.name)
+ expect(row.title).toContain('Needs you')
+ expect(row.closest('[data-left-row]')?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Needs you')
+ expect(row.closest('[data-left-row]')?.querySelector('[data-slot="dot"]')?.getAttribute('data-state')).toBe('limit')
 })

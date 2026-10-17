@@ -59,12 +59,12 @@ it('keeps ready Teams visible without opening a fold',async()=>{
  await mount('done')
  expect(container.querySelector('[aria-label="Ready to wrap"] [data-team-row]')).not.toBeNull()
 })
-it('opening a card records its observed change and opens the Team once',async()=>{
+it('opening a card opens the Team once so the host can mark it seen',async()=>{
  const {seen,open}=await mount()
  await act(async()=>container.querySelector<HTMLButtonElement>('[data-team-row]')!.click())
- expect(seen).toHaveBeenCalledWith('overview-team',expect.any(String))
+ expect(seen).not.toHaveBeenCalled()
  expect(open).toHaveBeenCalledOnce()
- expect(open).toHaveBeenCalledWith('overview-team',expect.any(String))
+ expect(open).toHaveBeenCalledWith('overview-team')
 })
 it('shows complete waiting reasons in the attention column',async()=>{
  await mount('needs-you')

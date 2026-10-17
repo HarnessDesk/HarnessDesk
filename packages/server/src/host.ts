@@ -1889,6 +1889,17 @@ export class Host {
         const key = String(sessionKey(session.runtime, session.sessionId))
         return this.#dispatching.has(key) || this.#draining.has(key) || (record ? this.#queueBusy(record) : false)
       },
+      unreadAt: (sessions) => {
+        const inbox = this.#state.state.preferences['inbox']
+        if (!Array.isArray(inbox)) return 0
+        return Math.max(0, ...inbox.flatMap((entry: unknown) => {
+          if (typeof entry !== 'object' || entry === null) return []
+          const { read, at, from } = entry as Record<string, unknown>
+          if (read === true || typeof at !== 'number' || !Number.isFinite(at) || typeof from !== 'object' || from === null) return []
+          const sender = from as Record<string, unknown>
+          return sessions.some(session => session.runtime === sender['runtime'] && session.sessionId === sender['sessionId']) ? [at] : []
+        }))
+      },
       waits: () => false,
       stranded: (goal: string, card: number) => this.#goalStranded(goal, card),
       held: (goal: string) => this.#goalState(goal).channel.some((entry) => entry.kind === 'message' && entry.state === 'held'),

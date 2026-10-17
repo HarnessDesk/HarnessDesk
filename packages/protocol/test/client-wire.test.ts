@@ -61,3 +61,9 @@ test('Seat attachment readback is available at the client read tier', () => {
   assert.doesNotThrow(() => request('attachment/seat', { seat: 'seat-demo' }))
   assert.throws(() => request('attachment/seat', { seat: '' }), ValidationError)
 })
+
+
+test('Team read marks are available to the phone on the read tier', () => {
+  assert.equal(clientTierFor('goal/seen'), 'read')
+  assert.doesNotThrow(() => request('goal/seen', { goal: 'demo-team' }))
+})

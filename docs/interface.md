@@ -348,14 +348,16 @@ hover instead.
 
 **One row per Team.** Each active Team, and each finished Team until it is
 wrapped, sits inside its project, one indent step beside the project's loose
-conversations. A running Team names its activity on hover; **Needs you** and
-**Ready to wrap** use the existing attention dot. Its Seats fold underneath,
+conversations. A running Team names its activity on hover. Orange **Needs you** means someone
+is waiting on you. Blue **New** means news since you last opened the Team:
+it became **Ready to wrap**, a Seat has unread activity, or its Run ended.
+Opening any Team tab clears blue; the host stores when you looked, so windows,
+restarts and the phone agree. Orange takes priority over blue. Its Seats fold underneath,
 collapsed initially and one further indent step in; the chevron reveals them without opening the Team.
 A Seat conversation stays under its Team, including when pinned or waiting.
 Opening a Seat conversation elsewhere reveals its project and Team, including
 when the Seat works in another checkout. A later deliberate fold stays folded
-until another conversation activation. Unread output and running activity stay
-on hover; Needs you draws the attention dot.
+until another conversation activation. Running activity stays on hover; unread output can raise the blue mark.
 Wrapped Teams and their conversations leave the sidebar and remain on **Teams**.
 Teams whose project folder is gone stay hidden from the ordinary list.
 
@@ -1748,6 +1750,11 @@ work stays readable without adding a separate third line.
 Empty Board and Chat content keeps one quiet sentence in the reading column.
 The Board toolbar keeps **New job**; an empty Goal also offers **Start with a team** there.
 Board-only Chat keeps the consequence of its messaging mode on screen: agents cannot message each other, while claims and signals continue. Chat’s Send to menu changes the mode; refused messages are never queued for release.
+
+The Overview tab count is the number of Needs-you rows its body renders;
+unchecked cards do not add to it. When done cards have no observed check,
+one quiet line says **N cards finished without a check** and offers **Open Board**;
+those cards keep their board column and the Team still offers **Wrap** when ready.
 
 What needs you can be answered from its row. A tool's request for approval
 offers the runtime's own choices. The command and its working folder, files a

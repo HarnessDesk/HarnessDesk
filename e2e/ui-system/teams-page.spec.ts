@@ -82,10 +82,10 @@ for (const theme of ['light','dark'] as const) {
   await expect(board.locator('[data-team-row]')).toHaveCount(0)
   await expect(page.getByText('No Teams match this search and project.')).toBeVisible()
  })
- test(`Teams cards retain full brief hover, truthful path and one keyboard opening ${theme}`,async({page})=>{
+ test(`Teams cards distinguish news from work and retain keyboard opening ${theme}`,async({page})=>{
   await openFrame(page,'frame-wall=teams',theme,1440)
   const card=page.locator('[data-team-row="team-2"]')
-  await expect(card.locator('[aria-label="Unread changes"]')).toHaveCount(1)
+  await expect(card.locator('[aria-label="Unread changes"]')).toHaveCount(0)
   await expect(card).toHaveAccessibleDescription(/Reviewer.*round 2.*storefront/)
   await expect(card.locator('[data-slot="team-title"]')).toHaveAttribute('title','Retry the checkout call on a 502')
   await expect(card.locator('[data-step-state="done"]')).toHaveCount(1)
@@ -100,6 +100,13 @@ for (const theme of ['light','dark'] as const) {
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-page-destination="teams"]:visible')).toHaveCount(1)
   await expect(card.locator('[aria-label="Unread changes"]')).toHaveCount(0)
+  const ready=page.locator('[data-team-row="team-4"]')
+  await expect(ready.locator('[aria-label="Unread changes"]')).toHaveCount(1)
+  await ready.click()
+  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+  await page.keyboard.press('Meta+[')
+  await expect(page.locator('[data-page-destination="teams"]:visible')).toHaveCount(1)
+  await expect(ready.locator('[aria-label="Unread changes"]')).toHaveCount(0)
  })
  test(`Teams preview states render the production board ${theme}`,async({page})=>{
   await page.goto(`/preview.html?teams-page&theme=${theme}`)

@@ -32,6 +32,7 @@
   background: var(--hd-success);
 }
 
+.dot[data-state='new'],
 .dot[data-state='signin'] {
   background: var(--hd-accent);
 }

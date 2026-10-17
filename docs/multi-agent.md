@@ -346,7 +346,9 @@ put. A card sits where its state and what the desk observed on it put it
 A column moves on a check, a diff, a pull request or CI — never on anybody
 saying the work is done. A message in the channel, a finish note or an outcome
 that says the tests pass moves nothing: a card finished that way, with nothing
-observed, waits in *Needs you* and says *nothing checked*. A stranded claim is
+observed, waits in *Needs you* and says *nothing checked*. This reason alone
+does not raise the Team’s attention, with or without a Run: nothing is waiting
+on a person. A stranded claim is
 in *Needs you* too, because somebody has to take it over.
 
 Nothing is dragged, and no column takes a title: there is no column to put a

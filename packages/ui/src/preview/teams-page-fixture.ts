@@ -65,18 +65,13 @@ export const teamsPageStore=(scene:TeamsScene='active',finished?:'before'|'after
   }
  }
  const base=previewStore({teams:scene==='empty'?new Map():teams,goals:scene==='empty'?new Map():goals,flowExecutions:executions,sessions,history:[...sessions.values()],approvals,inbox:[],goalProblem:scene==='failed'?'The Team usage record could not be read':null,workspace:{path:'/work/storefront',name:'Storefront',lastOpenedAt:now},workspaces:[{path:'/work/storefront',name:'Storefront',lastOpenedAt:now},{path:'/work/billing',name:'Billing',lastOpenedAt:now}]})
- let state=base.getSnapshot()
- const listeners=new Set<()=>void>()
- const snapshot=()=>state
- const patch=(overrides:Partial<AppSnapshot>)=>{state={...state,...overrides};for(const listener of listeners)listener()}
+ const snapshot=()=>base.getSnapshot()
+ const patch=(overrides:Partial<AppSnapshot>)=>base.patch(overrides)
  const readOne=(id:string):Promise<InsightReport>=>scene==='pending'?new Promise(()=>{}):scene==='failed'?Promise.reject(new Error('Usage unavailable')):Promise.resolve(reports.get(id)!)
  return new Proxy(base,{get(target,key){
-  if(key==='getSnapshot')return snapshot
-  if(key==='subscribe')return (listener:()=>void)=>{listeners.add(listener);return()=>listeners.delete(listener)}
   if(key==='readGoalInsight')return readOne
   if(key==='readGoalInsights')return goalInsightsFrom(readOne)
   if(key==='setTeamHidden')return (id:string,hidden:boolean)=>{const prefs=snapshot().teamsPrefs;const input=teamsInput(snapshot()).find(one=>one.team.id===id)!;const marks={...prefs.hidden};if(hidden)marks[id]=teamListRow(input).change;else delete marks[id];patch({teamsPrefs:{...prefs,hidden:marks}})}
-  if(key==='markTeamSeen')return (id:string,change:string)=>patch({teamsPrefs:{...snapshot().teamsPrefs,seen:{...snapshot().teamsPrefs.seen,[id]:change}}})
   return Reflect.get(target,key)
  }})
 }

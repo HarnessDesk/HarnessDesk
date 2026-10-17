@@ -818,3 +818,16 @@ export const previewSession = {
     },
   ],
 } as unknown as Session
+
+
+/** Team marks: a waiting person is orange; unseen finished work is blue; seen work is quiet. */
+export const sidebarTeamAttention = (seed: import('@harnessdesk/protocol').GoalView): readonly import('@harnessdesk/protocol').GoalView[] => {
+  const at = Date.now() - 120_000
+  return ['Waiting on you', 'Finished work', 'Seen work'].map((sentence, index) => {
+    const id = `attention-${index}`
+    return { ...seed, goal: { ...seed.goal, id, sentence, origin: { kind: 'person' } },
+      board: { ...seed.board, id, name: sentence, members: [], intents: [], channel: [] }, members: [],
+      activity: index === 0 ? 'needs-you' : 'ready-to-wrap', readyAt: at, lastSeenAt: index === 2 ? at : 0,
+    }
+  })
+}

@@ -14,7 +14,8 @@ export type SidebarMenuStateProps = {
   compact?: boolean
 }
 
-/** A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions. */
+/** Orange limit means a person waits; blue new means unseen news.
+ * A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions. */
 export const SidebarMenuState = ({ label, title = label, tone, state, compactAtNarrow = false, compact = false }: SidebarMenuStateProps) => (
   <span data-slot="sidebar-menu-state" role="img" aria-label={label} title={title}
     {...(compactAtNarrow ? { 'data-compact-at-narrow': '' } : {})}

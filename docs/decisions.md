@@ -3843,3 +3843,8 @@ Skills open as compact cards with All, Needs you, One runtime and Nobody chips. 
 ToggleGroup gained a `chips` variant, and BoardCard gained `marks`, `finding`, `detailLines` and a grid. Keeping this shape costs maintaining those shared contracts and both views over the same filtered rows, using the existing finding and update selectors. Toolbar owns the controls row. Choices remain local to the viewer, history stays at the foot, and empty regions carry a short title without a description.
 
 **Rule:** a card carries at most one problem line, and banners live under Needs you.
+
+
+## Orange waits on a person; blue is unseen Team news — 2026-10-17
+
+A Team’s orange mark means someone waits on the person: an answer, an approval, a held queue, a Flow decision or another actionable board reason. Done cards whose only reason is “nothing checked” keep that column on the Board but raise no Team attention, with or without a Run. Ready to wrap is news, so it joins unread Seat activity and ended Runs under a blue mark, cleared by opening any Team tab. The existing Goal store owns last-seen and ready times so another window, a restart and the phone agree. Overview counts the same attention list it renders and gives unchecked finished cards a quiet count and Board action; no badge can ask for an answer its body does not show.

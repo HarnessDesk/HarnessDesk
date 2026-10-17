@@ -116,7 +116,8 @@ for (const theme of ['light', 'dark'] as const) {
     for (const width of [320, 200]) {
       await fixture.evaluate((node, size) => { (node as HTMLElement).style.width = `${size}px` }, width)
       await page.mouse.move(1000, 0)
-      await expect(row.locator('[data-left-mark]')).toHaveCount(0)
+      await expect(row.locator('[data-left-mark]')).toHaveAccessibleName('New')
+      await expect(row.locator('[data-left-mark] [data-slot="dot"]')).toHaveAttribute('data-state','new')
       expect(await team.getAttribute('title')).toContain('Unread activity')
       expect(await team.getAttribute('title')).toContain('Working')
       await expect(fixture.locator('[data-nested="true"]')).toHaveCount(0)

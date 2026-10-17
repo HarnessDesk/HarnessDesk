@@ -384,6 +384,7 @@ const StateBoard = () => (
         <Dot state="available" />
         <Dot state="signin" />
         <Dot state="limit" />
+        <Dot state="new" aria-label="New" />
         <Dot state="broken" />
         <Dot state="unknown" />
         <Dot state="signin" pulse />

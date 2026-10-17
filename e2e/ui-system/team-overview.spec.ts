@@ -253,3 +253,53 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Team news: orange waits, blue clears on opening, and unchecked Overview has no count in ${theme}`, async ({page}) => {
+    await page.setViewportSize({width:1200,height:900})
+    await page.emulateMedia({colorScheme:theme})
+    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.evaluate(() => document.fonts.ready)
+    const sidebar=page.locator('#team-attention-sidebar')
+    const orange=sidebar.getByRole('button',{name:'Room Waiting on you',exact:true}).locator('xpath=ancestor::*[@data-left-row][1]')
+    const blue=sidebar.getByRole('button',{name:'Room Finished work',exact:true}).locator('xpath=ancestor::*[@data-left-row][1]')
+    const quiet=sidebar.getByRole('button',{name:'Room Seen work',exact:true}).locator('xpath=ancestor::*[@data-left-row][1]')
+    await expect(orange.locator('[data-left-mark]')).toHaveAttribute('aria-label','Needs you')
+    await expect(orange.locator('[data-slot="dot"]')).toHaveAttribute('data-state','limit')
+    await expect(blue.locator('[data-left-mark]')).toHaveAttribute('aria-label','New')
+    await expect(blue.locator('[data-slot="dot"]')).toHaveAttribute('data-state','new')
+    await expect(quiet.locator('[data-left-mark]')).toHaveCount(0)
+    await sidebar.screenshot({path:`${process.env.HD_1777_FRAMES ?? 'output/playwright/1777'}/sidebar-${theme}.png`})
+    await blue.getByRole('button',{name:'Room Finished work',exact:true}).click()
+    await expect(blue.locator('[data-left-mark]')).toHaveCount(0)
+    const frame=page.locator('#team-overview-live-unchecked')
+    const overview=frame.locator('[data-slot="team-overview"]')
+    await expect(overview.locator('[data-unchecked-done]')).toHaveText('141 cards finished without a checkOpen BoardWrap')
+    await expect(overview.locator('[aria-label="Needs you"]')).toHaveCount(0)
+    await expect(frame.locator('[data-team-page="overview"] [data-slot="switcher-count"], [data-team-page="overview"] [data-slot="tabs-count"]')).toHaveCount(0)
+    await expect(frame.locator('[data-team-page="overview"]')).toHaveText('Overview')
+    await expect(overview.getByRole('button',{name:'Wrap',exact:true})).toBeVisible()
+    const row = overview.locator('[data-unchecked-done]')
+    const textBox = (await row.locator('[data-slot="list-row-title"]').boundingBox())!
+    const actions = row.locator('[data-slot="list-row-trail"]')
+    for (const label of ['Open Board', 'Wrap']) {
+      const actionBox = (await actions.getByRole('button', {name:label, exact:true}).boundingBox())!
+      expect(actionBox.x).toBeGreaterThan(textBox.x + textBox.width)
+      expect(Math.abs(actionBox.y + actionBox.height / 2 - textBox.y - textBox.height / 2)).toBeLessThanOrEqual(2)
+    }
+    await frame.screenshot({path:`${process.env.HD_1777_FRAMES ?? 'output/playwright/1777'}/overview-${theme}.png`})
+    await overview.getByRole('button',{name:'Open Board',exact:true}).click()
+    await expect(frame.locator('[data-team-page="board"]')).toHaveAttribute('data-active','')
+  })
+
+  test(`Overview count equals its rendered attention rows in ${theme}`, async ({page}) => {
+    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    for (const scene of ['needs-you','stalled','unrouted','findings-and-posting']) {
+      const frame=page.locator(`#team-overview-live-${scene}`)
+      const rows=frame.locator('[data-slot="team-overview"] [aria-label="Needs you"] [data-slot="list-row"]')
+      await expect(rows.first()).toBeVisible()
+      const count=await rows.count()
+      await expect(frame.locator('[data-team-page="overview"]')).toContainText(String(count))
+    }
+  })
+}

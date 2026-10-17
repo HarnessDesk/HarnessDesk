@@ -1,3 +1,4 @@
+import { overviewAttention } from '../lib/overview-attention'
 import { InfoCard, SubjectActionsMenu } from '../design'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useId, type ReactNode, type RefObject } from 'react'
 
@@ -773,6 +774,9 @@ export const TeamRoomPane = ({
     runtimeName: snapshot.runtimes.find(one => one.id === peer.runtime)?.presentation.name,
   })), [members, goal?.members, snapshot.runtimes])
   const [report, setReport] = useState<InsightReport | null>(null)
+  const newestUnreadSeatAt = Math.max(0, ...snapshot.inbox.filter(one => !one.read && one.from && seats.some(seat =>
+    seat.record.session.runtime === one.from!.runtime && seat.record.session.sessionId === one.from!.sessionId)).map(one => one.at))
+  useEffect(() => { store.markTeamSeen(room) }, [store, room, Boolean(goal), open, goal?.readyAt, flowExecution?.endedAt, newestUnreadSeatAt])
   const closedCards = intents.filter(one => one.state === 'done').map(one => one.id).join(',')
   useEffect(() => {
     let active = true
@@ -793,6 +797,7 @@ export const TeamRoomPane = ({
       record: seat.record, name: seatDisplayName(goal?.members.find(one => one.id === seat.record.id), members.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)?.nickname ?? seat.name, snapshot.runtimes.find(one => one.id === seat.record.session.runtime)?.presentation.name, displayMembers),
       runtime: snapshot.runtimes.find(one => one.id === seat.record.session.runtime) ?? null,
       session: snapshot.sessions.get(seat.key) ?? null,
+      paused: snapshot.queues.get(seat.key)?.status === 'paused',
       unreadSince: snapshot.inbox.find(one => !one.read && one.from?.runtime === seat.record.session.runtime && one.from?.sessionId === seat.record.session.sessionId)?.at ?? null,
       approvals: snapshot.approvals.filter(one => one.key === seat.key).map(one => one.approval),
     })),
@@ -800,7 +805,7 @@ export const TeamRoomPane = ({
     findingRun: flowExecution ? snapshot.findingRuns.get(flowExecution.id) : null,
     publicationOn: goal?.goal.findingPublication !== false,
     report: report?.goal === room ? report : null,
-  }), [heldClient, room, intents, entries, seats, members, displayMembers, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
+  }), [heldClient, room, intents, entries, seats, members, displayMembers, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, snapshot.queues, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
   const overviewTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, { sessions: snapshot.sessions, evidence: snapshot.boardEvidence.get(room), waitingSeats }) : null,
   [heldClient, flowExecution, snapshot.sessions, snapshot.boardEvidence, room, waitingSeats])
   const comparisonTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, {
@@ -1020,12 +1025,13 @@ export const TeamRoomPane = ({
    * exactly the bug this constant exists to close.
    */
   const needsYou = Boolean(overview.run?.needsYou) || personWaits.length > 0 || goal?.activity === 'needs-you' || flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'
+  const attentionRows = overviewAttention(overview, { needsYou, runReason: flowExecution?.reason ? runReasonWords(flowExecution.reason, flowExecution.document.flow.rules) : null, personWaits: personWaits.map(wait => ({summary: wait.waitingOn.label})) })
   const runState: { readonly label: string; readonly tone: Tone; readonly pulse: boolean } | null = !goal
     ? null
     : record ? { label: 'Wrapped', tone: 'success', pulse: false }
     : pendingApproval || needsYou
       ? { label: 'Needs you', tone: 'warning', pulse: true }
-      : goal.goal.state === 'wrapped' || goal.goal.state === 'wrapping' || flowExecution?.state === 'settled'
+      : goal.goal.state === 'wrapped' || goal.goal.state === 'wrapping' || (goal.activity === 'ready-to-wrap' && !flowExecution) || flowExecution?.state === 'settled'
         ? { label: 'Done', tone: 'success', pulse: false }
         : flowExecution?.state === 'stopped' || originStatus?.budget?.stop
           ? { label: flowExecution?.state === 'stopped' && stoppingSessions.size ? 'Stopping' : 'Stopped', tone: 'neutral', pulse: false }
@@ -1072,7 +1078,7 @@ export const TeamRoomPane = ({
   const teamChangesRefusal = !teamRoot || !teamBranch || !target?.base || !target.head
     ? 'The Team branch and base are not recorded yet' : undefined
   const teamTabs: TopBarTab[] = [
-    { value: 'overview', label: 'Overview', count: needsYou ? 1 : undefined, run: () => show('overview') },
+    { value: 'overview', label: 'Overview', count: attentionRows.length || undefined, run: () => show('overview') },
     { value: 'run', label: 'Run', count: runs.length || undefined, disabled: !runs.length ? 'This Team has no Run yet' : false, run: () => show('run') },
     { value: 'board', label: 'Board', count: intents.length, run: () => show('board') },
     { value: 'room', label: 'Chat', count: held || undefined, run: () => show(chatLayout.current === 'side-by-side' ? 'side-by-side' : 'room') },
@@ -1242,7 +1248,7 @@ export const TeamRoomPane = ({
               ) : null}
             </Page>
           ) : open === 'overview' ? (
-            <TeamOverview model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} answers={needsYouAnswers} onWrap={!record && goal?.activity === 'ready-to-wrap' && !wrapDisabled ? () => setWrapping(true) : undefined} onRun={() => { if (triggerKind && flowExecution) setChosenRun(flowExecution.id); show('run') }}
+            <TeamOverview attention={attentionRows} uncheckedDone={goal?.uncheckedDone} onBoard={() => show('board')} model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} answers={needsYouAnswers} onWrap={!record && goal?.activity === 'ready-to-wrap' && !wrapDisabled ? () => setWrapping(true) : undefined} onRun={() => { if (triggerKind && flowExecution) setChosenRun(flowExecution.id); show('run') }}
               faces={new Map(seats.map(seat => {
                 const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                 const brand = runtime ? brandForRuntime(runtime) : null

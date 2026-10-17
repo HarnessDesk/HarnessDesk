@@ -794,6 +794,8 @@ export interface HostMethods {
   'lane/release': { params: { lane: string }; result: import('./goal.js').Lane }
   'goal/list': { params: { root?: string }; result: readonly GoalView[] }
   'goal/read': { params: { goal: GoalId }; result: GoalView }
+  /** Opening any Team page acknowledges its news on this desk. */
+  'goal/seen': { params: { goal: GoalId }; result: GoalView }
   'goal/create': { params: Omit<GoalCreateInput, 'origin'>; result: GoalView }
   'goal/update': {
     params: { goal: GoalId; revision: number; sentence?: string; dependsOn?: readonly GoalId[] }
