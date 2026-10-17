@@ -27,7 +27,7 @@ const LENGTH = /^-?\d+(\.\d+)?px$/
  * probe, so a token using one is left out. `rem` and `rlh` stay: they resolve
  * against the root, which is the same for the probe as for every element.
  */
-const RELATIVE = /\d(?:%|(?:vw|vh|vmin|vmax|[dsl]v[hwib]|vi|vb|cq\w+|em|ex|ch|cap|ic|lh)\b)/i
+const RELATIVE = /\d(?:%|(?:vw|vh|vmin|vmax|[dsl]v(?:[hwib]|min|max)|vi|vb|cq\w+|em|ex|ch|cap|ic|lh)\b)/i
 export const isDerivedLength = (value: string) => /^(calc|min|max|clamp)\(/.test(value) && !RELATIVE.test(value)
 
 const add = <K>(map: Map<K, string[]>, key: K, name: string) => {

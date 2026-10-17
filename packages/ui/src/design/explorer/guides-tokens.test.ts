@@ -6,6 +6,7 @@ describe('isDerivedLength', () => {
   it('takes a length built from other lengths, or from the root', () => {
     expect(isDerivedLength('calc(8px + 8px + 1px)')).toBe(true)
     expect(isDerivedLength('max(12px, 1rem)')).toBe(true)
+    expect(isDerivedLength('calc(1rlh - 4px)')).toBe(true)
     expect(isDerivedLength('calc(\n  4px +\n  1px\n)')).toBe(true)
   })
 
@@ -20,6 +21,12 @@ describe('isDerivedLength', () => {
       'clamp(4px, 2dvh, 8px)',
       'calc(1lh - 4px)',
       'calc(4px +\n 0.5em)',
+      'min(12px, 2dvmin)',
+      'max(12px, 2dvmax)',
+      'calc(1svmin + 2px)',
+      'calc(1svmax + 2px)',
+      'clamp(4px, 1lvmin, 8px)',
+      'clamp(4px, 1lvmax, 8px)',
     ]) expect(isDerivedLength(value), value).toBe(false)
   })
 
