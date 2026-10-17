@@ -1444,3 +1444,23 @@ test('a start resolved as never started is not looked up again and cannot block 
   assert.deepEqual(asked, ['second'])
   assert.ok(journal.state.runs.some((run: any) => run.runId === 'run-b'))
 })
+
+test('a lookup record the ledger refuses still contests its start', async () => {
+  const journal = await prepare(memory())
+  await journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'team-1', executionId: 'run-x' })
+  await observeAll(journal)
+  await journal.updateBudget({ version: 1, type: 'round', now: 100, executionId: 'run-x', roundId: '1' })
+  await journal.execute({ id: 'lost', request, context, stepId: 'implement' }, async () => { throw new Error('lost response') })
+  await journal.recover(async () => [])
+  const actions = await journal.recover(async () => [runEvidence(witnessed('run-x'))])
+  assert.deepEqual(actions.map((action: any) => [action.id, action.type]), [['lost', 'needs-user']])
+  const restored: any = await checkpointOpen(journal)
+  for (const state of [journal.state, restored.state]) {
+    assert.equal(state.budget.stop.reason, 'unknown-spend')
+    assert.equal(state.attempts.get('lost').contested, true)
+  }
+  await assert.rejects(journal.resolveStart('lost', null), 'the host reported a run under this start')
+  const seq = journal.state.seq
+  await journal.recover(async () => [runEvidence(witnessed('run-x'))])
+  assert.equal(journal.state.seq, seq, 'a standing refusal appends nothing')
+})

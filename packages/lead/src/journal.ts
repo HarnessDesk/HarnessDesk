@@ -448,7 +448,9 @@ export class LeadJournal {
           // A record replay refuses must not strand the starts after it. A storage
           // failure has already stopped the writer and is the caller's to see.
           if (this.#failed) throw error
+          // Its rows are left out of the record, so the start is contested like any other.
           await this.#failClosed()
+          if (!this.#state.attempts.get(pending.id)!.contested) await this.#append({ type: 'reconciliation-conflict', id: pending.id })
           actions.push({ id: pending.id, type: 'needs-user' })
         }
       }
