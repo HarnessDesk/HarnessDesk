@@ -1,0 +1,317 @@
+import { CLIENT_METHODS, clientTierFor, parseClientMessage, parseLeadAcceptanceContract, parseLeadCard,
+  type ClientMethodName, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
+import type { LeadPermissionCall } from './permissions.js'
+import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
+  MessagesText, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
+
+/** Configuration defaults only; model choice never changes permissions or behavior. */
+export const LEAD_MESSAGES_DEFAULTS = Object.freeze({ model: 'claude-sonnet-5-5', observerFamily: 'haiku', hardPlanFamily: 'opus' })
+const LIMIT = Object.freeze({ bytes: 1_048_576, text: 16_384, blocks: 64, turns: 256, nodes: 16_384,
+  depth: 24, maxTokens: 65_536, retries: 2, retryMs: 30_000 })
+const fail = (): never => { throw new Error('lead-messages-invalid') }
+const object = (value: unknown, allowed?: readonly string[]): Record<string, unknown> => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return fail()
+  const source = value as Record<string, unknown>
+  if (allowed && Object.keys(source).some(key => !allowed.includes(key))) return fail()
+  return source
+}
+const integer = (value: unknown, max = 100_000_000): number => {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > max) return fail()
+  return value
+}
+const string = (value: unknown, max: number = LIMIT.text): string => {
+  if (typeof value !== 'string' || value.length > max) return fail()
+  return value
+}
+const identifier = (value: unknown): string => {
+  const text = string(value, 128)
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(text)) return fail()
+  return text
+}
+/** Check plain data before serializing: getters, cycles, deep/wide trees and huge
+ * strings must not bypass a byte cap or execute while crossing a trust boundary. */
+const json = (value: unknown, max: number = LIMIT.bytes): string => {
+  let nodes = 0, chars = 0
+  const active = new Set<object>()
+  const visit = (item: unknown, depth: number): void => {
+    if (++nodes > LIMIT.nodes || depth > LIMIT.depth) fail()
+    if (typeof item === 'string') { chars += item.length; if (chars > max) fail(); return }
+    if (item === null || typeof item === 'boolean' || typeof item === 'number' && Number.isFinite(item)) return
+    if (typeof item !== 'object' || active.has(item)) return fail()
+    const array = Array.isArray(item), prototype = Object.getPrototypeOf(item)
+    if (prototype !== null && prototype !== (array ? Array.prototype : Object.prototype)) fail()
+    const descriptors = Object.getOwnPropertyDescriptors(item)
+    // JSON.stringify consults toJSON even when it is not enumerable. Never invoke
+    // a serializer or accessor that can replace the already-checked tree.
+    if (Object.hasOwn(descriptors, 'toJSON')) fail()
+    const keys = Reflect.ownKeys(descriptors).filter(key => descriptors[key as string]!.enumerable)
+    if (keys.length > LIMIT.nodes || array && keys.length !== (item as unknown[]).length) fail()
+    active.add(item)
+    for (const key of keys) {
+      const descriptor = descriptors[key as string]!
+      if (typeof key !== 'string' || !Object.hasOwn(descriptor, 'value')) return fail()
+      // Protocol parsers normalize optional fields to undefined; JSON omits them.
+      if (!array && descriptor.value === undefined) continue
+      chars += key.length
+      if (chars > max) fail()
+      visit(descriptor.value, depth + 1)
+    }
+    active.delete(item)
+  }
+  visit(value, 0)
+  const encoded = JSON.stringify(value)
+  if (new TextEncoder().encode(encoded).byteLength > max) fail()
+  return encoded
+}
+
+const textSchema = { type: 'string', maxLength: LIMIT.text }
+const pathSchema = { type: 'string', maxLength: 4096 }
+const schema = (properties: Record<string, unknown>, required: readonly string[] = []) => ({ type: 'object', properties, required, additionalProperties: false })
+const flowProperties = { root: pathSchema, source: textSchema, vars: { type: 'object', additionalProperties: textSchema },
+  seats: { type: 'object' }, attended: { type: 'boolean' } }
+/** Closed aliases, not a slash-to-underscore transform of arbitrary method names.
+ * No provider-hosted, file, shell, edit, answer or publication tool is offered. */
+const TOOLS = {
+  flow_catalog: { method: 'flow/catalog', input_schema: schema({ root: pathSchema }, ['root']) },
+  flow_source: { method: 'flow/source', input_schema: schema({ root: pathSchema, id: textSchema,
+    origin: { type: 'string', enum: ['project', 'user', 'builtin'] } }, ['root', 'id']) },
+  flow_preview: { method: 'flow/preview', input_schema: schema(flowProperties, ['root', 'source']) },
+  flow_start_goal: { method: 'flow/start-goal', input_schema: schema({ ...flowProperties, token: textSchema, sentence: textSchema }, ['root', 'source', 'token', 'sentence']) },
+  flow_execution: { method: 'flow/execution', input_schema: schema({ run: textSchema }, ['run']) },
+  flow_execution_stop: { method: 'flow/execution/stop', input_schema: schema({ run: textSchema, reason: textSchema }, ['run', 'reason']) },
+  flow_executions: { method: 'flow/executions', input_schema: schema({ team: textSchema, project: pathSchema, active: { type: 'boolean' } }) },
+  goal_list: { method: 'goal/list', input_schema: schema({ root: pathSchema }) },
+  goal_read: { method: 'goal/read', input_schema: schema({ goal: textSchema }, ['goal']) },
+  insight_goal: { method: 'insight/goal', input_schema: schema({ goal: textSchema }, ['goal']) },
+  evidence_board: { method: 'evidence/board', input_schema: schema({ room: textSchema }, ['room']) },
+  evidence_seat: { method: 'evidence/seat', input_schema: schema({ runtime: textSchema, sessionId: textSchema }, ['runtime', 'sessionId']) },
+  library_usage: { method: 'library/usage', input_schema: schema({}) },
+} as const satisfies Record<string, { method: ClientMethodName; input_schema: unknown }>
+const toolDefinitions = Object.entries(TOOLS).map(([name, tool]) => ({ name, description: `Desk operation ${tool.method}`, input_schema: tool.input_schema }))
+const toolCall = (block: MessagesToolUse): LeadPermissionCall => {
+  if (!Object.hasOwn(TOOLS, block.name)) return fail()
+  const tool = TOOLS[block.name as keyof typeof TOOLS]
+  if (!Object.hasOwn(CLIENT_METHODS, tool.method) || clientTierFor(tool.method, block.input) === 'answer') return fail()
+  const input = object(block.input, Object.keys(tool.input_schema.properties))
+  const parsed = parseClientMessage({ id: 1, method: tool.method, params: input })
+  return { method: tool.method, params: parsed.params } as LeadPermissionCall
+}
+const block = (value: unknown): MessagesText | MessagesToolUse => {
+  const source = object(value)
+  if (source.type === 'text') {
+    object(source, ['type', 'text'])
+    return { type: 'text', text: string(source.text) }
+  }
+  if (source.type !== 'tool_use') return fail()
+  object(source, ['type', 'id', 'name', 'input'])
+  // A recognizable use with malformed arguments still receives its correlated error.
+  return { type: 'tool_use', id: identifier(source.id), name: string(source.name, 128), input: source.input ?? null }
+}
+const blocks = (value: unknown): (MessagesText | MessagesToolUse)[] => {
+  if (!Array.isArray(value) || value.length === 0 || value.length > LIMIT.blocks) return fail()
+  const result = value.map(block), ids = result.filter(item => item.type === 'tool_use').map(item => item.id)
+  if (new Set(ids).size !== ids.length) return fail()
+  return result
+}
+/** A continuation may never contain orphan, reordered, duplicate or unanswered results. */
+const history = (value: unknown): MessagesTurn[] => {
+  if (!Array.isArray(value) || value.length === 0 || value.length > LIMIT.turns - 2) return fail()
+  let pending: string[] = []
+  const result: MessagesTurn[] = []
+  for (const item of value) {
+    const source = object(item, ['role', 'content'])
+    if (source.role !== 'user' && source.role !== 'assistant') return fail()
+    if (source.role === 'assistant') {
+      if (pending.length) fail()
+      const content = blocks(source.content)
+      pending = content.filter(b => b.type === 'tool_use').map(b => b.id)
+      result.push({ role: 'assistant', content })
+    } else {
+      const rawContent = source.content
+      if (!Array.isArray(rawContent) || !rawContent.length || rawContent.length > LIMIT.blocks) return fail()
+      const content = rawContent.map((raw: unknown, index: number) => {
+        const entry = object(raw)
+        if (!pending.length) {
+          const parsed = block(entry)
+          if (parsed.type !== 'text') return fail()
+          return parsed
+        }
+        object(entry, ['type', 'tool_use_id', 'content', 'is_error'])
+        if (entry.type !== 'tool_result' || entry.tool_use_id !== pending[index] || typeof entry.is_error !== 'boolean') return fail()
+        return { type: 'tool_result' as const, tool_use_id: identifier(entry.tool_use_id), content: string(entry.content), is_error: entry.is_error }
+      })
+      if (pending.length && content.length !== pending.length) fail()
+      pending = []
+      result.push({ role: 'user', content })
+    }
+  }
+  if (pending.length || result[0]!.role !== 'user' || result.at(-1)!.role !== 'user') fail()
+  return result
+}
+const usage = (value: unknown): MessagesUsage => {
+  const source = object(value)
+  return { inputTokens: integer(source.input_tokens), outputTokens: integer(source.output_tokens),
+    cacheReadTokens: source.cache_read_input_tokens === undefined ? 0 : integer(source.cache_read_input_tokens),
+    cacheWriteTokens: source.cache_creation_input_tokens === undefined ? 0 : integer(source.cache_creation_input_tokens) }
+}
+/** Text beginning with an object is the structured assistant-output envelope.
+ * Proposals are data only; their validators confer no authority to execute them. */
+const proposals = (text: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[] } => {
+  if (!text.trimStart().startsWith('{')) return { text, plan: null, cards: [] }
+  const source = object(JSON.parse(text), ['version', 'type', 'text', 'plan', 'cards'])
+  if (source.version !== 1 || source.type !== 'lead-output') return fail()
+  if (source.cards !== undefined && (!Array.isArray(source.cards) || source.cards.length > LIMIT.blocks)) return fail()
+  const cards = source.cards === undefined ? [] : (source.cards as unknown[]).map(value => parseLeadCard(value))
+  if (new Set(cards.map(card => card.id)).size !== cards.length) fail()
+  return { text: source.text === undefined ? '' : string(source.text),
+    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards }
+}
+/** Cancellation also wins when a broken injected operation ignores its signal. */
+const cancellable = async <T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> => {
+  if (signal.aborted) return fail()
+  let abort!: () => void
+  const cancelled = new Promise<never>((_resolve, reject) => { abort = () => reject(new Error('lead-messages-cancelled')) })
+  signal.addEventListener('abort', abort, { once: true })
+  try {
+    const pending = operation()
+    if (signal.aborted) abort()
+    return await Promise.race([pending, cancelled])
+  } finally { signal.removeEventListener('abort', abort) }
+}
+const retryDelay = (value: string | undefined, now: number): number | null => {
+  if (value === undefined) return 1000
+  if (value.length > 128) return null
+  const seconds = /^\d+(?:\.\d+)?$/.test(value) ? Number(value) : null
+  const ms = seconds === null ? Date.parse(value) - now : Math.ceil(seconds * 1000)
+  return Number.isFinite(ms) && ms <= LIMIT.retryMs ? Math.max(0, ms) : null
+}
+
+export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesClient => {
+  // Capture owner configuration once. Neither request arguments nor provider output
+  // can replace the model, destination, headers, price table or tool definitions.
+  const { apiKey, transport, journal, now, nextId, countInput, wait, resolveTool, dispatch } = options
+  const model = options.model ?? LEAD_MESSAGES_DEFAULTS.model
+  let price: MessagesPrice
+  try {
+    if (typeof apiKey !== 'string' || apiKey.length === 0 || apiKey.length > 4096 || /[\r\n]/.test(apiKey)) fail()
+    if (!/^[A-Za-z0-9._:/-]{1,128}$/.test(model) || !Object.hasOwn(options.prices, model)) fail()
+    const source = object(options.prices[model], ['inputUsdMicrosPerMillion', 'outputUsdMicrosPerMillion', 'cacheReadUsdMicrosPerMillion', 'cacheWriteUsdMicrosPerMillion'])
+    price = { inputUsdMicrosPerMillion: integer(source.inputUsdMicrosPerMillion, 1_000_000_000_000),
+      outputUsdMicrosPerMillion: integer(source.outputUsdMicrosPerMillion, 1_000_000_000_000),
+      cacheReadUsdMicrosPerMillion: integer(source.cacheReadUsdMicrosPerMillion, 1_000_000_000_000),
+      cacheWriteUsdMicrosPerMillion: integer(source.cacheWriteUsdMicrosPerMillion, 1_000_000_000_000) }
+  } catch { throw new Error('lead-messages-config') }
+  const safeJson = (value: unknown, max: number = LIMIT.bytes): string => {
+    const encoded = json(value, max)
+    // Compare decoded strings too: JSON escaping must not conceal an echoed key.
+    const scan = (item: unknown): void => {
+      if (typeof item === 'string' && item.includes(apiKey)) fail()
+      if (item !== null && typeof item === 'object') for (const [name, child] of Object.entries(item)) { if (name.includes(apiKey)) fail(); scan(child) }
+    }
+    scan(value)
+    return encoded
+  }
+  return { async request(input, signal): Promise<LeadMessagesResult> {
+    if (signal.aborted) return { status: 'cancelled' }
+    let requestId: string, body: string, messages: MessagesTurn[], maxTokens: number
+    try {
+      const captured = JSON.parse(safeJson(input)) as unknown
+      const source = object(captured, ['messages', 'system', 'maxTokens'])
+      messages = history(source.messages)
+      maxTokens = integer(source.maxTokens, LIMIT.maxTokens)
+      if (maxTokens === 0) fail()
+      body = safeJson({ model, max_tokens: maxTokens, stream: false, messages, tools: toolDefinitions,
+        ...(source.system === undefined ? {} : { system: string(source.system) }) })
+      const inputTokens = integer(await cancellable(() => countInput(body, signal), signal))
+      requestId = string(nextId(), 100)
+      if (!/^[A-Za-z0-9._:/-]{1,100}$/.test(requestId) || requestId.includes(apiKey)) fail()
+      if (signal.aborted) return { status: 'cancelled' }
+      await journal.updateBudget({ version: 1, type: 'reserve', now: now(), requestId, inputTokens, maxOutputTokens: maxTokens, ...price })
+    } catch { return { status: signal.aborted ? 'cancelled' : 'refused', reason: 'lead-messages-admission' } }
+    const accounting = (event: Omit<Extract<LeadBudgetEvent, { type: 'settle' }>, 'version' | 'now' | 'requestId'> | { type: 'uncertain' }) =>
+      journal.updateBudget({ version: 1, now: now(), requestId, ...event })
+    const zero = () => accounting({ type: 'settle', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })
+    const uncertain = async (): Promise<LeadMessagesResult> => {
+      try { await accounting({ type: 'uncertain' }) } catch { /* The durable reservation remains held; journal failures latch the writer. */ }
+      return { status: 'uncertain', reason: 'lead-messages-billing-unknown' }
+    }
+    let response!: MessagesHttpResponse
+    for (let retry = 0; ; retry++) {
+      if (signal.aborted) {
+        try { await zero() } catch { return uncertain() }
+        return { status: 'cancelled' }
+      }
+      try {
+        response = await cancellable(() => transport.send({ origin: 'https://api.anthropic.com', path: '/v1/messages', method: 'POST',
+          headers: Object.freeze({ 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': apiKey }),
+          body, maxResponseBytes: LIMIT.bytes, signal }), signal)
+      } catch { return uncertain() }
+      if ((response.status === 429 || response.status === 529) && response.processing === 'not-started') {
+        const delay = retryDelay(response.retryAfter, now())
+        if (retry === LIMIT.retries || delay === null) {
+          try { await zero() } catch { return uncertain() }
+          return { status: 'rate-limited', reason: 'lead-messages-rate-limit' }
+        }
+        try { await cancellable(() => wait(delay, signal), signal) }
+        catch {
+          try { await zero() } catch { return uncertain() }
+          return { status: signal.aborted ? 'cancelled' : 'failed', reason: 'lead-messages-delay' }
+        }
+        continue
+      }
+      // No other status or transport rejection proves a zero charge.
+      if (response.status !== 200) return uncertain()
+      break
+    }
+    let parsed: Record<string, unknown>, used: MessagesUsage
+    try {
+      const raw = string(response.body, LIMIT.bytes)
+      if (new TextEncoder().encode(raw).byteLength > LIMIT.bytes) fail()
+      parsed = object(JSON.parse(raw))
+      // Bound the full parsed tree before reading usage or any block.
+      json(parsed)
+      used = usage(parsed.usage)
+      await accounting({ type: 'settle', ...used })
+    } catch { return uncertain() }
+    let content: (MessagesText | MessagesToolUse)[], output: ReturnType<typeof proposals>
+    try {
+      if (parsed.type !== 'message' || parsed.role !== 'assistant' || !['end_turn', 'tool_use', 'max_tokens', 'stop_sequence'].includes(parsed.stop_reason as string)) fail()
+      content = blocks(parsed.content)
+      safeJson(content)
+      if (parsed.stop_reason === 'tool_use' && !content.some(item => item.type === 'tool_use')) fail()
+      if (parsed.stop_reason !== 'tool_use' && parsed.stop_reason !== 'max_tokens' && content.some(item => item.type === 'tool_use')) fail()
+      output = proposals(string(content.filter(item => item.type === 'text').map(item => item.text).join('\n')))
+      safeJson(output)
+    } catch { return { status: 'invalid-response', reason: 'lead-messages-output', usage: used } }
+    const uses = content.flatMap((use, index) => use.type === 'tool_use' ? [{ use, index }] : [])
+    const results: MessagesToolResult[] = uses.map(({ use }) => ({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: 'Tool refused' }))
+    const continuation: MessagesTurn[] = [...messages, { role: 'assistant', content }, ...(results.length ? [{ role: 'user' as const, content: results }] : [])]
+    const bytes = (text: string) => new TextEncoder().encode(text).byteLength
+    let available: number
+    try {
+      // Leave room for the next request's fixed tools/model/system wrapper too.
+      available = LIMIT.bytes - (bytes(body) - bytes(json(messages))) - bytes(safeJson(continuation))
+      if (available < 0) fail()
+    } catch { return { status: 'invalid-response', reason: 'lead-messages-continuation-limit', usage: used, toolResults: results } }
+    for (const [position, { use, index }] of uses.entries()) {
+      if (!signal.aborted && parsed.stop_reason !== 'max_tokens') {
+        try {
+          const call = toolCall(use)
+          safeJson(call, LIMIT.text)
+          const scope = await cancellable(() => resolveTool(structuredClone(call)), signal)
+          if (signal.aborted) fail()
+          const executed = await journal.execute({ id: `${requestId}/tool/${index}`, request: { method: call.method, params: call.params,
+            project: scope.project, runId: scope.runId, start: scope.start }, context: scope.context, stepId: scope.stepId },
+            (approved, id) => cancellable(() => dispatch(approved, id, signal), signal))
+          if (executed.outcome === 'succeeded') {
+            const result = { ...results[position]!, content: safeJson(executed.value ?? null, LIMIT.text), is_error: false }
+            const extra = bytes(json(result)) - bytes(json(results[position]))
+            if (extra <= available) { results[position] = result; available -= extra }
+          }
+        } catch { /* Static correlated error: no raw exception, argument or credential is echoed. */ }
+      }
+    }
+    return { status: parsed.stop_reason === 'max_tokens' ? 'max-tokens' : signal.aborted ? 'cancelled' : 'completed', usage: used,
+      text: output.text, proposals: { plan: output.plan, cards: output.cards }, toolResults: results, messages: continuation }
+  } }
+}
