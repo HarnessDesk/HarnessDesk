@@ -67,7 +67,7 @@ test(`E9 every destination More either stays absent or opens rows, and returns f
   await expect(page.locator('[data-page-destination="library"]:visible')).toHaveCount(1)
   await expect(more).toBeVisible()
   await more.click()
-  await expect(page.getByRole('menu').locator('[role^="menuitem"], [role="switch"]')).toHaveText(['Import', 'Add from GitHub…', 'Check for updates', 'Rescan', /Terminal/])
+  await expect(page.getByRole('menu').locator('[role^="menuitem"], [role="switch"]')).toHaveText(['Check for updates', 'Rescan', /Terminal/])
   await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
 })
 {
@@ -133,8 +133,8 @@ for (const kind of ['library', 'plugins', 'dashboard']) test(`E9 owner Escape le
     await page.keyboard.press('Escape')
     await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
     await expect(page.locator('[role="menu"]:visible')).toHaveCount(0)
-    await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Import', exact: true }).click()
+    await page.getByRole('button', { name: 'Add skill', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Copy from another runtime…', exact: true }).click()
   } else {
     await more.click()
     await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)

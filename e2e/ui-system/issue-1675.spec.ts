@@ -15,8 +15,7 @@ for (const theme of ['light', 'dark']) {
         if (scene === 'team') await page.getByLabel('Runtime for Writes', { exact: true }).scrollIntoViewIfNeeded()
         if (scene.startsWith('library')) await expect(page.getByText('code-review', { exact: true }).first()).toBeVisible()
         if (scene === 'library-matrix') {
-          await page.locator('button[title="How to show the library"]').click()
-          await page.getByRole('menuitemradio', { name: 'Matrix', exact: true }).click()
+          await page.getByRole('radio', { name: 'Matrix', exact: true }).click()
         }
         if (scene === 'library-sheet') {
           await page.getByText('code-review', { exact: true }).first().click()

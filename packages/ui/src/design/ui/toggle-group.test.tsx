@@ -102,3 +102,15 @@ it('the multiple-selection type is unaffected: undefined stays uncontrolled and 
   )
   expect(pressedValues()).toEqual(['One', 'Two'])
 })
+
+it('chips retain single-choice semantics and give each item its own corners', async () => {
+ await act(async()=>root.render(<ToggleGroup type="single" variant="chips" defaultValue="all">
+  <ToggleGroupItem value="all">All</ToggleGroupItem><ToggleGroupItem value="needs">Needs you</ToggleGroupItem>
+ </ToggleGroup>))
+ const items=[...container.querySelectorAll('[role="radio"]')]
+ expect(items.every(item=>item.classList.contains('rounded-md'))).toBe(true)
+ expect(items.every(item=>!item.classList.contains('rounded-none'))).toBe(true)
+ expect(pressedValues()).toEqual(['All'])
+ await act(async()=>(items[1] as HTMLElement).click())
+ expect(pressedValues()).toEqual(['Needs you'])
+})

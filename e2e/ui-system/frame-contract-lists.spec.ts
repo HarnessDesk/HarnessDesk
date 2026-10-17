@@ -26,11 +26,12 @@ test('Lists R9 empty Teams centres the complete empty state in the page body', a
   expect(Math.abs(geometry.regionCenter - geometry.contentCenter)).toBeLessThanOrEqual(1)
 })
 
-test('Lists R9 Library warning fills the List measure', async ({ page }) => {
+test('Lists R9 Library warning fills the card grid measure under Needs you', async ({ page }) => {
   await openFrame(page, 'frame-wall=library', 'light', 1440)
   const library = page.locator('[data-page-destination="library"]:visible')
+  await page.getByRole('radio', { name: 'Needs you', exact: true }).click()
   const warning = library.locator('[data-slot="alert"]')
-  const list = library.locator('[data-slot="skill-list"]')
+  const list = library.locator('[data-slot="skill-cards"]')
   await expect(warning).toBeVisible()
   await expect(list).toBeVisible()
   const widths = await Promise.all([warning, list].map(async locator => (await locator.boundingBox())!.width))
@@ -39,7 +40,7 @@ test('Lists R9 Library warning fills the List measure', async ({ page }) => {
 
 test('Lists R9 Library list description occupies no more than two lines', async ({ page }) => {
   await openFrame(page, 'frame-wall=library', 'light', 1440)
-  const description = page.locator('[data-page-destination="library"]:visible [data-skill-description]').first()
+  const description = page.locator('[data-page-destination="library"]:visible [data-detail-lines]').first()
   await description.evaluate(node => {
     node.textContent = 'Canvas checks compare the exact output, state and layout of a page. '.repeat(18)
   })
@@ -72,11 +73,11 @@ test('Lists R9 Agents show each seat mark and the shortened source path', async 
 
 test('Lists R9 Library filter and skill detail use group-level facts', async ({ page }) => {
   await openFrame(page, 'frame-wall=library', 'light', 1440)
-  await page.locator('[data-slot="popover-trigger"][title="Declared by"]').click()
+  await page.locator('[data-slot="popover-trigger"][title="Filter the library"]').click()
   await expect(page.getByRole('menuitemradio', { name: 'Any agent', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  const skill = page.locator('[data-slot="skill-row"]').filter({ hasText: 'systematic-debugging' })
+  const skill = page.locator('[data-slot="skill-card"]').filter({ hasText: 'systematic-debugging' })
   await expect(skill).toBeVisible()
   await skill.click()
   const dialog = page.getByRole('dialog')

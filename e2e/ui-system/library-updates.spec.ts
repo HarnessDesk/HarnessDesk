@@ -8,20 +8,21 @@ const frame = async (page: Page, name: string) => {
   await page.screenshot({ path: `${process.env.HD_LIBRARY_UPDATE_FRAMES}/${name}.png` })
 }
 const openSkill = async (page: Page) => {
-  await page.locator('[data-slot="skill-row"]').getByRole('button').first().click()
+  await page.locator('[data-slot="skill-card"]').first().click()
   return page.getByRole('dialog', { name: 'Code review', exact: true })
 }
 for (const theme of ['light', 'dark'] as const) {
   test(`Library explicit update check and review ${theme}`, async ({ page }) => {
     await openFrame(page, 'library-updates=unchecked', theme)
     await page.setViewportSize({ width: 1440, height: 1100 })
-    await expect(page.locator('[data-slot="skill-row"]')).not.toContainText('Update available')
+    await expect(page.locator('[data-slot="skill-card"]')).not.toContainText('Update available')
     const bar = page.locator('[data-slot="top-bar"]:visible')
     await bar.getByRole('button', { name: 'More', exact: true }).click()
     const labels = await page.getByRole('menuitem').allTextContents()
-    expect(labels.indexOf('Check for updates')).toBe(labels.indexOf('Add from GitHub…') + 1)
+    expect(labels.slice(0, 2)).toEqual(['Check for updates', 'Rescan'])
+    expect(labels).not.toContain('Add from GitHub…')
     await page.getByRole('menuitem', { name: 'Check for updates', exact: true }).click()
-    await expect(page.locator('[data-slot="skill-row"]')).toContainText('Update available')
+    await expect(page.locator('[data-slot="skill-card"]')).toContainText('Update available')
     await frame(page, `row-${theme}`)
     const sheet = await openSkill(page)
     await expect(sheet.getByText('Update available', { exact: true })).toBeVisible()
@@ -46,7 +47,7 @@ for (const theme of ['light', 'dark'] as const) {
     await plan.getByRole('button', { name: 'Apply 1 change', exact: true }).click()
     await expect(plan.getByTestId('apply-summary')).toHaveText('1 change made.')
     await plan.getByRole('button', { name: 'Close', exact: true }).last().click()
-    await expect(page.locator('[data-slot="skill-row"]')).not.toContainText('Update available')
+    await expect(page.locator('[data-slot="skill-card"]')).not.toContainText('Update available')
   })
   test(`Library edited-copy update review ${theme}`, async ({ page }) => {
     await openFrame(page, 'library-updates=edited', theme)

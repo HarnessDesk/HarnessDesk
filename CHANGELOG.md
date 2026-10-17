@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Skills are cards under filter chips.** The Library's skills page is now a grid of cards with filter chips (All, Needs you, One runtime, Nobody) and an Add skill menu; the problems stay on the card, and the list view is replaced by cards and the matrix.
+
 - **Page sections read as headings.** Page section headings are a size larger
   and bolder, so the groups on the Teams, Agents, Library and Plugins pages
   read as headings rather than labels.

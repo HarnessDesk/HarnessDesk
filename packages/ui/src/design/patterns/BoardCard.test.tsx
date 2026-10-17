@@ -55,3 +55,19 @@ it('renders an ordinary detail without the attention flag', async () => {
   expect(host.querySelector('svg')).toBeNull()
  } finally {await act(async()=>root.unmount())}
 })
+
+it('owns bounded detail, presence marks and one finding without a footer', async () => {
+ const host=document.createElement('div'),root=createRoot(host)
+ try {
+  await act(async()=>root.render(<BoardCard label="Review" title="Review" detail="Read the diff" detailLines={2}
+    marks={{label:'Loaded by 1 of 2 runtimes',items:[{id:'alpha',title:'Alpha: Reaches',active:true,mark:'A'},
+      {id:'beta',title:'Beta: Refused',active:false,attention:true,mark:'B'}]}}
+    finding={{text:'Refused by Beta',tone:'warn',id:'finding'}} onOpen={()=>{}} />))
+  expect(host.querySelector('[data-detail-lines="2"]')).toBeTruthy()
+  expect(host.querySelector('[aria-label="Loaded by 1 of 2 runtimes"]')).toBeTruthy()
+  expect(host.querySelector('[title="Beta: Refused"]')?.getAttribute('data-mark-active')).toBe('false')
+  expect(host.querySelector('[title="Beta: Refused"]')?.hasAttribute('data-mark-attention')).toBe(true)
+  expect(host.querySelectorAll('[data-card-finding]')).toHaveLength(1)
+  expect(host.querySelector('[data-card-finding] svg')).toBeTruthy()
+ } finally { await act(async()=>root.unmount()) }
+})

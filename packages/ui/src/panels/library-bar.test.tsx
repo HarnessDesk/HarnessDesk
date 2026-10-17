@@ -8,71 +8,64 @@ import { TopBarProvider, TopBarOutlet } from './top-bar'
 import { LibraryBar } from './library-bar'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-it('names Library in the body beside its verb and counted sections', async () => {
+it.each(['skill', 'mcp'] as const)('%s keeps counted sections and the appropriate action menus', async kind => {
   const box = document.createElement('div'); document.body.append(box)
   const root = createRoot(box), importing = vi.fn(), rescan = vi.fn(), check = vi.fn(), change = vi.fn(), author = vi.fn(), github = vi.fn()
   const snapshot = emptySnapshot()
-  const store = {subscribe:()=>()=>{},getSnapshot:()=>snapshot} as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  const click = async (name: string, role = 'menuitem') => {
+    const node = [...document.body.querySelectorAll<HTMLElement>(`[role="${role}"]`)].find(n => n.textContent === name)!
+    expect(node).toBeTruthy()
+    await act(async () => node.click())
+  }
+  const more = async () => act(async () => box.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
+  const add = async () => act(async () => box.querySelector<HTMLButtonElement>('[title="Add skill"]')!.click())
   try {
     await act(async () => root.render(<StoreProvider store={store}><TopBarProvider>
-      <DestinationPageScope owner="destination:library" active><LibraryBar kind="skill" counts={{skill:4,mcp:2}}
-        change={change} loaded loading={false} author={author} importing={importing} github={github} checking={false} check={check} rescan={rescan}/></DestinationPageScope>
-      <TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}}/>
+      <DestinationPageScope owner="destination:library" active><LibraryBar kind={kind} counts={{ skill: 4, mcp: 2 }} change={change} loaded loading={false}
+        author={author} importing={importing} github={github} checking={false} check={check} rescan={rescan} /></DestinationPageScope>
+      <TopBarOutlet owner="destination:library" fallback={{ place: 'Fallback', more: () => null }} />
     </TopBarProvider></StoreProvider>))
     expect(box.querySelector('[data-topbar-title]')).toBeNull()
-    expect(box.querySelector('[data-topbar="place"]')?.textContent).not.toContain('Settings')
-    expect(box.querySelector('[data-slot="top-bar"] [role="tab"]')).toBeNull()
-    const controls = box.querySelector('[data-slot="page-options"]')!
-    expect(controls).not.toBeNull()
-    expect(controls.querySelector('h1')?.textContent).toBe('Library')
-    expect(controls.querySelector('[data-page-head] button')?.textContent).toBe('New skill')
-    expect(controls.querySelector('[title="Library sections"]')?.textContent).toBe('Skills4')
-    await act(async () => controls.querySelector<HTMLButtonElement>('button')!.click())
-    expect(author).toHaveBeenCalledOnce()
-    await act(async () => controls.querySelector<HTMLButtonElement>('[title="Library sections"]')!.click())
-    const sections = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
-    expect(sections.map(node => node.textContent)).toEqual(['Skills4', 'MCP servers2'])
-    await act(async () => sections.find(node => node.textContent?.startsWith('MCP servers'))!.click())
-    expect(change).toHaveBeenCalledWith('mcp')
-    await act(async () => box.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
-    const actions = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    const labels = actions.map(node=>node.textContent)
-    expect(labels.filter(label=>label==='Import')).toHaveLength(1)
-    expect(labels.filter(label=>label==='Rescan')).toHaveLength(1)
-    expect(labels.indexOf('Add from GitHub…')).toBe(labels.indexOf('Import') + 1)
-    expect(labels.indexOf('Check for updates')).toBe(labels.indexOf('Add from GitHub…') + 1)
-    await act(async () => actions.find(node=>node.textContent==='Check for updates')!.click())
-    expect(check).toHaveBeenCalledOnce()
-    await act(async () => box.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
-    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node=>node.textContent==='Add from GitHub…')!.click())
-    expect(github).toHaveBeenCalledOnce()
-    await act(async () => box.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
-    expect(labels).not.toContain('Terminal')
-    expect(labels).not.toContain(['Back', 'to', 'app'].join(' '))
-    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node=>node.textContent==='Import')!.click())
-    expect(importing).toHaveBeenCalledOnce()
-    expect(rescan).not.toHaveBeenCalled()
+    expect(box.querySelector('h1')?.textContent).toBe('Library')
+    expect(box.querySelector('[title="Library sections"]')?.textContent).toBe(kind === 'skill' ? 'Skills4' : 'MCP servers2')
+    if (kind === 'skill') {
+      await add()
+      expect([...document.querySelectorAll('[role="menuitem"]')].map(n => n.textContent)).toEqual(['Write a skill', 'From GitHub…', 'Copy from another runtime…'])
+      await click('Write a skill'); expect(author).toHaveBeenCalledOnce()
+      await add(); await click('From GitHub…'); expect(github).toHaveBeenCalledOnce()
+      await add(); await click('Copy from another runtime…'); expect(importing).toHaveBeenCalledOnce()
+    } else {
+      await act(async () => box.querySelector<HTMLButtonElement>('[aria-label="New skill"]')!.click())
+      expect(author).toHaveBeenCalledOnce()
+      await more(); await click('Import'); expect(importing).toHaveBeenCalledOnce()
+      await more(); await click('Add from GitHub…'); expect(github).toHaveBeenCalledOnce()
+    }
+    await more()
+    const labels = [...document.querySelectorAll('[role="menuitem"]')].map(n => n.textContent)
+    expect(labels).toEqual(kind === 'skill' ? ['Check for updates', 'Rescan'] : ['Import', 'Add from GitHub…', 'Check for updates', 'Rescan'])
+    await click('Check for updates'); expect(check).toHaveBeenCalledOnce()
+    await more(); await click('Rescan'); expect(rescan).toHaveBeenCalledOnce()
+    await act(async () => box.querySelector<HTMLButtonElement>('[title="Library sections"]')!.click())
+    const choice = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(n => n.textContent === 'MCP servers2')!
+    await act(async () => choice.click()); expect(change).toHaveBeenCalledWith('mcp')
   } finally { act(() => root.unmount()); box.remove() }
 })
-
-it('disables GitHub and Import until the library has been read', async () => {
+it('disables Add skill and Check for updates until the library has been read', async () => {
   const box = document.createElement('div'); document.body.append(box)
   const root = createRoot(box), github = vi.fn()
   const snapshot = emptySnapshot()
-  const store = {subscribe:()=>()=>{},getSnapshot:()=>snapshot} as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
   try {
     await act(async () => root.render(<StoreProvider store={store}><TopBarProvider>
-      <DestinationPageScope owner="destination:library" active><LibraryBar kind="skill" counts={{skill:0,mcp:0}}
-        change={()=>{}} loaded={false} loading author={()=>{}} importing={()=>{}} github={github} checking={false} check={()=>{}} rescan={()=>{}} /></DestinationPageScope>
-      <TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}}/>
+      <DestinationPageScope owner="destination:library" active><LibraryBar kind="skill" counts={{skill:0,mcp:0}} change={()=>{}} loaded={false} loading
+        author={()=>{}} importing={()=>{}} github={github} checking={false} check={()=>{}} rescan={()=>{}} /></DestinationPageScope>
+      <TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}} />
     </TopBarProvider></StoreProvider>))
+    expect(box.querySelector<HTMLButtonElement>('[title="The library has not been read."]')?.disabled).toBe(true)
     await act(async () => box.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
-    for (const label of ['Import', 'Add from GitHub…', 'Check for updates']) {
-      const item = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(n=>n.textContent===label)!
-      expect(item).toBeTruthy()
-      expect(item.getAttribute('aria-disabled')).toBe('true')
-      await act(async () => item.click())
-    }
+    const check = [...document.querySelectorAll('[role="menuitem"]')].find(n => n.textContent === 'Check for updates')!
+    expect(check.getAttribute('aria-disabled')).toBe('true')
     expect(github).not.toHaveBeenCalled()
   } finally { act(() => root.unmount()); box.remove() }
 })

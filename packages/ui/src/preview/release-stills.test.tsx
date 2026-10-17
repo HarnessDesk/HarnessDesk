@@ -10,11 +10,7 @@ import { RUN_FLOW_SOURCE } from './run-view-fixture'
 installTopBarTestLayout()
 const settle = () => act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
 const selectLibraryMatrix = async (host: ParentNode): Promise<void> => {
-  const trigger = host.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"][title="How to show the library"]')
-  expect(trigger).toBeTruthy()
-  await act(async () => trigger!.click())
-  const matrix = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
-    .find(node => node.textContent?.trim() === 'Matrix')
+  const matrix = host.querySelector<HTMLButtonElement>('[role="radio"][aria-label="Matrix"]')
   expect(matrix).toBeTruthy()
   await act(async () => matrix!.click())
 }
