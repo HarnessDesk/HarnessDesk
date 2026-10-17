@@ -241,7 +241,7 @@ test('notices retain optional action and dismiss controls', async ({ page }) => 
 
   await openBoard(page, 'Notice')
   const banner = page.locator('[data-alignment-board-id="notices"] [data-slot="alert"]')
-    .filter({ hasText: 'A newer version of the agent is available.' })
+    .filter({ hasText: 'A newer version of the runtime is available.' })
   await expect(banner.getByRole('button', { name: 'Dismiss' })).toBeVisible()
   await expect(banner.getByRole('button', { name: 'Open settings' })).toHaveCount(0)
 })
