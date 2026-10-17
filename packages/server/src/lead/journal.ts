@@ -166,6 +166,7 @@ export class LeadFileJournal implements LeadJournalStorage {
       !Number.isSafeInteger(anchor.seq) || anchor.seq < 0 || !/^[a-f0-9]{64}$/.test(anchor.hash) || !/^[a-f0-9]{64}$/.test(anchor.segments))
       throw new Error('lead-journal-invalid-anchor')
     let segments = this.#segments()
+    if (anchor.seq === 0 && segments.length > 0) throw new Error('lead-journal-invalid-genesis')
     if (this.#segmentHead !== anchor.segments) throw new Error('lead-journal-segment-anchor')
     const rotation = this.#get<Rotation | null>('rotation', null)
     if (rotation) {

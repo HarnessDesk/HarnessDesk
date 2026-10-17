@@ -236,7 +236,7 @@ test('exact canaries refuse one record without latching and secret variables use
     brokerReference: (_value: string, name: string) => name === 'api_key' ? 'broker:input-1' : null })
   await journal.setPolicy(policy)
   await assert.rejects(journal.offerCard({ ...plan, contract: { ...contract, goal: canary } }))
-  const offered = await journal.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { api_key: 'synthetic-worker-input' } }] } })
+  const offered = await journal.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { api_key: 'SYNTHETIC_INPUT' } }] } })
   assert.equal(offered.contract.steps[0].variables.api_key, 'broker:input-1')
   assert.equal(offered.contractDigest, 'b'.repeat(64))
   assert.ok(!JSON.stringify(storage.records).includes(canary))
@@ -432,7 +432,7 @@ test('canaries are refused in every raw key and value before any broker or maski
     { ...plan, id: canary },
     { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], sourceRevision: canary }] } },
     { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { [canary]: 'ordinary' } }] } },
-    { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { api_key: 'synthetic-worker-input' } }], assertions: [{ ...contract.assertions[0], description: canary }] } },
+    { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { api_key: 'SYNTHETIC_INPUT' } }], assertions: [{ ...contract.assertions[0], description: canary }] } },
     { ...plan, id: canary, contract: { ...contract, goal: canary, steps: [{ ...contract.steps[0], variables: { api_key: canary } }] } },
   ]
   for (const card of variants) {
@@ -470,11 +470,11 @@ test('secret variable names are anchored and cookie authorization bearer values 
   for (const name of ['api_key', 'apikey', 'access_token', 'token', 'secret', 'password', 'Cookie', 'AUTHORIZATION', 'bearer', 'provider_api_key']) {
     const storage = memory(), journal = await open(storage, { digestContract: () => 'b'.repeat(64), brokerReference: () => 'broker:input-1' })
     await journal.setPolicy(policy)
-    const offered = await journal.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { [name]: 'synthetic-worker-input' } }] } })
+    const offered = await journal.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { [name]: 'SYNTHETIC_INPUT' } }] } })
     assert.equal(offered.contract.steps[0].variables[name], 'broker:input-1', name)
     const withoutBroker = await open(memory())
     await withoutBroker.setPolicy(policy)
-    await assert.rejects(withoutBroker.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { [name]: 'synthetic-worker-input' } }] } }), /broker-reference/)
+    await assert.rejects(withoutBroker.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { [name]: 'SYNTHETIC_INPUT' } }] } }), /broker-reference/)
   }
 })
 

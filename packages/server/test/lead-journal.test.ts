@@ -336,7 +336,7 @@ test('masked card prose and broker variable references reach disk before their n
   await journal.setPolicy(policy)
   const contract = { version: 1 as const, revision: 1, digest: 'a'.repeat(64), goal: `Fix authorization middleware ${token}; Cookie: session=synthetic-cookie-91b0c2d3`,
     project: { id: 'project-demo', path: '/workspace/demo' }, policyRevision: 1,
-    steps: [{ id: 'implement', title: 'Implement', flow: 'lead-reviewed-result', sourceRevision: 'source-1', variables: { api_key: 'synthetic-worker-input' },
+    steps: [{ id: 'implement', title: 'Implement', flow: 'lead-reviewed-result', sourceRevision: 'source-1', variables: { api_key: 'SYNTHETIC_INPUT' },
       attendance: 'attended' as const, assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' as const }, ceiling: 'edit' as const }] }],
     assertions: [{ id: 'check', kind: 'check' as const, description: 'Checks pass' }], caps: { usdMicros: 500, rounds: 3 } }
   const offered = await journal.offerCard({ version: 1, id: 'plan-1', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
@@ -417,7 +417,7 @@ test('core canaries cannot be bypassed by disk preparation and dual configuratio
 test('a missing or unreadable head cannot authenticate a forged checkpoint', async t => {
   const { createHash } = await import('node:crypto')
   const { DatabaseSync } = await import('node:sqlite')
-  for (const damage of ['missing', 'unreadable', 'genesis']) {
+  for (const damage of ['missing', 'unreadable', 'genesis', 'genesis-empty']) {
     const home = await scratch(t)
     await seedReads(home, 256)
     const disk = await open(home)
@@ -427,7 +427,7 @@ test('a missing or unreadable head cannot authenticate a forged checkpoint', asy
     const frame = JSON.parse(frames[0]!)
     frame.record.state.phase = 'running'
     frame.checksum = createHash('sha256').update(JSON.stringify({ record: frame.record, previous: frame.previous })).digest('hex')
-    await fs.writeFile(file, JSON.stringify(frame) + '\n')
+    await fs.writeFile(file, damage === 'genesis-empty' ? '' : JSON.stringify(frame) + '\n')
     const db = new DatabaseSync(join(home, 'lead', 'thread-1.writer.sqlite'))
     if (damage === 'missing') db.exec("DELETE FROM journal WHERE key = 'head'")
     else if (damage === 'unreadable') db.prepare("UPDATE journal SET value = ? WHERE key = 'head'").run('{"unreadable":')
