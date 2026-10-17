@@ -1385,5 +1385,62 @@ test('a reconciliation record cannot revive a start the window resolved as never
   const template = storage.records.find((record: any) => record.type === 'reconciliation')
   const identity = witnessed()
   storage.records.push({ ...template, seq: journal.state.seq + 1, identity, count: 1, evidence: JSON.stringify([runEvidence(identity)]) })
-  await assert.rejects(open(storage))
+  await assert.rejects(open(storage), /lead-(journal-transition|budget-refused)/)
+})
+
+const wideTwoStepPlan = async (storage: any = memory()) => {
+  const journal = await open(storage)
+  const wide = { ...contract, caps: { ...contract.caps, rounds: 100 }, steps: [...contract.steps, { ...contract.steps[0]!, id: 'second' }] }
+  await journal.setPolicy(policy)
+  await journal.offerCard({ ...plan, contract: wide })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: wide.caps, freshnessMs: 50 })
+  await journal.decideCard(click, 200)
+  return { journal, storage, next: { ...request, start: wide.steps[1]! } }
+}
+const observeAll = (journal: any) => journal.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal',
+  sourceIds: ['corpus-1'], goalId: 'team-1', executionIds: journal.state.budget.executionIds, quality: 'known', usdMicros: 0 })
+const sixtyFour = (correlationId: string, terminal = false) => Array.from({ length: 64 }, (_, i) => runEvidence({ correlationId, runId: `${correlationId}-${i + 1}`, teamId: 'team-1' }, terminal))
+
+test('a live run left out because the run index is full contests its start', async () => {
+  const { journal, next } = await wideTwoStepPlan()
+  await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
+    identity: { correlationId: 'first', runId: 'first-1', teamId: 'team-1' } }))
+  await journal.recover(async () => sixtyFour('first'))
+  await observeAll(journal)
+  const started = await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => { throw new Error('lost response') })
+  assert.equal(started.outcome, 'uncertain')
+  const actions = await journal.recover(async (attempt: any) => attempt.id === 'first' ? sixtyFour('first')
+    : [runEvidence({ correlationId: 'second', runId: 'run-b', teamId: 'team-1' })])
+  assert.deepEqual(actions.map((action: any) => [action.id, action.type]), [['second', 'needs-user']])
+  assert.equal(journal.state.budget.stop.reason, 'unknown-spend')
+  await assert.rejects(journal.resolveStart('second', null), 'the host reported a run under this start')
+})
+
+test('a crash after contesting a start keeps it contested on reopen', async () => {
+  const { journal, storage } = await lostStart()
+  await journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'team-existing', executionId: 'earlier-run' })
+  storage.failOn('reconciliation')
+  await assert.rejects(journal.recover(async () => [runEvidence(witnessed())]))
+  storage.failOn(null)
+  const reopened = await open(storage)
+  assert.equal(reopened.state.attempts.get('lost').contested, true)
+  await reopened.recover(async () => [])
+  await assert.rejects(reopened.resolveStart('lost', null))
+})
+
+test('a start resolved as never started is not looked up again and cannot block a later start', async () => {
+  const { journal } = await wideTwoStepPlan()
+  await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => { throw new Error('lost response') })
+  await journal.recover(async () => sixtyFour('first', true))
+  await journal.resolveStart('first', null)
+  assert.equal(journal.state.attempts.get('first').outcome, 'failed')
+  await observeAll(journal)
+  const started = await journal.execute({ id: 'second', request, context, stepId: 'implement' }, async () => { throw new Error('lost response') })
+  assert.equal(started.outcome, 'uncertain')
+  const asked: string[] = []
+  await journal.recover(async (attempt: any) => { asked.push(attempt.id); return attempt.id === 'first'
+    ? [...sixtyFour('first', true), runEvidence({ correlationId: 'first', runId: 'late', teamId: 'team-1' })]
+    : [runEvidence({ correlationId: 'second', runId: 'run-b', teamId: 'team-1' })] })
+  assert.deepEqual(asked, ['second'])
+  assert.ok(journal.state.runs.some((run: any) => run.runId === 'run-b'))
 })

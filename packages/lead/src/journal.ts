@@ -5,7 +5,7 @@ import {
 import { decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, assertPlanApprovable, type LeadAttemptState, type LeadState } from './state.js'
+import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, assertPlanApprovable, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 
 export const LEAD_JOURNAL_BYTES = 1_048_576
@@ -369,6 +369,40 @@ export class LeadJournal {
     if (budget) { if (!budget.accountingIncomplete) await this.#append({ type: 'budget', event: { version: 1, type: 'stop', now: budget.now, reason: 'unknown-spend' } }) }
     else if (this.#state.phase !== 'stopped') await this.#append({ type: 'stop' })
   }
+  /** Records what a lookup proved about one start. Any observed row left out of
+   * the record (contradicted, foreign, beyond the bound, or beside an omitted
+   * tracked run) contests the start before its evidence is written: spend
+   * becomes unknown and the window can no longer attest that nothing started. */
+  async #record(id: string, rows: readonly LeadRunObservation[], conflict: boolean): Promise<LeadRecoveryAction | null> {
+    const attempt = () => this.#state.attempts.get(id)!
+    const correlationId = attempt().correlationId
+    const known = attempt().evidence === null ? [] : parseLeadRunEvidence(attempt().evidence).map(run => run.runId)
+    // A tracked run the lookup omits has not ended, and its row is the proof replay needs.
+    const omitted = (fitted: readonly LeadRunObservation[]) => this.#state.runs.some(run => run.correlationId === correlationId && !fitted.some(row => row.runId === run.runId))
+    const first = this.#fitEvidence(correlationId, rows)
+    const contest = conflict || first.length < rows.length || omitted(first) && rows.some(row => !known.includes(row.runId))
+    if (contest) {
+      await this.#failClosed()
+      if (!attempt().contested) await this.#append({ type: 'reconciliation-conflict', id })
+    }
+    // Replay needs every tracked run in the next record, so a run that finishing
+    // runs make room for is recorded by a second record against the new state.
+    let recorded = false
+    for (let pass = 0; pass < 2; pass++) {
+      const fitted = pass === 0 ? first : this.#fitEvidence(correlationId, rows)
+      if (omitted(fitted)) break
+      const evidence = JSON.stringify(sortEvidence(fitted))
+      if (evidence === attempt().evidence) break
+      const live = fitted.filter(run => !run.terminal)
+      await this.#append({ type: 'reconciliation', id, identity: live.length === 1 ? runIdentity(live[0]!) : null, count: live.length, evidence })
+      recorded = true
+      if (fitted.length === rows.length) break
+    }
+    if (contest) return { id, type: 'needs-user' }
+    if (!recorded) return null
+    const live = parseLeadRunEvidence(attempt().evidence!).filter(run => !run.terminal)
+    return { id, type: live.length === 1 ? 'reconciled' : 'needs-user', count: live.length }
+  }
   /** The host lookup must return every non-terminal run carrying this start's
    * correlation, plus explicit terminal observations for runs that have ended.
    * Every identity proves project membership and its first-round id. Omission,
@@ -376,10 +410,7 @@ export class LeadJournal {
   recover(reconcile: (attempt: { id: string; correlationId: string; method: string }) => Promise<readonly LeadRunObservation[]>): Promise<readonly LeadRecoveryAction[]> {
     return this.#queue(async () => {
       const actions: LeadRecoveryAction[] = []
-      // A start whose evidence is full may have had a live run left for a second
-      // record, so it is looked up again even when nothing it tracks is live.
-      const full = (attempt: LeadAttemptState) => attempt.evidence !== null && parseLeadRunEvidence(attempt.evidence).length >= LEAD_EVIDENCE_ROWS
-      for (const pending of [...this.#state.attempts.values()].filter(attempt => !attempt.recoveryReported && (attempt.phase !== 'finished' || attempt.outcome === 'uncertain' || attempt.resolutionPending || full(attempt) || this.#state.runs.some(run => run.correlationId === attempt.correlationId)))) {
+      for (const pending of [...this.#state.attempts.values()].filter(attempt => !attempt.recoveryReported && (attempt.phase !== 'finished' || attempt.outcome === 'uncertain' || attempt.resolutionPending || this.#state.runs.some(run => run.correlationId === attempt.correlationId)))) {
         if (pending.phase === 'attempted') await this.#append({ type: 'decision', id: pending.id, effect: 'deny', reason: 'recovery', rule: null })
         if (pending.phase === 'attempted' || pending.phase === 'decided') await this.#append({ type: 'dispatch-start', id: pending.id, dispatched: false })
         if (pending.phase !== 'finished') await this.#append({ type: 'result', id: pending.id,
@@ -413,34 +444,11 @@ export class LeadJournal {
           } else retained.set(run.runId, run)
         }
         const rows = [...retained.values()]
-        // Replay needs every tracked run in the next record, so a run that finishing
-        // runs make room for is recorded by a second record against the new state.
-        let recorded = false
-        for (let pass = 0; pass < 2; pass++) {
-          const fitted = this.#fitEvidence(pending.correlationId, rows)
-          // A tracked run the lookup omits has not ended, and its row is the proof
-          // replay needs: record nothing, and fail closed if rows go unrecorded.
-          const current = this.#state.attempts.get(pending.id)!
-          const known = current.evidence === null ? [] : parseLeadRunEvidence(current.evidence).map(run => run.runId)
-          const omitted = this.#state.runs.some(run => run.correlationId === pending.correlationId && !fitted.some(row => row.runId === run.runId))
-          // Contradicted or unrepresentable history makes spend unknown: latch the stop
-          // durably before anything else, so nothing can throw first.
-          if (conflict || fitted.length < rows.length || omitted && rows.some(row => !known.includes(row.runId))) await this.#failClosed()
-          if (omitted) { conflict ||= rows.some(row => !known.includes(row.runId)); break }
-          const evidence = JSON.stringify(sortEvidence(fitted))
-          if (evidence === current.evidence) break
-          const live = fitted.filter(run => !run.terminal)
-          await this.#append({ type: 'reconciliation', id: pending.id, identity: live.length === 1 ? runIdentity(live[0]!) : null, count: live.length, evidence })
-          recorded = true
-          if (fitted.length === rows.length) break
-        }
-        if (recorded && !conflict) {
-          const live = parseLeadRunEvidence(this.#state.attempts.get(pending.id)!.evidence!).filter(run => !run.terminal)
-          actions.push({ id: pending.id, type: live.length === 1 ? 'reconciled' : 'needs-user', count: live.length })
-        }
-        if (conflict) {
-          const current = this.#state.attempts.get(pending.id)!
-          if (current.evidence !== null && (!current.contested || current.outcome !== 'uncertain' || !current.resolutionPending)) await this.#append({ type: 'reconciliation-conflict', id: pending.id })
+        try { const action = await this.#record(pending.id, rows, conflict); if (action) actions.push(action) } catch (error) {
+          // A record replay refuses must not strand the starts after it. A storage
+          // failure has already stopped the writer and is the caller's to see.
+          if (this.#failed) throw error
+          await this.#failClosed()
           actions.push({ id: pending.id, type: 'needs-user' })
         }
       }
