@@ -2,7 +2,7 @@ import { recommendAcpOptions } from './recommendations.js'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, extname, isAbsolute, join } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   approvalId,
@@ -116,7 +116,7 @@ import {
   type AcpDelegationUsage,
 } from '@harnessdesk/transport-acp'
 
-import { CliAccount, type AcpAccountCommands } from './account.js'
+import { CliAccount, type AcpAccountCommands, type AcpCommandSpec } from './account.js'
 import { attachmentsMeta, decodeAttachmentCapability, toAttachmentSupport, validateAttachmentReceipt } from './attachments.js'
 import { AcpExtensions } from './extensions.js'
 import { resolveExecutable, versionAtLeast, type AcpExecutableSpec, type ResolvedExecutable } from './executable.js'
@@ -981,7 +981,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#providerRead = this.#refreshProvider()
     this.#account = config.account
       ? new CliAccount(
-          config.account,
+          () => this.#accountCommands(),
           runtimeId(config.id),
           (event) => this.#accountEvent(event),
           (message, details) => config.logger?.debug?.(message, details),
@@ -1438,6 +1438,41 @@ export class AcpRuntime implements AgentRuntime {
         command: spec.command,
       })
     }
+  }
+
+  /**
+   * The row's account commands as this row runs them (#1761). They ran with
+   * the desk's own environment and the bare name the agent table gives, so a
+   * row whose environment moves the agent's home — `CLAUDE_CONFIG_DIR`,
+   * `GROK_HOME` — asked, signed in and signed out the default account, and a
+   * row whose start chose a particular install asked whichever copy came
+   * first on PATH. Each now takes the environment the agent is started with,
+   * under the command's own, and a command that names the agent's CLI runs
+   * the copy this start chose. Before a start has chosen one, the name is
+   * run as written, as it always was.
+   */
+  #accountCommands(): AcpAccountCommands {
+    const { account = {}, env } = this.#config
+    const launch = this.#launch && !('blocked' in this.#launch) ? this.#launch : null
+    const place = <T extends AcpCommandSpec>(spec: T): T => ({
+      ...spec,
+      command: this.#chosenCopyOf(spec.command, launch),
+      env: { ...env, ...launch?.env, ...spec.env },
+    })
+    return {
+      ...(account.status ? { status: place(account.status) } : {}),
+      ...(account.login ? { login: place(account.login) } : {}),
+      ...(account.logout ? { logout: place(account.logout) } : {}),
+    }
+  }
+
+  /** The path this start chose for `command` when it names the agent's own CLI, else `command`. */
+  #chosenCopyOf(command: string, launch: Extract<AcpLaunchDecision, { command: string }> | null): string {
+    const name = cliName(command)
+    if (launch && (name === cliName(launch.command) || name === cliName(this.#config.command))) return launch.command
+    const executable = this.#config.executable
+    if (executable && this.#executable && name === cliName(executable.command)) return this.#executable.path
+    return command
   }
 
   #resolveExecutable(spec: AcpExecutableSpec): Promise<ResolvedExecutable | null> {
@@ -3743,6 +3778,8 @@ type SignInObservation =
  * them back; the agent's own id is whatever follows.
  */
 const ACP_METHOD = 'acp:'
+/** A command's name without its folder or a Windows launcher's extension: `/opt/bin/claude` and `claude.cmd` are both `claude`. */
+const cliName = (command: string): string => basename(command).replace(/\.(exe|cmd|bat)$/i, '')
 /** Said when the key an agent was told to use is taken away (`#authenticateWithStoredKey`). */
 const KEY_REMOVED = 'Its key was removed. Sign in again, or store a key.'
 
