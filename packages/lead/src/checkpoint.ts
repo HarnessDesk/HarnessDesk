@@ -1,5 +1,5 @@
 import { parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
-import { parseLeadJournalRecord, parseLeadRunIdentity } from './journal.js'
+import { parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
 import { initialLeadState, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
 
@@ -46,13 +46,17 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     assert(Array.isArray(entry) && entry.length === 2)
     const [key, attempt] = entry
     assert(key === attempt.id && !attempts.has(key))
-    assert(Object.keys(attempt).sort().join() === ['id', 'correlationId', 'method', 'action', 'kind', 'stepId', 'arguments', 'phase', 'effect', 'dispatched', 'outcome', 'recoveryReported', 'evidence'].sort().join())
+    assert(Object.keys(attempt).sort().join() === ['id', 'correlationId', 'method', 'action', 'kind', 'stepId', 'arguments', 'phase', 'effect', 'dispatched', 'outcome', 'recoveryReported', 'evidence', 'evidenceSeq'].sort().join())
     parseLeadJournalRecord({ version: 1, seq: 1, type: 'attempt', id: key, correlationId: attempt.correlationId, method: attempt.method, action: attempt.action,
       kind: attempt.kind, stepId: attempt.stepId, arguments: attempt.arguments, policyRevision: null, projectPolicyRevision: null, contractRevision: null })
     assert(['attempted', 'decided', 'started', 'finished'].includes(attempt.phase) && [null, 'allow', 'ask', 'deny'].includes(attempt.effect))
     assert(typeof attempt.dispatched === 'boolean' && typeof attempt.recoveryReported === 'boolean')
     assert([null, 'succeeded', 'failed', 'denied', 'asked', 'malformed', 'uncertain', 'interrupted'].includes(attempt.outcome))
-    assert(attempt.evidence === null || typeof attempt.evidence === 'string' && attempt.evidence.length <= 131_072)
+    if (attempt.evidence === null) assert(attempt.evidenceSeq === null)
+    else {
+      assert(Number.isSafeInteger(attempt.evidenceSeq) && attempt.evidenceSeq! > 0 && attempt.evidenceSeq! <= source.seq)
+      assert(parseLeadRunEvidence(attempt.evidence).every(identity => identity.correlationId === attempt.correlationId))
+    }
     attempts.set(key, structuredClone(attempt))
   }
   if (source.consent !== null) {

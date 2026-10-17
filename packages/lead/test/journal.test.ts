@@ -917,7 +917,8 @@ for (const found of [false, true]) test(`window start resolution durably ${found
   assert.equal(journal.state.attempts.get('lost').outcome, 'uncertain')
   assert.equal(typeof journal.resolveStart, 'function')
   await assert.rejects(journal.resolveStart('lost', { goalId: 'goal-1', identity: { correlationId: 'wrong', runId: 'run-1', teamId: 'team-1' } }))
-  await journal.resolveStart('lost', found ? { goalId: 'goal-1', identity: { correlationId: 'lost', runId: 'run-1', teamId: 'team-1' } } : null)
+  if (found) await journal.recover(async () => [{ correlationId: 'lost', runId: 'run-1', teamId: 'team-1' }])
+  await journal.resolveStart('lost', found ? { goalId: 'team-1', identity: { correlationId: 'lost', runId: 'run-1', teamId: 'team-1' } } : null)
   const restored: any = await checkpointOpen(await open(storage))
   assert.equal(restored.state.attempts.get('lost').outcome, found ? 'succeeded' : 'failed')
   assert.equal(restored.state.steps[0].state, found ? 'started' : 'pending')
@@ -952,8 +953,119 @@ test('above-range reported usage denies the next Flow instead of retaining known
 })
 
 test('start resolution records reject mismatched nullable fields and unknown fields', () => {
-  const record = { version: 1, seq: 1, type: 'start-resolution', id: 'lost', identity: null, goalId: null }
+  const record = { version: 1, seq: 1, type: 'start-resolution', id: 'lost', identity: null, goalId: null, evidenceSeq: 1 }
   assert.deepEqual(lead.parseLeadJournalRecord(record), record)
   for (const patch of [{ goalId: 'goal-1' }, { identity: { correlationId: 'lost', runId: 'run-1', teamId: 'team-1' } },
     { extra: true }, { id: '' }]) assert.throws(() => lead.parseLeadJournalRecord({ ...record, ...patch }))
+})
+
+
+const lostStart = async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.execute({ id: 'lost', request, context, stepId: 'implement' }, async () => { throw new Error('lost response') })
+  return { storage, journal }
+}
+const witnessed = (runId = 'run-a', teamId = 'team-1') => ({ correlationId: 'lost', runId, teamId })
+
+for (const value of [{}, false, 'no run', undefined, { identity: null, goalId: null }, []]) test(`malformed start resolution ${JSON.stringify(value)} cannot attest no run`, async () => {
+  const { journal } = await lostStart()
+  await journal.recover(async () => [])
+  const before = journal.state.seq
+  await assert.rejects(journal.resolveStart('lost', value))
+  assert.equal(journal.state.seq, before)
+  assert.equal(journal.state.budget.roundsAdmitted, 1)
+  assert.equal(journal.state.budget.spend, 'unknown')
+  await journal.resolveStart('lost', null)
+  await journal.stop()
+})
+
+test('omitted start resolution is refused without latching the writer', async () => {
+  const { journal } = await lostStart()
+  await journal.recover(async () => [])
+  await assert.rejects(journal.resolveStart('lost'))
+  await journal.stop()
+})
+
+for (const probe of [
+  { name: '3 foreign goal and Team', goalId: 'goal-OTHER', identity: witnessed('run-x', 'team-FOREIGN') },
+  { name: '3e unobserved run and Team', goalId: 'team-ZZ', identity: witnessed('run-z', 'team-ZZ') },
+]) test(`resolution probe ${probe.name} cannot invent host evidence`, async () => {
+  const { journal } = await lostStart()
+  await journal.recover(async () => [])
+  const before = journal.state
+  await assert.rejects(journal.resolveStart('lost', { goalId: probe.goalId, identity: probe.identity }))
+  assert.deepEqual(journal.state, before)
+  await journal.stop()
+})
+
+for (const release of [true, false]) test(`two-run evidence refuses probe ${release ? '3c release' : '3d partial binding'} across checkpoint and reopen`, async () => {
+  const { storage, journal } = await lostStart()
+  const identities = [witnessed('run-a'), witnessed('run-b')]
+  await journal.recover(async () => identities)
+  const restored: any = await checkpointOpen(await open(storage))
+  await assert.rejects(restored.resolveStart('lost', release ? null : { goalId: 'team-1', identity: identities[0] }))
+  assert.equal(restored.state.budget.roundsAdmitted, 1)
+  assert.equal(restored.state.budget.spend, 'unknown')
+  assert.deepEqual(restored.state.runs, identities)
+  let calls = 0
+  assert.equal((await restored.execute({ id: 'duplicate-start', request, context, stepId: 'implement' }, async () => { calls++; return { value: null, identity: null } })).outcome, 'denied')
+  assert.equal(calls, 0)
+  const cancellation = await restored.execute({ id: 'cancel-extra', request: { ...request, method: 'flow/execution/stop',
+    params: { run: 'run-b', reason: 'Resolve duplicate start' }, runId: 'run-b', start: null }, context },
+    async () => ({ value: null, identity: null }))
+  assert.equal(cancellation.outcome, 'succeeded')
+  // The trusted host now proves that the extra execution has stopped.
+  assert.equal((await restored.recover(async () => [identities[0]]))[0].type, 'reconciled')
+  const teamsBefore = restored.state.teams
+  await restored.resolveStart('lost', { goalId: 'team-1', identity: identities[0] })
+  assert.deepEqual(restored.state.teams, teamsBefore)
+  assert.deepEqual(restored.state.budget.executionIds, ['run-a'])
+  assert.equal(restored.state.budget.spend, 'unknown', 'a newly bound run still needs reported usage')
+})
+
+test('a proven resolution matches the existing budget Goal and the witnessed Team', async () => {
+  const { journal } = await lostStart()
+  const identity = witnessed()
+  await journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'team-1', executionId: 'earlier-run' })
+  await journal.recover(async () => [identity])
+  const before = journal.state
+  await assert.rejects(journal.resolveStart('lost', { goalId: 'goal-OTHER', identity }))
+  await assert.rejects(journal.resolveStart('lost', { goalId: 'team-1', identity: witnessed('run-z') }))
+  assert.deepEqual(journal.state, before)
+  await journal.resolveStart('lost', { goalId: 'team-1', identity })
+  assert.deepEqual(journal.state.teams, before.teams)
+  assert.equal(journal.state.budget.goalId, 'team-1')
+})
+
+test('a witnessed Team cannot be bound to a different already-bound Goal', async () => {
+  const { journal } = await lostStart()
+  await journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'team-existing', executionId: 'earlier-run' })
+  const identity = witnessed()
+  await journal.recover(async () => [identity])
+  await assert.rejects(journal.resolveStart('lost', { goalId: 'team-1', identity }))
+  await journal.stop()
+})
+
+test('a start resolution records exactly the reconciliation sequence it answered', async () => {
+  const { storage, journal } = await lostStart()
+  await journal.recover(async () => [])
+  const evidenceSeq = storage.records.at(-1).seq
+  await journal.resolveStart('lost', null)
+  assert.equal(storage.records.at(-1).evidenceSeq, evidenceSeq)
+  const restored: any = await checkpointOpen(await open(storage))
+  assert.equal(restored.state.attempts.get('lost').evidenceSeq, evidenceSeq)
+})
+
+
+test('a stale window resolution cannot answer a newer reconciliation with the same count', async () => {
+  const { storage, journal } = await lostStart()
+  await journal.recover(async () => [])
+  const stale = storage.records.at(-1).seq
+  await journal.recover(async () => [witnessed('run-a'), witnessed('run-b')])
+  await journal.recover(async () => [])
+  await assert.rejects(journal.resolveStart('lost', null, stale))
+  assert.equal(journal.state.budget.roundsAdmitted, 1)
+  const current = storage.records.at(-1).seq
+  await journal.resolveStart('lost', null, current)
+  assert.equal(storage.records.at(-1).evidenceSeq, current)
 })

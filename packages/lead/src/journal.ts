@@ -22,7 +22,7 @@ export type LeadJournalEvent =
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
   | { readonly type: 'card-decision'; readonly decision: LeadCardDecision; readonly expiresAt: number | null }
-  | { readonly type: 'start-resolution'; readonly id: string; readonly identity: LeadRunIdentity | null; readonly goalId: string | null }
+  | { readonly type: 'start-resolution'; readonly evidenceSeq: number; readonly id: string; readonly identity: LeadRunIdentity | null; readonly goalId: string | null }
   | { readonly type: 'stop-effects-done'; readonly stopSeq: number }
   | { readonly type: 'stop' | 'recovery-block' | 'recovery-resolved' }
   | { readonly type: 'recovery-report'; readonly id: string }
@@ -85,6 +85,15 @@ export const parseLeadRunIdentity = (value: unknown): LeadRunIdentity => {
   const source = object(value, ['correlationId', 'runId', 'teamId'])
   return { correlationId: identifier(source.correlationId), runId: identifier(source.runId), teamId: identifier(source.teamId) }
 }
+/** The host lookup's exact identity set is retained for both recovery and window decisions. */
+export const parseLeadRunEvidence = (value: unknown): readonly LeadRunIdentity[] => {
+  if (typeof value !== 'string' || value.length > 131_072) throw new Error('lead-journal-evidence')
+  const source: unknown = JSON.parse(value)
+  if (!Array.isArray(source) || source.length > 64) throw new Error('lead-journal-evidence')
+  const identities = source.map(parseLeadRunIdentity)
+  if (new Set(identities.map(identity => identity.runId)).size !== identities.length) throw new Error('lead-journal-evidence')
+  return identities
+}
 const safeBytes = (value: unknown): void => {
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > LEAD_JOURNAL_BYTES) throw new Error('lead-journal-record-limit')
 }
@@ -94,7 +103,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId'], 'stop-effects-done': ['stopSeq'],
+    budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
@@ -106,7 +115,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'start-resolution': {
       const identity = nullable(source.identity, parseLeadRunIdentity), goalId = nullable(source.goalId, identifier)
       if ((identity === null) !== (goalId === null)) throw new Error('lead-journal-start-resolution')
-      event = { type, id: identifier(source.id), identity, goalId }; break
+      event = { type, id: identifier(source.id), identity, goalId, evidenceSeq: integer(source.evidenceSeq, 1) }; break
     }
     case 'stop-effects-done': event = { type, stopSeq: integer(source.stopSeq, 1) }; break
     case 'budget': event = { type, event: parseLeadBudgetEvent(source.event) }; break
@@ -137,10 +146,11 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'result': event = { type, id: identifier(source.id), outcome: choice(source.outcome, ['succeeded', 'failed', 'denied', 'asked', 'malformed', 'uncertain', 'interrupted']),
       identity: nullable(source.identity, parseLeadRunIdentity) }; break
     case 'reconciliation': {
-      if (typeof source.evidence !== 'string' || source.evidence.length > 131_072) throw new Error('lead-journal-evidence')
+      const identities = parseLeadRunEvidence(source.evidence)
       const identity = nullable(source.identity, parseLeadRunIdentity), count = integer(source.count)
-      if ((identity !== null) !== (count === 1)) throw new Error('lead-journal-match-count')
-      event = { type, id: identifier(source.id), identity, count, evidence: source.evidence }; break
+      if (identities.length !== count || identities.some(item => item.correlationId !== source.id) ||
+        JSON.stringify(identity) !== JSON.stringify(count === 1 ? identities[0] : null)) throw new Error('lead-journal-match-count')
+      event = { type, id: identifier(source.id), identity, count, evidence: source.evidence as string }; break
     }
     default: throw new Error('lead-journal-type')
   }
@@ -242,8 +252,16 @@ export class LeadJournal {
   resolveRecovery(): Promise<void> { return this.#queue(() => this.#append({ type: 'recovery-resolved' })) }
   /** Only the authenticated window may resolve a needs-user start. Step 10 supplies
    * that click; the model must never attest that its own lost start created nothing. */
-  resolveStart(id: string, resolution: { readonly goalId: string; readonly identity: LeadRunIdentity } | null): Promise<void> {
-    return this.#queue(() => this.#append({ type: 'start-resolution', id, goalId: resolution?.goalId ?? null, identity: resolution?.identity ?? null }))
+  resolveStart(id: string, resolution: { readonly goalId: string; readonly identity: LeadRunIdentity } | null, expectedEvidenceSeq?: number): Promise<void> {
+    // Capture the evidence generation when requested, not after a queued lookup.
+    // The window can supply the sequence it displayed to reject a stale click.
+    const evidenceSeq = expectedEvidenceSeq === undefined ? this.#state.attempts.get(id)?.evidenceSeq : expectedEvidenceSeq
+    return this.#queue(async () => {
+      const source = resolution === null ? null : object(resolution, ['goalId', 'identity'])
+      const goalId = source === null ? null : identifier(source.goalId)
+      const identity = source === null ? null : parseLeadRunIdentity(source.identity)
+      await this.#append({ type: 'start-resolution', id, goalId, identity, evidenceSeq: integer(evidenceSeq, 1) })
+    })
   }
   stop(stopEffects?: () => Promise<void>): Promise<void> { return this.#budgetWrite(() => this.#append({ type: 'stop' }), stopEffects) }
   /** The supervisor retries pending idempotent cancellation after a crash. */

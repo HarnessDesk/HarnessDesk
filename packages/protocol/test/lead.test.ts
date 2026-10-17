@@ -413,3 +413,12 @@ test('reservations refuse missing cache prices rather than treating them as ordi
     assert.throws(() => validator('parseLeadBudgetEvent')(missing), protocol.ValidationError)
   }
 })
+
+
+test('first-round proof requires the bound start and a valid host round identity', () => {
+  const parse = validator('parseLeadBudgetEvent')
+  const event = { version: 1, type: 'bind', now: 100, goalId: 'team-1', executionId: 'run-1', startId: 'start-1', firstRoundId: 'round-1' }
+  assert.deepEqual(parse(event), event)
+  for (const patch of [{ startId: null }, { startId: undefined }, { firstRoundId: '' }, { firstRoundId: false }, { firstRoundId: 1 }])
+    assert.throws(() => parse({ ...event, ...patch }), protocol.ValidationError)
+})

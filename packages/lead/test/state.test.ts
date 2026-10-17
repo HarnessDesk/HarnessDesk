@@ -31,7 +31,7 @@ const records = (events: unknown[]) => events.map((event, i) => parseLeadJournal
 
 test('recovery cannot clear an explicit durable stop', () => {
   const history = records([...started(), { type: 'result', id: 'attempt-1', outcome: 'uncertain', identity: null }, { type: 'stop' },
-    { type: 'reconciliation', id: 'attempt-1', count: 1, evidence: 'one-match', identity: { correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' } }])
+    { type: 'reconciliation', id: 'attempt-1', count: 1, evidence: JSON.stringify([{ correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' }]), identity: { correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' } }])
   const state = replayLeadJournal(history)
   assert.equal(state.steps[0]!.state, 'started')
   assert.equal(state.phase, 'stopped')
@@ -72,6 +72,7 @@ test('checkpoints round trip reduced state and refuse malformed snapshots', () =
     (item: any) => { item.state.cardRevisions['plan-1'] = 33 },
     (item: any) => { item.state.attempts[0][1].phase = 'unrecognized' },
     (item: any) => { item.state.steps[0].state = 'completed' },
+    (item: any) => { item.state.attempts[0][1].evidenceSeq = 1 },
   ]) {
     const malformed = structuredClone(checkpoint)
     change(malformed)

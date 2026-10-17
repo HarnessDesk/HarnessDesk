@@ -400,7 +400,7 @@ test('aggregate actual usage saturates without preventing later stop records', (
 test('host first round adopts the admitted start instead of spending a second round', () => {
   let state = reduce(null, { ...init, caps: { usdMicros: 100, rounds: 2 } })
   state = reduce(state, { version: 1, type: 'start', now: 100, startId: 's1' })
-  state = reduce(state, { ...bind('run-1'), startId: 's1' })
+  state = reduce(state, { ...bind('run-1'), startId: 's1', firstRoundId: '1' })
   state = reduce(state, observe({ usdMicros: 0 }))
   const round = (roundId: string) => ({ version: 1, type: 'round', now: 100, executionId: 'run-1', roundId })
   state = reduce(state, round('1'))
@@ -424,4 +424,16 @@ test('a durable settlement resolves independently of failed cancellation effects
   await journal.runStopEffects(async () => {})
   assert.equal(journal.stopEffectFailure, null)
   assert.equal(journal.state.stopEffectsPending, null)
+})
+
+
+for (const proven of [false, true]) test(`reordered round two cannot adopt a start under cap one ${proven ? 'with' : 'without'} first-round proof`, () => {
+  let state = reduce(null, { ...init, caps: { usdMicros: 100, rounds: 1 } })
+  state = reduce(state, { version: 1, type: 'start', now: 100, startId: 's1' })
+  state = reduce(state, { ...bind('run-1'), startId: 's1', ...(proven ? { firstRoundId: '1' } : {}) })
+  state = reduce(state, observe({ usdMicros: 0 }))
+  assert.throws(() => reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: '2' }))
+  assert.equal(state.roundsAdmitted, 1)
+  if (proven) assert.equal(reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: '1' }).roundsAdmitted, 1)
+  assert.deepEqual(api('parseLeadBudgetLedger')(state), state)
 })

@@ -652,3 +652,49 @@ test('unrepresentable charges remain unknown and stopped through a disk checkpoi
   assert.equal(restored.state.budget.stop.reason, 'budget')
   await restored.stop()
 })
+
+
+test('resolution evidence and first-round proof remain bound through disk checkpoint and reopen', async t => {
+  const { parseLeadAcceptanceContract } = await import('@harnessdesk/protocol')
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Synthetic recovery',
+    project: { id: 'project-demo', path: '/workspace/demo' }, policyRevision: 1,
+    steps: [{ id: 'first', title: 'First', flow: 'lead-reviewed-result', sourceRevision: 'source-1', variables: {}, attendance: 'attended',
+      assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' }, ceiling: 'edit' }] }],
+    assertions: [{ id: 'check', kind: 'check', description: 'Checks pass' }], caps: { usdMicros: 500, rounds: 1 } })
+  await journal.setPolicy(policy)
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: contract.caps, freshnessMs: 50 })
+  await journal.offerCard({ version: 1, id: 'plan-1', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+  await journal.decideCard({ version: 1, cardId: 'plan-1', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, 200)
+  await journal.execute({ id: 'lost', stepId: 'first', request: { method: 'flow/start-goal', params: { root: contract.project.path,
+    source: 'synthetic recipe', token: 'preview-1', sentence: contract.goal, vars: {}, attended: true, seats: { implement: [{ runtime: 'fixture' }] } },
+    project: contract.project, runId: null, start: contract.steps[0]! }, context: { desk: policy, projectPolicy: null, project: contract.project,
+    approved: null, budget: null, now: 100, policyInterpretation: 'idle' } }, async () => { throw new Error('lost response') })
+  const matches = ['run-a', 'run-b'].map(runId => ({ correlationId: 'lost', runId, teamId: 'team-1' }))
+  await journal.recover(async () => matches)
+  const ambiguousSeq = journal.state.attempts.get('lost')!.evidenceSeq!
+  for (let i = 0; i < 1024; i++) await journal.resolveRecovery()
+  await disk.close()
+  const disk2 = await open(home), restored = await createLeadJournal(disk2)
+  await assert.rejects(restored.resolveStart('lost', null, ambiguousSeq))
+  await assert.rejects(restored.resolveStart('lost', { goalId: 'team-1', identity: matches[0]! }, ambiguousSeq))
+  assert.equal(restored.state.budget!.spend, 'unknown')
+  assert.deepEqual(restored.state.runs, matches)
+  await restored.recover(async () => [matches[0]!])
+  const evidenceSeq = restored.state.attempts.get('lost')!.evidenceSeq!
+  await restored.resolveStart('lost', { goalId: 'team-1', identity: matches[0]! }, evidenceSeq)
+  const resolution = (await disk2.read()).at(-1)
+  assert.equal(resolution.type, 'start-resolution')
+  assert.equal(resolution.evidenceSeq, evidenceSeq)
+  await restored.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'team-1', executionId: 'run-a', startId: 'lost', firstRoundId: '1' })
+  await restored.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal', sourceIds: ['corpus-1'],
+    goalId: 'team-1', executionIds: ['run-a'], quality: 'known', usdMicros: 0 })
+  await disk2.close()
+  const disk3 = await open(home)
+  t.after(() => disk3.close())
+  const reopened = await createLeadJournal(disk3)
+  await assert.rejects(reopened.updateBudget({ version: 1, type: 'round', now: 100, executionId: 'run-a', roundId: '2' }))
+  await reopened.updateBudget({ version: 1, type: 'round', now: 100, executionId: 'run-a', roundId: '1' })
+  assert.equal(reopened.state.budget!.roundsAdmitted, 1)
+  assert.equal(reopened.state.attempts.get('lost')!.evidenceSeq, evidenceSeq)
+})

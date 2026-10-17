@@ -94,7 +94,12 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
       if (event.startId) {
         const started = state.rounds.find(round => round.startId === event.startId)
         ensure(started && (started.executionId === null || started.executionId === event.executionId))
-        rounds = state.rounds.map(round => round === started ? { ...round, executionId: event.executionId } : round)
+        ensure(!event.firstRoundId || started!.roundId === null || started!.roundId === event.firstRoundId)
+        ensure(!event.firstRoundId || !state.rounds.some(round => round !== started && round.executionId === event.executionId && round.roundId === event.firstRoundId))
+        // The host binds the already admitted first round explicitly. Reporting
+        // some other round first cannot rename this placeholder or bypass admission.
+        rounds = state.rounds.map(round => round === started ? { ...round, executionId: event.executionId,
+          roundId: event.firstRoundId ?? round.roundId } : round)
       }
       if (state.executionIds.includes(event.executionId) && same(rounds, state.rounds)) return duplicate()
       ensure(state.executionIds.includes(event.executionId) || state.executionIds.length < LEAD_LIMITS.rounds)
@@ -138,13 +143,6 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
     case 'round': {
       ensure(state.executionIds.includes(event.executionId))
       if (state.rounds.some(round => round.executionId === event.executionId && round.roundId === event.roundId)) return duplicate()
-      const first = state.rounds.find(round => round.executionId === event.executionId && round.startId !== null && round.roundId === null)
-      if (first) {
-        // The dispatch admitted this round already. Its host identity spends no
-        // further allowance, including after a stop or observation expiry.
-        next = { ...next, rounds: state.rounds.map(round => round === first ? { ...round, roundId: event.roundId } : round) }
-        break
-      }
       admit(state, now, true)
       ensure(state.rounds.length < LEAD_LIMITS.rounds)
       next = { ...next, rounds: [...state.rounds, { executionId: event.executionId, roundId: event.roundId, startId: null }] }; break
