@@ -295,6 +295,20 @@ acp`, and reads its key from `~/.dsh/.credentials.yaml`. See
   observation, OpenCode showed a sign-in wall while running perfectly
   (measured on opencode 1.18.30, 2026-09-17). The desk asks it nothing and
   reads `auth.json` under `XDG_DATA_HOME` instead, naming the providers.
+  OpenCode 2 also keeps its sign-ins in `opencode.db` there, a `credential`
+  table with one row per sign-in; the desk reads the provider ids of the
+  active rows and nothing else (measured on opencode 2.0.32, 2026-10-17).
+- **A home that does not take the sign-in:** OpenCode 2 runs a background
+  service (`opencode serve --service`, started by launchd) that keeps the
+  default home, and `opencode auth login` hands the sign-in to it. With
+  `XDG_DATA_HOME` pointed at an empty folder, a Console sign-in wrote nothing
+  there and added an active row to the default home's `opencode.db` (measured
+  on opencode 2.0.32, 2026-10-17). The row's own `opencode` still reads the
+  moved folder, so a row that moves it reads only what is there, and its page
+  says the terminal command cannot sign it in. A second OpenCode account
+  therefore cannot come from `XDG_DATA_HOME` alone while that service runs,
+  and Add another account stays off for OpenCode until a way that holds is
+  measured.
 
 ## Where the model list comes from
 

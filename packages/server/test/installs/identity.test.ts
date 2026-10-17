@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { test, type TestContext } from 'node:test'
 
 import { identityReaderFor, type IdentityContext } from '../../src/installs/identity.js'
@@ -132,6 +133,133 @@ test('OpenCode is named by the providers it has credentials for, never by their 
     null,
     'a shape that is not a map of providers names nobody',
   )
+})
+
+/**
+ * OpenCode 2 keeps its sign-ins in `opencode.db`, a `credential` table with
+ * one row per sign-in (`integration_id`, `active`, and the credential itself
+ * in `value`), beside or instead of `auth.json`. Measured on opencode 2.0.32
+ * on 2026-10-17, reading the integration and time columns only (#1776).
+ */
+const credentials = (
+  folder: string,
+  rows: readonly { integration: string; active: 0 | 1 }[],
+  options: { readonly wal?: boolean; readonly keepOpen?: boolean } = {},
+): DatabaseSync | null => {
+  mkdirSync(folder, { recursive: true })
+  const db = new DatabaseSync(join(folder, 'opencode.db'))
+  // OpenCode's own database is in WAL mode; the plainer files below are not.
+  if (options.wal) db.exec('PRAGMA journal_mode = WAL')
+  db.exec(`CREATE TABLE credential (id TEXT PRIMARY KEY, integration_id TEXT NOT NULL, label TEXT, value TEXT NOT NULL,
+    connector_id TEXT, method_id TEXT, active INTEGER NOT NULL, time_created INTEGER, time_updated INTEGER)`)
+  const insert = db.prepare('INSERT INTO credential (id, integration_id, label, value, active) VALUES (?, ?, ?, ?, ?)')
+  rows.forEach((row, index) => insert.run(`credential-${index}`, row.integration, null, 'sk-live-not-a-real-key', row.active))
+  if (options.keepOpen) return db
+  db.close()
+  return null
+}
+
+test('OpenCode 2 is named by the active sign-ins in its own database, never by their values — #1776', (t) => {
+  const dir = home(t, {})
+  credentials(join(dir, '.local/share/opencode'), [
+    { integration: 'opencode', active: 1 },
+    { integration: 'anthropic', active: 0 },
+  ])
+  const one = read('opencode', { home: dir, env: {} })
+  assert.deepEqual(one, { kind: 'agent', label: 'opencode', anonymous: true })
+  assert.ok(!JSON.stringify(one).includes('sk-live'), 'the value is never read into the account')
+})
+
+test('OpenCode 2 names a provider once whether auth.json or the database holds it', (t) => {
+  const dir = home(t, { '.local/share/opencode/auth.json': { deepseek: { type: 'api', key: 'sk-live-not-a-real-key' } } })
+  credentials(join(dir, '.local/share/opencode'), [{ integration: 'opencode', active: 1 }, { integration: 'deepseek', active: 1 }])
+  assert.equal(read('opencode', { home: dir, env: {} })?.label, 'deepseek, opencode')
+})
+
+test('an OpenCode row with its own data home reads that home only, and nothing there names nobody — #1776', (t) => {
+  // The default home is signed in; the row's own is the fresh one the row's
+  // `opencode serve` made, with an empty credential table.
+  const dir = home(t, {})
+  credentials(join(dir, '.local/share/opencode'), [{ integration: 'opencode', active: 1 }])
+  const moved = join(dir, 'row-data')
+  credentials(join(moved, 'opencode'), [])
+  assert.equal(read('opencode', { home: dir, env: { XDG_DATA_HOME: moved } }), null)
+  assert.equal(read('opencode', { home: dir, env: { XDG_DATA_HOME: join(dir, 'never-started') } }), null, 'no database at all')
+  // Signed out of every provider: the rows stay, inactive.
+  const out = join(dir, 'signed-out')
+  credentials(join(out, 'opencode'), [{ integration: 'opencode', active: 0 }])
+  assert.equal(read('opencode', { home: dir, env: { XDG_DATA_HOME: out } }), null)
+})
+
+test('reading an OpenCode database leaves nothing beside it, whether OpenCode is running or not — #1776', (t) => {
+  // Closed, a WAL database has no side files; a plain read-only open would
+  // create `-shm` and `-wal` in OpenCode's folder and leave them there.
+  const dir = home(t, {})
+  const folder = join(dir, '.local/share/opencode')
+  credentials(folder, [{ integration: 'opencode', active: 1 }], { wal: true })
+  assert.deepEqual(readdirSync(folder), ['opencode.db'])
+  assert.equal(read('opencode', { home: dir, env: {} })?.label, 'opencode')
+  assert.deepEqual(readdirSync(folder), ['opencode.db'], 'no side file is created in OpenCode\'s folder')
+
+  // Running, with the sign-in still in its log: read, and the folder is as OpenCode has it.
+  const live = home(t, {})
+  const liveFolder = join(live, '.local/share/opencode')
+  const owner = credentials(liveFolder, [{ integration: 'deepseek', active: 1 }], { wal: true, keepOpen: true })!
+  t.after(() => owner.close())
+  const before = readdirSync(liveFolder).sort()
+  assert.equal(read('opencode', { home: live, env: {} })?.label, 'deepseek')
+  assert.deepEqual(readdirSync(liveFolder).sort(), before)
+})
+
+test('an unchanged OpenCode database is not read again on every account check — #1776', (t) => {
+  // The account is asked for on every read of a row, and a running OpenCode's
+  // database is copied to be read; the answer is kept until the files change.
+  const dir = home(t, {})
+  const folder = join(dir, '.local/share/opencode')
+  credentials(folder, [{ integration: 'opencode', active: 1 }])
+  assert.equal(read('opencode', { home: dir, env: {} })?.label, 'opencode')
+  // Unreadable now, but the same size and time: the answer stands.
+  chmodSync(join(folder, 'opencode.db'), 0o000)
+  assert.equal(read('opencode', { home: dir, env: {} })?.label, 'opencode')
+  chmodSync(join(folder, 'opencode.db'), 0o600)
+  // Changed: read again.
+  const db = new DatabaseSync(join(folder, 'opencode.db'))
+  db.exec("UPDATE credential SET active = 0; INSERT INTO credential (id, integration_id, value, active) VALUES ('later', 'anthropic', 'x', 0)")
+  db.close()
+  assert.equal(read('opencode', { home: dir, env: {} }), null)
+})
+
+test('a read of OpenCode\'s database that failed is tried again, not kept — #1776', (t) => {
+  const dir = home(t, {})
+  const folder = join(dir, '.local/share/opencode')
+  credentials(folder, [{ integration: 'opencode', active: 1 }])
+  chmodSync(join(folder, 'opencode.db'), 0o000)
+  if (process.getuid?.() !== 0) assert.equal(read('opencode', { home: dir, env: {} }), null)
+  chmodSync(join(folder, 'opencode.db'), 0o600)
+  assert.equal(read('opencode', { home: dir, env: {} })?.label, 'opencode')
+})
+
+test('a busy OpenCode\'s log is not copied on every account check — #1776', (t) => {
+  // Every turn writes the log, so its size and time alone would mean a copy
+  // per check; a sign-in in the log shows within the short interval instead.
+  const dir = home(t, {})
+  const folder = join(dir, '.local/share/opencode')
+  const owner = credentials(folder, [{ integration: 'opencode', active: 1 }], { wal: true, keepOpen: true })!
+  t.after(() => owner.close())
+  assert.equal(read('opencode', { home: dir, env: {} })?.label, 'opencode')
+  owner.exec("INSERT INTO credential (id, integration_id, value, active) VALUES ('turn', 'deepseek', 'x', 1)")
+  assert.equal(read('opencode', { home: dir, env: {} })?.label, 'opencode', 'the log changed, the database did not')
+})
+
+test('an OpenCode database the reader does not recognise names nobody', (t) => {
+  const dir = home(t, { '.local/share/opencode/opencode.db': 'not a database' })
+  assert.equal(read('opencode', { home: dir, env: {} }), null)
+  const other = home(t, {})
+  mkdirSync(join(other, '.local/share/opencode'), { recursive: true })
+  const db = new DatabaseSync(join(other, '.local/share/opencode/opencode.db'))
+  db.exec('CREATE TABLE session (id TEXT)')
+  db.close()
+  assert.equal(read('opencode', { home: other, env: {} }), null, 'a database without the table')
 })
 
 test('Cline is named by the account its provider in use signed in to', (t) => {

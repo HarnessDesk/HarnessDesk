@@ -109,6 +109,13 @@ export interface KnownAgent {
     /** A sign-in that needs a terminal — the desk opens one on this. */
     readonly terminal?: string
     /**
+     * Said in place of `terminal` for a row that moves the home, where it is
+     * measured that the command signs in the default home whatever the row
+     * sets. Without it, such a row is offered the command with its home in
+     * front (`InstallService.describe`).
+     */
+    readonly terminalIgnoresHome?: string
+    /**
      * An API key the desk can hold and inject, for agents that take one.
      * `installs/overlay.ts` carries a key onto the agent's row only once it
      * names the ACP method it answers (`acpMethod`) — that is, once how the
@@ -292,6 +299,13 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
          The record it draws that box from is read directly instead; see
          `openCodeIdentity` in `identity.ts`. */
       terminal: 'opencode auth login',
+      /* Measured on opencode 2.0.32 on 2026-10-17 (#1776): with
+         XDG_DATA_HOME set, a Console sign-in from `opencode auth login`
+         wrote nothing under it. A new active row appeared in the default
+         home's `opencode.db` instead, because 2.x hands the sign-in to its
+         launchd service (`opencode serve --service`), which keeps the
+         default home. */
+      terminalIgnoresHome: 'This row keeps its own XDG_DATA_HOME, and `opencode auth login` cannot sign it in: OpenCode 2 hands a terminal sign-in to its background service, which signs in the default home. Remove XDG_DATA_HOME from the row to use the default sign-in.',
       note: 'Providers are added one at a time with `opencode auth login`, which asks in the terminal; Claude Pro/Max, ChatGPT and Copilot sign in through a browser from there, the rest take an API key.',
     },
   },
