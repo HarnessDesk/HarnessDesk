@@ -168,11 +168,6 @@ const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
 }
 
 /**
- * A box spills only when something drawn sticks out of it. Scroll extents
- * alone also count a resize seam's invisible hit area, which is meant to
- * reach past the line it sits on.
- */
-/**
  * A settings row's control slot draws nothing, and a control pulled to the
  * row's edge (`Button edge`) puts its glyph on the rows' inset line by
  * crossing the slot by its pull. That is the design, not a spill, so long as
@@ -191,6 +186,11 @@ export const pulledInSlot = (kid: Element, el: Element, k: Pick<DOMRect, 'left' 
   return right + left > 0 && k.right <= r.right + right + 1 && k.left >= r.left - left - 1 && k.bottom <= r.bottom + 1
 }
 
+/**
+ * A box spills only when something drawn sticks out of it. Scroll extents
+ * alone also count a resize seam's invisible hit area, which is meant to
+ * reach past the line it sits on.
+ */
 const sticksOut = (el: Element, r: DOMRect) => {
   let checked = 0
   for (const kid of el.querySelectorAll('*')) {

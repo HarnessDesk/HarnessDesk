@@ -271,6 +271,16 @@ test('a task title is cut where a person sees a character end, and stays on one 
   assert.ok(!taskLabel(newline).startsWith('\n…'), taskLabel(newline))
 })
 
+test('a task title reads a quoted continuation and a no-break space as the shell does', () => {
+  // A backslash-newline inside double quotes joins, as it does outside them.
+  assert.equal(taskLabel('"pr\\\nintf" ok'), '"printf" ok')
+  // An escaped backslash before a line break is a backslash and a break, not a continuation.
+  assert.equal(taskLabel('echo "a\\\\\nb"'), 'echo "a\\\\ ⏎ b"')
+  // U+00A0 is part of a word to the shell, so it neither splits one nor starts a comment.
+  assert.equal(taskLabel("printf '%s|' a\u00a0# b\nprintf ok"), "printf '%s|' a\u00a0# b ⏎ printf ok")
+  assert.equal(taskLabel('echo\u00a0hello'), 'echo\u00a0hello')
+})
+
 test('a task title is always one line', () => {
   const lines = [
     "echo 'a\nb'",

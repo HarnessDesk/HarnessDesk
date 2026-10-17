@@ -60,7 +60,8 @@ const shellTokens = (line: string): Token[] | null => {
   const close = () => { if (at.word) tokens.push(at.word); at.word = null }
   for (let i = 0; i < line.length; i++) {
     const ch = line[i]!
-    if (/\s/.test(ch)) { close(); if (ch === '\n') tokens.push({ kind: 'op', op: '\n', start: i }); continue }
+    // Only the shell's own blanks split words: a no-break space is part of one.
+    if (ch === ' ' || ch === '\t' || ch === '\n') { close(); if (ch === '\n') tokens.push({ kind: 'op', op: '\n', start: i }); continue }
     if (ch === '\\') {
       if (i + 1 >= line.length) return null
       if (line[i + 1] === '\n') { i++; continue } // a line continuation joins, and is not part of the word
@@ -72,17 +73,18 @@ const shellTokens = (line: string): Token[] | null => {
       const w = open(i); w.raw += line.slice(i, end + 1); w.value += line.slice(i + 1, end); i = end; continue
     }
     if (ch === '"') {
-      const w = open(i); let j = i + 1
+      // `raw` keeps the quotes and escapes as written, less any line continuation, which joins.
+      const w = open(i); let j = i + 1, raw = '"'
       for (; j < line.length && line[j] !== '"'; j++) {
         const c = line[j]!
         if (c === '`' || (c === '$' && line[j + 1] === '(')) return null
         if (c === '\\' && line[j + 1] === '\n') { j++; continue }
-        if (c === '\\' && /["\\$`]/.test(line[j + 1] ?? '')) { w.value += line[++j]; continue }
+        if (c === '\\' && /["\\$`]/.test(line[j + 1] ?? '')) { raw += c + line[j + 1]; w.value += line[++j]; continue }
         if (c === '$') w.expands = true
-        w.value += c
+        w.value += c; raw += c
       }
       if (j >= line.length) return null
-      w.raw += line.slice(i, j + 1); i = j; continue
+      w.raw += `${raw}"`; i = j; continue
     }
     // A redirection can stand anywhere, even before the program (`2>/dev/null pnpm dev`).
     if (ch === '`' || ch === '(' || ch === ')' || ch === '<' || ch === '>') return null
