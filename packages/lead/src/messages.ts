@@ -1,5 +1,6 @@
-import { CLIENT_METHODS, clientTierFor, parseClientMessage, parseLeadAcceptanceContract, parseLeadCard,
-  type ClientMethodName, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
+import { leadToolDefinitions, parseLeadToolCall } from './tools.js'
+import { parseLeadAcceptanceContract, parseLeadCard,
+  type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
   MessagesText, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
@@ -64,38 +65,6 @@ const json = (value: unknown, max: number = LIMIT.bytes): string => {
   return encoded
 }
 
-const textSchema = { type: 'string', maxLength: LIMIT.text }
-const pathSchema = { type: 'string', maxLength: 4096 }
-const schema = (properties: Record<string, unknown>, required: readonly string[] = []) => ({ type: 'object', properties, required, additionalProperties: false })
-const flowProperties = { root: pathSchema, source: textSchema, vars: { type: 'object', additionalProperties: textSchema },
-  seats: { type: 'object' }, attended: { type: 'boolean' } }
-/** Closed aliases, not a slash-to-underscore transform of arbitrary method names.
- * No provider-hosted, file, shell, edit, answer or publication tool is offered. */
-const TOOLS = {
-  flow_catalog: { method: 'flow/catalog', input_schema: schema({ root: pathSchema }, ['root']) },
-  flow_source: { method: 'flow/source', input_schema: schema({ root: pathSchema, id: textSchema,
-    origin: { type: 'string', enum: ['project', 'user', 'builtin'] } }, ['root', 'id']) },
-  flow_preview: { method: 'flow/preview', input_schema: schema(flowProperties, ['root', 'source']) },
-  flow_start_goal: { method: 'flow/start-goal', input_schema: schema({ ...flowProperties, token: textSchema, sentence: textSchema }, ['root', 'source', 'token', 'sentence']) },
-  flow_execution: { method: 'flow/execution', input_schema: schema({ run: textSchema }, ['run']) },
-  flow_execution_stop: { method: 'flow/execution/stop', input_schema: schema({ run: textSchema, reason: textSchema }, ['run', 'reason']) },
-  flow_executions: { method: 'flow/executions', input_schema: schema({ team: textSchema, project: pathSchema, active: { type: 'boolean' } }) },
-  goal_list: { method: 'goal/list', input_schema: schema({ root: pathSchema }) },
-  goal_read: { method: 'goal/read', input_schema: schema({ goal: textSchema }, ['goal']) },
-  insight_goal: { method: 'insight/goal', input_schema: schema({ goal: textSchema }, ['goal']) },
-  evidence_board: { method: 'evidence/board', input_schema: schema({ room: textSchema }, ['room']) },
-  evidence_seat: { method: 'evidence/seat', input_schema: schema({ runtime: textSchema, sessionId: textSchema }, ['runtime', 'sessionId']) },
-  library_usage: { method: 'library/usage', input_schema: schema({}) },
-} as const satisfies Record<string, { method: ClientMethodName; input_schema: unknown }>
-const toolDefinitions = Object.entries(TOOLS).map(([name, tool]) => ({ name, description: `Desk operation ${tool.method}`, input_schema: tool.input_schema }))
-const toolCall = (block: MessagesToolUse): LeadPermissionCall => {
-  if (!Object.hasOwn(TOOLS, block.name)) return fail()
-  const tool = TOOLS[block.name as keyof typeof TOOLS]
-  if (!Object.hasOwn(CLIENT_METHODS, tool.method) || clientTierFor(tool.method, block.input) === 'answer') return fail()
-  const input = object(block.input, Object.keys(tool.input_schema.properties))
-  const parsed = parseClientMessage({ id: 1, method: tool.method, params: input })
-  return { method: tool.method, params: parsed.params } as LeadPermissionCall
-}
 /** History the caller supplies must be exactly what this client returned. A provider
  * reply may carry fields added after this was written (`citations`, `caller`); they
  * are read past and never passed on, except that a tool use made on behalf of anything
@@ -232,7 +201,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       messages = history(source.messages)
       maxTokens = integer(source.maxTokens, LIMIT.maxTokens)
       if (maxTokens === 0) fail()
-      body = safeJson({ model, max_tokens: maxTokens, stream: false, messages, tools: toolDefinitions,
+      body = safeJson({ model, max_tokens: maxTokens, stream: false, messages, tools: leadToolDefinitions,
         ...(source.system === undefined ? {} : { system: string(source.system) }) })
       const inputTokens = integer(await cancellable(() => countInput(body, signal), signal))
       requestId = string(nextId(), 100)
@@ -324,7 +293,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     for (const [position, { use, index }] of uses.entries()) {
       if (!signal.aborted && parsed.stop_reason !== 'max_tokens') {
         try {
-          const call = toolCall(use)
+          const call = parseLeadToolCall(use)
           safeJson(call, LIMIT.text)
           const scope = await cancellable(() => resolveTool(structuredClone(call)), signal)
           if (signal.aborted) fail()

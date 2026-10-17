@@ -18,7 +18,7 @@ export interface LeadState {
   /** Journal sequence of the latched stop whose idempotent cancellation effects need acknowledgement. */
   readonly stopEffectsPending: number | null
   readonly seq: number
-  readonly phase: 'draft' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'accepted' | 'declined' | 'stopped'
+  readonly phase: 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'accepted' | 'declined' | 'stopped'
   readonly policy: LeadPermissionPolicy | null
   readonly contract: LeadAcceptanceContract | null
   readonly consent: { readonly contractDigest: string; readonly contractRevision: number; readonly policyRevision: number; readonly expiresAt: number } | null
@@ -76,6 +76,13 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     state = { ...state, steps: state.steps.map(step => step.attemptId === id ? { ...step, state: 'pending' as const, attemptId: null } : step) }
   }
   switch (event.type) {
+    case 'management':
+      ensure(!['stopped', 'accepted', 'declined'].includes(state.phase))
+      if (event.phase === 'planning') ensure(state.contract === null && ['draft', 'planning'].includes(state.phase))
+      state = { ...state, phase: event.phase }; break
+    case 'invalidate-results':
+      state = { ...state, decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'result').map(cardKey)])] }; break
+
     case 'budget': {
       if (['reserve', 'start'].includes(event.event.type)) ensure(!['stopped', 'accepted', 'declined'].includes(state.phase))
       if (event.event.type === 'round' && ['stopped', 'accepted', 'declined'].includes(state.phase)) {
@@ -263,6 +270,9 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   if (!['stopped', 'accepted', 'declined'].includes(state.phase) && hasPendingLeadPlan(state)) state = { ...state, phase: 'awaiting-plan' }
   else if (event.type === 'card-decision' && event.decision.cardType === 'plan' && event.decision.choice === 'approve' &&
     [...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'waiting-for-user' }
+  // A provider/billing stop needs the person even while a plan card remains
+  // pending. The pending card still fences mutations independently of phase.
+  if (event.type === 'management' && event.phase === 'waiting-for-user') state = { ...state, phase: 'waiting-for-user' }
   // Accepting an already-reviewed result spends nothing. It may finish a stopped
   // thread; the monetary latch continues to prohibit all new work.
   const acceptsResult = previous.phase === 'stopped' && previous.budget?.stop && ['budget', 'rounds'].includes(previous.budget.stop.reason) &&

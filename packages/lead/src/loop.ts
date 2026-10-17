@@ -1,0 +1,262 @@
+import { clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadProject, type LeadThreadState, type LeadAssertionResult } from '@harnessdesk/protocol'
+import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
+import { leadReviewedResultSource } from './recipes/reviewed-result.js'
+import { createLeadMessages } from './messages.js'
+import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesTurn } from './messages-types.js'
+import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
+import { evaluateLeadAcceptance, type LeadAcceptanceEvidence, type LeadAcceptanceResult } from './acceptance.js'
+import { leadBudgetProjection } from './budget.js'
+import type { LeadJournal } from './journal.js'
+import type { LeadDeskPort } from './ports.js'
+import type { LeadPermissionCall } from './permissions.js'
+
+export interface LeadLoopClock {
+  now(): number
+  /** One deferred batch, not one callback per event. Must not invoke synchronously.
+   * The owner chooses the coalescing window; detach cancels a pending batch. */
+  schedule(callback: () => void): () => void
+}
+export interface LeadLoopOptions {
+  readonly journal: LeadJournal
+  readonly desk: LeadDeskPort
+  readonly project: LeadProject
+  readonly clock: LeadLoopClock
+  readonly nextId: () => string
+  readonly messages: Omit<LeadMessagesOptions, 'journal' | 'now' | 'nextId' | 'resolveTool' | 'dispatch'>
+  /** Resolve eligibility and mint the frozen approval digest from host facts.
+   * This is preparation only: the authenticated window owns the later click. */
+  readonly freezePlan: (proposal: LeadAcceptanceContract) => Promise<LeadAcceptanceContract>
+  readonly resolveTool: (call: LeadPermissionCall) => Promise<LeadResolvedTool>
+  /** Host-derived normalized evidence. Reads use this permission-checked reader;
+   * the port must not turn assistant prose into evidence or claim complete paging. */
+  readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence>
+  readonly freshnessMs?: number
+}
+export interface LeadLoopState {
+  readonly phase: LeadThreadState
+  readonly reason: string | null
+  readonly synchronized: boolean
+  readonly snapshot: ClientSnapshot | null
+  readonly relays: readonly ReturnType<typeof leadWorkerApprovalRelay>[]
+  readonly acceptance: readonly { readonly runId: string; readonly result: LeadAcceptanceResult }[]
+}
+const terminal = (phase: LeadThreadState) => ['accepted', 'declined', 'stopped'].includes(phase)
+const empty = (): ClientSnapshot => ({ teams: [], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] })
+/** API-only management. Messages is the sole model brain. This owner supplies
+ * scope, observations, durable cards and wakeups; it never interprets a CLI or
+ * treats the subscription stream as an alternate agent. */
+export const createLeadLoop = (options: LeadLoopOptions) => {
+  const { journal, desk, project, clock, nextId } = options
+  let synchronized = false, generation = 0, closed = false, reason: string | null = null
+  let snapshot: ClientSnapshot | null = null, relays: ReturnType<typeof leadWorkerApprovalRelay>[] = []
+  let acceptance: { runId: string; result: LeadAcceptanceResult }[] = []
+  let cancelBatch: (() => void) | null = null, dirty = false, continuationPending = false
+  let tail: Promise<unknown> = Promise.resolve(), iterator: AsyncIterator<ClientEvent> | null = null
+  let pump: Promise<void> | null = null, active: AbortController | null = null
+  let history: readonly MessagesTurn[] | null = null, requestTemplate: LeadMessagesRequest | null = null
+  let lastResultSignature: string | null = null
+  const tools = createLeadTools({ journal, desk, project, now: () => clock.now(), nextId, synchronized: () => synchronized && !closed,
+    resolveTool: options.resolveTool })
+  const messages = createLeadMessages({ ...options.messages, journal, now: () => clock.now(), nextId,
+    resolveTool: tools.resolveTool, dispatch: tools.dispatch })
+  const queue = <T>(operation: () => Promise<T>): Promise<T> => {
+    const next = tail.then(operation)
+    tail = next.catch(() => {})
+    return next
+  }
+  const waitForUser = async (code: string) => {
+    reason = code
+    if (!terminal(journal.state.phase)) await journal.setManagementPhase('waiting-for-user')
+  }
+  const read = async (call: LeadPermissionCall): Promise<unknown> => {
+    if (clientTierFor(call.method, call.params) !== 'read') throw new Error('lead-observation-read-only')
+    const result = await tools.execute(call)
+    if (result.outcome !== 'succeeded') throw new Error('lead-observation-unavailable')
+    return result.value
+  }
+  const invalidate = async () => {
+    if (lastResultSignature !== null || journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`)))
+      await journal.invalidateResults()
+    lastResultSignature = null
+    acceptance = []
+  }
+  const refresh = async (): Promise<void> => {
+    if (closed) return
+    const expected = generation
+    try {
+      await desk.synced()
+      const next = structuredClone(desk.snapshot())
+      // Whole replacement, including cleared waiting/approval/review collections.
+      if (generation !== expected || closed) return
+      snapshot = next
+      await tools.settleStarts()
+      const state = journal.state, contract = state.contract
+      relays = (next.waiting ?? []).filter(item => item.kind === 'approval' && item.team !== null && state.teams.includes(item.team)).map(leadWorkerApprovalRelay)
+      const evaluated: typeof acceptance = []
+      for (const run of state.runs) {
+        await read({ method: 'flow/execution', params: { run: run.runId } })
+        const facts = structuredClone(await options.readEvidence(run.runId, read))
+        if (closed || generation !== expected) return
+        if (!contract || facts.runId !== run.runId || facts.contractDigest !== contract.digest ||
+          facts.project.id !== project.id || facts.project.path !== project.path) throw new Error('lead-evidence-scope')
+        if (facts.spend) await journal.updateBudget(facts.spend)
+        const accounting = journal.state.budget && leadBudgetProjection(journal.state.budget!, clock.now())
+        evaluated.push({ runId: run.runId, result: evaluateLeadAcceptance(contract, { ...facts,
+          spendComplete: facts.spendComplete && accounting?.spend === 'known' && accounting.reservedUsdMicros === 0 },
+          { now: clock.now(), freshnessMs: options.freshnessMs ?? 60_000, revision: journal.state.seq }) })
+      }
+      if (closed || generation !== expected) return
+      const budget = journal.state.budget && leadBudgetProjection(journal.state.budget!, clock.now())
+      const reviewed = contract && state.steps.every(step => step.state === 'started') && evaluated.length > 0 &&
+        evaluated.every(item => item.result.status === 'reviewed') && budget?.spend === 'known' && budget.reservedUsdMicros === 0
+      if (!reviewed) await invalidate()
+      else if (!terminal(journal.state.phase)) {
+        const assertions: LeadAssertionResult[] = contract.assertions.map(assertion => {
+          const facts = evaluated.map(item => item.result.assertions.find(result => result.assertionId === assertion.id)!)
+          return { ...facts[0]!, evidence: facts.flatMap(fact => fact.evidence) }
+        })
+        const signature = JSON.stringify({ contract: contract.digest, assertions: assertions.map(({ revision: _revision, ...fact }) => fact), budget })
+        if (signature !== lastResultSignature) {
+          await invalidate()
+          if (closed || generation !== expected) return
+          const old = journal.state.cards.find(card => card.id === `result-${contract.revision}`)
+          // Mark a publication in flight before the writer's first await. An
+          // event then queues invalidation after this offer and before a click.
+          lastResultSignature = signature
+          await journal.offerCard({ version: 1, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1,
+            type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Fresh checks and review are ready for your decision.', assertions, budget: budget! })
+          if (closed || generation !== expected) { await invalidate(); return }
+        }
+        await waitForUser('lead-result-awaiting-person')
+      }
+      acceptance = evaluated
+      if (!terminal(journal.state.phase) && budget && budget.spend !== 'known') await waitForUser('lead-budget-unknown')
+      if (generation === expected && !closed) {
+        synchronized = true
+        if (['lead-connection-gap', 'lead-observations-unavailable'].includes(reason ?? '')) reason = null
+      }
+    } catch {
+      synchronized = false; snapshot = empty(); relays = []
+      await invalidate()
+      reason = 'lead-observations-unavailable'
+    }
+  }
+  const blocked = () => {
+    const state = journal.state, budget = state.budget && leadBudgetProjection(state.budget, clock.now())
+    if (terminal(state.phase)) { reason ??= state.budget?.stop ? 'lead-budget-stopped' : 'lead-terminal'; return true }
+    if (state.phase === 'waiting-for-user' || state.recoveryBlocked || !synchronized || closed) return true
+    if (!budget || budget.stop || budget.spend !== 'known' || state.budget!.requests.length) return true
+    return false
+  }
+  const step = async (input: LeadMessagesRequest, signal?: AbortSignal): Promise<LeadMessagesResult | null> => {
+    const budget = journal.state.budget
+    if (!terminal(journal.state.phase) && budget && leadBudgetProjection(budget, clock.now()).spend !== 'known')
+      await waitForUser('lead-budget-unknown')
+    if (blocked()) return null
+    if (journal.state.phase === 'draft') await journal.setManagementPhase('planning')
+    active = new AbortController()
+    const abort = () => active?.abort()
+    if (signal?.aborted) active.abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    let result: LeadMessagesResult
+    try { result = await messages.request({ ...input, system: `${input.system ?? ''}\nYou manage one approved goal through the desk API. Propose a version 1 lead-output plan before starting. Never answer worker approvals or invent evidence. Slice 1 uses only this private Flow source (seats are supplied through Flow seating):\n${leadReviewedResultSource}` }, active.signal) }
+    catch { result = { status: 'failed', reason: 'lead-messages-failed' } }
+    finally { signal?.removeEventListener('abort', abort); active = null }
+    history = result.messages ?? history
+    requestTemplate = input
+    if (!['completed'].includes(result.status)) {
+      await waitForUser(`lead-request-${result.status}`)
+      return result
+    }
+    try { await tools.settleStarts() }
+    catch { await waitForUser('lead-start-binding-failed'); return result }
+    if (journal.state.budget?.stop) reason = 'lead-budget-stopped'
+    const proposal = result.proposals?.plan
+    if (proposal && !terminal(journal.state.phase)) {
+      try {
+        const proposed = parseLeadAcceptanceContract(await options.freezePlan(structuredClone(proposal)))
+        if (proposed.project.id !== project.id || proposed.project.path !== project.path || proposed.steps.some(step => step.flow !== 'lead-reviewed-result' || step.sourceRevision !== 'recipe-1'))
+          throw new Error('lead-plan-scope')
+        await journal.offerCard({ version: 1, id: nextId(), revision: 1, type: 'plan', contractDigest: proposed.digest, contract: proposed })
+      } catch { await waitForUser('lead-plan-refused') }
+    }
+    // Model-proposed result/waiting cards are summaries only. The loop constructs
+    // actionable cards from fresh reads, and never offers a worker approval card.
+    await refresh()
+    if (result.toolResults?.length && !result.proposals?.plan && !blocked()) {
+      continuationPending = true
+      schedule(false)
+    }
+    return result
+  }
+  const schedule = (activity = true) => {
+    dirty ||= activity
+    if (cancelBatch || closed) return
+    cancelBatch = clock.schedule(() => {
+      cancelBatch = null
+      void queue(async () => {
+        if ((!dirty && !continuationPending) || closed) return
+        const activity = dirty
+        dirty = false; continuationPending = false
+        await refresh()
+        if (blocked() || journal.state.phase === 'awaiting-plan' || !history || !requestTemplate) return
+        const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: 'Desk activity changed. Inspect fresh desk observations before acting.' }] }
+        await step({ ...requestTemplate!, messages: [...history!, ...(activity ? [observation] : [])] })
+      }).catch(async () => { await waitForUser('lead-activity-failed') })
+    })
+  }
+  const observe = async () => {
+    try {
+      while (!closed && iterator) {
+        const item = await iterator.next()
+        if (item.done) { if (!closed) { synchronized = false; generation++; active?.abort(); await invalidate(); reason = 'lead-connection-ended' }; return }
+        const event = item.value
+        if (event.type === 'gap' || event.type === 'end') {
+          synchronized = false; generation++; active?.abort(); snapshot = null; relays = []
+          cancelBatch?.(); cancelBatch = null; dirty = false; continuationPending = false
+          // Fence immediately, then invalidate durable cards through the writer.
+          await invalidate(); reason = event.type === 'gap' ? 'lead-connection-gap' : 'lead-connection-ended'
+          if (event.type === 'end') return
+          void queue(refresh)
+        } else {
+          const state = journal.state
+          if ('run' in event && !state.runs.some(run => run.runId === event.run)) continue
+          if ('team' in event && event.team !== null && !state.teams.includes(event.team)) continue
+          // Notices carry prose, not changed evidence. Refresh them in the batch
+          // without consuming another decision revision for identical facts.
+          if (event.type !== 'notice' && event.type !== 'hello') {
+            synchronized = false; generation++
+            // A person can click while observations coalesce: invalidate first.
+            await invalidate()
+          }
+          schedule()
+        }
+      }
+    } catch { synchronized = false; generation++; active?.abort(); reason = 'lead-connection-ended'; await invalidate() }
+  }
+  let started = false
+  const start = async () => {
+    if (started || closed) return
+    started = true
+    iterator = desk.events()[Symbol.asyncIterator]()
+    pump = observe()
+    try {
+      const subscribed = await tools.execute({ method: 'client/subscribe', params: { topics: LEAD_TOPICS, scope: { project: project.path } } })
+      if (subscribed.outcome !== 'succeeded') throw new Error('lead-subscription-refused')
+      await refresh()
+    } catch { synchronized = false; await waitForUser('lead-subscription-failed') }
+  }
+  return {
+    get state(): LeadLoopState { return structuredClone({ phase: journal.state.phase, reason, synchronized, snapshot, relays, acceptance }) },
+    start: () => queue(start),
+    request: (input: LeadMessagesRequest, signal?: AbortSignal) => queue(async () => { await start(); return step(input, signal) }),
+    refresh: () => queue(async () => { await start(); await refresh() }),
+    idle: async () => { await tail },
+    async close() {
+      closed = true; synchronized = false; generation++; active?.abort(); cancelBatch?.(); cancelBatch = null
+      await iterator?.return?.()
+      await pump; await tail
+    },
+  }
+}
+export type LeadLoop = ReturnType<typeof createLeadLoop>

@@ -18,3 +18,10 @@ export { createLeadMessages, LEAD_MESSAGES_DEFAULTS } from './messages.js'
 export type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, LeadMessagesStatus,
   MessagesTransport, MessagesHttpRequest, MessagesHttpResponse, MessagesPrice, MessagesUsage, MessagesToolScope,
   MessagesTurn, MessagesText, MessagesToolUse, MessagesToolResult } from './messages-types.js'
+export { createLeadLoop } from './loop.js'
+export type { LeadLoop, LeadLoopOptions, LeadLoopState, LeadLoopClock } from './loop.js'
+export { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay } from './tools.js'
+export type { LeadTools, LeadToolsOptions, LeadResolvedTool } from './tools.js'
+export { evaluateLeadAcceptance } from './acceptance.js'
+export type { LeadAcceptanceEvidence, LeadAcceptanceResult } from './acceptance.js'
+export { LEAD_REVIEWED_RESULT, leadReviewedResultSource } from './recipes/reviewed-result.js'

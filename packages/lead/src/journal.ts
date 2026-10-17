@@ -19,6 +19,8 @@ export interface LeadArgumentSummary {
 interface Base { readonly version: 1; readonly seq: number }
 export type LeadAttemptOutcome = 'succeeded' | 'failed' | 'denied' | 'asked' | 'malformed' | 'uncertain' | 'interrupted'
 export type LeadJournalEvent =
+  | { readonly type: 'management'; readonly phase: 'planning' | 'waiting-for-user' }
+  | { readonly type: 'invalidate-results' }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
@@ -113,7 +115,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
+    management: ['phase'], 'invalidate-results': [], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
@@ -122,6 +124,8 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   object(source, ['version', 'seq', 'type', ...keys[type]!])
   let event: LeadJournalEvent
   switch (type) {
+    case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']) }; break
+    case 'invalidate-results': event = { type }; break
     case 'start-resolution': {
       const identity = nullable(source.identity, parseLeadRunIdentity), goalId = nullable(source.goalId, identifier)
       if ((identity === null) !== (goalId === null)) throw new Error('lead-journal-start-resolution')
@@ -229,6 +233,8 @@ export class LeadJournal {
     catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
     this.#state = next
   }
+  setManagementPhase(phase: 'planning' | 'waiting-for-user'): Promise<void> { return this.#queue(() => this.#append({ type: 'management', phase })) }
+  invalidateResults(): Promise<void> { return this.#queue(() => this.#append({ type: 'invalidate-results' })) }
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
   offerCard(card: LeadCard): Promise<LeadCard> { return this.#queue(async () => { await this.#append({ type: 'card', card }); return structuredClone(this.#state.cards.at(-1)!) }) }
   decideCard(decision: LeadCardDecision, expiresAt: number | null = null, stopEffects?: () => Promise<void>): Promise<void> {
@@ -458,4 +464,11 @@ export class LeadJournal {
     })
   }
 }
-export const createLeadJournal = async (storage: LeadJournalStorage, security: LeadJournalSecurity = {}): Promise<LeadJournal> => new LeadJournal(storage, await storage.read(), security, storage.checkpoint?.() ?? null)
+export const createLeadJournal = async (storage: LeadJournalStorage, security: LeadJournalSecurity = {}): Promise<LeadJournal> => {
+  const journal = new LeadJournal(storage, await storage.read(), security, storage.checkpoint?.() ?? null)
+  // Once ownership is recovered, a durable reserve without a settle is possibly
+  // billed. Keep its full reservation; never resend or zero-settle it on replay.
+  for (const request of journal.state.budget?.requests ?? []) if (!request.uncertain)
+    await journal.updateBudget({ version: 1, type: 'uncertain', now: journal.state.budget!.now, requestId: request.reservation.requestId })
+  return journal
+}
