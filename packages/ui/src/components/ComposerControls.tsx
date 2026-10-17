@@ -1334,7 +1334,8 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
     <ComposerTrack name="work-in" contentSized shrinkable>
       <InToolbar refer={ref}>
         {onChooseProject && folderPicker}
-        {(workspace.repo || workspace.git) && <Popover
+        {/* Missing repository facts are unread; only an explicit null with no Git facts hides this control. */}
+        {(workspace.repo !== null || workspace.git) && <Popover
           fullWidth={!onChooseProject}
           triggerVariant={onChooseProject && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
           title={title}
