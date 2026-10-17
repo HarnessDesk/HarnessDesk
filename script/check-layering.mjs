@@ -16,24 +16,77 @@ import ts from '@typescript/typescript6'
 import { withoutComments } from './lib/without-comments.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+/** Compare conservatively on every platform: macOS can resolve differently cased paths to the same module. */
+const comparisonPath = path => resolve(path).toLowerCase()
 
 /** The designated wiring point where runtimes are chosen. */
 const EXEMPT = new Set([join('packages', 'server', 'src', 'bootstrap.ts')])
 const LEAD_TRANSPORT_MODULES = ['https', 'process', 'readline', 'stream', 'events', 'timers/promises', 'crypto', 'url'].map(name => `node:${name}`)
 const LEAD_ENTRIES = new Map([
-  [join(root, 'packages/lead/src/child.ts'), new Set(LEAD_TRANSPORT_MODULES)],
-  [join(root, 'packages/lead/src/supervisor.ts'), new Set([...LEAD_TRANSPORT_MODULES, 'node:child_process', 'node:path'])],
+  [comparisonPath(join(root, 'packages/lead/src/child.ts')), new Set(LEAD_TRANSPORT_MODULES)],
+  [comparisonPath(join(root, 'packages/lead/src/supervisor.ts')), new Set([...LEAD_TRANSPORT_MODULES, 'node:child_process', 'node:path'])],
 ])
+const LEAD_GLOBALS = new Set(['process', 'globalThis', 'global', 'require', 'module', 'eval', 'Function',
+  'fetch', 'WebSocket', 'XMLHttpRequest', 'Buffer'])
+
+const typeOnlyIdentifier = node => {
+  for (let at = node.parent; at; at = at.parent) {
+    // The expression in a class's extends clause is evaluated; its type arguments are not.
+    if (ts.isExpressionWithTypeArguments(at) && at.parent.token === ts.SyntaxKind.ExtendsKeyword &&
+      (ts.isClassDeclaration(at.parent.parent) || ts.isClassExpression(at.parent.parent))) return false
+    if (ts.isTypeNode(at) || ts.isTypeParameterDeclaration(at) || ts.isInterfaceDeclaration(at) || ts.isTypeAliasDeclaration(at)) return true
+    if ((ts.isImportSpecifier(at) || ts.isImportClause(at) || ts.isImportEqualsDeclaration(at) || ts.isExportSpecifier(at) || ts.isExportDeclaration(at)) && at.isTypeOnly) return true
+  }
+  return false
+}
+const bindingIdentifier = node => {
+  const parent = node.parent
+  return parent.name === node && (ts.isVariableDeclaration(parent) || ts.isParameter(parent) ||
+    ts.isBindingElement(parent) || ts.isFunctionDeclaration(parent) || ts.isFunctionExpression(parent) ||
+    ts.isClassDeclaration(parent) || ts.isClassExpression(parent) || ts.isEnumDeclaration(parent) ||
+    ts.isImportClause(parent) || ts.isImportSpecifier(parent) || ts.isNamespaceImport(parent) || ts.isImportEqualsDeclaration(parent))
+}
+const valueIdentifier = node => {
+  const parent = node.parent
+  if (ts.isPropertyAccessExpression(parent) && parent.name === node) return false
+  if ((ts.isPropertyAssignment(parent) || ts.isMethodDeclaration(parent) || ts.isPropertyDeclaration(parent) ||
+    ts.isGetAccessorDeclaration(parent) || ts.isSetAccessorDeclaration(parent)) && parent.name === node) return false
+  if ((ts.isBindingElement(parent) || ts.isImportSpecifier(parent)) && parent.propertyName === node) return false
+  if (ts.isExportSpecifier(parent)) {
+    if (parent.parent.parent.moduleSpecifier) return false
+    if (parent.propertyName && parent.name === node) return false
+  }
+  if ((ts.isLabeledStatement(parent) || ts.isBreakStatement(parent) || ts.isContinueStatement(parent)) && parent.label === node) return false
+  return true
+}
 
 /** Core code has injected ports, never ambient authority, including aliases. */
 const leadAuthorityOffenders = (source, fileName) => {
-  if (LEAD_ENTRIES.has(resolve(root, fileName))) return []
-  const forbidden = new Set(['process', 'globalThis', 'global', 'require', 'module', 'eval', 'Function',
-    'fetch', 'WebSocket', 'XMLHttpRequest', 'Buffer'])
+  const entryModules = LEAD_ENTRIES.get(comparisonPath(resolve(root, fileName)))
+  const forbidden = new Set(LEAD_GLOBALS)
+  if (entryModules) for (const allowed of ['process', 'fetch', 'Buffer', 'WebSocket']) forbidden.delete(allowed)
   const file = ts.createSourceFile(fileName, withoutComments(source, fileName, { strict: true }), ts.ScriptTarget.Latest, true)
   const offenders = []
   const visit = node => {
-    if (ts.isIdentifier(node) && forbidden.has(node.text)) offenders.push(node.text)
+    if (ts.isIdentifier(node) && !typeOnlyIdentifier(node) &&
+      ((LEAD_GLOBALS.has(node.text) && bindingIdentifier(node)) || (forbidden.has(node.text) && valueIdentifier(node)))) offenders.push(node.text)
+    if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly && ts.isExternalModuleReference(node.moduleReference)) offenders.push('require')
+    const member = ts.isPropertyAccessExpression(node) ? node.name.text
+      : ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : null
+    if (!entryModules && member === 'constructor') offenders.push('constructor')
+    if (entryModules) {
+      if (member === 'binding' || member === 'dlopen') offenders.push(member)
+      if (member === 'getBuiltinModule') {
+        const call = node.parent
+        const argument = ts.isCallExpression(call) && call.expression === node ? call.arguments[0] : null
+        if (!argument || !ts.isStringLiteral(argument) || !entryModules.has(argument.text)) offenders.push('getBuiltinModule')
+      }
+      // Loader handles cannot be extracted into aliases or imported as named bindings.
+      if (ts.isBindingElement(node) && ['getBuiltinModule', 'binding', 'dlopen'].includes(node.propertyName?.text ?? node.name.text))
+        offenders.push('process loader binding')
+      if (ts.isImportSpecifier(node) && ['getBuiltinModule', 'binding', 'dlopen'].includes(node.propertyName?.text ?? node.name.text) &&
+        node.parent.parent.parent.moduleSpecifier?.text === 'node:process') offenders.push('process loader import')
+    }
     if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
       ts.isMetaProperty(node.expression) && node.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
       (ts.isElementAccessExpression(node) || node.name.text === 'resolve')) offenders.push('import.meta.resolve')
@@ -67,8 +120,8 @@ const importSpecifiers = (source, fileName) => {
 }
 
 const importBoundary = (pkg, source, fileName) => {
-  const src = join(root, 'packages', pkg, 'src')
-  const file = resolve(root, fileName)
+  const src = comparisonPath(join(root, 'packages', pkg, 'src'))
+  const file = comparisonPath(resolve(root, fileName))
   const views = join(src, 'views')
   const inViews = pkg === 'client' && !relative(views, file).startsWith(`..${sep}`) && relative(views, file) !== '..'
   const isNodeEntry = pkg === 'client' && file === join(src, 'node.ts')
@@ -79,14 +132,16 @@ const importBoundary = (pkg, source, fileName) => {
     if (specifier === null) return true
     if (specifier.startsWith('.')) {
       // Keep local module names literal rather than resolving ESM URL syntax.
-      if (/[?#%]/.test(specifier)) return true
-      const target = resolve(dirname(file), specifier)
+      if (/[?#%\\]/.test(specifier)) return true
+      const target = comparisonPath(resolve(dirname(file), specifier))
       const within = relative(inViews ? views : src, target)
       if (within === '..' || within.startsWith(`..${sep}`)) return true
       // No helper or barrel may smuggle process/transport authority into the loop.
-      if (pkg === 'lead' && !isLeadEntry) {
+      if (pkg === 'lead') {
         const module = target.replace(/\.[cm]?[jt]sx?$/, '')
-        if (leadEntries.some(entry => module === entry || module === join(entry, 'index'))) return true
+        const entry = leadEntries.find(entry => module === entry || module === join(entry, 'index'))
+        // The sole process-entry edge is supervisor -> child; helpers are always portable.
+        if (entry) return !(file === join(src, 'supervisor.ts') && entry === join(src, 'child'))
       }
       // A core helper cannot re-export the Node transport into the core entry.
       return pkg === 'client' && !isNodeEntry && target.replace(/\.[cm]?[jt]sx?$/, '') === join(src, 'node')
@@ -113,20 +168,21 @@ export const RULES = [
       const imports = importBoundary('lead', source, file)
       return imports.length ? imports : leadAuthorityOffenders(source, file)
     },
-    remedy: 'Lead core uses injected ports, local portable modules, protocol and client core; ambient machine/network authority is forbidden. Only src/child.ts and src/supervisor.ts own transport/process authority.',
+    remedy: 'Lead core uses injected ports, local portable modules, protocol and client core; ambient machine/network authority is forbidden. Rename local bindings that shadow banned globals. Only src/child.ts and src/supervisor.ts own allowlisted transport/process authority; loader/evaluator restrictions remain active there.',
   },
   {
     label: 'ui lead import boundary',
     packages: ['ui'],
     offenders: (source, fileName) => importSpecifiers(source, fileName).filter(specifier => {
       if (specifier === null) return true
-      if (/^@harnessdesk\/lead(?:\/|$)/.test(specifier)) return true
-      if (/^(?:[\\/]|[A-Za-z]:[\\/]|file:)/.test(specifier)) return true
+      if (/^@harnessdesk\/lead(?:\/|$)/i.test(specifier)) return true
+      if (/^(?:[\\/]|[A-Za-z]:[\\/]|file:)/i.test(specifier)) return true
       if (!specifier.startsWith('.')) return false
       let decoded
       try { decoded = decodeURIComponent(specifier.split(/[?#]/)[0]) } catch { return true }
-      const target = resolve(dirname(resolve(root, fileName)), decoded)
-      const within = relative(join(root, 'packages', 'lead'), target)
+      if (decoded.includes('\\')) return true
+      const target = comparisonPath(resolve(dirname(resolve(root, fileName)), decoded))
+      const within = relative(comparisonPath(join(root, 'packages', 'lead')), target)
       return within !== '..' && !within.startsWith(`..${sep}`)
     }),
     remedy: 'The renderer reads Lead projections from protocol over the host wire; it never imports the Lead package. Computed dependencies and absolute filesystem specifiers cannot prove this boundary; use literal package or local imports.',
@@ -136,10 +192,11 @@ export const RULES = [
     packages: ['ui'],
     offenders: (source, fileName) => importSpecifiers(source, fileName).filter((specifier) => {
       if (specifier === null) return true
-      if (/^@harnessdesk\/client(?:\/|$)/.test(specifier)) return specifier !== '@harnessdesk/client/views'
+      if (/^@harnessdesk\/client(?:\/|$)/i.test(specifier)) return specifier !== '@harnessdesk/client/views'
       if (!specifier.startsWith('.')) return false
-      const target = resolve(dirname(resolve(root, fileName)), specifier)
-      const within = relative(join(root, 'packages', 'client'), target)
+      if (specifier.includes('\\')) return true
+      const target = comparisonPath(resolve(dirname(resolve(root, fileName)), specifier))
+      const within = relative(comparisonPath(join(root, 'packages', 'client')), target)
       return within !== '..' && !within.startsWith(`..${sep}`)
     }),
     remedy: 'The window imports @harnessdesk/client/views only; transports remain outside the renderer.',

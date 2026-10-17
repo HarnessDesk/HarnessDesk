@@ -30,7 +30,7 @@ const cards = [
   { ...base, type: 'waiting', kind: 'person', runId: 'run-1', personCardId: 'person-1', summary: 'Review the result', assertions: [result] },
   { ...base, type: 'result', outcome: 'reviewed', summary: 'Ready for acceptance', assertions: [result], budget },
   { ...base, type: 'stopped', reason: 'budget', summary: 'Reported spend reached the cap', budget },
-]
+].map((card, index) => ({ ...card, id: `card-${index + 1}` }))
 const thread = { version: 1, id: 'thread-1', revision: 2, state: 'awaiting-plan', project: contract.project,
   olderMessages: 0, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'user', text: 'Repair the check' }], cards }
 const settings = { version: 1, model: 'model-demo', key: { configured: true, protection: 'encrypted' }, policy, caps }
@@ -66,7 +66,7 @@ test('Lead identifiers, prose, project paths and variable keys are confined', ()
   const parse = validator('parseLeadAcceptanceContract')
   for (const id of ['a\nb', '../x\u0007', 'space here', 'x\\y', 'x?y'])
     assert.throws(() => parse({ ...contract, steps: [{ ...contract.steps[0], id }] }), protocol.ValidationError)
-  for (const goal of ['task\u0007', 'task\nnext', 'task\u007f', 'task\u0085'])
+  for (const goal of ['task\u0007', 'task\u007f', 'task\u0085'])
     assert.throws(() => parse({ ...contract, goal }), protocol.ValidationError)
   for (const path of ['relative/path', 'rel/../..', '/workspace/../other', '/workspace/..', 'C:\\workspace\\..\\other', '/workspace/\u0007'])
     assert.throws(() => parse({ ...contract, project: { ...contract.project, path } }), protocol.ValidationError)
@@ -196,14 +196,15 @@ test('Lead decisions match the current card binding and the choices for its type
   assert.deepEqual(parse(decision, cards[0]), decision)
   for (const patch of [{ cardId: 'other' }, { expectedRevision: 2 }, { contractDigest: 'b'.repeat(64) }, { choice: 'accept' }, { cardType: 'waiting' }])
     assert.throws(() => parse({ ...decision, ...patch }, cards[0]), protocol.ValidationError)
-  const permissionDecision = { ...decision, cardType: 'permission-change', contractDigest: null }
+  const permissionDecision = { ...decision, cardId: cards[1]!.id, cardType: 'permission-change', contractDigest: null }
   assert.deepEqual(parse(permissionDecision, { ...cards[1], contractDigest: null }), permissionDecision)
-  const accept = { ...decision, cardType: 'waiting', choice: 'accept' }
+  const accept = { ...decision, cardId: cards[2]!.id, cardType: 'waiting', choice: 'accept' }
   assert.deepEqual(parse(accept, cards[2]), accept)
   assert.throws(() => parse({ ...accept, choice: 'approve' }, cards[2]), protocol.ValidationError)
   assert.throws(() => parse(accept, { ...cards[2], kind: 'worker-approval', personCardId: null }), protocol.ValidationError)
-  assert.deepEqual(parse({ ...accept, cardType: 'result' }, cards[3]), { ...accept, cardType: 'result' })
-  assert.throws(() => parse({ ...accept, cardType: 'result' }, { ...cards[3], outcome: 'accepted' }), protocol.ValidationError)
+  const resultDecision = { ...accept, cardId: cards[3]!.id, cardType: 'result' }
+  assert.deepEqual(parse(resultDecision, cards[3]), resultDecision)
+  assert.throws(() => parse(resultDecision, { ...cards[3], outcome: 'accepted' }), protocol.ValidationError)
   assert.throws(() => parse({ ...accept, cardType: 'stopped' }, cards[4]), protocol.ValidationError)
 })
 
@@ -245,4 +246,68 @@ test('Lead message, variable and summary text can be empty without admitting con
   assert.doesNotThrow(() => validator('parseLeadCard')({ ...cards[3], summary: '' }))
   assert.throws(() => validator('parseLeadThread')({ ...thread, messages: [{ ...thread.messages[0], text: '\u0007' }] }), protocol.ValidationError)
   assert.throws(() => validator('parseLeadAcceptanceContract')({ ...contract, goal: '' }), protocol.ValidationError)
+})
+
+test('Lead prose round-trips Markdown, CRLF goals and multiline Flow variables', () => {
+  const message = { ...thread.messages[0], text: 'Fix the build.\n```ts\n\tconst value = 1\n```\nRun the tests.' }
+  const multilineThread = { ...thread, messages: [message] }
+  assert.deepEqual(validator('parseLeadThread')(multilineThread), multilineThread)
+  const multilineContract = { ...contract, goal: 'Fix the build.\r\nRun the tests.',
+    steps: [{ ...contract.steps[0], variables: { task: 'First line\n\tIndented second line\r\nThird line' } }] }
+  assert.deepEqual(validator('parseLeadAcceptanceContract')(multilineContract), multilineContract)
+  const multilineResult = { ...result, reason: 'Waiting for:\n\tchecks\r\nand review' }
+  assert.deepEqual(validator('parseLeadAssertionResult')(multilineResult), multilineResult)
+  const multilineCard = { ...cards[3], summary: 'Changes:\n\t- repaired the check\r\n- reviewed' }
+  assert.deepEqual(validator('parseLeadCard')(multilineCard), multilineCard)
+  for (const control of ['\u0000', '\u0008', '\u000b', '\u000c', '\u001f', '\u007f', '\u0085', '\u009f'])
+    assert.throws(() => validator('parseLeadThread')({ ...thread, messages: [{ ...message, text: `before${control}after` }] }), protocol.ValidationError)
+  for (const id of ['message\n1', 'message\r1', 'message\t1'])
+    assert.throws(() => validator('parseLeadThread')({ ...thread, messages: [{ ...message, id }] }), protocol.ValidationError)
+})
+
+test('Lead thread snapshots have unique card and message IDs, and card assertions have unique targets', () => {
+  const parse = validator('parseLeadThread')
+  assert.deepEqual(parse(thread), thread)
+  for (const revision of [1, 2])
+    assert.throws(() => parse({ ...thread, cards: [cards[0], { ...cards[0], revision }] }), protocol.ValidationError)
+  assert.throws(() => parse({ ...thread, messages: [thread.messages[0], { ...thread.messages[0], text: 'Changed message' }] }), protocol.ValidationError)
+  for (const card of [cards[2], cards[3]])
+    assert.throws(() => validator('parseLeadCard')({ ...card, assertions: [result, { ...result, status: 'passed' }] }), protocol.ValidationError)
+})
+
+const threadWindow = (value: unknown, maxBytes: number): unknown => {
+  const member = (protocol as Record<string, unknown>)['windowLeadThread']
+  assert.equal(typeof member, 'function', 'windowLeadThread must be exported')
+  return (member as (value: unknown, maxBytes: number) => unknown)(value, maxBytes)
+}
+const jsonBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value), 'utf8')
+
+test('Lead byte window drops only the oldest messages and preserves the journal omission count', () => {
+  const large = { ...thread, olderMessages: 9,
+    messages: Array.from({ length: 64 }, (_, i) => ({ ...thread.messages[0], id: `message-${i}`, text: 'é'.repeat(8192) })) }
+  const original = structuredClone(large)
+  const expected = { ...large, olderMessages: 19, messages: large.messages.slice(10) }
+  const maxBytes = jsonBytes(expected)
+  assert.ok(jsonBytes(large) > 1_048_576)
+  assert.deepEqual(threadWindow(large, maxBytes), expected)
+  assert.deepEqual(threadWindow(large, maxBytes - 1), { ...large, olderMessages: 20, messages: large.messages.slice(11) })
+  assert.deepEqual(large, original, 'windowing must not mutate journal data or cards')
+  assert.deepEqual(threadWindow(thread, jsonBytes(thread)), thread)
+  const empty = { ...thread, messages: [], olderMessages: 1 }
+  assert.deepEqual(threadWindow(thread, jsonBytes(empty)), empty)
+  assert.throws(() => threadWindow(thread, 1), protocol.ValidationError, 'cards and metadata cannot be silently dropped')
+  for (const maxBytes of [0, -1, -0, NaN, Infinity, 0.5, 1_048_577])
+    assert.throws(() => threadWindow(thread, maxBytes), protocol.ValidationError)
+  assert.throws(() => threadWindow({ ...thread, olderMessages: Number.MAX_SAFE_INTEGER }, jsonBytes(empty)), protocol.ValidationError)
+})
+
+test('Lead byte window reserves envelope overhead before crossing the child boundary', () => {
+  const large = { ...thread, messages: Array.from({ length: 64 }, (_, i) => ({ ...thread.messages[0], id: `message-${i}`, text: 'é'.repeat(8192) })) }
+  const envelope = { version: 1, type: 'initialize', thread: null, model: 'model-demo', policy, budget }
+  const overhead = jsonBytes(envelope) - jsonBytes(null)
+  const window = threadWindow(large, 1_048_576 - overhead)
+  const control = { ...envelope, thread: window }
+  assert.ok(jsonBytes(control) <= 1_048_576)
+  assert.deepEqual(validator('parseLeadChildControl')(control), control)
+  assert.deepEqual(threadWindow(window, 1_048_576 - overhead), window, 'windowing is idempotent')
 })

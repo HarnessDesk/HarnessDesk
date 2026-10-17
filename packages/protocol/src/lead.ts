@@ -188,16 +188,19 @@ const integer = (min = 0, max = Number.MAX_SAFE_INTEGER): Validator<number> => (
 const revision = integer()
 const micros = integer(0, LEAD_LIMITS.maxUsdMicros)
 const version: Validator<1> = (value, path = '') => value === LEAD_VERSION ? LEAD_VERSION : fail(path, 'unsupported Lead version')
-const text = (max: number, allowEmpty = false): Validator<string> => (value, path = '') =>
-  typeof value === 'string' && (allowEmpty || value.trim().length > 0) && value.length <= max && !/[\u0000-\u001f\u007f-\u009f]/.test(value)
+const boundedText = (max: number, allowEmpty: boolean, controls: RegExp): Validator<string> => (value, path = '') =>
+  typeof value === 'string' && (allowEmpty || value.trim().length > 0) && value.length <= max && !controls.test(value)
     ? value : fail(path, `expected ${allowEmpty ? '' : 'nonempty '}string of at most ${max} characters without controls`)
+const text = (max: number) => boundedText(max, false, /[\u0000-\u001f\u007f-\u009f]/)
 const id: Validator<string> = (value, path = '') => {
   const parsed = text(LEAD_LIMITS.idChars)(value, path)
   return /^[A-Za-z0-9._:/@-]+$/.test(parsed) ? parsed : fail(path, 'invalid Lead identifier')
 }
-const prose = text(LEAD_LIMITS.textChars)
+/** Prose preserves LF, CR and tab for Markdown and Flow inputs; other C0, DEL and C1 remain forbidden. */
+const proseControls = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/
+const prose = boundedText(LEAD_LIMITS.textChars, false, proseControls)
 /** Empty assistant/tool-only text, optional variable values and absent summaries are legitimate. */
-const content = text(LEAD_LIMITS.textChars, true)
+const content = boundedText(LEAD_LIMITS.textChars, true, proseControls)
 const digest: Validator<string> = (value, path = '') =>
   typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : fail(path, 'expected SHA-256 digest')
 const nullable = <T>(parse: Validator<T>): Validator<T | null> => (value, path) => value === null ? null : parse(value, path)
@@ -288,6 +291,9 @@ const budgetState: Validator<LeadBudgetState> = object({
   roundsAdmitted: integer(0, LEAD_LIMITS.rounds), spend: literalUnion('known', 'unknown', 'stale', 'partial'),
   stop: nullable(object({ reason: stopReason, revision })),
 })
+/** The spend observation reaching the cap and its stop latch must land in one journal
+ * record, never as separately persisted snapshots. A zero-dollar initial budget includes
+ * the latch in its first record too; the reducer must not persist an invalid intermediate. */
 export const parseLeadBudgetState: Validator<LeadBudgetState> = (value, path = '') => {
   const parsed = budgetState(value, path)
   const reported = parsed.leadUsdMicros + parsed.workerUsdMicros
@@ -305,9 +311,9 @@ const card = tag<LeadCard>({
   plan: object<CardOf<'plan'>>({ ...cardBase, type: literalUnion('plan'), contract: parseLeadAcceptanceContract }),
   'permission-change': object<CardOf<'permission-change'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('permission-change'), previous: parseLeadPermissionPolicy, proposed: parseLeadPermissionPolicy }),
   waiting: object<CardOf<'waiting'>>({ ...cardBase, type: literalUnion('waiting'), kind: literalUnion('person', 'worker-approval'), runId: id,
-    personCardId: nullable(id), summary: content, assertions: list(parseLeadAssertionResult, LEAD_LIMITS.assertions) }),
+    personCardId: nullable(id), summary: content, assertions: list(parseLeadAssertionResult, LEAD_LIMITS.assertions, 0, result => result.assertionId) }),
   result: object<CardOf<'result'>>({ ...cardBase, type: literalUnion('result'), outcome: literalUnion('reviewed', 'accepted', 'declined'),
-    summary: content, assertions: list(parseLeadAssertionResult, LEAD_LIMITS.assertions), budget: parseLeadBudgetState }),
+    summary: content, assertions: list(parseLeadAssertionResult, LEAD_LIMITS.assertions, 0, result => result.assertionId), budget: parseLeadBudgetState }),
   stopped: object<CardOf<'stopped'>>({ ...cardBase, type: literalUnion('stopped'), reason: stopReason, summary: content, budget: parseLeadBudgetState }),
 })
 export const parseLeadCard: Validator<LeadCard> = (value, path = '') => {
@@ -344,8 +350,34 @@ export const parseLeadCardDecisionFor = (value: unknown, current: unknown): Lead
 const message: Validator<LeadMessage> = object({ version, id, revision, role: literalUnion('user', 'assistant', 'system'), text: content })
 export const parseLeadThread: Validator<LeadThread> = object({
   version, id, revision, state: literalUnion('draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'),
-  project: nullable(project), olderMessages: integer(), messages: list(message, LEAD_LIMITS.messages), cards: list(parseLeadCard, LEAD_LIMITS.cards),
+  // One current snapshot per card. Revisions belong to each card, so different cards may
+  // share revision 1; the state machine must compare old/new revisions when replacing a card.
+  project: nullable(project), olderMessages: integer(),
+  messages: list(message, LEAD_LIMITS.messages, 0, message => message.id), cards: list(parseLeadCard, LEAD_LIMITS.cards, 0, card => card.id),
 })
+/** Keep the largest newest suffix within the thread's UTF-8 JSON budget, without mutating
+ * the source or dropping cards. Journal readers first hydrate at most LEAD_LIMITS.messages
+ * newest messages, with olderMessages accounting for the rest. This helper adds byte-based
+ * omissions. Reserve the control/event envelope's exact overhead from ipcBytes before calling,
+ * then validate the completed frame. Oversized cards/metadata fail closed instead of vanishing. */
+export const windowLeadThread = (value: unknown, maxBytes: number): LeadThread => {
+  const limit = integer(1, LEAD_LIMITS.ipcBytes)(maxBytes, 'maxBytes')
+  const thread = parseLeadThread(value)
+  const bytesOf = (data: LeadThread | LeadMessage) => new TextEncoder().encode(JSON.stringify(data)).byteLength
+  let bytes = bytesOf(thread)
+  let offset = 0
+  let olderMessages = thread.olderMessages
+  while (bytes > limit && offset < thread.messages.length) {
+    const previousCount = olderMessages
+    olderMessages = integer()(olderMessages + 1, 'olderMessages')
+    // Removing an array entry removes its JSON plus one comma unless it was the last.
+    bytes -= bytesOf(thread.messages[offset]!) + (thread.messages.length - offset > 1 ? 1 : 0)
+    bytes += String(olderMessages).length - String(previousCount).length
+    offset += 1
+  }
+  if (bytes > limit) return fail('', 'Lead cards and metadata exceed the thread byte budget')
+  return { ...thread, olderMessages, messages: thread.messages.slice(offset) }
+}
 /** Migration decision: journal recovery calls this hook before projecting. Only v1 exists today.
  * A future version adds its own strict old-version reader and explicit data migration here;
  * it must never pass unknown fields through, infer an absent version, or replay effects. */

@@ -27,10 +27,34 @@ test('Lead core refuses ambient machine, loader, evaluator and network authority
   ]) {
     for (const file of ['loop.ts', 'nested/helper.ts', 'nested/child.ts', 'nested/supervisor.ts'])
       assert.ok(rule.offenders(source, `packages/lead/src/${file}`).length > 0, `${file}: ${source}`)
-    for (const file of ['child.ts', 'supervisor.ts'])
-      assert.deepEqual(rule.offenders(source, `packages/lead/src/${file}`), [], `${file}: ${source}`)
   }
   assert.deepEqual(rule.offenders("// process.getBuiltinModule('node:fs')\nconst explanation = 'fetch eval Function globalThis'", 'packages/lead/src/loop.ts'), [])
+})
+
+test('Lead entries retain loader and evaluator restrictions and constrain builtin acquisition', () => {
+  const rule = boundaryRule('lead')
+  for (const entry of ['child', 'supervisor']) {
+    const file = `packages/lead/src/${entry}.ts`
+    for (const source of [
+      "process.getBuiltinModule('node:fs')", "process.getBuiltinModule('node:vm')",
+      'process.getBuiltinModule(name)', "process.getBuiltinModule('node:' + name)",
+      'process.getBuiltinModule(`node:https`)', 'const get = process.getBuiltinModule',
+      "process.binding('fs')", "process['binding']('fs')", 'process.dlopen(handle, path)',
+      "eval('process')", "(0, eval)('process')", "new Function('return process')()",
+      "Function('return process')()", 'const F = Function', 'const r = require',
+      "require('node:https')", "module.require('node:https')", 'const m = module',
+      "import https = require('node:https')",
+      'globalThis.process', 'global.process', 'new XMLHttpRequest()', 'import.meta.resolve',
+      'const { getBuiltinModule: get } = process',
+      "import { getBuiltinModule as get } from 'node:process'",
+    ]) assert.ok(rule.offenders(source, file).length > 0, `${entry}: ${source}`)
+    for (const source of ["process.getBuiltinModule('node:https')", "process['getBuiltinModule']('node:crypto')",
+      "process.stdin.on('data', receive)", "process.stdout.write('ready')", "fetch('https://example.com')",
+      "Buffer.from('text')", "new WebSocket('wss://example.com')", 'import.meta.url'])
+      assert.deepEqual(rule.offenders(source, file), [], `${entry}: ${source}`)
+  }
+  assert.ok(rule.offenders("process.getBuiltinModule('node:child_process')", 'packages/lead/src/child.ts').length > 0)
+  assert.deepEqual(rule.offenders("process.getBuiltinModule('node:child_process')", 'packages/lead/src/supervisor.ts'), [])
 })
 
 test('Lead loop refuses machine, host, adapter, computed and escaping dependencies', () => {
@@ -81,6 +105,63 @@ test('Lead entries have explicit Node module allowlists', () => {
     for (const entry of ['child', 'supervisor'])
       for (const source of [`import 'node:${module}'`, `export * from 'node:${module}'`, `await import('node:${module}')`])
         assert.equal(rule.offenders(source, `packages/lead/src/${entry}.ts`).length, 1, source)
+})
+
+test('Lead containment and entry barriers reject backslashes and fold path case', () => {
+  const rule = boundaryRule('lead')
+  for (const specifier of ['./nested\\..\\child.js', './nested\\..\\supervisor.js', './Child.js', './CHILD/Index.JS', './Supervisor.js', '../SRC/child.js'])
+    for (const source of [`import ${JSON.stringify(specifier)}`, `export * from ${JSON.stringify(specifier)}`])
+      assert.ok(rule.offenders(source, 'packages/lead/src/loop.ts').length > 0, source)
+  assert.ok(rule.offenders("import '../Child.js'", 'packages/lead/src/nested/helper.ts').length > 0)
+  assert.ok(rule.offenders("import 'node:child_process'", 'packages/lead/src/Child.ts').length > 0)
+  assert.deepEqual(rule.offenders("import 'node:https'", 'packages/lead/src/Child.ts'), [])
+  assert.deepEqual(rule.offenders("import './Helper.js'", 'packages/lead/src/loop.ts'), [])
+  assert.ok(boundaryRule('ui lead').offenders("import '../../../Lead/src/index.js'", 'packages/ui/src/state/lead.ts').length > 0)
+  for (const specifier of ['../../../Lead\\src\\index.js', '../../../Lead%5csrc%5cindex.js', '@harnessdesk/Lead/supervisor'])
+    assert.ok(boundaryRule('ui lead').offenders(`export * from ${JSON.stringify(specifier)}`, 'packages/ui/src/state/lead.ts').length > 0, specifier)
+  assert.ok(boundaryRule('ui client').offenders(`import ${JSON.stringify('../../../client\\src\\node.js')}`, 'packages/ui/src/state/lead.ts').length > 0)
+})
+
+test('Lead entry imports run only from supervisor to child, including helper barrels', () => {
+  const rule = boundaryRule('lead')
+  for (const source of ["import './supervisor.js'", "export * from './Supervisor.js'", "await import('./supervisor/index.js')"])
+    assert.ok(rule.offenders(source, 'packages/lead/src/child.ts').length > 0, source)
+  for (const source of ["import './child.js'", "export * from './Child.js'"])
+    assert.deepEqual(rule.offenders(source, 'packages/lead/src/supervisor.ts'), [])
+  // A child may use a portable helper, but that helper cannot acquire either entry's authority.
+  assert.deepEqual(rule.offenders("import './helper.js'", 'packages/lead/src/child.ts'), [])
+  assert.ok(rule.offenders("export * from './supervisor.js'", 'packages/lead/src/helper.ts').length > 0)
+  assert.ok(rule.offenders("export * from '../Supervisor.js'", 'packages/lead/src/nested/helper.ts').length > 0)
+})
+
+test('Lead core refuses Function constructor acquisition through property and element access', () => {
+  const rule = boundaryRule('lead')
+  for (const source of ["(() => {}).constructor('return process')()", "[].constructor.constructor('return process')()",
+    "(async () => {}).constructor('return process')()", "(() => {})['constructor']('return process')()",
+    "[]['constructor']['constructor']('return process')()", 'const make = object.constructor'])
+    assert.ok(rule.offenders(source, 'packages/lead/src/loop.ts').length > 0, source)
+})
+
+test('Lead authority checks distinguish property/type names from values and shadowing bindings', () => {
+  const rule = boundaryRule('lead')
+  for (const source of [
+    'const value = item.process; item.module(); item?.fetch()',
+    "const dto = { module: 'esm', process: 1, fetch: false, Function: 'label' }",
+    'const { process: processState, module: moduleInfo, fetch: transport } = item',
+    'const dto = { process() { return 1 }, get module() { return 2 } }',
+    'interface Data { process: string; module(): void; fetch: boolean }',
+    'type Data = { global: string; Buffer: string }; type process = string; type fetch = () => void',
+    'type Data = typeof process', "import { process as processState } from './ports.js'",
+    "import type { Buffer } from './ports.js'", "import type Buffer = require('./ports.js')", "import { type process as Process } from './ports.js'",
+    "export { safe as module } from './ports.js'", "export { process as processState } from './ports.js'", "export type { Buffer } from './ports.js'",
+  ]) assert.deepEqual(rule.offenders(source, 'packages/lead/src/loop.ts'), [], source)
+  for (const source of ['const value = process', 'const dto = { process }', 'const { process } = item',
+    'const { module: process } = item', 'const process = item', 'function fetch() {}',
+    'function send(module) {}', 'class Buffer {}', 'class Factory extends Function {}',
+    "import { safe as process } from './ports.js'", 'export { process as unsafe }',
+    'const dto = { [process]: value }', "import helper = require('./ports.js')"])
+    assert.ok(rule.offenders(source, 'packages/lead/src/loop.ts').length > 0, source)
+  assert.match(rule.remedy, /rename/i)
 })
 
 test('Lead generated sources remain in the layering scan', t => {
