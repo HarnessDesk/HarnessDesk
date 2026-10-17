@@ -53,6 +53,7 @@ export * from './intake.js'
 export * from './question-wait.js'
 export * from './authoring.js'
 export * from './client-surface.js'
+export * from './lead.js'
 export {
   bareToolName, toolWords, wireNameOf, toolSentences, isPlanTool, toolSentence,
   shortestUniquePathLabels, toolsOfPlugin, BOARD_TOOL_PHRASES, boardToolPhrase,

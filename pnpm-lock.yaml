@@ -213,6 +213,15 @@ importers:
         specifier: workspace:*
         version: link:../protocol
 
+  packages/lead:
+    dependencies:
+      '@harnessdesk/client':
+        specifier: workspace:*
+        version: link:../client
+      '@harnessdesk/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+
   packages/mcp-tools: {}
 
   packages/plugins:

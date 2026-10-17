@@ -1,12 +1,68 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { RULES } from './check-layering.mjs'
+import { projectsOf, globToRegExp, TEST_GLOB } from './prune-dist.mjs'
+import { fileURLToPath } from 'node:url'
 
 const boundaryRule = (pkg) => {
   const rule = RULES.find((r) => r.label === `${pkg} import boundary`)
   assert.ok(rule, `${pkg} import boundary exists`)
   return rule
 }
+
+test('Lead loop refuses machine, host, adapter, computed and escaping dependencies', () => {
+  const rule = boundaryRule('lead')
+  for (const source of [
+    "import 'node:fs'", "import 'fs'", "import 'electron'",
+    "import '@harnessdesk/server'", "export * from '@harnessdesk/adapter-codex'",
+    "export { Host } from '../../server/src/index.js'",
+    "type Host = import('@harnessdesk/server').Host", "import '@deepseek-ai/cordis'",
+    "require('@harnessdesk/adapter-acp')", "import host = require('@harnessdesk/server')",
+    "await import(dependency)", "await import('@harnessdesk/' + name)",
+    "require(dependency)", "import './child.js'", "export * from './supervisor.js'",
+    "import '@harnessdesk/client/node'", "import '@harnessdesk/client/views'",
+    "import './helper.js?fresh'", "import './%63hild.js'", "import '../test/helper.js'",
+    "import './child/index.js'", "import './supervisor/index.js'",
+  ]) assert.equal(rule.offenders(source, 'packages/lead/src/loop.ts').length, 1, source)
+  for (const source of [
+    "import '@harnessdesk/protocol'", "import type { ClientEvent } from '@harnessdesk/client'",
+    "export * from './ports.js'", "await import('./permissions.js')",
+    "// import 'node:fs'\nconst example = 'electron'",
+  ]) assert.deepEqual(rule.offenders(source, 'packages/lead/src/loop.ts'), [], source)
+  assert.equal(rule.offenders("import '../child.js'", 'packages/lead/src/nested/helper.ts').length, 1)
+})
+
+test('only exact Lead child and supervisor entries may import Node and client transport', () => {
+  const rule = boundaryRule('lead')
+  for (const source of ["import 'node:process'", "import 'node:child_process'", "import 'node:https'", "import '@harnessdesk/client/node'"]) {
+    for (const entry of ['child', 'supervisor']) {
+      assert.deepEqual(rule.offenders(source, `packages/lead/src/${entry}.ts`), [], source)
+      assert.equal(rule.offenders(source, `packages/lead/src/nested/${entry}.ts`).length, 1, source)
+    }
+  }
+  assert.deepEqual(rule.offenders("import './child.js'", 'packages/lead/src/supervisor.ts'), [])
+  for (const source of ["import 'electron'", "import '@harnessdesk/server'", "await import(dependency)", "import 'keytar'"])
+    assert.equal(rule.offenders(source, 'packages/lead/src/child.ts').length, 1, source)
+})
+
+test('renderer cannot import or re-export Lead by package or relative path', () => {
+  const rule = boundaryRule('ui lead')
+  for (const source of ["import '@harnessdesk/lead'", "export * from '@harnessdesk/lead/supervisor'", "await import('../../../lead/src/index.js')", "type Lead = import('../../../lead/src/ports.js').LeadPorts", "require('../../../lead/dist/src/index.js')"])
+    assert.equal(rule.offenders(source, 'packages/ui/src/lib/lead.ts').length, 1, source)
+  assert.deepEqual(rule.offenders("import type { LeadThread } from '@harnessdesk/protocol'", 'packages/ui/src/state/lead.ts'), [])
+})
+
+test('Lead also belongs to the Codex, Cordis and keystore prohibitions', () => {
+  for (const label of ['Codex above adapter-codex', 'Cordis above cordis-host', 'keystore access outside the broker'])
+    assert.ok(RULES.find(rule => rule.label === label)?.packages.includes('lead'), label)
+})
+
+test('Lead joins the root build and prune graph and normal Node test glob', () => {
+  const root = fileURLToPath(new URL('../', import.meta.url))
+  const projects = projectsOf(root)
+  assert.ok(projects.some(project => project.options.configFilePath.endsWith('/packages/lead/tsconfig.json')))
+  assert.ok(globToRegExp(TEST_GLOB).test('packages/lead/dist/test/ports.test.js'))
+})
 
 test('client import boundary checks real static, dynamic, export and require specifiers', () => {
   const rule = boundaryRule('client')

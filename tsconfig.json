@@ -9,6 +9,7 @@
   "references": [
     { "path": "packages/protocol" },
     { "path": "packages/client" },
+    { "path": "packages/lead" },
     { "path": "packages/cli" },
     { "path": "packages/agent-inventory" },
     { "path": "packages/codex" },

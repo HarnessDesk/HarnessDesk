@@ -49,6 +49,8 @@ const importBoundary = (pkg, source, fileName) => {
   const views = join(src, 'views')
   const inViews = pkg === 'client' && !relative(views, file).startsWith(`..${sep}`) && relative(views, file) !== '..'
   const isNodeEntry = pkg === 'client' && file === join(src, 'node.ts')
+  const leadEntries = ['child', 'supervisor'].map(name => join(src, name))
+  const isLeadEntry = pkg === 'lead' && leadEntries.some(entry => file === `${entry}.ts`)
   return importSpecifiers(source, fileName).filter((specifier) => {
     // A computed dependency cannot be held to a package boundary.
     if (specifier === null) return true
@@ -58,11 +60,18 @@ const importBoundary = (pkg, source, fileName) => {
       const target = resolve(dirname(file), specifier)
       const within = relative(inViews ? views : src, target)
       if (within === '..' || within.startsWith(`..${sep}`)) return true
+      // No helper or barrel may smuggle process/transport authority into the loop.
+      if (pkg === 'lead' && !isLeadEntry) {
+        const module = target.replace(/\.[cm]?[jt]sx?$/, '')
+        if (leadEntries.some(entry => module === entry || module === join(entry, 'index'))) return true
+      }
       // A core helper cannot re-export the Node transport into the core entry.
       return pkg === 'client' && !isNodeEntry && target.replace(/\.[cm]?[jt]sx?$/, '') === join(src, 'node')
     }
     if (specifier === '@harnessdesk/protocol') return false
     if (pkg === 'cli' && (specifier === '@harnessdesk/client' || specifier.startsWith('@harnessdesk/client/'))) return false
+    if (pkg === 'lead' && specifier === '@harnessdesk/client') return false
+    if (isLeadEntry && (specifier === '@harnessdesk/client/node' || specifier.startsWith('node:'))) return false
     if (isNodeEntry && (specifier === 'ws' || specifier.startsWith('node:'))) return false
     return true
   })
@@ -74,6 +83,27 @@ const importBoundary = (pkg, source, fileName) => {
  * sit on, must not know about either.
  */
 export const RULES = [
+  {
+    label: 'lead import boundary',
+    packages: ['lead'],
+    offenders: (source, file) => importBoundary('lead', source, file),
+    remedy: 'Lead core imports only local portable modules, protocol and client core; only src/child.ts and src/supervisor.ts import Node or client/node.',
+  },
+  {
+    label: 'ui lead import boundary',
+    packages: ['ui'],
+    offenders: (source, fileName) => importSpecifiers(source, fileName).filter(specifier => {
+      if (specifier === null) return true
+      if (/^@harnessdesk\/lead(?:\/|$)/.test(specifier)) return true
+      if (!specifier.startsWith('.')) return false
+      let decoded
+      try { decoded = decodeURIComponent(specifier.split(/[?#]/)[0]) } catch { return true }
+      const target = resolve(dirname(resolve(root, fileName)), decoded)
+      const within = relative(join(root, 'packages', 'lead'), target)
+      return within !== '..' && !within.startsWith(`..${sep}`)
+    }),
+    remedy: 'The renderer reads Lead projections from protocol over the host wire; it never imports the Lead package.',
+  },
   {
     label: 'ui client import boundary',
     packages: ['ui'],
@@ -110,13 +140,13 @@ export const RULES = [
   },
   {
     label: 'Codex above adapter-codex',
-    packages: ['protocol', 'server', 'ui', 'cordis-host', 'adapter-testkit', 'extension-protocol', 'extension-host', 'transport-acp', 'adapter-acp'],
+    packages: ['protocol', 'server', 'ui', 'cordis-host', 'adapter-testkit', 'extension-protocol', 'extension-host', 'transport-acp', 'adapter-acp', 'lead'],
     forbidden: /@harnessdesk\/codex|@harnessdesk\/adapter-codex/,
     remedy: 'These layers must speak only @harnessdesk/protocol.',
   },
   {
     label: 'Cordis above cordis-host',
-    packages: ['protocol', 'server', 'ui', 'adapter-codex', 'adapter-testkit', 'extension-protocol'],
+    packages: ['protocol', 'server', 'ui', 'adapter-codex', 'adapter-testkit', 'extension-protocol', 'lead'],
     forbidden: /@deepseek-ai\/cordis/,
     remedy: 'Only @harnessdesk/cordis-host may import Cordis; everything else reads CapabilityRegistry.',
   },
@@ -163,7 +193,7 @@ export const RULES = [
     // Secrets live in the main process behind the credential broker.
     // Nothing else may reach a keystore API, and the renderer may never.
     label: 'keystore access outside the broker',
-    packages: ['protocol', 'server', 'ui', 'adapter-codex', 'cordis-host', 'extension-host', 'extension-protocol', 'plugins', 'adapter-testkit', 'codex', 'transport-acp', 'adapter-acp', 'responses-gateway', 'agent-inventory'],
+    packages: ['protocol', 'server', 'ui', 'adapter-codex', 'cordis-host', 'extension-host', 'extension-protocol', 'plugins', 'adapter-testkit', 'codex', 'transport-acp', 'adapter-acp', 'responses-gateway', 'agent-inventory', 'lead'],
     forbidden: /safeStorage|keytar|node-keychain|security find-generic-password/,
     remedy: 'Only the credential broker in the Electron main process may touch a keystore.',
   },
