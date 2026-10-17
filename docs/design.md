@@ -1485,7 +1485,11 @@ shows. The record is kept per platform, `linux` and `darwin`, because a finding
 carries how far an edge sits from its rail and which edges form a rail at all,
 and both follow text widths that are the platform's own. CI is Linux and the
 docs count its record; a run on a platform with no record fails rather than
-read another's. Re-record each platform from the same commit. A new state of the app belongs on the board — add its scene — and is
+read another's. Re-record each platform from the same commit. The Linux record
+is the most any CI run has shown, signature by signature: a finding at the outer
+edge of the near-miss band (`Δ3`) comes and goes between runs of the same code,
+and the gate only fails on growth. A failed run uploads what it measured in
+`guides-observed/`; merge it in as a per-signature maximum. A new state of the app belongs on the board — add its scene — and is
 held to the standard from then on.
 
 ### What the engine checks

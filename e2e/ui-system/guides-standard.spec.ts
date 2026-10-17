@@ -28,6 +28,14 @@ import { writeOnceEveryTestPasses } from './write-once'
  * and the docs count its record. A run on a platform with no record fails; it
  * never reads another's. `UPDATE_GUIDES=1` re-records only the platform it runs
  * on, so both platforms are re-recorded from the same commit.
+ *
+ * The `linux` record is the most any CI run has shown, signature by signature,
+ * not one run's. An edge that sits at the outer limit of the near-miss band
+ * (`Δ3` is 2.75 to 3px off, and the band ends at 3) comes and goes between runs
+ * of the same code, a quarter pixel of text width deciding it, and the gate
+ * only fails on growth, so the maximum stops it flipping. Each run keeps what
+ * it measured in `guides-observed/` beside the report, which CI uploads on a
+ * failure; merge a new run's file into the record as a per-signature maximum.
  */
 
 type Kind = 'offLine' | 'overflow' | 'offScale'

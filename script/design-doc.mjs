@@ -320,7 +320,7 @@ lines.push('scene of the review board (`pnpm design`, then `/review.html`), meas
 lines.push('own guides and recorded in')
 lines.push('`packages/ui/src/design/guides-standard.json`, once per platform: text widths are the')
 lines.push('platform\'s own, so the same scene measures a little differently on a Mac and on a Linux')
-lines.push('runner. The counts below are the Linux record, the one CI gates on. *Off-line* is an edge 0.5–3px off a')
+lines.push('runner. The counts below are the Linux record, the one CI gates on, and the most any CI run has shown. *Off-line* is an edge 0.5–3px off a')
 lines.push('line three others share; *overflow* is content that spills, is clipped without an')
 lines.push('ellipsis, leaves its window, or touches the edge of its card; *off-scale* is a')
 lines.push('value no token names. The guides standard spec fails a count that rises, so these')

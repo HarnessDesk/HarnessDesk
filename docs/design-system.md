@@ -2719,7 +2719,7 @@ scene of the review board (`pnpm design`, then `/review.html`), measured by its
 own guides and recorded in
 `packages/ui/src/design/guides-standard.json`, once per platform: text widths are the
 platform's own, so the same scene measures a little differently on a Mac and on a Linux
-runner. The counts below are the Linux record, the one CI gates on. *Off-line* is an edge 0.5–3px off a
+runner. The counts below are the Linux record, the one CI gates on, and the most any CI run has shown. *Off-line* is an edge 0.5–3px off a
 line three others share; *overflow* is content that spills, is clipped without an
 ellipsis, leaves its window, or touches the edge of its card; *off-scale* is a
 value no token names. The guides standard spec fails a count that rises, so these
@@ -2738,7 +2738,7 @@ before anyone edits the source.
 | `conversation-details` | 8 | 3 | 0 |
 | `conversation-details-no-background` | 6 | 3 | 0 |
 | `conversation-changes` | 8 | 3 | 0 |
-| `conversation-browser` | 8 | 3 | 0 |
+| `conversation-browser` | 9 | 3 | 0 |
 | `conversation-git` | 12 | 3 | 0 |
 | `conversation-file` | 9 | 3 | 1 |
 | `conversation-terminal` | 9 | 3 | 0 |
@@ -2817,4 +2817,4 @@ before anyone edits the source.
 | `menu-suggestions` | 8 | 3 | 0 |
 | `menu-inbox` | 8 | 3 | 0 |
 | `menu-palette` | 8 | 3 | 0 |
-| **total** | 678 | 158 | 10 |
+| **total** | 679 | 158 | 10 |
