@@ -112,10 +112,14 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 /** What a person counts as characters, so a joined emoji at the edge is never split. */
 const characters = (text: string) => Array.from(graphemes.segment(text), part => part.segment)
 
-/** The line as it came, cut to fit a title. */
+/** A title is one line: a line break, even one inside quotes, shows as ⏎. */
+const oneLine = (text: string) => text.replace(/[ \t]*\r?\n[ \t]*/g, ' ⏎ ')
+
+/** The line as it came, on one line and cut to fit a title. */
 const cut = (line: string) => {
-  const chars = characters(line)
-  return chars.length <= LABEL_MAX ? line : `${chars.slice(0, LABEL_MAX - 1).join('').trimEnd()}…`
+  const flat = oneLine(line)
+  const chars = characters(flat)
+  return chars.length <= LABEL_MAX ? flat : `${chars.slice(0, LABEL_MAX - 1).join('').trimEnd()}…`
 }
 
 /** The flags that run the script they are given: `-c`, `-lc`, `-ic` and the like. `-n` only checks it. */
@@ -135,7 +139,7 @@ const RUNS_SCRIPT = /^-[eilux]*c$/
  */
 export const taskLabel = (command: string): string => {
   let line = command.trim()
-  if (!line) return command
+  if (!line) return oneLine(command)
   let tokens = shellTokens(line)
   if (!tokens) return cut(line)
   const [shell, flag, script] = tokens
@@ -151,12 +155,20 @@ export const taskLabel = (command: string): string => {
     if (tokens[from]?.kind === 'op' && (tokens[from] as { op: string }).op === '\n') { from++; continue }
     const [cd, dir, after] = tokens.slice(from, from + 3)
     if (!isWord(cd, 'cd') || !isWord(dir) || dir.value.startsWith('-')) break
-    if (after?.kind !== 'op' || !['&&', ';', '\n'].includes(after.op) || tokens[from + 3]?.kind !== 'word') break
-    from += 3
+    if (after?.kind !== 'op' || !['&&', ';', '\n'].includes(after.op)) break
+    // Blank and comment lines may stand between the separator and the command; another `;` may not.
+    let next = from + 3
+    while (tokens[next]?.kind === 'op' && (tokens[next] as { op: string }).op === '\n') next++
+    if (tokens[next]?.kind !== 'word') break
+    from = next
   }
   if (from && tokens[from]) line = line.slice(tokens[from]!.start).trim()
-  // A short line is the title as written, unless it runs onto another line.
-  if (characters(line).length <= LABEL_MAX && !line.includes('\n')) return line
+  // A short line is the title as the shell reads it: across a line break it is
+  // put back together from its words, with each break that ends a command as ⏎.
+  const whole = line.includes('\n')
+    ? oneLine(tokens.slice(from).map(token => token.kind === 'word' ? token.raw : token.op === '\n' ? '⏎' : token.op).join(' '))
+    : line
+  if (characters(whole).length <= LABEL_MAX) return whole
   const end = tokens.findIndex((token, i) => i >= from && token.kind === 'op')
   const segment = tokens.slice(from, end < 0 ? undefined : end)
   let at = 0
@@ -165,7 +177,7 @@ export const taskLabel = (command: string): string => {
   if (!isWord(program) || !program.value.trim()) return cut(line)
   const name = program.value.split('/').at(-1) || program.value
   const argument = segment.slice(at + 1).find((token): token is Word => token.kind === 'word' && !token.value.startsWith('-'))
-  const short = argument ? `${name} ${argument.raw}` : name
+  const short = oneLine(argument ? `${name} ${argument.raw}` : name)
   return characters(short).length > LABEL_MAX ? cut(short) : `${short}…`
 }
 
