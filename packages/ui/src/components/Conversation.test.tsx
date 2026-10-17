@@ -921,6 +921,38 @@ it('Undo leaves the menu before asking, and Keep never rolls back', async () => 
   }
 })
 
+it.each(['starting', 'failed', 'ready'] as const)('a %s draft explains runtime readiness beside Send without replacing typing', (state) => {
+  const health = state === 'failed'
+    ? { state: 'unavailable' as const, reason: 'unreadable' as const, message: 'The agent failed its version check.', remediation: 'Choose a working installation in Settings.' }
+    : { state: state === 'ready' ? 'ready' as const : 'starting' as const }
+  const { store } = rig(null, new Map(), { health, healthByRuntime: { codex: health } })
+  const settings = vi.fn()
+  store.askSettings = settings
+  render(store, null)
+  const textarea = container.querySelector<HTMLTextAreaElement>('textarea')!
+  expect(textarea.disabled).toBe(false)
+  expect(textarea.placeholder).toBe('Describe a task to start a session — / for commands, @ for files')
+  const send = container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!
+  const tools = container.querySelector('[data-slot="composer-tools"]')!
+  if (state === 'ready') {
+    expect(tools.textContent).not.toContain('Unavailable')
+    expect(tools.textContent).not.toContain('Not answered yet')
+    expect(send.title).toBe('')
+  } else {
+    expect(send.disabled).toBe(true)
+    expect(tools.querySelector(`[data-slot="chip"][data-state="${state === 'failed' ? 'broken' : 'unknown'}"]`)?.textContent)
+      .toBe(state === 'failed' ? 'Unavailable' : 'Not answered yet')
+    expect(send.title).toBe(state === 'failed'
+      ? 'The agent failed its version check. Choose a working installation in Settings.'
+      : 'Waiting for the runtime to start')
+    if (state === 'failed') {
+      const link = [...tools.querySelectorAll('button')].find(button => button.textContent === 'Unavailable')!
+      act(() => link.click())
+      expect(settings).toHaveBeenCalledWith('runtimes', 'codex')
+    }
+  }
+})
+
 it('a failed runtime keeps the transcript and replaces the composer with one actionable reason', () => {
   const reason = 'The agent failed its version check.'
   const one = session({ turns: [{ id: turnId('kept-turn'), status: 'completed', items: [

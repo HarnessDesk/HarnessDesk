@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Drafts explain why Send is disabled** while the runtime starts or is unavailable, with a short readiness chip and the reason on Send’s hover title; an unavailable runtime’s chip opens its Settings page.
+
 - **Conversations whose folder is gone can be archived from their banner.** The folder name stays short with its full path on hover, and the copy action explains that it starts a conversation with a summary.
 
 - **A signed-out agent no longer raises its raw sign-in refusal** — the agent's "Authentication required" answer, with its method names and settings path, is no longer shown as a toast, or as a warning under New conversations on its page or in General, while the desk already shows it signed out; its banner and Accounts card say it. A refusal from an agent shown as signed in is still reported.
