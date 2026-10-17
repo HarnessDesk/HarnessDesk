@@ -1,5 +1,5 @@
 // Synthetic, isolated histories at the production checkpoint cadence. Fixture setup
-// batches disk writes; measured opens include all sealed-segment integrity reads.
+// batches disk writes; measured opens include the newest sealed-segment read and anchored metadata-chain verification.
 import fs from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
@@ -16,6 +16,7 @@ for (const count of [2000, 8000, 32000]) {
     await fs.mkdir(directory)
     let state = initialLeadState(), head = '0'.repeat(64), frames = [], records = 0
     const segments = []
+    let segmentHead = '0'.repeat(64)
     const frame = record => {
       const checksum = createHash('sha256').update(JSON.stringify({ record, previous: head })).digest('hex')
       frames.push(JSON.stringify({ record, previous: head, checksum }) + '\n'); head = checksum
@@ -31,7 +32,9 @@ for (const count of [2000, 8000, 32000]) {
         if (records >= 1024) {
           const name = `thread-1.ndjson.sealed-benchmark-${segments.length}`, bytes = frames.join('')
           await fs.writeFile(join(directory, name), bytes)
-          segments.push({ name, hash: createHash('sha256').update(bytes).digest('hex') })
+          const segment = { name, hash: createHash('sha256').update(bytes).digest('hex'), previous: segmentHead }
+          segmentHead = createHash('sha256').update(JSON.stringify(segment)).digest('hex')
+          segments.push({ ...segment, checksum: segmentHead })
           frames = []; frame(leadCheckpoint(state, head)); records = 0
         }
         const record = parseLeadJournalRecord({ version: 1, seq: state.seq + 1, ...event })
@@ -42,7 +45,7 @@ for (const count of [2000, 8000, 32000]) {
     const database = new DatabaseSync(join(directory, 'thread-1.writer.sqlite'))
     database.exec('CREATE TABLE journal (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
     const put = database.prepare('INSERT INTO journal VALUES (?, ?)')
-    put.run('head', JSON.stringify({ seq: state.seq, hash: head })); put.run('segments', JSON.stringify(segments)); database.close()
+    put.run('head', JSON.stringify({ seq: state.seq, hash: head, segments: segmentHead })); put.run('segments', JSON.stringify(segments)); database.close()
     const samples = []
     for (let run = 0; run < 3; run++) {
       const begin = performance.now(), disk = await openLeadFileJournal(home, 'thread-1'), journal = await createLeadJournal(disk)

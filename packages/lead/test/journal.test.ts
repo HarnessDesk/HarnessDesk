@@ -236,7 +236,7 @@ test('exact canaries refuse one record without latching and secret variables use
     brokerReference: (_value: string, name: string) => name === 'api_key' ? 'broker:input-1' : null })
   await journal.setPolicy(policy)
   await assert.rejects(journal.offerCard({ ...plan, contract: { ...contract, goal: canary } }))
-  const offered = await journal.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { api_key: canary } }] } })
+  const offered = await journal.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { api_key: 'synthetic-worker-input' } }] } })
   assert.equal(offered.contract.steps[0].variables.api_key, 'broker:input-1')
   assert.equal(offered.contractDigest, 'b'.repeat(64))
   assert.ok(!JSON.stringify(storage.records).includes(canary))
@@ -361,4 +361,154 @@ test('a conflicting reconciliation identity refuses one call and leaves Stop wri
   await assert.rejects(journal.recover(async () => [{ correlationId: 'second', runId: 'run-1', teamId: 'team-1' }]))
   await journal.stop()
   assert.equal((await open(storage)).state.phase, 'stopped')
+})
+
+test('undecided plan survives waiting decisions and reconciliation and can replace only pending steps', async () => {
+  const storage = memory(), journal = await open(storage)
+  const second = { ...contract.steps[0]!, id: 'second' }
+  const original = { ...contract, steps: [...contract.steps, second] }
+  await journal.setPolicy(policy)
+  await journal.offerCard({ ...plan, contract: original })
+  await journal.decideCard(click, 200)
+  await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => { throw new Error('response lost') })
+  const updatedSecond = { ...second, variables: { target: 'revised' } }
+  const revised = { ...original, revision: 2, digest: 'b'.repeat(64), goal: 'Revised pending work', steps: [original.steps[0]!, updatedSecond] }
+  await journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised })
+  await journal.offerCard({ version: 1, id: 'waiting-1', revision: 1, type: 'waiting', kind: 'person', runId: 'run-1', personCardId: 'gate-1',
+    contractDigest: original.digest, summary: 'Person gate', assertions: [] })
+  await journal.decideCard({ version: 1, cardId: 'waiting-1', cardType: 'waiting', expectedRevision: 1, choice: 'accept', contractDigest: original.digest })
+  await journal.recover(async () => [{ correlationId: 'first', runId: 'run-1', teamId: 'team-1' }])
+  const nextRequest = { ...request, start: second }
+  const blocked = await journal.execute({ id: 'blocked', request: nextRequest, context, stepId: 'second' }, async () => { throw new Error('must not dispatch') })
+  assert.equal(blocked.outcome, 'denied', 'a pending plan is independent of phase')
+  await journal.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest }, 300)
+  assert.equal(journal.state.steps[0].state, 'started')
+  assert.deepEqual(journal.state.runs, [{ correlationId: 'first', runId: 'run-1', teamId: 'team-1' }])
+  assert.equal(journal.state.contract.digest, revised.digest)
+  assert.equal((await journal.execute({ id: 'second', request: { ...nextRequest, start: updatedSecond,
+    params: { ...request.params, sentence: revised.goal, vars: updatedSecond.variables } }, context, stepId: 'second' },
+    async () => ({ value: null, identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
+})
+
+test('plan revision approval preserves admitted steps and refuses changes to their project or definition', async () => {
+  for (const change of ['definition', 'project']) {
+    const storage = memory(), journal = await prepare(storage)
+    await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => { throw new Error('lost response') })
+    const revised = { ...contract, revision: 2, digest: 'b'.repeat(64),
+      ...(change === 'project' ? { project: { ...contract.project, path: '/workspace/other' } } : { steps: [{ ...contract.steps[0]!, title: 'Changed admitted work' }] }) }
+    await journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised })
+    await assert.rejects(journal.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest }, 300))
+    await journal.stop()
+    assert.equal((await open(storage)).state.phase, 'stopped')
+  }
+})
+
+test('a running plan revision approves without resetting started steps or run identities', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
+    identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))
+  const revised = { ...contract, revision: 2, digest: 'b'.repeat(64), steps: [...contract.steps, { ...contract.steps[0]!, id: 'second' }] }
+  await journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised })
+  await journal.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest }, 300)
+  assert.deepEqual(journal.state.steps.map((step: any) => step.state), ['started', 'pending'])
+  assert.equal(journal.state.runs[0].runId, 'run-1')
+  assert.deepEqual(journal.state.teams, ['team-1'])
+})
+
+test('an undecided plan cannot be replaced by a different card kind', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.offerCard({ ...plan, revision: 2 })
+  await assert.rejects(journal.offerCard({ version: 1, id: plan.id, revision: 3, type: 'waiting', kind: 'person', runId: 'run-1', personCardId: 'gate-1',
+    contractDigest: contract.digest, summary: 'Person gate', assertions: [] }))
+  await journal.stop()
+})
+
+test('canaries are refused in every raw key and value before any broker or masking work', async () => {
+  const canary = 'synthetic-provider-canary-91b0c2d3'
+  const variants = [
+    { ...plan, contract: { ...contract, goal: canary } },
+    { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { issue: canary } }] } },
+    { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { api_key: canary } }] } },
+    { ...plan, id: canary },
+    { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], sourceRevision: canary }] } },
+    { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { [canary]: 'ordinary' } }] } },
+    { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { api_key: 'synthetic-worker-input' } }], assertions: [{ ...contract.assertions[0], description: canary }] } },
+    { ...plan, id: canary, contract: { ...contract, goal: canary, steps: [{ ...contract.steps[0], variables: { api_key: canary } }] } },
+  ]
+  for (const card of variants) {
+    const storage = memory()
+    let brokers = 0
+    const journal = await open(storage, { canaries: [canary], digestContract: () => 'b'.repeat(64), brokerReference: () => { brokers++; return 'broker:input-1' } })
+    await journal.setPolicy(policy)
+    await assert.rejects(journal.offerCard(card), /canary/)
+    assert.equal(brokers, 0)
+    await journal.stop()
+    assert.ok(!JSON.stringify(storage.records).includes(canary))
+  }
+})
+
+test('recognized tokens refuse opaque strings and keys even when duplicated into prose or variables', async () => {
+  const token = 'ghp_' + 'A'.repeat(36)
+  const variants = [
+    { ...plan, id: token },
+    { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], id: token }] } },
+    { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], sourceRevision: token }] } },
+    { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], assignments: [{ ...contract.steps[0]!.assignments[0], seat: { runtime: 'fixture', model: token } }] }] } },
+    { ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { [token]: 'ordinary' } }] } },
+    { ...plan, id: token, contract: { ...contract, goal: `Review ${token}`, steps: [{ ...contract.steps[0], variables: { api_key: token } }] } },
+  ]
+  for (const card of variants) {
+    const storage = memory(), journal = await open(storage, { digestContract: () => 'b'.repeat(64), brokerReference: () => 'broker:input-1' })
+    await journal.setPolicy(policy)
+    await assert.rejects(journal.offerCard(card), /credential/)
+    await journal.stop()
+    assert.ok(!JSON.stringify(storage.records).includes(token))
+  }
+})
+
+test('secret variable names are anchored and cookie authorization bearer values require broker references', async () => {
+  for (const name of ['api_key', 'apikey', 'access_token', 'token', 'secret', 'password', 'Cookie', 'AUTHORIZATION', 'bearer', 'provider_api_key']) {
+    const storage = memory(), journal = await open(storage, { digestContract: () => 'b'.repeat(64), brokerReference: () => 'broker:input-1' })
+    await journal.setPolicy(policy)
+    const offered = await journal.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { [name]: 'synthetic-worker-input' } }] } })
+    assert.equal(offered.contract.steps[0].variables[name], 'broker:input-1', name)
+    const withoutBroker = await open(memory())
+    await withoutBroker.setPolicy(policy)
+    await assert.rejects(withoutBroker.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { [name]: 'synthetic-worker-input' } }] } }), /broker-reference/)
+  }
+})
+
+test('ordinary token-related variable names stay literal with or without a broker', async () => {
+  for (const brokerReference of [undefined, () => 'broker:must-not-be-used']) {
+    const journal = await open(memory(), { brokerReference, digestContract: () => 'b'.repeat(64) })
+    await journal.setPolicy(policy)
+    const offered = await journal.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { max_tokens: '4096', tokenizer: 'ordinary' } }] } })
+    assert.deepEqual(offered.contract.steps[0].variables, { max_tokens: '4096', tokenizer: 'ordinary' })
+  }
+})
+
+test('header masking preserves prose after one optional scheme and credential token', async () => {
+  for (const [header, expected] of [
+    ['Authorization: Bearer synthetic-value and add tests', 'Authorization: [redacted] and add tests'],
+    ['Authorization: Basic synthetic-value then retry', 'Authorization: [redacted] then retry'],
+    ['x-api-key: Token synthetic-value and continue', 'x-api-key: [redacted] and continue'],
+    ['Cookie: session=synthetic-value; keep the sentence', 'Cookie: [redacted]; keep the sentence'],
+    ['Authorization: headers are dropped by the proxy and add tests', 'Authorization: [redacted] are dropped by the proxy and add tests'],
+  ]) {
+    const journal = await open(memory(), { digestContract: () => 'b'.repeat(64) })
+    await journal.setPolicy(policy)
+    const offered = await journal.offerCard({ ...plan, contract: { ...contract, goal: `Fix ${header}` } })
+    assert.equal(offered.contract.goal, `Fix ${expected}`)
+  }
+})
+
+test('loading validates historical prose without running current write masks', async () => {
+  const history = [
+    { version: 1, seq: 1, type: 'policy', policy },
+    { version: 1, seq: 2, type: 'card', card: { ...plan, contract: { ...contract, goal: 'Historical Authorization: synthetic-value and keep reading' } } },
+    { version: 1, seq: 3, type: 'card-decision', decision: click, expiresAt: 200 },
+  ]
+  const journal = await open({ async read() { return history }, async append() {} })
+  assert.equal(journal.state.contract.goal, history[1]!.card!.contract.goal)
+  await journal.stop()
 })

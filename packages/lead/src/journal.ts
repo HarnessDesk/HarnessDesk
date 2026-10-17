@@ -3,9 +3,9 @@ import {
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy,
 } from '@harnessdesk/protocol'
 import { decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
-import { prepareLeadJournalData, type LeadJournalSecurity } from './journal-security.js'
+import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { reduceLeadRecord, replayLeadJournal, type LeadState } from './state.js'
+import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, type LeadState } from './state.js'
 
 export const LEAD_JOURNAL_BYTES = 1_048_576
 export interface LeadRunIdentity { readonly correlationId: string; readonly runId: string; readonly teamId: string }
@@ -31,7 +31,7 @@ export type LeadJournalEvent =
   | { readonly type: 'result'; readonly id: string; readonly outcome: LeadAttemptOutcome; readonly identity: LeadRunIdentity | null }
   | { readonly type: 'reconciliation'; readonly id: string; readonly identity: LeadRunIdentity | null; readonly count: number; readonly evidence: string }
 export type LeadJournalRecord = Base & LeadJournalEvent
-export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown): LeadJournalRecord; checkpoint?(): LeadState | null }
+export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown): LeadJournalRecord; checkpoint?(): LeadState | null; journalSecurity?(): LeadJournalSecurity }
 const object = (value: unknown, keys?: readonly string[]): Record<string, unknown> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('lead-journal-shape')
   const source = value as Record<string, unknown>
@@ -84,8 +84,9 @@ export const parseLeadRunIdentity = (value: unknown): LeadRunIdentity => {
 const safeBytes = (value: unknown): void => {
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > LEAD_JOURNAL_BYTES) throw new Error('lead-journal-record-limit')
 }
-export const parseLeadJournalRecord = (value: unknown, security: LeadJournalSecurity = {}): LeadJournalRecord => {
-  const source = object(prepareLeadJournalData(value, security))
+/** Load/replay validates stored bytes without applying today's write-time masks. */
+export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
+  const source = object(value)
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
@@ -136,6 +137,9 @@ export const parseLeadJournalRecord = (value: unknown, security: LeadJournalSecu
   return record
 }
 
+export const prepareLeadJournalRecord = (value: unknown, security: LeadJournalSecurity = {}): LeadJournalRecord =>
+  parseLeadJournalRecord(prepareLeadJournalData(value, security))
+
 export interface LeadToolAttempt { readonly id: string; readonly request: LeadPermissionRequest; readonly context: LeadPermissionContext; readonly stepId?: string | null }
 export interface LeadDispatchResult { readonly value: unknown; readonly identity: LeadRunIdentity | null }
 export type LeadDispatch = (call: LeadPermissionCall, correlationId: string) => Promise<LeadDispatchResult>
@@ -148,7 +152,11 @@ export class LeadJournal {
   #state: LeadState
   #tail: Promise<unknown> = Promise.resolve()
   #failed = false
-  constructor(private readonly storage: LeadJournalStorage, records: readonly LeadJournalRecord[], private readonly security: LeadJournalSecurity = {}, checkpoint: LeadState | null = null) { this.#state = records.reduce(reduceLeadRecord, checkpoint ?? replayLeadJournal([])) }
+  private readonly security: LeadJournalSecurity
+  constructor(private readonly storage: LeadJournalStorage, records: readonly LeadJournalRecord[], security: LeadJournalSecurity = {}, checkpoint: LeadState | null = null) {
+    this.security = mergeLeadJournalSecurity(storage.journalSecurity?.() ?? {}, security)
+    this.#state = records.reduce(reduceLeadRecord, checkpoint ?? replayLeadJournal([]))
+  }
   get state(): LeadState { return structuredClone(this.#state) }
   #queue<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.#tail.then(async () => { if (this.#failed) throw new Error('lead-journal-writer-failed'); return operation() })
@@ -157,7 +165,8 @@ export class LeadJournal {
   }
   async #append(event: LeadJournalEvent): Promise<void> {
     const raw = { version: 1, seq: this.#state.seq + 1, ...event }
-    const record = this.storage.prepare ? this.storage.prepare(raw) : parseLeadJournalRecord(raw, this.security)
+    const prepared = prepareLeadJournalRecord(raw, this.security)
+    const record = this.storage.prepare ? this.storage.prepare(prepared) : prepared
     const next = reduceLeadRecord(this.#state, record)
     try { await this.storage.append(record) }
     catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
@@ -172,7 +181,8 @@ export class LeadJournal {
   bindTeam(teamId: string, contractDigest: string): Promise<void> {
     return this.#queue(() => this.#append({ type: 'team-approved', teamId, contractDigest }))
   }
-  /** Called only after an explicit user resolution of the quarantine report. */
+  /** Step 10 must admit recovery-resolved only from the authenticated window, like
+   * card decisions. The model loop must never resolve its own quarantine block. */
   resolveRecovery(): Promise<void> { return this.#queue(() => this.#append({ type: 'recovery-resolved' })) }
   stop(): Promise<void> { return this.#queue(() => this.#append({ type: 'stop' })) }
   execute(input: LeadToolAttempt, dispatch: LeadDispatch): Promise<{ decision: LeadPermissionDecision; outcome: LeadAttemptOutcome; value?: unknown }> {
@@ -198,7 +208,7 @@ export class LeadJournal {
       const step = this.#state.steps.find(step => step.id === input.stepId)
       const cancellation = method === 'flow/execution/stop' || method === 'team/intent' && action === 'abandon'
       // Status reads remain available after Stop so the final report can observe desk state.
-      if (tier !== 'read' && !cancellation && (['stopped', 'accepted', 'declined', 'awaiting-plan'].includes(this.#state.phase) ||
+      if (tier !== 'read' && !cancellation && (['stopped', 'accepted', 'declined'].includes(this.#state.phase) || hasPendingLeadPlan(this.#state) ||
         this.#state.recoveryBlocked || [...this.#state.attempts.values()].some(attempt => attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.phase === 'started' && attempt.dispatched))))
         decision = refusal('start', 'Management is stopped pending recovery or user action')
       if (method === 'flow/start-goal' && (!step || step.state !== 'pending' || request.start?.id !== step.id ||

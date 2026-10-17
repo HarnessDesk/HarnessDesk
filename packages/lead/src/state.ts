@@ -30,6 +30,9 @@ export const initialLeadState = (): LeadState => ({ seq: 0, phase: 'draft', poli
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-transition') }
 const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.revision}`
 
+/** Card decisions, not phase changes or recovery, release the plan fence. */
+export const hasPendingLeadPlan = (state: LeadState): boolean => state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(cardKey(card)))
+
 /** Replay is a pure reducer. A syntactically valid line is not enough: every transition
  * must be possible from its durable prefix, with no second admission of the same step. */
 export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState => {
@@ -55,7 +58,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, policy: event.policy }; break
     case 'card': {
       const old = state.cards.find(card => card.id === event.card.id)
-      ensure(!old || event.card.revision > old.revision)
+      ensure(!old || event.card.revision > old.revision && event.card.type === old.type)
       ensure(old || state.cards.length < 64)
       ensure((state.cardRevisions[event.card.id] ?? 0) < 32)
       state = { ...state, cards: [...state.cards.filter(card => card.id !== event.card.id), event.card], cardRevisions: { ...state.cardRevisions, [event.card.id]: (state.cardRevisions[event.card.id] ?? 0) + 1 } }
@@ -68,13 +71,23 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const decision = parseLeadCardDecisionFor(event.decision, card)
       ensure(card)
       if (card!.type === 'plan') {
-        ensure(state.policy?.revision === card!.contract.policyRevision && !state.steps.some(step => step.state !== 'pending'))
+        ensure(state.policy?.revision === card!.contract.policyRevision)
         if (decision.choice === 'approve') {
           ensure(event.expiresAt !== null && event.expiresAt > 0)
-          state = { ...state, contract: card!.contract, phase: 'running', teams: [], runs: [],
+          const contract = card!.contract
+          ensure(state.contract === null || contract.revision > state.contract.revision)
+          // Dispatch admission may already have spent. Preserve that prefix, even if
+          // its response is still uncertain; a new approval changes only future steps.
+          const locked = state.steps.filter(step => step.state !== 'pending')
+          if (locked.length) {
+            ensure(contract.project.id === state.contract?.project.id && contract.project.path === state.contract.project.path)
+            ensure(locked.every((step, index) => step.id === contract.steps[index]?.id &&
+              JSON.stringify(contract.steps[index]) === JSON.stringify(state.contract?.steps[index])))
+          }
+          state = { ...state, contract, phase: 'running', teams: locked.length ? state.teams : [], runs: locked.length ? state.runs : [],
             consent: { contractDigest: card!.contract.digest, contractRevision: card!.contract.revision,
               policyRevision: card!.contract.policyRevision, expiresAt: event.expiresAt! },
-            steps: card!.contract.steps.map(step => ({ id: step.id, state: 'pending', attemptId: null })) }
+            steps: contract.steps.map(step => locked.find(existing => existing.id === step.id) ?? { id: step.id, state: 'pending', attemptId: null }) }
         } else state = { ...state, phase: 'declined' }
       } else if (card!.type === 'permission-change') {
         ensure(state.policy)
@@ -108,9 +121,11 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'dispatch-start': {
       const attempt = state.attempts.get(event.id)
       ensure(attempt?.phase === 'decided' && (!event.dispatched || attempt.effect === 'allow' && attempt.kind !== 'invalid'))
+      if (event.dispatched && attempt!.kind === 'mutation' && hasPendingLeadPlan(state))
+        ensure(attempt!.method === 'flow/execution/stop' || attempt!.method === 'team/intent' && attempt!.action === 'abandon')
       if (event.dispatched && attempt!.method === 'flow/start-goal') {
         const step = state.steps.find(step => step.id === attempt!.stepId)
-        ensure(state.phase === 'running' && step?.state === 'pending' && state.steps.find(step => step.state !== 'started')?.id === step.id)
+        ensure(state.phase === 'running' && !hasPendingLeadPlan(state) && step?.state === 'pending' && state.steps.find(step => step.state !== 'started')?.id === step.id)
         state = { ...state, steps: state.steps.map(step => step.id === attempt!.stepId ? { ...step, state: 'admitted', attemptId: event.id } : step) }
       }
       updateAttempt(event.id, attempt => ({ ...attempt, phase: 'started', dispatched: event.dispatched })); break
@@ -149,6 +164,9 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     }
     state = { ...state, attempts }
   }
+  if (!['stopped', 'accepted', 'declined'].includes(state.phase) && hasPendingLeadPlan(state)) state = { ...state, phase: 'awaiting-plan' }
+  else if (event.type === 'card-decision' && event.decision.cardType === 'plan' && event.decision.choice === 'approve' &&
+    [...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'waiting-for-user' }
   // An observed result can resolve uncertainty, never revoke a durable terminal decision.
   if (['stopped', 'accepted', 'declined'].includes(previous.phase)) state = { ...state, phase: previous.phase }
   return state

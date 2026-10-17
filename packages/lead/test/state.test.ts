@@ -59,7 +59,7 @@ test('journal records bound card bytes and refuse credentials in domain data', (
   const variables = Object.fromEntries(Array.from({ length: 64 }, (_, n) => [`input-${n}`, 'x'.repeat(16_384)]))
   const oversized = { ...card, contract: { ...contract, steps: [{ ...contract.steps[0], variables }] } }
   assert.throws(() => parseLeadJournalRecord({ version: 1, seq: 1, type: 'card', card: oversized }))
-  assert.throws(() => parseLeadJournalRecord({ version: 1, seq: 1, type: 'card', card: { ...card, contract: { ...contract, goal: 'sk-ant-' + 'synthetic-secret-123456789' } } }))
+  assert.throws(() => lead.prepareLeadJournalRecord({ version: 1, seq: 1, type: 'card', card: { ...card, contract: { ...contract, goal: 'sk-ant-' + 'synthetic-secret-123456789' } } }))
 })
 
 test('checkpoints round trip reduced state and refuse malformed snapshots', () => {
@@ -76,5 +76,19 @@ test('checkpoints round trip reduced state and refuse malformed snapshots', () =
     const malformed = structuredClone(checkpoint)
     change(malformed)
     assert.throws(() => lead.parseLeadCheckpoint(malformed))
+  }
+})
+
+test('pending plan blocks every mutation dispatch in replay except stop and abandon', () => {
+  for (const [method, action] of [['workspace/open', null], ['flow/execution/stop', null], ['team/intent', 'abandon']] as const) {
+    const history = records([...prefix(),
+      { type: 'card', card: { version: 1, id: 'plan-1', revision: 2, type: 'plan', contractDigest: contract.digest, contract } },
+      { type: 'attempt', id: 'attempt-1', correlationId: 'attempt-1', method, action, arguments: summarizeLeadArguments({}), kind: 'mutation',
+        stepId: null, policyRevision: 1, projectPolicyRevision: null, contractRevision: 1 },
+      { type: 'decision', id: 'attempt-1', effect: 'allow', reason: 'policy', rule: null },
+      { type: 'dispatch-start', id: 'attempt-1', dispatched: true },
+    ])
+    if (method === 'workspace/open') assert.throws(() => replayLeadJournal(history))
+    else assert.doesNotThrow(() => replayLeadJournal(history))
   }
 })

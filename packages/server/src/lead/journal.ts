@@ -3,7 +3,7 @@ import { constants, createReadStream } from 'node:fs'
 import fs, { type FileHandle } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { LEAD_JOURNAL_BYTES, initialLeadState, parseLeadJournalRecord, reduceLeadRecord, leadCheckpoint, parseLeadCheckpoint,
+import { LEAD_JOURNAL_BYTES, initialLeadState, parseLeadJournalRecord, prepareLeadJournalRecord, reduceLeadRecord, leadCheckpoint, parseLeadCheckpoint,
   type LeadJournalRecord, type LeadJournalStorage, type LeadState, type LeadJournalSecurity, type LeadJournalCheckpoint } from '@harnessdesk/lead'
 
 const zero = '0'.repeat(64)
@@ -21,7 +21,10 @@ const hashFile = async (path: string): Promise<string> => {
   for await (const chunk of createReadStream(path)) hash.update(chunk)
   return hash.digest('hex')
 }
-interface Segment { readonly name: string; readonly hash: string }
+interface Segment { readonly name: string; readonly hash: string; readonly previous: string; readonly checksum: string }
+interface Anchor { readonly seq: number; readonly hash: string; readonly segments: string }
+const segmentChecksum = (segment: Pick<Segment, 'name' | 'hash' | 'previous'>) =>
+  createHash('sha256').update(JSON.stringify({ name: segment.name, hash: segment.hash, previous: segment.previous })).digest('hex')
 interface Rotation { readonly archive: string; readonly temporary: string; readonly archiveHash: string; readonly hash: string; readonly seq: number }
 export interface LeadJournalReport {
   readonly truncatedTail: boolean; readonly quarantine: string | null; readonly discardedBytes: number
@@ -35,6 +38,8 @@ export class LeadFileJournal implements LeadJournalStorage {
   #state: LeadState = initialLeadState()
   #base: LeadState | null = null
   #checksum = zero
+  #segmentHead = zero
+  #sizes = new WeakMap<object, number>()
   #bytes = 0
   #tail: Promise<unknown> = Promise.resolve()
   #failed = false
@@ -44,13 +49,47 @@ export class LeadFileJournal implements LeadJournalStorage {
   private constructor(private readonly directory: string, private readonly file: string, private handle: FileHandle,
     private readonly lease: DatabaseSync, private readonly metadata: DatabaseSync, private readonly security: LeadJournalSecurity) {}
   get report(): LeadJournalReport { return structuredClone(this.#report) }
+  journalSecurity(): LeadJournalSecurity { return { ...this.security, canaries: [...(this.security.canaries ?? [])] } }
   checkpoint(): LeadState | null { return structuredClone(this.#base) }
   #get<T>(key: string, fallback: T): T {
     const row = this.metadata.prepare('SELECT value FROM journal WHERE key = ?').get(key) as { value: string } | undefined
     return row ? JSON.parse(row.value) as T : fallback
   }
   #put(key: string, value: unknown): void { this.metadata.prepare('INSERT OR REPLACE INTO journal VALUES (?, ?)').run(key, JSON.stringify(value)) }
-  #anchor(): void { this.#put('head', { seq: this.#state.seq, hash: this.#checksum }) }
+  #anchor(): void { this.#put('head', { seq: this.#state.seq, hash: this.#checksum, segments: this.#segmentHead }) }
+  #valueBytes(value: unknown): number {
+    if (value !== null && typeof value === 'object') {
+      const cached = this.#sizes.get(value)
+      if (cached !== undefined) return cached
+      const size = Buffer.byteLength(JSON.stringify(value)); this.#sizes.set(value, size); return size
+    }
+    return Buffer.byteLength(JSON.stringify(value))
+  }
+  #stateBytes(state: LeadState): number {
+    // Immutable reducer fields keep their cached sizes. The bounded Map changes on
+    // each attempt, but only its changed attempt object needs serialization.
+    let bytes = 512 // Checkpoint envelope, keys, punctuation and numeric growth.
+    for (const [key, value] of Object.entries(state)) {
+      if (key === 'attempts') {
+        bytes += 2
+        for (const [id, attempt] of state.attempts) bytes += this.#valueBytes(id) + this.#valueBytes(attempt) + 4
+      } else bytes += this.#valueBytes(key) + this.#valueBytes(value) + 2
+    }
+    return bytes
+  }
+  #segments(): Segment[] {
+    const segments = this.#get<Segment[]>('segments', [])
+    if (!Array.isArray(segments)) throw new Error('lead-journal-segment-chain')
+    let previous = zero
+    for (const segment of segments) {
+      if (!segment || Object.keys(segment).sort().join() !== ['name', 'hash', 'previous', 'checksum'].sort().join() ||
+        !/^[A-Za-z0-9_.-]+$/.test(segment.name) || !/^[a-f0-9]{64}$/.test(segment.hash) ||
+        segment.previous !== previous || segment.checksum !== segmentChecksum(segment)) throw new Error('lead-journal-segment-chain')
+      previous = segment.checksum
+    }
+    this.#segmentHead = previous
+    return segments
+  }
   async #finishRotation(rotation: Rotation): Promise<void> {
     const archive = join(this.directory, rotation.archive), temporary = join(this.directory, rotation.temporary)
     if (await hashFile(archive) !== rotation.archiveHash) throw new Error('lead-journal-archive-corruption')
@@ -63,12 +102,14 @@ export class LeadFileJournal implements LeadJournalStorage {
     }
     await this.handle.close()
     this.handle = await fs.open(this.file, constants.O_RDWR | constants.O_APPEND | constants.O_NOFOLLOW)
-    const segments = this.#get<Segment[]>('segments', [])
+    const segments = this.#segments()
+    const entry = { name: rotation.archive, hash: rotation.archiveHash, previous: this.#segmentHead }
+    const segment = { ...entry, checksum: segmentChecksum(entry) }
     this.metadata.exec('BEGIN IMMEDIATE')
     try {
-      if (!segments.some(segment => segment.name === rotation.archive)) this.#put('segments', [...segments, { name: rotation.archive, hash: rotation.archiveHash }])
-      this.#put('head', { seq: rotation.seq, hash: rotation.hash }); this.#put('rotation', null)
-      this.metadata.exec('COMMIT')
+      this.#put('segments', [...segments, segment])
+      this.#put('head', { seq: rotation.seq, hash: rotation.hash, segments: segment.checksum }); this.#put('rotation', null)
+      this.metadata.exec('COMMIT'); this.#segmentHead = segment.checksum
     } catch (error) { this.metadata.exec('ROLLBACK'); throw error }
   }
   async #rotate(): Promise<void> {
@@ -92,12 +133,59 @@ export class LeadFileJournal implements LeadJournalStorage {
     this.#base = structuredClone(this.#state); this.#records = []; this.#checksum = hash; this.#bytes = bytes.length
   }
   private async load(): Promise<void> {
-    const rotation = this.#get<Rotation | null>('rotation', null)
-    if (rotation) await this.#finishRotation(rotation)
-    for (const segment of this.#get<Segment[]>('segments', [])) {
-      if (!/^[A-Za-z0-9_.-]+$/.test(segment.name) || await hashFile(join(this.directory, segment.name)) !== segment.hash) throw new Error('lead-journal-archive-corruption')
+    const basename = this.file.slice(this.directory.length + 1)
+    const files = await fs.readdir(this.directory)
+    let anchor = this.#get<Anchor | null>('head', null)
+    const hasHistory = (await this.handle.stat()).size > 0 || files.some(name => name.startsWith(`${basename}.sealed-`) || name.startsWith(`${basename}.checkpoint-`))
+    if (anchor === null) {
+      if (hasHistory) throw new Error('lead-journal-missing-anchor')
+      anchor = { seq: 0, hash: zero, segments: zero }
     }
-    const anchor = this.#get('head', { seq: 0, hash: zero })
+    // Round-1 journals already have a durable record anchor. Upgrade their
+    // unchained manifest only after a one-time verification of every sealed file.
+    // Missing anchors never take this compatibility path.
+    if (!Object.hasOwn(anchor, 'segments')) {
+      if (Object.keys(anchor).sort().join() !== ['seq', 'hash'].sort().join() || !Number.isSafeInteger(anchor.seq) || anchor.seq < 0 || !/^[a-f0-9]{64}$/.test(anchor.hash))
+        throw new Error('lead-journal-invalid-anchor')
+      const legacy = this.#get<{ name: string; hash: string }[]>('segments', [])
+      if (!Array.isArray(legacy)) throw new Error('lead-journal-segment-chain')
+      let previous = zero
+      const upgraded: Segment[] = []
+      for (const item of legacy) {
+        if (!item || Object.keys(item).sort().join() !== ['name', 'hash'].sort().join() || !/^[A-Za-z0-9_.-]+$/.test(item.name) ||
+          !/^[a-f0-9]{64}$/.test(item.hash) || await hashFile(join(this.directory, item.name)) !== item.hash) throw new Error('lead-journal-archive-corruption')
+        const segment = { ...item, previous, checksum: segmentChecksum({ ...item, previous }) }
+        upgraded.push(segment); previous = segment.checksum
+      }
+      anchor = { ...anchor, segments: previous }
+      this.metadata.exec('BEGIN IMMEDIATE')
+      try { this.#put('segments', upgraded); this.#put('head', anchor); this.metadata.exec('COMMIT') }
+      catch (error) { this.metadata.exec('ROLLBACK'); throw error }
+    }
+    if (!anchor || Object.keys(anchor).sort().join() !== ['seq', 'hash', 'segments'].sort().join() ||
+      !Number.isSafeInteger(anchor.seq) || anchor.seq < 0 || !/^[a-f0-9]{64}$/.test(anchor.hash) || !/^[a-f0-9]{64}$/.test(anchor.segments))
+      throw new Error('lead-journal-invalid-anchor')
+    let segments = this.#segments()
+    if (this.#segmentHead !== anchor.segments) throw new Error('lead-journal-segment-anchor')
+    const rotation = this.#get<Rotation | null>('rotation', null)
+    if (rotation) {
+      await this.#finishRotation(rotation)
+      anchor = this.#get<Anchor>('head', anchor); segments = this.#segments()
+      if (this.#segmentHead !== anchor.segments) throw new Error('lead-journal-segment-anchor')
+    }
+    // Retain sealed audit segments until a separate retention policy is defined.
+    // Their hashes form the metadata chain anchored beside the synced record head.
+    // Reopen reads only the newest sealed content; older hashes remain available for audit.
+    const newest = segments.at(-1)
+    if (newest && await hashFile(join(this.directory, newest.name)) !== newest.hash) throw new Error('lead-journal-archive-corruption')
+    const listed = new Set(segments.map(segment => segment.name))
+    let removed = false
+    for (const name of await fs.readdir(this.directory)) {
+      if (name.startsWith(`${basename}.checkpoint-`) || name.startsWith(`${basename}.sealed-`) && !listed.has(name)) {
+        await fs.unlink(join(this.directory, name)); removed = true
+      }
+    }
+    if (removed) await syncDirectory(this.directory)
     let reached = anchor.seq === 0 && anchor.hash === zero
     const accept = (bytes: Buffer): void => {
       const text = bytes.toString('utf8')
@@ -105,6 +193,7 @@ export class LeadFileJournal implements LeadJournalStorage {
       const source = JSON.parse(text) as { record: unknown; previous: unknown; checksum: unknown }
       if (!source || Object.keys(source).sort().join() !== ['record', 'previous', 'checksum'].sort().join()) throw new Error('lead-journal-frame')
       if ((source.record as { type?: unknown })?.type === 'checkpoint') {
+        if (anchor.seq === 0 || segments.length === 0) throw new Error('lead-journal-checkpoint-anchor-required')
         if (this.#state.seq !== 0 || this.#base !== null) throw new Error('lead-journal-checkpoint-position')
         const { checkpoint, state } = parseLeadCheckpoint(source.record)
         if (source.previous !== checkpoint.head || source.checksum !== checksum(checkpoint, checkpoint.head)) throw new Error('lead-journal-checkpoint-checksum')
@@ -131,7 +220,6 @@ export class LeadFileJournal implements LeadJournalStorage {
       }
       if (pending.length > SNAPSHOT_BYTES + LEAD_JOURNAL_BYTES) throw new Error('lead-journal-line-limit')
     }
-    const basename = this.file.slice(this.directory.length + 1)
     this.#report = { ...this.#report, historicalQuarantines: (await fs.readdir(this.directory)).filter(name => name.startsWith(`${basename}.truncated-`)).sort().map(name => join(this.directory, name)) }
     if (pending.length) {
       // Only a syntactically torn suffix can be discarded. Complete but corrupt frames fail closed.
@@ -162,10 +250,10 @@ export class LeadFileJournal implements LeadJournalStorage {
   }
   read(): Promise<readonly LeadJournalRecord[]> { return this.#enqueue(async () => structuredClone(this.#records)) }
   prepare(value: unknown): LeadJournalRecord {
-    const record = parseLeadJournalRecord(value, this.security)
+    const record = prepareLeadJournalRecord(value, this.security)
     const state = reduceLeadRecord(this.#state, record)
     // Domain/card growth is refused before touching storage; existing terminal state always fits.
-    if (!criticalRecord(record) && Buffer.byteLength(JSON.stringify(leadCheckpoint(state, this.#checksum))) > NORMAL_STATE_BYTES) throw new Error('lead-journal-state-limit')
+    if (!criticalRecord(record) && this.#stateBytes(state) > NORMAL_STATE_BYTES) throw new Error('lead-journal-state-limit')
     return record
   }
   append(value: LeadJournalRecord): Promise<void> {
