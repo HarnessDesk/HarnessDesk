@@ -7,7 +7,8 @@ import { WALL_TIME } from './frame-wall-destinations'
 const families = [
   { id: 'teams', query: 'frame-wall=teams' },
   { id: 'agents', query: 'frame-wall=agents' },
-  { id: 'library', query: 'frame-wall=library' },
+  // The Library's only section band is on its Changes page; the page itself has none.
+  { id: 'library', query: 'frame-wall=library', bands: 'frame-wall=library&frame-kind=changes' },
   { id: 'plugins', query: 'frame-wall=plugins&frame-plugin-page=capabilities' },
   { id: 'dashboard', query: 'frame-wall=dashboard&frame-view=overview' },
   { id: 'flow', query: 'flow-graph', frame: '#flow-graph-straight' },
@@ -30,7 +31,7 @@ for (const theme of ['light', 'dark'] as const) for (const family of families) {
 for (const theme of ['light', 'dark'] as const) for (const family of families) {
   test(`page bands use the section role: ${family.id} ${theme}`, async ({ page }) => {
     await page.clock.setFixedTime(WALL_TIME)
-    await openFrame(page, family.query, theme)
+    await openFrame(page, 'bands' in family ? family.bands : family.query, theme)
     if ('tab' in family) await applyFrameActions(page, { tab: family.tab })
     const scope = 'frame' in family ? page.locator(family.frame) : page.locator('body')
     const bands = scope.locator('h2[data-role="section"], h2 [data-role="section"], h3 [data-role="section"]')

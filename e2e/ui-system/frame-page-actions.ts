@@ -16,7 +16,7 @@ export const applyPageFrameActions = async (page: Page, actions: PageFrameAction
   await applyFrameActions(page, actions)
   if (actions.bodyChoice) {
     const choice = actions.bodyChoice
-    const options = page.locator('[data-slot="page-options"]:visible, [data-slot="library-skills-controls"]:visible')
+    const options = page.locator('[data-slot="page-options"]:visible, [data-slot="library-skills-controls"]:visible, [data-slot="library-changes-controls"]:visible')
     const select = options.getByRole('combobox', { name: choice.label, exact: true })
     const radio = options.getByRole('radio', { name: choice.item ?? choice.value, exact: true })
     if (await radio.count()) await radio.click()

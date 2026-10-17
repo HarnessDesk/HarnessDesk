@@ -723,58 +723,12 @@ it('a bulk import carries the source agent\u2019s own copy, not a namesake', asy
   ])
 })
 
-it('history shows what changed from here, and a kept backup can be restored', async () => {
-  const audit = [
-    {
-      at: 1724800000000,
-      runtime: runtimeId('one'),
-      sessionId: 's',
-      kind: 'library/write',
-      op: 'skill/replace',
-      name: 'alpha',
-      path: '/home/u/.claude/skills/alpha',
-      status: 'done',
-      backupPath: '/hd/library/backups/2026-alpha',
-    },
-    {
-      at: 1724800001000,
-      runtime: runtimeId('one'),
-      sessionId: 's',
-      kind: 'library/write',
-      op: 'mcp/create',
-      name: 'fetcher',
-      path: '/home/u/.claude.json',
-      status: 'failed',
-      detail: 'No write permission',
-    },
-    // The rest of the audit log is other work; the page only owns its own.
-    { at: 1724800002000, runtime: runtimeId('one'), sessionId: 's', kind: 'turn' },
-  ]
-  const request = await mount(library([entry('alpha', ['reaches', 'reaches'])]), undefined, {
-    audit,
-  })
-  expect(document.body.textContent).toContain('Changes made from here')
-  expect(document.body.textContent).toContain('Replaced a copy of alpha')
-  // Newest on top: the log appends oldest-first, the page reads it back.
-  expect(document.body.textContent?.indexOf('fetcher')).toBeLessThan(
-    document.body.textContent?.indexOf('Replaced a copy of alpha') ?? -1,
-  )
-  // A failure reads as a sentence, verb in the infinitive, reason attached.
-  expect(document.body.textContent).toContain('Failed to add fetcher — No write permission')
-  const restore = [...document.body.querySelectorAll('button')].find(
-    (one) => one.textContent === 'Restore\u2026',
-  )
-  expect(restore).toBeTruthy()
-  await act(async () => restore?.click())
-  const planned = request.mock.calls.find((one) => one[0] === 'library/plan')
-  expect((planned?.[1] as { intents: unknown[] }).intents).toEqual([
-    {
-      kind: 'restoreCopy',
-      name: 'alpha',
-      backupPath: '/hd/library/backups/2026-alpha',
-      targetPath: '/home/u/.claude/skills/alpha',
-    },
-  ])
+it('keeps changes off the Library foot and offers them in More', async () => {
+  await mount(library([entry('alpha', ['reaches', 'reaches'])]))
+  expect(document.body.textContent).not.toContain('Changes made from here')
+  expect(document.body.textContent).not.toContain('Restore…')
+  await act(async () => document.body.querySelector<HTMLButtonElement>('button[aria-label="More"]')?.click())
+  expect(document.body.textContent).toContain('Changes made here…')
 })
 
 it('never offers to install a server into an agent with no config file for one', async () => {

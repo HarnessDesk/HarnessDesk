@@ -1,3 +1,4 @@
+import { installLibraryChangesFixture, LibraryWriteToastFixture } from './library-changes-fixture'
 import { installEditorMainFixture } from './editor-main-fixture'
 import { EditorModeSelection, editorModeFixture, installEditorModeFixture, type EditorModeScene } from './frames-editor-mode'
 import { installExplorerFixture } from './editor-explorer-fixture'
@@ -231,6 +232,7 @@ export const FrameWall = () => {
       : destination === 'library' && (query.get('frame-library-state') === 'autopilot' || query.get('frame-library-state') === 'import')
         ? frameDestinationStore(showing(libraryAuditFixtureStore(query.get('frame-library-state') as 'autopilot' | 'import'), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
       : frameDestinationStore(storeFor(destination), { workspaceOutsideGit: true })
+    if (destination === 'library' && (query.get('frame-kind') === 'changes' || query.has('frame-write-toast'))) installLibraryChangesFixture(next, query.get('frame-changes-empty') === '1')
     if (destination === 'library' && query.get('frame-empty') === '1') {
       const request = next.transport.request.bind(next.transport)
       next.transport.request = async (method, params) => {
@@ -895,6 +897,6 @@ export const FrameWall = () => {
   }, [store,destination])
   if (requested === 'topbar') return <TopBarProbe />
   return <StoreProvider store={store}>
-    <div data-frame-id="frame-wall" data-destination={destination} className="h-screen min-h-0 overflow-hidden bg-background"><App/><PopupWall/><EditorModeSelection/></div>
+    <div data-frame-id="frame-wall" data-destination={destination} className="h-screen min-h-0 overflow-hidden bg-background"><App/><LibraryWriteToastFixture shape={new URLSearchParams(location.search).get('frame-write-toast')} /><PopupWall/><EditorModeSelection/></div>
   </StoreProvider>
 }

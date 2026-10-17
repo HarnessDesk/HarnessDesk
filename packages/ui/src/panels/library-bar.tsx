@@ -1,5 +1,6 @@
 import { Menu, MenuItem, PageOptions, Popover, type PageOption } from '../design'
-import { CaretIcon, ImportIcon, PencilIcon, RetryIcon } from '../components/Icons'
+import { CaretIcon, ClockIcon, ImportIcon, PencilIcon, RetryIcon } from '../components/Icons'
+import { useStore } from '../state/context'
 import { DestinationBar } from './destination-page'
 
 export const LibraryBar = ({ kind, counts, change, loaded, loading, author, importing, github, checking, check, rescan, choices = [], search }: {
@@ -16,13 +17,16 @@ export const LibraryBar = ({ kind, counts, change, loaded, loading, author, impo
   readonly rescan: () => void
   readonly choices?: readonly PageOption[]
   readonly search?: { readonly label: string; readonly value: string; readonly change: (value: string) => void }
-}) => <>
+}) => {
+  const store = useStore()
+  return <>
   <DestinationBar place="Library"
   more={close => <>
     {kind === 'mcp' && <><MenuItem icon={<ImportIcon size={16} />} label="Import" disabled={!loaded} onSelect={() => { importing(); close() }} />
     <MenuItem icon={<ImportIcon size={16} />} label="Add from GitHub…" disabled={!loaded} onSelect={() => { github(); close() }} /></>}
     <MenuItem icon={<RetryIcon size={16} />} label={checking ? 'Checking…' : 'Check for updates'} disabled={!loaded || checking} onSelect={() => { check(); close() }} />
     <MenuItem icon={<RetryIcon size={16} />} label="Rescan" disabled={loading} onSelect={() => { rescan(); close() }} />
+    <MenuItem icon={<ClockIcon size={16} />} label="Changes made here…" onSelect={() => { store.openDestination({ kind: 'library', section: 'changes' }); close() }} />
   </>} />
   <PageOptions title="Library" action={kind === 'mcp' ? { label: 'New skill', disabled: loaded ? false : 'The library has not been read.', run: author } : undefined}
     choices={[{ id: 'kind', label: 'Library sections', value: kind, mode: 'menu', showCount: true,
@@ -35,3 +39,5 @@ export const LibraryBar = ({ kind, counts, change, loaded, loading, author, impo
     </Menu>}</Popover>}
   </PageOptions>
 </>
+
+}

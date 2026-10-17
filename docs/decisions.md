@@ -7,6 +7,19 @@ the rule is the last line of its section.
 
 ---
 
+## What the Library changed has its own page, and every write says so in a toast with no Undo — 2026-10-17
+
+The Library keeps its cards for finding skills. Changes made here is a separate
+view of the same destination, reached from More and from a write's View changes
+toast. The audit read covers 90 days, with local-day groups, search and filters.
+Restore remains a previewed plan and is offered only for completed backed-up writes.
+
+The page and toasts share the operation verbs. Each apply summarizes completed
+writes once, keeps failures until dismissed, and ignores skipped operations.
+Restoring refreshes the audit read; no persisted last-seen state or Undo is added.
+
+**Rule:** every Library write ends in one toast with a View changes button.
+
 ## Page band headings are 16/600 and field-group labels stay small — 2026-10-16
 
 Heads naming the cards or rows in a page’s body use the existing section text

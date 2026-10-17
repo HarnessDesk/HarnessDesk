@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 import type { PageDestination } from '../state/destinations'
 import { DashboardEntry } from '../components/Usage'
+import { LibraryChanges } from '../components/LibraryChanges'
 import { LibrarySection } from '../components/Library'
 import { Page } from '../design'
 import { PluginsSection } from '../components/PluginsSection'
@@ -28,7 +29,7 @@ export const MAIN_PAGE_ENTRIES: Partial<Record<PageDestination['kind'], (input: 
   agents: ({ page, visit }) => page.kind === 'agents'
     ? <AgentsWindow focus={page.id} onFocus={id => visit({ kind: 'agents', id })} /> : null,
   library: ({page,visit,libraryImportIntent}) => page.kind === 'library'
-    ? <Page width="wide"><LibrarySection section={page.section} onSection={section=>visit({kind:'library',section})} importIntent={libraryImportIntent} /></Page> : null,
+    ? <Page width="wide">{page.section === 'changes' ? <LibraryChanges onBack={() => visit({ kind: 'library', section: 'skill' })} /> : <LibrarySection section={page.section} onSection={section=>visit({kind:'library',section})} importIntent={libraryImportIntent} />}</Page> : null,
   plugins: ({ page, visit }) => page.kind === 'plugins'
     ? <Page width={page.id === null ? 'wide' : 'reading'}><PluginsSection section={page.section} id={page.id}
         onSection={section => visit({ kind: 'plugins', section, id: null })}
