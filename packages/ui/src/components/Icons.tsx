@@ -110,6 +110,7 @@ import {
   Import,
   Info,
   LayoutDashboard,
+  LayoutGrid,
   LayoutPanelLeft,
   ListPlus,
   ListTodo,
@@ -446,6 +447,8 @@ export const TeamIcon = animated(UsersRoundGlyph, UsersRound, 'TeamIcon')
 /** Fold every group in a list shut, and open every one again. */
 export const CollapseAllIcon = animated(ChevronsDownUpGlyph, ChevronsDownUp, 'CollapseAllIcon')
 export const ExpandAllIcon = animated(ChevronsUpDownGlyph, ChevronsUpDown, 'ExpandAllIcon')
+/** A grid of opening cards. */
+export const CardsIcon = icon(LayoutGrid, 'CardsIcon')
 /** A ruled matrix; the loose and tight rows offer two list densities. */
 export const MatrixIcon = icon(Table2, 'MatrixIcon')
 export const RowsLooseIcon = icon(Rows3, 'RowsLooseIcon')

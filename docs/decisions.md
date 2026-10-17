@@ -3821,3 +3821,12 @@ other than the first carry unread facts, so refreshing them preserves the open
 repository's known state. Suggested tasks from a source with an unknown folder
 keep the open project's folder; a recorded managed chat explicitly requests a
 fresh allocation.
+
+
+## The Library's skills page is cards under filter chips — 2026-10-16
+
+Skills open as compact cards with All, Needs you, One runtime and Nobody chips. Chips count all listed skills, while search, state filters and Agent declarations narrow together. Cards carry the runtime reach strip and at most one problem line; Matrix and the skill sheet retain the detailed comparison. Add skill groups the three existing ways to bring in a skill. MCP keeps its current page. Catalogue banners appear under Needs you even when that chip reads 0: banners describe the catalogue, while chips count skills.
+
+ToggleGroup gained a `chips` variant, and BoardCard gained `marks`, `finding`, `detailLines` and a grid. Keeping this shape costs maintaining those shared contracts and both views over the same filtered rows, using the existing finding and update selectors. Toolbar owns the controls row. Choices remain local to the viewer, history stays at the foot, and empty regions carry a short title without a description.
+
+**Rule:** a card carries at most one problem line, and banners live under Needs you.

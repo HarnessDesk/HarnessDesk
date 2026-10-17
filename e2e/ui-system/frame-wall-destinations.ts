@@ -212,11 +212,13 @@ export const E5_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
 
 export const E6_LIBRARY_PAGE_DESTINATIONS: readonly WallDestination[] = [
   { id: 'e6-library-skills', query: 'frame-wall=library&frame-kind=skill', pageWidth: 'wide' },
+  { id: 'l1-library-empty', query: 'frame-wall=library&frame-empty=1', pageWidth: 'wide' },
+  { id: 'l1-library-add', query: 'frame-wall=library', pageWidth: 'wide', addSkillMenu: true },
   { id: 'e6-library-mcp', query: 'frame-wall=library&frame-kind=mcp', pageWidth: 'wide', tab: 'mcp' },
   { id: 'e6-library-matrix', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'How to show the library',value:'matrix',item:'Matrix'} },
   { id: 'e6-library-expanded', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'How to show the library',value:'matrix',item:'Matrix'}, expandLibraryEntry: true },
-  { id: 'e6-library-import', query: 'frame-wall=library', pageWidth: 'wide', moreChoice: 'Import' },
-  { id: 'e6-library-attention', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'Filter the library',value:'problems',item:'Problems'} },
+  { id: 'e6-library-import', query: 'frame-wall=library', pageWidth: 'wide', addSkillChoice: 'Copy from another runtime…' },
+  { id: 'e6-library-attention', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'Skills',value:'needs-you',item:'Needs you'} },
   { id: 'e6-library-conflict', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'Filter the library',value:'differs',item:'Copies differ'} },
 ]
 ;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E6_LIBRARY_PAGE_DESTINATIONS)

@@ -1235,7 +1235,15 @@ footer in the app; every other answer is quiet, and its number still works.
 A compact opening card, exported publicly as CompactBoardCard: identity,
 optional attention detail, middle and footer.
 Title and detail props preserve a caller's hover text, slots and description ids.
+Optional marks retain presence and attention independently and describe the card; a finding owns its flag.
+detailLines bounds a catalogue description without truncating the finding.
 Supply aria-describedby for the detail and any facts inside the footer slot.
+
+### `BoardCardGrid`
+
+`packages/ui/src/design/patterns/BoardCard.tsx`
+
+Opening cards share a responsive grid that becomes one column within a narrow pane.
 
 ### `ChannelSignal`
 
@@ -2784,7 +2792,7 @@ before anyone edits the source.
 | `agent-parse` | 5 | 3 | 0 |
 | `agent-refused` | 8 | 3 | 0 |
 | `agent-missing` | 6 | 3 | 0 |
-| `library` | 12 | 1 | 0 |
+| `library` | 12 | 4 | 0 |
 | `plugins-installed` | 4 | 1 | 0 |
 | `plugins-capabilities` | 13 | 1 | 0 |
 | `plugins-detail` | 5 | 1 | 0 |
@@ -2830,4 +2838,4 @@ before anyone edits the source.
 | `menu-suggestions` | 8 | 3 | 0 |
 | `menu-inbox` | 8 | 3 | 0 |
 | `menu-palette` | 8 | 3 | 0 |
-| **total** | 679 | 158 | 10 |
+| **total** | 679 | 161 | 10 |

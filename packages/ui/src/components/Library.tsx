@@ -24,15 +24,14 @@ import {
   CrossIcon,
   DiffIcon,
   FileIcon,
-  ImportIcon,
   LibraryIcon,
-  PlusIcon,
   SearchIcon,
   TodoPendingIcon,
   TrashIcon,
 } from './Icons'
 import {
   ActionError,
+  CompactBoardCardGrid,
   Banner,
   Chip,
   CodeText,
@@ -53,7 +52,9 @@ import {
   type LibraryColumn,
   type LibraryFlow,
 } from './LibraryActions'
-import { SkillList, SkillRow } from './SkillRow'
+import { chipFor, SkillList, SkillRow, type SkillChip } from './SkillRow'
+import { SkillCard } from './SkillCard'
+import { LibrarySkillsControls } from '../panels/library-skills-controls'
 import { SkillSheet } from './SkillSheet'
 import { shortPath } from '../lib/paths'
 import { REACH_NAME } from '../lib/reach-states'
@@ -239,21 +240,13 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
   const [checking, setChecking] = useState(false)
   const [checkFailed, setCheckFailed] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
+  useEffect(() => { if (kind === 'skill') setFilter(value => value === 'problems' ? 'all' : value) }, [kind])
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState<string | null>(null)
-  /**
-   * List or matrix.
-   *
-   * The list is the default because the question people bring to this page is
-   * "what can my agents do" — the question both Claude's and Codex's skills
-   * pages are built entirely around, and the one this page could not answer
-   * at all. The matrix answers the other question, the one no other app can
-   * touch (*does this reach all four agents?*), and it stays one press away
-   * rather than being the front door. Losing it was never on the table: at a
-   * hundred skills across ten agents, a grid of cards is the wrong tool and
-   * the table is the right one.
-   */
+  // MCP keeps its existing List/Matrix choices; skills have their own local view.
   const [view, setView] = useState<'list' | 'matrix'>('list')
+  const [skillView, setSkillView] = useState<'cards' | 'matrix'>('cards')
+  const [chip, setChip] = useState<SkillChip>('all')
   /** The entry whose sheet is open — the reading surface, by name. */
   const [reading, setReading] = useState<string | null>(null)
   const [flow, setFlow] = useState<LibraryFlow | null>(null)
@@ -404,11 +397,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
     [library, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs],
   )
 
-  /**
-   * The kind on screen, narrowed by what is typed in the search box — and
-   * nothing else. Everything the strip counts and everything the list shows
-   * is drawn from this one set.
-   */
+  /** Hide reserved and wholly hollow skills, retaining mixed copies for repair. */
   const listedEntries = useMemo(() => (library?.entries ?? []).filter(entry =>
     entry.kind !== 'skill' || (!entry.name.startsWith('_') &&
       (entry.copies.length === 0 || entry.copies.some(copy => !copy.hollow)))), [library])
@@ -423,25 +412,16 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
     )
   }, [library, listedEntries, kind, query])
 
-  /**
-   * Summarised over the kind on screen *and* the search, not the whole
-   * library.
-   *
-   * The kind half was always right — a tile saying 86 above a table filtered
-   * to 80 reads as a bug. The search half was not: with `db` typed, the strip
-   * went on saying "2 reach none" from the whole library, and pressing that
-   * chip — which is what a chip is for — narrowed to *nothing*, because the
-   * two rows it counted were not among the ones the search had left. A count
-   * that does not survive being pressed is the same defect the `everywhere`
-   * tile was retired for, and a tooltip cannot repair it either.
-   */
+  // State counts match the chip and search; chip counts cover the whole inventory.
+  const chipEntries = useMemo(() => searched.filter(entry =>
+    kind !== 'skill' || chip === 'all' || chipFor(entry, columns) === chip), [searched, kind, chip, columns])
   const counts = useMemo(
-    () => (library ? summarise({ ...library, entries: searched }) : null),
-    [library, searched],
+    () => (library ? summarise({ ...library, entries: chipEntries }) : null),
+    [library, chipEntries],
   )
 
   const rows = useMemo(() => {
-    return searched.filter((entry) => {
+    return chipEntries.filter((entry) => {
       if (agentFilter) {
         // Declarations, not measured reach: a name this Agent declared stays
         // in the filtered set even when no runtime has resolved it yet
@@ -471,22 +451,18 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
       }
       return true
     })
-  }, [searched, filter, usage, agentFilter, declaredBy])
+  }, [chipEntries, filter, usage, agentFilter, declaredBy, kind, chip, columns])
 
-  /**
-   * The never-fired view is a to-do list, and a to-do list leads with what
-   * matters most: the row paying the most tokens for nothing. Everywhere
-   * else the order stays alphabetical, because those views are scanned by
-   * name.
-   */
+  // Cards always sort by name. Matrix retains the existing cost order for
+  // Never fired, and MCP retains its own list/matrix ordering.
   const ordered = useMemo(
     () =>
-      filter === 'unused'
+      (kind === 'mcp' || skillView === 'matrix') && filter === 'unused'
         ? [...rows].sort(
             (a, b) => (b.catalogTokens ?? 0) - (a.catalogTokens ?? 0) || a.name.localeCompare(b.name),
           )
-        : rows,
-    [rows, filter],
+        : kind === 'skill' && skillView === 'cards' ? [...rows].sort((a, b) => a.name.localeCompare(b.name)) : rows,
+    [rows, filter, kind, skillView],
   )
 
   /**
@@ -496,17 +472,14 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
    * desk's own record can see, which is what the tile's label says.
    */
   const unusedCount = useMemo(() => {
-    if (!usage) return 0
-    // Over `searched`, for the same reason the strip beside it is: this chip
-    // is a filter, and a filter's number has to be the number of rows it
-    // will leave on screen.
-    return searched.filter(
+    // Until usage arrives these are candidates; the menu row remains disabled.
+    return chipEntries.filter(
       (entry) =>
         entry.kind === 'skill' &&
         entry.reach.some((one) => one.state === 'reaches') &&
-        usage.skills[entry.name] === undefined,
+        usage?.skills[entry.name] === undefined,
     ).length
-  }, [searched, usage])
+  }, [chipEntries, usage])
 
   const kindCounts = useMemo(
     () => ({
@@ -515,6 +488,16 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
     }),
     [listedEntries],
   )
+
+  const chipCounts = useMemo(() => {
+    const result: Record<SkillChip, number> = { all: 0, 'needs-you': 0, 'one-runtime': 0, nobody: 0 }
+    for (const entry of listedEntries.filter(one => one.kind === 'skill')) {
+      result.all++
+      const group = chipFor(entry, columns)
+      if (group !== 'all') result[group]++
+    }
+    return result
+  }, [listedEntries, columns])
 
   /**
    * Each agent's scanned skill directories in the order a name conflict is
@@ -648,12 +631,15 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
     <>
       <LibraryBar kind={kind} counts={kindCounts} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
         author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} github={() => setFlow({ type: 'github' })} checking={checking} check={() => void checkUpdates()} rescan={() => void load()}
-        choices={libraryChoices} search={{ label: 'Search library', value: query, change: setQuery }} />
-      <PageExplanation>Every skill and MCP server your runtimes can load, wherever each one keeps them.</PageExplanation>
+        choices={kind === 'mcp' ? libraryChoices : []} search={kind === 'mcp' ? { label: 'Search library', value: query, change: setQuery } : undefined} />
+      {/* MCP retains its PageOptions, list, matrix and filters; only skills use cards and chips. */}
+      {kind === 'skill' ? <LibrarySkillsControls chip={chip} counts={chipCounts} onChip={setChip} view={skillView} onView={next => { setSkillView(next); setOpen(null) }}
+        filters={{ ...libraryChoices[1]!, items: filterData.filter(one => one.value !== 'problems' && (one.value === 'all' || one.value === filter || (one.count ?? 0) > 0)).map(one => ({ ...one, disabled: counts === null ? 'Reading skills…' : one.disabled })) }}
+        agent={libraryChoices[2]!} search={{ label: 'Search library', value: query, change: setQuery }} /> : <PageExplanation>Every skill and MCP server your runtimes can load, wherever each one keeps them.</PageExplanation>}
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
       {checkFailed !== null && <ActionError>{checkFailed}</ActionError>}
 
-      {kind === 'skill' && (hollowCopies.length> 0 || overloaded.length> 0) && (
+      {kind === 'skill' && chip === 'needs-you' && (hollowCopies.length> 0 || overloaded.length> 0) && (
         <div data-slot="library-attention"><FormStack>
           {hollowCopies.length> 0 && <Banner
             tone="warning"
@@ -673,7 +659,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
             tone="neutral"
             title={`${column.label} skill catalogue`}
             actions={neverFired !== null && neverFired> 0
-              ? <Button variant="outline" size="sm" onClick={() => setFilter('unused')}>Show never fired</Button>
+              ? <Button variant="outline" size="sm" onClick={() => { setChip('all'); setFilter('unused') }}>Show never fired</Button>
               : undefined}
           >
             ≈{total.toLocaleString()} tokens of skill catalogue ride every {column.label} turn
@@ -684,80 +670,30 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
         </FormStack></div>
       )}
 
-      {agentFilter && (
+      {kind === 'mcp' && agentFilter && (
         <Text as="p" role="meta">
           {`${rows.length} of ${searched.length} declared by ${agentName ?? 'this Agent'}`}
         </Text>
       )}
 
       {loading && library === null ? (
-        <EmptyState variant="inline" title="Reading every runtime’s directories…" />
+        <EmptyState variant="inline" title={kind === 'skill' ? 'Reading skills…' : 'Reading every runtime’s directories…'} />
       ) : rows.length === 0 ? (
-        /*
-         * An empty list is two different situations and the old sentence
-         * covered both with "Nothing matches." A filter that found nothing
-         * wants its filter cleared; a machine with no skills on it wants to
-         * be told how to get one. Answering the second with the first is how
-         * a first run reads as a broken page.
-         */
-        query.trim() !== '' || filter !== 'all' ? (
-          <EmptyState
-            tight
-            icon={<SearchIcon size={16} />}
-            title="Nothing matches"
-            /*
-             * Which of the two narrowings emptied the list, said correctly
-             * when both are on. Reading the query first blamed the search box
-             * for a state filter's doing — with `db` typed and "reach none"
-             * pressed, a page holding a skill called db-migrations announced
-             * that nothing here is called db-migrations.
-             */
-            description={
-              query.trim() !== '' && filter !== 'all'
-                ? searched.length> 0
-                  ? `${searched.length} ${searched.length === 1 ? 'entry matches' : 'entries match'} “${query.trim()}”, and none of them is in that state.`
-                  : `No ${kind === 'skill' ? 'skill' : 'server'} here is called “${query.trim()}”.`
-                : query.trim() !== ''
-                  ? `No ${kind === 'skill' ? 'skill' : 'server'} here is called “${query.trim()}”.`
-                  : 'No entry is in that state right now.'
-            }
-          >
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setQuery('')
-                setFilter('all')
-              }}
-            >
-              Clear the filters
-            </Button>
-          </EmptyState>
-        ) : (
-          <EmptyState
-            icon={<LibraryIcon size={16} />}
-            title={kind === 'skill' ? 'No skills on this machine yet' : 'No MCP servers declared yet'}
-            description={
-              kind === 'skill'
-                ? 'A skill is a folder with a SKILL.md in it that a runtime reads before it starts. Write one here, or bring across the ones a runtime already has.'
-                : 'Nothing was found in any configuration file this build knows how to read.'
-            }
-          >
-            {kind === 'skill' && (
-              <Toolbar>
-                <Button size="sm" onClick={() => setFlow({ type: 'author' })}>
-                  <PlusIcon size={13} />
-                  Write a skill
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setFlow({ type: 'import' })}>
-                  <ImportIcon size={13} />
-                  Import
-                </Button>
-              </Toolbar>
-            )}
-          </EmptyState>
-        )
-      ) : view === 'list' ? (
+        kindCounts[kind] === 0 ? <EmptyState icon={<LibraryIcon size={16} />} title={kind === 'skill' ? 'No skills yet' : 'No MCP servers yet'}>
+          {kind === 'skill' && <Toolbar>
+            <Button size="sm" onClick={() => setFlow({ type: 'author' })}>Write a skill</Button>
+            <Button variant="outline" size="sm" onClick={() => setFlow({ type: 'github' })}>From GitHub…</Button>
+          </Toolbar>}
+        </EmptyState> : kind === 'skill' && chip === 'needs-you' && chipCounts['needs-you'] === 0 && !query.trim() && filter === 'all' && !agentFilter ? (
+          <EmptyState tight title="Nothing needs you" />
+        ) : <EmptyState tight icon={<SearchIcon size={16} />} title="Nothing matches">
+          <Button variant="outline" size="sm" onClick={() => { setQuery(''); setFilter('all'); setAgentFilter(''); setChip('all') }}>Clear the filters</Button>
+        </EmptyState>
+      ) : kind === 'skill' && skillView === 'cards' ? (
+        <CompactBoardCardGrid data-slot="skill-cards">
+          {ordered.map(entry => <SkillCard key={entry.name} entry={entry} columns={columns} onOpen={() => setReading(entry.name)} />)}
+        </CompactBoardCardGrid>
+      ) : kind === 'mcp' && view === 'list' ? (
         <SkillList kind={kind}>
           {ordered.map((entry) => (
             <SkillRow
@@ -784,7 +720,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
                 return { id: reach.runtime, state: reach.state, label, problem: isReachProblem(reach.state), help: reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state], mark: <ReachMark state={reach.state} label={label} placement="cell" /> } }),
               expanded: open === entry.name ? <EntryDetail entry={entry} columns={columns} usage={usage} scanOrder={scanOrder} hosts={hosts} home={library?.home} onFlow={setFlow} onRead={() => setReading(entry.name)} /> : undefined,
             }))}
-            footer={kind === 'skill' ? { label: `Advertised each turn${filter !== 'all' || query.trim() !== '' ? ' (these rows)' : ''}`,
+            footer={kind === 'skill' ? { label: `Advertised each turn${chip !== 'all' || filter !== 'all' || query.trim() !== '' ? ' (these rows)' : ''}`,
               title: 'Name and description at ≈3.6 characters per token — the catalogue line a runtime carries for every skill it loads, fired or not. How each runtime advertises varies; this prices the standard line.',
               values: Object.fromEntries(columns.map((column, index) => [column.id, rows.reduce((sum, entry) => entry.reach[index]?.state === 'reaches' ? sum + (entry.catalogTokens ?? 0) : sum, 0)])) } : undefined}
             fired={kind === 'skill' && usage !== null ? { label: 'Fired here, ever', title: 'Of the rows on screen, how many this runtime loaded in a conversation this desk stores. Conversations held elsewhere are not counted.',

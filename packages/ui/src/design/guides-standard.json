@@ -681,17 +681,18 @@
       "offLine": {
         "button[button] Δ2": 2,
         "button[popover-trigger] \"Inbox\" Δ2": 1,
-        "button[popover-trigger] \"Skills 6\" Δ2": 1,
         "button[popover-trigger] Δ3": 1,
+        "button[skill-card] \"design-review Designer’s ey…\" Δ3": 1,
         "div[row] \"Updated code-review Sep 30,…\" Δ1": 1,
         "div[row] \"Updated project-checks Sep…\" Δ1": 1,
-        "span[avatar-fallback] Δ2.5": 1,
-        "span[avatar] Δ2.5": 1,
-        "span[icon-tile] Δ3": 1,
+        "span[text] \"1\" Δ2.5": 1,
         "span[text] \"HarnessDesk\" Δ2": 1
       },
       "overflow": {
-        "span[search] spills": 1
+        "span[search] spills": 1,
+        "span[text] \"Designer’s eye QA: finds vi…\" clipped": 1,
+        "span[text] \"Use before any creative wor…\" clipped": 1,
+        "span[text] \"Use when encountering any b…\" clipped": 1
       },
       "offScale": {}
     },
@@ -2033,7 +2034,10 @@
         "span[text] \"HarnessDesk\" Δ2": 1
       },
       "overflow": {
-        "span[search] spills": 1
+        "span[search] spills": 1,
+        "span[text] \"Designer’s eye QA: finds vi…\" clipped": 1,
+        "span[text] \"Use before any creative wor…\" clipped": 1,
+        "span[text] \"Use when encountering any b…\" clipped": 1
       },
       "offScale": {}
     },
