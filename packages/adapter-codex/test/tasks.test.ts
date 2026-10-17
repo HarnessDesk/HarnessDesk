@@ -288,3 +288,11 @@ test('a task title is always one line', () => {
   // An argument that keeps a quoted break keeps it as ⏎ when the line is cut to it.
   assert.equal(taskLabel('printf "first\nsecond" --then-a-flag value-long-enough-to-need-a-cut'), 'printf "first ⏎ second"…')
 })
+
+test('a command of only comments and breaks is never titled empty', () => {
+  for (const line of ['# only a comment\n# another', '# c\n# d\n', 'zsh -lc "# c\n# d"', '\\\n#c ', '#first\n#second']) {
+    const label = taskLabel(line)
+    assert.ok(label.trim() && !/^[\s⏎…]*$/.test(label), JSON.stringify([line, label]))
+    assert.ok(!label.includes('\n'), JSON.stringify(label))
+  }
+})

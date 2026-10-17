@@ -168,7 +168,8 @@ export const taskLabel = (command: string): string => {
   const whole = line.includes('\n')
     ? oneLine(tokens.slice(from).map(token => token.kind === 'word' ? token.raw : token.op === '\n' ? '⏎' : token.op).join(' '))
     : line
-  if (characters(whole).length <= LABEL_MAX) return whole
+  // A line with no word in it (only comments and breaks) is shown as it came, cut.
+  if (/[^\s⏎]/.test(whole) && characters(whole).length <= LABEL_MAX) return whole
   const end = tokens.findIndex((token, i) => i >= from && token.kind === 'op')
   const segment = tokens.slice(from, end < 0 ? undefined : end)
   let at = 0
