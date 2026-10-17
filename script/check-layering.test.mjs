@@ -213,6 +213,23 @@ test('Lead entries reject process loader assignments and internal loader members
       assert.deepEqual(rule.offenders(source, `packages/lead/src/${entry}.ts`), [], `${entry}: ${source}`)
 })
 
+test('Lead entries reject loader keys in wrapped, iterative and nested assignment patterns', () => {
+  const rule = boundaryRule('lead')
+  for (const entry of ['child', 'supervisor']) {
+    for (const member of ['getBuiltinModule', 'binding', 'dlopen', '_linkedBinding', 'mainModule', 'moduleLoadList']) {
+      for (const source of [
+        `({ ${member}: get } = process as any)`, `({ ${member}: get } = process!)`,
+        `({ ${member}: get } = <any>process)`, `({ ${member}: get } = process satisfies object)`,
+        `for ({ ${member}: get } of [process]) {}`, `for ({ ${member}: get } in sources) {}`,
+        `[{ ${member}: get }] = [process]`, `({ a: { ${member}: get } } = { a: process })`,
+        `({ ['${member}']: get } = source)`,
+      ]) assert.ok(rule.offenders(source, `packages/lead/src/${entry}.ts`).length > 0, `${entry}: ${source}`)
+    }
+    assert.deepEqual(rule.offenders('const dto = { getBuiltinModule: label }; ({ stdin: input } = source)',
+      `packages/lead/src/${entry}.ts`), [])
+  }
+})
+
 test('Lead source scanning includes every local TypeScript and JavaScript extension', t => {
   const root = mkdtempSync(join(tmpdir(), 'hd-lead-extensions-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))

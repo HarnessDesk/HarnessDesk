@@ -27,8 +27,9 @@ const LEAD_ENTRIES = new Map([
   [comparisonPath(join(root, 'packages/lead/src/supervisor.ts')), new Set([...LEAD_TRANSPORT_MODULES, 'node:child_process', 'node:path'])],
 ])
 // Allowlists govern direct entry imports only; allowed client/node retains its transitive Node authority.
-// Static lint: aliasing (const p = process), non-literal computed keys, Reflect and indirect
-// prototype walks are not caught; review must check these residual paths.
+// Static lint: aliasing (const p = process), non-literal computed keys, Reflect,
+// Object.getPrototypeOf/getOwnPropertyDescriptor and indirect prototype walks are not caught;
+// review must check these residual paths.
 // Step 9's runtime permission model is the boundary; this rule is a lint, not a sandbox.
 const LEAD_GLOBALS = new Set(['process', 'globalThis', 'global', 'require', 'module', 'eval', 'Function',
   'fetch', 'WebSocket', 'XMLHttpRequest', 'Buffer'])
@@ -49,6 +50,21 @@ const propertyKey = node => {
 const isProcess = node => {
   node = unwrapParentheses(node)
   return node && ts.isIdentifier(node) && node.text === 'process'
+}
+
+/** Assignment patterns may be nested, array-wrapped, or used as a loop initializer. */
+const inAssignmentPattern = node => {
+  for (let at = node.parent; at; at = at.parent) {
+    const parent = at.parent
+    if (!parent) return false
+    if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken)
+      return parent.left === at
+    if (ts.isForOfStatement(parent) || ts.isForInStatement(parent)) return parent.initializer === at
+    if (!(ts.isObjectLiteralExpression(parent) || ts.isArrayLiteralExpression(parent) ||
+      ts.isPropertyAssignment(parent) || ts.isSpreadAssignment(parent) || ts.isSpreadElement(parent) ||
+      ts.isParenthesizedExpression(parent))) return false
+  }
+  return false
 }
 
 const typeOnlyIdentifier = node => {
@@ -118,7 +134,7 @@ const leadAuthorityOffenders = (source, fileName) => {
       }
       // Loader handles cannot be extracted into aliases or imported as named bindings.
       const loaderKey = propertyKey(key)
-      if ((ts.isBindingElement(node) || ((ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) && isProcess(patternSource))) &&
+      if ((ts.isBindingElement(node) || ((ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) && inAssignmentPattern(node))) &&
         (loaderKey === 'getBuiltinModule' || blockedProcessMembers.has(loaderKey)))
         offenders.push('process loader binding')
       if (ts.isImportSpecifier(node) && (node.propertyName?.text === 'getBuiltinModule' || node.name.text === 'getBuiltinModule' ||
