@@ -31,9 +31,9 @@ const records = (events: unknown[]) => events.map((event, i) => parseLeadJournal
 
 test('recovery cannot clear an explicit durable stop', () => {
   const history = records([...started(), { type: 'result', id: 'attempt-1', outcome: 'uncertain', identity: null }, { type: 'stop' },
-    { type: 'reconciliation', id: 'attempt-1', identity: { correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' } }])
+    { type: 'reconciliation', id: 'attempt-1', count: 1, evidence: 'one-match', identity: { correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' } }])
   const state = replayLeadJournal(history)
-  assert.equal(state.steps[0]!.state, 'completed')
+  assert.equal(state.steps[0]!.state, 'started')
   assert.equal(state.phase, 'stopped')
 })
 
@@ -59,5 +59,5 @@ test('journal records bound card bytes and refuse credentials in domain data', (
   const variables = Object.fromEntries(Array.from({ length: 64 }, (_, n) => [`input-${n}`, 'x'.repeat(16_384)]))
   const oversized = { ...card, contract: { ...contract, steps: [{ ...contract.steps[0], variables }] } }
   assert.throws(() => parseLeadJournalRecord({ version: 1, seq: 1, type: 'card', card: oversized }))
-  assert.throws(() => parseLeadJournalRecord({ version: 1, seq: 1, type: 'card', card: { ...card, contract: { ...contract, goal: 'sk-' + 'synthetic-secret-123456789' } } }))
+  assert.throws(() => parseLeadJournalRecord({ version: 1, seq: 1, type: 'card', card: { ...card, contract: { ...contract, goal: 'sk-ant-' + 'synthetic-secret-123456789' } } }))
 })

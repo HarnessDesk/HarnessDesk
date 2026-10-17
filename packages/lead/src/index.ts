@@ -8,3 +8,7 @@ export type { LeadJournalEvent, LeadJournalRecord, LeadJournalStorage, LeadRunId
   LeadAttemptOutcome, LeadToolAttempt, LeadDispatch, LeadDispatchResult, LeadRecoveryAction } from './journal.js'
 export { initialLeadState, reduceLeadRecord, replayLeadJournal } from './state.js'
 export type { LeadState, LeadStepState, LeadAttemptState } from './state.js'
+
+export type { LeadJournalSecurity } from './journal-security.js'
+export { leadCheckpoint, parseLeadCheckpoint } from './checkpoint.js'
+export type { LeadJournalCheckpoint } from './checkpoint.js'

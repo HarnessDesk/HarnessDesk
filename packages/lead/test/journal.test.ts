@@ -19,10 +19,10 @@ const plan = { version: 1, id: 'plan-1', revision: 1, type: 'plan', contractDige
 const click = { version: 1, cardId: 'plan-1', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }
 
 // Initial red run must identify the absent crash-safe journal, before effects can run.
-const open = async (storage: unknown): Promise<any> => {
+const open = async (storage: unknown, security: unknown = {}): Promise<any> => {
   const factory = (lead as Record<string, unknown>).createLeadJournal
   assert.equal(typeof factory, 'function', 'createLeadJournal must gate effects on durable records')
-  return (factory as (port: unknown) => Promise<unknown>)(storage)
+  return (factory as (port: unknown, security: unknown) => Promise<unknown>)(storage, security)
 }
 const memory = () => {
   const records: any[] = []
@@ -49,10 +49,10 @@ test('crash after successful start before recording response never starts a seco
   }))
   storage.failOn(null)
   const recovered = await open(storage)
-  const actions = await recovered.recover(async (attempt: any) => attempt.correlationId === identity.correlationId ? identity : null)
+  const actions = await recovered.recover(async (attempt: any) => attempt.correlationId === identity.correlationId ? [identity] : [])
   assert.equal(starts, 1)
   assert.equal(actions[0].type, 'reconciled')
-  assert.equal(recovered.state.steps[0].state, 'completed')
+  assert.equal(recovered.state.steps[0].state, 'started')
   const duplicate = await recovered.execute({ id: 'attempt-2', request, context, stepId: 'implement' }, async () => {
     starts++; return { value: null, identity }
   })
@@ -82,7 +82,7 @@ test('every malformed, denied, asked, successful and failed call has four ordere
     const result = await journal.execute({ id: `read-${n}`, request: { ...request, method: p.method, params: p.params, project: null, runId: null, start: null }, context },
       async () => ({ value: 'raw text never persisted', identity: null }))
     assert.equal(result.outcome, p.outcome)
-    assert.equal(storage.records[before].method, p.method)
+    assert.equal(storage.records[before].method, p.method === 'session/send' ? 'invalid' : p.method)
     assert.deepEqual(storage.records.slice(before).map(record => record.type), ['attempt', 'decision', 'dispatch-start', 'result'])
   }
   const before = storage.records.length
@@ -114,7 +114,7 @@ test('recovery stops for unproved mutations, while reads can be retried', async 
   for (const proof of [null, { correlationId: 'different', runId: 'run-other', teamId: 'team-other' }]) {
     const storage = memory(), journal = await prepare(storage)
     await journal.execute({ id: 'attempt-1', request, context, stepId: 'implement' }, async () => { throw new Error('response lost') })
-    const recovered = await open(storage), actions = await recovered.recover(async () => proof)
+    const recovered = await open(storage), actions = await recovered.recover(async () => proof === null ? [] : [proof])
     assert.equal(actions[0].type, 'needs-user')
     assert.equal(recovered.state.phase, 'waiting-for-user')
     let calls = 0
@@ -140,7 +140,7 @@ test('concurrent starts serialize and only the approved next step is admitted', 
     journal.execute({ id: 'attempt-2', request, context, stepId: 'implement' }, dispatch),
   ])
   assert.equal(first.outcome, 'succeeded'); assert.equal(second.decision.effect, 'deny'); assert.equal(calls, 1)
-  assert.equal(journal.state.steps[0].state, 'completed')
+  assert.equal(journal.state.steps[0].state, 'started')
   assert.deepEqual(journal.state.teams, ['team-1'])
 })
 
@@ -152,7 +152,7 @@ test('asked calls are audited, failed approvals do not grant consent and state s
   assert.equal(result.outcome, 'asked')
   assert.deepEqual(storage.records.slice(before).map(record => record.type), ['attempt', 'decision', 'dispatch-start', 'result'])
   const copy = journal.state
-  copy.steps[0].state = 'completed'
+  copy.steps[0].state = 'started'
   assert.equal(journal.state.steps[0].state, 'pending')
   await assert.rejects(journal.decideCard(click, 200))
 })
@@ -198,4 +198,166 @@ test('the audited policy revision and permission decision use the same detached 
   assert.equal(result.decision.effect, 'deny')
   assert.equal(calls, 0)
   assert.equal(storage.records.find(record => record.type === 'attempt')?.projectPolicyRevision, 7)
+})
+
+test('validation refusals never poison an intact writer and Stop remains durable', async () => {
+  for (const invalid of ['card', 'id', 'policy']) {
+    const storage = memory(), journal = await prepare(storage)
+    if (invalid === 'card') await assert.rejects(journal.offerCard({ ...plan, revision: 1 }))
+    if (invalid === 'id') await assert.rejects(journal.execute({ id: 'bad id', request, context }, async () => ({ value: null, identity: null })))
+    if (invalid === 'policy') {
+      await journal.setPolicy({ ...policy, revision: 2, mode: 'plan' })
+      await assert.rejects(journal.setPolicy({ ...policy, revision: 3 }))
+    }
+    await journal.stop()
+    assert.equal((await open(storage)).state.phase, 'stopped', invalid)
+  }
+})
+
+
+test('ordinary authorization prose and sk-ending names persist approve and execute', async () => {
+  for (const text of ['Fix authorization middleware', 'Support bearer tokens', 'desk-workers-app', 'task-implementation', 'risk-assessment']) {
+    const storage = memory(), journal = await open(storage)
+    const approved = { ...contract, goal: text, project: { ...contract.project, path: '/workspace/' + text.replaceAll(' ', '-') },
+      steps: [{ ...contract.steps[0], id: text.replaceAll(' ', '-') }] }
+    await journal.setPolicy(policy)
+    await journal.offerCard({ ...plan, contract: approved })
+    await journal.decideCard(click, 200)
+    const result = await journal.execute({ id: 'attempt-1', stepId: approved.steps[0]!.id, context: { ...context, project: approved.project },
+      request: { ...request, project: approved.project, start: approved.steps[0], params: { ...request.params, root: approved.project.path, sentence: text } } },
+      async () => ({ value: null, identity: { correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' } }))
+    assert.equal(result.outcome, 'succeeded', text)
+  }
+})
+
+test('exact canaries refuse one record without latching and secret variables use broker references', async () => {
+  const canary = 'synthetic-provider-canary-0123456789'
+  const storage = memory(), journal = await open(storage, { canaries: [canary], digestContract: () => 'b'.repeat(64),
+    brokerReference: (_value: string, name: string) => name === 'api_key' ? 'broker:input-1' : null })
+  await journal.setPolicy(policy)
+  await assert.rejects(journal.offerCard({ ...plan, contract: { ...contract, goal: canary } }))
+  const offered = await journal.offerCard({ ...plan, contract: { ...contract, steps: [{ ...contract.steps[0], variables: { api_key: canary } }] } })
+  assert.equal(offered.contract.steps[0].variables.api_key, 'broker:input-1')
+  assert.equal(offered.contractDigest, 'b'.repeat(64))
+  assert.ok(!JSON.stringify(storage.records).includes(canary))
+  await journal.stop()
+  assert.equal(journal.state.phase, 'stopped')
+})
+
+test('token-shaped prose and credential headers are masked before approval', async () => {
+  const tokens = ['gho_' + 'A'.repeat(36), 'github_pat_' + 'B'.repeat(40), 'sk-ant-' + 'c'.repeat(30), 'sk_live_' + 'D'.repeat(30),
+    'xoxb-' + '5'.repeat(30), 'AKIA' + 'E'.repeat(16), 'eyJdemo.payload.signature',
+    'Cookie: session=synthetic-cookie-91b0c2d3', 'Authorization: Bearer synthetic-header-value',
+    'x-api-key: synthetic-api-value', 'api_key=synthetic-api-value-91b0c2d3', 'token=synthetic-token-value']
+  for (const token of tokens) {
+    const storage = memory(), journal = await open(storage, { digestContract: () => 'b'.repeat(64) })
+    await journal.setPolicy(policy)
+    const offered = await journal.offerCard({ ...plan, contract: { ...contract, goal: 'Review ' + token } })
+    assert.ok(!JSON.stringify(storage.records).includes(token), token.split(':')[0]!)
+    assert.ok(offered.contract.goal.includes('[redacted]'))
+    await assert.rejects(journal.decideCard(click, 200))
+    await journal.decideCard({ ...click, contractDigest: offered.contractDigest }, 200)
+  }
+})
+
+test('cancellation bypasses uncertain mutation fencing and thrown cancellation is failed', async () => {
+  for (const method of ['flow/execution/stop', 'team/intent']) {
+    const storage = memory(), journal = await prepare(storage)
+    await journal.bindTeam('team-1', contract.digest)
+    await journal.execute({ id: 'attempt-1', request, context, stepId: 'implement' }, async () => ({ value: null,
+      identity: { correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' } }))
+    // A host-admitted cancellation whose response is lost is already safe to retry.
+    const cancel = { ...request, method, params: method === 'team/intent' ? { room: 'team-1', id: 1, action: 'abandon' } : { run: 'run-1', reason: 'Stop work' }, runId: 'run-1', start: null }
+    const first = await journal.execute({ id: 'cancel-1', request: cancel, context }, async () => { throw new Error('lost response') })
+    assert.equal(first.outcome, 'failed', method)
+    // A genuinely uncertain non-cancellation must also leave cancellation available.
+    const record = (type: string, fields: object) => storage.records.push({ version: 1, seq: storage.records.length + 1, type, ...fields })
+    record('attempt', { id: 'uncertain-1', correlationId: 'uncertain-1', method: 'workspace/open', action: null, arguments: { type: 'object', size: 0, fields: [] }, kind: 'mutation', stepId: null, policyRevision: 1, projectPolicyRevision: null, contractRevision: 1 })
+    record('decision', { id: 'uncertain-1', effect: 'allow', reason: 'policy', rule: null })
+    record('dispatch-start', { id: 'uncertain-1', dispatched: true })
+    record('result', { id: 'uncertain-1', outcome: 'uncertain', identity: null })
+    const recovered = await open(storage)
+    assert.equal((await recovered.execute({ id: 'cancel-2', request: cancel, context }, async () => ({ value: null, identity: null }))).outcome, 'succeeded', method)
+  }
+})
+
+test('pending plan blocks mutations and stopped state still permits status reads', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.offerCard({ ...plan, revision: 2 })
+  assert.equal((await journal.execute({ id: 'start-1', request, context, stepId: 'implement' }, async () => ({ value: null, identity: null }))).outcome, 'denied')
+  await journal.stop()
+  assert.equal((await journal.execute({ id: 'status-1', request: { ...request, method: 'library/usage', params: {}, start: null }, context }, async () => ({ value: 1, identity: null }))).outcome, 'succeeded')
+})
+
+test('unknown method names are represented by invalid in the audit', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.execute({ id: 'invalid-1', request: { ...request, method: 'unknown/private-provider', params: {} }, context }, async () => { throw new Error('unreachable') })
+  assert.equal(storage.records.find(record => record.type === 'attempt').method, 'invalid')
+})
+
+test('recovery requires exactly one identity and records unchanged evidence only once', async () => {
+  for (const count of [0, 1, 2]) {
+    const storage = memory(), journal = await prepare(storage)
+    await journal.execute({ id: 'attempt-1', request, context, stepId: 'implement' }, async () => { throw new Error('lost response') })
+    const recovered = await open(storage)
+    const matches = Array.from({ length: count }, (_, i) => ({ correlationId: 'attempt-1', runId: `run-${i}`, teamId: 'team-1' }))
+    const result = await recovered.recover(async () => matches)
+    assert.equal(result[0].type, count === 1 ? 'reconciled' : 'needs-user')
+    assert.equal(result[0].count, count)
+    const seq = recovered.state.seq
+    assert.deepEqual(await recovered.recover(async () => matches), [])
+    assert.equal(recovered.state.seq, seq)
+    assert.deepEqual(await (await open(storage)).recover(async () => matches), [])
+  }
+})
+
+test('recovered reads are reported only once across restarts', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  storage.failOn('result')
+  await assert.rejects(journal.execute({ id: 'read-1', request: { ...request, method: 'library/usage', params: {}, start: null }, context }, async () => ({ value: 1, identity: null })))
+  storage.failOn(null)
+  const recovered = await open(storage)
+  assert.equal((await recovered.recover(async () => []))[0].type, 'retry-read')
+  assert.deepEqual(await recovered.recover(async () => []), [])
+  assert.deepEqual(await (await open(storage)).recover(async () => []), [])
+})
+
+test('card revisions and retained finished attempts are bounded', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  for (let revision = 2; revision <= 32; revision++) await journal.offerCard({ ...plan, revision })
+  await assert.rejects(journal.offerCard({ ...plan, revision: 33 }))
+  await journal.stop()
+  for (let i = 0; i < 300; i++) await journal.execute({ id: `read-${i}`, request: { ...request, method: 'library/usage', params: {}, start: null }, context }, async () => ({ value: 1, identity: null }))
+  assert.ok(journal.state.attempts instanceof Map)
+  assert.ok(journal.state.attempts.size <= 64)
+})
+
+test('a quarantine block fences starts while reads and cancellation remain available', async () => {
+  const storage = memory(), journal = await open(storage)
+  const second = { ...contract.steps[0]!, id: 'second' }
+  await journal.setPolicy(policy)
+  await journal.offerCard({ ...plan, contract: { ...contract, steps: [...contract.steps, second] } })
+  await journal.decideCard(click, 200)
+  await journal.execute({ id: 'attempt-1', request, context, stepId: 'implement' }, async () => ({ value: null,
+    identity: { correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' } }))
+  storage.records.push({ version: 1, seq: storage.records.length + 1, type: 'recovery-block' })
+  const recovered = await open(storage)
+  assert.equal((await recovered.execute({ id: 'start-2', request: { ...request, start: second }, context, stepId: 'second' }, async () => { throw new Error('must not start') })).decision.effect, 'deny')
+  const cancel = { ...request, method: 'flow/execution/stop', params: { run: 'run-1', reason: 'Stop work' }, runId: 'run-1', start: null }
+  assert.equal((await recovered.execute({ id: 'stop-1', request: cancel, context }, async () => ({ value: null, identity: null }))).outcome, 'succeeded')
+  assert.equal((await recovered.execute({ id: 'status-1', request: { ...request, method: 'library/usage', params: {}, start: null }, context }, async () => ({ value: 1, identity: null }))).outcome, 'succeeded')
+})
+
+
+test('a conflicting reconciliation identity refuses one call and leaves Stop writable', async () => {
+  const storage = memory(), journal = await open(storage), second = { ...contract.steps[0]!, id: 'second' }
+  await journal.setPolicy(policy)
+  await journal.offerCard({ ...plan, contract: { ...contract, steps: [...contract.steps, second] } })
+  await journal.decideCard(click, 200)
+  await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
+    identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))
+  await journal.execute({ id: 'second', request: { ...request, start: second }, context, stepId: 'second' }, async () => { throw new Error('lost response') })
+  await assert.rejects(journal.recover(async () => [{ correlationId: 'second', runId: 'run-1', teamId: 'team-1' }]))
+  await journal.stop()
+  assert.equal((await open(storage)).state.phase, 'stopped')
 })

@@ -1,8 +1,9 @@
 import {
-  CLIENT_ACTION_TIERS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy,
+  CLIENT_METHODS, CLIENT_ACTION_TIERS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy,
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy,
 } from '@harnessdesk/protocol'
 import { decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
+import { prepareLeadJournalData, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
 import { reduceLeadRecord, replayLeadJournal, type LeadState } from './state.js'
 
@@ -19,7 +20,8 @@ export type LeadJournalEvent =
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
   | { readonly type: 'card-decision'; readonly decision: LeadCardDecision; readonly expiresAt: number | null }
-  | { readonly type: 'stop' }
+  | { readonly type: 'stop' | 'recovery-block' | 'recovery-resolved' }
+  | { readonly type: 'recovery-report'; readonly id: string }
   | { readonly type: 'team-approved'; readonly teamId: string; readonly contractDigest: string }
   | { readonly type: 'attempt'; readonly id: string; readonly correlationId: string; readonly method: string; readonly action: string | null;
       readonly arguments: LeadArgumentSummary; readonly kind: 'read' | 'mutation' | 'invalid'; readonly stepId: string | null;
@@ -27,9 +29,9 @@ export type LeadJournalEvent =
   | { readonly type: 'decision'; readonly id: string; readonly effect: 'allow' | 'ask' | 'deny'; readonly reason: string; readonly rule: LeadPermissionDecision['rule'] }
   | { readonly type: 'dispatch-start'; readonly id: string; readonly dispatched: boolean }
   | { readonly type: 'result'; readonly id: string; readonly outcome: LeadAttemptOutcome; readonly identity: LeadRunIdentity | null }
-  | { readonly type: 'reconciliation'; readonly id: string; readonly identity: LeadRunIdentity | null }
+  | { readonly type: 'reconciliation'; readonly id: string; readonly identity: LeadRunIdentity | null; readonly count: number; readonly evidence: string }
 export type LeadJournalRecord = Base & LeadJournalEvent
-export type LeadJournalStorage = LeadPersistencePort<LeadJournalRecord>
+export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown): LeadJournalRecord; checkpoint?(): LeadState | null }
 const object = (value: unknown, keys?: readonly string[]): Record<string, unknown> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('lead-journal-shape')
   const source = value as Record<string, unknown>
@@ -79,22 +81,17 @@ export const parseLeadRunIdentity = (value: unknown): LeadRunIdentity => {
   const source = object(value, ['correlationId', 'runId', 'teamId'])
   return { correlationId: identifier(source.correlationId), runId: identifier(source.runId), teamId: identifier(source.teamId) }
 }
-/** Defense in depth for non-argument domain data (cards and host identities). Never
- * redact an approval contract silently: its digest would no longer describe the data. */
 const safeBytes = (value: unknown): void => {
-  const json = JSON.stringify(value)
-  if (new TextEncoder().encode(json).byteLength > LEAD_JOURNAL_BYTES ||
-    /sk-[A-Za-z0-9_-]{8,}|(?:ghp|github_pat)_[A-Za-z0-9_]{8,}|authorization|bearer\s+[A-Za-z0-9._-]+/i.test(json))
-    throw new Error('lead-journal-unsafe-record')
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > LEAD_JOURNAL_BYTES) throw new Error('lead-journal-record-limit')
 }
-export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
-  const source = object(value)
+export const parseLeadJournalRecord = (value: unknown, security: LeadJournalSecurity = {}): LeadJournalRecord => {
+  const source = object(prepareLeadJournalData(value, security))
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'team-approved': ['teamId', 'contractDigest'],
+    policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
-    decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity'],
+    decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
   }
   const type = choice(source.type, Object.keys(keys))
   object(source, ['version', 'seq', 'type', ...keys[type]!])
@@ -103,7 +100,8 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'policy': event = { type, policy: parseLeadPermissionPolicy(source.policy) }; break
     case 'card': event = { type, card: parseLeadCard(source.card) }; break
     case 'card-decision': event = { type, decision: parseLeadCardDecision(source.decision), expiresAt: nullable(source.expiresAt, integer) }; break
-    case 'stop': event = { type }; break
+    case 'stop': case 'recovery-block': case 'recovery-resolved': event = { type }; break
+    case 'recovery-report': event = { type, id: identifier(source.id) }; break
     case 'team-approved':
       if (typeof source.contractDigest !== 'string' || !/^[a-f0-9]{64}$/.test(source.contractDigest)) throw new Error('lead-journal-digest')
       event = { type, teamId: identifier(source.teamId), contractDigest: source.contractDigest }; break
@@ -125,7 +123,12 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
       event = { type, id: identifier(source.id), dispatched: source.dispatched }; break
     case 'result': event = { type, id: identifier(source.id), outcome: choice(source.outcome, ['succeeded', 'failed', 'denied', 'asked', 'malformed', 'uncertain', 'interrupted']),
       identity: nullable(source.identity, parseLeadRunIdentity) }; break
-    case 'reconciliation': event = { type, id: identifier(source.id), identity: nullable(source.identity, parseLeadRunIdentity) }; break
+    case 'reconciliation': {
+      if (typeof source.evidence !== 'string' || source.evidence.length > 131_072) throw new Error('lead-journal-evidence')
+      const identity = nullable(source.identity, parseLeadRunIdentity), count = integer(source.count)
+      if ((identity !== null) !== (count === 1)) throw new Error('lead-journal-match-count')
+      event = { type, id: identifier(source.id), identity, count, evidence: source.evidence }; break
+    }
     default: throw new Error('lead-journal-type')
   }
   const record = { version: 1 as const, seq, ...event }
@@ -136,7 +139,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
 export interface LeadToolAttempt { readonly id: string; readonly request: LeadPermissionRequest; readonly context: LeadPermissionContext; readonly stepId?: string | null }
 export interface LeadDispatchResult { readonly value: unknown; readonly identity: LeadRunIdentity | null }
 export type LeadDispatch = (call: LeadPermissionCall, correlationId: string) => Promise<LeadDispatchResult>
-export interface LeadRecoveryAction { readonly id: string; readonly type: 'retry-read' | 'reconciled' | 'needs-user' | 'not-dispatched' }
+export interface LeadRecoveryAction { readonly id: string; readonly type: 'retry-read' | 'reconciled' | 'needs-user' | 'not-dispatched'; readonly count?: number }
 const refusal = (floor: 'start' | 'invalid-input', reason: string): LeadPermissionDecision => ({ effect: 'deny', floor, reason, rule: null, call: null })
 
 /** One serialized management writer. All effects use injected ports; this module owns
@@ -145,7 +148,7 @@ export class LeadJournal {
   #state: LeadState
   #tail: Promise<unknown> = Promise.resolve()
   #failed = false
-  constructor(private readonly storage: LeadJournalStorage, records: readonly LeadJournalRecord[]) { this.#state = replayLeadJournal(records) }
+  constructor(private readonly storage: LeadJournalStorage, records: readonly LeadJournalRecord[], private readonly security: LeadJournalSecurity = {}, checkpoint: LeadState | null = null) { this.#state = records.reduce(reduceLeadRecord, checkpoint ?? replayLeadJournal([])) }
   get state(): LeadState { return structuredClone(this.#state) }
   #queue<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.#tail.then(async () => { if (this.#failed) throw new Error('lead-journal-writer-failed'); return operation() })
@@ -153,15 +156,15 @@ export class LeadJournal {
     return next
   }
   async #append(event: LeadJournalEvent): Promise<void> {
-    try {
-      const record = parseLeadJournalRecord({ version: 1, seq: this.#state.seq + 1, ...event })
-      const next = reduceLeadRecord(this.#state, record)
-      await this.storage.append(record)
-      this.#state = next
-    } catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
+    const raw = { version: 1, seq: this.#state.seq + 1, ...event }
+    const record = this.storage.prepare ? this.storage.prepare(raw) : parseLeadJournalRecord(raw, this.security)
+    const next = reduceLeadRecord(this.#state, record)
+    try { await this.storage.append(record) }
+    catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
+    this.#state = next
   }
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
-  offerCard(card: LeadCard): Promise<void> { return this.#queue(() => this.#append({ type: 'card', card })) }
+  offerCard(card: LeadCard): Promise<LeadCard> { return this.#queue(async () => { await this.#append({ type: 'card', card }); return structuredClone(this.#state.cards.find(item => item.id === card.id)!) }) }
   decideCard(decision: LeadCardDecision, expiresAt: number | null = null): Promise<void> {
     return this.#queue(() => this.#append({ type: 'card-decision', decision, expiresAt }))
   }
@@ -169,17 +172,18 @@ export class LeadJournal {
   bindTeam(teamId: string, contractDigest: string): Promise<void> {
     return this.#queue(() => this.#append({ type: 'team-approved', teamId, contractDigest }))
   }
+  /** Called only after an explicit user resolution of the quarantine report. */
+  resolveRecovery(): Promise<void> { return this.#queue(() => this.#append({ type: 'recovery-resolved' })) }
   stop(): Promise<void> { return this.#queue(() => this.#append({ type: 'stop' })) }
   execute(input: LeadToolAttempt, dispatch: LeadDispatch): Promise<{ decision: LeadPermissionDecision; outcome: LeadAttemptOutcome; value?: unknown }> {
     return this.#queue(async () => {
-      if (this.#state.attempts.some(attempt => attempt.id === input.id)) throw new Error('lead-journal-duplicate-attempt')
+      if (this.#state.attempts.has(input.id) || this.#state.runs.some(run => run.correlationId === input.id)) throw new Error('lead-journal-duplicate-attempt')
       let capturedContext: LeadPermissionContext | null
       try { capturedContext = structuredClone(input.context) } catch { capturedContext = null }
       let request: LeadPermissionRequest
       try { request = structuredClone(input.request) } catch { request = { method: 'invalid', params: null, project: null, runId: null, start: null } }
       const raw = request !== null && typeof request === 'object' ? request : { method: 'invalid', params: null }
-      const method = typeof raw.method === 'string' && /^[a-z][a-z0-9-]*\/[a-z0-9/-]{1,200}$/.test(raw.method) &&
-        !/sk-|authorization|bearer/i.test(raw.method) ? raw.method : 'invalid'
+      const method = typeof raw.method === 'string' && Object.hasOwn(CLIENT_METHODS, raw.method) ? raw.method : 'invalid'
       const params = raw.params !== null && typeof raw.params === 'object' ? raw.params as Record<string, unknown> : {}
       const tier = clientTierFor(method, raw.params)
       const action = Object.hasOwn(CLIENT_ACTION_TIERS, method) && typeof params.action === 'string'
@@ -192,10 +196,13 @@ export class LeadJournal {
       let decision = capturedContext === null ? refusal('invalid-input', 'Invalid permission context')
         : decideLeadPermission(request, { ...capturedContext, desk: this.#state.policy ?? capturedContext.desk, approved })
       const step = this.#state.steps.find(step => step.id === input.stepId)
-      if (['stopped', 'accepted', 'declined'].includes(this.#state.phase) || tier !== 'read' && this.#state.attempts.some(attempt => attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.phase === 'started' && attempt.dispatched)))
+      const cancellation = method === 'flow/execution/stop' || method === 'team/intent' && action === 'abandon'
+      // Status reads remain available after Stop so the final report can observe desk state.
+      if (tier !== 'read' && !cancellation && (['stopped', 'accepted', 'declined', 'awaiting-plan'].includes(this.#state.phase) ||
+        this.#state.recoveryBlocked || [...this.#state.attempts.values()].some(attempt => attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.phase === 'started' && attempt.dispatched))))
         decision = refusal('start', 'Management is stopped pending recovery or user action')
       if (method === 'flow/start-goal' && (!step || step.state !== 'pending' || request.start?.id !== step.id ||
-        this.#state.steps.find(step => step.state !== 'completed')?.id !== step.id)) decision = refusal('start', 'Step is unapproved, out of order or already admitted')
+        this.#state.steps.find(step => step.state !== 'started')?.id !== step.id)) decision = refusal('start', 'Step is unapproved, out of order or already admitted')
       await this.#append({ type: 'decision', id: input.id, effect: decision.effect, reason: decision.floor ?? 'policy', rule: decision.rule })
       await this.#append({ type: 'dispatch-start', id: input.id, dispatched: decision.effect === 'allow' })
       if (decision.effect !== 'allow' || decision.call === null) {
@@ -205,7 +212,7 @@ export class LeadJournal {
       }
       let result: LeadDispatchResult
       try { result = await dispatch(decision.call, input.id) } catch {
-        const outcome = tier === 'read' ? 'failed' : 'uncertain'
+        const outcome = tier === 'read' || cancellation ? 'failed' : 'uncertain'
         await this.#append({ type: 'result', id: input.id, outcome, identity: null })
         return { decision, outcome }
       }
@@ -218,27 +225,30 @@ export class LeadJournal {
   }
   /** The injected read-only lookup must prove host-owned correlation and project membership;
    * a matching-looking run name is not proof. No recovery path calls the dispatch port. */
-  recover(reconcile: (attempt: { id: string; correlationId: string; method: string }) => Promise<LeadRunIdentity | null>): Promise<readonly LeadRecoveryAction[]> {
+  recover(reconcile: (attempt: { id: string; correlationId: string; method: string }) => Promise<readonly LeadRunIdentity[]>): Promise<readonly LeadRecoveryAction[]> {
     return this.#queue(async () => {
       const actions: LeadRecoveryAction[] = []
-      for (const pending of this.#state.attempts.filter(attempt => attempt.phase !== 'finished' || attempt.outcome === 'uncertain')) {
+      for (const pending of [...this.#state.attempts.values()].filter(attempt => !attempt.recoveryReported && (attempt.phase !== 'finished' || attempt.outcome === 'uncertain'))) {
         if (pending.phase === 'attempted') await this.#append({ type: 'decision', id: pending.id, effect: 'deny', reason: 'recovery', rule: null })
         if (pending.phase === 'attempted' || pending.phase === 'decided') await this.#append({ type: 'dispatch-start', id: pending.id, dispatched: false })
         if (pending.phase !== 'finished') await this.#append({ type: 'result', id: pending.id,
-          outcome: pending.dispatched ? 'uncertain' : 'interrupted', identity: null })
-        if (!pending.dispatched) { actions.push({ id: pending.id, type: 'not-dispatched' }); continue }
-        if (pending.kind === 'read') { actions.push({ id: pending.id, type: 'retry-read' }); continue }
-        let identity: LeadRunIdentity | null = null
+          outcome: pending.dispatched ? pending.method === 'flow/execution/stop' || pending.method === 'team/intent' && pending.action === 'abandon' ? 'failed' : 'uncertain' : 'interrupted', identity: null })
+        if (!pending.dispatched) { await this.#append({ type: 'recovery-report', id: pending.id }); actions.push({ id: pending.id, type: 'not-dispatched' }); continue }
+        if (pending.kind === 'read') { await this.#append({ type: 'recovery-report', id: pending.id }); actions.push({ id: pending.id, type: 'retry-read' }); continue }
+        if (pending.method === 'flow/execution/stop' || pending.method === 'team/intent' && pending.action === 'abandon') continue
+        let observed: readonly LeadRunIdentity[] = []
         try {
-          const observed = await reconcile({ id: pending.id, correlationId: pending.correlationId, method: pending.method })
-          const parsed = observed === null ? null : parseLeadRunIdentity(observed)
-          if (pending.method === 'flow/start-goal' && parsed?.correlationId === pending.correlationId) identity = parsed
-        } catch { /* Provider/desk errors are never journal payloads or recovery proof. */ }
-        await this.#append({ type: 'reconciliation', id: pending.id, identity })
-        actions.push({ id: pending.id, type: identity ? 'reconciled' : 'needs-user' })
+          observed = (await reconcile({ id: pending.id, correlationId: pending.correlationId, method: pending.method })).map(parseLeadRunIdentity)
+            .filter(identity => pending.method === 'flow/start-goal' && identity.correlationId === pending.correlationId)
+        } catch { /* Failed lookups supply no new evidence. */ continue }
+        const evidence = JSON.stringify([...observed].sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0))
+        if (evidence === pending.evidence) continue
+        const identity = observed.length === 1 ? observed[0]! : null
+        await this.#append({ type: 'reconciliation', id: pending.id, identity, count: observed.length, evidence })
+        actions.push({ id: pending.id, type: identity ? 'reconciled' : 'needs-user', count: observed.length })
       }
       return actions
     })
   }
 }
-export const createLeadJournal = async (storage: LeadJournalStorage): Promise<LeadJournal> => new LeadJournal(storage, await storage.read())
+export const createLeadJournal = async (storage: LeadJournalStorage, security: LeadJournalSecurity = {}): Promise<LeadJournal> => new LeadJournal(storage, await storage.read(), security, storage.checkpoint?.() ?? null)
