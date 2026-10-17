@@ -69,7 +69,7 @@ test('FIX9 command card waits for approval and names its folder', async ({ page 
     await expect(cost.getByText('0 of 30 days with usage', { exact: true })).toHaveCount(1)
     await expect(cost.locator('[data-slot="chart-foot"]')).not.toContainText('days with usage')
     await expect(cost).not.toContainText('unpriced')
-    if (view === 'overview') await expect(page.getByRole('button', { name: /^Value/ })).not.toContainText('unpriced')
+    if (view === 'overview') await expect(page.getByRole('button', { name: /^Usage cost/ })).not.toContainText('unpriced')
 
 
   })
