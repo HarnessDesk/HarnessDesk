@@ -882,10 +882,14 @@ export const useGuides = (roots: () => Element[]) => {
     const onKey = (event: KeyboardEvent) => {
       if (!event.altKey || event.code !== 'KeyG' || event.metaKey || event.ctrlKey) return
       event.preventDefault()
+      event.stopPropagation()
       setGuidesMode(GUIDES_MODES[(GUIDES_MODES.indexOf(modeNow()) + 1) % GUIDES_MODES.length]!)
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    // On the way down, before the focused element: a terminal reads Alt+G as
+    // Meta+G off the Mac and stops the key, and the preview opens with a
+    // terminal focused, so a listener on the way up never heard it there.
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [])
   // A page embedded in the review board takes its mode from the board and
   // answers "what is at this point" for a review note.

@@ -52,6 +52,22 @@ test('Alt+G steps through the modes and off removes the drawing', async ({ page 
   await expect(page.locator('canvas[data-guides]')).toHaveCount(0)
 })
 
+test('Alt+G is heard while a terminal holds the key', async ({ page }) => {
+  // Off the Mac a terminal reads Alt+G as Meta+G and stops it, and the preview
+  // opens with one focused. The Mac's terminal lets it through, so the stop is
+  // put on the focused element here, and the guides must hear the key first.
+  await open(page, '&guides=off')
+  const held = await page.evaluate(() => {
+    const focused = document.activeElement
+    if (!focused || focused === document.body) return false
+    focused.addEventListener('keydown', (event) => event.stopPropagation())
+    return true
+  })
+  expect(held, 'the preview opens with an element focused').toBe(true)
+  await page.keyboard.press('Alt+KeyG')
+  await expect(page.locator('canvas[data-guides="boxes"]')).toHaveCount(1)
+})
+
 test('an edge nudged two pixels off its rail is reported', async ({ page }) => {
   await open(page, '&guides=lines')
   await expect.poll(() => reportFor(page, 'settings-sheet')).not.toBeNull()
