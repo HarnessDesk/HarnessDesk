@@ -182,8 +182,8 @@ export const taskLabel = (command: string): string => {
   const argument = segment.slice(at + 1).find((token): token is Word => token.kind === 'word' && !token.value.startsWith('-'))
   const short = oneLine(argument ? `${name} ${argument.raw}` : name)
   const label = characters(short).length > LABEL_MAX ? cut(short) : `${short}…`
-  // Trimming a whitespace-only prefix must not leave the ellipsis as the whole title.
-  return label.slice(0, -1).trim() ? label : cut(command.trim())
+  // Trimming a whitespace-only prefix must not leave the ellipsis as the whole title, a display break included.
+  return label.slice(0, -1).trim() ? label : cut(oneLine(command).trim())
 }
 
 /** How often the live list is re-read while something is running. */

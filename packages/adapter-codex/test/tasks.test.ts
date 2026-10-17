@@ -299,6 +299,8 @@ test('a task title falls back to the command when shortening leaves only whitesp
   const label = taskLabel(command)
   assert.equal(label, '/bin/…')
   assert.ok(label.trim() && label.trim() !== '…')
+  // A display break the shell keeps inside a word is blank on screen too.
+  assert.equal(taskLabel(`${'\u0085'.repeat(48)}echo`), 'echo')
 })
 
 test('a task title is always one line', () => {
