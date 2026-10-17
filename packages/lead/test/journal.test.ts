@@ -31,10 +31,14 @@ const memory = () => {
     async read() { return structuredClone(records) },
     async append(record: any) { if (record.type === fail) throw new Error('simulated disk refusal'); records.push(structuredClone(record)) } }
 }
+const initializeBudget = async (journal: any) => {
+  if (!journal.state.budget) await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: contract.caps, freshnessMs: 50 })
+}
 const prepare = async (storage: ReturnType<typeof memory>) => {
   const journal = await open(storage)
   await journal.setPolicy(policy)
   await journal.offerCard(plan)
+  await initializeBudget(journal)
   await journal.decideCard(click, 200)
   return journal
 }
@@ -222,6 +226,7 @@ test('ordinary authorization prose and sk-ending names persist approve and execu
       steps: [{ ...contract.steps[0], id: text.replaceAll(' ', '-') }] }
     await journal.setPolicy(policy)
     await journal.offerCard({ ...plan, contract: approved })
+    await initializeBudget(journal)
     await journal.decideCard(click, 200)
     const result = await journal.execute({ id: 'attempt-1', stepId: approved.steps[0]!.id, context: { ...context, project: approved.project },
       request: { ...request, project: approved.project, start: approved.steps[0], params: { ...request.params, root: approved.project.path, sentence: text } } },
@@ -337,6 +342,7 @@ test('a quarantine block fences starts while reads and cancellation remain avail
   const second = { ...contract.steps[0]!, id: 'second' }
   await journal.setPolicy(policy)
   await journal.offerCard({ ...plan, contract: { ...contract, steps: [...contract.steps, second] } })
+  await initializeBudget(journal)
   await journal.decideCard(click, 200)
   await journal.execute({ id: 'attempt-1', request, context, stepId: 'implement' }, async () => ({ value: null,
     identity: { correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' } }))
@@ -354,6 +360,7 @@ test('a conflicting reconciliation identity refuses one call and leaves Stop wri
   const storage = memory(), journal = await open(storage), second = { ...contract.steps[0]!, id: 'second' }
   await journal.setPolicy(policy)
   await journal.offerCard({ ...plan, contract: { ...contract, steps: [...contract.steps, second] } })
+  await initializeBudget(journal)
   await journal.decideCard(click, 200)
   await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
     identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))
@@ -369,6 +376,7 @@ test('undecided plan survives waiting decisions and reconciliation and can repla
   const original = { ...contract, steps: [...contract.steps, second] }
   await journal.setPolicy(policy)
   await journal.offerCard({ ...plan, contract: original })
+  await initializeBudget(journal)
   await journal.decideCard(click, 200)
   await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => { throw new Error('response lost') })
   const updatedSecond = { ...second, variables: { target: 'revised' } }
@@ -531,6 +539,7 @@ const runningTwoStepPlan = async () => {
   const original = { ...contract, steps: [...contract.steps, { ...contract.steps[0]!, id: 'second' }] }
   await journal.setPolicy(policy)
   await journal.offerCard({ ...plan, contract: original })
+  await initializeBudget(journal)
   await journal.decideCard(click, 200)
   await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
     identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))
@@ -601,6 +610,7 @@ test('ordinary header-like ids and short token-like project names remain valid o
     await journal.setPolicy(policy)
     const offered = await journal.offerCard({ ...plan, contract: approved })
     assert.deepEqual(offered.contract, approved)
+    await initializeBudget(journal)
     await journal.decideCard(click, 200)
     assert.equal((await journal.execute({ id: 'first', context: { ...context, project: approved.project }, stepId: approved.steps[0]!.id,
       request: { ...request, project: approved.project, start: approved.steps[0], params: { ...request.params, root: approved.project.path } } },
@@ -660,6 +670,7 @@ for (const source of ['flow-seat-validator', 'raw-optional']) test(`undefined ob
   await journal.setPolicy(policy)
   const offered = await journal.offerCard({ ...plan, contract: proposed })
   assert.deepEqual(offered.contract.steps[0].assignments[0].seat, { runtime: 'fixture' })
+  await initializeBudget(journal)
   await journal.decideCard(click, 200)
   assert.equal((await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
     identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))).outcome, 'succeeded')
@@ -727,4 +738,28 @@ test('execute captures caller attempt id and step id once at entry', async () =>
   const records = storage.records.filter(record => ['attempt', 'decision', 'dispatch-start', 'result'].includes(record.type))
   assert.deepEqual(records.map(record => record.id), Array(4).fill('attempt-1'))
   assert.equal(journal.state.steps[0].attemptId, 'attempt-1')
+})
+
+test('durable unknown spend overrides caller headroom and blocks mutation dispatch', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  assert.equal(typeof journal.updateBudget, 'function')
+  await journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId: 'run-previous' })
+  const result = await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => { throw new Error('must not dispatch') })
+  assert.equal(result.outcome, 'denied')
+  assert.equal(result.decision.floor, 'budget')
+})
+
+test('missing durable budget and invalid budget time refuse with four audit records', async () => {
+  for (const state of ['missing', 'time']) {
+    const storage = memory(), journal = await prepare(storage)
+    const legacy = memory()
+    legacy.records.push(...storage.records.filter(record => record.type !== 'budget').map((record, i) => ({ ...record, seq: i + 1 })))
+    const writer = state === 'missing' ? await open(legacy) : journal
+    const before = writer.state.seq
+    const result = await writer.execute({ id: 'first', request, context: { ...context, now: state === 'time' ? 99 : 100 }, stepId: 'implement' },
+      async () => { throw new Error('must not dispatch') })
+    assert.equal(result.outcome, 'denied')
+    assert.equal(result.decision.floor, 'budget')
+    assert.equal(writer.state.seq, before + 4)
+  }
 })

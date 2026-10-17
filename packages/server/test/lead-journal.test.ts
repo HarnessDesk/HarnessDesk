@@ -369,7 +369,9 @@ test('pending plan remains fenced across reconciliation checkpoint and reopen th
     budget: { version: 1 as const, revision: 1, caps: contract.caps, leadUsdMicros: 0, workerUsdMicros: 0, reservedUsdMicros: 0, roundsAdmitted: 0, spend: 'known' as const, stop: null } }
   const request = { method: 'flow/start-goal', params: { root: contract.project.path, source: 'synthetic recipe', token: 'preview-1', sentence: contract.goal,
     vars: {}, attended: true, seats: { implement: [{ runtime: 'fixture' }] } }, project: contract.project, runId: null, start: contract.steps[0]! }
-  await journal.setPolicy(policy); await journal.offerCard(plan); await journal.decideCard(click, 200)
+  await journal.setPolicy(policy); await journal.offerCard(plan)
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: contract.caps, freshnessMs: 50 })
+  await journal.decideCard(click, 200)
   await journal.execute({ id: 'first', request, context, stepId: 'first' }, async () => { throw new Error('lost response') })
   const revised = { ...contract, revision: 2, digest: 'b'.repeat(64), steps: [contract.steps[0]!, { ...contract.steps[1]!, title: 'Revised second step' }] }
   await journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised })
@@ -566,4 +568,32 @@ test('fresh journals persist the metadata format two marker', async t => {
   const db = new DatabaseSync(join(home, 'lead', 'thread-1.writer.sqlite'))
   try { assert.equal((db.prepare("SELECT value FROM journal WHERE key = 'format'").get() as { value: string } | undefined)?.value, '2') }
   finally { db.close() }
+})
+
+test('budget reservations rounds observations and stop survive disk checkpoint and reopen', async t => {
+  const home = await scratch(t), disk = await open(home), journal: any = await createLeadJournal(disk)
+  assert.equal(typeof journal.updateBudget, 'function')
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1',
+    caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 50 })
+  await journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'planning-1', inputTokens: 10, maxOutputTokens: 20,
+    inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000 })
+  await journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId: 'run-1' })
+  await journal.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal',
+    sourceIds: ['corpus-1'], goalId: 'goal-1', executionIds: ['run-1'], quality: 'known', usdMicros: 0 })
+  await journal.updateBudget({ version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'round-1' })
+  await assert.rejects(journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 20, rounds: 3 } }, async () => {
+    assert.equal(journal.state.phase, 'stopped')
+    throw new Error('synthetic crash after durable stop')
+  }), /crash/)
+  for (let i = 0; i < 1024; i++) await disk.append(parseLeadJournalRecord({ version: 1, seq: journal.state.seq + i + 1, type: 'recovery-resolved' }))
+  await disk.close()
+  const recovered = await open(home)
+  t.after(() => recovered.close())
+  const reopened: any = await createLeadJournal(recovered)
+  assert.equal(reopened.state.phase, 'stopped')
+  assert.equal(reopened.state.budget.stop.reason, 'budget')
+  assert.equal(reopened.state.budget.requests.length, 1)
+  assert.equal(reopened.state.budget.rounds.length, 1)
+  await assert.rejects(reopened.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'planning-2', inputTokens: 0, maxOutputTokens: 1,
+    inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1 }))
 })

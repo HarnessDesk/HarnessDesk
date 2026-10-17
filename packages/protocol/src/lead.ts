@@ -99,10 +99,26 @@ export interface LeadBudgetState {
   readonly workerUsdMicros: LeadUsdMicros
   readonly reservedUsdMicros: LeadUsdMicros
   readonly roundsAdmitted: number
-  readonly spend: 'known' | 'unknown' | 'stale' | 'partial'
+  readonly spend: 'known' | 'unknown' | 'stale' | 'partial' | 'ambiguous'
   /** Durable latch; a higher cap alone does not clear it. */
   readonly stop: { readonly reason: LeadStopReason; readonly revision: LeadRevision } | null
 }
+/** Trusted owner input, never model output. Each observation is a cumulative worker-only
+ * total for this logical goal, not a delta; alternative sources must never be added. */
+export type LeadBudgetEvent = { readonly version: 1; readonly now: number } & (
+  | { readonly type: 'initialize'; readonly logicalGoalId: string; readonly caps: LeadCaps; readonly freshnessMs: number }
+  | { readonly type: 'bind'; readonly goalId: string; readonly executionId: string }
+  | { readonly type: 'reserve'; readonly requestId: string; readonly inputTokens: number; readonly maxOutputTokens: number;
+      readonly inputUsdMicrosPerMillion: number; readonly outputUsdMicrosPerMillion: number }
+  | { readonly type: 'settle'; readonly requestId: string; readonly inputTokens: number; readonly outputTokens: number }
+  | { readonly type: 'uncertain'; readonly requestId: string }
+  | { readonly type: 'observe'; readonly at: number; readonly revision: number; readonly source: 'insight/goal' | 'worker-samples';
+      readonly sourceIds: readonly string[]; readonly goalId: string; readonly executionIds: readonly string[];
+      readonly quality: LeadBudgetState['spend']; readonly usdMicros: number | null }
+  | { readonly type: 'round'; readonly executionId: string; readonly roundId: string }
+  | { readonly type: 'tighten'; readonly caps: LeadCaps }
+  | { readonly type: 'stop'; readonly reason: LeadStopReason }
+)
 interface LeadCardBase {
   readonly version: 1
   readonly id: string
@@ -117,6 +133,9 @@ export type LeadCard = (LeadCardBase & { readonly contractDigest: string } & (
 )) | (LeadCardBase & { readonly type: 'stopped'; readonly contractDigest: string | null;
   readonly reason: LeadStopReason; readonly summary: string; readonly budget: LeadBudgetState }
 ) | (LeadCardBase & {
+  readonly type: 'budget-change'; readonly contractDigest: string | null; readonly logicalGoalId: string
+  readonly previous: { readonly revision: LeadRevision; readonly caps: LeadCaps }; readonly proposed: LeadCaps
+}) | (LeadCardBase & {
   readonly type: 'permission-change'
   /** Null before there is an approved contract. The immutable card ID/revision binds the policy pair. */
   readonly contractDigest: string | null
@@ -125,7 +144,7 @@ export type LeadCard = (LeadCardBase & { readonly contractDigest: string } & (
 })
 /** Private recipe choices: person/result acceptance maps accept/decline to accepted/declined. */
 export const LEAD_CARD_CHOICES = {
-  plan: ['approve', 'decline'], 'permission-change': ['approve', 'decline'],
+  plan: ['approve', 'decline'], 'permission-change': ['approve', 'decline'], 'budget-change': ['approve', 'decline'],
   waiting: ['accept', 'decline'], result: ['accept', 'decline'], stopped: [],
 } as const
 /** Authenticated window input only. Never a child command or a worker approval answer. */
@@ -311,7 +330,7 @@ export const parseLeadPermissionPolicy: Validator<LeadPermissionPolicy> = object
 const stopReason = literalUnion('budget', 'rounds', 'unknown-spend', 'cancelled', 'connection-lost', 'recovery', 'error')
 const budgetState: Validator<LeadBudgetState> = object({
   version, revision, caps: parseLeadCaps, leadUsdMicros: micros, workerUsdMicros: micros, reservedUsdMicros: micros,
-  roundsAdmitted: integer(0, LEAD_LIMITS.rounds), spend: literalUnion('known', 'unknown', 'stale', 'partial'),
+  roundsAdmitted: integer(0, LEAD_LIMITS.rounds), spend: literalUnion('known', 'unknown', 'stale', 'partial', 'ambiguous'),
   stop: nullable(object({ reason: stopReason, revision })),
 })
 /** The spend observation reaching the cap and its stop latch must land in one journal
@@ -328,11 +347,36 @@ export const parseLeadBudgetState: Validator<LeadBudgetState> = (value, path = '
     fail(path, 'budget above allowance requires a stop latch')
   return parsed
 }
+const budgetBase = { version, now: integer() }
+type BudgetOf<T extends LeadBudgetEvent['type']> = Extract<LeadBudgetEvent, { type: T }>
+const tokenCount = integer(0, 100_000_000)
+const budgetEvent = tag<LeadBudgetEvent>({
+  initialize: object<BudgetOf<'initialize'>>({ ...budgetBase, type: literalUnion('initialize'), logicalGoalId: id, caps: parseLeadCaps, freshnessMs: integer(1, 86_400_000) }),
+  bind: object<BudgetOf<'bind'>>({ ...budgetBase, type: literalUnion('bind'), goalId: id, executionId: id }),
+  reserve: object<BudgetOf<'reserve'>>({ ...budgetBase, type: literalUnion('reserve'), requestId: id, inputTokens: tokenCount,
+    maxOutputTokens: tokenCount, inputUsdMicrosPerMillion: micros, outputUsdMicrosPerMillion: micros }),
+  settle: object<BudgetOf<'settle'>>({ ...budgetBase, type: literalUnion('settle'), requestId: id, inputTokens: tokenCount, outputTokens: tokenCount }),
+  uncertain: object<BudgetOf<'uncertain'>>({ ...budgetBase, type: literalUnion('uncertain'), requestId: id }),
+  observe: object<BudgetOf<'observe'>>({ ...budgetBase, type: literalUnion('observe'), at: integer(), revision, source: literalUnion('insight/goal', 'worker-samples'),
+    sourceIds: list(id, 128, 0, item => item), goalId: id, executionIds: list(id, LEAD_LIMITS.rounds, 0, item => item),
+    quality: literalUnion('known', 'unknown', 'stale', 'partial', 'ambiguous'), usdMicros: nullable(micros) }),
+  round: object<BudgetOf<'round'>>({ ...budgetBase, type: literalUnion('round'), executionId: id, roundId: id }),
+  tighten: object<BudgetOf<'tighten'>>({ ...budgetBase, type: literalUnion('tighten'), caps: parseLeadCaps }),
+  stop: object<BudgetOf<'stop'>>({ ...budgetBase, type: literalUnion('stop'), reason: stopReason }),
+})
+export const parseLeadBudgetEvent: Validator<LeadBudgetEvent> = (value, path = '') => {
+  const parsed = budgetEvent(value, path)
+  if (parsed.type === 'observe' && (parsed.at > parsed.now || parsed.quality === 'known' && (parsed.usdMicros === null || parsed.sourceIds.length === 0)))
+    fail(path, 'invalid spend observation')
+  return parsed
+}
 const cardBase = { version, id, revision, contractDigest: digest }
 type CardOf<T extends LeadCard['type']> = Extract<LeadCard, { type: T }>
 const card = tag<LeadCard>({
   plan: object<CardOf<'plan'>>({ ...cardBase, type: literalUnion('plan'), contract: parseLeadAcceptanceContract }),
   'permission-change': object<CardOf<'permission-change'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('permission-change'), previous: parseLeadPermissionPolicy, proposed: parseLeadPermissionPolicy }),
+  'budget-change': object<CardOf<'budget-change'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('budget-change'), logicalGoalId: id,
+    previous: object({ revision, caps: parseLeadCaps }), proposed: parseLeadCaps }),
   waiting: object<CardOf<'waiting'>>({ ...cardBase, type: literalUnion('waiting'), kind: literalUnion('person', 'worker-approval'), runId: id,
     personCardId: nullable(id), summary: content, assertions: list(parseLeadAssertionResult, LEAD_LIMITS.assertions, 0, result => result.assertionId) }),
   result: object<CardOf<'result'>>({ ...cardBase, type: literalUnion('result'), outcome: literalUnion('reviewed', 'accepted', 'declined'),
@@ -348,16 +392,18 @@ export const parseLeadCard: Validator<LeadCard> = (value, path = '') => {
   // Before applying a click the host revalidates the current policy and the live contract/gate;
   // a digest is never used as a substitute for the policy pair when no contract exists.
   if (parsed.type === 'permission-change' && parsed.proposed.revision <= parsed.previous.revision) fail(path, 'policy proposal must advance its revision')
+  if (parsed.type === 'budget-change' && parsed.proposed.usdMicros <= parsed.previous.caps.usdMicros && parsed.proposed.rounds <= parsed.previous.caps.rounds)
+    fail(path, 'budget proposal must increase an allowance')
   return parsed
 }
 const decision: Validator<LeadCardDecision> = object({
-  version, cardId: id, cardType: literalUnion('plan', 'permission-change', 'waiting', 'result'),
+  version, cardId: id, cardType: literalUnion('plan', 'permission-change', 'budget-change', 'waiting', 'result'),
   expectedRevision: revision, contractDigest: nullable(digest), choice: literalUnion('approve', 'decline', 'accept'),
 })
 export const parseLeadCardDecision: Validator<LeadCardDecision> = (value, path = '') => {
   const parsed = decision(value, path)
   if (!(LEAD_CARD_CHOICES[parsed.cardType] as readonly string[]).includes(parsed.choice)) fail(path, 'choice is not allowed for this card type')
-  if (parsed.cardType !== 'permission-change' && parsed.contractDigest === null) fail(path, 'decision requires a contract digest')
+  if (!['permission-change', 'budget-change'].includes(parsed.cardType) && parsed.contractDigest === null) fail(path, 'decision requires a contract digest')
   return parsed
 }
 /** Structural parsing alone cannot authorize a click. Call against the live immutable card immediately before effects. */

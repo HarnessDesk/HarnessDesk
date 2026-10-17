@@ -355,3 +355,38 @@ test('Lead rules carry actions only for action-tier methods', () => {
   assert.doesNotThrow(() => protocol.parseLeadPermissionPolicy({ ...policy, rules: [{ ...base, method: 'team/intent' }] }))
   assert.doesNotThrow(() => protocol.parseLeadPermissionPolicy({ ...policy, rules: [{ ...base, method: 'workspace/open', action: null }] }))
 })
+
+test('Lead budget events validate identity money freshness and complete source qualifications', () => {
+  const parse = validator('parseLeadBudgetEvent')
+  const event = { version: 1, type: 'reserve', now: 100, requestId: 'request-1', inputTokens: 12, maxOutputTokens: 30,
+    inputUsdMicrosPerMillion: 3, outputUsdMicrosPerMillion: 5 }
+  assert.deepEqual(parse(event), event)
+  for (const patch of [{ version: 2 }, { now: -1 }, { requestId: '' }, { inputTokens: 1.5 }, { maxOutputTokens: -1 },
+    { inputUsdMicrosPerMillion: null }, { outputUsdMicrosPerMillion: Number.MAX_SAFE_INTEGER }, { extra: true }])
+    assert.throws(() => parse({ ...event, ...patch }), protocol.ValidationError)
+  const observed = { version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal', sourceIds: ['corpus-1'],
+    goalId: 'goal-1', executionIds: ['run-1'], quality: 'known', usdMicros: 10 }
+  assert.deepEqual(parse(observed), observed)
+  for (const patch of [{ source: 'unqualified' }, { sourceIds: [] }, { executionIds: ['run-1', 'run-1'] },
+    { quality: 'known', usdMicros: null }, { usdMicros: -1 }, { at: 101 }, { quality: 'estimated' }])
+    assert.throws(() => parse({ ...observed, ...patch }), protocol.ValidationError)
+})
+
+test('Lead budget increases are bound to a validated revision and current immutable card', () => {
+  const card = { version: 1, id: 'budget-1', revision: 2, type: 'budget-change', contractDigest: null,
+    logicalGoalId: 'logical-1', previous: { revision: 3, caps }, proposed: { ...caps, rounds: 4 } }
+  assert.deepEqual(validator('parseLeadCard')(card), card)
+  const click = { version: 1, cardId: card.id, cardType: card.type, expectedRevision: 2, contractDigest: null, choice: 'approve' }
+  assert.deepEqual(protocol.parseLeadCardDecisionFor(click, card), click)
+  for (const patch of [{ expectedRevision: 1 }, { cardId: 'different-card' }, { choice: 'accept' }])
+    assert.throws(() => protocol.parseLeadCardDecisionFor({ ...click, ...patch }, card), protocol.ValidationError)
+  for (const patch of [{ logicalGoalId: '' }, { previous: { revision: -1, caps } }, { proposed: caps },
+    { proposed: { usdMicros: -1, rounds: 4 } }])
+    assert.throws(() => validator('parseLeadCard')({ ...card, ...patch }), protocol.ValidationError)
+})
+
+test('unavailable worker spend can be recorded without inventing source identities', () => {
+  const event = { version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal', sourceIds: [],
+    goalId: 'goal-1', executionIds: ['run-1'], quality: 'unknown', usdMicros: null }
+  assert.deepEqual(validator('parseLeadBudgetEvent')(event), event)
+})

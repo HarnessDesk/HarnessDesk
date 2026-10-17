@@ -1,6 +1,7 @@
 import { parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
 import { parseLeadJournalRecord, parseLeadRunIdentity } from './journal.js'
 import { initialLeadState, type LeadState, type LeadAttemptState } from './state.js'
+import { parseLeadBudgetLedger } from './budget.js'
 
 export interface LeadJournalCheckpoint {
   readonly type: 'checkpoint'; readonly version: 1; readonly seq: number; readonly head: string
@@ -21,6 +22,8 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   assert(['draft', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'].includes(source.phase))
   const policy = source.policy === null ? null : parseLeadPermissionPolicy(source.policy)
   const contract = source.contract === null ? null : parseLeadAcceptanceContract(source.contract)
+  const budget = source.budget === null ? null : parseLeadBudgetLedger(source.budget)
+  assert(!budget?.stop || source.phase === 'stopped')
   assert(typeof source.recoveryBlocked === 'boolean' && Array.isArray(source.cards) && source.cards.length <= 64)
   const cards = source.cards.map(card => parseLeadCard(card))
   assert(new Set(cards.map(card => card.id)).size === cards.length)
@@ -57,6 +60,6 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     assert(contract && consent.contractDigest === contract.digest && consent.contractRevision === contract.revision && consent.policyRevision === contract.policyRevision)
     assert(Number.isSafeInteger(consent.expiresAt) && consent.expiresAt > 0)
   }
-  const state = structuredClone({ ...source, policy, contract, cards, runs, attempts })
+  const state = structuredClone({ ...source, policy, contract, budget, cards, runs, attempts })
   return { checkpoint: structuredClone(checkpoint), state }
 }

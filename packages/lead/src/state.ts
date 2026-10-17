@@ -1,6 +1,7 @@
 import { clientTierFor, parseLeadCardDecisionFor, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy } from '@harnessdesk/protocol'
 import { applyLeadPolicyDecision, compareLeadPolicyAuthority } from './permissions.js'
 import { parseLeadJournalRecord, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity } from './journal.js'
+import { reduceLeadBudget, applyLeadBudgetCard, type LeadBudgetLedger } from './budget.js'
 
 export interface LeadAttemptState {
   readonly id: string; readonly correlationId: string; readonly method: string; readonly action: string | null
@@ -11,6 +12,7 @@ export interface LeadAttemptState {
 }
 export interface LeadStepState { readonly id: string; readonly state: 'pending' | 'admitted' | 'started' | 'uncertain'; readonly attemptId: string | null }
 export interface LeadState {
+  readonly budget: LeadBudgetLedger | null
   readonly seq: number
   readonly phase: 'draft' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'accepted' | 'declined' | 'stopped'
   readonly policy: LeadPermissionPolicy | null
@@ -25,7 +27,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ seq: 0, phase: 'draft', policy: null, contract: null, consent: null,
+export const initialLeadState = (): LeadState => ({ seq: 0, phase: 'draft', policy: null, contract: null, consent: null, budget: null,
   cards: [], decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardRevisions: {}, runs: [], teams: [] })
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-transition') }
 const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.revision}`
@@ -66,6 +68,12 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       steps: state.steps.map(step => step.id === attempt.stepId ? { ...step, state: 'started' as const } : step) }
   }
   switch (event.type) {
+    case 'budget': {
+      if (event.event.type === 'reserve' || event.event.type === 'round') ensure(!['stopped', 'accepted', 'declined'].includes(state.phase))
+      let budget = reduceLeadBudget(state.budget, event.event)
+      if (previous.phase === 'stopped' && budget.stop === null) budget = reduceLeadBudget(budget, { version: 1, type: 'stop', now: budget.now, reason: 'cancelled' })
+      state = { ...state, budget, phase: budget.stop ? 'stopped' : state.phase }; break
+    }
     case 'policy':
       ensure(state.policy === null || event.policy.revision > state.policy.revision &&
         ['narrowing', 'unchanged'].includes(compareLeadPolicyAuthority(state.policy, event.policy)))
@@ -96,7 +104,12 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
             steps: contract.steps.map(step => locked.find(existing => existing.id === step.id) ?? { id: step.id, state: 'pending', attemptId: null }),
             decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(other => other.type === 'plan' && other.id !== card!.id &&
               other.contract.revision <= contract.revision).map(cardKey)])] }
+          if (state.budget) state = { ...state, budget: reduceLeadBudget(state.budget, { version: 1, type: 'tighten', now: state.budget.now,
+            caps: { usdMicros: Math.min(state.budget.caps.usdMicros, contract.caps.usdMicros), rounds: Math.min(state.budget.caps.rounds, contract.caps.rounds) } }) }
         } else state = { ...state, phase: state.contract === null ? 'declined' : managementPhase(state) }
+      } else if (card!.type === 'budget-change') {
+        ensure(state.budget && card!.contractDigest === (state.contract?.digest ?? null))
+        state = { ...state, budget: applyLeadBudgetCard(state.budget!, event.decision, card!) }
       } else if (card!.type === 'permission-change') {
         ensure(state.policy)
         state = { ...state, policy: applyLeadPolicyDecision(event.decision, card, state.policy!, state.contract?.digest ?? null) }
@@ -110,7 +123,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'team-approved':
       ensure(state.contract?.digest === event.contractDigest && !state.teams.includes(event.teamId) && state.teams.length < 4096)
       state = { ...state, teams: [...state.teams, event.teamId] }; break
-    case 'stop': state = { ...state, phase: 'stopped' }; break
+    case 'stop': state = { ...state, phase: 'stopped', budget: state.budget ? reduceLeadBudget(state.budget,
+      { version: 1, type: 'stop', now: state.budget.now, reason: 'cancelled' }) : null }; break
     case 'recovery-block': state = { ...state, recoveryBlocked: true }; break
     case 'recovery-resolved': state = { ...state, recoveryBlocked: false }; break
     case 'recovery-report': updateAttempt(event.id, attempt => { ensure(!attempt.recoveryReported); return { ...attempt, recoveryReported: true } }); break
@@ -177,6 +191,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     [...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'waiting-for-user' }
   // An observed result can resolve uncertainty, never revoke a durable terminal decision.
   if (['stopped', 'accepted', 'declined'].includes(previous.phase)) state = { ...state, phase: previous.phase }
+  // A budget stop is a stop, even if a final report preceded its last usage sample.
+  if (state.budget?.stop) state = { ...state, phase: 'stopped' }
   return state
 }
 export const replayLeadJournal = (records: readonly LeadJournalRecord[]): LeadState => records.reduce(reduceLeadRecord, initialLeadState())

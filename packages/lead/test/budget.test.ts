@@ -1,0 +1,252 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import * as lead from '../src/index.js'
+
+const api = (name: string): any => {
+  const fn = (lead as Record<string, unknown>)[name]
+  assert.equal(typeof fn, 'function', `${name} must implement durable budget admission`)
+  return fn
+}
+const init = { version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 50 }
+const reserve = (requestId: string, outputTokens = 60) => ({ version: 1, type: 'reserve', now: 100, requestId,
+  inputTokens: 10, maxOutputTokens: outputTokens, inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000 })
+const settle = (requestId: string, outputTokens = 20) => ({ version: 1, type: 'settle', now: 100, requestId, inputTokens: 10, outputTokens })
+const bind = (executionId: string) => ({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId })
+const observe = (patch: Record<string, unknown> = {}) => ({ version: 1, type: 'observe', now: 100, at: 100,
+  revision: 1, source: 'insight/goal', sourceIds: ['corpus-1'], goalId: 'goal-1', executionIds: ['run-1'], quality: 'known', usdMicros: 20, ...patch })
+const reduce = (state: any, event: unknown) => api('reduceLeadBudget')(state, event)
+const projection = (state: any, now = 100) => api('leadBudgetProjection')(state, now)
+const memory = () => ({ records: [] as any[], fail: false,
+  async read() { return structuredClone(this.records) },
+  async append(record: any) { if (this.fail) throw new Error('synthetic append failure'); this.records.push(structuredClone(record)) } })
+const open = (storage: ReturnType<typeof memory>) => lead.createLeadJournal(storage)
+
+test('concurrent requests cannot reserve the same remaining allowance', async () => {
+  const storage = memory(), journal: any = await open(storage)
+  assert.equal(typeof journal.updateBudget, 'function', 'journal must serialize budget admission')
+  await journal.updateBudget(init)
+  let effects = 0
+  const outcomes = await Promise.allSettled(['request-1', 'request-2'].map(id => journal.updateBudget(reserve(id)).then(() => { effects++ })))
+  assert.equal(outcomes.filter(result => result.status === 'fulfilled').length, 1)
+  assert.equal(effects, 1)
+  assert.equal(projection(journal.state.budget).reservedUsdMicros, 70)
+})
+
+test('input tokens and fractional prices are rounded up before reservation', () => {
+  const state = reduce(reduce(null, init), { ...reserve('request-1', 1), inputTokens: 1,
+    inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1 })
+  assert.equal(projection(state).reservedUsdMicros, 2)
+  assert.throws(() => reduce(state, { ...reserve('overflow'), inputUsdMicrosPerMillion: Number.MAX_SAFE_INTEGER }))
+})
+
+test('duplicate usage never spends twice and inconsistent usage refuses', () => {
+  const state = reduce(reduce(reduce(null, init), reserve('request-1')), settle('request-1'))
+  assert.equal(projection(state).leadUsdMicros, 30)
+  assert.equal(projection(state).reservedUsdMicros, 0)
+  assert.deepEqual(reduce(state, settle('request-1')), state)
+  assert.throws(() => reduce(state, settle('request-1', 21)))
+  assert.throws(() => reduce(state, reserve('request-1')))
+})
+
+test('an uncertain paid request retains its reservation and blocks until settled', () => {
+  let state = reduce(reduce(null, init), reserve('request-1'))
+  state = reduce(state, { version: 1, type: 'uncertain', now: 100, requestId: 'request-1' })
+  assert.equal(projection(state).spend, 'unknown')
+  assert.equal(projection(state).reservedUsdMicros, 70)
+  assert.throws(() => reduce(state, reserve('request-2', 1)))
+  assert.equal(projection(reduce(state, settle('request-1'))).spend, 'known')
+  assert.throws(() => reduce(state, { ...settle('request-1'), outputTokens: 61 }))
+})
+
+test('replacement and repair executions never reset logical-goal rounds', () => {
+  let state = reduce(null, init)
+  for (const executionId of ['run-1', 'run-2', 'run-3']) {
+    state = reduce(state, bind(executionId))
+    state = reduce(state, observe({ revision: state.revision, executionIds: state.executionIds, usdMicros: 0 }))
+    state = reduce(state, { version: 1, type: 'round', now: 100, executionId, roundId: 'round-1' })
+  }
+  assert.equal(projection(state).roundsAdmitted, 3)
+  assert.equal(projection(state).stop.reason, 'rounds')
+  assert.throws(() => reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-3', roundId: 'round-2' }))
+  assert.deepEqual(reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-3', roundId: 'round-1' }), state)
+  assert.throws(() => reduce(state, { ...bind('run-other'), goalId: 'different-goal' }))
+})
+
+test('equality with money or rounds refuses the next dispatch', () => {
+  let state = reduce(reduce(null, init), reserve('request-1', 90))
+  assert.equal(projection(state).reservedUsdMicros, 100)
+  assert.throws(() => reduce(state, reserve('request-2', 0)))
+  state = reduce(state, settle('request-1', 90))
+  assert.equal(projection(state).stop.reason, 'budget')
+  assert.throws(() => reduce(state, reserve('request-3', 0)))
+  let rounds = reduce(null, { ...init, caps: { usdMicros: 100, rounds: 1 } })
+  rounds = reduce(rounds, bind('run-1'))
+  rounds = reduce(rounds, observe({ usdMicros: 0 }))
+  rounds = reduce(rounds, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'round-1' })
+  assert.throws(() => reduce(rounds, reserve('request-1', 0)))
+})
+
+test('overlapping worker observations replace instead of adding and never erase spend', () => {
+  let state = reduce(reduce(null, init), bind('run-1'))
+  state = reduce(state, observe())
+  state = reduce(state, observe({ source: 'worker-samples', sourceIds: ['transcript-1'] }))
+  assert.equal(projection(state).workerUsdMicros, 20)
+  state = reduce(state, observe({ revision: 2, usdMicros: 10 }))
+  assert.equal(projection(state).workerUsdMicros, 20)
+  assert.notEqual(projection(state).spend, 'known')
+  state = reduce(state, observe({ revision: 3, usdMicros: 25 }))
+  assert.equal(projection(state).workerUsdMicros, 25)
+  assert.equal(projection(state).spend, 'known')
+})
+
+for (const quality of ['unknown', 'stale', 'partial', 'ambiguous']) test(`${quality} worker spend blocks dispatch without becoming zero`, () => {
+  let state = reduce(reduce(null, init), bind('run-1'))
+  state = reduce(state, observe())
+  state = reduce(state, observe({ revision: 2, quality, sourceIds: [], usdMicros: null }))
+  assert.equal(projection(state).workerUsdMicros, 20)
+  assert.notEqual(projection(state).spend, 'known')
+  assert.throws(() => reduce(state, reserve('request-1', 1)))
+  state = reduce(state, observe({ revision: 3, usdMicros: 30 }))
+  assert.equal(projection(state).spend, 'known')
+  assert.equal(projection(state, 151).spend, 'stale')
+})
+
+test('incomplete coverage and a new execution fail closed until observed', () => {
+  let state = reduce(reduce(null, init), bind('run-1'))
+  assert.notEqual(projection(state).spend, 'known')
+  state = reduce(state, observe())
+  state = reduce(state, bind('run-2'))
+  assert.notEqual(projection(state).spend, 'known')
+  state = reduce(state, observe({ revision: 2 }))
+  assert.notEqual(projection(state).spend, 'known')
+  assert.throws(() => reduce(state, reserve('request-1', 1)))
+  assert.throws(() => reduce(state, observe({ revision: 3, goalId: 'unbound-goal' })))
+})
+
+test('budget stop is durable before effects and survives crash and reopen', async () => {
+  const storage = memory(), journal: any = await open(storage)
+  assert.equal(typeof journal.updateBudget, 'function')
+  await journal.updateBudget(init)
+  await journal.updateBudget(bind('run-1'))
+  await journal.updateBudget(observe({ usdMicros: 0 }))
+  await assert.rejects(journal.updateBudget(observe({ revision: 2, usdMicros: 100 }), async () => {
+    const recovered: any = await open(storage)
+    assert.equal(recovered.state.phase, 'stopped')
+    assert.equal(recovered.state.budget.stop.reason, 'budget')
+    throw new Error('crash during stop effects')
+  }), /crash/)
+  const recovered: any = await open(storage)
+  await assert.rejects(recovered.updateBudget(reserve('request-1')))
+  assert.equal(recovered.state.budget.workerUsdMicros, 100)
+})
+
+test('failed budget append prevents reservation and stop effects', async () => {
+  const storage = memory(), journal: any = await open(storage)
+  assert.equal(typeof journal.updateBudget, 'function')
+  await journal.updateBudget(init)
+  storage.fail = true
+  let effects = 0
+  await assert.rejects(journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 3 } }, async () => { effects++ }))
+  assert.equal(effects, 0)
+  assert.equal((await open({ ...storage, fail: false }) as any).state.budget.stop, null)
+})
+
+test('tightening stops immediately; widening requires a current card and never restarts', async () => {
+  const storage = memory(), journal: any = await open(storage)
+  assert.equal(typeof journal.changeBudgetCaps, 'function')
+  await journal.updateBudget(init)
+  await journal.updateBudget(reserve('request-1'))
+  await journal.updateBudget(settle('request-1'))
+  assert.equal(await journal.changeBudgetCaps({ usdMicros: 20, rounds: 3 }, { id: 'caps-1', revision: 1 }, 100), null)
+  assert.equal(journal.state.phase, 'stopped')
+  const card = await journal.changeBudgetCaps({ usdMicros: 200, rounds: 4 }, { id: 'caps-2', revision: 1 }, 100)
+  assert.equal(journal.state.budget.caps.usdMicros, 20)
+  const decision = { version: 1, cardId: card.id, cardType: card.type, expectedRevision: card.revision, contractDigest: null, choice: 'approve' }
+  await assert.rejects(journal.decideCard({ ...decision, expectedRevision: 2 }))
+  await journal.decideCard(decision)
+  assert.equal(journal.state.budget.caps.usdMicros, 200)
+  assert.equal(journal.state.budget.stop.reason, 'budget')
+  assert.equal(journal.state.phase, 'stopped')
+  await assert.rejects(journal.updateBudget(reserve('request-2')))
+  await assert.rejects(journal.decideCard(decision))
+})
+
+test('budget stop effects may use the journal cancellation path after durable admission', { timeout: 1000 }, async () => {
+  const journal: any = await open(memory())
+  await journal.updateBudget(init)
+  await journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 3 } }, async () => {
+    await journal.stop()
+  })
+  assert.equal(journal.state.phase, 'stopped')
+})
+
+test('a budget stop composes with a previously terminal report', () => {
+  const budget = reduce(reduce(null, init), reserve('request-1', 90))
+  const state = { ...lead.initialLeadState(), phase: 'accepted' as const, budget }
+  const stopped = lead.reduceLeadRecord(state, { version: 1, seq: 1, type: 'budget', event: settle('request-1', 90) } as any)
+  assert.equal(stopped.phase, 'stopped')
+  assert.equal(stopped.budget!.stop!.reason, 'budget')
+})
+
+test('stale mixed cap cards cannot widen after intervening budget changes', async () => {
+  const journal: any = await open(memory())
+  await journal.updateBudget(init)
+  const card = await journal.changeBudgetCaps({ usdMicros: 200, rounds: 2 }, { id: 'mixed-1', revision: 1 }, 100)
+  await journal.updateBudget(reserve('request-1', 1))
+  const click = { version: 1, cardId: card.id, cardType: card.type, expectedRevision: 1, contractDigest: null, choice: 'approve' }
+  await assert.rejects(journal.decideCard(click))
+  assert.deepEqual(journal.state.budget.caps, init.caps)
+  await journal.decideCard({ ...click, choice: 'decline' })
+  await assert.rejects(journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 200, rounds: 2 } }))
+  await journal.stop()
+})
+
+test('budget snapshots recompute counters and reject corrupted retained identities', () => {
+  let state = reduce(reduce(reduce(null, init), reserve('request-1')), settle('request-1'))
+  state = reduce(state, bind('run-1'))
+  state = reduce(state, observe())
+  state = reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'round-1' })
+  const parse = api('parseLeadBudgetLedger')
+  assert.deepEqual(parse(state), state)
+  for (const patch of [{ leadUsdMicros: 0 }, { reservedUsdMicros: 1 }, { requests: [...state.requests, state.requests[0]] },
+    { rounds: [...state.rounds, state.rounds[0]] }, { executionIds: [] }, { workerUsdMicros: -1 }]) assert.throws(() => parse({ ...state, ...patch }))
+})
+
+test('budget reservation append failure never authorizes its paid effect', async () => {
+  const storage = memory(), journal: any = await open(storage)
+  await journal.updateBudget(init)
+  storage.fail = true
+  let calls = 0
+  await assert.rejects(journal.updateBudget(reserve('request-1')).then(() => { calls++ }))
+  assert.equal(calls, 0)
+  assert.equal((await open({ ...storage, fail: false }) as any).state.budget.requests.length, 0)
+})
+
+test('budget records run through core canaries without latching a refusal', async () => {
+  const storage = memory(), journal: any = await lead.createLeadJournal(storage, { canaries: ['synthetic-budget-canary'] })
+  await assert.rejects(journal.updateBudget({ ...init, logicalGoalId: 'synthetic-budget-canary' }), /canary/)
+  await journal.updateBudget(init)
+  assert.ok(!JSON.stringify(storage.records).includes('synthetic-budget-canary'))
+  await journal.stop()
+})
+
+test('round tightening retains admitted identities and stops without resetting the goal', () => {
+  let state = reduce(reduce(null, init), bind('run-1'))
+  state = reduce(state, observe({ usdMicros: 0 }))
+  for (const roundId of ['round-1', 'round-2']) state = reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId })
+  state = reduce(state, { version: 1, type: 'tighten', now: 100, caps: { usdMicros: 100, rounds: 1 } })
+  assert.equal(state.stop.reason, 'rounds')
+  assert.equal(state.roundsAdmitted, 2)
+  assert.equal(state.rounds.length, 2)
+  assert.throws(() => reduce(state, init))
+})
+
+test('expired observations and stale observation revisions refuse new admission', () => {
+  let state = reduce(reduce(null, init), bind('run-1'))
+  state = reduce(state, observe({ revision: 2 }))
+  assert.throws(() => reduce(state, { ...reserve('request-1', 1), now: 151 }))
+  assert.throws(() => reduce(state, observe({ revision: 1 })))
+  assert.throws(() => reduce(state, observe({ revision: 2, usdMicros: 21 })))
+  assert.deepEqual(reduce(state, observe({ revision: 2 })), state)
+  assert.equal(state.workerUsdMicros, 20)
+})

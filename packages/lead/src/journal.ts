@@ -1,11 +1,12 @@
 import {
-  CLIENT_METHODS, CLIENT_ACTION_TIERS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy,
-  type LeadCard, type LeadCardDecision, type LeadPermissionPolicy,
+  CLIENT_METHODS, CLIENT_ACTION_TIERS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
+  type LeadCard, type LeadCardDecision, type LeadPermissionPolicy, type LeadBudgetEvent, type LeadBudgetState, type LeadCaps,
 } from '@harnessdesk/protocol'
 import { decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
 import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, assertPlanApprovable, type LeadState } from './state.js'
+import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 
 export const LEAD_JOURNAL_BYTES = 1_048_576
 export interface LeadRunIdentity { readonly correlationId: string; readonly runId: string; readonly teamId: string }
@@ -17,6 +18,7 @@ export interface LeadArgumentSummary {
 interface Base { readonly version: 1; readonly seq: number }
 export type LeadAttemptOutcome = 'succeeded' | 'failed' | 'denied' | 'asked' | 'malformed' | 'uncertain' | 'interrupted'
 export type LeadJournalEvent =
+  | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
   | { readonly type: 'card-decision'; readonly decision: LeadCardDecision; readonly expiresAt: number | null }
@@ -90,6 +92,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
+    budget: ['event'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
@@ -98,6 +101,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   object(source, ['version', 'seq', 'type', ...keys[type]!])
   let event: LeadJournalEvent
   switch (type) {
+    case 'budget': event = { type, event: parseLeadBudgetEvent(source.event) }; break
     case 'policy': event = { type, policy: parseLeadPermissionPolicy(source.policy) }; break
     case 'card': event = { type, card: parseLeadCard(source.card) }; break
     case 'card-decision': event = { type, decision: parseLeadCardDecision(source.decision), expiresAt: nullable(source.expiresAt, integer) }; break
@@ -163,6 +167,18 @@ export class LeadJournal {
     this.#tail = next.catch(() => {})
     return next
   }
+  #budgetWrite<T>(operation: () => Promise<T>, stopEffects?: () => Promise<void>): Promise<T> {
+    return this.#queue(async () => {
+      const stopped = this.#state.budget?.stop
+      const value = await operation()
+      return { value, stop: !stopped && Boolean(this.#state.budget?.stop) }
+    }).then(async ({ value, stop }) => {
+      // The latch is already durable. Effects run outside the writer queue so they
+      // can use its permission-checked cancellation path without deadlocking it.
+      if (stop) await stopEffects?.()
+      return value
+    })
+  }
   async #append(event: LeadJournalEvent): Promise<void> {
     const raw = { version: 1, seq: this.#state.seq + 1, ...event }
     const prepared = prepareLeadJournalRecord(raw, this.security)
@@ -177,8 +193,28 @@ export class LeadJournal {
   }
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
   offerCard(card: LeadCard): Promise<LeadCard> { return this.#queue(async () => { await this.#append({ type: 'card', card }); return structuredClone(this.#state.cards.at(-1)!) }) }
-  decideCard(decision: LeadCardDecision, expiresAt: number | null = null): Promise<void> {
-    return this.#queue(() => this.#append({ type: 'card-decision', decision, expiresAt }))
+  decideCard(decision: LeadCardDecision, expiresAt: number | null = null, stopEffects?: () => Promise<void>): Promise<void> {
+    return this.#budgetWrite(() => this.#append({ type: 'card-decision', decision, expiresAt }), stopEffects)
+  }
+  /** Caller must await durable admission before sending a paid request or opening a round. */
+  updateBudget(event: LeadBudgetEvent, stopEffects?: () => Promise<void>): Promise<LeadBudgetLedger> {
+    return this.#budgetWrite(async () => {
+      await this.#append({ type: 'budget', event })
+      return structuredClone(this.#state.budget!)
+    }, stopEffects)
+  }
+  changeBudgetCaps(value: LeadCaps, card: { id: string; revision: number }, now: number, stopEffects?: () => Promise<void>): Promise<LeadCard | null> {
+    return this.#budgetWrite(async () => {
+      const caps = parseLeadCaps(value), budget = this.#state.budget
+      if (!budget || !Number.isSafeInteger(now) || now < budget.now) throw new Error('lead-budget-refused')
+      if (caps.usdMicros <= budget.caps.usdMicros && caps.rounds <= budget.caps.rounds) {
+        await this.#append({ type: 'budget', event: { version: 1, type: 'tighten', now, caps } })
+        return null
+      }
+      await this.#append({ type: 'card', card: { version: 1, ...card, type: 'budget-change', logicalGoalId: budget.logicalGoalId,
+        contractDigest: this.#state.contract?.digest ?? null, previous: { revision: budget.revision, caps: budget.caps }, proposed: caps } })
+      return structuredClone(this.#state.cards.at(-1)!)
+    }, stopEffects)
   }
   /** Trusted owner binds a host-resolved Team in the approved project, before any run exists. */
   bindTeam(teamId: string, contractDigest: string): Promise<void> {
@@ -207,8 +243,11 @@ export class LeadJournal {
         policyRevision: this.#state.policy?.revision ?? null, projectPolicyRevision: capturedContext?.projectPolicy?.revision ?? null, contractRevision: this.#state.contract?.revision ?? null })
       const approved = this.#state.contract && this.#state.consent ? { contract: this.#state.contract, consent: this.#state.consent,
         runIds: this.#state.runs.map(run => run.runId), teamIds: this.#state.teams } : null
+      let budget: LeadBudgetState | null = null
+      try { if (this.#state.budget && capturedContext) budget = leadBudgetProjection(this.#state.budget, capturedContext.now) } catch { /* Invalid time cannot manufacture headroom. */ }
       let decision = capturedContext === null ? refusal('invalid-input', 'Invalid permission context')
-        : decideLeadPermission(request, { ...capturedContext, desk: this.#state.policy ?? capturedContext.desk, approved })
+        : decideLeadPermission(request, { ...capturedContext, budget,
+          desk: this.#state.policy ?? capturedContext.desk, approved })
       const step = this.#state.steps.find(step => step.id === stepId)
       const cancellation = method === 'flow/execution/stop' || method === 'team/intent' && action === 'abandon'
       // Status reads remain available after Stop so the final report can observe desk state.
