@@ -970,7 +970,7 @@ one-line blurb, small grey section labels over cards of rows, one control at
 the right of each row. The rail starts with you — your face and name, above
 every group — and that row opens your profile.
 
-Standalone pages name themselves once with a visible h1 in the first body row, on the content column's left edge. Their chooser or verb sits on the right of the same row, with the page stack gap before the next block. The title scrolls away; the fixed bar keeps its height and tools. Sessions, Teams and edited Flows retain their subject menu in the bar; canvas surfaces have no body title.
+Standalone pages name themselves once with a visible h1 in the first body row, on the content column's left edge. That row is one bar tall and starts at the body's top, so the title stands on the sidebar wordmark's line. Their chooser or verb sits on the right of the same row, centred on that line, with the page stack gap before the next block. The title scrolls away; the fixed bar keeps its height and tools. Sessions, Teams and edited Flows retain their subject menu in the bar; canvas surfaces have no body title.
 
 The page name is a visible h1 above its description. The Settings top bar
 keeps only the column toggle; it carries no page title or breadcrumb.

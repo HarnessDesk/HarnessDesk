@@ -2046,7 +2046,11 @@ chosen centred page measure. A dense canvas with topInset="page" replaces
 its smaller top inset with the page's top content inset while keeping the
 same full-width canvas frame.
 Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
-four edges. A surface that brings its own geometry — a terminal, a diff,
+four edges — except above a page that opens with its title. That page
+starts at the body's top, and its title row is one bar tall, so the title
+stands in the same band as the sidebar's brand row and reads on the
+wordmark's line (docs/decisions.md, "A page title stands on the
+wordmark's line"). A surface that brings its own geometry — a terminal, a diff,
 a graph — bleeds instead of taking a page.
 
 Blocks inside sit one stack gap (`--hd-page-stack`) apart; a `Section` brings
@@ -2118,7 +2122,8 @@ Row actions and portalled menus never activate the record; the title is its keyb
 
 `data-slot`/`data-inset` are for a test or a screen's own CSS to read, the
  same convention the rest of `design/patterns` stamps. A prose `page`
- keeps the full reading inset above and below its content.
+ keeps the full reading inset above and below its content; `Page` may set
+ `--page-top` to start a page that opens with its title at the top.
 
 ### `useComposerHeightVar`
 

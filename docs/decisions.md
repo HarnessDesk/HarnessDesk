@@ -3751,3 +3751,11 @@ tier. Required check names and intentional-skip success stay stable. Push and
 dispatch concurrency groups remain separate so a landing cannot cancel the
 nightly full run. Each development push also has its own commit-keyed group,
 so later pushes cannot cancel running or pending coverage of earlier ranges.
+
+## A page title stands on the wordmark's line — 2026-10-16
+
+A standalone page's title and the sidebar's wordmark are the same type, 20px on a 28px line, and they sat 18 to 20px apart: the page column began under the bar with its full 24px gutter, while the wordmark stands in a bar-tall brand row directly under the sidebar's top row. Two big names at nearly one height read as a near miss, the same flaw the guides report as an edge off its rail. Titles also disagreed with each other by 2px, because a head whose verb is 32px tall centred its title lower than a head with a smaller verb.
+
+The title now shares the wordmark's line. Its head row is one bar tall (`--hd-bar-h`), the brand row's counterpart, and a page that opens with its title drops its top gutter, so both rows start at the bar's bottom and centre on the same line. The title, the wordmark and their baselines coincide, and the page's verb (Refresh, New Team) centres on that line too. Nothing hand-tunes a screen: `PageOptions` sizes the row and `Page` drops the gutter when its first block leads with that row, so every page built from them follows, including one whose head sits inside a toolbar (Teams).
+
+Why the line rather than more air: the window already reads along its bars, and the content's first row is a bar-height row beside the sidebar's. The 6px between the bar and the title is the wordmark's own distance from the row above it, so the two columns open the same way. The title keeps its place when the sidebar is hidden, because the row is measured from the bar, not from the sidebar. Pages without a body title (conversations, canvases, a session or a Team with its subject menu in the bar) keep their insets.

@@ -310,6 +310,12 @@ agent card and the transcript's small tags — are the burn-down.
 Settings names each page with a visible h1 in the page role, above its
 description. Its bar carries no title, so the name is shown once.
 
+A page title is the wordmark's type, and it stands on the wordmark's line.
+`PageOptions` makes the titled head one bar tall (`--hd-bar-h`), the sidebar
+brand row's counterpart, and `Page` drops its top gutter above a first block
+that leads with that head. The title, the wordmark and the head's verb then
+centre on one line, with the sidebar shown or hidden.
+
 ### Where a label lands
 
 One inset for a whole column or bar, and one derived place for the words in it.
