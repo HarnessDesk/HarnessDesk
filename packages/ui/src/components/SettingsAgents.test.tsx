@@ -703,6 +703,19 @@ it("an agent's page claims no session would fail while another of its accounts i
   expect(button('Sign in')).toBeTruthy()
 })
 
+it("an agent nobody has asked yet is not called signed out or accountless", async () => {
+  // #1759: before its first session an ACP agent has not said either way.
+  const delta = runtime({ id: 'delta', name: 'Delta', capabilities: { ...NO_CAPABILITIES, account: true }, presentation: { name: 'Delta' } })
+  await mountList({
+    runtimes: [...ROSTER.runtimes, delta],
+    accountsByRuntime: { ...ROSTER.accountsByRuntime, delta: { accounts: [], signInMethods: [], unchecked: true } },
+  })
+  await act(async () => line('Delta').click())
+  expect(document.body.textContent).toContain('Not checked yet')
+  expect(document.body.textContent).not.toContain('Signed out')
+  expect(document.body.textContent).not.toContain('No account needed')
+})
+
 it("an unanswered agent's page says so only when nothing else answers for it", async () => {
   const unanswered = 'Its accounts show once it answers.'
   // An agent that needs no account has nothing to answer.

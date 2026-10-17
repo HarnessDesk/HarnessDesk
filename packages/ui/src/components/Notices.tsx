@@ -192,7 +192,7 @@ const useStanding = (): Standing | null => {
         ...(health.remediation ? { body: health.remediation } : {}),
       }
     }
-    if (runtime.capabilities.account && account && account.accounts.length === 0) {
+    if (runtime.capabilities.account && account && account.accounts.length === 0 && !account.unchecked) {
       const driveable = account.signInMethods.some((method) => method.flow !== 'external')
       const command = runtime.presentation.signIn?.command
       return {

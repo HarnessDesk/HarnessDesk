@@ -115,6 +115,30 @@ test("a row under Antigravity's retired name gets today's name, its reader and i
   assert.equal(knownAgent('antigravity-acp')?.auth.logout, undefined)
 })
 
+/* #1760. The keys the table declares never reached a row the ACP registry
+   wrote, so no field was offered — and Antigravity's two methods that need
+   one (`gemini-api-key`) or a project (`agent-platform`) were buttons that
+   could only be refused. */
+test("Antigravity's row gets its key, tied to the method it answers, and a step for the one no button can take", () => {
+  const overlay = knowledgeOverlay(antigravityRow, knownAgent('antigravity-acp'), { env: {} })
+  assert.deepEqual(overlay.secrets?.map((secret) => [secret.env, secret.acpMethod, secret.optional]), [
+    ['GEMINI_API_KEY', 'gemini-api-key', true],
+  ])
+  assert.match(overlay.authMethodNotes?.['agent-platform'] ?? '', /GOOGLE_CLOUD_PROJECT/)
+})
+
+test('every key the table declares reaches its row, and a row that names its own keeps them', () => {
+  for (const id of ['gemini', 'cline', 'codebuddy-code', 'kimi', 'grok-build', 'github-copilot-cli']) {
+    const known = knownAgent(id)!
+    const overlay = knowledgeOverlay({ id, name: known.name, command: known.cli.commands[0]! }, known, { env: {} })
+    assert.deepEqual(overlay.secrets, known.auth.secrets, `${id} carries the key its entry describes`)
+    assert.ok(overlay.secrets?.every((secret) => secret.optional), `${id} has another way in, so its key is optional`)
+  }
+  const own = [{ env: 'DEEPSEEK_API_KEY', label: 'DeepSeek API key' }]
+  const dsh = knowledgeOverlay({ id: 'dsh', name: 'DeepSeek', command: 'dsh', secrets: own }, knownAgent('dsh'), { env: {} })
+  assert.equal(dsh.secrets, undefined, 'the row already says, and is not overwritten')
+})
+
 test('Gemini CLI gets a reader and no record; an agent the desk does not know keeps its name and gets neither', () => {
   const gemini = knowledgeOverlay({ id: 'gemini', name: 'Gemini CLI', command: 'gemini', args: ['--acp'] }, knownAgent('gemini'), {
     env: {},

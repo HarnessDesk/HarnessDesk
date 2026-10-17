@@ -1070,6 +1070,15 @@ const handlers = {
       : [{ id: 'device' }]
     ).map((m) => m.id)
     if (!known.includes(params?.methodId)) return fail(id, `unknown auth method ${String(params?.methodId)}`)
+    // FAKE_ACP_AUTH_LOG=<file> records every method asked for, and
+    // FAKE_ACP_AUTH_NEEDS_ENV={"<method>":"<VAR>"} refuses a method whose
+    // variable is not in this process's environment — Antigravity's
+    // `gemini-api-key`, which reads GEMINI_API_KEY (#1760).
+    if (process.env.FAKE_ACP_AUTH_LOG) appendFileSync(process.env.FAKE_ACP_AUTH_LOG, `${params?.methodId}\n`)
+    const needs = process.env.FAKE_ACP_AUTH_NEEDS_ENV ? JSON.parse(process.env.FAKE_ACP_AUTH_NEEDS_ENV)[params?.methodId] : undefined
+    if (needs && !process.env[needs]) {
+      return fail(id, `The ${needs} environment variable must be set in the environment the ACP server is launched from.`)
+    }
     const answer = () => {
       if (process.env.FAKE_ACP_AUTH_FAILS === '1') return fail(id, 'the browser flow was refused. Try again.')
       // Signed in, so the sessions this agent was refusing now open.

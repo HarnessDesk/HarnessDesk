@@ -9,7 +9,11 @@ import { commandName } from './service.js'
 /**
  * What the desk lays over a row for an agent it knows: today's name where
  * the row still carries a retired one, a reader for who the agent is signed
- * in as, a reader for which vendor its models come from, and the store an agent that counts usage off the wire keeps it in.
+ * in as, a reader for which vendor its models come from, the store an agent that counts usage off the wire keeps it in,
+ * and the keys the desk can hold for it. The keys were declared in the table
+ * and never reached a row the ACP registry wrote, so Gemini CLI, Cline and
+ * the rest never offered the field their entry describes (#1760); a row that
+ * already names its own — a template's — keeps them.
  *
  * One function, so the path that spawns agents and the test that holds it
  * read the same thing — the spawn path is a closure inside the host's own
@@ -24,7 +28,7 @@ export const knowledgeOverlay = (
     /** Where a changed vendor format is reported; see `AntigravityStoreOptions.warn`. */
     readonly warn?: (message: string, details?: unknown) => void
   } = {},
-): Pick<AcpAgentConfig, 'name' | 'coAuthor' | 'resolveIdentity' | 'resolveProvider' | 'usageRecord' | 'account' | 'sharedSessionProcess'> => {
+): Pick<AcpAgentConfig, 'name' | 'coAuthor' | 'resolveIdentity' | 'resolveProvider' | 'usageRecord' | 'account' | 'sharedSessionProcess' | 'secrets' | 'authMethodNotes'> => {
   const env = options.env ?? { ...process.env, ...agent.env }
   const resolveIdentity = identityReaderFor(known, {
     ...(agent.args ? { args: agent.args } : {}),
@@ -51,5 +55,7 @@ export const knowledgeOverlay = (
     ...(resolveProvider ? { resolveProvider } : {}),
     ...(usageRecord ? { usageRecord } : {}),
     ...(account ? { account } : {}),
+    ...(!agent.secrets && known?.auth?.secrets ? { secrets: known.auth.secrets } : {}),
+    ...(known?.auth?.acpMethodNotes ? { authMethodNotes: known.auth.acpMethodNotes } : {}),
   }
 }

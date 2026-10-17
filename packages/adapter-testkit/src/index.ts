@@ -157,7 +157,9 @@ export const describeAdapterConformance = (name: string, harness: ConformanceHar
           assert.ok(FLOWS.has(method.flow), `unknown sign-in flow ${method.flow}`)
           assert.ok(method.id.length > 0 && method.label.length > 0)
         }
-        if (!runtime.info.capabilities.account) {
+        // An agent nobody has asked yet may offer the ways in it declared —
+        // its own offer, not an account claim (#1759).
+        if (!runtime.info.capabilities.account && !status.unchecked) {
           assert.equal(status.signInMethods.length, 0, 'no account means nothing to sign in to')
         }
       })

@@ -113,7 +113,8 @@ export const readinessOf = (input: ReadinessInput): Readiness => {
   if (input.health?.state === 'unavailable') return 'broken'
   if (input.accounts !== false) {
     if (!input.account) return 'unknown'
-    if (input.account.accounts.length === 0) return 'signin'
+    // An agent nobody has asked yet has not said it is signed out (#1759).
+    if (input.account.accounts.length === 0) return input.account.unchecked ? 'unknown' : 'signin'
   }
   const decided = workingAccount(input.usage ?? [])
   if (decided !== null && isBlocked(decided)) return 'limit'

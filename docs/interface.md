@@ -829,6 +829,10 @@ A signed-out runtime’s empty conversation offers one normal Sign in button.
 Its composer does not repeat the sign-in notice while the page already explains
 it; an existing transcript keeps that notice and its action. In Editor mode,
 the notice returns to the strip while the conversation panel is hidden.
+A runtime that has not been asked yet — an ACP agent before its first session,
+or an idle one whose status command has not run — is **Not checked yet**, not
+signed out and not accountless: its conversation opens normally, its seat stays
+offered, and Sign in keeps the ways in it declared below that line.
 
 *The textarea carries intent; chips carry context and capability.* Full design
 in [extending.md](extending.md).

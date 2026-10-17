@@ -22,6 +22,7 @@ const accountDisplay = (account: NonNullable<RuntimeObservations['account']>): N
   signInMethods: [],
   signInFlows: [...new Set(account.signInFlows ?? account.signInMethods.map(method => method.flow))]
     .filter(flow => ['browser', 'deviceCode', 'external', 'apiKey'].includes(flow)),
+  ...(account.unchecked === true ? { unchecked: true } : {}),
 })
 const modelsDisplay = (models: readonly ModelInfo[]): readonly ModelInfo[] => models.map(entry => ({
   id: entry.id, displayName: entry.displayName, supportsImages: entry.supportsImages,

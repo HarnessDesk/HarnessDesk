@@ -211,7 +211,9 @@ const ConversationEmpty = ({
 
   // Only meaningful for a runtime that has an account at all. A local model has
   // nothing to sign in to, and saying otherwise would be nonsense.
-  if (runtime.capabilities.account && account && account.accounts.length === 0) {
+  // And only once the agent has said so: one not checked yet may well be
+  // signed in, and its first conversation is what asks it.
+  if (runtime.capabilities.account && account && account.accounts.length === 0 && !account.unchecked) {
     const driveable = account.signInMethods.some((method) => method.flow !== 'external')
     const external = account.signInMethods.find((method) => method.flow === 'external')
     return (

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { ChildProcess } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -226,20 +226,145 @@ const bare = (env: Record<string, string> = {}): AcpRuntime =>
     env,
   })
 
-test('an agent the desk cannot ask claims nothing until a session opens, then reads as signed in', async () => {
+/* #1759. Before a session the agent has said nothing about its sign-in, so
+   the answer is "not checked yet" — with the ways in it declared, which are its
+   own offer — and never the empty answer an agent with no account gives: the
+   Sign in pane read that as "needs no account here" about Antigravity, which
+   declares four methods and refuses every session signed out. */
+test('an agent the desk cannot ask is not checked until a session opens, then reads as signed in', async () => {
   const runtime = bare()
   await runtime.start()
   const events: AgentEvent[] = []
   runtime.subscribe((event) => events.push(event))
   try {
     assert.equal(runtime.info.capabilities.account, false, 'no CLI, no key, nothing seen: no claim')
-    assert.deepEqual(await runtime.getAccount(), { accounts: [], signInMethods: [] })
+    assert.deepEqual(await runtime.getAccount(), {
+      accounts: [],
+      signInMethods: [{ id: 'acp:device', label: 'Sign in on the agent side', flow: 'browser', description: 'Run the agent login.' }],
+      unchecked: true,
+    })
     await runtime.createSession({ cwd: process.cwd() })
     assert.equal(runtime.info.capabilities.account, true, 'a session opened, so there is something to say')
     const status = await runtime.getAccount()
     assert.deepEqual(status.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
     assert.deepEqual(status.signInMethods, [])
+    assert.equal(status.unchecked, undefined, 'a session opened: it has been checked')
     assert.ok(events.some((event) => event.type === 'account/changed'), 'the surface was told to look again')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an agent not started yet is not checked either', async () => {
+  const runtime = bare()
+  try {
+    assert.deepEqual(await runtime.getAccount(), { accounts: [], signInMethods: [], unchecked: true })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an agent with a status command that has not started yet is not checked, not accountless', async () => {
+  // Its status command runs once it is up; until then nothing has answered,
+  // and the pane said "needs no account here" about an idle signed-in agent.
+  const runtime = make()
+  try {
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [])
+    assert.equal(status.unchecked, true)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an agent that declared no way in and takes no key needs no account, which is its own answer', async () => {
+  const runtime = bare({ FAKE_ACP_AUTH_METHODS: '[]' })
+  await runtime.start()
+  try {
+    assert.deepEqual(await runtime.getAccount(), { accounts: [], signInMethods: [] })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an agent whose only way in is a key, with none stored, is signed out rather than unchecked', async () => {
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    secrets: [{ env: 'HD_FAKE_ONLY_KEY', label: 'Fake key' }],
+    resolveSecret: () => undefined,
+  })
+  await runtime.start()
+  try {
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [])
+    assert.equal(status.unchecked, undefined)
+    assert.deepEqual(status.signInMethods.map((method) => method.id), ['apiKey:HD_FAKE_ONLY_KEY'])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+/* #1760. Antigravity declares `gemini-api-key`, which reads its key from the
+   server's environment, and `agent-platform`, which needs a project the desk
+   cannot supply; pressed as browser flows, both could only be refused. */
+const KEYED_METHODS = JSON.stringify([
+  { id: 'google', name: 'Log in with Google' },
+  { id: 'api-key', name: 'API key' },
+  { id: 'platform', name: 'Agent Platform' },
+])
+
+const keyed = (key: () => string | undefined, env: Record<string, string> = {}): AcpRuntime =>
+  new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    env: { FAKE_ACP_AUTH_METHODS: KEYED_METHODS, FAKE_ACP_AUTH_NEEDS_ENV: JSON.stringify({ 'api-key': 'HD_FAKE_KEY' }), ...env },
+    secrets: [{ env: 'HD_FAKE_KEY', label: 'Fake API key', optional: true, acpMethod: 'api-key' }],
+    authMethodNotes: { platform: 'Set a project in the agent’s environment, then start it again.' },
+    resolveSecret: (name) => (name === 'HD_FAKE_KEY' ? key() : undefined),
+  })
+
+test('a method a key stands for is the key field, and one that needs setup is a step, not a button', async () => {
+  const runtime = keyed(() => undefined, { FAKE_ACP_AUTH_REQUIRED: '1' })
+  await runtime.start()
+  try {
+    const before = await runtime.getAccount()
+    assert.equal(before.unchecked, true, 'an optional key missing is not a verdict')
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    const status = await runtime.getAccount()
+    assert.deepEqual(
+      status.signInMethods.map((method) => [method.id, method.flow]),
+      [['apiKey:HD_FAKE_KEY', 'apiKey'], ['acp:google', 'browser'], ['acp:platform', 'external']],
+    )
+    assert.equal(
+      status.signInMethods.find((method) => method.id === 'acp:platform')?.description,
+      'Set a project in the agent’s environment, then start it again.',
+    )
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a key stored for an agent that must be told to use it is used after the restart that hands it over', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-keyauth-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const log = join(dir, 'auth.log')
+  let key: string | undefined
+  const runtime = keyed(() => key, { FAKE_ACP_AUTH_LOG: log })
+  await runtime.start()
+  try {
+    assert.equal(existsSync(log), false, 'no key, so nothing to switch to')
+    key = 'placeholder-key'
+    assert.equal(await runtime.reloadSecrets(), 'restarted')
+    const deadline = Date.now() + 5000
+    while (!(existsSync(log) && readFileSync(log, 'utf8').includes('api-key')) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), ['api-key'], 'told once, after the key reached it')
   } finally {
     await runtime.dispose()
   }
@@ -295,7 +420,10 @@ test('a -32000 that is not about signing in is not read as a sign-in refusal', a
   try {
     await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Internal server error/)
     assert.equal(runtime.info.capabilities.account, false, 'a server error says nothing about the sign-in')
-    assert.deepEqual(await runtime.getAccount(), { accounts: [], signInMethods: [] })
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [])
+    assert.equal(status.unchecked, true, 'so the agent is still not checked')
+    assert.equal(status.refusal, undefined)
   } finally {
     await runtime.dispose()
   }
@@ -643,11 +771,9 @@ test('once a session opens, the agent’s own record names the account', async (
   const runtime = recorded(() => DEV)
   await runtime.start()
   try {
-    assert.deepEqual(
-      await runtime.getAccount(),
-      { accounts: [], signInMethods: [] },
-      'a record on disk is what the agent will try, not proof that it works',
-    )
+    const before = await runtime.getAccount()
+    assert.deepEqual(before.accounts, [], 'a record on disk is what the agent will try, not proof that it works')
+    assert.equal(before.unchecked, true, 'and until a session opens, nobody has checked')
     assert.equal(runtime.info.capabilities.account, false)
     await runtime.createSession({ cwd: process.cwd() })
     assert.deepEqual((await runtime.getAccount()).accounts, [DEV])

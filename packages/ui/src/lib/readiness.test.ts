@@ -68,6 +68,13 @@ describe('readinessOf', () => {
     expect(readinessOf({ registered: true, health: { state: 'ready' }, account: undefined })).toBe('unknown')
   })
 
+  it('does not ask for a sign-in from an agent nobody has asked yet', () => {
+    // #1759: an empty list the agent has not been asked for is not "signed
+    // out". Its first session says whether it is.
+    const unchecked = { accounts: [], signInMethods: [], unchecked: true }
+    expect(readinessOf({ registered: true, health: { state: 'ready' }, account: unchecked })).toBe('unknown')
+  })
+
   it('reads a spent window from the agent, not from a failure', () => {
     expect(
       readinessOf({
