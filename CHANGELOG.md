@@ -7,6 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **An agent that could not start no longer reads Ready after a restart** — one whose program was missing, would not report its version or was too old is checked again in the background as the desk opens, so Settings › Runtimes lists it under Needs attention with its reason instead of Ready until its page is opened.
 - **An agent's account commands answer for its own row** — status, sign-in and sign-out run with the environment the row starts the agent with and the copy of the CLI its start chose, so a row that moves the agent's home shows and signs out its own account, not the default one.
 - **What the Library changed now has its own page**, reached from the Library's menu or from the toast that follows each change, instead of a list at the foot of the page.
 - **Agents nobody has asked yet say "Not checked yet"** instead of "needs no account here", and are listed as Ready. Antigravity's Gemini API key is a key field the agent switches to, and its Agent Platform method shows the setup step it needs instead of a button that could only fail.

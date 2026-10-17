@@ -136,7 +136,7 @@ import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog, type ClientAuditEntry } from './audit.js'
 import { CatalogRefresher } from './catalog-refresher.js'
-import { RuntimeCache, type CachedRuntime } from './runtime-cache.js'
+import { isProgramFailure, RuntimeCache, type CachedRuntime } from './runtime-cache.js'
 import {
   Ledger,
   defaultCorpora,
@@ -2670,6 +2670,13 @@ export class Host {
     const preferred = this.#state.state.preferences['activeRuntime']
     const defaultRuntime = (typeof preferred === 'string' ? this.#runtimes.get(preferred) : undefined) ?? this.#runtimes.values().next().value
     if (defaultRuntime) void this.#startOne(defaultRuntime)
+    /* Every other agent waits to be asked, and an idle agent reads as ready.
+       One whose program was missing, silent or too old last time is the
+       exception: drawn idle, it read ready until somebody opened its page
+       (#1774). Asked now, in the background, it reads as what it is. */
+    for (const runtime of this.#runtimes.values()) {
+      if (runtime !== defaultRuntime && this.#runtimeCache.get(String(runtime.info.id)).wouldNotStart) void this.#startOne(runtime)
+    }
     /* Recovery sends enter the same live-operation start barrier as new work. */
     /* Held firings are released through their gates, and only then is any
        source read: a trigger's run never dispatches before its runtime is up. */
@@ -8681,6 +8688,8 @@ export class Host {
 
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
     const id = String(runtime)
+    if (health.state === 'unavailable' && isProgramFailure(health.reason)) this.#runtimeCache.update(id, { wouldNotStart: health.reason })
+    else if (health.state === 'ready' && this.#runtimeCache.get(id).wouldNotStart) this.#runtimeCache.update(id, { wouldNotStart: undefined })
     const authority = this.#runtimes.get(runtime)
     if (health.state === 'ready' && authority && !authority.info.capabilities.archiveHistory && !this.#indexFolderBackfills.has(runtime)) {
       // A ready signal may arrive while the guarded idle read is settling.

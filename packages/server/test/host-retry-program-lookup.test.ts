@@ -295,3 +295,102 @@ test('an overdue empty successful version probe is retried by the host schedule'
   await until(() => runtime.health().state === 'ready', 'the empty probe was never retried')
   assert.equal((await readFile(count, 'utf8')).trim().split('\n').length, 2)
 })
+
+/**
+ * The desk opens by starting only its default agent, so any other agent sits
+ * idle until something asks it, and an idle agent reads as ready. One whose
+ * program could not be found or run last time is the exception: the desk
+ * already had that answer, and drawing it ready until somebody opened its page
+ * is drawing it wrong (#1774). So the desk remembers it, and asks that agent
+ * again as it opens.
+ */
+const relaunch = async (t: TestContext, dir: string, ...runtimes: AgentRuntime[]): Promise<Host> => {
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(dir, 'state.json')),
+    version: '9.9.9',
+    catalogRefreshMs: 0,
+    idleStopMs: 0,
+    retryDelaysMs: [],
+  })
+  // The default is the first registered, and it is the one launch starts.
+  host.register(new FakeRuntime({ id: runtimeId('default') }))
+  for (const runtime of runtimes) host.register(runtime)
+  t.after(() => host.dispose())
+  await host.start()
+  return host
+}
+
+const ask = async (host: Host, runtime: AgentRuntime): Promise<void> => {
+  await host.call('runtime/warm', { runtime: runtime.info.id })
+  await host.call('runtime/models', { runtime: runtime.info.id }).catch(() => {})
+}
+
+test('a Codex that would not report its version is asked again as the desk next opens, not drawn idle', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-retry-relaunch-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const cli = join(dir, 'codex')
+  await writeFile(cli, '#!/bin/sh\nexit 1\n')
+  await chmod(cli, 0o755)
+  const codex = (): CodexRuntime => new CodexRuntime({ binaryPath: cli, codexHome: join(dir, 'agent-home'),
+    discovery: { env: { PATH: dir }, locations: [] } })
+
+  const first = codex()
+  const before = await relaunch(t, dir, first)
+  await ask(before, first)
+  await until(() => first.health().state === 'unavailable', 'the first ask never found the copy broken')
+  await before.dispose()
+
+  const second = codex()
+  await relaunch(t, dir, second)
+  assert.notEqual(second.health().state, 'ready')
+  await until(() => second.health().state === 'unavailable', 'the desk opened with the broken copy drawn idle')
+  const health = second.health()
+  assert.ok(health.state === 'unavailable')
+  assert.equal(health.reason, 'unreadable')
+  assert.match(health.message, /would not report its version/)
+})
+
+test('an agent asked again at launch that now starts is left cold the time after', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-retry-relaunch-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const id = runtimeId('one')
+
+  const broken = new Program({ id })
+  broken.failure = unreadable
+  const before = await relaunch(t, dir, broken)
+  await ask(before, broken)
+  assert.deepEqual(broken.health(), unreadable)
+  await before.dispose()
+
+  const fixed = new Program({ id })
+  fixed.found = true
+  const during = await relaunch(t, dir, fixed)
+  await until(() => fixed.health().state === 'ready', 'the agent that failed last time was not asked at launch')
+  assert.equal(fixed.starts, 1)
+  await during.dispose()
+
+  const after = new Program({ id })
+  after.found = true
+  await relaunch(t, dir, after)
+  await pause(100)
+  assert.equal(after.starts, 0, 'an agent that started last time waits to be asked, like any other')
+})
+
+test('an agent that failed for a reason of its own is not asked at launch', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-retry-relaunch-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const id = runtimeId('one')
+
+  const down = new Program({ id })
+  down.failure = { state: 'unavailable', reason: 'crashed', message: 'It crashed.' }
+  const before = await relaunch(t, dir, down)
+  await ask(before, down)
+  assert.equal(down.health().state, 'unavailable')
+  await before.dispose()
+
+  const again = new Program({ id })
+  await relaunch(t, dir, again)
+  await pause(100)
+  assert.equal(again.starts, 0, 'a crash is not a fact about the program on disk')
+})
