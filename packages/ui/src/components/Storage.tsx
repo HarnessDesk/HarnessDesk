@@ -119,13 +119,13 @@ export const StorageSection = () => {
       <Row title="Worktrees" titleChip={usage?.worktrees.kept ? <Chip size="sm" tone="warning">{usage.worktrees.kept} kept</Chip> : undefined} control={value(usage?.worktrees)} />
     </Rows>
     {!!kept.length && <>
-      <SectionHead name="Kept worktrees" />
+      <SectionHead level="label" name="Kept worktrees" />
       <Rows>{kept.map(row => <Row key={row.path} title={<span title={inventoryTitle(row)}>{sessionLabel(row.title, null)}</span>} control={<>
         <RowValue><span title={row.path}><MiddleTruncate>{row.path}</MiddleTruncate></span></RowValue>
         <Button variant="outline" size="sm" title={row.reason ?? 'Review the inventory before discarding this worktree'} onClick={() => setDiscarding(row)}>Discard worktree…</Button>
       </>} />)}</Rows>
     </>}
-    <SectionHead name="Clean up inactive conversations" />
+    <SectionHead level="label" name="Clean up inactive conversations" />
     <Rows><Row title="Inactive for" control={<>
       <NativeSelect aria-label="Inactive for" value={age} disabled={busy || reviewing} onChange={event => setAge(Number(event.target.value) as 30 | 60 | 90)}>
         {[30, 60, 90].map(days => <option key={days} value={days}>{days} days</option>)}
@@ -141,10 +141,10 @@ export const StorageSection = () => {
       {problem && <Note tone="bad">{problem}</Note>}
       {busy && !preview && !result && <RowValue>Reviewing worktrees…</RowValue>}
       {preview && <>
-        <SectionHead name="Clean worktrees" action={<RowValue>{bytes(preview.cleanBytes)}</RowValue>} />
+        <SectionHead level="label" name="Clean worktrees" action={<RowValue>{bytes(preview.cleanBytes)}</RowValue>} />
         <Rows>{clean.map(row => candidate(row))}{!clean.length && <Row title="No clean worktrees to remove" />}</Rows>
         {!!dirty.length && <>
-          <SectionHead name="Worktrees with unsaved or ignored content" />
+          <SectionHead level="label" name="Worktrees with unsaved or ignored content" />
           <Rows>
             <Row title="Also discard unsaved and ignored content" control={<Switch aria-label="Also discard unsaved and ignored content" checked={includeDirty} disabled={busy} onCheckedChange={setIncludeDirty} />} />
             {dirty.map(row => candidate(row, includeDirty))}
@@ -152,7 +152,7 @@ export const StorageSection = () => {
         </>}
         <Row title="Space freed" control={<RowValue>{bytes(selected.reduce((sum, row) => sum + row.bytes, 0))}</RowValue>} />
       </>}
-      {result && <><SectionHead name="Worktrees kept" /><FormStack>{result.refused.map(row => <Note key={row.path} tone="bad"><span title={row.path}><MiddleTruncate>{row.path}</MiddleTruncate></span>: {row.reason}</Note>)}</FormStack></>}
+      {result && <><SectionHead level="label" name="Worktrees kept" /><FormStack>{result.refused.map(row => <Note key={row.path} tone="bad"><span title={row.path}><MiddleTruncate>{row.path}</MiddleTruncate></span>: {row.reason}</Note>)}</FormStack></>}
     </Dialog>}
     {destinationActive && clearing && <ConfirmDialog title="Clear cached previews?" confirmLabel="Clear cached previews" busy={busy} onCancel={() => { if (!busy) setClearing(false) }} onConfirm={() => void clear()}>
       Previews are read again from the runtime next time. Conversations opened here and full conversation bodies stay.

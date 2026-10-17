@@ -32,7 +32,7 @@ export const TeamsBoard = ({children}: {readonly children:ReactNode}) => <div da
 export const TeamsBoardColumn = ({label,tone,count,children}: {
  readonly label:string; readonly tone:'warning'|'brand'|'success'; readonly count:number; readonly children:ReactNode
 }) => <section data-slot="teams-board-column" aria-label={label} className={styles.column}>
- <Text as="h2" role="row" className={styles.heading}><Dot tone={tone}/><span>{label}</span><Text role="meta" numeric>{count}</Text></Text>
+ <Text as="h2" role="section" className={styles.heading}><Dot tone={tone}/><span>{label}</span><Text role="meta" numeric>{count}</Text></Text>
  <div className={styles.cards}>{children}</div>
 </section>
 

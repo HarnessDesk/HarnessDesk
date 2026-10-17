@@ -1212,8 +1212,8 @@ body {
   --hd-label-weight: var(--hd-weight-medium);
 
   /* --- the section label ---------------------------------------------------
-     The word over a group of rows — "Workspaces", "Capabilities", "Agents".
-     There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own
+     The word over a field group, a Settings form or a rail card.
+     Page-body bands use the section text role; small groups use `GroupLabel` (design/ui/group-label.tsx): the rows' own
      13px chrome step, the secondary ink, sentence case, so it names the group
      quietly and the rows stay the subject. Both interfaces use medium weight;
      Studio adds more air above a rail's group; neither interface sets

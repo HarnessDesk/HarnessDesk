@@ -218,7 +218,7 @@ export const AgentHistory = ({ info, onBrowse }: { info: RuntimeInfo; onBrowse: 
   const label = running ? 'Importing history' : complete ? 'Imported history' : failed ? 'History import failed' : state?.state === 'cancelled' ? 'History import cancelled' : 'Import history'
 
   return <>
-    <SectionHead name="History" />
+    <SectionHead level="label" name="History" />
     <Rows><Row title={<span title={state?.error}>{label}</span>} control={<>
       {state && <RowValue numeric>{state.count.toLocaleString()} conversations</RowValue>}
       {complete && <RowValue>{scanTime(state.lastScanAt)}</RowValue>}

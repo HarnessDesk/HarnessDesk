@@ -714,6 +714,8 @@ describe('PlansTable', () => {
     )
     act(() => rowFor('nothing@example.com').click())
     expect(host.textContent ?? '').toContain('This runtime reports no plan usage here.')
+    expect(host.querySelector('section[aria-label="Not reporting"] h2[data-slot="group-label"]')).not.toBeNull()
+    expect(host.querySelector('section[aria-label="Not reporting"] h2[data-role="section"]')).toBeNull()
   })
 })
 

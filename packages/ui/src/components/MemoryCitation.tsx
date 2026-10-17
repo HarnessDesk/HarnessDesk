@@ -344,7 +344,7 @@ const CitationDetail = ({ root, citation }: { readonly root: string; readonly ci
       <Markdown text={snapshot.text} document />
       {snapshot.seats.length > 0 && (
         <>
-          <SectionHead name="Seats" />
+          <SectionHead level="label" name="Seats" />
           <Rows>
             {snapshot.seats.map((seat) => (
               <Row

@@ -123,7 +123,7 @@ export const AgentsRosterSection = ({
           ? mostCommon[0][0]
           : null
         return (
-          <Section key={origin} title={heading}>
+          <Section level="heading" key={origin} title={heading}>
             <Rows>
               {rows.length === 0 && shadowed.length === 0 && <EmptyState variant="row" title={EMPTY[origin]} />}
               {rows.map((entry) => {
@@ -298,7 +298,7 @@ const AuthoringPendingSection = () => {
   }
 
   return (
-    <Section title="Unfinished saves">
+    <Section level="heading" title="Unfinished saves">
       <Rows>
         {pending.map((one) => (
           <Row

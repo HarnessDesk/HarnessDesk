@@ -505,7 +505,7 @@ const PageGrammar = () => (
     <div className="grid w-full items-start gap-(--hd-space-3) xl:grid-cols-2" data-catalog-example="page-grammar">
       <Case label="the Agent page, before: a label over a one-row card, five times">
         <div className="w-full">
-          <SectionHead name="File" />
+          <SectionHead level="label" name="File" />
           <Rows>
             <Row
               title={<CodeText>{AGENT_FILE}</CodeText>}
@@ -513,15 +513,15 @@ const PageGrammar = () => (
               control={<><Button size="sm" variant="outline">Open file</Button><Button size="sm" variant="outline">Reveal</Button></>}
             />
           </Rows>
-          <SectionHead name="Ceiling" />
+          <SectionHead level="label" name="Ceiling" />
           <Rows>
             <Row title="Edit" desc="May change files and commit in its own checkout, and never push." control={<Button size="sm" variant="outline">Update…</Button>} />
           </Rows>
-          <SectionHead name="Skills" />
+          <SectionHead level="label" name="Skills" />
           <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
-          <SectionHead name="Servers" />
+          <SectionHead level="label" name="Servers" />
           <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
-          <SectionHead name="Brief" />
+          <SectionHead level="label" name="Brief" />
           <Rows><Row title={AGENT_BRIEF} control={<Button size="sm" variant="outline">Open in editor</Button>} /></Rows>
         </div>
       </Case>
@@ -560,6 +560,10 @@ const PageGrammar = () => (
 
 const SectionBoard = () => (
   <>
+    <SectionHead name="Page band" />
+    <Rows><Row title="The cards and rows are the page’s content" /></Rows>
+    <SectionHead level="label" name="Field group" />
+    <Rows><Row title="The group names form controls or a rail card" /></Rows>
     <div
       className={styles.stack}
       style={{ maxWidth: 640 }}
@@ -3660,8 +3664,8 @@ export const SettingsChoicesBoard = () => {
   const [picture,setPicture] = useState<AvatarId | null>('wizard'), [accent,setAccent] = useState('default'), [ring,setRing] = useState<'blue' | 'green' | 'amber' | 'rose' | 'violet'>('blue')
   const pictures = [{id:null,label:'Default',about:'The HarnessDesk mark'},...AVATARS]
   return <div data-catalog-variants={SETTINGSCHOICES_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SETTINGSCHOICES_CATALOG_SIZES.join(' ')} data-catalog-states={SETTINGSCHOICES_CATALOG_STATES.join(' ')}>
-    <Page width="reading"><SectionHead name="Selected picture" /><PictureChoices value={picture} items={pictures} change={setPicture} />
-      <SectionHead name="Unknown picture" /><PictureChoices value="unavailable-picture" items={pictures} change={setPicture} />
+    <Page width="reading"><SectionHead level="label" name="Selected picture" /><PictureChoices value={picture} items={pictures} change={setPicture} />
+      <SectionHead level="label" name="Unknown picture" /><PictureChoices value="unavailable-picture" items={pictures} change={setPicture} />
       <Rows><Row title="Accent" control={<AccentChoices value={accent} items={[{value:'default',label:'Default',swatch:'var(--hd-accent)'},{value:'green',label:'Green',swatch:'var(--hd-success)'}]} change={setAccent} />} />
         <Row title="Ring colour" control={<RingChoices value={ring} values={['blue','green','amber','rose','violet']} mark={<AgentIcon size={14} />} change={setRing} />} /></Rows>
     </Page>

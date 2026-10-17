@@ -7,6 +7,20 @@ the rule is the last line of its section.
 
 ---
 
+## Page band headings are 16/600 and field-group labels stay small — 2026-10-16
+
+Heads naming the cards or rows in a page’s body use the existing section text
+role. `SectionHead` defaults to that heading; field groups explicitly choose
+`level="label"`. Titled `Section` bands choose the same heading level. Page
+titles, dialog legends, Settings forms and right-rail cards keep their roles.
+
+This costs an explicit classification at every call site. The explorer shows
+both levels and rendered frame tests hold page bands to the existing role,
+so a new form group cannot silently become another heading style. No size,
+weight or foundation token is added.
+
+**Rule:** a head that names a band of a page's body is a section heading; a label that names a field group stays small.
+
 ## First launch offers installed runtimes — 2026-10-16
 
 The first empty conversation uses the Add a runtime page's machine catalogue

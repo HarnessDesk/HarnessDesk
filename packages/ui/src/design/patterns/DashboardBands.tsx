@@ -15,7 +15,7 @@ export interface DashboardBand {
 }
 /** Recorded facts and quantitative figures; controls belong to the shared section head. */
 export const DashboardBands = ({ bands }: { readonly bands: readonly DashboardBand[] }) => <>
-  {bands.map(band => <Section key={band.id} title={band.title}>
+  {bands.map(band => <Section key={band.id} level="heading" title={band.title}>
     {band.explanation && <Text as="p" role="prose">{band.explanation}</Text>}
     {band.chart && <Card><CardContent><div data-slot="quantitative-chart" className={styles.chart}>{band.chart}</div></CardContent></Card>}
     {band.rows.length > 0 && <Rows>{band.rows.map(row => <Row key={row.id} kind="record"

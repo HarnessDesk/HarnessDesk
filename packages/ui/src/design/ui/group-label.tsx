@@ -3,7 +3,8 @@ import { createElement, type ComponentProps, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * The word over a group: a card of rows, a list in a rail, a section of a page.
+ * The word over a field group, a Settings form or a list in a rail.
+ * Page-body bands use the section text role instead.
  *
  * There used to be three of these, and no two agreed. The sidebar set its
  * groups at 13px in the secondary ink, the settings window at 13px in the

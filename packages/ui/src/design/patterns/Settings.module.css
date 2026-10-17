@@ -858,20 +858,13 @@
   min-width: 0;
 }
 
-/* The word over a settings card is a group label, not another page title: it
-   is drawn by `GroupLabel`, and only its place in the head is said here. */
+/* The column sizes and truncates the name. Its inline text inherits the
+   same role; a second block box would duplicate the measured line. */
 .sectionName {
   flex: 0 1 auto; /* desk: long headings surrender width and ellipsize before reaching their action. */
   min-width: 0;
   overflow: hidden;
   margin: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sectionName [data-role='section'] {
-  display: block;
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

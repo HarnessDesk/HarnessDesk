@@ -886,7 +886,7 @@ export const LibraryHistory = ({
   const shown = all ? rows : rows.slice(0, 6)
 
   return (
-    <Section title="Changes made from here" inset="row">
+    <Section level="heading" title="Changes made from here" inset="row">
       <Rows role="list">
         {shown.map((row, index) => (
           <div key={`${row.at}-${index}`} role="listitem">

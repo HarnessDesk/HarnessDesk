@@ -262,7 +262,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
             <PaneColumn inset="rail" data-slot="sign-in-list" className={own.railList}>
               {groups.map((group) => (
                 <div key={group.name} role="group" aria-label={group.name} className={own.group}>
-                  <SectionHead
+                  <SectionHead level="label"
                     name={group.name}
                     action={<Text role="meta" numeric>{group.rows.length}</Text>}
                   />
@@ -291,7 +291,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
 
               {registryRows.length > 0 && (
                 <div role="group" aria-label="From the ACP registry" className={own.group}>
-                  <SectionHead name="From the ACP registry" />
+                  <SectionHead level="label" name="From the ACP registry" />
                   {/* Two agents need no finding aid; forty do. */}
                   {registryRows.length > 8 && (
                     <Search
@@ -329,7 +329,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
               )}
               {registryRows.length === 0 && registry?.unavailable && (
                 <div role="group" aria-label="From the ACP registry" className={own.group}>
-                  <SectionHead name="From the ACP registry" />
+                  <SectionHead level="label" name="From the ACP registry" />
                   <Text as="div" role="meta" className={own.railNote}>{registry.unavailable}</Text>
                 </div>
               )}
@@ -745,7 +745,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           than a bold sentence with a shell command set in prose. */}
       {external.map((method) => (
         <div key={method.id} className={own.aside}>
-          <SectionHead name={method.label} />
+          <SectionHead level="label" name={method.label} />
           {method.description ? <Note className={own.noteFlush}><Prose text={method.description} /></Note> : null}
         </div>
       ))}
@@ -1231,7 +1231,7 @@ const Pending = ({
 
       {alreadyAs ? (
         <div className={own.aside}>
-          <SectionHead name="Sign in as somebody else" />
+          <SectionHead level="label" name="Sign in as somebody else" />
           <Note className={own.noteFlush}>
             This runtime already has {alreadyAs}, and the page uses whichever account your
             browser is signed in to. Choose a different one there — one identity is one

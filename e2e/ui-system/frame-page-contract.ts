@@ -121,7 +121,7 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
     else expect(Math.abs(edge.offset), 'every top-level block starts on the column edge').toBeLessThanOrEqual(1)
   }
   const textEdges = await column.evaluate(root => [...root.querySelectorAll('[data-slot="rows"], [data-slot="summary-list"], [data-slot="section"]')].flatMap(surface => {
-    const leaves = [...surface.querySelectorAll('[data-slot="row-title"], [data-slot="section-head"] [data-slot="group-label"], [data-slot="summary-key"], [data-slot="section-footer"] [data-slot="text"]')]
+    const leaves = [...surface.querySelectorAll('[data-slot="row-title"], [data-slot="section-head"] [data-section-name], [data-slot="summary-key"], [data-slot="section-footer"] [data-slot="text"]')]
       .filter(element => element.getClientRects().length > 0 && element.closest('[data-slot="rows"], [data-slot="summary-list"], [data-slot="section"]') === surface)
     return leaves.length > 1 ? [leaves.map(element => element.getBoundingClientRect().left)] : []
   }))

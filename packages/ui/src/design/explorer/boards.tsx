@@ -598,9 +598,9 @@ const RowBoard = () => {
       <Specimen measure="page" caption="A settings page, assembled from Row, RowButton and RowChoice">
       <div className={styles.stack}>
         <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
-        <SectionHead name={<span data-slot="page-title-case" data-catalog-size="page">General</span>}
+        <SectionHead level="label" name={<span data-slot="page-title-case" data-catalog-size="page">General</span>}
           description="Settings for this desk." />
-        <SectionHead name="Plugins" action={<Button variant="outline" size="sm">Add</Button>} />
+        <SectionHead level="label" name="Plugins" action={<Button variant="outline" size="sm">Add</Button>} />
         <SectionHead
           sticky
           name="What is left"
@@ -628,7 +628,7 @@ const RowBoard = () => {
           />
         </Rows>
 
-        <SectionHead name="A row that opens and folds" />
+        <SectionHead level="label" name="A row that opens and folds" />
         <Rows data-catalog-case="row-fold">
           <RowButton
             kind="record"
@@ -640,7 +640,7 @@ const RowBoard = () => {
           />
           {!folded && <RowButton kind="record" face={<AccountMark size="row" data-tint="blue">JD</AccountMark>} title="dev" desc="dev@example.com" truncateDesc onClick={() => {}} />}
         </Rows>
-        <SectionHead name="A row with its one action" />
+        <SectionHead level="label" name="A row with its one action" />
         <Rows data-catalog-case="row-action">
           <RowButton
             kind="record"
@@ -657,7 +657,7 @@ const RowBoard = () => {
             action={<Button size="sm" variant="outline">Sign in</Button>}
           />
         </Rows>
-        <SectionHead name="A settings record’s actions" />
+        <SectionHead level="label" name="A settings record’s actions" />
         <Rows data-catalog-case="settings-row-menu">
           <Row
             kind="record"
@@ -674,7 +674,7 @@ const RowBoard = () => {
           label={<Text role="navigation">Install for Codex</Text>}
         />
 
-        <SectionHead
+        <SectionHead level="label"
           name="Account marks"
           description="An account's own colour, at every size, and the seat with no one in it."
         />
@@ -700,7 +700,7 @@ const RowBoard = () => {
           <AccountMark size="sm" data-off=""><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
         </div>
 
-        <SectionHead name="When a runtime asks to run something" />
+        <SectionHead level="label" name="When a runtime asks to run something" />
         <Rows>
           {[
             { id: 'ask', title: 'Ask every time', desc: 'Nothing runs until you say so.' },
@@ -741,10 +741,10 @@ const HeadBoard = () => (
     <Specimen measure="page" caption="A Runtimes page, and one row drilled into">
     <div className={styles.stack}>
       <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
-      <SectionHead name={<span data-slot="page-title-case" data-catalog-size="page">Runtimes</span>}
+      <SectionHead level="label" name={<span data-slot="page-title-case" data-catalog-size="page">Runtimes</span>}
         description="Which runtimes this app can start a session with."
         action={<Button variant="outline" size="sm">Add a runtime</Button>} />
-      <SectionHead name="Browser" description="Drive a page and read it back. Available to runtimes that accept plugin tools." action={<Button variant="outline" size="sm">Remove</Button>} />
+      <SectionHead level="label" name="Browser" description="Drive a page and read it back. Available to runtimes that accept plugin tools." action={<Button variant="outline" size="sm">Remove</Button>} />
     </div>
     </Specimen>
     <p className={styles.rule}>
@@ -766,7 +766,7 @@ const FaceBoard = () => (
         <Face avatar={null} size={24} /> <Face avatar="astronaut" size={24} /> <Face avatar="pirate" size={24} />{' '}
         <Face avatar={null} size={44} /> <Face avatar="wizard" size={44} />
       </div>
-      <SectionHead name="Jane Doe" description="A person's face, drawn through the canonical avatar primitive." />
+      <SectionHead level="label" name="Jane Doe" description="A person's face, drawn through the canonical avatar primitive." />
     </div>
     </Specimen>
     <p className={styles.rule}>

@@ -432,7 +432,7 @@ export const FlowPreviewSeats = ({ preview, roster }: {
   readonly roster: ReadonlyMap<string, AgentEntry>
 }) => (
   <section aria-label="Seats this would open">
-    <SectionHead name={preview.seats.length === 0 ? 'It opens no Agents' : `It opens ${preview.seats.length} ${preview.seats.length === 1 ? 'seat' : 'seats'}`} />
+    <SectionHead level="label" name={preview.seats.length === 0 ? 'It opens no Agents' : `It opens ${preview.seats.length} ${preview.seats.length === 1 ? 'seat' : 'seats'}`} />
     <Rows>
       {preview.seats.length === 0 && <Row title="This flow names no Agent role" />}
       {preview.seats.map(seat => <SeatPreviewRows key={`${seat.role}-${seat.index}`} seat={seat} roster={roster} />)}
@@ -465,7 +465,7 @@ export const FlowPreviewReport = ({
 
     {preview.commands.length > 0 && (
       <section aria-label="Commands it runs">
-        <SectionHead name="It runs these commands" />
+        <SectionHead level="label" name="It runs these commands" />
         <Rows>
           {preview.commands.map((command) => (
             <Row
@@ -480,7 +480,7 @@ export const FlowPreviewReport = ({
 
     {flow && flow.rules.length > 0 && (
       <section aria-label="Rounds and rules">
-        <SectionHead name="Its rounds" />
+        <SectionHead level="label" name="Its rounds" />
         <Rows>
           <Row title={flow.seed.role} desc={`Seed round — ${seedTitleOf(flow, vars)}`} />
           {flow.rules.map((rule) => {
@@ -648,7 +648,7 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
   const judgeAlternative = judgeOn ? alternativeFor(judgePreview) : undefined
   return <div className={styles.flow}>
     <section aria-label="Who does what">
-      <SectionHead name="Who does what" />
+      <SectionHead level="label" name="Who does what" />
       <Rows>{preview.seats.map(seat => {
         const role = flow.roles.find(one => one.id === seat.role)
         if (role?.kind !== 'agent' || (hasJudge && role.id === 'judge')) return null

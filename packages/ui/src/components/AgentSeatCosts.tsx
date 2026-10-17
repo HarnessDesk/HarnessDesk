@@ -69,7 +69,7 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
   const seatAmounts = new Map(seatRows.map((row) => [row.seat, row.amounts.usd]))
   const failedSources = report?.sources.filter((source) => source.problem !== null) ?? []
   return (
-    <Section title="Historical seat costs">
+    <Section level="heading" title="Historical seat costs">
       {problem ? <Note tone="warn">{problem}</Note> : !report ? <Note>Reading recorded usage…</Note> : <>
         <Rows>
           {historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={noteFor(seat) !== groupNote ? noteFor(seat) ?? undefined : undefined} control={<RowValue numeric>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}

@@ -41,7 +41,7 @@ export const CommitProvenance = ({ root, sha, value: supplied }: { readonly root
   const failed = supplied === undefined && read.error
   const [seat, setSeat] = useState<string | null>(null)
   const snapshot = useSnapshot()
-  return <section aria-label="Commit provenance"><SectionHead name="Provenance" />
+  return <section aria-label="Commit provenance"><SectionHead level="label" name="Provenance" />
     {failed ? <><Note>Provenance could not be read.</Note><Button variant="secondary" onClick={read.retry}>Retry provenance</Button></>
       : !value ? <Note>Reading provenance…</Note>
       : <><Chip tone="neutral" label={provenanceWords(value)} /><Note>{value.explanation}</Note>
