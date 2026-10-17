@@ -5,16 +5,18 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.5.2 — 2026-10-17
 
+Skills open as pages in the Library, a Team's sidebar mark now tells waiting
+from news, and agents that could not start, are signed out or keep their
+sign-ins elsewhere report it quietly and correctly.
+
+- **A skill opens as its own page.** Choosing a skill in the Library shows its definition beside Update, Loaded by, Source, Files and Cost, with one banner per problem above both; Remove, Resolve copies and Install to… are in the page's More menu, each previewed first. The skill sheet is gone.
 - **An OpenCode row reads its own sign-ins** — OpenCode 2's sign-ins, kept in its own database rather than `auth.json`, now name the providers on the row, and a row with its own data folder reads only that folder. Its page no longer offers `opencode auth login` for such a row, since OpenCode 2 signs that command into its default folder; it says so instead.
 - **Team marks distinguish waiting from news.** Orange means someone needs your answer; blue means unseen activity, an ended Run or work ready to wrap. Opening the Team clears blue across windows. After this update, finished Teams show the blue mark once. Unchecked finished cards keep their Board reason and get a quiet Overview count without raising attention.
-
 - **A background task whose command shows nothing is still named** — a command made only of blanks or display breaks shows as "Shell" instead of an empty label or a bare "…", and no title keeps an invisible blank at either end.
 - **Drafts explain why Send is disabled** while the runtime starts or is unavailable, with a short readiness chip and the reason on Send’s hover title; an unavailable runtime’s chip opens its Settings page.
-
 - **Conversations whose folder is gone can be archived from their banner.** The folder name stays short with its full path on hover, and the copy action explains that it starts a conversation with a summary.
-
 - **A signed-out agent no longer raises its raw sign-in refusal** — the agent's "Authentication required" answer, with its method names and settings path, is no longer shown as a toast, or as a warning under New conversations on its page or in General, while the desk already shows it signed out; its banner and Accounts card say it. A refusal from an agent shown as signed in is still reported.
 - **An agent that could not start no longer reads Ready after a restart** — one whose program was missing, would not report its version or was too old is checked again in the background as the desk opens, so Settings › Runtimes lists it under Needs attention with its reason instead of Ready until its page is opened.
 - **An agent's account commands answer for its own row** — status, sign-in and sign-out run with the environment the row starts the agent with and the copy of the CLI its start chose, so a row that moves the agent's home shows and signs out its own account, not the default one.
