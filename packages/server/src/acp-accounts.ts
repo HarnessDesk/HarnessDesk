@@ -116,11 +116,14 @@ export class AcpAccounts {
 
   /** Whether `entry` is Antigravity's own row, or an account of one. */
   #isAntigravity(entry: Readonly<Record<string, unknown>>): boolean {
-    if (entry['id'] === ANTIGRAVITY || entry['agent'] === ANTIGRAVITY) return true
     const parent = entry['accountOf']
-    if (typeof parent !== 'string') return false
-    const original = this.#entry(parent)
-    return original !== null && this.#isAntigravity(original)
+    const original = typeof parent === 'string' ? this.#entry(parent) : entry
+    // Account links are one hop only. A hand-edited self-link, cycle or
+    // account of an account is not an original, even if it names the agent.
+    if (!original || original['accountOf'] !== undefined) return false
+    const registry = original['registry'] as { id?: unknown } | undefined
+    return [original['agent'], registry?.id, original['template'], original['id']]
+      .includes(ANTIGRAVITY)
   }
 
   /** The row this one is an account of — itself, when it is the original. */
@@ -175,7 +178,7 @@ export class AcpAccounts {
     const folder = join(this.options.stateDir, 'accounts', newId)
     mkdirSync(folder, { recursive: true, mode: 0o700 })
 
-    const given = name?.trim()
+    const given = name?.trim().slice(0, 80)
     const originalName = typeof original['name'] === 'string' ? original['name'] : originalId
     // Deliberately no `registry`: that provenance names a download the desk
     // made, and `AgentDirectory.remove` uninstalls it. The download is the

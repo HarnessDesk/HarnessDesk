@@ -653,12 +653,17 @@ keychain and into a file, and `GEMINI_HOME=<stateDir>/accounts/<row id>`, a
 folder only that row uses (measured with two Google accounts on 2026-10-17).
 Its conversations are its own, in `conversations/` under that folder, rather
 than shared the way a Codex account's are — the trade the keychain forces.
-The row is **named by the person**, because the desk cannot read which Google
-account it is signed in to; the name field is the only thing that tells two
-of them apart. The agent's original row is untouched: it keeps the keychain
-and the default home. Removing an extra account signs it out, unregisters the
-row, and then moves its folder to the **Trash** — never deletes it, because
-it holds a live token and a person removing the wrong row wants it back.
+The row is called **Antigravity 2**, **Antigravity 3** and so on; the desk
+cannot read which Google account it is signed in to. The add method also
+takes a name, for a UI that asks for one; the current UI uses the numbered
+default. A supplied name is trimmed and capped at 80 characters; a blank
+name uses the next number. The agent's original row is untouched: it keeps
+the keychain and the default home. Removing an extra account asks it to sign
+out, unregisters the row, and then moves its folder to the **Trash** — never
+deletes it, because a person removing the wrong row wants it back. If sign-out
+fails, including when the account's server never started, the folder still
+holds a valid token when it goes to the Trash; moving it there does not
+revoke that sign-in.
 
 What that independence needs on the ACP side is already in place: an
 agent's account commands — status, sign-in and sign-out — run with the

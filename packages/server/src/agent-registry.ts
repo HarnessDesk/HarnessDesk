@@ -793,6 +793,20 @@ export class AgentDirectory {
       registry: entry['registry'],
       agent: row['agent'] ?? provenance.id,
     })
+    for (const account of this.options.store.entries()) {
+      if (account['accountOf'] !== String(id) || typeof account['id'] !== 'string') continue
+      const env = account['env'] as Record<string, unknown> | undefined
+      this.options.store.patch(account['id'], {
+        command: entry['command'],
+        args: entry['args'],
+        cwd: entry['cwd'],
+        env: {
+          ...(entry['env'] as Record<string, string> | undefined),
+          GEMINI_HOME: env?.['GEMINI_HOME'],
+          AGY_ACP_FORCE_FILE_STORAGE: '1',
+        },
+      })
+    }
     return { from, to }
   }
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, symlink } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -26,7 +26,8 @@ import { AcpAccounts } from '../src/acp-accounts.js'
 const AGY_ROW = {
   id: 'antigravity-acp',
   name: 'Antigravity',
-  command: '/Users/x/.antigravity/bin/agy_acp_server',
+  command: '/opt/demo/antigravity/bin/agy_acp_server',
+  registry: { id: 'antigravity-acp', version: '1.1.1' },
   agent: 'antigravity-acp',
   brand: 'antigravity',
   tagline: "Google's Antigravity agent, through its own ACP server.",
@@ -171,4 +172,51 @@ test('a row whose home points outside the accounts folder is refused', async (t)
   await assert.rejects(() => accounts.remove(forged.id))
   assert.notEqual(store.entry(forged.id), null)
   assert.equal(existsSync(join(elsewhere, 'gemini')), true)
+})
+
+for (const rows of [
+  [{ id: 'self', accountOf: 'self' }],
+  [{ id: 'one', accountOf: 'two' }, { id: 'two', accountOf: 'one' }],
+  [{ id: 'antigravity-acp', agent: 'antigravity-acp', accountOf: 'antigravity-acp' }],
+]) {
+  test(`invalid account links are not accounts: ${rows.map((row) => row.id).join(', ')}`, async (t) => {
+    const { accounts } = await rig(t, rows.map((row) => ({ ...row, command: 'fake' })))
+    for (const row of rows) {
+      assert.equal(accounts.canAdd(row.id), false)
+      assert.equal(accounts.slotOf(row.id), null)
+    }
+  })
+}
+
+for (const field of [{ agent: 'antigravity-acp' }, { registry: AGY_ROW.registry }, { template: 'antigravity-acp' }]) {
+  test(`Antigravity is recognised by ${Object.keys(field)[0]}`, async (t) => {
+    const { accounts } = await rig(t, [{ id: 'custom', command: AGY_ROW.command, ...field }])
+    assert.equal(accounts.canAdd('custom'), true)
+    assert.equal(accounts.slotOf('custom')?.removable, false)
+    const extra = accounts.add('custom')
+    assert.equal(accounts.canAdd(extra.id), true)
+    assert.equal(accounts.slotOf(extra.id)?.agent, 'custom')
+  })
+}
+
+test('account names are trimmed, capped at 80 characters, and blank names use the next number', async (t) => {
+  const { accounts } = await rig(t, [AGY_ROW])
+  assert.equal(accounts.add(AGY_ROW.id, '   ').name, 'Antigravity 2')
+  assert.equal(accounts.add(AGY_ROW.id, `  ${'x'.repeat(90)}  `).name, 'x'.repeat(80))
+  assert.equal(accounts.add(AGY_ROW.id, '  Work  ').name, 'Work')
+})
+
+test('removal refuses a home symlink that escapes accounts', async (t) => {
+  const trashed: string[] = []
+  const { dir, store, accounts } = await rig(t, [AGY_ROW], async (path) => { trashed.push(path) })
+  const extra = accounts.add(AGY_ROW.id)
+  const folder = join(dir, 'accounts', extra.id)
+  const outside = join(dir, 'outside')
+  await mkdir(outside)
+  await rm(folder, { recursive: true })
+  await symlink(outside, folder)
+  await assert.rejects(accounts.remove(extra.id), /outside .*refusing to remove/)
+  assert.ok(store.entry(extra.id))
+  assert.deepEqual(trashed, [])
+  assert.equal(existsSync(outside), true)
 })

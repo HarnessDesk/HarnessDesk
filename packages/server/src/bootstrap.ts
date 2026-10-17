@@ -341,10 +341,10 @@ export const createDefaultHost = (
           throw new Error(`${info.presentation.name} accounts have no gateway.`)
         }
         const config = acpAccounts.add(info.id, name)
-        // Bound the way every registered ACP agent's usage is bound below, so
-        // a second account bills its own turns to its own row.
+        // Count this row's turns from the desk's transcript. The agy CLI's
+        // quota belongs to its own sign-in, not this account's GEMINI_HOME.
         const local = localUsageFor(
-          config,
+          { ...config, accountOf: agentRegistry.entry(config.id)?.['accountOf'] },
           installs.knowledgeFor(config),
           (agentId, envName) => host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
           (agentId) => acpRuntimes.get(agentId)?.launchedVersion,
@@ -559,7 +559,7 @@ export const createDefaultHost = (
     build: buildAcpRuntime,
     usageFor: (agent) =>
       localUsageFor(
-        agent,
+        { ...agent, accountOf: agentRegistry.entry(agent.id)?.['accountOf'] },
         installs.knowledgeFor(agent),
         (agentId, envName) => host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
         (agentId) => acpRuntimes.get(agentId)?.launchedVersion,
@@ -635,7 +635,7 @@ export const createDefaultHost = (
   void host.credentials.warm()
   for (const agent of agentRegistry.configs()) {
     const local = localUsageFor(
-      agent,
+      { ...agent, accountOf: agentRegistry.entry(agent.id)?.['accountOf'] },
       installs.knowledgeFor(agent),
       (agentId, envName) => host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
       (agentId) => acpRuntimes.get(agentId)?.launchedVersion,
@@ -701,7 +701,7 @@ export const createDefaultHost = (
 const OPENROUTER_SECRET_ENV = 'OPENROUTER_API_KEY'
 
 export const localUsageFor = (
-  agent: AcpAgentConfig,
+  agent: AcpAgentConfig & { readonly accountOf?: unknown },
   known?: Pick<KnownAgent, 'cli'> | undefined,
   /**
    * The desk's own stored copy of a row's secret, when it has one — the
@@ -718,6 +718,9 @@ export const localUsageFor = (
    */
   launchedVersion?: (agentId: string) => string | null | undefined,
 ): { meter?: UsageMeter; corpus?: CorpusKind; root?: string; remote?: RemoteEventsSource; deskTurns?: boolean } | null => {
+  // Extra accounts isolate credentials the vendor CLI's meter cannot read.
+  // Returning here also avoids binding the fallback OpenRouter meter.
+  if (typeof agent.accountOf === 'string') return { deskTurns: true }
   const named = agent.executable?.command ?? agent.account?.status?.command ?? known?.cli.commands[0] ?? ownCli(agent)
   // Where the agent keeps its records is decided by its own environment — a
   // row can move an agent's home to hold a second account — so paths are
