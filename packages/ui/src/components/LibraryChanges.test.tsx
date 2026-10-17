@@ -81,3 +81,9 @@ it('shows one short empty state without an empty description', async () => {
   expect(container.querySelectorAll('[data-slot="empty-state"]')).toHaveLength(1)
   expect(container.textContent).not.toContain('Nothing matches')
 })
+
+it('keeps MCP failure wording on the changes page', async () => {
+  await mount([entry('fetcher', now, { op: 'mcp/create', status: 'failed', detail: 'No write permission' })])
+  expect(container.textContent).toContain('Failed to add fetcher — No write permission')
+  expect([...container.querySelectorAll('button')].filter(el => el.textContent === 'Restore…')).toHaveLength(0)
+})

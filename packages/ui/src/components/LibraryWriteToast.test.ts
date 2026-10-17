@@ -30,3 +30,12 @@ it('combines installs and mixed writes, persists failures with their first reaso
   libraryWriteToasts([op('skip')], [{ id: 'one', outcome: 'skipped' }], vi.fn())
   expect(showToast).not.toHaveBeenCalled()
 })
+
+it('uses MCP verbs and never calls MCP additions skills', () => {
+  vi.mocked(showToast).mockClear()
+  const server = { ...op('create'), kind: 'mcp' as const, name: 'fetcher' }
+  libraryWriteToasts([server], [done()], vi.fn())
+  expect(showToast).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Added fetcher' }))
+  libraryWriteToasts([server, { ...server, id: 'two' }], [done(), done('two')], vi.fn())
+  expect(showToast).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Made 2 changes to the Library' }))
+})
