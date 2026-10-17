@@ -9,6 +9,8 @@ export interface LeadAttemptState {
   readonly phase: 'attempted' | 'decided' | 'started' | 'finished'; readonly effect: 'allow' | 'ask' | 'deny' | null
   readonly dispatched: boolean; readonly outcome: LeadAttemptOutcome | null
   readonly recoveryReported: boolean; readonly evidence: string | null; readonly evidenceSeq: number | null; readonly resolutionPending: boolean
+  /** A lookup contradicted this start: the window may confirm a run, never attest none. */
+  readonly contested: boolean
 }
 export interface LeadStepState { readonly id: string; readonly state: 'pending' | 'admitted' | 'started' | 'uncertain'; readonly attemptId: string | null }
 export interface LeadState {
@@ -151,7 +153,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(event.policyRevision === (state.policy?.revision ?? null) && event.contractRevision === (state.contract?.revision ?? null))
       state = { ...state, attempts: new Map([...state.attempts, [event.id, { id: event.id, correlationId: event.correlationId, method: event.method,
         action: event.action, kind: event.kind, stepId: event.stepId, arguments: event.arguments,
-        phase: 'attempted', effect: null, dispatched: false, outcome: null, recoveryReported: false, evidence: null, evidenceSeq: null, resolutionPending: false }]]) }; break
+        phase: 'attempted', effect: null, dispatched: false, outcome: null, recoveryReported: false, evidence: null, evidenceSeq: null, resolutionPending: false, contested: false }]]) }; break
     }
     case 'decision':
       updateAttempt(event.id, attempt => { ensure(attempt.phase === 'attempted'); return { ...attempt, phase: 'decided', effect: event.effect } }); break
@@ -187,7 +189,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const identities = parseLeadRunEvidence(attempt!.evidence).filter(run => !run.terminal)
       ensure(attempt!.resolutionPending)
       if (event.identity === null) {
-        ensure(attempt!.outcome === 'uncertain' && identities.length === 0)
+        ensure(attempt!.outcome === 'uncertain' && identities.length === 0 && !attempt!.contested)
         releaseStart(event.id)
         updateAttempt(event.id, attempt => ({ ...attempt, outcome: 'failed' }))
       } else {
@@ -200,7 +202,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         ensure(state.teams.includes(event.identity.teamId) && state.runs.some(run => JSON.stringify(run) === JSON.stringify(event.identity)))
         state = { ...state, budget: reduceLeadBudget(state.budget, { version: 1, type: 'bind', now: state.budget!.now,
           startId: event.id, firstRoundId: identities[0]!.firstRoundId, goalId: event.goalId, executionId: event.identity.runId }) }
-        updateAttempt(event.id, attempt => ({ ...attempt, outcome: 'succeeded' }))
+        updateAttempt(event.id, attempt => ({ ...attempt, outcome: 'succeeded', contested: false }))
       }
       updateAttempt(event.id, attempt => ({ ...attempt, resolutionPending: false }))
       if (![...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'running' }
@@ -210,7 +212,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       updateAttempt(event.id, attempt => {
         ensure(attempt.phase === 'finished' && attempt.kind === 'mutation' && attempt.evidence !== null)
         // A click the window showed before this conflict answers older evidence.
-        return { ...attempt, outcome: 'uncertain', resolutionPending: true, evidenceSeq: event.seq }
+        return { ...attempt, outcome: 'uncertain', resolutionPending: true, evidenceSeq: event.seq, contested: true }
       })
       state = { ...state, phase: 'waiting-for-user' }; break
     case 'reconciliation': {
@@ -218,7 +220,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const identities = parseLeadRunEvidence(event.evidence)
       // Host-proven live work is always recordable, even after every tracked run ended.
       ensure(attempt?.phase === 'finished' && attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.resolutionPending ||
-        state.runs.some(run => run.correlationId === attempt.correlationId) || attempt.evidence !== null && identities.some(run => !run.terminal)))
+        state.runs.some(run => run.correlationId === attempt.correlationId) || attempt.outcome === 'succeeded' && attempt.evidence !== null && identities.some(run => !run.terminal)))
       ensure(attempt!.evidence !== event.evidence)
       ensure(identities.every(identity => identity.correlationId === attempt!.correlationId &&
         !state.runs.some(run => run.runId === identity.runId && run.correlationId !== identity.correlationId)))

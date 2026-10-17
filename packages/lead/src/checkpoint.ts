@@ -46,11 +46,11 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     assert(Array.isArray(entry) && entry.length === 2)
     const [key, attempt] = entry
     assert(key === attempt.id && !attempts.has(key))
-    assert(Object.keys(attempt).sort().join() === ['id', 'correlationId', 'method', 'action', 'kind', 'stepId', 'arguments', 'phase', 'effect', 'dispatched', 'outcome', 'recoveryReported', 'evidence', 'evidenceSeq', 'resolutionPending'].sort().join())
+    assert(Object.keys(attempt).sort().join() === ['id', 'correlationId', 'method', 'action', 'kind', 'stepId', 'arguments', 'phase', 'effect', 'dispatched', 'outcome', 'recoveryReported', 'evidence', 'evidenceSeq', 'resolutionPending', 'contested'].sort().join())
     parseLeadJournalRecord({ version: 1, seq: 1, type: 'attempt', id: key, correlationId: attempt.correlationId, method: attempt.method, action: attempt.action,
       kind: attempt.kind, stepId: attempt.stepId, arguments: attempt.arguments, policyRevision: null, projectPolicyRevision: null, contractRevision: null })
     assert(['attempted', 'decided', 'started', 'finished'].includes(attempt.phase) && [null, 'allow', 'ask', 'deny'].includes(attempt.effect))
-    assert(typeof attempt.dispatched === 'boolean' && typeof attempt.recoveryReported === 'boolean' && typeof attempt.resolutionPending === 'boolean')
+    assert(typeof attempt.dispatched === 'boolean' && typeof attempt.recoveryReported === 'boolean' && typeof attempt.resolutionPending === 'boolean' && typeof attempt.contested === 'boolean')
     assert([null, 'succeeded', 'failed', 'denied', 'asked', 'malformed', 'uncertain', 'interrupted'].includes(attempt.outcome))
     if (attempt.evidence === null) assert(attempt.evidenceSeq === null)
     else {

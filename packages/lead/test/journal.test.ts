@@ -372,6 +372,7 @@ test('a conflicting reconciliation identity refuses one call and leaves Stop wri
   assert.deepEqual(actions.map((action: any) => [action.id, action.type]), [['second', 'needs-user']])
   assert.equal(journal.state.budget.stop.reason, 'unknown-spend')
   assert.deepEqual(journal.state.runs, [{ correlationId: 'first', runId: 'run-1', teamId: 'team-1' }])
+  await assert.rejects(journal.resolveStart('second', null), 'a contested start cannot be attested as never started')
   await journal.stop()
   assert.equal((await open(storage)).state.phase, 'stopped')
 })
@@ -1052,6 +1053,7 @@ test('a witnessed Team cannot be bound to a different already-bound Goal', async
   assert.equal(journal.state.budget.stop.reason, 'unknown-spend')
   assert.ok(!journal.state.runs.some((run: any) => run.runId === identity.runId), 'a run on another Goal is never bound')
   await assert.rejects(journal.resolveStart('lost', { goalId: 'team-1', identity }))
+  await assert.rejects(journal.resolveStart('lost', null), 'a contested start cannot be attested as never started')
   await journal.stop()
 })
 
@@ -1336,4 +1338,52 @@ test('a window click shown before a conflict cannot resolve it', async () => {
   assert.equal(journal.state.attempts.get('first').resolutionPending, true)
   await journal.resolveStart('first', { goalId: 'team-1', identity: run })
   assert.equal(journal.state.attempts.get('first').outcome, 'succeeded')
+})
+
+test('one lookup naming two Teams before any Goal is bound fails closed and records one Team', async () => {
+  const { journal } = await lostStart()
+  const actions = await journal.recover(async () => [runEvidence(witnessed('run-a', 'team-1')), runEvidence(witnessed('run-b', 'team-2'))])
+  assert.deepEqual(actions.map((action: any) => [action.id, action.type]), [['lost', 'needs-user']])
+  const restored: any = await checkpointOpen(journal)
+  for (const state of [journal.state, restored.state]) {
+    assert.equal(state.budget.stop.reason, 'unknown-spend')
+    assert.deepEqual(state.runs.map((run: any) => run.teamId), ['team-1'])
+  }
+  await assert.rejects(journal.resolveStart('lost', null))
+})
+
+test('a crash between the two records of a full start still records the new live run', async () => {
+  const records: any[] = []
+  let reconciliations = 0, crash = false
+  const storage = { records, async read() { return structuredClone(records) },
+    async append(record: any) { if (crash && record.type === 'reconciliation' && ++reconciliations === 2) throw new Error('simulated crash'); records.push(structuredClone(record)) } }
+  const journal = await open(storage)
+  const expanded = { ...contract, caps: { ...contract.caps, rounds: 100 } }
+  await journal.setPolicy(policy)
+  await journal.offerCard({ ...plan, contract: expanded })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: expanded.caps, freshnessMs: 50 })
+  await journal.decideCard(click, 200)
+  await journal.execute({ id: 'wide', request, context, stepId: 'implement' }, async () => ({ value: null,
+    identity: { correlationId: 'wide', runId: 'run-1', teamId: 'team-1' } }))
+  const runs = Array.from({ length: 64 }, (_, i) => runEvidence({ correlationId: 'wide', runId: `run-${i + 1}`, teamId: 'team-1' }))
+  await journal.recover(async () => runs)
+  const lookup = async () => [...runs.map(run => ({ ...run, terminal: true })), runEvidence({ correlationId: 'wide', runId: 'run-65', teamId: 'team-1' })]
+  crash = true
+  await assert.rejects(journal.recover(lookup))
+  crash = false
+  const reopened = await open(storage)
+  assert.equal(reopened.state.budget.stop.reason, 'unknown-spend')
+  await reopened.recover(lookup)
+  assert.deepEqual(reopened.state.runs.map((run: any) => run.runId), ['run-65'])
+})
+
+test('a reconciliation record cannot revive a start the window resolved as never started', async () => {
+  const { journal, storage } = await lostStart()
+  await journal.recover(async () => [])
+  await journal.resolveStart('lost', null)
+  assert.equal(journal.state.attempts.get('lost').outcome, 'failed')
+  const template = storage.records.find((record: any) => record.type === 'reconciliation')
+  const identity = witnessed()
+  storage.records.push({ ...template, seq: journal.state.seq + 1, identity, count: 1, evidence: JSON.stringify([runEvidence(identity)]) })
+  await assert.rejects(open(storage))
 })

@@ -5,7 +5,7 @@ import {
 import { decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, assertPlanApprovable, type LeadState } from './state.js'
+import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, assertPlanApprovable, type LeadAttemptState, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 
 export const LEAD_JOURNAL_BYTES = 1_048_576
@@ -376,7 +376,10 @@ export class LeadJournal {
   recover(reconcile: (attempt: { id: string; correlationId: string; method: string }) => Promise<readonly LeadRunObservation[]>): Promise<readonly LeadRecoveryAction[]> {
     return this.#queue(async () => {
       const actions: LeadRecoveryAction[] = []
-      for (const pending of [...this.#state.attempts.values()].filter(attempt => !attempt.recoveryReported && (attempt.phase !== 'finished' || attempt.outcome === 'uncertain' || attempt.resolutionPending || this.#state.runs.some(run => run.correlationId === attempt.correlationId)))) {
+      // A start whose evidence is full may have had a live run left for a second
+      // record, so it is looked up again even when nothing it tracks is live.
+      const full = (attempt: LeadAttemptState) => attempt.evidence !== null && parseLeadRunEvidence(attempt.evidence).length >= LEAD_EVIDENCE_ROWS
+      for (const pending of [...this.#state.attempts.values()].filter(attempt => !attempt.recoveryReported && (attempt.phase !== 'finished' || attempt.outcome === 'uncertain' || attempt.resolutionPending || full(attempt) || this.#state.runs.some(run => run.correlationId === attempt.correlationId)))) {
         if (pending.phase === 'attempted') await this.#append({ type: 'decision', id: pending.id, effect: 'deny', reason: 'recovery', rule: null })
         if (pending.phase === 'attempted' || pending.phase === 'decided') await this.#append({ type: 'dispatch-start', id: pending.id, dispatched: false })
         if (pending.phase !== 'finished') await this.#append({ type: 'result', id: pending.id,
@@ -394,7 +397,9 @@ export class LeadJournal {
         const foreign = new Set([...this.#state.runs.filter(run => run.correlationId !== pending.correlationId).map(run => run.runId),
           ...[...this.#state.attempts.values()].filter(other => other.id !== pending.id && other.evidence !== null)
             .flatMap(other => parseLeadRunEvidence(other.evidence!).map(run => run.runId))])
-        const goalId = this.#state.budget?.goalId ?? null
+        // One record binds one Goal: before any is bound, the first Team in record order is it.
+        const goalId = this.#state.budget ? this.#state.budget.goalId
+          ?? sortEvidence([...retained.values(), ...observed.filter(run => !foreign.has(run.runId))])[0]?.teamId ?? null : null
         // A row that contradicts retained evidence keeps the retained identity; one
         // that comes back to life stays live so it can be cancelled. Every other row
         // of the same lookup is still recorded.
@@ -435,7 +440,7 @@ export class LeadJournal {
         }
         if (conflict) {
           const current = this.#state.attempts.get(pending.id)!
-          if (current.evidence !== null && (current.outcome !== 'uncertain' || !current.resolutionPending)) await this.#append({ type: 'reconciliation-conflict', id: pending.id })
+          if (current.evidence !== null && (!current.contested || current.outcome !== 'uncertain' || !current.resolutionPending)) await this.#append({ type: 'reconciliation-conflict', id: pending.id })
           actions.push({ id: pending.id, type: 'needs-user' })
         }
       }
