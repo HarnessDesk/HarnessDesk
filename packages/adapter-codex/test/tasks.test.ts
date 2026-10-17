@@ -281,6 +281,26 @@ test('a task title reads a quoted continuation and a no-break space as the shell
   assert.equal(taskLabel('echo\u00a0hello'), 'echo\u00a0hello')
 })
 
+test('a task title normalizes non-shell line breaks without splitting words', () => {
+  for (const separator of ['\u2028', '\u2029', '\r', '\u0085', '\v', '\f']) {
+    const context = JSON.stringify(separator)
+    assert.equal(taskLabel(`printf x${separator}y\nprintf ok`), 'printf x y ⏎ printf ok', context)
+    assert.equal(taskLabel(`echo x${separator}y`), 'echo x y', context)
+    // The separator stays within the word, so the following # cannot start a comment.
+    assert.equal(taskLabel(`printf '%s|' a${separator}# b\nprintf ok`), "printf '%s|' a # b ⏎ printf ok", context)
+    assert.equal(taskLabel(`/bin/ec${separator}ho --flag value-long-enough-to-need-a-cut`), 'ec ho value-long-enough-to-need-a-cut…', context)
+    const fallback = `echo $(printf x${separator}y) --flag value-long-enough-to-need-a-cut`
+    assert.equal(taskLabel(fallback), `${fallback.replace(separator, ' ').slice(0, 47).trimEnd()}…`, context)
+  }
+})
+
+test('a task title falls back to the command when shortening leaves only whitespace', () => {
+  const command = `/bin/${'\u00a0'.repeat(48)}echo`
+  const label = taskLabel(command)
+  assert.equal(label, '/bin/…')
+  assert.ok(label.trim() && label.trim() !== '…')
+})
+
 test('a task title is always one line', () => {
   const lines = [
     "echo 'a\nb'",

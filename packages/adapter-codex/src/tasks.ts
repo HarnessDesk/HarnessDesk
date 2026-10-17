@@ -114,8 +114,8 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 /** What a person counts as characters, so a joined emoji at the edge is never split. */
 const characters = (text: string) => Array.from(graphemes.segment(text), part => part.segment)
 
-/** A title is one line: a line break, even one inside quotes, shows as ⏎. */
-const oneLine = (text: string) => text.replace(/[ \t]*\r?\n[ \t]*/g, ' ⏎ ')
+/** Shell line breaks show as ⏎; other display breaks become spaces after tokenization. */
+const oneLine = (text: string) => text.replace(/[ \t]*\r?\n[ \t]*/g, ' ⏎ ').replace(/[\r\v\f\u0085\u2028\u2029]/g, ' ')
 
 /** The line as it came, on one line and cut to fit a title. */
 const cut = (line: string) => {
@@ -167,9 +167,9 @@ export const taskLabel = (command: string): string => {
   if (from && tokens[from]) line = line.slice(tokens[from]!.start).trim()
   // A short line is the title as the shell reads it: across a line break it is
   // put back together from its words, with each break that ends a command as ⏎.
-  const whole = line.includes('\n')
-    ? oneLine(tokens.slice(from).map(token => token.kind === 'word' ? token.raw : token.op === '\n' ? '⏎' : token.op).join(' '))
-    : line
+  const whole = oneLine(line.includes('\n')
+    ? tokens.slice(from).map(token => token.kind === 'word' ? token.raw : token.op === '\n' ? '⏎' : token.op).join(' ')
+    : line)
   // A line with no word in it (only comments and breaks) is shown as it came, cut.
   if (/[^\s⏎]/.test(whole) && characters(whole).length <= LABEL_MAX) return whole
   const end = tokens.findIndex((token, i) => i >= from && token.kind === 'op')
@@ -181,7 +181,9 @@ export const taskLabel = (command: string): string => {
   const name = program.value.split('/').at(-1) || program.value
   const argument = segment.slice(at + 1).find((token): token is Word => token.kind === 'word' && !token.value.startsWith('-'))
   const short = oneLine(argument ? `${name} ${argument.raw}` : name)
-  return characters(short).length > LABEL_MAX ? cut(short) : `${short}…`
+  const label = characters(short).length > LABEL_MAX ? cut(short) : `${short}…`
+  // Trimming a whitespace-only prefix must not leave the ellipsis as the whole title.
+  return label.slice(0, -1).trim() ? label : cut(command.trim())
 }
 
 /** How often the live list is re-read while something is running. */
