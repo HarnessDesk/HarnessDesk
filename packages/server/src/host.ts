@@ -8689,7 +8689,11 @@ export class Host {
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
     const id = String(runtime)
     if (health.state === 'unavailable' && isProgramFailure(health.reason)) this.#runtimeCache.update(id, { wouldNotStart: health.reason })
-    else if (health.state === 'ready' && this.#runtimeCache.get(id).wouldNotStart) this.#runtimeCache.update(id, { wouldNotStart: undefined })
+    // Cleared when it comes up, and when it gets far enough to crash: from
+    // there on the program on disk is not the reason, and a crash is not
+    // asked again at launch. Not on `unknown`, which a stop can say.
+    else if ((health.state === 'ready' || (health.state === 'unavailable' && health.reason === 'crashed')) &&
+      this.#runtimeCache.get(id).wouldNotStart) this.#runtimeCache.update(id, { wouldNotStart: undefined })
     const authority = this.#runtimes.get(runtime)
     if (health.state === 'ready' && authority && !authority.info.capabilities.archiveHistory && !this.#indexFolderBackfills.has(runtime)) {
       // A ready signal may arrive while the guarded idle read is settling.

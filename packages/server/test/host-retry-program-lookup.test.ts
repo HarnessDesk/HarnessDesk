@@ -394,3 +394,22 @@ test('an agent that failed for a reason of its own is not asked at launch', asyn
   await pause(100)
   assert.equal(again.starts, 0, 'a crash is not a fact about the program on disk')
 })
+
+test('an agent that was missing and then crashed is not asked at launch', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-retry-relaunch-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const id = runtimeId('one')
+
+  const program = new Program({ id })
+  const before = await relaunch(t, dir, program)
+  await ask(before, program)
+  assert.deepEqual(program.health(), notInstalled)
+  // Installed since, and it got as far as running before it fell over.
+  program.setHealth({ state: 'unavailable', reason: 'crashed', message: 'It crashed.' })
+  await before.dispose()
+
+  const again = new Program({ id })
+  await relaunch(t, dir, again)
+  await pause(100)
+  assert.equal(again.starts, 0, 'the missing program is not the reason any more')
+})
