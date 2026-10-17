@@ -43,7 +43,7 @@ it.each(['skill', 'mcp'] as const)('%s keeps counted sections and the appropriat
     }
     await more()
     const labels = [...document.querySelectorAll('[role="menuitem"]')].map(n => n.textContent)
-    expect(labels).toEqual(kind === 'skill' ? ['Check for updates', 'Rescan'] : ['Import', 'Add from GitHub…', 'Check for updates', 'Rescan'])
+    expect(labels).toEqual(kind === 'skill' ? ['Check for updates', 'Rescan', 'Changes made here…'] : ['Import', 'Add from GitHub…', 'Check for updates', 'Rescan', 'Changes made here…'])
     await click('Check for updates'); expect(check).toHaveBeenCalledOnce()
     await more(); await click('Rescan'); expect(rescan).toHaveBeenCalledOnce()
     await act(async () => box.querySelector<HTMLButtonElement>('[title="Library sections"]')!.click())

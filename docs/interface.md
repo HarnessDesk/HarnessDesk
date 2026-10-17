@@ -1023,8 +1023,8 @@ backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.
 
 Library's skills page offers **Add skill**: **Write a skill**, **From GitHub…**,
-and **Copy from another runtime…**. Its More menu keeps **Check for updates**
-and **Rescan**; MCP servers retain their existing menus.
+and **Copy from another runtime…**. Its More menu keeps **Check for updates**,
+**Rescan**, and **Changes made here…**; MCP servers retain their existing menus.
 Add skill and Check for updates wait until the Library has been read.
 A check stays disabled while it runs. Add from GitHub accepts a
 public repository or folder URL and an optional branch, tag or commit. Found
@@ -1066,6 +1066,16 @@ starts open. An edited-copy reason appears verbatim above the files, and only
 an operation that plans a backup says it will make one. Added or changed runnable
 or binary files use the existing acknowledgement; removed files need none.
 After Apply the ordinary Library read supplies the new state.
+
+**Changes made here** reads the last 90 days of Library writes on its own page,
+reached from More or the **View changes** action on each write's toast. All,
+Can restore and Failed chips show counts; search matches names and paths.
+Today, Yesterday and Earlier group the entries, with time, runtime and path.
+Only a completed change with a backup offers **Restore…**, which previews what
+it puts back and replaces. Applying a restore refreshes the page. The Library
+has no history list at its foot. Successful writes share one success toast;
+failures share a persistent failure toast with the first reason. Skipped
+operations raise nothing, and the write toasts offer no Undo.
 
 The Library's skills page opens as a grid of cards sorted by name. Each card
 opens the existing skill sheet, shows its description in at most two lines,

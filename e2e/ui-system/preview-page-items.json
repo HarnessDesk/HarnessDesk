@@ -278,7 +278,7 @@
     {
       "selector": "[data-frame-id=\"coverage-library\"] > div",
       "id": "coverage-library",
-      "title": "Library \u2014 changes made from here"
+      "title": "Library \u2014 Changes made here"
     },
     {
       "selector": "[data-frame-id=\"coverage-panel-actions\"] > div",

@@ -562,8 +562,7 @@ const ControlBoard = () => {
             ]}
           />
           <div className="mt-2 flex flex-wrap gap-2">
-            {/* Chips render on their own row below, so this row skips them. */}
-            {TOGGLE_GROUP_CATALOG_VARIANTS.map((variant) => variant === 'chips' ? null : (
+            {TOGGLE_GROUP_CATALOG_VARIANTS.map((variant) => (
               <ToggleGroup key={variant} type="single" variant={variant} defaultValue="one" data-catalog-variant={variant}>
                 <ToggleGroupItem value="one">One</ToggleGroupItem>
                 <ToggleGroupItem value="two">Two</ToggleGroupItem>
@@ -576,13 +575,7 @@ const ControlBoard = () => {
               </ToggleGroup>
             ))}
           </div>
-          {/* Chips get their own row so they cannot rewrap the existing size specimens. */}
-          <div className="mt-2">
-            <ToggleGroup type="single" variant="chips" defaultValue="one" data-catalog-variant="chips">
-              <ToggleGroupItem value="one">One</ToggleGroupItem>
-              <ToggleGroupItem value="two">Two</ToggleGroupItem>
-            </ToggleGroup>
-          </div>
+
           </div>
         </Case>
         <Case label="selection action"><SelectionActionExample /></Case>

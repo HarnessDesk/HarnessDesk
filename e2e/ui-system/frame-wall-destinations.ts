@@ -211,6 +211,11 @@ export const E5_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
 ;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E5_PAGE_WALL_DESTINATIONS)
 
 export const E6_LIBRARY_PAGE_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'l2-library-changes', query: 'frame-wall=library&frame-kind=changes', pageWidth: 'wide' },
+  { id: 'l2-library-changes-restore', query: 'frame-wall=library&frame-kind=changes', pageWidth: 'wide', bodyChoice: { label: 'Changes', value: 'restore', item: 'Can restore' } },
+  { id: 'l2-library-changes-failed', query: 'frame-wall=library&frame-kind=changes', pageWidth: 'wide', bodyChoice: { label: 'Changes', value: 'failed', item: 'Failed' } },
+  ...['one', 'several', 'installs', 'failed', 'failures'].map(shape => ({ id: `l2-library-toast-${shape}`, query: `frame-wall=library&frame-write-toast=${shape}`, pageWidth: 'wide' as const })),
+  { id: 'l2-library-changes-empty', query: 'frame-wall=library&frame-kind=changes&frame-changes-empty=1', pageWidth: 'wide' },
   { id: 'e6-library-skills', query: 'frame-wall=library&frame-kind=skill', pageWidth: 'wide' },
   { id: 'l1-library-empty', query: 'frame-wall=library&frame-empty=1', pageWidth: 'wide' },
   { id: 'l1-library-add', query: 'frame-wall=library', pageWidth: 'wide', addSkillMenu: true },

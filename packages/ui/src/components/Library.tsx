@@ -48,7 +48,6 @@ import {
 import {
   installSource,
   LibraryFlows,
-  LibraryHistory,
   type LibraryColumn,
   type LibraryFlow,
 } from './LibraryActions'
@@ -78,7 +77,7 @@ import { LibraryMatrix, PageExplanation, FormStack, Row, Rows, type PageOption }
  * matrix rather than in a wizard of its own, because the matrix is the
  * evidence — "install to Cursor" belongs one click from the cell that says
  * Cursor lacks it, and after the write the same cells show whether it
- * landed. What happened here is listed at the foot of the page, from the
+ * landed. What happened here has its own Changes made here page, from the
  * audit log, with the backups each change kept.
  *
  * The design decision that shapes everything below: **a cell is not a
@@ -763,11 +762,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
         </details>
       )}
 
-      <LibraryHistory
-        refreshedAt={library?.generatedAt ?? 0}
-        home={library?.home}
-        onFlow={setFlow}
-      />
+
 
       {/*
        * The reading surface. Mounted from the page rather than from the card

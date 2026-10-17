@@ -1,3 +1,4 @@
+import { LibraryDestinationFixture } from './library-destination-fixture'
 import { Notice, NoticeHost, Input, Text } from '../design'
 import { libraryNoticeResults } from './notice-fixture'
 import { SettingsPreviewScope } from './settings-pages'
@@ -15,7 +16,7 @@ import { TroubleNote } from '../components/GitAskAgent'
 import { ConfirmDialog } from '../components/GitDialogs'
 import { AddWorktreeDialog } from '../components/GitWorktrees'
 import { PlanSteps, StepNameScope } from '../components/Items'
-import { ImportDialog, LibraryFlows, LibraryHistory, PlanDialog, ResolveDialog } from '../components/LibraryActions'
+import { ImportDialog, LibraryFlows, PlanDialog, ResolveDialog } from '../components/LibraryActions'
 import { Notices, NoticeStripOutlet, SidebarNotices } from '../components/Notices'
 import { Publication } from '../components/Publication'
 import { Deliverables, JobsBar } from '../components/SessionBars'
@@ -313,8 +314,8 @@ export const CoverageFrames = () => {
           </div>
         </StoreProvider>
       </Frame>
-      <Frame id="coverage-library" title="Library — changes made from here">
-        <div className="p-4"><LibraryHistory refreshedAt={0} home="/home/u" onFlow={() => {}} /></div>
+      <Frame id="coverage-library" title="Library — Changes made here">
+        <div className="h-[900px]"><LibraryDestinationFixture query="frame-kind=changes" /></div>
       </Frame>
       <Frame id="coverage-panel-actions" title="Panel actions context">
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
