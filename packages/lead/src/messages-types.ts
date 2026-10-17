@@ -37,8 +37,9 @@ export interface MessagesHttpResponse {
   readonly status: number
   readonly body: string
   readonly retryAfter?: string
-  /** Trusted transport evidence, never parsed from model text. Only a pre-processing
-   * 429/529 may assert this. Missing evidence means billing is unknown. */
+  /** Trusted transport evidence, never parsed from model text. Assert 'not-started' only
+   * for a 4xx or 529 the provider refused before any processing: a rate limit is then
+   * retried, any other 4xx zero-settles as failed. Missing evidence means billing is unknown. */
   readonly processing?: 'not-started' | 'unknown'
 }
 export interface MessagesTransport {

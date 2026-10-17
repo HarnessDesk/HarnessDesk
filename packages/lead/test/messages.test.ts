@@ -284,3 +284,51 @@ test('tool results cannot execute hidden JSON serializers or disclose their retu
   assert.equal(result.toolResults[0].is_error, true)
   assert.ok(!JSON.stringify(result).includes(key))
 })
+
+test('an unbilled client error zero-settles, names its cause and leaves the budget open', async () => {
+  for (const [status, reason] of [[401, 'lead-messages-auth'], [403, 'lead-messages-auth'], [400, 'lead-messages-request'], [413, 'lead-messages-request']] as const) {
+    const s = await setup([{ status, processing: 'not-started', body: key }, message()])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.deepEqual(result, { status: 'failed', reason })
+    assert.equal(s.journal.state.budget!.spend, 'known')
+    assert.equal(s.journal.state.budget!.reservedUsdMicros, 0)
+    assert.equal((await s.client.request(input, new AbortController().signal)).status, 'completed')
+  }
+  // Without the transport's evidence a client error may still have been billed.
+  const s = await setup([{ status: 401, body: '' }])
+  assert.equal((await s.client.request(input, new AbortController().signal)).status, 'uncertain')
+})
+
+test('a malformed transport reply is uncertain, never a raw exception', async () => {
+  for (const reply of [undefined, null, 'ok', { status: '200', body: '' }, { status: 429, processing: 'not-started', retryAfter: 2, body: '' }]) {
+    const s = await setup([async () => reply as any])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.deepEqual(result, { status: 'uncertain', reason: 'lead-messages-billing-unknown' })
+  }
+})
+
+test('plain text that opens with a brace is text, not a broken envelope', async () => {
+  const s = await setup([message([{ type: 'text', text: '{ this is prose, not JSON }' }]), message([{ type: 'text', text: '{"note":"plain object"}' }])])
+  const prose = await s.client.request(input, new AbortController().signal)
+  assert.equal(prose.status, 'completed')
+  assert.equal(prose.text, '{ this is prose, not JSON }')
+  const other = await s.client.request(input, new AbortController().signal)
+  assert.equal(other.text, '{"note":"plain object"}')
+  assert.deepEqual(other.proposals, { plan: null, cards: [] })
+})
+
+test('a model refusal or paused turn settles usage and says which it was', async () => {
+  for (const [stop, reason] of [['refusal', 'lead-messages-model-refusal'], ['pause_turn', 'lead-messages-paused']] as const) {
+    const s = await setup([message([{ type: 'text', text: 'No' }], { stop_reason: stop })])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.equal(result.status, 'failed')
+    assert.equal(result.reason, reason)
+    assert.deepEqual(result.usage, { inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 40 })
+    assert.equal(s.journal.state.budget!.reservedUsdMicros, 0)
+  }
+})
+
+test('model defaults are ids the client can send', () => {
+  for (const id of [lead.LEAD_MESSAGES_DEFAULTS.model, lead.LEAD_MESSAGES_DEFAULTS.observerModel, lead.LEAD_MESSAGES_DEFAULTS.hardPlanModel])
+    assert.match(id, /^claude-[a-z]+-\d+-\d+$/)
+})

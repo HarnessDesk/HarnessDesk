@@ -5,7 +5,7 @@ import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, Messa
   MessagesText, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
 
 /** Configuration defaults only; model choice never changes permissions or behavior. */
-export const LEAD_MESSAGES_DEFAULTS = Object.freeze({ model: 'claude-sonnet-5-5', observerFamily: 'haiku', hardPlanFamily: 'opus' })
+export const LEAD_MESSAGES_DEFAULTS = Object.freeze({ model: 'claude-sonnet-5-5', observerModel: 'claude-haiku-5-5', hardPlanModel: 'claude-opus-5-5' })
 const LIMIT = Object.freeze({ bytes: 1_048_576, text: 16_384, blocks: 64, turns: 256, nodes: 16_384,
   depth: 24, maxTokens: 65_536, retries: 2, retryMs: 30_000 })
 const fail = (): never => { throw new Error('lead-messages-invalid') }
@@ -154,12 +154,17 @@ const usage = (value: unknown): MessagesUsage => {
     cacheReadTokens: source.cache_read_input_tokens === undefined ? 0 : integer(source.cache_read_input_tokens),
     cacheWriteTokens: source.cache_creation_input_tokens === undefined ? 0 : integer(source.cache_creation_input_tokens) }
 }
-/** Text beginning with an object is the structured assistant-output envelope.
- * Proposals are data only; their validators confer no authority to execute them. */
+/** Text that parses as an object naming `type: 'lead-output'` is the structured
+ * assistant-output envelope; anything else, brace or not, is ordinary text. A named
+ * envelope must then be valid. Proposals are data only; their validators confer no
+ * authority to execute them. */
 const proposals = (text: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[] } => {
-  if (!text.trimStart().startsWith('{')) return { text, plan: null, cards: [] }
-  const source = object(JSON.parse(text), ['version', 'type', 'text', 'plan', 'cards'])
-  if (source.version !== 1 || source.type !== 'lead-output') return fail()
+  let candidate: unknown = null
+  if (text.trimStart().startsWith('{')) try { candidate = JSON.parse(text) } catch { /* prose */ }
+  if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate) || (candidate as Record<string, unknown>).type !== 'lead-output')
+    return { text, plan: null, cards: [] }
+  const source = object(candidate, ['version', 'type', 'text', 'plan', 'cards'])
+  if (source.version !== 1) return fail()
   if (source.cards !== undefined && (!Array.isArray(source.cards) || source.cards.length > LIMIT.blocks)) return fail()
   const cards = source.cards === undefined ? [] : (source.cards as unknown[]).map(value => parseLeadCard(value))
   if (new Set(cards.map(card => card.id)).size !== cards.length) fail()
@@ -242,9 +247,13 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
         return { status: 'cancelled' }
       }
       try {
-        response = await cancellable(() => transport.send({ origin: 'https://api.anthropic.com', path: '/v1/messages', method: 'POST',
+        const reply = object(await cancellable(() => transport.send({ origin: 'https://api.anthropic.com', path: '/v1/messages', method: 'POST',
           headers: Object.freeze({ 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': apiKey }),
-          body, maxResponseBytes: LIMIT.bytes, signal }), signal)
+          body, maxResponseBytes: LIMIT.bytes, signal }), signal))
+        // A reply of the wrong shape proves nothing about billing either.
+        if (!Number.isSafeInteger(reply.status) || reply.retryAfter !== undefined && typeof reply.retryAfter !== 'string' ||
+          reply.processing !== undefined && reply.processing !== 'not-started' && reply.processing !== 'unknown') fail()
+        response = reply as unknown as MessagesHttpResponse
       } catch { return uncertain() }
       if ((response.status === 429 || response.status === 529) && response.processing === 'not-started') {
         const delay = retryDelay(response.retryAfter, now())
@@ -258,6 +267,12 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
           return { status: signal.aborted ? 'cancelled' : 'failed', reason: 'lead-messages-delay' }
         }
         continue
+      }
+      // A client error the transport saw refused before processing was never billed.
+      // Naming its cause lets the owner fix a key instead of losing the goal's budget.
+      if (response.status >= 400 && response.status < 500 && response.processing === 'not-started') {
+        try { await zero() } catch { return uncertain() }
+        return { status: 'failed', reason: response.status === 401 || response.status === 403 ? 'lead-messages-auth' : 'lead-messages-request' }
       }
       // No other status or transport rejection proves a zero charge.
       if (response.status !== 200) return uncertain()
@@ -273,6 +288,9 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       used = usage(parsed.usage)
       await accounting({ type: 'settle', ...used })
     } catch { return uncertain() }
+    // Usage is settled; a refusal or a paused turn is the model's answer, not a protocol fault.
+    if (parsed.stop_reason === 'refusal') return { status: 'failed', reason: 'lead-messages-model-refusal', usage: used }
+    if (parsed.stop_reason === 'pause_turn') return { status: 'failed', reason: 'lead-messages-paused', usage: used }
     let content: (MessagesText | MessagesToolUse)[], output: ReturnType<typeof proposals>
     try {
       if (parsed.type !== 'message' || parsed.role !== 'assistant' || !['end_turn', 'tool_use', 'max_tokens', 'stop_sequence'].includes(parsed.stop_reason as string)) fail()
