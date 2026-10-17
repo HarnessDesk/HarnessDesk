@@ -13,7 +13,6 @@ export const CLIENT_METHODS = {
   'attachment/seat': 'read',
   'goal/list': 'read',
   'goal/read': 'read',
-  'goal/seen': 'read',
   'team/intent': 'answer',
   'flow/catalog': 'read',
   'flow/source': 'read',

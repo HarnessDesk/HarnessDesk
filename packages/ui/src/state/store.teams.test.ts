@@ -28,17 +28,19 @@ it('refuses to Hide active work and reports a failed host read-mark write',async
  await new Promise(resolve=>setTimeout(resolve,0))
  expect(store.getSnapshot().notices.some(one=>one.message.includes('disk unavailable'))).toBe(true)
 })
-it('opening a Team through any door asks the host to mark it seen',async()=>{
+it('opening a Team through any door shows its room, and only the room marks it seen',async()=>{
  const store=new AppStore('ws://localhost:0/')
  const view=overviewTeamStore('running').getSnapshot().goals.get('overview-team')!
  const writes=vi.spyOn(store.transport,'request').mockResolvedValue({...view,lastSeenAt:123} as never)
  const handlers=(store.transport as unknown as {handlers:{onNotification(n:WireNotification):void}}).handlers
  handlers.onNotification({method:'goal/changed',params:{view}})
+ const shown=vi.spyOn(store,'openDefaultView')
  store.openTeamRoom('overview-team')
  store.openGoal('overview-team')
  await new Promise(resolve=>setTimeout(resolve,0))
- expect(writes).toHaveBeenCalledWith('goal/seen',{goal:'overview-team'})
- expect(store.getSnapshot().goals.get('overview-team')).toMatchObject({lastSeenAt:123})
+ expect(shown.mock.calls.map(([target])=>target)).toEqual([{kind:'room',room:'overview-team'},{kind:'room',room:'overview-team'}])
+ // TeamRoomPane marks the Team seen once it is on screen (TeamRoomPane.test.tsx), so a door never writes twice.
+ expect(writes).not.toHaveBeenCalledWith('goal/seen',expect.anything())
 })
 
 it('the Team list preview keeps seen marks and navigation in the same snapshot', async () => {

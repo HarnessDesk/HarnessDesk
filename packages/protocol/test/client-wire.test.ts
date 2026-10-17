@@ -63,7 +63,6 @@ test('Seat attachment readback is available at the client read tier', () => {
 })
 
 
-test('Team read marks are available to the phone on the read tier', () => {
-  assert.equal(clientTierFor('goal/seen'), 'read')
-  assert.doesNotThrow(() => request('goal/seen', { goal: 'demo-team' }))
+test('Team read marks stay off the client door until a client command sets one', () => {
+  assert.equal(clientTierFor('goal/seen'), null)
 })

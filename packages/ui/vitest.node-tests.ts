@@ -95,7 +95,6 @@ export const NODE_TESTS: readonly string[] = [
   'src/lib/side-by-side.test.ts',
   'src/lib/system-notifications.test.ts',
   'src/lib/tasks.test.ts',
-  'src/lib/team-overview.test.ts',
   'src/lib/team-seats.test.ts',
   'src/lib/todos.test.ts',
   'src/lib/tool-names.test.ts',
