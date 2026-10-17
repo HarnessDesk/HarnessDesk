@@ -169,6 +169,50 @@ test('Lead entries reject computed process handles except safe literal members',
   }
 })
 
+test('Lead checks unwrap parenthesized literal prototype keys in core and entries', () => {
+  const rule = boundaryRule('lead')
+  for (const file of ['loop', 'child', 'supervisor'])
+    for (const source of [
+      "const { [('constructor')]: Make } = () => {}",
+      "const value = { [(('__proto__'))]: prototype }",
+      "value[('constructor')]", "value[(('__proto__'))]",
+    ]) assert.ok(rule.offenders(source, `packages/lead/src/${file}.ts`).length > 0, `${file}: ${source}`)
+})
+
+test('Lead entries reject prototype keys without a direct loader reference', () => {
+  const rule = boundaryRule('lead')
+  for (const entry of ['child', 'supervisor'])
+    for (const source of [
+      'const make = (() => {}).constructor', "const make = value['constructor']",
+      'value.__proto__', 'const { constructor: Make } = value',
+      'const { __proto__: prototype } = value', 'const value = { constructor: make }',
+      "const value = { ['__proto__']: prototype }",
+    ]) assert.ok(rule.offenders(source, `packages/lead/src/${entry}.ts`).length > 0, `${entry}: ${source}`)
+})
+
+test('Lead entries reject process loader assignments and internal loader members', () => {
+  const rule = boundaryRule('lead')
+  const missed = []
+  for (const entry of ['child', 'supervisor']) {
+    const file = `packages/lead/src/${entry}.ts`
+    for (const member of ['getBuiltinModule', 'binding', 'dlopen', '_linkedBinding', 'mainModule', 'moduleLoadList']) {
+      for (const source of [
+        `let get; ({ ${member}: get } = process)`,
+        `let ${member}; ({ ${member} } = process)`,
+        `const { ${member}: get } = process`,
+        `const { [('${member}')]: get } = process`,
+        `let get; ({ [('${member}')]: get } = process)`,
+        `process.${member}('node:fs')`, `process[('${member}')]('node:fs')`,
+      ]) if (rule.offenders(source, file).length === 0) missed.push(`${entry}: ${source}`)
+    }
+  }
+  assert.deepEqual(missed, [])
+  for (const entry of ['child', 'supervisor'])
+    for (const source of ["process[('stdin')]", "process[('getBuiltinModule')]('node:https')",
+      "const { [('stdin')]: input } = process", 'let input; ({ stdin: input } = process)'])
+      assert.deepEqual(rule.offenders(source, `packages/lead/src/${entry}.ts`), [], `${entry}: ${source}`)
+})
+
 test('Lead source scanning includes every local TypeScript and JavaScript extension', t => {
   const root = mkdtempSync(join(tmpdir(), 'hd-lead-extensions-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))

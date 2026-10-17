@@ -33,6 +33,7 @@ import {
 } from './validate.js'
 import type { EditorEvent } from './editor.js'
 import type { FlowPermission, FlowSeat, FlowThen } from './flow.js'
+import { flowSeatValidator } from './flow-seat.js'
 import type { FlowAgentRole, FlowEvidenceGuard, FlowPolicy, FlowPolicyRole, FlowPolicyRule } from './flow-policy.js'
 import type { UserContent } from './items.js'
 import type { LibraryIntent, LibraryPlannedOp } from './library.js'
@@ -178,18 +179,6 @@ const noColonRuntime: Validator<string> = (value, path = '') => {
 }
 const planRuntime = atMost(200, noColonRuntime)
 const planAccount = atMost(256, isFilled)
-
-/**
- * A seat as a map — `{ runtime, model, effort, thinking }` — the shape a seat
- * spec parses to. Checked field by field because it is handed to the seating
- * as it arrives, and a seat's runtime is what names the conversation opened.
- */
-const flowSeatValidator = shape({
-  runtime: isFilled,
-  model: optional(isString),
-  effort: optional(isString),
-  thinking: optional(isBoolean),
-}) as Validator<FlowSeat>
 
 /**
  * The permissions a seating may grant. Keyed by `FlowPermission`, so a fourth

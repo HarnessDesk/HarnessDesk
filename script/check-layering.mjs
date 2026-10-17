@@ -27,19 +27,27 @@ const LEAD_ENTRIES = new Map([
   [comparisonPath(join(root, 'packages/lead/src/supervisor.ts')), new Set([...LEAD_TRANSPORT_MODULES, 'node:child_process', 'node:path'])],
 ])
 // Allowlists govern direct entry imports only; allowed client/node retains its transitive Node authority.
-// Static rule: non-literal computed keys, Reflect and indirect prototype walks are not caught;
-// review must check these residual paths rather than treating this gate as a sandbox.
+// Static lint: aliasing (const p = process), non-literal computed keys, Reflect and indirect
+// prototype walks are not caught; review must check these residual paths.
+// Step 9's runtime permission model is the boundary; this rule is a lint, not a sandbox.
 const LEAD_GLOBALS = new Set(['process', 'globalThis', 'global', 'require', 'module', 'eval', 'Function',
   'fetch', 'WebSocket', 'XMLHttpRequest', 'Buffer'])
 const prototypeKeys = new Set(['constructor', '__proto__'])
-const blockedProcessMembers = new Set(['binding', 'dlopen', ...prototypeKeys])
+const blockedProcessMembers = new Set(['binding', 'dlopen', '_linkedBinding', 'mainModule', 'moduleLoadList', ...prototypeKeys])
+const unwrapParentheses = node => {
+  while (node && ts.isParenthesizedExpression(node)) node = node.expression
+  return node
+}
 const propertyKey = node => {
   if (!node) return null
-  if (ts.isComputedPropertyName(node)) return ts.isStringLiteralLike(node.expression) ? node.expression.text : null
+  if (ts.isComputedPropertyName(node)) {
+    const expression = unwrapParentheses(node.expression)
+    return ts.isStringLiteralLike(expression) ? expression.text : null
+  }
   return ts.isIdentifier(node) || ts.isStringLiteralLike(node) ? node.text : null
 }
 const isProcess = node => {
-  while (node && ts.isParenthesizedExpression(node)) node = node.expression
+  node = unwrapParentheses(node)
   return node && ts.isIdentifier(node) && node.text === 'process'
 }
 
@@ -85,31 +93,36 @@ const leadAuthorityOffenders = (source, fileName) => {
     if (ts.isIdentifier(node) && !typeOnlyIdentifier(node) &&
       ((LEAD_GLOBALS.has(node.text) && bindingIdentifier(node)) || (forbidden.has(node.text) && valueIdentifier(node)))) offenders.push(node.text)
     if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly && ts.isExternalModuleReference(node.moduleReference)) offenders.push('require')
+    const element = ts.isElementAccessExpression(node) ? unwrapParentheses(node.argumentExpression) : null
     const member = ts.isPropertyAccessExpression(node) ? node.name.text
-      : ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : null
+      : element && ts.isStringLiteralLike(element) ? element.text : null
     const key = ts.isBindingElement(node) ? node.propertyName ?? node.name
       : (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node) || ts.isMethodDeclaration(node) ||
         ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node) || ts.isPropertyDeclaration(node)) ? node.name : null
-    if (!entryModules && (prototypeKeys.has(member) || prototypeKeys.has(propertyKey(key)))) offenders.push('prototype/constructor key')
+    if (prototypeKeys.has(member) || prototypeKeys.has(propertyKey(key))) offenders.push('prototype/constructor key')
     if (entryModules) {
       if (ts.isElementAccessExpression(node) && isProcess(node.expression) &&
-        (!ts.isStringLiteral(node.argumentExpression) || blockedProcessMembers.has(node.argumentExpression.text))) offenders.push('computed process member')
+        (!ts.isStringLiteral(element) || blockedProcessMembers.has(element.text))) offenders.push('computed process member')
       const patternSource = ts.isBindingElement(node) ? node.parent.parent.initializer
-        : ts.isPropertyAssignment(node) && ts.isBinaryExpression(node.parent.parent) &&
+        : (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) && ts.isBinaryExpression(node.parent.parent) &&
           node.parent.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.parent.parent.right : null
-      if (key && ts.isComputedPropertyName(key) && isProcess(patternSource) &&
-        (!ts.isStringLiteral(key.expression) || blockedProcessMembers.has(key.expression.text) || key.expression.text === 'getBuiltinModule'))
+      const computedKey = key && ts.isComputedPropertyName(key) ? unwrapParentheses(key.expression) : null
+      if (computedKey && isProcess(patternSource) &&
+        (!ts.isStringLiteral(computedKey) || blockedProcessMembers.has(computedKey.text) || computedKey.text === 'getBuiltinModule'))
         offenders.push('computed process binding')
-      if (member === 'binding' || member === 'dlopen') offenders.push(member)
+      if (blockedProcessMembers.has(member)) offenders.push(member)
       if (member === 'getBuiltinModule') {
         const call = node.parent
         const argument = ts.isCallExpression(call) && call.expression === node ? call.arguments[0] : null
         if (!argument || !ts.isStringLiteral(argument) || !entryModules.has(argument.text)) offenders.push('getBuiltinModule')
       }
       // Loader handles cannot be extracted into aliases or imported as named bindings.
-      if (ts.isBindingElement(node) && ['getBuiltinModule', 'binding', 'dlopen'].includes(propertyKey(key)))
+      const loaderKey = propertyKey(key)
+      if ((ts.isBindingElement(node) || ((ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) && isProcess(patternSource))) &&
+        (loaderKey === 'getBuiltinModule' || blockedProcessMembers.has(loaderKey)))
         offenders.push('process loader binding')
-      if (ts.isImportSpecifier(node) && ['getBuiltinModule', 'binding', 'dlopen'].includes(node.propertyName?.text ?? node.name.text) &&
+      if (ts.isImportSpecifier(node) && (node.propertyName?.text === 'getBuiltinModule' || node.name.text === 'getBuiltinModule' ||
+        blockedProcessMembers.has(node.propertyName?.text ?? node.name.text)) &&
         node.parent.parent.parent.moduleSpecifier?.text === 'node:process') offenders.push('process loader import')
     }
     if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&

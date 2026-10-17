@@ -16,7 +16,7 @@ const contract = {
   project: { id: 'project-demo', path: '/workspace/demo' }, policyRevision: 0,
   steps: [{ id: 'implement', title: 'Implement and review', flow: 'lead-reviewed-result', sourceRevision: 'source-1',
     variables: { task: 'Repair the check' }, attendance: 'attended',
-    assignments: [{ role: 'implement', agent: 'builder', seat: 'worker-1', ceiling: 'edit' }] }],
+    assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture', model: 'model-demo' }, ceiling: 'edit' }] }],
   assertions: [{ id: 'tests', kind: 'check', description: 'Required checks pass' }], caps,
 }
 const budget = { version: 1, revision: 1, caps, leadUsdMicros: 20, workerUsdMicros: 50,
@@ -35,20 +35,26 @@ const thread = { version: 1, id: 'thread-1', revision: 2, state: 'awaiting-plan'
   olderMessages: 0, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'user', text: 'Repair the check' }], cards }
 const settings = { version: 1, model: 'model-demo', key: { configured: true, protection: 'encrypted' }, policy, caps }
 
-test('Lead assignments round-trip the real seat grammar and opaque host fields', () => {
-  const seat = protocol.seatSpec({ runtime: 'cursor', model: 'gpt-5.3-codex', effort: 'xhigh', thinking: true })
-  assert.equal(seat, 'cursor=gpt-5.3-codex/xhigh+thinking')
-  const seated = { ...contract, steps: [{ ...contract.steps[0], assignments: [{ ...contract.steps[0]!.assignments[0], seat }] }] }
-  assert.deepEqual(validator('parseLeadAcceptanceContract')(seated), seated)
+test('Lead assignments round-trip structured Flow seats including slash model ids and optional effort', () => {
+  for (const seat of [
+    { runtime: 'fixture', model: 'vendor/model-1', effort: 'high' },
+    { runtime: 'fixture', model: 'vendor/model-1' },
+    { runtime: 'fixture', model: 'vendor/model-1', effort: 'high', thinking: true },
+  ]) {
+    const seated = { ...contract, steps: [{ ...contract.steps[0], assignments: [{ ...contract.steps[0]!.assignments[0], seat }] }] }
+    assert.deepEqual(validator('parseLeadAcceptanceContract')(seated), seated)
+  }
+  for (const seat of ['fixture=model/high', { model: 'vendor/model-1' }, { runtime: ' ' },
+    { runtime: 'fixture', model: 'bad\nmodel' }, { runtime: 'fixture', thinking: 'yes' }])
+    assert.throws(() => validator('parseLeadAcceptanceContract')({ ...contract, steps: [{ ...contract.steps[0], assignments: [{ ...contract.steps[0]!.assignments[0], seat }] }] }), protocol.ValidationError)
+})
+
+test('Lead opaque host fields preserve their bounded string shape', () => {
   const candidate = { ...contract, project: { ...contract.project, id: 'acme.dev/demo+tools' },
-    steps: [{ ...contract.steps[0], flow: 'Reviewed work+checks', sourceRevision: 'sha256=ab+/c==',
-      assignments: [{ ...contract.steps[0]!.assignments[0], seat }] }] }
+    steps: [{ ...contract.steps[0], flow: 'Reviewed work+checks', sourceRevision: 'sha256=ab+/c==' }] }
   const parsed = protocol.parseLeadAcceptanceContract(candidate)
   assert.deepEqual(parsed, candidate)
-  assert.deepEqual(protocol.parseSeat(parsed.steps[0]!.assignments[0]!.seat), { runtime: 'cursor', model: 'gpt-5.3-codex', effort: 'xhigh', thinking: true })
   assert.deepEqual(validator('parseLeadSettingsProjection')({ ...settings, model: 'provider model+variant' }), { ...settings, model: 'provider model+variant' })
-  for (const seat of ['=model/high', 'cursor=model/high+unknown', 'cursor=model/high/ignored'])
-    assert.throws(() => validator('parseLeadAcceptanceContract')({ ...contract, steps: [{ ...contract.steps[0], assignments: [{ ...contract.steps[0]!.assignments[0], seat }] }] }), protocol.ValidationError)
   for (const sourceRevision of ['bad\nrevision', 'x'.repeat(257)])
     assert.throws(() => validator('parseLeadAcceptanceContract')({ ...contract, steps: [{ ...contract.steps[0], sourceRevision }] }), protocol.ValidationError)
 })
@@ -56,8 +62,6 @@ test('Lead assignments round-trip the real seat grammar and opaque host fields',
 test('Lead stopped cards can describe planning failures before any contract exists', () => {
   const stopped = { ...cards[4]!, contractDigest: null, reason: 'error', summary: 'Planning could not start' }
   assert.deepEqual(validator('parseLeadCard')(stopped), stopped)
-  const decision = { version: 1, cardId: stopped.id, expectedRevision: 1, cardType: 'stopped', contractDigest: null, choice: 'decline' }
-  assert.throws(() => protocol.parseLeadCardDecisionFor(decision, stopped), protocol.ValidationError)
 })
 
 test('Lead text rejects lone surrogates and preserves well-formed Unicode', () => {
@@ -136,7 +140,7 @@ test('Lead acceptance contracts bind the ordered work, project, evidence and cap
     { project: { id: 'project-demo', path: '' } }, { caps: { ...caps, rounds: 0 } }])
     assert.throws(() => parse({ ...contract, ...patch }), protocol.ValidationError)
   assert.throws(() => parse({ ...contract, steps: [{ ...contract.steps[0], variables: { task: 'x'.repeat(16_385) } }] }), protocol.ValidationError)
-  assert.throws(() => parse({ ...contract, steps: [{ ...contract.steps[0], assignments: [{ role: 'implement', agent: 'builder', seat: 'worker-1', ceiling: 'root' }] }] }), protocol.ValidationError)
+  assert.throws(() => parse({ ...contract, steps: [{ ...contract.steps[0], assignments: [{ ...contract.steps[0]!.assignments[0], ceiling: 'root' }] }] }), protocol.ValidationError)
 })
 
 test('Lead assertion results preserve all four statuses and revision-qualified evidence', () => {

@@ -1,7 +1,8 @@
 import { CLIENT_METHODS, type ClientMethodName } from './client-surface.js'
 import type { CeilingLevel } from './evidence.js'
-import { parseSeat, seatSpec } from './flow-seat.js'
-import { isBoolean, isObject, literalUnion, ValidationError, type Validator } from './validate.js'
+import type { FlowSeat } from './flow.js'
+import { flowSeatValidator } from './flow-seat.js'
+import { isBoolean, isObject, literalUnion, optional, ValidationError, type Validator } from './validate.js'
 
 /** Versioned plain data only. Provider credentials and transport descriptors are private to the child bootstrap. */
 export const LEAD_VERSION = 1
@@ -29,7 +30,8 @@ export interface LeadProject { readonly id: string; readonly path: string }
 export interface LeadAssignment {
   readonly role: string
   readonly agent: string
-  readonly seat: string
+  /** Flow's structured map preserves slash-bearing model ids without compact-seat ambiguity. */
+  readonly seat: FlowSeat
   readonly ceiling: CeilingLevel
 }
 export interface LeadPlanStep {
@@ -269,12 +271,13 @@ const projectPath: Validator<string> = (value, path = '') => {
   return parsed
 }
 const project: Validator<LeadProject> = object({ id: opaque, path: projectPath })
-const seat: Validator<string> = (value, path = '') => {
-  const spec = opaque(value, path)
-  const parsed = parseSeat(spec)
-  // Canonical spelling avoids silently discarding clauses from the approved assignment.
-  if (typeof parsed === 'string' || seatSpec(parsed) !== spec) return fail(path, 'expected canonical Flow seat specification')
-  return spec
+const boundedSeat: Validator<FlowSeat> = object({
+  runtime: opaque, model: optional(opaque), effort: optional(opaque), thinking: optional(isBoolean),
+})
+const seat: Validator<FlowSeat> = (value, path = '') => {
+  // Reuse Flow's semantics, then apply Lead's closed projection and string bounds.
+  const parsed = boundedSeat(flowSeatValidator(value, path), path)
+  return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value !== undefined)) as unknown as FlowSeat
 }
 const assignment: Validator<LeadAssignment> = object({ role: id, agent: id, seat, ceiling: literalUnion('read', 'edit', 'publish', 'merge') })
 const step: Validator<LeadPlanStep> = object({
