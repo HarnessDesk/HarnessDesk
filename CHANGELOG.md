@@ -7,7 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **An agent run through a package runner (`npx`, `uvx`) says what is actually missing when the runner is not on PATH** — the failure names the runner and what provides it (Node.js, uv) instead of offering the agent's own install command, and a required CLI that is installed but too old no longer reads as missing.
+- **An agent run through a package runner (`npx`, `uvx`) says what is actually missing when the runner is not on PATH** — whether startup discovery finds the absence or a start attempt fails, the failure names the runner and what provides it (Node.js, uv) instead of offering the agent's own install command, and a required CLI that is installed but too old no longer reads as missing.
 - **An agent whose program or required CLI is missing shows Not installed when a fresh desk opens**, instead of Ready until its first conversation.
 - **A runtime is checked again when the shell's PATH arrives during startup discovery**, so a newly findable program no longer stays Not installed until its page is opened or the desk restarts.
 - **Back to Library returns to the section and filters you left.** Leaving Changes always landed on Skills and reset the filter and search; Back now steps back to the Library page it was opened from, and each section keeps its filter, search, chip and list-or-matrix choice while the window is open.

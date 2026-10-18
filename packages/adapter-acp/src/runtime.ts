@@ -1344,7 +1344,12 @@ export class AcpRuntime implements AgentRuntime {
               message,
               remediation: "Verify the agent's profile or configuration, then select it again.",
             }
-          : this.#programFailure(message),
+          // The command that was actually spawned — the host's launch choice
+          // when it made one — names a missing runner, but only when it is
+          // really not there: a runner that ran and failed (a package it could
+          // not fetch, an agent that crashed) is not missing, and the generic
+          // failure says so. The clean exit above has its own remediation.
+          : this.#spawnedFailure(message),
       )
       throw error
     }
@@ -1790,24 +1795,10 @@ export class AcpRuntime implements AgentRuntime {
         // ACP has no general version command. The shared PATH walk checks
         // file type and executability without launching an ACP session.
         if (!whichOnPath(command, { env })) {
-          // A package-runner row runs the agent's package through a runner
-          // that fetches the package itself on first start, so when the
-          // runner is what is missing, the agent's install command would
-          // install something nothing can run. Name the runner and what
-          // provides it instead. The names live in a table, not in the
-          // message string, so a runner joins by data rather than by
-          // editing a sentence (rule 8 — adapter text may name programs).
-          const runner = cliName(command)
-          const provider = Object.hasOwn(PACKAGE_RUNNERS, runner) ? PACKAGE_RUNNERS[runner] : undefined
-          if (provider) {
-            return {
-              state: 'unavailable',
-              reason: 'notInstalled',
-              message: `${this.#config.name} needs ${command} (${provider}), which could not be found or executed.`,
-              remediation: `Install ${provider}, which provides ${command}.`,
-            }
-          }
-          return this.#programFailure(`${this.#config.name}'s program could not be found or executed: ${command}.`)
+          return this.#missingProgramFailure(
+            command,
+            `${this.#config.name}'s program could not be found or executed: ${command}.`,
+          )
         }
         const spec = this.#config.executable
         if (this.#config.cliRequired && spec && !(await this.#resolveExecutable(spec))) {
@@ -3508,6 +3499,37 @@ export class AcpRuntime implements AgentRuntime {
       ...(this.#config.installCommand
         ? { remediation: `Install it with \`${this.#config.installCommand}\`.` }
         : {}),
+    }
+  }
+
+  /** The start path's not-installed failure, runner-aware only when the spawned command is not on PATH. */
+  #spawnedFailure(message: string): RuntimeHealth {
+    const launch = this.#launch && !('blocked' in this.#launch) ? this.#launch : null
+    const command = launch?.command ?? this.#config.command
+    const env = { ...process.env, ...this.#config.env, ...launch?.env }
+    return whichOnPath(command, { env }) ? this.#programFailure(message) : this.#missingProgramFailure(command, message)
+  }
+
+  /**
+   * The failure for a program that could not be found or executed. A
+   * package-runner row runs the agent's package through a runner that fetches
+   * the package itself on first start, so when the runner is what is missing,
+   * the agent's install command would install something nothing can run. Name
+   * the runner and what provides it instead. The names live in the
+   * `PACKAGE_RUNNERS` table, not in the message string, so a runner joins by
+   * data rather than by editing a sentence (rule 8 — adapter text may name
+   * programs). Discovery and the start path both answer through here, so a
+   * row reads the same failure however its absence was found.
+   */
+  #missingProgramFailure(command: string, message: string): RuntimeHealth {
+    const runner = cliName(command)
+    const provider = Object.hasOwn(PACKAGE_RUNNERS, runner) ? PACKAGE_RUNNERS[runner] : undefined
+    if (!provider) return this.#programFailure(message)
+    return {
+      state: 'unavailable',
+      reason: 'notInstalled',
+      message: `${this.#config.name} needs ${command} (${provider}), which could not be found or executed.`,
+      remediation: `Install ${provider}, which provides ${command}.`,
     }
   }
 

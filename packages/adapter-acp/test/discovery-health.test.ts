@@ -319,6 +319,50 @@ test("a package-runner row whose runner is missing names the runner, not the age
   assert.doesNotMatch(remediation, /fake-agent/)
 })
 
+test("a package-runner row whose runner is missing names the runner after a failed start too", async (t) => {
+  const dir = await folder(t)
+  // A path of the runner's own name that does not exist: the start fails to
+  // spawn, the way a row whose runner is not installed fails, without ever
+  // running a real runner or reaching for the network.
+  const runtime = new AcpRuntime({
+    id: 'fake-acp', name: 'Fake Agent', command: join(dir, 'npx'), args: ['-y', 'fake-agent'],
+    installCommand: 'npm install -g fake-agent',
+  })
+  t.after(() => runtime.dispose())
+
+  await assert.rejects(runtime.start())
+
+  const health = runtime.health()
+  assert.equal(health.state, 'unavailable')
+  assert.equal(health.state === 'unavailable' && health.reason, 'notInstalled')
+  const message = health.state === 'unavailable' ? health.message : ''
+  assert.match(message, /npx/)
+  assert.match(message, /Node\.js/)
+  const remediation = health.state === 'unavailable' && health.remediation ? health.remediation : ''
+  assert.match(remediation, /Node\.js/, 'the way forward is the runner, not the agent')
+  assert.doesNotMatch(remediation, /fake-agent/)
+})
+
+test('a runner that is present but whose agent fails the handshake is not called missing', { skip: process.platform === 'win32' }, async (t) => {
+  const dir = await folder(t)
+  // An `npx` that exists and runs, then exits non-zero before any handshake —
+  // the way a runner fails when it cannot fetch the agent's package.
+  const npx = join(dir, 'npx')
+  await writeFile(npx, '#!/bin/sh\nexit 1\n')
+  await chmod(npx, 0o755)
+  const runtime = new AcpRuntime({
+    id: 'fake-acp', name: 'Fake Agent', command: npx, args: ['-y', 'fake-agent'],
+    installCommand: 'npm install -g fake-agent',
+  })
+  t.after(() => runtime.dispose())
+
+  await assert.rejects(runtime.start())
+
+  const health = runtime.health()
+  const message = health.state === 'unavailable' ? health.message : ''
+  assert.doesNotMatch(message, /Node\.js/, 'the runner is there; it is not what is missing')
+})
+
 test("a uvx row whose runner is missing names uv", async (t) => {
   const dir = await folder(t)
   const runtime = new AcpRuntime({
