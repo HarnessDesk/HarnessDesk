@@ -14,7 +14,9 @@
  *     room's board, and plays its three moves once the band is on screen.
  *     `flow` plays the preview's staged Run through the real Team pane;
  *     `poster` holds its Fix stage in the real FlowGraph. `stage=` freezes a
- *     flow view at a named step for inspection.
+ *     flow view at a named step for inspection. `dashboard-*` and `tour-*`
+ *     are fixed-size scenes (site-demo/scenes.ts): the Dashboard's bands, and
+ *     the whole App window opened on one page for the website's tour.
  */
 import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'

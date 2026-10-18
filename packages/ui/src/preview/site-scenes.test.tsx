@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SCENES } from '../../site-demo/scenes'
 import { SiteScene } from '../../site-demo/scene'
 import { dashboardData } from '../../site-demo/dashboard'
+import { PAGE_SCENES } from '../../site-demo/pages'
 import { buildYearGrid, busiestDay, busiestWeekday, dayLabelLong, leadingAgent, streaksFor, WEEKDAY_NAMES } from '../lib/heat'
 import { formatTokens } from '../lib/context-usage'
 import { planRows } from '../lib/plans-table'
@@ -40,8 +41,12 @@ afterEach(() => {
   document.body.removeAttribute('data-hd-dark-theme')
 })
 
-it('registers the full Dashboard and three focused 672 × 432 views', () => {
-  expect(Object.keys(SCENES)).toEqual(['dashboard', 'dashboard-spend', 'dashboard-limits', 'dashboard-activity'])
+it('registers the full Dashboard, three focused 672 × 432 views and the 800 × 500 tour pages', () => {
+  expect(Object.keys(SCENES)).toEqual(['dashboard', 'dashboard-spend', 'dashboard-limits', 'dashboard-activity',
+    'tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats'])
+  for (const name of ['tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats'] as const) {
+    expect(SCENES[name]).toEqual({ width: 800, height: 500 })
+  }
   expect(SCENES.dashboard).toMatchObject({ width: 960, height: 600 })
   for (const name of ['dashboard-spend', 'dashboard-limits', 'dashboard-activity'] as const) {
     expect(SCENES[name]).toEqual({ width: 672, height: 432 })
@@ -250,4 +255,20 @@ it('renders Activity facts and its busiest weekday from the fictional year', asy
   expect(facts[3]?.textContent).toBe(`${dayLabelLong(peak.day)}${formatTokens(peak.tokens)}`)
   expect(leadingAgent(cells, 'tokens')).toBe('claude')
   expect(facts[4]?.textContent).toBe('Did the most' + dashboardData(NOW).store.getSnapshot().runtimes[0]!.presentation.name)
+})
+
+it.each([
+  ['tour-teams', 'teams'],
+  ['tour-run', 'work'],
+  ['tour-flows', 'flows'],
+  ['tour-library', 'library'],
+  ['tour-runtimes', 'settings'],
+  ['tour-chats', 'work'],
+] as const)('opens %s on its destination with the agents named', (name, kind) => {
+  vi.useRealTimers()
+  const snapshot = PAGE_SCENES[name]().getSnapshot()
+  expect(snapshot.workbench.navigation.current.kind).toBe(kind)
+  const names = snapshot.runtimes.map(info => info.presentation.name)
+  expect(names.length).toBeGreaterThan(0)
+  for (const one of names) expect(one).not.toMatch(/^(Alpha|Beta|Gamma)$/)
 })
