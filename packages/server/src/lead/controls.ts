@@ -136,7 +136,7 @@ export class LeadControls {
     const resume = this.#wayOut(journal.state) === 'resume'
     return this.#commitRequest(async committed => {
       const receipt = await journal.appendMessage(input.idempotencyKey, input.text, committed)
-      if (resume) await journal.resume(receipt.revision, true, committed)
+      if (resume) await journal.resume(undefined, true, committed)
       return receipt
     })
   }) }

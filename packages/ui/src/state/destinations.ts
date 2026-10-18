@@ -96,10 +96,10 @@ const workView = (raw: unknown): WorkView | null => {
 export const destinationAvailable = (destination: Destination, leadAvailable = false): boolean => destination.kind !== 'lead' || leadAvailable
 
 /** Withdrawing a capability removes its visits, including dormant Back/Forward entries. */
-export const availableDestinationHistory = (history: DestinationHistory, fallback: Destination, leadAvailable = false): DestinationHistory => {
+export const availableDestinationHistory = (history: DestinationHistory, fallback: () => Destination, leadAvailable = false): DestinationHistory => {
   const keep = (entry: Destination) => destinationAvailable(entry, leadAvailable)
   if (keep(history.current) && history.back.every(keep) && history.forward.every(keep)) return history
-  return { current: keep(history.current) ? history.current : fallback, back: history.back.filter(keep), forward: history.forward.filter(keep) }
+  return { current: keep(history.current) ? history.current : fallback(), back: history.back.filter(keep), forward: history.forward.filter(keep) }
 }
 
 export const readDestination = (raw: unknown, leadAvailable = false): Destination | null => {

@@ -8497,9 +8497,10 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
-    const view = focusedPane(next.workbench.main).view
-    const fallback = destinationOf(view.kind === 'conversation' || view.kind === 'room' ? view : { kind: 'conversation', session: null })
-    const navigation = availableDestinationHistory(next.workbench.navigation, fallback, next.leadAvailable)
+    const navigation = availableDestinationHistory(next.workbench.navigation, () => {
+      const view = focusedPane(next.workbench.main).view
+      return destinationOf(view.kind === 'conversation' || view.kind === 'room' ? view : { kind: 'conversation', session: null })
+    }, next.leadAvailable)
     if (navigation !== next.workbench.navigation) next.workbench = { ...next.workbench, navigation }
     next.inbox = this.#teamInbox.reconcile(next, this.#snapshot)
     next.foldersGone = roomFoldersGone(next.foldersGone, this.#snapshot.teams, patch.teams)

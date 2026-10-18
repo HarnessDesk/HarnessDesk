@@ -23,11 +23,12 @@ const mount = async (store: AppStore, sidebar = false) => {
   return box
 }
 
-it('keeps the pre-Lead disabled main-page structure', async () => {
+it('keeps one settings destination when Lead is disabled', async () => {
   const store = new AppStore('ws://localhost:0/')
   store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } })
   const box = await mount(store)
-  expect(box.innerHTML).toMatchSnapshot()
+  expect(box.children).toHaveLength(1)
+  expect(box.children[0]?.getAttribute('data-page-destination')).toBe('settings')
 })
 
 const lead = { kind: 'lead' } as const

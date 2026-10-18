@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
-import { createLeadJournal, parseLeadJournalRecord, summarizeLeadArguments } from '@harnessdesk/lead'
+import { createLeadJournal, parseLeadJournalRecord, reduceLeadRecord, summarizeLeadArguments } from '@harnessdesk/lead'
 import * as server from '../src/index.js'
 
 const open = async (home: string): Promise<any> => {
@@ -19,6 +19,66 @@ const scratch = async (t: { after(fn: () => Promise<void>): void }) => {
 const runEvidence = (identity: { correlationId: string; runId: string; teamId: string }, terminal = false) => ({ ...identity, firstRoundId: '1', terminal })
 
 const policy = { version: 1 as const, revision: 1, mode: 'manage' as const, rules: [] }
+
+test('file journal preflights a combined policy and caps update against successive states', async t => {
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  t.after(() => disk.close())
+  const previous = { ...policy, mode: 'default' as const }, caps = { usdMicros: 500, rounds: 3 }
+  await journal.setPolicy(previous)
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical', caps, freshnessMs: 1000 })
+  const before = journal.state.seq
+  await journal.changePolicyAndBudgetCaps({ ...previous, revision: 2, mode: 'manage' }, { usdMicros: 1000, rounds: 4 }, before,
+    { policy: 'policy-card', caps: 'caps-card' }, 100)
+  assert.equal(journal.state.seq, before + 2)
+  assert.deepEqual(journal.state.cards.map(card => card.type), ['permission-change', 'budget-change'])
+  assert.deepEqual(journal.state.policy, previous)
+  assert.deepEqual(journal.state.budget!.caps, caps)
+  await disk.close()
+  const reopened = await open(home)
+  t.after(() => reopened.close())
+  assert.deepEqual((await createLeadJournal(reopened)).state, journal.state)
+})
+
+test('file journal refuses the second combined event at its size bound before either card is appended', async t => {
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  t.after(() => disk.close())
+  const previous = { ...policy, mode: 'default' as const }, proposed = { ...policy, revision: 2 }, caps = { usdMicros: 500, rounds: 3 }
+  await journal.setPolicy(previous)
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical', caps, freshnessMs: 1000 })
+  const card = (id: string, length: number) => ({ version: 1 as const, id, revision: 1, type: 'plan' as const, contractDigest: 'a'.repeat(64),
+    contract: { version: 1 as const, revision: 1, digest: 'a'.repeat(64), goal: 'Synthetic capacity probe', project: { id: 'demo', path: '/workspace/demo' }, policyRevision: 1,
+      steps: [{ id: 'work', title: 'Review', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', attendance: 'attended' as const,
+        variables: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`input-${i}`, 'v'.repeat(Math.max(0, Math.min(16384, length - i * 16384)))])),
+        assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' }, ceiling: 'edit' as const }] }],
+      assertions: [{ id: 'check', kind: 'check' as const, description: 'Checks pass' }], caps } })
+  for (let i = 0; i < 12; i++) await journal.offerCard(card(`fill-${i}`, 40 * 16384))
+  const permission = { version: 1 as const, id: 'policy-card', revision: 1, type: 'permission-change' as const, contractDigest: null, previous, proposed }
+  const budget = { version: 1 as const, id: 'caps-card', revision: 1, type: 'budget-change' as const, logicalGoalId: 'logical', contractDigest: null,
+    previous: { revision: journal.state.budget!.capsRevision, caps }, proposed: { usdMicros: 1000, rounds: 4 } }
+  // Find the real disk bound with enough room for the policy card only.
+  const afterPolicy = (length: number) => {
+    const state = journal.state
+    const filler = disk.prepare({ version: 1, seq: state.seq + 1, type: 'card', card: card('last-fill', length) }, state)
+    const filled = reduceLeadRecord(state, filler)
+    const event = disk.prepare({ version: 1, seq: filled.seq + 1, type: 'card', card: permission }, filled)
+    return reduceLeadRecord(filled, event)
+  }
+  let lo = 0, hi = 40 * 16384
+  afterPolicy(lo)
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    try { afterPolicy(mid); lo = mid } catch (error) { assert.match(String(error), /lead-journal-state-limit/); hi = mid - 1 }
+  }
+  const staged = afterPolicy(lo)
+  assert.throws(() => disk.prepare({ version: 1, seq: staged.seq + 1, type: 'card', card: budget }, staged), /lead-journal-state-limit/)
+  await journal.offerCard(card('last-fill', lo))
+  const before = journal.state, records = await disk.read(), file = join(home, 'lead', 'thread-1.ndjson'), bytes = await fs.readFile(file)
+  await assert.rejects(journal.changePolicyAndBudgetCaps(proposed, budget.proposed, before.seq, { policy: permission.id, caps: budget.id }, 100), /lead-journal-state-limit/)
+  assert.deepEqual(journal.state, before)
+  assert.deepEqual(await disk.read(), records)
+  assert.deepEqual(await fs.readFile(file), bytes)
+  assert.equal(journal.state.cards.some(card => card.type === 'permission-change' || card.type === 'budget-change'), false)
+})
 
 test('disk journal serializes appends and recovery quarantines a truncated final record', async t => {
   const home = await scratch(t), disk = await open(home)

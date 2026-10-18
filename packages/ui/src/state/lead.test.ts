@@ -12,6 +12,21 @@ const thread = (revision = 1, state = 'draft', cards: unknown[] = []) => ({ vers
 const projection = (revision: number, state = 'running', cards: unknown[] = []) => ({ version: 1, revision, thread: thread(revision, state, cards), settings, waitReason: state === 'waiting-for-user' ? 'lead-request-failed' : null, planConsentExpiresAt: null, requestInFlight: false, wayOut: state === 'stopped' ? null : cards.length ? 'decide-plan' : state === 'waiting-for-user' ? 'resume' : null })
 
 describe('Lead state facade', () => {
+  it('ignores a readThread response that arrives after availability is dropped', async () => {
+    const { createLeadState } = await load()
+    let available = true, resolve!: (value: unknown) => void
+    const request = vi.fn(() => new Promise(done => { resolve = done }))
+    const facade = createLeadState({ request }, () => available)
+    const initial = facade.state, changed = vi.fn()
+    facade.subscribe(changed)
+    const pending = facade.readThread()
+    expect(request).toHaveBeenCalledWith('lead/thread/read', {})
+    available = false
+    resolve(projection(7))
+    await pending
+    expect(facade.state).toBe(initial)
+    expect(changed).not.toHaveBeenCalled()
+  })
   it('gates every operation on capability and has a typed caller for all six controls', async () => {
     const { createLeadState } = await load()
     let available = false

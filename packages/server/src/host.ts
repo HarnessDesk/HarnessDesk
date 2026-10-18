@@ -4567,6 +4567,7 @@ export class Host {
       team: this.#team,
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
+      // These closures deliberately repeat the service's availability guard.
       leadThreadRead: () => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.readThread() },
       leadThreadSend: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.send(params) },
       leadCardDecide: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.decide(params) },

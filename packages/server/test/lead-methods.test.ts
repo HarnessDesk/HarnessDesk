@@ -974,6 +974,89 @@ test('send after a failed request resumes and answers the new message without a 
   } finally { s.controls.close() }
 })
 
+for (const kind of ['result', 'person', 'expired', 'plan'] as const) test(`send preserves the resume guard for ${kind}`, async () => {
+  const s = await rig({ configured: true })
+  try {
+    await s.journal.offerCard(plan)
+    if (kind !== 'plan') await s.journal.decideCard(planClick, kind === 'expired' ? 99 : 1000)
+    await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+    if (kind === 'result') await s.journal.offerCard({ version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Reviewed', assertions: [],
+      budget: (await import('@harnessdesk/lead')).leadBudgetProjection(s.journal.state.budget!, 100) })
+    if (kind === 'person') await s.journal.offerCard({ version: 1, id: 'person', revision: 1, type: 'waiting', kind: 'person', contractDigest: contract.digest, runId: 'run', personCardId: 'person', summary: 'Decide', assertions: [] })
+    const phase = s.journal.state.phase
+    await s.controls.send({ idempotencyKey: `guard-${kind}`, text: 'Inspect the new check' })
+    await s.controls.idle()
+    assert.equal(s.records.filter(record => record.type === 'resume').length, 0)
+    assert.equal(s.journal.state.phase, phase)
+  } finally { s.controls.close() }
+})
+
+test('send resumes an open paid reservation after restart', async () => {
+  const s = await rig({ configured: true })
+  await s.journal.appendMessage('crash-reserved', 'Inspect')
+  await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'interrupted', inputTokens: 1, maxOutputTokens: 1,
+    inputUsdMicrosPerMillion: 1000000, outputUsdMicrosPerMillion: 1000000, cacheReadUsdMicrosPerMillion: 1000000, cacheWriteUsdMicrosPerMillion: 1000000 })
+  s.controls.close()
+  const journal = await createLeadJournal(s.storage), { LeadControls } = await controlsModule()
+  const controls = new LeadControls({ journal, service: s.service, project, model: 'fixture-model', now: () => 100,
+    nextId: () => 'card', push() {}, decidePerson: async () => {}, decideResult: async () => {} })
+  try {
+    assert.equal(journal.state.phase, 'draft')
+    assert.equal(journal.state.budget!.requests.filter(request => !request.uncertain).length, 1)
+    assert.equal((await controls.readThread()).wayOut, 'resume')
+    const receipt = await controls.send({ idempotencyKey: 'after-restart', text: 'Continue the check' })
+    await controls.idle()
+    assert.ok(receipt.messageId)
+    assert.equal(s.records.filter(record => record.type === 'resume').length, 1)
+    assert.equal(s.sends.length, 1)
+    assert.equal(journal.state.phase, 'running')
+  } finally { controls.close() }
+})
+
+test('a failed first chained request never publishes an idle gap', async () => {
+  let releaseFirst!: () => void, releaseSecond!: () => void, began!: () => void, second!: () => void
+  const firstStarted = new Promise<void>(resolve => { began = resolve }), secondStarted = new Promise<void>(resolve => { second = resolve })
+  const firstHeld = new Promise<void>(resolve => { releaseFirst = resolve }), secondHeld = new Promise<void>(resolve => { releaseSecond = resolve })
+  let requests = 0
+  const s = await rig({ configured: true, service: { async send() {
+    if (++requests === 1) { began(); await firstHeld; throw new Error('synthetic interruption') }
+    second(); await secondHeld; return { status: 'completed', text: 'Reply' }
+  } } })
+  try {
+    await s.journal.offerCard(plan)
+    const receipt = await s.controls.send({ idempotencyKey: 'held-failure', text: 'Inspect' }); await firstStarted
+    await s.controls.decide(planClick)
+    releaseFirst(); await within(secondStarted, 1000)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const during = s.notifications.filter((notification: any) => notification.params.revision >= receipt.revision)
+    assert.ok(during.length > 0)
+    assert.ok(during.every((notification: any) => notification.params.requestInFlight === true), 'failed chained request must not publish an idle gap')
+    assert.equal((await s.controls.readThread()).requestInFlight, true)
+    releaseSecond(); await s.controls.idle()
+    assert.equal((s.notifications.at(-1) as any).params.requestInFlight, false)
+    assert.equal((await s.controls.readThread()).requestInFlight, false)
+    assert.equal(requests, 2)
+  } finally { releaseFirst(); releaseSecond(); await s.controls.idle(); s.controls.close() }
+})
+
+test('send records resume despite a journal write between message append and resume', async () => {
+  const s = await rig({ configured: true })
+  try {
+    await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+    await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+    const append = s.journal.appendMessage.bind(s.journal)
+    s.journal.appendMessage = async (...args) => { const receipt = await append(...args); await s.journal.settingsChanged(); return receipt }
+    const receipt = await s.controls.send({ idempotencyKey: 'interleaved', text: 'Continue the check' })
+    await s.controls.idle()
+    assert.ok(receipt.messageId)
+    assert.equal(s.records.filter(record => record.type === 'resume').length, 1)
+    assert.equal(s.sends.length, 1)
+    assert.equal(s.journal.state.phase, 'running')
+    assert.deepEqual(await s.controls.send({ idempotencyKey: 'interleaved', text: 'Continue the check' }), receipt)
+    assert.equal(s.sends.length, 1)
+  } finally { await s.controls.idle(); s.controls.close() }
+})
+
 test('combined policy and caps update refuses before either card when the policy card alone cannot fit', async () => {
   const { admitLeadCard } = await import('../src/lead/projection.js')
   const s = await rig({ configured: true })

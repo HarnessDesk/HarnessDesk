@@ -11,7 +11,7 @@ test('only the exact startup value 1 enables Lead', async () => {
   }
 })
 
-test('the desktop passes the parsed startup switch to the host', async () => {
+test('desktop startup source guard complements bootstrap-lead-feature.test.ts flag wiring coverage', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.ok(/import\s*\{\s*leadEnabled\s*\}\s*from ['"]\.\/lead-feature\.mjs['"]/.test(source), 'main imports the desktop flag parser')
   assert.ok(/createDefaultHost\(\{\s*leadEnabled: leadEnabled\(process\.env\)/.test(source), 'main passes the parsed startup flag')

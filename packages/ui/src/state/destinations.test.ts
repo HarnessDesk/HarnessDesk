@@ -1,9 +1,21 @@
-import { expect, test } from 'vitest'
-import { destinationOf, leaveSettingsDestination, readDestination, readDestinationHistory, stepDestination, visitDestination } from './destinations'
+import { expect, test, vi } from 'vitest'
+import { availableDestinationHistory, destinationOf, leaveSettingsDestination, readDestination, readDestinationHistory, stepDestination, visitDestination } from './destinations'
 
 const work = destinationOf({ kind: 'room', room: 'team-demo', framePage: 'findings' })
 const settings = { kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } } as const
 const dashboard = { kind: 'dashboard', view: 'plans', scope: null } as const
+
+test('Lead history evaluates its fallback only when replacing an unavailable current entry', () => {
+  const fallback = vi.fn(() => work), lead = { kind: 'lead' } as const
+  const ordinary = { current: settings, back: [work], forward: [dashboard] }
+  expect(availableDestinationHistory(ordinary, fallback)).toBe(ordinary)
+  expect(availableDestinationHistory({ ...ordinary, back: [lead] }, fallback)).toEqual({ ...ordinary, back: [] })
+  const enabled = { current: lead, back: [], forward: [] }
+  expect(availableDestinationHistory(enabled, fallback, true)).toBe(enabled)
+  expect(fallback).not.toHaveBeenCalled()
+  expect(availableDestinationHistory(enabled, fallback)).toEqual({ current: work, back: [], forward: [] })
+  expect(fallback).toHaveBeenCalledOnce()
+})
 
 test('Flows restores the catalogue, a new draft and an origin-bound file through Back and Forward', () => {
   const catalogue = { kind: 'flows', root: null, id: null, origin: null } as const

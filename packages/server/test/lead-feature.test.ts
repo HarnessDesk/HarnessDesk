@@ -70,8 +70,8 @@ test('only the explicitly enabled host advertises the Lead capability', async t 
   assert.deepEqual((hello as any).capabilities, { lead: true })
 })
 
-test('the disabled host never lists the private Lead recipe in its Flow catalogue', async t => {
-  const { host } = rig(t)
+for (const enabled of [false, true]) test(`the private Lead recipe is never in the Flow catalogue (enabled=${enabled})`, async t => {
+  const { host } = rig(t, enabled)
   const project = tempDir('hd-lead-feature-project-')
   await host.start()
   await host.call('workspace/open', { path: project })

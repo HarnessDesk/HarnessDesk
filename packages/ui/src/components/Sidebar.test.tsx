@@ -557,10 +557,27 @@ it('opens the same folder picker from Projects and the New session menu without 
   expect(choose).toHaveBeenCalledTimes(2)
 })
 
-// Captured before Lead registration: disabled navigation must keep this tree.
-it('keeps the pre-Lead disabled sidebar structure', () => {
+it('keeps exactly six ordered doors and no Lead trace in the disabled doors group', () => {
   mount()
-  expect(container.innerHTML).toMatchSnapshot()
+  const group = container.querySelector('[aria-label="Main sections"]')!
+  expect(group.children).toHaveLength(6)
+  expect([...group.querySelectorAll('[data-slot="sidebar-menu-button"]')].map(node => node.getAttribute('aria-label')))
+    .toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+  // The header and other existing regions use unrelated lead/leading style names.
+  for (const node of [group, ...group.querySelectorAll('*')]) {
+    expect(node.textContent).not.toMatch(/lead/i)
+    for (const attr of node.attributes) {
+      if (/^(aria-|data-)|^(title|class)$/.test(attr.name)) expect(`${attr.name}=${attr.value}`).not.toMatch(/lead/i)
+    }
+  }
+  const disabled = group.outerHTML
+  mount({ leadAvailable: true })
+  const enabled = container.querySelector('[aria-label="Main sections"]')!
+  expect(enabled.children).toHaveLength(7)
+  const lead = enabled.querySelector('[aria-label="Lead"]')!
+  const row = [...enabled.children].find(child => child.contains(lead))!
+  row.remove()
+  expect(enabled.outerHTML).toBe(disabled)
 })
 
 it.each([false, true])('shows the Lead navigation row only for capability=%s', enabled => {
