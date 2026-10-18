@@ -24,7 +24,7 @@
     <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/readme-race-dark.gif" />
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/readme-race-dark-poster.png" />
     <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/readme-race-light.gif" />
-    <img src="docs/images/app/readme-race-light-poster.png" width="960" alt="Side by side: Codex and Claude Code each build a runner game in their own browser. Codex finishes first, Claude Code follows, the judge picks Codex’s attempt, and Merge waits for you." />
+    <img src="docs/images/app/readme-race-light-poster.png" width="960" alt="Side by side: Codex and Claude Code each build a self-playing runner game in their own browser, Moonberry Express and Lantern Hop. Codex finishes first, Claude Code follows, the judge picks Codex’s attempt, and Merge waits for you." />
   </picture>
 </p>
 

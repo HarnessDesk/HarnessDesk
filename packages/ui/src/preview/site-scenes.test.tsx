@@ -5,6 +5,8 @@ import { SCENES } from '../../site-demo/scenes'
 import { SiteScene } from '../../site-demo/scene'
 import { dashboardData } from '../../site-demo/dashboard'
 import { PAGE_SCENES } from '../../site-demo/pages'
+import { RACE_PAGES } from '../../site-demo/race-pages'
+import { README_RACE_URLS } from './readme-race'
 import { buildYearGrid, busiestDay, busiestWeekday, dayLabelLong, leadingAgent, streaksFor, WEEKDAY_NAMES } from '../lib/heat'
 import { formatTokens } from '../lib/context-usage'
 import { planRows } from '../lib/plans-table'
@@ -41,9 +43,10 @@ afterEach(() => {
   document.body.removeAttribute('data-hd-dark-theme')
 })
 
-it('registers the full Dashboard, three focused 672 × 432 views and the 800 × 500 tour pages', () => {
+it('registers the full Dashboard, three focused 672 × 432 views, the 800 × 500 tour pages and the 1200 × 750 hero race', () => {
   expect(Object.keys(SCENES)).toEqual(['dashboard', 'dashboard-spend', 'dashboard-limits', 'dashboard-activity',
-    'tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats'])
+    'tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats', 'hero-race'])
+  expect(SCENES['hero-race']).toEqual({ width: 1200, height: 750 })
   for (const name of ['tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats'] as const) {
     expect(SCENES[name]).toEqual({ width: 800, height: 500 })
   }
@@ -112,6 +115,12 @@ it.each(['light', 'dark'] as const)('boots the entire shipping Dashboard in %s a
   expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
   await act(async () => message({ type: 'theme', value: theme === 'light' ? 'dark' : 'light' }))
   expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'light')
+})
+
+it('serves both race lanes from pages beside the demo', () => {
+  expect(Object.keys(RACE_PAGES).sort()).toEqual(Object.values(README_RACE_URLS).sort())
+  const served = Object.keys(import.meta.glob('../../site-demo/public/race/*.html')).map(path => path.replace('../../site-demo/public/', ''))
+  expect(Object.values(RACE_PAGES).sort()).toEqual(served.sort())
 })
 
 it('changes the chart, breakdown, range, account detail and activity through real controls', async () => {

@@ -15,16 +15,17 @@ import { TeamFramePreview } from './TeamFramePreview'
 
 /** Each Seat's lane serves its attempt on the lane's first port. */
 export const README_RACE_URLS = { 'lane-alpha': 'http://localhost:30000/', 'lane-beta': 'http://localhost:30020/' } as const
-const BRIEF = 'Build a one-file side-scrolling runner game.'
+const BRIEF = 'Build a side-scrolling runner game that plays itself, in one file.'
 const ANSWERS = [
-  'Neon Run is in index.html: a canvas loop, a jump on Space, spikes on a fixed course and a best score kept between runs.',
-  'Fox Dash is in index.html: parallax hills, logs to jump, coins overhead, and a score that resets on a hit.',
+  'Moonberry Express is in index.html: a courier hare runs pastel parallax gardens under a drifting sky-whale, collecting glowing berries on a seeded autopilot.',
+  'Lantern Hop is in index.html: a paper-lantern creature runs a dusk forest that turns to night and dawn, hopping thorns and collecting fireflies.',
 ]
-const VERDICT = 'Neon Run plays smoothly, and its jump timing passes every check.'
+const VERDICT = 'Moonberry Express reads clearest at tile size, and both pass every check.'
 const RUNTIMES = README_RACE_RUNTIMES
-const MODELS = [{ id: 'model-a', displayName: 'High' }, { id: 'model-b', displayName: 'Opus' }, { id: 'model-c', displayName: 'Auto' }]
+const MODELS = [{ id: 'model-a', displayName: 'Sol' }, { id: 'model-b', displayName: 'Opus' }, { id: 'model-c', displayName: 'Auto' }]
 
-type Stage = 0 | 1 | 2 | 3
+export type RaceStage = 0 | 1 | 2 | 3
+type Stage = RaceStage
 type Patchable = AppStore & { patch: (partial: Partial<AppSnapshot>) => void }
 
 /** Who is still working at each stage: both, then only Beta, then neither while the judge reads, then the pick. */
@@ -49,7 +50,8 @@ const withStage = (base: AppSnapshot, picked: AppSnapshot, stage: Stage): Partia
   return { sessions, teams: source.teams, goals: source.goals, flowExecutions: source.flowExecutions, boardEvidence: source.boardEvidence }
 }
 
-const raceStore = (): Patchable => {
+/** The race's own store, opened on the given theme; `stage` moves it through the race. */
+export const raceStore = (theme: 'light' | 'dark'): Patchable & { stage: (stage: RaceStage) => void } => {
   const picked = comparisonVerdictStore('combined') as Patchable
   const before = comparisonVerdictStore('before').getSnapshot()
   const snapshot = picked.getSnapshot()
@@ -59,19 +61,18 @@ const raceStore = (): Patchable => {
   }, snapshot.workbench)
   /* The Board's cards keep their recorded attempt titles; name them for this brief. */
   const named = (snap: AppSnapshot): Pick<AppSnapshot, 'teams' | 'goals'> => {
-    const rename = <T extends { intents: readonly { id: number; title: string; note?: string | null }[]; name?: string }>(team: T): T => ({ ...team, name: 'Runner game race',
+    const rename = <T extends { intents: readonly { id: number; title: string; note?: string | null }[]; name?: string }>(team: T): T => ({ ...team, name: 'Runner game comparison',
       intents: team.intents.map(card => card.id <= 2 ? { ...card, title: BRIEF.replace(/\.$/, '') }
         : card.id === 5 && card.note ? { ...card, note: VERDICT } : card) })
     return {
       teams: new Map([...snap.teams].map(([id, team]) => [id, rename(team)])),
       goals: new Map([...snap.goals].map(([id, goal]) => [id, { ...goal, board: goal.board ? rename(goal.board) : goal.board,
-        goal: { ...goal.goal, sentence: 'Runner game race' } }])),
+        goal: { ...goal.goal, sentence: 'Runner game comparison' } }])),
     }
   }
   const pickedNamed = { ...snapshot, ...named(snapshot) }
   /* "Before" is recorded without browsers; keep this Team's checkouts so each tile keeps its lane. */
   const beforeNamed = { ...before, ...named(before), goals: new Map([...named(before).goals].map(([id, goal]) => [id, { ...goal, members: pickedNamed.goals.get(id)?.members ?? goal.members }])) }
-  const theme = new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' as const : 'light' as const
   picked.patch({ theme, runtimes: RUNTIMES, models: MODELS.map(model => ({ ...snapshot.models[0]!, ...model, description: '' })), workbench,
     ...withStage(beforeNamed, pickedNamed, 0) })
   const peers = picked.teamPeers.bind(picked)
@@ -84,22 +85,25 @@ const raceStore = (): Patchable => {
 /** Inside the race's own store, so the page needs no outer provider and `?theme` reaches the tiles. */
 const Themed = ({ children }: { children: ReactNode }) => { useTheme(); return children }
 
+/** The production Team frame, Side by side on both attempts' Browsers. */
+export const RaceFrame = ({ store }: { store: AppStore }) => {
+  const tiles = SIDE_BY_SIDE_KEYS.slice(0, 2)
+  const view = { kind: 'room' as const, room: PREVIEW_ROOM, sideBySide: { tiles, focused: tiles[0], modes: Object.fromEntries(tiles.map(key => [key, 'browser' as const])) } }
+  return <StoreProvider store={store}>
+    <MountProvider scope={{ area: 'main', id: 'team-room', view }}>
+      <KeyboardHereContext.Provider value={false}>
+        <Themed><TeamFramePreview room={PREVIEW_ROOM} view={view} railOpen={false} /></Themed>
+      </KeyboardHereContext.Provider>
+    </MountProvider>
+  </StoreProvider>
+}
+
 export const ReadmeRace = () => {
-  const store = useMemo(() => raceStore(), [])
+  const store = useMemo(() => raceStore(new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'), [])
   useEffect(() => {
-    const receive = (event: Event) => (store as unknown as { stage: (stage: Stage) => void }).stage((event as CustomEvent<Stage>).detail)
+    const receive = (event: Event) => store.stage((event as CustomEvent<Stage>).detail)
     window.addEventListener('readme-race-stage', receive)
     return () => window.removeEventListener('readme-race-stage', receive)
   }, [store])
-  const tiles = SIDE_BY_SIDE_KEYS.slice(0, 2)
-  const view = { kind: 'room' as const, room: PREVIEW_ROOM, sideBySide: { tiles, focused: tiles[0], modes: Object.fromEntries(tiles.map(key => [key, 'browser' as const])) } }
-  return <div data-readme-race className="h-screen bg-background text-foreground">
-    <StoreProvider store={store}>
-      <MountProvider scope={{ area: 'main', id: 'team-room', view }}>
-        <KeyboardHereContext.Provider value={false}>
-          <Themed><TeamFramePreview room={PREVIEW_ROOM} view={view} railOpen={false} /></Themed>
-        </KeyboardHereContext.Provider>
-      </MountProvider>
-    </StoreProvider>
-  </div>
+  return <div data-readme-race className="h-screen bg-background text-foreground"><RaceFrame store={store} /></div>
 }

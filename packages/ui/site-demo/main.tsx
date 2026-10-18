@@ -17,6 +17,7 @@
  *     flow view at a named step for inspection. `dashboard-*` and `tour-*`
  *     are fixed-size scenes (site-demo/scenes.ts): the Dashboard's bands, and
  *     the whole App window opened on one page for the website's tour.
+ *     `hero-race` is the README's race, live on the two agents' pages.
  */
 import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -30,6 +31,7 @@ import '../src/styles/app.css'
 import { FakeHostSocket, NOT_WIRED, RECORDED_PROMPT, ROOM_ID } from './fake-host'
 import { guide } from './guide'
 import { isSceneName } from './scenes'
+import { RACE_PAGES } from './race-pages'
 
 const KNOBS = new URL(window.location.href).searchParams
 const VIEW = KNOBS.get('view') ?? 'hero'
@@ -44,6 +46,15 @@ const SiteRunDemo = lazy(() => import('./run-demo').then(module => ({ default: m
 const nativeFocus = HTMLElement.prototype.focus
 HTMLElement.prototype.focus = function (options?: FocusOptions) {
   nativeFocus.call(this, { ...(options ?? {}), preventScroll: true })
+}
+
+// The race's Browsers show the loopback address each lane served its page on;
+// on the website those pages are files beside this demo. React writes an
+// iframe's src as an attribute, so the address is swapped there, for those
+// two addresses only.
+const setIframeAttribute = Element.prototype.setAttribute
+HTMLIFrameElement.prototype.setAttribute = function (name: string, value: string) {
+  setIframeAttribute.call(this, name, name === 'src' ? RACE_PAGES[value] ?? value : value)
 }
 
 // The transport constructs `new WebSocket(url)`; hand it the recording.
