@@ -476,6 +476,8 @@ const AgentRow = ({
   )
   const waiting = snapshot.logins[info.id]?.outcome.type === 'pending'
   const signIn = state === 'signin' && canSignIn
+  const failure = siblings.map(entry => snapshot.healthByRuntime[entry.id])
+    .find((health): health is Unavailable => health?.state === 'unavailable')
   return (
     <RowButton
       data-slot="agent-row"
@@ -489,7 +491,8 @@ const AgentRow = ({
           {snapshot.activeRuntime === info.id && <Chip tone="neutral" size="sm">Default</Chip>}
         </InlineParts>
       }
-      desc={who ?? (state === 'signin' ? 'Signed out' : undefined)} truncateDesc
+      desc={failure ? <Prose text={splitHealth(failure).lead} /> : who ?? (state === 'signin' ? 'Signed out' : undefined)}
+      truncateDesc={!failure}
       control={state === 'limit' || state === 'broken' ? <Chip state={state} /> : undefined}
       {...(signIn
         ? {

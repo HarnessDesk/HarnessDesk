@@ -2699,7 +2699,14 @@ export class Host {
        exception: drawn idle, it read ready until somebody opened its page
        (#1774). Asked now, in the background, it reads as what it is. */
     for (const runtime of this.#runtimes.values()) {
-      if (runtime !== defaultRuntime && this.#runtimeCache.get(String(runtime.info.id)).wouldNotStart) void this.#startOne(runtime)
+      if (runtime === defaultRuntime) continue
+      if (this.#runtimeCache.get(String(runtime.info.id)).wouldNotStart) void this.#startOne(runtime)
+      // A fresh desk has nothing remembered. Discovery can already tell us
+      // the program will not run, without launching an unused agent. Its
+      // health event seeds the same cache as a failed start (#1778).
+      else void runtime.discoverProgram?.().catch((error: unknown) => {
+        this.#logger.warn('runtime program discovery failed', { runtime: runtime.info.id, error: String(error) })
+      })
     }
     /* Recovery sends enter the same live-operation start barrier as new work. */
     /* Held firings are released through their gates, and only then is any

@@ -326,6 +326,83 @@ const ask = async (host: Host, runtime: AgentRuntime): Promise<void> => {
   await host.call('runtime/models', { runtime: runtime.info.id }).catch(() => {})
 }
 
+test('a failed spawn is remembered and unavailable as the desk next opens', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-spawn-relaunch-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const id = runtimeId('one')
+  const failure = { state: 'unavailable', reason: 'spawnFailed', message: 'Fake could not spawn.' } satisfies RuntimeHealth
+  const first = new Program({ id })
+  first.failure = failure
+  const before = await relaunch(t, dir, first)
+  await ask(before, first)
+  await before.dispose()
+
+  const second = new Program({ id })
+  second.failure = failure
+  const after = await relaunch(t, dir, second)
+  await pause(100)
+  assert.equal(second.starts, 1, 'the failed spawn must be asked again at launch')
+  const health = after.syncPayload().params.health?.find(entry => entry.runtime === id)?.health
+  assert.deepEqual(health, failure)
+})
+
+test('a fresh desk uses discovery failure before any session asks the agent', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-discovery-first-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  class DiscoveredProgram extends Program {
+    discoveries = 0
+    async discoverProgram(): Promise<void> {
+      this.discoveries += 1
+      this.setHealth(unreadable)
+    }
+  }
+  const program = new DiscoveredProgram({ id: runtimeId('one') })
+  program.setHealth({ state: 'idle' })
+  const host = await relaunch(t, dir, program)
+  await pause(100)
+  assert.equal(program.discoveries, 1, 'startup should use the program discovery')
+  assert.equal(program.starts, 0, 'discovery does not launch the agent')
+  assert.deepEqual(host.syncPayload().params.health?.find(entry => entry.runtime === program.info.id)?.health, unreadable)
+  await host.dispose()
+  const cache = JSON.parse(await readFile(join(dir, 'runtime-cache.json'), 'utf8'))
+  assert.equal(cache.runtimes.one.wouldNotStart, 'unreadable', 'discovery seeds the same remembered program failure')
+})
+
+test('a stop that says unknown is not remembered as a program failure', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-stop-relaunch-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const id = runtimeId('one')
+  const first = new Program({ id })
+  first.found = true
+  const before = await relaunch(t, dir, first)
+  await ask(before, first)
+  first.setHealth({ state: 'unavailable', reason: 'unknown', message: 'Stopped.' })
+  await before.dispose()
+
+  const again = new Program({ id })
+  await relaunch(t, dir, again)
+  await pause(100)
+  assert.equal(again.starts, 0, 'stopping does not ask the agent again next launch')
+  const cache = JSON.parse(await readFile(join(dir, 'runtime-cache.json'), 'utf8'))
+  assert.equal(cache.runtimes.one.wouldNotStart, undefined)
+})
+
+test('startup discovers a never-started Codex without launching its app-server', { skip: process.platform === 'win32' }, async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-codex-discovery-first-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const cli = join(dir, 'codex')
+  await writeFile(cli, '#!/bin/sh\nexit 127\n')
+  await chmod(cli, 0o755)
+  const runtime = new CodexRuntime({ binaryPath: cli, codexHome: join(dir, 'agent-home'),
+    discovery: { env: { PATH: dir }, locations: [] } })
+  const host = await relaunch(t, dir, runtime)
+  await until(() => runtime.health().state === 'unavailable', 'startup never discovered the broken program')
+  const health = host.syncPayload().params.health?.find(entry => entry.runtime === runtime.info.id)?.health
+  assert.ok(health?.state === 'unavailable')
+  assert.equal(health.reason, 'unreadable')
+  assert.match(health.message, /would not report its version/)
+})
+
 test('a Codex that would not report its version is asked again as the desk next opens, not drawn idle', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-retry-relaunch-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

@@ -63,7 +63,7 @@ test('a Codex that prints no version says what it printed, and offers nothing th
 
   const health = runtime.health()
   assert.ok(health.state === 'unavailable', JSON.stringify(health))
-  assert.equal(health.reason, 'unknown', 'nothing a later ask or a PATH could change')
+  assert.equal(health.reason, 'spawnFailed', 'a program failure, distinct from an intentional stop')
   assert.match(health.message, /printed no version number \("hello"\)/)
   assert.equal(health.remediation, undefined)
 })
@@ -79,6 +79,7 @@ test('a Codex that is found and then cannot be started is not sent to `codex --v
 
   const health = runtime.health()
   assert.ok(health.state === 'unavailable', JSON.stringify(health))
+  assert.equal(health.reason, 'spawnFailed', 'a failed spawn is remembered independently of a stop')
   assert.match(health.message, /Failed to spawn|Could not start codex app-server/, 'this is the app-server failing to start, which is not a lookup')
   assert.doesNotMatch(health.remediation ?? '', /codex --version/, 'running `--version` would not test what failed')
 })

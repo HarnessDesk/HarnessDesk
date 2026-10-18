@@ -625,8 +625,10 @@ export type RuntimeHealth =
        * run, or did not answer in time — in a way a later ask may change, so
        * the host asks again: when the PATH changes and, for the first seconds,
        * on a schedule. A copy that is there is never `notInstalled`.
+       * `spawnFailed` says discovery or launch found a program that could
+       * not start; unlike `unknown` (also used for a stop), it is remembered.
        */
-      readonly reason: 'notInstalled' | 'unreadable' | 'versionTooOld' | 'crashed' | 'unknown'
+      readonly reason: 'notInstalled' | 'unreadable' | 'versionTooOld' | 'spawnFailed' | 'crashed' | 'unknown'
       readonly message: string
       readonly remediation?: string
     }
@@ -1133,6 +1135,14 @@ export interface AgentRuntime {
    * schedule as `refreshCatalog`, before it.
    */
   checkInstallation?(): Promise<InstallationCheck>
+  /**
+   * Discover whether the program can run without starting an agent session
+   * or persistent process. A failure is reported through health/onHealthChange
+   * like a failed start; success leaves an idle runtime idle. The host asks
+   * unused runtimes in the background at startup. A result overtaken by a
+   * start or disposal must not replace newer health.
+   */
+  discoverProgram?(): Promise<void>
   /**
    * A secret this runtime declared was stored, replaced, or removed.
    *

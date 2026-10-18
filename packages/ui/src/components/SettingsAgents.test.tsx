@@ -502,6 +502,13 @@ it('lists what needs you first, with its Sign in on its own line', async () => {
   expect(signInAgent).toHaveBeenCalledWith('gamma')
 })
 
+it('a failed spawn is under Needs attention with its reason on the runtime line', async () => {
+  const message = 'Beta could not start its program.'
+  await mountList({ healthByRuntime: { beta: { state: 'unavailable', reason: 'spawnFailed', message } } })
+  expect(grouped()['Needs attention']).toContain('Beta')
+  expect(line('Beta').textContent).toContain(message)
+})
+
 it('gives an agent that has not answered yet its own heading, neither Needs attention nor Ready', async () => {
   // Gamma absent from accountsByRuntime altogether: still loading, or a read
   // that failed silently — it has not asked anyone for anything yet, unlike
