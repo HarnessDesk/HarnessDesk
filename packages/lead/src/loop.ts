@@ -1,4 +1,4 @@
-import { clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadProject, type LeadThreadState, type LeadAssertionResult } from '@harnessdesk/protocol'
+import { clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
 import { leadReviewedResultSource } from './recipes/reviewed-result.js'
 import { createLeadMessages } from './messages.js'
@@ -41,6 +41,11 @@ export interface LeadLoopState {
   readonly acceptance: readonly { readonly runId: string; readonly result: LeadAcceptanceResult }[]
 }
 const terminal = (phase: LeadThreadState) => ['accepted', 'declined', 'stopped'].includes(phase)
+const resultSignature = (contract: string, assertions: readonly LeadAssertionResult[], budget: LeadBudgetState) => JSON.stringify({
+  contract, assertions: assertions.map(({ revision: _revision, ...fact }) => fact),
+  budget: { caps: budget.caps, leadUsdMicros: budget.leadUsdMicros, workerUsdMicros: budget.workerUsdMicros,
+    reservedUsdMicros: budget.reservedUsdMicros, spend: budget.spend, stop: budget.stop },
+})
 const empty = (): ClientSnapshot => ({ teams: [], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] })
 /** API-only management. Messages is the sole model brain. This owner supplies
  * scope, observations, durable cards and wakeups; it never interprets a CLI or
@@ -103,7 +108,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         if (closed || generation !== expected) return
         if (!contract || facts.runId !== run.runId || facts.contractDigest !== contract.digest ||
           facts.project.id !== project.id || facts.project.path !== project.path) throw new Error('lead-evidence-scope')
-        // Step 8 runs stop effects when observed worker spend crosses a cap.
+        // Step 8 runs stop effects for caps crossed by observed worker spend,
+        // uncertain-request write-offs, or Messages usage settlements.
         if (facts.spend) await journal.updateBudget(facts.spend)
         const accounting = journal.state.budget && leadBudgetProjection(journal.state.budget!, clock.now())
         evaluated.push({ runId: run.runId, result: evaluateLeadAcceptance(contract, { ...facts,
@@ -120,16 +126,19 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           const facts = evaluated.map(item => item.result.assertions.find(result => result.assertionId === assertion.id)!)
           return { ...facts[0]!, evidence: facts.flatMap(fact => fact.evidence) }
         })
-        const signature = JSON.stringify({ contract: contract.digest, assertions: assertions.map(({ revision: _revision, ...fact }) => fact), budget })
-        if (signature !== lastResultSignature) {
+        const signature = resultSignature(contract.digest, assertions, budget!)
+        const stored = journal.state.cards.find(card => card.id === `result-${contract.revision}`)
+        if (signature !== lastResultSignature || stored?.type !== 'result' ||
+          resultSignature(stored.contractDigest, stored.assertions, stored.budget) !== signature) {
           await invalidate()
           if (closed || generation !== expected) return
           const old = journal.state.cards.find(card => card.id === `result-${contract.revision}`)
           // Mark a publication in flight before the writer's first await. An
           // event then queues invalidation after this offer and before a click.
           lastResultSignature = signature
-          await journal.offerCard({ version: 1, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1,
-            type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Fresh checks and review are ready for your decision.', assertions, budget: budget! })
+          try { await journal.offerCard({ version: 1, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1,
+            type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Fresh checks and review are ready for your decision.', assertions, budget: budget! }) }
+          catch (error) { lastResultSignature = null; throw error }
           if (closed || generation !== expected) { await invalidate(); return }
         } else {
           const card = journal.state.cards.find(card => card.id === `result-${contract.revision}`)!
@@ -141,11 +150,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         await waitForUser('lead-result-awaiting-person')
       }
       acceptance = evaluated
-      if (!terminal(journal.state.phase) && budget && budget.spend !== 'known') reason = 'lead-budget-unknown'
+      if (journal.state.budget?.stop) reason = 'lead-budget-stopped'
+      else if (!terminal(journal.state.phase) && budget && budget.spend !== 'known') reason = 'lead-budget-unknown'
       else if (reason === 'lead-budget-unknown') reason = null
       if (generation === expected && !closed) {
         synchronized = true
         if (['lead-connection-gap', 'lead-observations-unavailable'].includes(reason ?? '')) reason = null
+        if ((continuationPending || dirty) && history && requestTemplate && !blocked() && journal.state.phase !== 'awaiting-plan') schedule(false)
       }
     } catch {
       synchronized = false; snapshot = empty(); relays = []
@@ -197,13 +208,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // Model-proposed result/waiting cards are summaries only. The loop constructs
     // actionable cards from fresh reads, and never offers a worker approval card.
     await refresh()
-    if (result.toolResults?.length && result.toolResults.every(tool => tool.is_error && tool.content === 'Tool refused')) {
+    if (result.toolResults?.length && result.toolResults.every(tool => result.permissionDeniedTools?.includes(tool.tool_use_id))) {
       await waitForUser('lead-tools-refused')
       return result
     }
-    if (result.toolResults?.length && !result.proposals?.plan && !blocked()) {
+    if (result.toolResults?.length && !result.proposals?.plan) {
       continuationPending = true
-      schedule(false)
+      if (!blocked()) schedule(false)
     }
     return result
   }
@@ -217,7 +228,16 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         const activity = dirty, continueTools = continuationPending
         dirty = false; continuationPending = false
         await refresh()
-        if ((!activity && !continueTools) || blocked() || journal.state.phase === 'awaiting-plan' || !history || !requestTemplate) return
+        if (blocked()) {
+          const state = journal.state
+          // Preserve work through synchronization and spend fences without
+          // scheduling another batch until a refresh clears the blocker.
+          if (!terminal(state.phase) && state.phase !== 'waiting-for-user' && !state.recoveryBlocked) {
+            dirty ||= activity; continuationPending ||= continueTools
+          }
+          return
+        }
+        if ((!activity && !continueTools) || journal.state.phase === 'awaiting-plan' || !history || !requestTemplate) return
         const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: 'Desk activity changed. Inspect fresh desk observations before acting.' }] }
         await step({ ...requestTemplate!, messages: [...history!, ...(activity ? [observation] : [])] })
       }).catch(async () => { await waitForUser('lead-activity-failed') }).catch(() => {})
@@ -231,7 +251,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         const event = item.value
         if (event.type === 'gap' || event.type === 'end') {
           synchronized = false; generation++; snapshot = null; relays = []
-          cancelBatch?.(); cancelBatch = null; dirty = false; continuationPending = false
+          cancelBatch?.(); cancelBatch = null
           // Fence immediately, then invalidate durable cards through the writer.
           await invalidate(); reason = event.type === 'gap' ? 'lead-connection-gap' : 'lead-connection-ended'
           if (event.type === 'end') return
@@ -268,7 +288,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     } catch { synchronized = false; await waitForUser('lead-subscription-failed') }
   }
   return {
-    get state(): LeadLoopState { return structuredClone({ phase: journal.state.phase, reason: journal.state.phase === 'waiting-for-user' ? journal.state.managementReason ?? reason : reason, synchronized, snapshot, relays, acceptance }) },
+    get state(): LeadLoopState { return structuredClone({ phase: journal.state.phase, reason: journal.state.budget?.stop ? 'lead-budget-stopped' : journal.state.phase === 'waiting-for-user' ? journal.state.managementReason ?? reason : reason, synchronized, snapshot, relays, acceptance }) },
     start: () => queue(start),
     request: (input: LeadMessagesRequest, signal?: AbortSignal) => queue(async () => { await start(); return step(input, signal) }),
     refresh: () => queue(async () => { await start(); await refresh() }),

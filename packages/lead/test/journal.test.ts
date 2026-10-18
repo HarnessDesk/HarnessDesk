@@ -1464,3 +1464,14 @@ test('a lookup record the ledger refuses still contests its start', async () => 
   await journal.recover(async () => [runEvidence(witnessed('run-x'))])
   assert.equal(journal.state.seq, seq, 'a standing refusal appends nothing')
 })
+
+test('automatic recovery preserves a cancelled-request person wait across reopen', async () => {
+  const { journal, storage } = await lostStart()
+  await journal.setManagementPhase('waiting-for-user', 'lead-request-cancelled')
+  await journal.recover(async () => [runEvidence({ correlationId: 'lost', runId: 'run-1', teamId: 'team-1' })])
+  assert.equal(journal.state.phase, 'waiting-for-user')
+  assert.equal(journal.state.managementReason, 'lead-request-cancelled')
+  const recovered = await open(storage)
+  assert.equal(recovered.state.phase, 'waiting-for-user')
+  assert.equal(recovered.state.managementReason, 'lead-request-cancelled')
+})

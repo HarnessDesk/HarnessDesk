@@ -240,7 +240,10 @@ export class LeadJournal {
     catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
     this.#state = next
   }
-  setManagementPhase(phase: 'planning' | 'waiting-for-user', reason: string | null = null): Promise<void> { return this.#queue(() => this.#append({ type: 'management', phase, reason })) }
+  setManagementPhase(phase: 'planning' | 'waiting-for-user', reason: string | null = null): Promise<void> { return this.#queue(async () => {
+    if (this.#state.phase === phase && this.#state.managementReason === reason) return
+    await this.#append({ type: 'management', phase, reason })
+  }) }
   resume(): Promise<void> { return this.#queue(() => this.#append({ type: 'resume' })) }
   restoreResult(id: string, revision: number): Promise<void> { return this.#queue(() => this.#append({ type: 'restore-result', id, revision })) }
   /** Call only after acquiring exclusive ownership, before sending any requests. */

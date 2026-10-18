@@ -290,6 +290,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       available = LIMIT.bytes - (bytes(body) - bytes(json(messages))) - bytes(safeJson(continuation))
       if (available < 0) fail()
     } catch { return { status: 'invalid-response', reason: 'lead-messages-continuation-limit', usage: used, toolResults: results } }
+    const permissionDeniedTools: string[] = []
     for (const [position, { use, index }] of uses.entries()) {
       if (!signal.aborted && parsed.stop_reason !== 'max_tokens') {
         try {
@@ -300,6 +301,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
           const executed = await journal.execute({ id: `${requestId}/tool/${index}`, request: { method: call.method, params: call.params,
             project: scope.project, runId: scope.runId, start: scope.start }, context: scope.context, stepId: scope.stepId },
             (approved, id) => cancellable(() => dispatch(approved, id, signal), signal))
+          if (executed.decision.effect !== 'allow') permissionDeniedTools.push(use.id)
           if (executed.outcome === 'succeeded') {
             const result = { ...results[position]!, content: safeJson(executed.value ?? null, LIMIT.text), is_error: false }
             const extra = bytes(json(result)) - bytes(json(results[position]))
@@ -309,6 +311,6 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       }
     }
     return { status: parsed.stop_reason === 'max_tokens' ? 'max-tokens' : signal.aborted ? 'cancelled' : 'completed', usage: used,
-      text: output.text, proposals: { plan: output.plan, cards: output.cards }, toolResults: results, messages: continuation }
+      text: output.text, proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, messages: continuation }
   } }
 }

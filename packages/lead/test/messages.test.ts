@@ -148,7 +148,9 @@ test('max_tokens reports truncation, settles usage and refuses incomplete tools'
 test('journal permissions still refuse known tools; bounded tool results cannot disclose credentials', async () => {
   const s = await setup([message([tool('preview', 'flow_preview', { root: project.path, source: 'recipe' })], { stop_reason: 'tool_use' })])
   await s.journal.setPolicy({ ...policy, revision: 2, rules: [{ id: 'deny', method: 'flow/preview', action: null, project: null, effect: 'deny' }] })
-  assert.equal((await s.client.request(input, new AbortController().signal)).toolResults[0].is_error, true)
+  const denied = await s.client.request(input, new AbortController().signal)
+  assert.equal(denied.toolResults[0].is_error, true)
+  assert.deepEqual(denied.permissionDeniedTools, ['preview'])
   assert.deepEqual(s.dispatched, [])
   for (const value of [key, 'x'.repeat(20_000), { nested: key }]) {
     const bounded = await setup([message([tool('usage', 'library_usage')], { stop_reason: 'tool_use' })],
@@ -253,6 +255,7 @@ test('aggregate tool results retain every correlation when the continuation appr
     content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(10_000) })) }] }, new AbortController().signal)
   assert.equal(result.status, 'completed')
   assert.deepEqual(result.toolResults.map((item: any) => item.tool_use_id), uses.map(item => item.id))
+  assert.deepEqual(result.permissionDeniedTools, [])
   assert.ok(result.toolResults.some((item: any) => item.is_error))
   assert.ok(result.toolResults.some((item: any) => !item.is_error))
   assert.ok(new TextEncoder().encode(JSON.stringify(result.messages)).byteLength <= 1_048_576)

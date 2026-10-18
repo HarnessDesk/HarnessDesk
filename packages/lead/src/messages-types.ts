@@ -87,6 +87,8 @@ export interface LeadMessagesResult {
   readonly usage?: MessagesUsage
   readonly text?: string
   readonly proposals?: { readonly plan: LeadAcceptanceContract | null; readonly cards: readonly LeadCard[] }
+  /** Correlations refused by the permission gate, independent of static tool errors. */
+  readonly permissionDeniedTools?: readonly string[]
   readonly toolResults?: readonly MessagesToolResult[]
   /** Validated continuation with one ordered result for every tool use. Still untrusted
    * content: the renderer must use its transcript sanitizer. */

@@ -221,7 +221,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         updateAttempt(event.id, attempt => ({ ...attempt, outcome: 'succeeded', contested: false }))
       }
       updateAttempt(event.id, attempt => ({ ...attempt, resolutionPending: false }))
-      if (![...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'running' }
+      if (state.managementReason === null && ![...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'running' }
       break
     }
     case 'reconciliation-conflict':
@@ -258,7 +258,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       if (event.identity !== null) {
         complete(event.id, event.identity)
         updateAttempt(event.id, attempt => ({ ...attempt, outcome: 'succeeded' }))
-        if (![...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'running' }
+        if (state.managementReason === null && ![...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'running' }
       } else if (resolutionPending) {
         updateAttempt(event.id, attempt => ({ ...attempt, outcome: 'uncertain' }))
         state = { ...state, phase: 'waiting-for-user' }
@@ -276,7 +276,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     }
     state = { ...state, attempts }
   }
-  if (!['stopped', 'accepted', 'declined'].includes(state.phase) && hasPendingLeadPlan(state)) state = { ...state, phase: 'awaiting-plan' }
+  if (!['stopped', 'accepted', 'declined'].includes(state.phase) &&
+    !(state.phase === 'waiting-for-user' && state.managementReason !== null) && hasPendingLeadPlan(state)) state = { ...state, phase: 'awaiting-plan' }
   else if (event.type === 'card-decision' && event.decision.cardType === 'plan' && event.decision.choice === 'approve' &&
     [...state.attempts.values()].some(attempt => attempt.kind === 'mutation' && attempt.outcome === 'uncertain')) state = { ...state, phase: 'waiting-for-user' }
   // A provider/billing stop needs the person even while a plan card remains
@@ -296,6 +297,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   if (state.budget?.stop && !previous.budget?.stop || discovered && stopped ||
     event.type === 'stop' && previous.phase !== 'stopped' && !previous.budget?.stop)
     state = { ...state, stopEffectsPending: event.seq }
+  if (previous.phase === 'waiting-for-user' && state.phase !== 'waiting-for-user') state = { ...state, managementReason: null }
   return state
 }
 export const replayLeadJournal = (records: readonly LeadJournalRecord[]): LeadState => records.reduce(reduceLeadRecord, initialLeadState())
