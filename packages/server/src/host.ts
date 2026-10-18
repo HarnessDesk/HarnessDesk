@@ -698,6 +698,8 @@ export class Host {
   readonly #runtimeHistoryReaders = new WeakMap<AgentRuntime, (query?: ListSessionsQuery, startIfNeeded?: boolean) => Promise<Page<SessionSummary> | null>>()
   readonly #accountReads = new Map<string, AccountReads>()
   readonly #discoveringRuntimes = new Map<string, Promise<void>>()
+  /** Only discovered, never started: a PATH re-ask must keep them idle. */
+  readonly #discoveryOnlyRuntimes = new Set<string>()
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #directRuntimeStarts = new Map<string, { startedAt: number; promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
@@ -2250,6 +2252,7 @@ export class Host {
       this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was replaced.'))
       this.#directRuntimeStarts.delete(String(id))
       this.#discoveringRuntimes.delete(String(id))
+      this.#discoveryOnlyRuntimes.delete(String(id))
       this.#accountReads.get(id)?.dispose()
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
@@ -2383,6 +2386,7 @@ export class Host {
     this.#runtimes.delete(id)
     this.#runtimeSources.delete(String(id))
     this.#discoveringRuntimes.delete(String(id))
+    this.#discoveryOnlyRuntimes.delete(String(id))
     this.#coldRuntimes.delete(String(id))
     this.#modelsReadyAt.delete(String(id))
     this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was removed.'))
@@ -2708,13 +2712,7 @@ export class Host {
       // the program will not run, without launching an unused agent. Its
       // health event seeds the same cache as a failed start (#1778).
       else if (runtime.discoverProgram) {
-        const id = String(runtime.info.id)
-        const discovery = runtime.discoverProgram().catch((error: unknown) => {
-          this.#logger.warn('runtime program discovery failed', { runtime: id, error: String(error) })
-        }).finally(() => {
-          if (this.#discoveringRuntimes.get(id) === discovery) this.#discoveringRuntimes.delete(id)
-        })
-        this.#discoveringRuntimes.set(id, discovery)
+        void this.#discoverProgram(runtime)
       }
     }
     /* Recovery sends enter the same live-operation start barrier as new work. */
@@ -2768,6 +2766,23 @@ export class Host {
     await this.#askAgain(['notInstalled', 'unreadable'], 'the PATH changed after it was first asked')
   }
 
+  #discoverProgram(runtime: AgentRuntime): Promise<void> {
+    const id = String(runtime.info.id)
+    const existing = this.#discoveringRuntimes.get(id)
+    if (existing) return existing
+    this.#discoveryOnlyRuntimes.add(id)
+    const discovery = Promise.resolve().then(async () => {
+      if (this.#disposed || this.#runtimes.get(id) !== runtime || !this.#discoveryOnlyRuntimes.has(id)) return
+      await runtime.discoverProgram?.()
+    }).catch((error: unknown) => {
+      this.#logger.warn('runtime program discovery failed', { runtime: id, error: String(error) })
+    }).finally(() => {
+      if (this.#discoveringRuntimes.get(id) === discovery) this.#discoveringRuntimes.delete(id)
+    })
+    this.#discoveringRuntimes.set(id, discovery)
+    return discovery
+  }
+
   /**
    * The asks that follow a first ask whose program was there and would not
    * answer. Armed as the desk starts, so the window never waits on them: each
@@ -2806,7 +2821,8 @@ export class Host {
       const health = runtime.health()
       if (health.state !== 'unavailable' || !reasons.includes(health.reason)) return
       this.#logger.info('asking an agent again', { runtime: id, why })
-      await this.#startOne(runtime)
+      if (this.#discoveryOnlyRuntimes.has(id) && runtime.discoverProgram) await this.#discoverProgram(runtime)
+      else await this.#startOne(runtime)
     }))
   }
 
@@ -2843,6 +2859,7 @@ export class Host {
 
   #beginRuntimeStart(runtime: AgentRuntime, prepared: boolean): Promise<void> {
     const id = String(runtime.info.id)
+    this.#discoveryOnlyRuntimes.delete(id)
     const existing = this.#startingRuntimes.get(id) ?? this.#directRuntimeStarts.get(id)?.promise
     if (existing) return existing
     const attempt = Promise.resolve().then(async () => {
@@ -3230,6 +3247,7 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#discoveryOnlyRuntimes.clear()
     this.#sessionIndexAbort.abort()
     clearTimeout(this.#removalSweep)
     this.#historyImport.close()
@@ -8737,11 +8755,13 @@ export class Host {
 
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
     const id = String(runtime)
+    if (health.state === 'starting' || health.state === 'ready') this.#discoveryOnlyRuntimes.delete(id)
     if (health.state === 'unavailable' && isProgramFailure(health.reason)) this.#runtimeCache.update(id, { wouldNotStart: health.reason })
-    // Cleared when it comes up, and when it gets far enough to crash: from
-    // there on the program on disk is not the reason, and a crash is not
-    // asked again at launch. Not on `unknown`, which a stop can say.
-    else if ((health.state === 'ready' || (health.state === 'unavailable' && health.reason === 'crashed')) &&
+    // Also cleared when discovery recovers to idle: asking again found no
+    // program failure, and next boot must not turn that recovery into a start.
+    // A crash got far enough to run; `unknown` may just mean a stop.
+    else if ((health.state === 'ready' || (health.state === 'idle' && this.#discoveryOnlyRuntimes.has(id)) ||
+      (health.state === 'unavailable' && health.reason === 'crashed')) &&
       this.#runtimeCache.get(id).wouldNotStart) this.#runtimeCache.update(id, { wouldNotStart: undefined })
     const authority = this.#runtimes.get(runtime)
     if (health.state === 'ready' && authority && !authority.info.capabilities.archiveHistory && !this.#indexFolderBackfills.has(runtime)) {

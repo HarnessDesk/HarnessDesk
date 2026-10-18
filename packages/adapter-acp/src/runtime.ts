@@ -125,6 +125,7 @@ import { CliMcp, type AcpMcpCommands } from './mcp.js'
 import { decodeLoadout, loadoutItem, loadoutPart } from './loadout.js'
 import { AcpTasks } from './tasks.js'
 import { projectToolItem, type ToolItemState } from './tool-items.js'
+import { whichOnPath } from './which.js'
 
 /**
  * `AgentRuntime` over the Agent Client Protocol.
@@ -287,6 +288,8 @@ export interface AcpAgentConfig {
    * from. See `executable.ts`.
    */
   readonly executable?: AcpExecutableSpec
+  /** The bridge needs the CLI named by `executable`; it has no embedded fallback. */
+  readonly cliRequired?: boolean
   /**
    * Decides what is spawned, when the host knows more than the row does:
    * which of several installed copies of the agent should answer, whether
@@ -910,6 +913,7 @@ export class AcpRuntime implements AgentRuntime {
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   readonly #infoListeners = new Set<() => void>()
   #health: RuntimeHealth = { state: 'idle' }
+  #discoveredFailure: RuntimeHealth | null = null
   #initialized: AcpInitializeResult | null = null
   /** The agent CLI behind the bridge, once looked for; null when not found or not declared. */
   #executable: ResolvedExecutable | null = null
@@ -1340,14 +1344,7 @@ export class AcpRuntime implements AgentRuntime {
               message,
               remediation: "Verify the agent's profile or configuration, then select it again.",
             }
-          : {
-              state: 'unavailable',
-              reason: 'notInstalled',
-              message,
-              ...(this.#config.installCommand
-                ? { remediation: `Install it with \`${this.#config.installCommand}\`.` }
-                : {}),
-            },
+          : this.#programFailure(message),
       )
       throw error
     }
@@ -1771,7 +1768,56 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   health(): RuntimeHealth {
-    return this.#health
+    return this.#discoveredFailure ?? this.#health
+  }
+
+  async discoverProgram(): Promise<void> {
+    const before = this.#health
+    if (this.#disposed || before.state !== 'idle') return
+    let failure: RuntimeHealth | null = null
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      // 'recheck' runs the host's install scan: a --version probe per copy
+      // found, and possibly a registry version lookup. It skips start-only
+      // preflight checks. Bound the whole ask, including a required CLI's
+      // existing resolver, without changing what the connection will spawn.
+      const lookup = async (): Promise<RuntimeHealth | null> => {
+        const decision = await this.#config.resolveLaunch?.('recheck')
+        if (decision && 'blocked' in decision) return { state: 'unavailable', ...decision.blocked }
+        const command = decision?.command ?? this.#config.command
+        const env = { ...process.env, ...this.#config.env, ...decision?.env }
+        // ACP has no general version command. The shared PATH walk checks
+        // file type and executability without launching an ACP session.
+        if (!whichOnPath(command, { env })) {
+          return this.#programFailure(`${this.#config.name}'s program could not be found or executed: ${command}.`)
+        }
+        const spec = this.#config.executable
+        if (this.#config.cliRequired && spec && !(await this.#resolveExecutable(spec))) {
+          return this.#programFailure(`${this.#config.name}'s required CLI could not be found or executed: ${spec.command}.`)
+        }
+        return null
+      }
+      failure = await Promise.race([
+        lookup(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Program lookup timed out after 10 seconds.')), 10_000)
+        }),
+      ])
+      settled = true
+    } catch (error) {
+      // An inconclusive scan says nothing about whether the program exists.
+      this.#config.logger?.warn?.('runtime program discovery did not complete', {
+        agent: this.#config.id, error: describeAcp(error),
+      })
+    } finally {
+      clearTimeout(timer)
+    }
+    // An unfinished scan keeps whatever an earlier discovery found, and a
+    // start or quit while the lookup was running owns the newer answer.
+    if (!settled || this.#disposed || this.#health !== before) return
+    this.#discoveredFailure = failure
+    for (const listener of this.#healthListeners) listener(this.health())
   }
 
   onHealthChange(listener: (health: RuntimeHealth) => void): Unsubscribe {
@@ -3429,8 +3475,20 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   #setHealth(health: RuntimeHealth): void {
+    this.#discoveredFailure = null
     this.#health = health
     for (const listener of this.#healthListeners) listener(health)
+  }
+
+  #programFailure(message: string): RuntimeHealth {
+    return {
+      state: 'unavailable',
+      reason: 'notInstalled',
+      message,
+      ...(this.#config.installCommand
+        ? { remediation: `Install it with \`${this.#config.installCommand}\`.` }
+        : {}),
+    }
   }
 
   #onExit(code: number | null): void {

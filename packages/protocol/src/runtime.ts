@@ -1143,7 +1143,8 @@ export interface AgentRuntime {
    * or persistent process. A failure is reported through health/onHealthChange
    * like a failed start; success leaves an idle runtime idle. The host asks
    * unused runtimes in the background at startup. A result overtaken by a
-   * start or disposal must not replace newer health.
+   * start or disposal must not replace newer health. An implementation must
+   * settle within its own probe timeout (the native adapter's probes use 10 s).
    */
   discoverProgram?(): Promise<void>
   /**

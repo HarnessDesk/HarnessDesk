@@ -401,9 +401,44 @@ test('the PATH re-ask waits for a discovery in flight before judging the runtime
   await discoveryFinished
   await asking
 
-  assert.equal(program.starts, 1, 'asked again after discovery reported not installed')
-  assert.deepEqual(program.health(), { state: 'ready' })
-  assert.deepEqual(host.syncPayload().params.health?.find(entry => entry.runtime === program.info.id)?.health, { state: 'ready' })
+  assert.equal(program.discoveries, 2, 'the PATH re-ask repeats discovery after the older lookup finishes')
+  assert.equal(program.starts, 0, 'a PATH re-ask must not launch an unused agent')
+  assert.deepEqual(program.health(), { state: 'idle' })
+  assert.deepEqual(host.syncPayload().params.health?.find(entry => entry.runtime === program.info.id)?.health, { state: 'idle' })
+  await host.dispose()
+  const cache = JSON.parse(await readFile(join(dir, 'runtime-cache.json'), 'utf8'))
+  assert.equal(cache.runtimes.one.wouldNotStart, undefined, 'recovered discovery must not start the agent at the next boot')
+})
+
+test('the PATH re-ask re-discovers a settled missing program without starting it', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-discovery-path-settled-'))
+  class DiscoveredProgram extends Program {
+    discoveries = 0
+    async discoverProgram(): Promise<void> {
+      this.discoveries += 1
+      this.setHealth(this.found ? { state: 'idle' } : notInstalled)
+    }
+  }
+  const program = new DiscoveredProgram({ id: runtimeId('one') })
+  program.setHealth({ state: 'idle' })
+  const host = await relaunch(t, dir, program)
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await until(() => program.health().state === 'unavailable', 'startup discovery did not finish')
+
+  program.found = true
+  await host.retryProgramLookup()
+
+  assert.equal(program.discoveries, 2)
+  assert.equal(program.starts, 0)
+  assert.deepEqual(program.health(), { state: 'idle' })
+
+  // Once explicitly started, a later PATH failure belongs to the start path.
+  await ask(host, program)
+  assert.equal(program.starts, 1)
+  program.setHealth(notInstalled)
+  await host.retryProgramLookup()
+  assert.equal(program.starts, 2, 'a runtime that did start keeps the existing re-start behavior')
+  assert.equal(program.discoveries, 2)
 })
 
 test('a stop that says unknown is not remembered as a program failure', async (t) => {

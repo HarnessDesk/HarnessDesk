@@ -80,6 +80,18 @@ test('only the Claude template vouches for its bridge\'s tool provenance; a copi
   assert.equal(store.configs().find((config) => config.id === 'copied')?.trustsBridgeProvenance, undefined)
 })
 
+test('bridge templates carry whether their CLI is required into the runtime config', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new AgentRegistryStore(join(dir, 'agents.json'))
+  store.add({ id: 'cursor', template: 'cursor' })
+  store.add({ id: 'claude-code', template: 'claude-code' })
+
+  const configs = store.configs()
+  assert.equal(configs.find(config => config.id === 'cursor')?.cliRequired, true)
+  assert.equal(configs.find(config => config.id === 'claude-code')?.cliRequired, false)
+})
+
 test('only the Gemini template declares per-tool MCP approval guidance', async (t) => {
   const dir = await tempDir()
   t.after(() => rm(dir, { recursive: true, force: true }))

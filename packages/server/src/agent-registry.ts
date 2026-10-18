@@ -264,6 +264,7 @@ const expandTemplate = (
     ...(template.account ? { account: template.account } : {}),
     ...(template.secrets ? { secrets: template.secrets } : {}),
     ...(template.executable ? { executable: template.executable } : {}),
+    ...(template.requires ? { cliRequired: template.requires.cliRequired } : {}),
     ...(template.requires?.installCommand
       ? { installCommand: template.requires.installCommand }
       : {}),
