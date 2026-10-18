@@ -6,7 +6,7 @@ import { LeadBudgets } from '../src/lead/budgets.js'
 
 const key = 'sk-test-not-real-0000'
 const input = { messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect the plan' }] }], maxTokens: 32 }
-const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void> } = {}) => {
+const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any } = {}) => {
   const home = await mkdtemp('/tmp/hd-ls-')
   t.after(() => rm(home, { recursive: true, force: true }))
   const records: LeadJournalRecord[] = []
@@ -24,6 +24,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { resolve
   const modulePath = new URL('../src/lead/service.js', import.meta.url).href
   const { LeadService } = await import(modulePath)
   const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, broker, model: 'synthetic-model', prices: {},
+    messagesTransport: hooks.messagesTransport,
     resolveTool: hooks.resolveTool ?? (async () => { throw new Error('unused') }), freezePlan: async (proposal: unknown) => proposal, readEvidence: async () => { throw new Error('unused') },
     register: () => { events.push('register'); const close = budgets.register(journal); return { admission: {}, close: () => { events.push('unregister'); close() } } },
     childStarted: () => (budgets as any).childStarted(journal), recover: () => budgets.recover(),
@@ -164,4 +165,44 @@ test('a widening repository policy blocks management before any child or door st
   assert.equal(s.spawns(), 0)
   assert.equal(s.bootstrap.length, 0)
   assert.equal(s.events.includes('register'), false)
+})
+
+
+test('deleteKey removes the stored key after a failed latch killed the child, and preserves the cleanup fence', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true); await s.service.send(input)
+  const original = s.journal.setManagementPhase.bind(s.journal)
+  s.journal.setManagementPhase = async () => { throw new Error('synthetic latch failure') }
+  try {
+    await assert.rejects(s.service.deleteKey('anthropic'), /synthetic latch failure/)
+    assert.equal(s.process().live, false)
+    assert.equal(s.events.includes('delete'), true)
+    assert.equal((await s.service.status('anthropic')).configured, false)
+    await assert.rejects(s.service.send(input), /lead-cleanup-pending/)
+  } finally { s.journal.setManagementPhase = original }
+})
+
+
+test('host provider-send attaches a transient key and returns only bounded, redacted response fields', async t => {
+  const requests: any[] = []
+  let body = 'synthetic response'
+  const s = await rig(t, { messagesTransport: { send: async (request: any) => {
+    requests.push(request)
+    return { status: 200, body, retryAfter: '1', processing: 'unknown', extra: key }
+  } } })
+  await s.service.setEnabled(true); await s.service.send(input)
+  const signal = new AbortController().signal
+  assert.equal(typeof s.options().providerSend, 'function')
+  assert.deepEqual(await s.options().providerSend('{}', signal), { status: 200, body, retryAfter: '1', processing: 'unknown' })
+  assert.equal(requests[0].headers['x-api-key'], key)
+  assert.equal(requests[0].origin, 'https://api.anthropic.com')
+  assert.equal(requests[0].path, '/v1/messages')
+  assert.equal(requests[0].method, 'POST')
+  body = JSON.stringify({ error: key }).replace('test', '\\u0074est')
+  await assert.rejects(s.options().providerSend('{}', signal), /lead-provider-failed/)
+  body = 'x'.repeat(1_048_577)
+  await assert.rejects(s.options().providerSend('{}', signal), /lead-provider-failed/)
+  await s.service.deleteKey('anthropic')
+  await assert.rejects(s.options().providerSend('{}', signal))
+  assert.equal(requests.length, 3)
 })

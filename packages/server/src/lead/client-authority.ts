@@ -139,7 +139,7 @@ export const cleanupLeadClientDoors = async (home: string): Promise<void> => {
  * child's private input. There is no discovery pointer, argv or env marker.
  * Socket ownership is not an OS sandbox against another same-user process. */
 export const openLeadClientDoor = async (
-  options: Omit<ClientDoorOptions, 'policy' | 'discovery'> & { readonly authority: ClientConnectionPolicy },
+  options: Omit<ClientDoorOptions, 'policy' | 'discovery'> & { readonly authority: ClientConnectionPolicy; readonly onWithdrawn?: (runId: string) => void },
 ): Promise<ClientDoor | null> => {
   if (process.platform === 'win32') return null
   // Every private socket belongs to this home, rather than a global /tmp sweep.
@@ -148,7 +148,7 @@ export const openLeadClientDoor = async (
   const directory = await fs.mkdtemp(join(parent!, 'hd-lead-'))
   try {
     const door = await openClientDoor({ host: options.host, logger: options.logger, home: options.home,
-      hostVersion: options.hostVersion, directory, policy: { ...options.authority, identity: 'lead',
+      hostVersion: options.hostVersion, directory, policy: { ...options.authority, onWithdrawn: options.onWithdrawn, identity: 'lead',
         maximumTiers: options.authority.maximumTiers.filter(tier => tier === 'read' || tier === 'run') }, discovery: false })
     if (!door) { await fs.rm(directory, { recursive: true, force: true }); return null }
     let closing: Promise<void> | undefined

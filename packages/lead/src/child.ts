@@ -1,11 +1,11 @@
-import { request as httpsRequest } from 'node:https'
+import { Socket } from 'node:net'
+import DeskWebSocket from 'ws'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import type { Readable, Writable } from 'node:stream'
-import { connect, type Client } from '@harnessdesk/client'
-import { hostVerifiedLocalTransport } from '@harnessdesk/client/node'
-import { parseClientMessage, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
-import type { LeadChildBootstrap } from './child-ipc.js'
+import { connect, type Client, type ClientTransport } from '@harnessdesk/client'
+import { parseClientMessage, parseLeadPermissionPolicy, type HostToClient } from '@harnessdesk/protocol'
+import type { LeadChildConfig } from './child-ipc.js'
 import type { LeadState } from './state.js'
 import type { LeadDispatch } from './journal.js'
 import type { LeadPermissionCall } from './permissions.js'
@@ -16,43 +16,35 @@ import type { LeadMessagesRequest, MessagesTransport } from './messages-types.js
 import { LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
 
 const denied = () => new Error('lead-child-operation-failed')
-const transport: MessagesTransport = {
-  send: request => new Promise((resolve, reject) => {
-    // Fixed provider destination and path, no redirects and a bound while reading.
-    const outgoing = httpsRequest({ hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST', headers: request.headers,
-      signal: request.signal, timeout: 30_000 }, response => {
-      const chunks: Uint8Array[] = []; let bytes = 0
-      response.on('data', (chunk: Uint8Array) => {
-        bytes += chunk.length
-        if (bytes > request.maxResponseBytes) { outgoing.destroy(denied()); return }
-        chunks.push(chunk)
-      })
-      response.once('error', () => reject(denied()))
-      response.once('end', () => {
-        const body = Buffer.concat(chunks).toString('utf8'), status = response.statusCode ?? 0
-        const retryAfter = response.headers['retry-after']
-        resolve({ status, body, ...(typeof retryAfter === 'string' ? { retryAfter } : {}),
-          ...(status === 429 || status === 529 ? { processing: 'not-started' as const } : {}) })
-      })
-    })
-    outgoing.once('timeout', () => outgoing.destroy(denied()))
-    outgoing.once('error', () => reject(denied()))
-    outgoing.end(request.body)
-  }),
+/** No path, discovery or fresh connect exists in the child. ws performs its
+ * HTTP upgrade over the socket the host connected and passed as fd 3. */
+const inheritedDeskTransport = async (): Promise<ClientTransport> => {
+  const socket = new Socket({ fd: 3, readable: true, writable: true })
+  const ws = new DeskWebSocket('ws://lead.invalid/client', { createConnection: () => socket, handshakeTimeout: 5000 })
+  await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', () => reject(denied())) })
+  const messages = new Set<(message: HostToClient) => void>(), closes = new Set<() => void>()
+  ws.on('message', raw => {
+    try {
+      const value = JSON.parse(raw.toString()) as HostToClient
+      if (!value || typeof value !== 'object') throw denied()
+      for (const listener of messages) listener(value)
+    } catch { ws.close(1002, 'invalid message') }
+  })
+  ws.on('close', () => { for (const listener of closes) listener() })
+  ws.on('error', () => ws.terminate())
+  return { send: message => ws.send(JSON.stringify(message)), close: () => ws.close(),
+    onMessage: listener => { messages.add(listener); return () => { messages.delete(listener) } },
+    onClose: listener => { closes.add(listener); return () => { closes.delete(listener) } } }
 }
 interface ChildOptions {
   readonly input?: Readable
   readonly output?: Writable
-  readonly connectDesk?: (config: LeadChildBootstrap) => Promise<Client>
+  readonly connectDesk?: (config: LeadChildConfig) => Promise<Client>
   readonly onExit?: (code: number) => void
 }
-const parseBootstrap = (value: unknown): LeadChildBootstrap => {
+const parseBootstrap = (value: unknown): LeadChildConfig => {
   const source = ipcObject(value)
   if (Object.keys(source).some(key => !['key', 'descriptor', 'project', 'model', 'prices', 'projectPolicy'].includes(key))) throw denied()
-  ipcText(source.key, 8192)
-  const descriptor = ipcObject(source.descriptor, ['home', 'pid', 'startedAt', 'hostVersion', 'protocolVersion', 'socketPath'])
-  for (const key of ['home', 'hostVersion', 'socketPath']) ipcText(descriptor[key], 4096)
-  for (const key of ['pid', 'startedAt', 'protocolVersion']) if (typeof descriptor[key] !== 'number' || !Number.isSafeInteger(descriptor[key]) || (descriptor[key] as number) < 0) throw denied()
   const project = ipcObject(source.project, ['id', 'path']); ipcText(project.id, 256); ipcText(project.path, 4096)
   if (source.model !== undefined) ipcText(source.model, 256)
   const prices = ipcObject(source.prices)
@@ -62,7 +54,10 @@ const parseBootstrap = (value: unknown): LeadChildBootstrap => {
     if (Object.values(row).some(value => typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) throw denied()
   }
   if (source.projectPolicy !== undefined && source.projectPolicy !== null) parseLeadPermissionPolicy(source.projectPolicy)
-  return source as unknown as LeadChildBootstrap
+  // Legacy in-process fixtures may supply host bootstrap fields. Never retain
+  // those fields in the memory-visible child configuration.
+  const { key: _key, descriptor: _descriptor, ...config } = source
+  return config as unknown as LeadChildConfig
 }
 /** The only child entry. No journal storage is opened: every journal operation
  * and host-derived scope crosses the bounded, validated stdin/stdout port. */
@@ -71,7 +66,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
   const exit = options.onExit ?? ((code: number) => process.exit(code))
   let closed = false, initialized = false, client: Client | null = null, loop: LeadLoop | null = null
   let state: LeadState | null = null, rpcId = 0, requestId = 0
-  let childProject: LeadChildBootstrap['project'] | null = null
+  let childProject: LeadChildConfig['project'] | null = null
   const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; dispatch?: LeadDispatch; request?: unknown; attemptId?: string; dispatched?: boolean }>()
   const send = (message: Omit<LeadIpcMessage, 'version'>) => { if (!closed) output.write(encodeLeadFrame({ version: 1, ...message })) }
   const sync = (value: unknown) => {
@@ -118,7 +113,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         initialized = true
         const config = parseBootstrap(message.config); sync(message.state)
         client = await (options.connectDesk ?? (config => connect({ transport: async () => {
-            const wire = await hostVerifiedLocalTransport(config.descriptor, { env: {} })
+            const wire = await inheritedDeskTransport()
             wire.onClose(() => { if (!closed) send({ type: 'desk-lost' }) })
             return wire
           },
@@ -136,7 +131,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         }) }
         loop = createLeadLoop({ journal, desk, project,
           clock: { now: Date.now, schedule: callback => { const timer = setTimeout(callback, 50); return () => clearTimeout(timer) } },
-          nextId: randomUUID, messages: { apiKey: config.key, model: config.model, prices: config.prices, transport,
+          nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', [request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header
             countInput: async body => new TextEncoder().encode(body).length + 1024,
             wait: (ms, signal) => new Promise((resolve, reject) => {
               if (signal.aborted) { reject(denied()); return }

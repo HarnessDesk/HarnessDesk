@@ -1,9 +1,10 @@
 import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject } from '@harnessdesk/protocol'
-import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, MessagesPrice } from '@harnessdesk/lead'
+import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, MessagesPrice, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
 import { LeadSupervisor, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
 import type { CredentialBroker } from '../credentials.js'
 import type { ClientDoor } from '../client-door.js'
 import type { LeadAdmission } from './admission.js'
+import { leadProviderTransport } from './provider-transport.js'
 import { loadLeadProjectPolicy } from './project-policy.js'
 
 export interface LeadProcess {
@@ -17,6 +18,7 @@ export interface LeadServiceOptions {
   readonly journal: LeadJournal
   readonly project: LeadProject
   readonly broker: Pick<CredentialBroker, 'leadStatus' | 'resolveLead' | 'storeLead' | 'deleteLead'>
+  readonly messagesTransport?: MessagesTransport
   readonly model?: string
   readonly prices: Readonly<Record<string, MessagesPrice>>
   readonly resolveTool: (call: LeadPermissionCall) => Promise<LeadResolvedTool>
@@ -30,7 +32,7 @@ export interface LeadServiceOptions {
   readonly createSupervisor?: (options: LeadSupervisorOptions) => LeadProcess
 }
 /** The host owns this lifecycle and its only journal writer. This service never
- * stores a plaintext key: resolution is transient, just before private stdin.
+ * stores a plaintext key: resolution is transient and host-only.
  * Lifecycle operations serialize; a long model send does not hold that queue. */
 export class LeadService {
   readonly #supervisor: LeadProcess
@@ -70,6 +72,38 @@ export class LeadService {
           return { key, descriptor: this.#door.descriptor,
             project: options.project, prices: options.prices, ...(options.model === undefined ? {} : { model: options.model }), projectPolicy: this.#policy }
         } catch (error) { await this.#release(); throw error }
+      },
+      providerSend: async (body, signal) => {
+        try {
+          this.#assertOpen()
+          if (this.#changingKeys) throw new Error('lead-lifecycle-changed')
+          const generation = this.#generation
+          if (Buffer.byteLength(body) > 1_048_576) throw new Error('lead-provider-failed')
+          const key = await options.broker.resolveLead('anthropic')
+          this.#assertOpen()
+          if (generation !== this.#generation || this.#changingKeys) throw new Error('lead-lifecycle-changed')
+          const response = await (options.messagesTransport ?? leadProviderTransport).send({
+            origin: 'https://api.anthropic.com', path: '/v1/messages', method: 'POST', body,
+            headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': key },
+            maxResponseBytes: 1_048_576, signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+          })
+          if (typeof response.body !== 'string' || Buffer.byteLength(response.body) > 1_048_576 ||
+            !Number.isSafeInteger(response.status) || response.status < 100 || response.status > 599 ||
+            response.retryAfter !== undefined && (typeof response.retryAfter !== 'string' || response.retryAfter.length > 128) ||
+            response.processing !== undefined && !['unknown', 'not-started'].includes(response.processing)) throw new Error('lead-provider-failed')
+          const result: MessagesHttpResponse = { status: response.status, body: response.body,
+            ...(response.retryAfter === undefined ? {} : { retryAfter: response.retryAfter }),
+            ...(response.processing === undefined ? {} : { processing: response.processing }) }
+          const scan = (value: unknown): void => {
+            if (typeof value === 'string' && value.includes(key)) throw new Error('lead-provider-failed')
+            if (value !== null && typeof value === 'object') for (const [name, child] of Object.entries(value)) { scan(name); scan(child) }
+          }
+          scan(result)
+          let decoded: unknown
+          try { decoded = JSON.parse(response.body) } catch { /* Non-JSON errors still pass the literal scan. */ }
+          scan(decoded)
+          return result
+        } catch { throw new Error('lead-provider-failed') }
       },
       resolveTool: async call => {
         this.#assertOpen()
@@ -169,17 +203,24 @@ export class LeadService {
     if (generation !== this.#generation) throw new Error('lead-lifecycle-changed')
     return this.#supervisor.send(input)
   }
-  #changeKey(provider: 'anthropic', write: () => Promise<unknown>): Promise<void> {
+  #changeKey(provider: 'anthropic', write: () => Promise<unknown>, deleting = false): Promise<void> {
     if (provider !== 'anthropic') return Promise.reject(new Error('lead-provider-unsupported'))
     if (this.#closed) return Promise.reject(new Error('lead-closed'))
     ++this.#generation; ++this.#changingKeys
     return this.#queue(async () => {
-      try { await this.#halt('lead-key-changed'); await write() }
+      try {
+        try { await this.#halt('lead-key-changed') }
+        catch (error) {
+          try { if (deleting && !this.#supervisor.live) await write() }
+          finally { throw error }
+        }
+        await write()
+      }
       finally { --this.#changingKeys }
     })
   }
   setKey(provider: 'anthropic', key: string): Promise<void> { return this.#changeKey(provider, () => this.options.broker.storeLead(provider, key)) }
-  deleteKey(provider: 'anthropic'): Promise<void> { return this.#changeKey(provider, () => this.options.broker.deleteLead(provider)) }
+  deleteKey(provider: 'anthropic'): Promise<void> { return this.#changeKey(provider, () => this.options.broker.deleteLead(provider), true) }
   async recover(): Promise<void> {
     if (this.#supervisor.live) throw new Error('lead-child-live')
     await this.#queue(async () => {

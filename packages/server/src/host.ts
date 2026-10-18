@@ -3336,18 +3336,35 @@ export class Host {
 
   /** One host-owned supervisor, enabled explicitly by the authenticated Lead
    * service owner in the next slice step. Construction itself never spawns. */
-  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence'>): LeadService {
+  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor'>): LeadService {
     if (this.#disposed) throw new Error('lead-host-closed')
     if (!this.#leadListenersAvailable) throw new Error('lead-listener-unavailable')
     if (!this.#leadReady) throw new Error('lead-host-starting')
     if (this.#leadService) throw new Error('lead-service-exists')
     const { journal, project } = options
+    let childLive = false
+    let owned = new Set<string>()
+    const withdraw = (runId: string) => {
+      if (childLive) void this.#leadService!.ownershipWithdrawn(runId).catch(() => { this.#logger.warn('Lead ownership cleanup remains pending') })
+    }
+    const trackOwned = () => {
+      if (!childLive) return
+      const next = new Set(journal.state.runs.map(run => run.runId)), previous = owned
+      owned = next
+      for (const runId of previous) if (!next.has(runId)) withdraw(runId)
+    }
+    const detach = journal.onChange(trackOwned)
+    this.onDispose(detach)
     this.#leadService = new LeadService({ ...options, broker: this.#credentials,
       register: () => this.registerLead(journal, project),
-      childStarted: () => this.#leadBudgets.childStarted(journal),
+      childStarted: () => {
+        const end = this.#leadBudgets.childStarted(journal)
+        childLive = true; trackOwned()
+        return () => { childLive = false; owned.clear(); end() }
+      },
       recover: () => this.#leadBudgets.recover(),
       openDoor: async admission => openLeadClientDoor({ host: this, logger: this.#logger, home: this.#state.directory,
-        hostVersion: this.options.version ?? '0.1.0', authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission }) }),
+        hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission }) }),
       stopOwned: async reason => {
         const results = await Promise.allSettled(journal.state.runs.map(async run => {
           this.#flows.interruptChecks(run.teamId)

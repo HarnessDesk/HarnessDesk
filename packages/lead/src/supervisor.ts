@@ -1,4 +1,5 @@
 import { spawn as spawnProcess, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { connect, type Socket } from 'node:net'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, parseLeadCard,
@@ -8,7 +9,7 @@ import { parseLeadRunIdentity, type LeadJournal, type LeadDispatchResult } from 
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadResolvedTool } from './tools.js'
 import type { LeadAcceptanceEvidence } from './acceptance.js'
-import type { LeadMessagesRequest, LeadMessagesResult, MessagesPrice } from './messages-types.js'
+import type { LeadMessagesRequest, LeadMessagesResult, MessagesPrice, MessagesHttpResponse } from './messages-types.js'
 import { LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadRpcOperation } from './child-ipc.js'
 
 export type { LeadChildBootstrap } from './child-ipc.js'
@@ -19,17 +20,21 @@ export interface LeadSupervisorOptions {
   readonly resolveTool: (call: LeadPermissionCall) => Promise<LeadResolvedTool>
   readonly freezePlan: (contract: LeadAcceptanceContract) => Promise<LeadAcceptanceContract>
   readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence>
+  readonly providerSend?: (body: string, signal: AbortSignal) => Promise<MessagesHttpResponse>
+  /** Test seam for the host-owned, already-connected desk socket. */
+  readonly connectDesk?: (descriptor: DeskPointer, signal: AbortSignal) => Promise<Socket | null>
   readonly onStarted?: () => Promise<void> | void
   readonly onExit?: (reason: string) => Promise<void> | void
   readonly onWaitEnded?: (runId: string, reason: 'ownership-withdrawn') => void
   readonly startupMs?: number
   readonly shutdownMs?: number
   /** Test injection retains the exact production argv/environment construction. */
-  readonly spawn?: (binary: string, args: readonly string[], options: { env: Record<string, string>; stdio: ['pipe', 'pipe', 'pipe']; windowsHide: boolean }) => ChildProcessWithoutNullStreams
+  readonly spawn?: (binary: string, args: readonly string[], options: { env: Record<string, string>; stdio: ['pipe', 'pipe', 'pipe', Socket] | ['pipe', 'pipe', 'pipe']; windowsHide: boolean }) => ChildProcessWithoutNullStreams
 }
 type Deferred = { resolve(value: unknown): void; reject(error: Error): void }
 interface Running {
   readonly child: ChildProcessWithoutNullStreams
+  readonly providerAbort: AbortController
   readonly pending: Map<number, Deferred>
   readonly journalWork: Set<Promise<unknown>>
   readonly replies: Map<number, Deferred & { type: 'dispatch' | 'read'; correlationId?: string }>
@@ -68,10 +73,10 @@ const readGrants = (): readonly string[] => {
     join(client, 'dist'), join(client, 'package.json'), // Public desk client implementation and package format.
     join(protocol, 'dist'), join(protocol, 'package.json'), // Portable vocabulary and wire validators.
     join(client, 'node_modules/@harnessdesk/protocol'), // The client's exact protocol dependency link.
-    join(client, 'node_modules/ws'), // Only the WebSocket dependency and its own relative modules.
+    join(leadRoot, 'node_modules/ws'), // Only the WebSocket dependency and its own relative modules.
   ]
 }
-/** Owns one pid. The key is a transient bootstrap local, never a field; no IPC
+/** Owns one pid. The host-only key is never written to child input or a field; no IPC
  * payload, provider error, stderr chunk or process error is ever logged. */
 export class LeadSupervisor {
   #running: Running | null = null
@@ -110,18 +115,28 @@ export class LeadSupervisor {
       // Locale and TLS trust use OS defaults. In particular NODE_OPTIONS, PATH,
       // vendor keys, home-directory markers and proxy variables never cross.
       for (const name of ['LANG', 'LC_ALL', 'TZ']) if (process.env[name]) env[name] = process.env[name]!
-      // Network is required for the private Unix desk socket and the child's fixed
-      // HTTPS provider transport. It conveys no file/process/worker/addon grant.
-      const args = ['--permission', '--allow-net', '--no-addons', '--preserve-symlinks', ...readGrants().map(path => `--allow-fs-read=${path}`),
+      // No network grant: only the inherited, connected fd 3 reaches the desk.
+      // Residual: process.kill is outside Node's permission model; child code
+      // can still signal same-user processes.
+      const args = ['--permission', '--no-addons', '--preserve-symlinks', ...readGrants().map(path => `--allow-fs-read=${path}`),
         fileURLToPath(new URL('./child.js', import.meta.url))]
+      const socket = await (this.options.connectDesk ?? ((descriptor, signal) => new Promise<Socket>((resolve, reject) => {
+        const connection = connect({ path: descriptor.socketPath, signal })
+        connection.once('connect', () => resolve(connection))
+        connection.once('error', () => { connection.destroy(); reject(error('desk-connect-failed')) })
+      })))(config.descriptor, controller.signal)
       let child: ChildProcessWithoutNullStreams
-      try { child = (this.options.spawn ?? spawnProcess)(process.execPath, args, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) }
-      catch { throw error('spawn-failed') }
+      try {
+        if (generation !== this.#generation || this.#stopping) throw error('stopping')
+        child = (this.options.spawn ?? spawnProcess)(process.execPath, args, { env,
+          stdio: socket ? ['pipe', 'pipe', 'pipe', socket] : ['pipe', 'pipe', 'pipe'], windowsHide: true }) as ChildProcessWithoutNullStreams
+      } catch { throw error('spawn-failed') }
+      finally { socket?.destroy() }
       let finish!: () => void, markReady!: () => void, failReady!: (error: Error) => void
       const done = new Promise<void>(resolve => { finish = resolve })
       const ready = new Promise<void>((resolve, reject) => { markReady = resolve; failReady = reject })
       void ready.catch(() => {})
-      const running: Running = { child, pending: new Map(), replies: new Map(), journalWork: new Set(), ready: false, initialized: false, rpcId: 0, id: 0, exited: false, poisoned: false,
+      const running: Running = { child, providerAbort: new AbortController(), pending: new Map(), replies: new Map(), journalWork: new Set(), ready: false, initialized: false, rpcId: 0, id: 0, exited: false, poisoned: false,
         reason: 'exited', done, finish, markReady, failReady }
       this.#running = running
       const decoder = new LeadFrameDecoder()
@@ -146,7 +161,8 @@ export class LeadSupervisor {
         await this.options.onStarted?.()
         if (generation !== this.#generation || this.#stopping || running.exited) throw error('stopping')
         running.initialized = true
-        write(running, { type: 'initialize', config, state: this.options.journal.state })
+        const { key: _key, descriptor: _descriptor, ...childConfig } = config
+        write(running, { type: 'initialize', config: childConfig, state: this.options.journal.state })
         await ready
       } catch { this.#kill(running); await running.done; throw error('startup-failed') }
     }
@@ -217,10 +233,15 @@ export class LeadSupervisor {
     }
     try {
       const arity = { execute: 1, updateBudget: 1, setManagementPhase: 2, invalidateResults: 0, offerCard: 1,
-        restoreResult: 2, recoverUnsettledRequests: 0, resolveTool: 1, freezePlan: 1, readEvidence: 1 }[operation]
+        restoreResult: 2, recoverUnsettledRequests: 0, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 1 }[operation]
       if (args.length !== arity) throw error('protocol')
       let value: unknown = null
       switch (operation) {
+        case 'provider-send': {
+          if (!this.options.providerSend) throw error('provider-unavailable')
+          value = await this.options.providerSend(ipcText(args[0], 1_048_576), running.providerAbort.signal)
+          break
+        }
         case 'execute': {
           const input = ipcObject(args[0])
           ipcObject(input, Object.hasOwn(input, 'stepId') ? ['id', 'request', 'context', 'stepId'] : ['id', 'request', 'context'])
@@ -270,10 +291,10 @@ export class LeadSupervisor {
     running.pending.clear(); running.replies.clear()
     this.#kill(running)
   }
-  #kill(running: Running): void { if (!running.exited) { try { running.child.kill('SIGKILL') } catch { /* Exit remains the authority. */ } } }
+  #kill(running: Running): void { running.providerAbort.abort(); if (!running.exited) { try { running.child.kill('SIGKILL') } catch { /* Exit remains the authority. */ } } }
   async #exit(running: Running): Promise<void> {
     if (running.exited) return
-    running.exited = true; running.failReady(error('exited'))
+    running.exited = true; running.providerAbort.abort(); running.failReady(error('exited'))
     for (const pending of [...running.pending.values(), ...running.replies.values()]) pending.reject(error(running.reason))
     running.pending.clear(); running.replies.clear()
     // A rejected reverse dispatch must finish writing its uncertain result before

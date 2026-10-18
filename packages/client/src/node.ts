@@ -128,13 +128,6 @@ export async function localTransport(desk: DeskPointer, options: { env?: Environ
     if (codeOf(error) === 'ENOENT') throw new WireCallError('noDesk', 'The desk socket is no longer present.')
     throw error
   }
-  return hostVerifiedLocalTransport(desk, options)
-}
-
-/** Private child entry: the host already verified this listener and delivered
- * its descriptor over private stdin. No discovery or filesystem reads are
- * needed in the permission-restricted child. Ordinary clients use localTransport. */
-export async function hostVerifiedLocalTransport(desk: DeskPointer, options: { env?: Environment } = {}): Promise<ClientTransport> {
   const ws = new WebSocket(`ws+unix://${desk.socketPath}:/client`, { handshakeTimeout: 5000 })
   await new Promise<void>((resolve, reject) => {
     const opened = () => { ws.off('error', failed); resolve() }

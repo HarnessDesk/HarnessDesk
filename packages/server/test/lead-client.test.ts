@@ -332,3 +332,67 @@ test('host maximum tiers cannot accidentally grant answer and remain frozen afte
   assert.deepEqual((await peer.hello()).result.tiers, ['read'])
   assert.equal((await peer.call('workspace/open', { path: home })).error?.code, 'tierNotGranted')
 })
+
+for (const withdrawal of ['journal', 'membership'] as const) {
+  test(`real host ${withdrawal} withdrawal tells the child to end its wait`, async t => {
+    const { createLeadJournal } = await import('@harnessdesk/lead')
+    const { LeadSupervisor } = await import('@harnessdesk/lead/supervisor')
+    const { CredentialBroker } = await import('../src/credentials.js')
+    const { PassThrough } = await import('node:stream')
+    const { host, home, connect } = await rig(t)
+    const project = join(home, 'synthetic-project')
+    await mkdir(project)
+    await host.call('workspace/open', { path: project })
+    const preview = await host.call('flow/preview', { root: project, source })
+    const owned = await host.call('flow/start-goal', { root: project, source, sentence: 'Synthetic goal', token: preview.token! })
+    t.mock.method(CredentialBroker.prototype, 'resolveLead', async () => 'sk-test-not-real-0000')
+    const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+    await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+    await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'synthetic-host-owner',
+      caps: { usdMicros: 1000, rounds: 4 }, freshnessMs: 1000 })
+    let ownership = [{ correlationId: 'synthetic-start', runId: owned.id, teamId: owned.goal }]
+    const getState = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(journal), 'state')!.get!
+    t.mock.getter(journal, 'state', () => ({ ...getState.call(journal), runs: ownership }))
+    const child: any = new EventEmitter()
+    child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.pid = 4242
+    const received: any[] = [], answered: any[] = []
+    const encode = (message: unknown) => { const body = Buffer.from(JSON.stringify(message)), head = Buffer.alloc(4); head.writeUInt32BE(body.length); return Buffer.concat([head, body]) }
+    const answer = (message: any) => { answered.push(message); child.stdout.write(encode(message)) }
+    child.kill = () => { queueMicrotask(() => child.emit('exit', 0, null)); return true }
+    let pending = Buffer.alloc(0)
+    child.stdin.on('data', (chunk: Buffer) => {
+      pending = Buffer.concat([pending, chunk])
+      while (pending.length >= 4 && pending.length >= pending.readUInt32BE() + 4) {
+        const size = pending.readUInt32BE(), message = JSON.parse(pending.subarray(4, size + 4).toString()); pending = pending.subarray(size + 4)
+        received.push(message)
+        if (message.type === 'initialize') answer({ version: 1, type: 'ready' })
+        if (message.type === 'request') answer({ version: 1, type: 'response', id: message.id, result: { status: 'completed' } })
+        if (message.type === 'ownership-withdrawn') { answer({ version: 1, type: 'wait-ended', runId: message.runId, reason: 'ownership-withdrawn' }); child.kill() }
+        if (message.type === 'shutdown') child.kill()
+      }
+    })
+    const service = host.createLeadService({ journal, project: { id: 'synthetic-project', path: project }, prices: {},
+      resolveTool: async () => { throw new Error('unused') }, freezePlan: async (proposal: unknown) => proposal, readEvidence: async () => { throw new Error('unused') },
+      createSupervisor: (settings: any) => new LeadSupervisor({ ...settings, connectDesk: async () => null, spawn: () => child }),
+    } as any)
+    await service.setEnabled(true)
+    await service.send({ messages: [{ role: 'user', content: [{ type: 'text', text: 'Wait for owned work' }] }], maxTokens: 32 })
+    const peer = connect()
+    await peer.hello()
+    assert.equal((await peer.call('client/subscribe', { topics: ['runs'], scope: { run: owned.id } })).ok, true)
+    if (withdrawal === 'journal') {
+      ownership = []
+      await journal.setManagementPhase('waiting-for-user', 'lead-ownership-withdrawn')
+    } else {
+      // Rename the pinned project, so re-authorization through the real door fails.
+      const { rename } = await import('node:fs/promises')
+      const renamed = `${project}-moved`
+      await rename(project, renamed)
+      await host.call('flow/execution/stop', { run: owned.id, reason: 'Synthetic host stop' })
+    }
+    for (let i = 0; i < 100 && !answered.some(message => message.type === 'wait-ended'); i++) await new Promise(resolve => setTimeout(resolve, 5))
+    assert.ok(received.some(message => message.type === 'ownership-withdrawn' && message.runId === owned.id))
+    assert.ok(answered.some(message => message.type === 'wait-ended' && message.reason === 'ownership-withdrawn'))
+    peer.socket.close()
+  })
+}

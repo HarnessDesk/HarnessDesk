@@ -21,6 +21,7 @@ export type ClientConnectionRequest = {
 
 /** Trusted host input only. No hello field can install or modify a policy. */
 export interface ClientConnectionPolicy {
+  readonly onWithdrawn?: (runId: string) => void
   readonly preview?: (params: HostParams<'flow/preview'>) => Promise<import('@harnessdesk/protocol').FlowPreview>
   readonly identity: string
   readonly maximumTiers: readonly ClientTier[]
@@ -163,6 +164,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
     preview: options.policy.preview,
     maximumTiers: Object.freeze([...options.policy.maximumTiers]),
     authorize: options.policy.authorize,
+    onWithdrawn: options.policy.onWithdrawn,
   })
   const allowed = async (request: ClientConnectionRequest): Promise<boolean> => {
     if (!policy) return true
@@ -176,13 +178,28 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
   const goalRequest = (view: GoalView): ClientConnectionRequest => ({ id: 0, method: 'goal/read', params: { goal: view.goal.id } })
   const runRequest = (run: Pick<FlowExecutionSummary, 'id'>): ClientConnectionRequest => ({ id: 0, method: 'flow/execution', params: { run: run.id } })
   const connectionViews = async (scope: Subscription['scope']) => filterAllowed(await viewsInScope(options.host, scope), goalRequest)
+  const observedRuns = new WeakMap<Subscription, { covered: Set<string>; withdrawn: Set<string> }>()
   const notificationAllowed = async (notification: WireNotification, selection: Subscription): Promise<boolean> => {
     if (!policy) return true
     // Scope and item authority are live host facts, including for a baseline
     // collected before ownership changed. A remembered approval is no exemption.
-    if (!await allowed({ id: 0, method: 'client/subscribe', params: selection })) return false
+    let observed = observedRuns.get(selection)
+    if (!observed) { observed = { covered: new Set(selection.scope?.run ? [selection.scope.run] : []), withdrawn: new Set() }; observedRuns.set(selection, observed) }
+    const withdrawn = (runId: string) => {
+      if (!observed.withdrawn.has(runId)) { observed.withdrawn.add(runId); policy.onWithdrawn?.(runId) }
+    }
+    if (!await allowed({ id: 0, method: 'client/subscribe', params: selection })) {
+      for (const runId of observed.covered) withdrawn(runId)
+      return false
+    }
+    if (notification.method === 'flow/execution-changed' && !await allowed(runRequest(notification.params.execution))) {
+      const runId = notification.params.execution.id
+      if (observed.covered.has(runId)) withdrawn(runId)
+      return false
+    }
     if (!inScope(notification, await connectionViews(selection.scope), selection.scope)) return false
-    return notification.method !== 'flow/execution-changed' || await allowed(runRequest(notification.params.execution))
+    if (notification.method === 'flow/execution-changed') observed.covered.add(notification.params.execution.id)
+    return true
   }
   const effectiveTiers = () => options.host.clientTiers().filter(tier => policy === undefined || policy.maximumTiers.includes(tier))
   const publishDiscovery = options.discovery !== false

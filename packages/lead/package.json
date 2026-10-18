@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "@harnessdesk/client": "workspace:*",
-    "@harnessdesk/protocol": "workspace:*"
+    "@harnessdesk/protocol": "workspace:*",
+    "ws": "^8.22.0"
   },
   "files": [
     "dist"
@@ -26,5 +27,8 @@
   "license": "MIT",
   "scripts": {
     "test": "node --test dist/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
   }
 }
