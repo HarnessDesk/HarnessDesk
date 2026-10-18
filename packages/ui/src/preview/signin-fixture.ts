@@ -215,7 +215,7 @@ export const runtimesSeed = (scene: SignInScene = 'refused'): Partial<AppSnapsho
   runtimes: [
     ...RUNTIMES,
     agent('codex#2', 'Codex', 'Coding agent that reads, edits and runs code', {
-      slot: { agent: runtimeId('codex'), home: '/home/dev/.harnessdesk/accounts/codex-a1b2c3', removable: true, canAdd: true },
+      slot: { agent: runtimeId('codex'), home: '/home/dev/.harnessdesk/accounts/codex-a1b2c3', removable: true, canAdd: true, gateways: true },
     }),
     agent('amp', 'Amp', 'Frontier coding agent'),
   ],
