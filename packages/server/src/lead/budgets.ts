@@ -10,6 +10,8 @@ export interface LeadBudgetPort {
   usage?(project: string, from: number, to: number): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
   seats?(): readonly SeatRecord[]
   delegation?(seat: SeatRecord): 'none' | 'unknown'
+  /** Returns a cancellation function; tests advance the host scheduler explicitly. */
+  schedule?(callback: () => void, delayMs: number): () => void
   now(): number
   runs(): readonly StoredFlowExecution[]
   /** Re-check the canonical project is still admitted, before every effect. */
@@ -26,6 +28,8 @@ export class LeadBudgets implements FlowLeadGuard {
   readonly #metering = new Map<string, Promise<void>>()
   readonly #turns = new Map<string, { started?: number; ended?: number }>()
   readonly #observing = new Map<string, Promise<void>>()
+  readonly #retries = new Map<string, () => void>()
+  readonly #backoff = new Map<string, number>()
   readonly #pending = new Map<string, { journal: LeadJournal; stepId: string; params: unknown; project: LeadProject }>()
   constructor(readonly port: LeadBudgetPort) {}
   register(journal: LeadJournal): () => void {
@@ -34,7 +38,11 @@ export class LeadBudgets implements FlowLeadGuard {
     this.#journals.set(id, journal)
     this.#detach.set(id, journal.onChange(() => this.#changed(id, journal)))
     this.#changed(id, journal)
-    return () => { this.#detach.get(id)?.(); this.#detach.delete(id); this.#journals.delete(id) }
+    return () => {
+      this.#detach.get(id)?.(); this.#detach.delete(id); this.#journals.delete(id)
+      this.#clearRetry(id)
+      for (const [start, pending] of this.#pending) if (pending.journal === journal) this.#pending.delete(start)
+    }
   }
   #changed(id: string, journal: LeadJournal): void {
     const state = journal.state
@@ -47,6 +55,13 @@ export class LeadBudgets implements FlowLeadGuard {
     this.#observing.set(id, task)
     void task.finally(() => this.#observing.delete(id)).catch(() => {})
   }
+  /** The journal already charged this start's first round. Revalidate its
+   * allowance without charging it twice or treating its own placeholder as lost. */
+  startBudget(journal: LeadJournal, startId: string) {
+    const budget = journal.state.budget!
+    return leadBudgetProjection({ ...budget, rounds: budget.rounds.filter(round => round.startId !== startId || round.executionId !== null) }, this.port.now())
+  }
+  prepared(startId: string): boolean { return this.#pending.has(startId) }
   prepare(startId: string, journal: LeadJournal, stepId: string, params: unknown, project: LeadProject): void {
     if (this.#journals.get(journal.state.budget!.logicalGoalId) !== journal || this.#pending.has(startId)) throw new Error('lead-budget-owner')
     this.#pending.set(startId, { journal, stepId, params: structuredClone(params), project: structuredClone(project) })
@@ -55,14 +70,17 @@ export class LeadBudgets implements FlowLeadGuard {
     const pending = this.#pending.get(binding.startId), journal = this.#journals.get(binding.logicalGoalId)
     if (!journal || pending?.journal !== journal) throw new Error('lead-start-not-approved')
     const state = journal.state, contract = state.contract, step = contract?.steps.find(item => item.id === binding.stepId)
-    if (!contract || contract.digest !== binding.contractDigest || !step || state.steps.find(item => item.id === step.id)?.state !== 'pending' ||
+    const admitted = state.steps.find(item => item.id === step?.id), attempt = admitted?.attemptId ? state.attempts.get(admitted.attemptId) : null
+    if (!contract || contract.digest !== binding.contractDigest || !step || admitted?.state !== 'admitted' ||
+      !attempt || attempt.correlationId !== binding.startId || attempt.phase !== 'started' || !attempt.dispatched || attempt.method !== 'flow/start-goal' ||
+      state.runs.some(run => run.correlationId === binding.startId) ||
       state.recoveryBlocked || ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) ||
       !await this.port.member(contract.project)) throw new Error('lead-start-not-approved')
     const current = journal.state
     const decision = decideLeadPermission({ method: 'flow/start-goal', params: pending.params, project: pending.project, runId: null, start: step },
       { desk: current.policy!, projectPolicy: null, project: pending.project, approved: current.contract && current.consent ?
         { contract: current.contract, consent: current.consent, runIds: current.runs.map(run => run.runId), teamIds: current.teams } : null,
-      budget: current.budget ? leadBudgetProjection(current.budget, this.port.now()) : null, now: this.port.now(), policyInterpretation: 'idle' })
+      budget: current.budget ? this.startBudget(journal, binding.startId) : null, now: this.port.now(), policyInterpretation: 'idle' })
     if (decision.effect !== 'allow') throw new Error('lead-start-not-approved')
   }
   #journal(run: StoredFlowExecution): LeadJournal {
@@ -73,17 +91,10 @@ export class LeadBudgets implements FlowLeadGuard {
   async bind(run: StoredFlowExecution): Promise<void> {
     const journal = this.#journal(run), lead = run.lead!
     if (!await this.port.member(journal.state.contract!.project)) throw new Error('lead-project-withdrawn')
-    if (!journal.state.runs.some(item => item.runId === run.id && item.correlationId === lead.startId)) {
-      const pending = this.#pending.get(lead.startId)
-      if (!pending || pending.journal !== journal || pending.stepId !== lead.stepId) throw new Error('lead-start-not-approved')
-      const state = journal.state, step = state.contract!.steps.find(item => item.id === lead.stepId)!
-      const result = await journal.execute({ id: lead.startId, stepId: lead.stepId,
-        request: { method: 'flow/start-goal', params: pending.params, project: pending.project, runId: null, start: step },
-        context: { desk: state.policy!, projectPolicy: null, project: pending.project, approved: null, budget: null,
-          now: this.port.now(), policyInterpretation: 'idle' } }, async () => ({ value: null,
-        identity: { correlationId: lead.startId, runId: run.id, teamId: run.goal } }))
-      if (result.outcome !== 'succeeded') throw new Error('lead-start-not-approved')
-    }
+    const pending = this.#pending.get(lead.startId)
+    const owned = journal.state.runs.find(item => item.correlationId === lead.startId || item.runId === run.id)
+    if (owned ? owned.runId !== run.id || owned.teamId !== run.goal || owned.correlationId !== lead.startId
+      : !pending || pending.journal !== journal || pending.stepId !== lead.stepId) throw new Error('lead-start-not-approved')
     await journal.updateBudget({ version: 1, type: 'bind', now: this.port.now(), startId: lead.startId,
       goalId: run.goal, executionId: run.id, firstRoundId: leadRoundId(run.id, 1) })
     this.#pending.delete(lead.startId)
@@ -162,7 +173,13 @@ export class LeadBudgets implements FlowLeadGuard {
     if (journal.state.budget!.rounds.some(item => item.executionId === run.id && item.roundId === roundId)) return
     try { await journal.updateBudget({ version: 1, type: 'round', now: this.port.now(), executionId: run.id, roundId }) }
     catch {
-      await journal.updateBudget({ version: 1, type: 'stop', now: this.port.now(), reason: 'rounds' })
+      const view = leadBudgetProjection(journal.state.budget!, this.port.now())
+      const reason = view.stop ? null : view.roundsAdmitted >= view.caps.rounds ? 'rounds'
+        : view.leadUsdMicros + view.workerUsdMicros >= view.caps.usdMicros ? 'budget'
+        : view.spend !== 'known' ? 'unknown-spend' : null
+      // An outstanding Messages reservation and a terminal execution refuse this
+      // round without converting temporary headroom or closed work into a cap.
+      if (reason) await journal.updateBudget({ version: 1, type: 'stop', now: this.port.now(), reason })
       throw new Error('lead-round-refused')
     }
   }
@@ -188,19 +205,46 @@ export class LeadBudgets implements FlowLeadGuard {
       if (results.some(result => result.status === 'rejected')) throw new Error('lead-stop-cleanup-failed')
     })
     this.#cleaning.set(logicalGoalId, task)
-    void task.finally(() => { this.#cleaning.delete(logicalGoalId) }).catch(() => {})
+    void task.then(() => {
+      this.#cleaning.delete(logicalGoalId)
+      if (this.#journals.get(logicalGoalId) === journal) this.#clearRetry(logicalGoalId)
+    }, () => {
+      this.#cleaning.delete(logicalGoalId)
+      if (this.#journals.get(logicalGoalId) === journal && journal.state.stopEffectsPending !== null) this.#retry(logicalGoalId, journal)
+    })
     return task
   }
+  #clearRetry(id: string): void {
+    this.#retries.get(id)?.(); this.#retries.delete(id); this.#backoff.delete(id)
+  }
+  #retry(id: string, journal: LeadJournal): void {
+    if (this.#retries.has(id)) return
+    const delay = Math.min((this.#backoff.get(id) ?? 50) * 2, 5000)
+    this.#backoff.set(id, delay)
+    const schedule = this.port.schedule ?? ((callback: () => void, ms: number) => {
+      const timer = setTimeout(callback, ms); timer.unref()
+      return () => clearTimeout(timer)
+    })
+    const cancel = schedule(() => {
+      this.#retries.delete(id)
+      if (this.#journals.get(id) === journal && journal.state.stopEffectsPending !== null) void this.cleanup(id).catch(() => {})
+    }, delay)
+    this.#retries.set(id, cancel)
+  }
   async recover(): Promise<void> {
+    const errors: unknown[] = []
     for (const [id, journal] of this.#journals) {
-      if (journal.state.contract && !await this.port.member(journal.state.contract.project)) {
-        await journal.updateBudget({ version: 1, type: 'stop', now: this.port.now(), reason: 'unknown-spend' })
-      }
-      await journal.recover(async attempt => this.port.runs().filter(run => run.lead?.logicalGoalId === id && run.lead.startId === attempt.correlationId).map(run => ({
-        correlationId: attempt.correlationId, runId: run.id, teamId: run.goal, firstRoundId: leadRoundId(run.id, 1), terminal: !['running', 'stalled'].includes(run.state),
-      })))
-      if (journal.state.stopEffectsPending !== null) await this.cleanup(id)
+      try {
+        if (journal.state.contract && !await this.port.member(journal.state.contract.project)) {
+          await journal.updateBudget({ version: 1, type: 'stop', now: this.port.now(), reason: 'unknown-spend' })
+        }
+        await journal.recover(async attempt => this.port.runs().filter(run => run.lead?.logicalGoalId === id && run.lead.startId === attempt.correlationId).map(run => ({
+          correlationId: attempt.correlationId, runId: run.id, teamId: run.goal, firstRoundId: leadRoundId(run.id, 1), terminal: !['running', 'stalled'].includes(run.state),
+        })))
+        if (journal.state.stopEffectsPending !== null) await this.cleanup(id)
+      } catch (error) { errors.push(error) }
     }
+    if (errors.length) throw new AggregateError(errors, 'lead-recovery-failed')
   }
   async idle(): Promise<void> { while (this.#cleaning.size || this.#observing.size || this.#metering.size) await Promise.allSettled([...this.#cleaning.values(), ...this.#observing.values(), ...this.#metering.values()]) }
 }

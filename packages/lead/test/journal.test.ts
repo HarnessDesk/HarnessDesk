@@ -1475,3 +1475,44 @@ test('automatic recovery preserves a cancelled-request person wait across reopen
   assert.equal(recovered.state.phase, 'waiting-for-user')
   assert.equal(recovered.state.managementReason, 'lead-request-cancelled')
 })
+
+
+test('host budget writes complete inside an execute dispatch without releasing the admitted step', { timeout: 1000 }, async () => {
+  const storage = memory(), journal = await prepare(storage)
+  const result = await journal.execute({ id: 'in-flight', request, context, stepId: 'implement' }, async () => {
+    assert.equal(journal.state.steps[0].state, 'admitted')
+    const write = journal.updateBudget({ version: 1, type: 'stop', now: 100, reason: 'budget' })
+    let deadline: ReturnType<typeof setTimeout>
+    const status = await Promise.race([write.then(() => 'written'), new Promise(resolve => { deadline = setTimeout(() => resolve('blocked'), 100) })])
+    clearTimeout(deadline!)
+    assert.equal(status, 'written', 'host write must finish during dispatch')
+    assert.equal(journal.state.budget.stop.reason, 'budget')
+    const duplicate = await journal.execute({ id: 'duplicate', request, context, stepId: 'implement' }, async () => {
+      assert.fail('an in-flight step cannot dispatch twice')
+    })
+    assert.equal(duplicate.outcome, 'denied')
+    return { value: null, identity: { correlationId: 'in-flight', runId: 'run-1', teamId: 'team-1' } }
+  })
+  assert.equal(result.outcome, 'succeeded')
+  assert.deepEqual((await open(storage)).state, journal.state)
+})
+
+
+test('host bind during dispatch retains the admitted step and refuses conflicting bindings', { timeout: 1000 }, async () => {
+  const storage = memory(), journal = await prepare(storage)
+  const result = await journal.execute({ id: 'host-bound', request, context, stepId: 'implement' }, async () => {
+    const binding = { version: 1, type: 'bind', now: 100, startId: 'host-bound', goalId: 'team-1', executionId: 'run-1', firstRoundId: 'run-1:round:1' }
+    await journal.updateBudget(binding)
+    assert.equal(journal.state.steps[0].state, 'admitted')
+    assert.deepEqual(journal.state.runs, [{ correlationId: 'host-bound', runId: 'run-1', teamId: 'team-1' }])
+    await journal.updateBudget(binding)
+    await assert.rejects(journal.updateBudget({ ...binding, startId: 'another-start' }))
+    await assert.rejects(journal.updateBudget({ ...binding, executionId: 'another-run' }))
+    await assert.rejects(journal.updateBudget({ ...binding, goalId: 'another-goal' }))
+    await assert.rejects(journal.updateBudget({ ...binding, firstRoundId: 'another-round' }))
+    return { value: null, identity: { correlationId: 'host-bound', runId: 'run-1', teamId: 'team-1' } }
+  })
+  assert.equal(result.outcome, 'succeeded')
+  assert.equal(journal.state.budget.rounds.length, 1)
+  assert.deepEqual((await open(storage)).state, journal.state)
+})

@@ -102,6 +102,20 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       }
       const executionId = event.event.type === 'bind' ? event.event.executionId : null
       const binding = state.runs.find(run => run.runId === executionId)
+      if (event.event.type === 'bind') {
+        const bind = event.event
+        ensure(!binding || !bind.startId || binding.correlationId === bind.startId)
+        const attempt = bind.startId ? state.attempts.get(bind.startId) : null
+        if (attempt?.phase === 'started') {
+          const step = state.steps.find(step => step.id === attempt.stepId)
+          ensure(attempt.method === 'flow/start-goal' && attempt.dispatched && step?.state === 'admitted' && step.attemptId === attempt.id)
+          const owned = state.runs.find(run => run.correlationId === attempt.correlationId)
+          ensure(!owned || owned.runId === bind.executionId && owned.teamId === bind.goalId)
+          ensure(!binding || binding.correlationId === attempt.correlationId && binding.teamId === bind.goalId)
+          const identity = { correlationId: attempt.correlationId, runId: bind.executionId, teamId: bind.goalId }
+          if (!owned) state = { ...state, teams: [...new Set([...state.teams, bind.goalId])], runs: [...state.runs, identity] }
+        }
+      }
       let budget = reduceLeadBudget(state.budget, binding ? { ...event.event, startId: binding.correlationId } : event.event)
       if (previous.phase === 'stopped' && budget.stop === null) budget = reduceLeadBudget(budget, { version: 1, type: 'stop', now: budget.now, reason: 'cancelled' })
       state = { ...state, budget, phase: budget.stop ? 'stopped' : state.phase }; break
@@ -191,7 +205,12 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(attempt?.phase === 'started')
       ensure(attempt!.dispatched ? ['succeeded', 'failed', 'uncertain'].includes(event.outcome) : ['denied', 'asked', 'malformed', 'interrupted'].includes(event.outcome))
       ensure(event.identity === null || event.outcome === 'succeeded')
-      if (event.outcome === 'succeeded' && attempt!.method === 'flow/start-goal') { ensure(event.identity); complete(event.id, event.identity!) }
+      if (event.outcome === 'succeeded' && attempt!.method === 'flow/start-goal') {
+        ensure(event.identity)
+        ensure(state.runs.filter(run => run.correlationId === attempt!.correlationId).every(run =>
+          run.runId === event.identity!.runId && run.teamId === event.identity!.teamId))
+        complete(event.id, event.identity!)
+      }
       else ensure(event.identity === null)
       if (event.outcome === 'failed' && attempt!.method === 'flow/start-goal') releaseStart(event.id)
       updateAttempt(event.id, attempt => ({ ...attempt, phase: 'finished', outcome: event.outcome }))

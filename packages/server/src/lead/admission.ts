@@ -1,4 +1,4 @@
-import { leadBudgetProjection, leadReviewedResultSource, type LeadJournal } from '@harnessdesk/lead'
+import { leadReviewedResultSource, type LeadJournal } from '@harnessdesk/lead'
 import type { HostParams, LeadProject } from '@harnessdesk/protocol'
 import type { FlowPreviews } from '../flow-preview.js'
 import type { FlowLeadBinding } from '../flow-execution.js'
@@ -30,9 +30,13 @@ export class LeadAdmission {
       { seats: params.seats, attended: params.attended, requireHeld: true })
   }
   readonly authorizeStart = async (params: HostParams<'flow/start-goal'>): Promise<boolean> => {
-    const { journal, project, now, previews, budgets, nextId } = this.options
+    const { journal, project, now, previews, budgets } = this.options
     const state = journal.state, contract = state.contract, consent = state.consent, budget = state.budget
-    const step = contract?.steps.find(step => state.steps.find(item => item.id === step.id)?.state === 'pending')
+    const admitted = state.steps.find(step => step.state === 'admitted')
+    const attempt = admitted?.attemptId ? state.attempts.get(admitted.attemptId) : null
+    const step = contract?.steps.find(step => step.id === admitted?.id)
+    if (!attempt || attempt.phase !== 'started' || !attempt.dispatched || attempt.method !== 'flow/start-goal' ||
+      state.runs.some(run => run.correlationId === attempt.correlationId) || budgets.prepared(attempt.correlationId)) return false
     if (!contract || !consent || !budget || !step || contract.digest !== consent.contractDigest || consent.expiresAt <= now() ||
       ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) || state.recoveryBlocked ||
       !same(contract.project, project) || params.root !== project.path || params.source !== leadReviewedResultSource ||
@@ -44,10 +48,11 @@ export class LeadAdmission {
       !same(params.seats ?? {}, seats) || step.assignments.some(assignment =>
       !((assignment.role === 'implement' && assignment.agent === 'implementer' && assignment.ceiling === 'edit') ||
         (assignment.role === 'review' && assignment.agent === 'code-reviewer' && assignment.ceiling === 'read')))) return false
-    const projection = leadBudgetProjection(journal.state.budget!, now())
+    const projection = budgets.startBudget(journal, attempt.correlationId)
     if (projection.stop || projection.spend !== 'known' || projection.reservedUsdMicros > 0) return false
-    const binding: FlowLeadBinding = { logicalGoalId: budget.logicalGoalId, contractDigest: contract.digest, stepId: step.id, startId: nextId() }
-    if (!previews.bindLead(params, binding)) return false
+    const binding: FlowLeadBinding = { logicalGoalId: budget.logicalGoalId, contractDigest: contract.digest, stepId: step.id, startId: attempt.correlationId }
+    if (budgets.prepared(binding.startId) || journal.state.steps.find(item => item.id === step.id)?.attemptId !== attempt.id ||
+      journal.state.attempts.get(attempt.id)?.phase !== 'started' || !previews.bindLead(params, binding)) return false
     budgets.prepare(binding.startId, journal, step.id, params, project)
     return true
   }

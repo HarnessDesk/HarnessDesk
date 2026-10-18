@@ -1,4 +1,4 @@
-import { createLeadJournal, leadReviewedResultSource, type LeadJournalRecord } from '@harnessdesk/lead'
+import { createLeadJournal, createLeadTools, leadReviewedResultSource, type LeadJournalRecord } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract } from '@harnessdesk/protocol'
 import { LeadAdmission } from '../../src/lead/admission.js'
 import { LeadBudgets } from '../../src/lead/budgets.js'
@@ -35,7 +35,12 @@ export const leadRig = async (t: { after(fn: () => Promise<void>): void }) => {
     previewAgent: async (_root, id, choices, grant, options) => ({ id, from: 'prefer', winner: 0, blocked: null,
       ceiling: { level: grant, hold: held && options?.requireHeld ? 'held' : 'asked' }, candidates: [
         { seat: choices[0] ?? { runtime: id === 'implementer' ? 'alpha' : 'beta' }, label: 'Synthetic', runtimeName: 'Synthetic', state: 'taken', reason: null, fix: null }] }), now: () => now })
-  budgets = new LeadBudgets({ now: () => now, runs: () => rig.flows.leadRuns(), member: async () => member,
+  const timers = new Map<number, () => void>()
+  let timerId = 0
+  budgets = new LeadBudgets({ schedule: callback => {
+    const id = ++timerId; timers.set(id, callback)
+    return () => { timers.delete(id) }
+  }, now: () => now, runs: () => rig.flows.leadRuns(), member: async () => member,
     interruptChecks: goal => rig.flows.interruptChecks(goal), stop: async (run, reason) => {
       if (stopFails) throw new Error('synthetic cleanup failure')
       return rig.flows.stopRun(run, reason, 'desk')
@@ -51,18 +56,42 @@ export const leadRig = async (t: { after(fn: () => Promise<void>): void }) => {
     if (!preview.token) throw new Error(JSON.stringify(preview.problems))
     return { root: project.path, source: leadReviewedResultSource, sentence: contract.goal, token: preview.token, vars: {}, seats, attended: true }
   }
+  const admit = async (request: Awaited<ReturnType<typeof params>>) => {
+    let ready!: () => void, finish!: () => void
+    const entered = new Promise<void>(resolve => { ready = resolve })
+    const finished = new Promise<void>(resolve => { finish = resolve })
+    const id = `child-start-${++next}`, step = contract.steps[0]!
+    const task = journal.execute({ id, stepId: step.id,
+      request: { method: 'flow/start-goal', params: request, project, runId: null, start: step },
+      context: { desk: journal.state.policy!, projectPolicy: null, project, approved: null, budget: null, now, policyInterpretation: 'idle' } }, async () => {
+        ready(); await finished
+        const run = journal.state.runs.find(run => run.correlationId === id)
+        return run ? { value: null, identity: run } : { value: null, identity: null, created: false }
+      })
+    t.after(async () => { finish(); await task })
+    await Promise.race([entered, task.then(() => { throw new Error('fixture start was refused') })])
+  }
   const start = async () => {
     const request = await params()
-    const refused = await authority.authorize({ id: 1, method: 'flow/start-goal', params: request })
-    if (refused) throw new Error(refused)
-    return flowMethods['flow/start-goal'](ctx, request)
+    const tools = createLeadTools({ journal, project, now: () => now, nextId: () => `child-start-${++next}`, synchronized: () => true,
+      desk: { call: async (method: any, args: any) => {
+        const refused = await authority.authorize({ id: 1, method, params: args })
+        if (refused) throw new Error(refused)
+        return (flowMethods as any)[method](ctx, args)
+      } } as any,
+      resolveTool: async () => ({ project, runId: null, start: contract.steps[0]!, stepId: 'work',
+        preview: { token: request.token, source: request.source, expiresAt: now + 1000 },
+        context: { desk: journal.state.policy!, projectPolicy: null, project, approved: null, budget: null, now, policyInterpretation: 'idle' } }) })
+    const result = await tools.execute({ method: 'flow/start-goal', params: request })
+    if (result.outcome !== 'succeeded') throw new Error(`fixture start: ${result.outcome}`)
+    return result.value as Awaited<ReturnType<typeof flowMethods['flow/start-goal']>>
   }
   const observe = async (usdMicros = 1) => {
     const budget = journal.state.budget!
     await budgets.update('logical-1', { version: 1, type: 'observe', now, at: now, revision: budget.revision + 1, source: 'worker-samples', sourceIds: ['synthetic-sample'],
       goalId: budget.goalId!, executionIds: budget.executionIds, quality: 'known', usdMicros })
   }
-  return { rig, journal, storage, budgets, previews, admission, authority, ctx, params, start, observe, contract, project, records,
+  return { rig, journal, storage, budgets, previews, admission, authority, ctx, params, admit, start, observe, unregister, contract, project, records,
     admitted: () => admitted, setMember: (value: boolean) => { member = value }, setHeld: (value: boolean) => { held = value },
     setNow: (value: number) => { now = value }, setStopFails: (value: boolean) => { stopFails = value } }
 }

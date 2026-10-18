@@ -355,24 +355,30 @@ export class LeadJournal {
       await this.#append({ type: 'decision', id, effect: decision.effect, reason: decision.floor ?? 'policy', rule: decision.rule })
       await this.#append({ type: 'dispatch-start', id, dispatched: decision.effect === 'allow' })
       if (decision.effect !== 'allow' || decision.call === null) {
-        const outcome = decision.effect === 'ask' ? 'asked' : decision.floor === 'invalid-input' ? 'malformed' : 'denied'
+        const outcome: LeadAttemptOutcome = decision.effect === 'ask' ? 'asked' : decision.floor === 'invalid-input' ? 'malformed' : 'denied'
         await this.#append({ type: 'result', id, outcome, identity: null })
         return { decision, outcome }
       }
+      // Admission and dispatch-start are durable before releasing the writer.
+      // The admitted step reserves this attempt while host writes use the queue.
+      return { decision, call: decision.call, tier, cancellation, method }
+    }).then(async (prepared): Promise<{ decision: LeadPermissionDecision; outcome: LeadAttemptOutcome; value?: unknown }> => {
+      if (prepared.outcome !== undefined) return { decision: prepared.decision, outcome: prepared.outcome }
+      const { decision, call, tier, cancellation, method } = prepared
       let result: LeadDispatchResult
-      try { result = await dispatch(decision.call, id) } catch {
+      try { result = await dispatch(call, id) } catch {
         const outcome = tier === 'read' || cancellation ? 'failed' : 'uncertain'
-        await this.#append({ type: 'result', id, outcome, identity: null })
+        await this.#queue(() => this.#append({ type: 'result', id, outcome, identity: null }))
         return { decision, outcome }
       }
       if (method === 'flow/start-goal' && result?.created === false && result.identity === null) {
-        await this.#append({ type: 'result', id, outcome: 'failed', identity: null })
+        await this.#queue(() => this.#append({ type: 'result', id, outcome: 'failed', identity: null }))
         return { decision, outcome: 'failed', value: result.value }
       }
       let identity: LeadRunIdentity | null = null
       try { identity = method !== 'flow/start-goal' || result.identity === null ? null : parseLeadRunIdentity(result.identity) } catch { /* An unprovable start is uncertain. */ }
       const outcome = method === 'flow/start-goal' && (identity === null || identity.correlationId !== id) ? 'uncertain' : 'succeeded'
-      await this.#append({ type: 'result', id, outcome, identity: outcome === 'succeeded' ? identity : null })
+      await this.#queue(() => this.#append({ type: 'result', id, outcome, identity: outcome === 'succeeded' ? identity : null }))
       return { decision, outcome, value: result?.value }
     })
   }
@@ -482,6 +488,9 @@ export class LeadJournal {
     })
   }
 }
+/** The host owns the sole writer for a Lead. Child tools must share that journal
+ * port (over IPC when out of process). Concurrent instances over the same durable
+ * storage are unsupported; storage ports do not expose an exclusive-owner lock. */
 export const createLeadJournal = async (storage: LeadJournalStorage, security: LeadJournalSecurity = {}): Promise<LeadJournal> => {
   return new LeadJournal(storage, await storage.read(), security, storage.checkpoint?.() ?? null)
 }

@@ -21,7 +21,7 @@ const journal = async () => {
   await value.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: { usdMicros: 100, rounds: 10 }, freshnessMs: 1000 })
   return value
 }
-for (const scenario of ['delayed round transition', 'child crash', 'host restart']) {
+for (const scenario of ['delayed round transition', 'worker Seat crash', 'host restart']) {
   test(`${scenario} cannot dispatch after a host cap latch`, async t => {
     const ledger = await journal()
     const guard = { bind: async () => {}, round: async () => {}, gate: async () => ledger.state.budget?.stop ? { ok: false, reason: 'Lead budget stopped' } : { ok: true } }
@@ -32,7 +32,7 @@ for (const scenario of ['delayed round transition', 'child crash', 'host restart
     const before = rig.events.filter(event => event.startsWith('open:') || event.startsWith('order:')).length
     await ledger.updateBudget({ version: 1, type: 'stop', now: 101, reason: 'budget' })
     if (scenario === 'host restart') { await rig.restart(); await rig.flows.resume() }
-    else if (scenario === 'child crash') {
+    else if (scenario === 'worker Seat crash') {
       const seat = rig.seats.values().next().value!
       rig.kill(String(seat.id)); await rig.executions.reArm(seat.session.runtime, seat.session.sessionId)
     } else {
@@ -50,7 +50,7 @@ import { leadRig } from './fixtures/lead.js'
 import { createLeadJournal as reopenJournal } from '@harnessdesk/lead'
 import { leadRoundId } from '../src/flow-execution.js'
 
-for (const kind of ['observed worker cap', 'full reservation write-off', 'uncertain Messages settle']) {
+for (const kind of ['observed worker cap', 'uncertain Messages request plus full reservation write-off', 'uncertain Messages settle']) {
   test(`${kind} records its latch before interrupting checks and Seats`, async t => {
     const s = await leadRig(t), run = await s.start()
     let interrupts = 0
@@ -66,7 +66,7 @@ for (const kind of ['observed worker cap', 'full reservation write-off', 'uncert
       await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'paid', inputTokens: 50_000, maxOutputTokens: 50_000,
         inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 1_000_000, cacheWriteUsdMicrosPerMillion: 1_000_000 })
       await s.journal.updateBudget({ version: 1, type: 'uncertain', now: 100, requestId: 'paid' })
-      if (kind === 'full reservation write-off') await s.journal.updateBudget({ version: 1, type: 'write-off', now: 100, requestId: 'paid' })
+      if (kind === 'uncertain Messages request plus full reservation write-off') await s.journal.updateBudget({ version: 1, type: 'write-off', now: 100, requestId: 'paid' })
     }
     await s.budgets.idle()
     assert.ok(s.journal.state.budget!.stop)
@@ -169,4 +169,92 @@ test('recovery cannot acknowledge stop cleanup before owned Flow files load', as
   s.setStopFails(false)
   await s.budgets.cleanup('logical-1')
   assert.equal(s.journal.state.stopEffectsPending, null)
+})
+
+
+test('host retries failed cleanup on its scheduler without child tools or manual cleanup', async t => {
+  const s = await leadRig(t), run = await s.start()
+  const scheduled = new Map<number, () => void>()
+  const delays: number[] = []
+  let next = 0
+  Object.assign(s.budgets.port, { schedule: (callback: () => void, delay: number) => {
+    const id = ++next; scheduled.set(id, callback); delays.push(delay)
+    return () => { scheduled.delete(id) }
+  } })
+  s.setStopFails(true)
+  const before = s.rig.events.filter(event => event.startsWith('open:') || event.startsWith('order:')).length
+  await s.observe(100_000).catch(() => {})
+  await s.budgets.idle()
+  assert.equal(scheduled.size, 1)
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const [id, retry] = [...scheduled][0]!
+    scheduled.delete(id); retry(); await s.budgets.idle()
+    assert.equal(scheduled.size, 1)
+  }
+  assert.ok(delays.every(delay => delay > 0 && delay <= 5000))
+  assert.ok(delays[1]! > delays[0]!)
+  s.setStopFails(false)
+  const [id, retry] = [...scheduled][0]!
+  scheduled.delete(id); retry(); await s.budgets.idle()
+  assert.equal(s.journal.state.stopEffectsPending, null)
+  assert.equal(scheduled.size, 0)
+  assert.equal(s.rig.flows.executionOf(run.id)!.state, 'stopped')
+  assert.equal(s.rig.events.filter(event => event.startsWith('open:') || event.startsWith('order:')).length, before)
+})
+
+for (const cause of ['rounds', 'budget', 'unknown-spend', 'reservation', 'terminal']) {
+  test(`round refusal reports ${cause} and does not mislabel a rounds cap`, async t => {
+    const s = await leadRig(t), run = await s.start()
+    await s.observe(0)
+    if (cause === 'rounds') await s.journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 100_000, rounds: 1 } })
+    if (cause === 'budget') await s.observe(100_000)
+    if (cause === 'unknown-spend') s.setNow(2000)
+    if (cause === 'reservation') await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'outstanding', inputTokens: 50_000, maxOutputTokens: 50_000,
+      inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 1_000_000, cacheWriteUsdMicrosPerMillion: 1_000_000 })
+    if (cause === 'terminal') await s.journal.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: s.journal.state.budget!.revision + 1,
+      source: 'worker-samples', sourceIds: ['terminal'], goalId: run.goal, executionIds: [run.id], quality: 'known', usdMicros: 0, terminal: true })
+    await assert.rejects(s.budgets.round(s.rig.flows.leadRuns()[0]!, leadRoundId(run.id, 2)), /lead-round-refused/)
+    assert.equal(s.journal.state.budget!.stop?.reason ?? null, cause === 'reservation' || cause === 'terminal' ? null : cause)
+    assert.equal(s.journal.state.budget!.rounds.length, 1)
+    if (cause === 'reservation') {
+      await s.journal.updateBudget({ version: 1, type: 'settle', now: 100, requestId: 'outstanding', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })
+      await s.budgets.round(s.rig.flows.leadRuns()[0]!, leadRoundId(run.id, 2))
+      assert.equal(s.journal.state.budget!.rounds.length, 2)
+    }
+  })
+}
+
+test('recovery processes the next journal after an earlier cleanup fails', async t => {
+  const first = await leadRig(t), second = await leadRig(t)
+  await first.start(); await second.start()
+  const records: LeadJournalRecord[] = []
+  const storage = { async read() { return structuredClone(records) }, async append(record: LeadJournalRecord) { records.push(structuredClone(record)) } }
+  // Distinct logical goals share the same host recovery owner, never a writer.
+  const checkpoint = second.journal.state
+  Object.assign(checkpoint.budget!, { logicalGoalId: 'logical-2' })
+  const other = await createLeadJournal({ ...storage, async read() { return [] }, checkpoint: () => checkpoint })
+  const close = first.budgets.register(other)
+  t.after(async () => { close() })
+  const runs = first.budgets.port.runs
+  const secondRuns = second.budgets.port.runs().map(run => ({ ...run, lead: { ...run.lead!, logicalGoalId: 'logical-2' } }))
+  t.mock.method(first.budgets.port, 'runs', () => [...runs(), ...secondRuns])
+  first.setStopFails(true)
+  await first.observe(100_000).catch(() => {}); await first.budgets.idle()
+  const startId = secondRuns[0]!.lead!.startId
+  assert.equal(other.state.attempts.get(startId)!.evidence, null)
+  await assert.rejects(first.budgets.recover(), AggregateError)
+  assert.ok(other.state.attempts.get(startId)!.evidence)
+})
+
+test('with the Lead child absent the registered host owner still refuses dispatch after a cap latch', async t => {
+  const s = await leadRig(t), run = await s.start()
+  // No Lead tools or management loop is running. Only the host journal remains.
+  s.setStopFails(true)
+  await s.observe(100_000).catch(() => {}); await s.budgets.idle()
+  const before = s.rig.events.filter(event => event.startsWith('open:') || event.startsWith('order:')).length
+  assert.equal((await s.budgets.gate(s.rig.flows.leadRuns()[0]!)).ok, false)
+  const card = s.rig.board(run.goal).intents[0]!
+  await s.rig.team.complete(card.id, { outcome: 'committed' }, s.rig.sessionOf(String(run.rounds[0]!.seats[0]!)))
+  await s.rig.flows.flush(); await s.budgets.idle()
+  assert.equal(s.rig.events.filter(event => event.startsWith('open:') || event.startsWith('order:')).length, before)
 })
