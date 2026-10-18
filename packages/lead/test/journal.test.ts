@@ -1561,3 +1561,68 @@ test('combined authority preflight asks storage to prepare both simulated states
   assert.equal(storage.records.length, count)
   assert.deepEqual(journal.state, before)
 })
+
+test('expired plan renewal replays the same contract without resetting admitted work or caps', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.execute({ id: 'renewal-start', request, context, stepId: 'implement' }, async () => ({ value: null, identity: { correlationId: 'renewal-start', runId: 'renewal-run', teamId: 'renewal-team' } }))
+  assert.equal(journal.state.steps[0].state, 'started')
+  await journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 400, rounds: 2 } })
+  assert.equal(typeof journal.renewPlan, 'function', 'journal must re-offer expired consent')
+  const before = journal.state
+  await journal.renewPlan(199)
+  assert.equal(journal.state.seq, before.seq)
+  await journal.renewPlan(200)
+  const renewed = journal.state.cards.find((card: any) => card.id === plan.id)
+  assert.equal(renewed.revision, 2)
+  assert.deepEqual(renewed.contract, contract)
+  assert.equal(journal.state.phase, 'awaiting-plan')
+  const afterOffer = journal.state.seq
+  await journal.renewPlan(201)
+  assert.equal(journal.state.seq, afterOffer)
+  assert.deepEqual((await open(storage)).state, journal.state)
+  await assert.rejects(journal.decideCard(click, 300))
+  await journal.decideCard({ ...click, expectedRevision: 2 }, 400)
+  assert.deepEqual(journal.state.contract, contract)
+  assert.deepEqual(journal.state.steps, before.steps)
+  assert.deepEqual(journal.state.runs, before.runs)
+  assert.deepEqual(journal.state.teams, before.teams)
+  assert.deepEqual(journal.state.budget, before.budget)
+  assert.equal(journal.state.consent.expiresAt, 400)
+  assert.deepEqual((await open(storage)).state, journal.state)
+})
+
+test('renew-plan reducer rejects early, terminal and duplicate renewals', async () => {
+  const journal = await prepare(memory()), state = journal.state
+  const event = { version: 1, seq: state.seq + 1, type: 'renew-plan', now: 200 }
+  assert.throws(() => lead.reduceLeadRecord(state, { ...event, now: 199 }))
+  const renewed = lead.reduceLeadRecord(state, event)
+  assert.equal(renewed.cards[0]?.revision, 2)
+  assert.throws(() => lead.reduceLeadRecord(renewed, { ...event, seq: renewed.seq + 1 }))
+  assert.throws(() => lead.reduceLeadRecord({ ...state, phase: 'accepted' }, event))
+})
+
+test('declining consent renewal does not immediately re-offer the same expired consent', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.renewPlan(200)
+  await journal.decideCard({ ...click, expectedRevision: 2, choice: 'decline' })
+  const before = journal.state.seq
+  await journal.renewPlan(201)
+  assert.equal(journal.state.seq, before)
+  assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint(journal.state, '0'.repeat(64))).state, journal.state)
+  const reopened = await open(storage)
+  await reopened.renewPlan(202)
+  assert.equal(reopened.state.seq, before)
+})
+
+test('offerCard returns a replacement at its original position, with its original journal order', async () => {
+  const journal = await open(memory())
+  await journal.setPolicy(policy)
+  await journal.offerCard(plan)
+  const position = journal.state.seq
+  await journal.offerCard({ ...plan, id: 'later' })
+  const replacement = await journal.offerCard({ ...plan, revision: 2 })
+  assert.equal(replacement.id, plan.id)
+  assert.equal(replacement.revision, 2)
+  assert.deepEqual(journal.state.cards.map((card: any) => card.id), [plan.id, 'later'])
+  assert.equal(journal.state.cardPositions[plan.id], position)
+})

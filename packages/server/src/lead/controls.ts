@@ -85,12 +85,14 @@ export class LeadControls {
       key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
   }
   async #projection(): Promise<LeadWindowProjection> {
+    await this.options.journal.renewPlan(this.options.now(), card =>
+      admitLeadCard(this.options.journal.state, card, this.options.project, this.options.model))
     const settings = await this.#settings(), state = this.options.journal.state
     // Settings reads may yield to a journal write. Retry from one coherent revision.
     if (settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps)) return this.#projection()
     if (this.#failedRevision === state.seq) throw leadRefusal('lead-projection-failed')
     let thread: ReturnType<typeof leadWindowThread>
-    try { thread = leadWindowThread(state, this.options.project, settings) }
+    try { thread = leadWindowThread(state, this.options.project, settings, this.options.now()) }
     catch { this.#failedRevision = state.seq; throw leadRefusal('lead-projection-failed') }
     const wayOut = this.#wayOut(state)
     const waitReason = state.phase === 'waiting-for-user' && (LEAD_MANAGEMENT_REASONS as readonly (string | null)[]).includes(state.managementReason)

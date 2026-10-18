@@ -20,7 +20,11 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // Step 9 had no thread records. Add only the complete, absent thread suffix;
   // retain the original checkpoint object for its authenticated-byte checksum.
   const legacy = stored && !['messages', 'olderMessages', 'sends'].some(key => Object.hasOwn(stored, key))
-  const source = legacy ? { ...stored, messages: [], olderMessages: 0, sends: [] } : stored
+  const threadSource = legacy ? { ...stored, messages: [], olderMessages: 0, sends: [] } : stored
+  // Earlier checkpoints predate inline ordering; their retained card order is
+  // preserved before the retained thread suffix. New writes keep exact positions.
+  const source = threadSource && !Object.hasOwn(threadSource, 'cardPositions')
+    ? { ...threadSource, cardPositions: Object.fromEntries(threadSource.cards.map((card, index) => [card.id, Math.min(threadSource.seq, index + 1)])) } : threadSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
   assert(Number.isSafeInteger(source.seq) && source.seq > 0 && source.seq === checkpoint.seq)
   assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'].includes(source.phase))
@@ -42,6 +46,8 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   assert(typeof source.recoveryBlocked === 'boolean' && Array.isArray(source.cards) && source.cards.length <= 64)
   const cards = source.cards.map(card => parseLeadCard(card))
   assert(new Set(cards.map(card => card.id)).size === cards.length)
+  assert(source.cardPositions && Object.keys(source.cardPositions).length === cards.length)
+  for (const card of cards) assert(Number.isSafeInteger(source.cardPositions[card.id]) && source.cardPositions[card.id]! > 0 && source.cardPositions[card.id]! <= source.seq)
   assert(source.cardRevisions && Object.keys(source.cardRevisions).length === cards.length)
   for (const card of cards) assert(Number.isInteger(source.cardRevisions[card.id]) && source.cardRevisions[card.id]! >= 1 && source.cardRevisions[card.id]! <= 32)
   assert(Array.isArray(source.decidedCards) && source.decidedCards.length <= 2048 && source.decidedCards.every(key => typeof key === 'string' && key.length <= 300))
@@ -75,8 +81,9 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   }
   if (source.consent !== null) {
     const consent = source.consent
-    assert(consent && Object.keys(consent).sort().join() === ['contractDigest', 'contractRevision', 'policyRevision', 'expiresAt'].sort().join())
+    assert(consent && Object.keys(consent).sort().join() === ['contractDigest', 'contractRevision', 'policyRevision', 'expiresAt', ...(consent.renewalCardRevision === undefined ? [] : ['renewalCardRevision'])].sort().join())
     assert(contract && consent.contractDigest === contract.digest && consent.contractRevision === contract.revision && consent.policyRevision === contract.policyRevision)
+    if (consent.renewalCardRevision !== undefined) assert(Number.isSafeInteger(consent.renewalCardRevision) && cards.some(card => card.type === 'plan' && card.contractDigest === consent.contractDigest && card.revision === consent.renewalCardRevision))
     assert(Number.isSafeInteger(consent.expiresAt) && consent.expiresAt > 0)
   }
   const state = structuredClone({ ...source, policy, contract, budget, cards, runs, attempts, messages })

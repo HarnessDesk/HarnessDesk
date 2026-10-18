@@ -169,7 +169,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'TerminalShellTabs', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
-  'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
+  'lead-contract', 'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
   'SettingsRowMenu', 'HeaderStatusGroup', 'SelectionAction',
 ])
 
@@ -179,6 +179,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  'lead-contract': ['default'],
   CommandPalette: ['default'],
   SignInRail: ['default'],
   DashboardBands: ['light', 'dark'],
@@ -309,6 +310,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  'lead-contract': ['default', 'loading'],
   CommandPalette: ['default'],
   SignInRail: ['default'],
   DashboardBands: ['default', 'empty', 'unknown', 'long-title'],
@@ -470,6 +472,7 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  'lead-contract': 'packages/ui/src/components/LeadCards.tsx',
   SignInRail: 'packages/ui/src/components/SignIn.tsx',
   DashboardBands: 'packages/ui/src/components/Usage.tsx',
   LibraryMatrix: 'packages/ui/src/components/Library.tsx',
@@ -540,6 +543,7 @@ Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sideba
 Object.assign(PATTERN_CONSUMER, { ComposerTrack: 'packages/ui/src/components/ComposerControls.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  'lead-contract': 'packages/ui/src/preview/frames-lead.tsx',
   BoardCard: 'packages/ui/src/design/explorer/board-card-example.tsx',
   CommandPalette: 'packages/ui/src/preview/frames-transcript.tsx',
   SignInRail: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -691,6 +695,7 @@ const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
 }
 
 const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
+  'lead-contract': ['LeadContract', 'LeadJournal'],
   'ActionError': ['ActionError'],
   'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],
   'ApprovalDialog': ['ApprovalChoiceHint', 'ApprovalCode', 'ApprovalDialog', 'ApprovalFilePath', 'ApprovalMeta', 'ApprovalPermissionList', 'ApprovalQuestionText', 'ApprovalReason'],
@@ -887,6 +892,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['lead-contract', 'lead-contract', 'Revision-qualified Lead decisions, evidence and separate reported spend'],
   ['CommandPalette', 'conversation', 'Fixed search surface, title-led results and a keyboard-hint footer'],
   ['DashboardBands', 'dashboard-bands', 'Recorded plan, spend and activity readings through canonical page blocks'],
   ['MainDestination', 'main-destination', 'Retained work and visited pages share one main region'],

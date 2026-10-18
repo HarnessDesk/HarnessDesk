@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import type { LucideIcon, LucideProps } from 'lucide-react'
 import { Animated, type GlyphProps, ActivityGlyph, ArchiveGlyph, ArrowUpGlyph, AtSignGlyph, BellGlyph, BlocksGlyph, BookTextGlyph, BookmarkGlyph, BotGlyph, BrainGlyph, CalendarDaysGlyph, CheckGlyph, CheckCheckGlyph, ChevronDownGlyph, ChevronLeftGlyph, ChevronRightGlyph, ChevronsDownUpGlyph, ChevronsUpDownGlyph, CircleCheckGlyph, CircleDollarSignGlyph, CircleGaugeGlyph, ClockGlyph, CloudDownloadGlyph, CopyGlyph, CpuGlyph, DownloadGlyph, ExternalLinkGlyph, EyeOffGlyph, FileTextGlyph, FolderGit2Glyph, FolderInputGlyph, FolderOpenGlyph, FolderXGlyph, GaugeGlyph, GitBranchGlyph, GitCommitHorizontalGlyph, GitForkGlyph, GitGraphGlyph, GitMergeGlyph, GripVerticalGlyph, HandGlyph, HistoryGlyph, KeyboardGlyph, LoaderCircleGlyph, LockGlyph, LockOpenGlyph, Maximize2Glyph, MessageSquareGlyph, MessageSquarePlusGlyph, PlusGlyph, RefreshCwGlyph, RotateCcwGlyph, RotateCwGlyph, RouteGlyph, SearchGlyph, ServerGlyph, SettingsGlyph, ShieldCheckGlyph, ShrinkGlyph, SlidersHorizontalGlyph, SquareStackGlyph, UserGlyph, UsersGlyph, UsersRoundGlyph, WebhookGlyph, WorkflowGlyph, WrenchGlyph, XGlyph, ZapGlyph } from './glyphs'
 import {
+  Compass,
   ArrowLeftRight,
   Activity,
   Archive,
@@ -358,6 +359,8 @@ export const ToolIcon = animated(WrenchGlyph, Wrench, 'ToolIcon')
 /** The agent's own reasoning. */
 export const BrainIcon = animated(BrainGlyph, Brain, 'BrainIcon')
 /** A saved Agent: its brief, ceiling and preferred seats. Sub-agents qualify this robot with ↳; runtimes use their own marks. */
+/** The host-owned Lead has its own navigation glyph. */
+export const LeadIcon = icon(Compass, 'LeadIcon')
 export const AgentIcon = animated(BotGlyph, Bot, 'AgentIcon')
 /** The robot with its delegation qualifier, including at navigation size. */
 export const SubagentIcon = ({ size = 16, className, style, ...rest }: IconProps) => (

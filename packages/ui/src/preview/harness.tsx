@@ -2385,3 +2385,7 @@ export const Mount = ({ children, with: own }: { children: ReactNode; with?: App
 )
 
 export { Boundary }
+
+// Explicit opt-in synthetic Lead specimens; ordinary previews remain disabled.
+export { LeadFrames, LeadContractSpecimen } from './frames-lead'
+export { LEAD_SCENES } from './lead-fixture'

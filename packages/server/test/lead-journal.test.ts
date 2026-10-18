@@ -835,3 +835,29 @@ for (const cycles of [1, 2100]) test(`pruned settings cards survive file rotatio
   await assert.rejects(reopened.decideCard({ version: 1, cardId: 'caps-0', cardType: 'budget-change', expectedRevision: 1, contractDigest: null, choice: 'decline' }),
     (error: any) => error.wireCode === (cycles > 256 ? 'lead-card-stale' : 'lead-card-decided'))
 })
+
+test('expired consent renewal keeps its card identity and journal position through disk reopen', async t => {
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  t.after(() => disk.close())
+  const contract = { version: 1 as const, revision: 1, digest: 'a'.repeat(64), goal: 'Review the synthetic keyboard path',
+    project: { id: 'demo', path: '/workspace/demo' }, policyRevision: 1,
+    steps: [{ id: 'work', title: 'Review', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended' as const,
+      assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' }, ceiling: 'edit' as const }] }],
+    assertions: [{ id: 'check', kind: 'check' as const, description: 'Keyboard checks pass' }], caps: { usdMicros: 500, rounds: 3 } }
+  await journal.setPolicy(policy)
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical', caps: contract.caps, freshnessMs: 1000 })
+  await journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+  const position = journal.state.cardPositions.plan
+  const click = { version: 1 as const, cardId: 'plan', cardType: 'plan' as const, expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' as const }
+  await journal.decideCard(click, 200); await journal.renewPlan(200)
+  const offered = journal.state
+  await disk.close()
+  const reopenedDisk = await open(home); t.after(() => reopenedDisk.close())
+  const reopened = await createLeadJournal(reopenedDisk)
+  assert.deepEqual(reopened.state, offered)
+  await assert.rejects(reopened.decideCard(click, 400))
+  await reopened.decideCard({ ...click, expectedRevision: 2 }, 400)
+  assert.deepEqual(reopened.state.contract, contract)
+  assert.equal(reopened.state.cardPositions.plan, position)
+  assert.equal(reopened.state.consent!.expiresAt, 400)
+})

@@ -54,14 +54,15 @@ it('removes restored Lead destinations from current, Back and Forward before mou
   expect((await mount(store)).innerHTML).toBe('')
 })
 
-it('registers the enabled destination and mounts only its empty design-system shell', async () => {
+it('registers the enabled destination and mounts its design-system page and composer', async () => {
   expect(MAIN_PAGE_ENTRIES.lead).toBeTypeOf('function')
   const store = new AppStore('ws://localhost:0/')
   seed(store, true); store.openDestination(lead)
   const box = await mount(store)
   expect(box.querySelector('[data-page-destination="lead"] [data-slot="page"]')).not.toBeNull()
-  expect(box.textContent).toBe('Lead')
-  expect(box.querySelectorAll('button,input,textarea')).toHaveLength(0)
+  expect(box.querySelector('h1')?.textContent).toBe('Lead')
+  expect(box.querySelector('textarea[aria-label="Goal or message"]')).not.toBeNull()
+  expect([...box.querySelectorAll('button')].some(button => button.textContent === 'Settings')).toBe(true)
   await act(async () => { store.returnToWork(); await store.navigateBack() })
   expect(store.getSnapshot().workbench.navigation.current).toEqual(lead)
 })

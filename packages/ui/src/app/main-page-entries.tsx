@@ -3,13 +3,14 @@ import type { RuntimeId } from '@harnessdesk/protocol'
 import type { PageDestination } from '../state/destinations'
 import { DashboardEntry } from '../components/Usage'
 import { LibrarySection } from '../components/Library'
-import { Page, Text } from '../design'
+import { Page } from '../design'
 import { PluginsSection } from '../components/PluginsSection'
 import { Settings } from '../components/Settings'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { TeamsWindow } from '../components/TeamsWindow'
 import { ChangesReview } from '../components/ChangesReview'
 import { FlowsWindow } from '../components/FlowsWindow'
+import { LeadPage } from '../components/LeadPage'
 import { FlowPage } from '../components/FlowPage'
 export interface MainPageInput {
   readonly page: PageDestination
@@ -20,7 +21,7 @@ export interface MainPageInput {
   readonly libraryImportIntent: number
 }
 export const MAIN_PAGE_ENTRIES: Partial<Record<PageDestination['kind'], (input: MainPageInput) => ReactNode>> = {
-  lead: () => <Page width="reading"><Text as="h1" role="page">Lead</Text></Page>,
+  lead: () => <LeadPage />,
   flows: ({page,visit}) => page.kind === 'flows'
     ? page.root === null
       ? <FlowsWindow onNew={root => visit({kind:'flows',root,id:null,origin:null})} onOpen={(root,id,origin) => visit({kind:'flows',root,id,origin})} />

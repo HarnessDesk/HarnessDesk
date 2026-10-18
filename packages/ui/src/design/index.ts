@@ -279,3 +279,5 @@ export { SignInRail } from './patterns/SignInRail'
 export { LeftColumnExplorerHead, LeftColumnExplorerFoot } from './patterns/LeftColumn'
 
 export { SelectionAction } from './patterns/SelectionAction'
+
+export { LeadContract, LeadJournal } from './patterns/lead-contract'

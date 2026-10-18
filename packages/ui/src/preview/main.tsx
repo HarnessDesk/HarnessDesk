@@ -1,3 +1,4 @@
+import { LeadFrames } from './harness'
 import './update-bridge'
 import { Issue1675Frames } from './issue-1675-fixture'
 import { ConversationDefaultsPreview } from './defaults-fixture'
@@ -1222,12 +1223,6 @@ const TablesPreview = () => {
   return <div className="bg-background p-4 text-foreground"><Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame></div>
 }
 
-/** Only this explicit synthetic specimen enables Lead in the preview harness. */
-const LeadSyntheticPreview = () => {
-  useTheme()
-  const fixture = useMemo(() => previewStore({ leadAvailable: true }), [])
-  return <div className="h-screen"><PagePreview fixture={fixture} page={{ kind: 'lead' }} /></div>
-}
 
 const PublicationPreview = () => {
   useTheme()
@@ -1276,7 +1271,7 @@ createRoot(container).render(
     <SceneSteps />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('lead-synthetic') ? <LeadSyntheticPreview /> : new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
+        {new URLSearchParams(window.location.search).has('lead-synthetic') ? <LeadFrames /> : new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
           : new URLSearchParams(window.location.search).has('flows-page')
             ? <FlowsDestinationFixture />

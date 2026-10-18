@@ -557,7 +557,7 @@ it('opens the same folder picker from Projects and the New session menu without 
   expect(choose).toHaveBeenCalledTimes(2)
 })
 
-it('keeps exactly six ordered doors and no Lead trace in the disabled doors group', () => {
+it('keeps exactly six ordered doors and no Lead trace in the whole disabled sidebar', () => {
   mount()
   const group = container.querySelector('[aria-label="Main sections"]')!
   expect(group.children).toHaveLength(6)
@@ -570,14 +570,15 @@ it('keeps exactly six ordered doors and no Lead trace in the disabled doors grou
       if (/^(aria-|data-)|^(title|class)$/.test(attr.name)) expect(`${attr.name}=${attr.value}`).not.toMatch(/lead/i)
     }
   }
-  const disabled = group.outerHTML
+  const normalizeIds = (html: string) => html.replace(/(?:_r_|:r)[a-z0-9]+(?:_|:)/gi, 'react-id')
+  const disabled = normalizeIds(container.innerHTML)
   mount({ leadAvailable: true })
   const enabled = container.querySelector('[aria-label="Main sections"]')!
   expect(enabled.children).toHaveLength(7)
   const lead = enabled.querySelector('[aria-label="Lead"]')!
   const row = [...enabled.children].find(child => child.contains(lead))!
   row.remove()
-  expect(enabled.outerHTML).toBe(disabled)
+  expect(normalizeIds(container.innerHTML)).toBe(disabled)
 })
 
 it.each([false, true])('shows the Lead navigation row only for capability=%s', enabled => {

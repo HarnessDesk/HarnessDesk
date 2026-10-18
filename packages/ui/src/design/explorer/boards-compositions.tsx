@@ -1,3 +1,4 @@
+import { LeadContractSpecimen } from '../../preview/frames-lead'
 import { PagePreview } from '../../preview/page-preview'
 import { InfoCardBody, SubjectActionsMenu } from '..'
 import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
@@ -3250,6 +3251,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Delta',
     about: 'A change, with its sign said in colour as well as in punctuation.',
     render: DeltaBoard,
+  },
+  {
+    id: 'lead-contract',
+    title: 'Lead contract',
+    about: 'Revision-qualified person decisions from the app’s row grammar.',
+    render: LeadContractSpecimen,
   },
   {
     id: 'plan-card',

@@ -23,6 +23,7 @@ export type LeadJournalEvent =
   | { readonly type: 'management'; readonly phase: 'planning' | 'waiting-for-user'; readonly reason?: string | null }
   | { readonly type: 'invalidate-results' | 'resume' | 'settings-changed' }
   | { readonly type: 'message'; readonly idempotencyKey: string | null; readonly message: LeadMessage }
+  | { readonly type: 'renew-plan'; readonly now: number }
   | { readonly type: 'restore-result'; readonly id: string; readonly revision: number }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
@@ -118,7 +119,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': [], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
+    'renew-plan': ['now'], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': [], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
@@ -130,6 +131,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']), ...(Object.hasOwn(source, 'reason') ? { reason: source.reason === null ? null : choice(source.reason, LEAD_MANAGEMENT_REASONS) } : {}) }; break
     case 'message': event = { type, idempotencyKey: nullable(source.idempotencyKey, identifier), message: parseLeadMessage(source.message) }; break
     case 'settings-changed': case 'invalidate-results': case 'resume': event = { type }; break
+    case 'renew-plan': event = { type, now: integer(source.now, 0) }; break
     case 'restore-result': event = { type, id: identifier(source.id), revision: integer(source.revision, 1) }; break
     case 'start-resolution': {
       const identity = nullable(source.identity, parseLeadRunIdentity), goalId = nullable(source.goalId, identifier)
@@ -332,7 +334,25 @@ export class LeadJournal {
   }) }
   invalidateResults(): Promise<void> { return this.#queue(() => this.#append({ type: 'invalidate-results' })) }
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
-  offerCard(card: LeadCard, admit?: (card: LeadCard) => void): Promise<LeadCard> { return this.#queue(async () => { admit?.(card); await this.#append({ type: 'card', card }); return structuredClone(this.#state.cards.at(-1)!) }) }
+  offerCard(card: LeadCard, admit?: (card: LeadCard) => void): Promise<LeadCard> { return this.#queue(async () => {
+    const revisions = new Map(this.#state.cards.map(card => [card.id, card.revision]))
+    admit?.(card)
+    await this.#append({ type: 'card', card })
+    // Read the prepared, durable snapshot, never the caller after a broker hook.
+    return structuredClone(this.#state.cards.find(card => revisions.get(card.id) !== card.revision)!)
+  }) }
+
+  /** Host-clock expiry only; the reducer reconstructs the unchanged approved card. */
+  renewPlan(now: number, admit?: (card: LeadCard) => void): Promise<void> { return this.#queue(async () => {
+    const state = this.#state
+    if (!state.consent || state.consent.renewalCardRevision !== undefined || state.consent.expiresAt > now || state.budget?.stop || state.recoveryBlocked ||
+      ['stopped', 'accepted', 'declined'].includes(state.phase) || hasPendingLeadPlan(state)) return
+    const event = { version: 1 as const, seq: state.seq + 1, type: 'renew-plan' as const, now }
+    const next = reduceLeadRecord(state, event)
+    const card = next.cards.find(card => !state.cards.some(old => old.id === card.id && old.revision === card.revision))!
+    admit?.(card)
+    await this.#append({ type: 'renew-plan', now })
+  }) }
   async decideCard(input: LeadCardDecision, expiresAt: number | null = null, stopEffects?: () => Promise<void>, beforeDecision?: () => Promise<void>, committed?: () => void): Promise<void> {
     const decision = parseLeadCardDecision(input)
     return this.#budgetWrite(async () => {

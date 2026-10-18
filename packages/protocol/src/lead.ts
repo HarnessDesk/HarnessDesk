@@ -194,6 +194,10 @@ export interface LeadThread {
   readonly olderMessages: number
   readonly messages: readonly LeadMessage[]
   readonly cards: readonly LeadCard[]
+  /** Host journal positions remain fixed when a card gets a newer revision. */
+  readonly cardPositions?: Readonly<Record<string, number>>
+  readonly contract?: LeadAcceptanceContract | null
+  readonly budget?: LeadBudgetState | null
 }
 export interface LeadSettingsProjection {
   readonly version: 1
@@ -471,11 +475,17 @@ export const parseLeadCardDecisionFor = (value: unknown, current: unknown): Lead
   return parsed
 }
 export const parseLeadMessage: Validator<LeadMessage> = object({ version, id, revision, role: literalUnion('user', 'assistant', 'system'), text: content })
+const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {
+  const entries = Object.entries(isObject(value, path))
+  if (entries.length > LEAD_LIMITS.cards) fail(path, 'too many card positions')
+  return Object.fromEntries(entries.map(([key, value]) => [id(key, path), integer(1)(value, path)]))
+}
 export const parseLeadThread: Validator<LeadThread> = object({
   version, id, revision, state: literalUnion('draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'),
   // One current snapshot per card. Revisions belong to each card, so different cards may
   // share revision 1; the state machine must compare old/new revisions when replacing a card.
-  project: nullable(project), olderMessages: integer(),
+  project: nullable(project), olderMessages: integer(), cardPositions: optional(cardPositions),
+  contract: optional(nullable(parseLeadAcceptanceContract)), budget: optional(nullable(parseLeadBudgetState)),
   messages: list(parseLeadMessage, LEAD_LIMITS.messages, 0, message => message.id), cards: list(parseLeadCard, LEAD_LIMITS.cards, 0, card => card.id),
 })
 /** Keep the largest newest suffix within the thread's UTF-8 JSON budget, without mutating

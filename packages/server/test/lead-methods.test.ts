@@ -492,10 +492,10 @@ test('server projects each wayOut, typed wait reason and exact 24-hour consent e
   await r.journal.setManagementPhase('waiting-for-user', 'lead-result-awaiting-person')
   assert.equal((await r.controls.readThread()).wayOut, null)
 })
-test('consent expiry never advertises a resume that cannot renew it', async () => {
+test('consent expiry offers a fresh plan decision instead of Resume', async () => {
   const s = await rig({ controls: { now: () => 1000001 } }); await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000000)
   await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
-  assert.equal((await s.controls.readThread()).wayOut, null)
+  assert.equal((await s.controls.readThread()).wayOut, 'decide-plan')
 })
 for (const phase of ['accepted', 'declined', 'stopped'] as const) test(`send into ${phase} refuses before append`, async () => {
   const s = await rig({ configured: true })
@@ -741,7 +741,7 @@ for (const kind of ['policy', 'caps'] as const) test(`a ${kind} settings card mu
   const card = (i: number, length: number) => ({ ...plan, id: `fill-${i}`, contract: { ...contract, goal: 'g'.repeat(length) } })
   const admit = (candidate: any) => {
     const state = s.journal.state
-    leadWindowThread({ ...state, cards: [...state.cards, candidate] }, project, { version: 1, model: 'fixture-model', policy: state.policy!, caps: state.budget!.caps, key: { configured: true, protection: 'encrypted' } })
+    leadWindowThread({ ...state, seq: state.seq + 1, cardPositions: { ...state.cardPositions, [candidate.id]: state.seq + 1 }, cards: [...state.cards, candidate] }, project, { version: 1, model: 'fixture-model', policy: state.policy!, caps: state.budget!.caps, key: { configured: true, protection: 'encrypted' } })
   }
   let i = 0
   while (i < 64) { try { await s.journal.offerCard(card(i, 16000), admit); i++ } catch { break } }
@@ -764,7 +764,7 @@ test('combined policy and caps cards are both admitted or neither is made', asyn
   const permission = { version: 1 as const, id: 'card-1', revision: 1, type: 'permission-change' as const, contractDigest: null, previous: policy, proposed }
   const fill = (i: number, length: number) => ({ ...plan, id: `fill-${i}`, contract: { ...contract, goal: 'g'.repeat(length) } })
   // Fill to the exact boundary at which the policy card fits but adding caps cannot.
-  const admitWithPolicy = (card: LeadCard) => admitLeadCard({ ...s.journal.state, cards: [...s.journal.state.cards, card] }, permission, project, 'fixture-model')
+  const admitWithPolicy = (card: LeadCard) => admitLeadCard({ ...s.journal.state, seq: s.journal.state.seq + 1, cardPositions: { ...s.journal.state.cardPositions, [card.id]: s.journal.state.seq + 1 }, cards: [...s.journal.state.cards, card] }, permission, project, 'fixture-model')
   let i = 0
   while (i < 64) { try { await s.journal.offerCard(fill(i, 16000), admitWithPolicy); i++ } catch { break } }
   let lo = 1, hi = 16000
@@ -796,16 +796,16 @@ for (const stop of ['decline', 'budget'] as const) test(`a ${stop} before detach
   s.controls.close()
 })
 
-for (const kind of ['result', 'person', 'expired'] as const) test(`resume agrees with null wayOut for ${kind}`, async () => {
+for (const kind of ['result', 'person', 'expired'] as const) test(`Resume stays refused for the guarded ${kind} wayOut`, async () => {
   const s = await rig({ configured: true }); await s.journal.offerCard(plan)
   await s.journal.decideCard(planClick, kind === 'expired' ? 99 : 1000)
   await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
   if (kind === 'result') await s.journal.offerCard({ version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Reviewed', assertions: [],
     budget: (await import('@harnessdesk/lead')).leadBudgetProjection(s.journal.state.budget!, 100) })
   if (kind === 'person') await s.journal.offerCard({ version: 1, id: 'person', revision: 1, type: 'waiting', kind: 'person', contractDigest: contract.digest, runId: 'run', personCardId: 'person', summary: 'Decide', assertions: [] })
-  assert.equal((await s.controls.readThread()).wayOut, null)
+  assert.equal((await s.controls.readThread()).wayOut, kind === 'expired' ? 'decide-plan' : null)
   const before = s.journal.state
-  await assert.rejects(s.controls.resume({ expectedRevision: before.seq }), code('lead-no-person-wait'))
+  await assert.rejects(s.controls.resume({ expectedRevision: before.seq }), code(kind === 'expired' ? 'lead-plan-pending' : 'lead-no-person-wait'))
   await s.controls.idle(); assert.equal(s.sends.length, 0); assert.deepEqual(s.journal.state, before); s.controls.close()
 })
 
@@ -1078,4 +1078,42 @@ test('combined policy and caps update refuses before either card when the policy
     assert.equal(s.records.length, records)
     assert.equal(s.journal.state.cards.some(card => card.type === 'budget-change'), false)
   } finally { s.controls.close() }
+})
+
+test('consent expiry re-offers the same plan revision once and projects decide-plan', async () => {
+  let now = 100
+  const s = await rig({ controls: { now: () => now } })
+  await s.journal.offerCard(plan)
+  await s.call('lead/card/decide', planClick); await s.controls.idle()
+  now = s.journal.state.consent!.expiresAt
+  const projection = await s.call('lead/thread/read')
+  assert.equal(projection.wayOut, 'decide-plan')
+  assert.equal(projection.thread.cards[0].revision, 2)
+  assert.deepEqual(projection.thread.cards[0].contract, contract)
+  const seq = s.journal.state.seq
+  await s.call('lead/settings/read')
+  assert.equal(s.journal.state.seq, seq)
+  await assert.rejects(s.call('lead/resume', { expectedRevision: seq }), code('lead-plan-pending'))
+  await assert.rejects(s.call('lead/card/decide', planClick))
+  await s.call('lead/card/decide', { ...planClick, expectedRevision: 2 }); await s.controls.idle()
+  assert.equal(s.journal.state.consent!.expiresAt > now, true)
+  assert.equal((await s.call('lead/thread/read')).wayOut, null)
+  assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
+})
+
+test('thread exposes journal positions and approved scope for inline replacement and evidence labels', async () => {
+  const s = await rig()
+  await s.journal.appendMessage('first', 'First goal')
+  await s.journal.offerCard(plan)
+  const position = s.journal.state.seq
+  await s.journal.appendReply('Inspect the plan')
+  await s.journal.offerCard({ ...plan, revision: 2 })
+  const projection = await s.call('lead/thread/read')
+  assert.equal(projection.thread.cardPositions.plan, position)
+  assert.ok(projection.thread.messages[0].revision < position)
+  assert.ok(projection.thread.messages[1].revision > position)
+  await s.call('lead/card/decide', { ...planClick, expectedRevision: 2 }); await s.controls.idle()
+  const approved = await s.call('lead/thread/read')
+  assert.deepEqual(approved.thread.contract, contract)
+  assert.equal(approved.thread.budget.leadUsdMicros, 0)
 })

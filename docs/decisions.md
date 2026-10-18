@@ -3712,8 +3712,8 @@ produce inline code.
 Plan approval grants 24 hours of consent from the host clock. This bounds how long
 one person click can authorize paid work within the held policy and budget. The
 window projection carries the expiry and stops offering Resume after it lapses.
-Step 11 must provide a fresh plan decision to renew expired consent; renewal is
-an open UI item, and Resume cannot extend consent.
+A fresh plan decision renews expired consent; Resume cannot extend consent.
+The renewal transition below preserves the approved scope and admitted work.
 
 Each window continuation requests at most 4,096 output tokens. This keeps the
 up-front reservation and one response bounded, including when a provider could
@@ -3734,3 +3734,28 @@ The supervisor gives a send a 180-second deadline. Three transport attempts of
 host kills the child through the existing exit path, records in-flight dispatches
 as uncertain and parks for a person instead of leaving controls behind a paid
 request. The short control journal queue never awaits that request.
+
+
+## Lead consent renewal preserves the approved contract — 2026-10-18
+
+When the host clock reaches plan consent expiry, the journal re-offers the
+approved plan as the next revision of the same card. Its contract, digest,
+original journal position and admitted steps stay unchanged. The renewal event
+is durable and replayable; repeated reads do not produce duplicate offers.
+Terminal, budget-stopped and recovery-blocked threads do not offer renewal.
+
+The window receives `decide-plan`, never an unusable Resume. Only a fresh
+revision-and-digest-bound Approve grants another 24 hours. Renewal preserves
+run identities, consumed rounds, reported spend and any tighter caps applied
+since the original approval. It cannot replay a start or restore an older
+allowance. Stale clicks still refuse. A declined renewal is recorded once for that consent
+expiry and is not immediately re-offered by the next read. The bounded per-card
+revision limit also
+applies to renewal; exhaustion fails closed rather than granting consent.
+
+
+New journals keep each card's first journal sequence separately from its local
+revision counter, so replacement preserves its inline position. Checkpoints from
+before this field retain only card order, not exact interleaving with messages;
+their cards keep that saved order before the retained message suffix. New writes
+and full journal replay retain exact positions.

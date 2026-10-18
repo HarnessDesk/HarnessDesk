@@ -1,0 +1,41 @@
+.shell {
+  height: 100%;
+  min-height: 0;
+}
+.shell > [data-slot='page'] {
+  height: 100%;
+  min-height: 0;
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--hd-space-3);
+}
+.title {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+.thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-6);
+  scroll-padding-block: var(--hd-space-3);
+}
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+}
+.allowances {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2);
+}

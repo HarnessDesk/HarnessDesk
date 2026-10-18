@@ -2331,3 +2331,28 @@ whole; other membership stacks retain their overlap.
 Add a runtime keeps the machine's catalogue first. Browse more… reveals the
 registry, with one MenuNote for its third-party, unreviewed status. It does not
 change an entry's add, download, blocked or registered behaviour.
+
+## Lead decisions in a reading column
+
+`LeadJournal` owns the page template over `Page width="reading"`: its kind is the body's first heading, with
+Settings at the right, under the destination's fixed tools. Its journal stream
+scrolls above the composer; the composer shows the initial dollar and round
+allowances as chips before the first send. The host's `wayOut` alone chooses a
+Resume notice, a plan-decision notice, or no notice. A plan-decision action
+focuses the current plan card rather than sending a decision.
+
+`LeadContract` composes Rows, Row, Chip, Button and Banner. A card's original
+journal position stays fixed through revision replacement. Its revision and
+approval scope are visible; actions wrap in keyboard order and lock together
+while a decision is pending. Prose passes the transcript sanitizer. Missing
+checks, review, findings and reported worker spend say Unknown. Lead spend is
+attributed separately. A worker approval links to its existing surface and has
+no person acceptance controls. Only a person gate offers Accept and Decline.
+
+Lead settings use the application Dialog and row grammar. The key is write-only:
+only configured status is read, and an uncontrolled password input is cleared
+before its exclusive credential request. Removal uses ConfirmDialog. Policy
+and allowance widening explains that it creates an approval card; tightening
+applies immediately. Consent expiry is a dated fact, not a second control.
+The synthetic specimens are `preview.html?lead-synthetic=<scene>`; the catalog's
+`lead-contract` board renders the same pattern.

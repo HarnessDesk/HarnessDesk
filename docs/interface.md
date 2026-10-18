@@ -1887,3 +1887,29 @@ evidence reads Waiting. Stopping closes rounds without finishing their cards:
 those steps read Stopping while their retained turn is live, then Stopped,
 freeze their time at the current Run ending, and carry
 no completion badge, activity, glow or motion.
+
+## Lead
+
+When the host enables Lead, its sidebar row opens a reading-width journal page.
+The title and Settings belong to the body; the top bar keeps its fixed tools.
+Messages and decision cards follow journal order, and a newer card revision
+replaces its predecessor at the same position. Send waits for an in-flight
+request. Initial dollar and round allowances are visible beside the goal input.
+
+Plans show every Flow, assignment, acceptance assertion, cap and approval scope.
+Approve and Decline refer to the displayed card revision and contract digest.
+Results show revision-qualified evidence, separate Lead spend and reported worker
+spend, and a way to inspect the patch in Changes. Unknown evidence stays unknown.
+A person gate offers Accept and Decline; a worker command approval opens the
+existing worker approval surface and cannot be answered by Lead's controls.
+
+The host supplies the only way out: Resume explains why work stopped, while
+Review plan focuses the plan requiring a decision. An interrupted request also
+continues when a message is sent. Expired consent re-offers the approved plan
+under a new revision of the same card and needs fresh approval; Resume never
+renews consent.
+
+Settings contains the write-only provider key, permission policy and allowances.
+A key change is submitted alone, its password input cleared immediately. Remove
+key asks for confirmation. Tightening applies at once; widening creates a card
+for approval in the journal. Existing consent shows its expiry time.
