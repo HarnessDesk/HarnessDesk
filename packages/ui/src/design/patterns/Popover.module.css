@@ -13,7 +13,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--hd-space-1);
-  height: 26px;
+  height: var(--hd-control-h); /* desk: 26 → the control rung, the same token the tabs and the `control` button size read; Desk's own value is unchanged and the trigger follows the density scopes */
   padding: 0 8px;
   border: none;
   border-radius: var(--hd-radius-sm);
@@ -26,7 +26,7 @@
   /* A floor rather than zero. The words shorten before the trigger overflows
      its row — that is the rule below, and it is the `span`'s job — but a
      trigger whose label is only a glyph has nothing to shorten, so `0` let
-     the box itself be squeezed to 21 against a 26-tall target. */
+     the box itself be squeezed to 21 against the control-height target. */
   min-width: var(--hd-target-min); /* desk: 0 → 24, the target floor */
 }
 
