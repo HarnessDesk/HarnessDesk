@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
 
-// Synthetic preview scenes only; the orchestrator owns browser verification.
+// Bounded dialogs keep groups whole and long branch lists within their scrolling cap.
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
-for (const theme of ['light', 'dark'] as const) for (const height of [1000, 480]) {
+for (const theme of ['light', 'dark'] as const) for (const height of [1000, 480, 360]) {
   test(`Lead settings groups stay whole at 1280x${height} in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height })
     await page.emulateMedia({ colorScheme: theme })

@@ -2,7 +2,7 @@ import { useRef, useState, type MutableRefObject } from 'react'
 import type { LeadAcceptanceContract, LeadBudgetState, LeadCard, LeadCardDecision, RuntimeInfo } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, LeadContract, Row, Rows, Text } from '../design'
 import { Markdown } from './Markdown'
-import { formatReset } from '../lib/limits'
+import { formatLeadConsentTime } from './lead-consent-time'
 import { PERMISSION_LABELS } from './lead-permission-labels'
 
 export const leadDollars = (micros: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 6 }).format(micros / 1000000)
@@ -44,7 +44,7 @@ export const LeadCards = ({ cards, contract, budget, runtimes, onDecide, onChang
     const worker = card.type === 'waiting' && card.kind === 'worker-approval'
     const renewal = card.type === 'plan' && expiry != null && card.contractDigest === contract?.digest && JSON.stringify(card.contract) === JSON.stringify(contract)
 
-    const summary = worker ? 'A worker is waiting for a command approval.' : renewal ? `The earlier approval expired at ${formatReset(expiry!)}. ${card.contract.goal}` : card.type === 'permission-change' ? 'Review the proposed permissions before the Lead uses them.' : card.type === 'budget-change' ? 'Review the higher allowances before work continues.' : 'summary' in card ? card.summary : card.type === 'plan' ? card.contract.goal : undefined
+    const summary = worker ? 'A worker is waiting for a command approval.' : renewal ? `The earlier approval expired at ${formatLeadConsentTime(expiry!)}. ${card.contract.goal}` : card.type === 'permission-change' ? 'Review the proposed permissions before the Lead uses them.' : card.type === 'budget-change' ? 'Review the higher allowances before work continues.' : 'summary' in card ? card.summary : card.type === 'plan' ? card.contract.goal : undefined
     const spend = 'budget' in card ? card.budget : budget
     const assertions = 'assertions' in card ? card.assertions : []
     const caps = renewal && budget ? budget.caps : card.type === 'plan' ? card.contract.caps : undefined

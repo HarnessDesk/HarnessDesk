@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { LEAD_LIMITS, type ClientMethodName, type LeadPermissionPolicy, type LeadSettingsProjection, type LeadSettingsUpdate } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, Dialog, FormStack, InlineParts, Input, NativeSelect, Row, Rows, SectionHead, Text } from '../design'
 
-import { formatReset } from '../lib/limits'
+import { formatLeadConsentTime } from './lead-consent-time'
 import { PERMISSION_LABELS } from './lead-permission-labels'
 
 const modes = { plan: 0, default: 1, manage: 2 }
@@ -78,7 +78,7 @@ export const LeadSettings = ({ settings, expiry, update, onClose, onError, error
       <Rows>
         <Row title="Dollar allowance" desc={capsWiden ? 'Creates a card for your approval.' : 'Tightening applies at once. Stops when reported spend reaches the cap.'} control={<Input aria-label="Dollar allowance" type="number" min={0} step="0.000001" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} />} />
         <Row title="Round allowance" control={<Input aria-label="Round allowance" type="number" min={0} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} />} />
-        {expiry !== null && <Row title="Plan consent expires" desc={formatReset(expiry)} />}
+        {expiry !== null && <Row title="Plan consent expires" desc={formatLeadConsentTime(expiry)} />}
       </Rows>
       <Row title={null} control={<Button disabled={pending || !validCaps || !capsChanged} aria-busy={pending} onClick={() => void submit({ caps: { usdMicros: micros, rounds: roundCount } })}>Save allowances</Button>} />
       </FormStack>

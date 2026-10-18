@@ -8,7 +8,7 @@ import { previewStore } from '../preview/harness'
 import { leadPlan, leadProjection } from '../preview/lead-fixture'
 import { DestinationPageScope } from '../panels/destination-page'
 import { TopBarProvider } from '../panels/top-bar'
-import { formatReset } from '../lib/limits'
+import { formatLeadConsentTime } from './lead-consent-time'
 import leadSettingsSource from './LeadSettings.tsx?raw'
 const decisionHandlers = vi.hoisted(() => [] as { onApprove?: () => void }[])
 vi.mock('../design', async importOriginal => {
@@ -228,11 +228,11 @@ it('caps expiry backoff at 30 seconds, reads once at the cap and waits for chang
     await update({ wayOut: 'decide-plan' }); expect(button('Review plan')).toBeDefined()
   } finally { vi.useRealTimers() }
 })
-it('formats renewal notices and settings expiry with the shared minute formatter', async () => {
+it('formats renewal notices and settings expiry with the Lead date-aware minute formatter', async () => {
   const expiry = 1792328434567, base = leadProjection()
   const { box } = await mount({ ...base, planConsentExpiresAt: expiry, wayOut: 'decide-plan', thread: { ...base.thread, contract: leadPlan.contract, cards: [leadPlan] } })
-  expect(box.textContent?.split(formatReset(expiry)!).length).toBe(3)
-  await act(async () => button('Settings').click()); expect(document.querySelector('[role="dialog"]')?.textContent).toContain(formatReset(expiry))
+  expect(box.textContent?.split(formatLeadConsentTime(expiry)!).length).toBe(3)
+  await act(async () => button('Settings').click()); expect(document.querySelector('[role="dialog"]')?.textContent).toContain(formatLeadConsentTime(expiry))
 })
 it('explains a blocked renewal even without a Resume way out', async () => {
   const { box } = await mount({ ...leadProjection(), wayOut: null, waitReason: 'lead-renewal-blocked' })

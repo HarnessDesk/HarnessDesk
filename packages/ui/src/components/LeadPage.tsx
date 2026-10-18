@@ -5,7 +5,7 @@ import { DestinationBar, useDestinationActive } from '../panels/destination-page
 import { useSnapshot, useStore } from '../state/context'
 import { LeadCards, leadDollars } from './LeadCards'
 import { LeadSettings } from './LeadSettings'
-import { formatReset } from '../lib/limits'
+import { formatLeadConsentTime } from './lead-consent-time'
 
 /** Closed refusal vocabulary; transport messages and typed codes never render. */
 const REFUSALS: Record<LeadControlRefusal, string> = {
@@ -106,7 +106,7 @@ export const LeadPage = ({ initialSettingsOpen = false, initialGoal = '' }: { re
         {state.wayOut === 'resume' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
           {state.waitReason ? WAITS[state.waitReason] ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
         </Banner>}
-        {state.wayOut === 'decide-plan' && <Banner actions={<Button onClick={() => reviewPlan()}>Review plan</Button>}>{renewal ? `The earlier approval expired at ${formatReset(state.planConsentExpiresAt!)}. Review the plan to continue.` : 'The plan needs your decision before work continues.'}</Banner>}
+        {state.wayOut === 'decide-plan' && <Banner actions={<Button onClick={() => reviewPlan()}>Review plan</Button>}>{renewal ? `The earlier approval expired at ${formatLeadConsentTime(state.planConsentExpiresAt!)}. Review the plan to continue.` : 'The plan needs your decision before work continues.'}</Banner>}
       </>}>
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
         {entries.length ? entries.map(entry => entry.kind === 'message'
