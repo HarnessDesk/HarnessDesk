@@ -1,15 +1,5 @@
 # Scripted Flow scene
 
-## The README's race and tiles
-
-```sh
-node script/shots/readme-race.mjs --out /tmp/hd-race          # 10 s at 12 fps, light and dark
-node script/shots/readme-tiles.mjs --out /tmp/hd-tiles        # teams, run-flow, skill, dashboard
-```
-
-Both open `preview.html` headlessly at device scale 2; no agent, account or desk. The race is the production Side by side view (`?readme-race`, `packages/ui/src/preview/readme-race.tsx`): two Seats' Browsers load `fixtures/race-runner.html` on their lanes' first ports (fulfilled locally), the camera raises each attempt's build level and the Run's stage, and the judge's pick ends the loop. The camera crops the Team's bar and tabs away. Encode with ffmpeg (`scale=960:-1:flags=lanczos`, a 192-colour palette) and keep the last frame as the reduced-motion poster. `?readme-names` names the preview's runtimes after the shipped agents. Every page passes `audit.mjs` before capture; read every coalesced GIF frame before committing.
-
-
 ## README and site stills
 
 ```sh
@@ -206,3 +196,12 @@ one renderer in its output folder first, and retains the manifest and both-theme
 frames as Playwright attachments. The runner accepts `--ui <renderer>` because
 the ordinary preview server does not serve the token-gated host connection used
 by these journeys.
+
+## The README's race and tiles
+
+```sh
+node script/shots/readme-race.mjs --out /tmp/hd-race          # 10 s at 12 fps, light and dark
+node script/shots/readme-tiles.mjs --out /tmp/hd-tiles        # teams, run-flow, skill, dashboard
+```
+
+Both open `preview.html` headlessly at device scale 2; no agent, account or desk. The race is the production Side by side view (`?readme-race`, `packages/ui/src/preview/readme-race.tsx`): two Seats' Browsers load `fixtures/race-runner.html` on their lanes' first ports (fulfilled locally), the camera raises each attempt's build level and the Run's stage, and the judge's pick ends the loop. The camera crops the Team's bar and tabs away. Encode with ffmpeg (`scale=960:-1:flags=lanczos`, a 192-colour palette) and keep the last frame as the reduced-motion poster. `?readme-names` names the preview's runtimes after the shipped agents. Every page passes `audit.mjs` before capture; read every coalesced GIF frame before committing.

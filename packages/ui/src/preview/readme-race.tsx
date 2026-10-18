@@ -1,5 +1,5 @@
 /** The README's race: two Seats build the same brief Side by side, each in its own Browser, and the judge picks one. */
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import type { Session, SessionKey } from '@harnessdesk/protocol'
 import { MountProvider } from '../panels/mount'
 import { KeyboardHereContext, StoreProvider } from '../state/context'
@@ -71,7 +71,8 @@ const raceStore = (): Patchable => {
   const pickedNamed = { ...snapshot, ...named(snapshot) }
   /* "Before" is recorded without browsers; keep this Team's checkouts so each tile keeps its lane. */
   const beforeNamed = { ...before, ...named(before), goals: new Map([...named(before).goals].map(([id, goal]) => [id, { ...goal, members: pickedNamed.goals.get(id)?.members ?? goal.members }])) }
-  picked.patch({ runtimes: RUNTIMES, models: MODELS.map(model => ({ ...snapshot.models[0]!, ...model, description: '' })), workbench,
+  const theme = new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' as const : 'light' as const
+  picked.patch({ theme, runtimes: RUNTIMES, models: MODELS.map(model => ({ ...snapshot.models[0]!, ...model, description: '' })), workbench,
     ...withStage(beforeNamed, pickedNamed, 0) })
   const peers = picked.teamPeers.bind(picked)
   return Object.assign(picked, {
@@ -80,8 +81,10 @@ const raceStore = (): Patchable => {
   })
 }
 
+/** Inside the race's own store, so the page needs no outer provider and `?theme` reaches the tiles. */
+const Themed = ({ children }: { children: ReactNode }) => { useTheme(); return children }
+
 export const ReadmeRace = () => {
-  useTheme()
   const store = useMemo(() => raceStore(), [])
   useEffect(() => {
     const receive = (event: Event) => (store as unknown as { stage: (stage: Stage) => void }).stage((event as CustomEvent<Stage>).detail)
@@ -94,7 +97,7 @@ export const ReadmeRace = () => {
     <StoreProvider store={store}>
       <MountProvider scope={{ area: 'main', id: 'team-room', view }}>
         <KeyboardHereContext.Provider value={false}>
-          <TeamFramePreview room={PREVIEW_ROOM} view={view} railOpen={false} />
+          <Themed><TeamFramePreview room={PREVIEW_ROOM} view={view} railOpen={false} /></Themed>
         </KeyboardHereContext.Provider>
       </MountProvider>
     </StoreProvider>

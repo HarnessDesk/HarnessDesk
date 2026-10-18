@@ -1,6 +1,6 @@
 /**
  * The README hero: the production Side by side view in preview.html, two Seats racing one brief
- * in their own Browsers, then the judge's pick. Frames only; encode with readme-race-gif.sh.
+ * in their own Browsers, then the judge's pick. Frames only; encode as script/shots/README.md says.
  *
  *   node script/shots/readme-race.mjs --out /tmp/race [--theme light|dark] [--still]
  */
