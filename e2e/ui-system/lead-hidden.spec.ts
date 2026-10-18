@@ -56,6 +56,12 @@ for (const theme of ['light', 'dark'] as const) test(`the flag-off host has no L
       // Read real DOM contracts from the same screen with the feature enabled;
       // variable ids and isolated project paths never enter the comparison.
       await expect.poll(async () => JSON.stringify(await body.evaluate(structure))).toBe(expected.get(destination))
+    }
+    // Finish the same destination path as the enabled baseline before any side trips.
+    for (const [label, destination] of destinations) {
+      await sections.getByRole('button', { name: label, exact: true }).click()
+      const body = page.locator(`[data-page-destination="${destination}"]:visible`)
+      await expect(body).toBeVisible()
       // Assert absence independently of the enabled comparison: a control
       // leaking into both sittings must still fail this contract.
       await expect(sections.getByRole('button', { name: /^(Lead|Dex|Lex)$/ })).toHaveCount(0)

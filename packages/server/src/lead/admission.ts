@@ -1,5 +1,5 @@
 import { leadReviewedResultSource, type LeadJournal } from '@harnessdesk/lead'
-import type { HostParams, LeadProject } from '@harnessdesk/protocol'
+import type { HostParams, LeadProject, Intent } from '@harnessdesk/protocol'
 import type { FlowPreviews } from '../flow-preview.js'
 import type { FlowLeadBinding } from '../flow-execution.js'
 import type { LeadBudgets } from './budgets.js'
@@ -16,6 +16,7 @@ export interface LeadAdmissionOptions {
   readonly previews: FlowPreviews
   readonly project: LeadProject
   readonly now: () => number
+  readonly readIntents: (goal: string) => readonly Pick<Intent, 'id' | 'state' | 'outcome'>[]
   readonly nextId: () => string
 }
 /** Installed by the trusted host on the private connection. Admission annotates
@@ -64,8 +65,11 @@ export class LeadAdmission {
         one.lead.stepId === predecessor.id && one.lead.startId === owned.correlationId)
       const review = run?.rounds.filter(one => one.role === 'review').at(-1)
       const acceptance = run?.rounds.at(-1)
+      const cards = acceptance?.cards?.map(id => this.options.readIntents(run!.goal).find(card => card.id === id)) ?? []
+      const ready = cards.length > 0 && cards.every(card => acceptance?.state === 'running' && card?.state === 'open' ||
+        acceptance?.state === 'closed' && card?.state === 'done' && card.outcome === 'accepted')
       const plan = review && run?.seatPlans?.[String(review.n)]
-      if (recorded?.state !== 'started' || !run || !review || review.state !== 'closed' || acceptance?.role !== 'accept' ||
+      if (recorded?.state !== 'started' || !run || !review || review.state !== 'closed' || acceptance?.role !== 'accept' || !ready ||
         !plan?.base || !/^[a-f0-9]{40,64}$/.test(plan.base) || plan.handed.length !== 1 || plan.handed[0]!.at !== plan.base) return false
       base = plan.base
     }

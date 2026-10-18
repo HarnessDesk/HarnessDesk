@@ -335,13 +335,14 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
           if (signal.aborted) fail()
           let dispatchError: unknown
           const executed = await journal.execute({ id: `${requestId}/tool/${index}`, request: { method: call.method, params: call.params,
-            project: scope.project, runId: scope.runId, start: scope.start }, context: scope.context, stepId: scope.stepId },
+            project: scope.project, runId: scope.runId, start: scope.start }, context: scope.context, stepId: scope.stepId, predecessor: scope.predecessor },
             async (approved, id) => {
               try { return await cancellable(() => dispatch(approved, id, signal), signal) }
               catch (error) { dispatchError = error; throw error }
             })
           if (executed.decision.effect !== 'allow') permissionDeniedTools.push(use.id)
-          if (dispatchError instanceof LeadToolFencedError || executed.outcome === 'failed' &&
+          if (executed.outcome === 'denied' && executed.decision.reason === 'lead-predecessor-not-ready' ||
+            dispatchError instanceof LeadToolFencedError || executed.outcome === 'failed' &&
             clientTierFor(call.method, call.params) === 'read' && !(dispatchError instanceof LeadToolRefusedError)) transientTools.push(use.id)
           if (executed.outcome === 'succeeded') {
             const result = { ...results[position]!, content: safeJson(executed.value ?? null, LIMIT.text), is_error: false }

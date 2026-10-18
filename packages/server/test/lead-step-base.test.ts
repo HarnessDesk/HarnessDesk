@@ -21,17 +21,19 @@ const rig = () => {
     runs: [{ runId: 'run-first', teamId: 'team-first', correlationId: 'start-first' }] }
   const previous: any = { id: 'run-first', goal: 'team-first', state: 'running',
     lead: { logicalGoalId: 'logical', contractDigest: 'digest', startId: 'start-first', stepId: 'first' },
-    rounds: [{ n: 1, role: 'implement', state: 'closed' }, { n: 2, role: 'review', state: 'closed' }, { n: 3, role: 'accept', state: 'running' }],
+    rounds: [{ n: 1, role: 'implement', state: 'closed' }, { n: 2, role: 'review', state: 'closed' }, { n: 3, role: 'accept', state: 'running', cards: [3] }],
     seatPlans: { '1': { base: null, handed: [] }, '2': { base: revision, handed: [{ card: 1, at: revision, cwd: '/workspace/lane-first', branch: 'first' }] } } }
+  const acceptance = { id: 3, state: 'open', outcome: null as string | null }
   let binding: any = null, prepared = 0
   const admission = new LeadAdmission({ journal: { get state() { return state } }, project, now: () => 100, nextId: () => 'unused',
+    readIntents: () => [acceptance],
     previews: { bindLead(_params: unknown, value: unknown) { binding = value; return true } },
     budgets: { port: { member: async () => true, runs: () => [previous] }, prepared: () => false,
       startBudget: () => ({ stop: null, spend: 'known', reservedUsdMicros: 0 }), prepare() { prepared++ } },
   } as any)
   const params = { root: project.path, source: leadReviewedResultSource, token: 'preview-second', sentence: state.contract.goal,
     vars: {}, attended: true, seats: Object.fromEntries(assignments.map(one => [one.role, [one.seat]])) }
-  return { admission, state, previous, params, revision, binding: () => binding, prepared: () => prepared }
+  return { admission, state, previous, acceptance, params, revision, binding: () => binding, prepared: () => prepared }
 }
 
 test('a later Lead step freezes its predecessor reviewed revision as the Flow lane base', async () => {
@@ -41,9 +43,10 @@ test('a later Lead step freezes its predecessor reviewed revision as the Flow la
   assert.equal(s.prepared(), 1)
 })
 
-for (const changed of ['missing run', 'unreviewed', 'missing pin', 'wrong owner', 'wrong revision'] as const) {
+for (const changed of ['missing run', 'unreviewed', 'missing pin', 'wrong owner', 'wrong revision', 'declined acceptance'] as const) {
   test(`a later Lead step refuses ${changed} instead of starting from the project checkout`, async () => {
     const s = rig()
+    if (changed === 'declined acceptance') { s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'declined' }
     if (changed === 'missing run') s.state.runs = []
     if (changed === 'unreviewed') s.previous.rounds.pop()
     if (changed === 'missing pin') s.previous.seatPlans['2'].base = null
@@ -78,4 +81,11 @@ test('a frozen Lead base reaches the existing isolated Flow seed lane and surviv
   for (const base of ['', 'HEAD', 'main', 12]) {
     assert.throws(() => executionOf({ ...recovered, lead: { ...recovered.lead, base } }), /unreadable Lead authority/)
   }
+})
+
+test('a closed accepted predecessor can seed the next Lead step', async () => {
+  const s = rig()
+  s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'accepted'
+  assert.equal(await s.admission.authorizeStart(s.params), true)
+  assert.equal(s.binding().base, s.revision)
 })

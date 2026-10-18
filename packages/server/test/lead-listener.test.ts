@@ -73,11 +73,10 @@ test('host-start cleanup refuses a linked Lead parent without touching its targe
 test('unsafe Lead listener parent blocks Lead but preserves ordinary host startup', async t => {
   const { Host, StateStore } = await import('../src/index.js')
   const home = await mkdtemp('/tmp/hd-l-')
-  t.after(() => rm(home, { recursive: true, force: true }))
   await mkdir(join(home, 'lead-clients'), { mode: 0o755 })
   await chmod(join(home, 'lead-clients'), 0o755)
   const host = new Host({ leadEnabled: true, logger: silent, state: new StateStore(join(home, 'state.json')), version: 'test', catalogRefreshMs: 0 })
-  t.after(() => host.dispose())
+  t.after(async () => { try { await host.dispose() } finally { await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) } })
   await host.start()
   assert.throws(() => host.createLeadService({} as any), /lead-listener-unavailable/)
   assert.equal((await lstat(join(home, 'lead-clients'))).mode & 0o777, 0o755)

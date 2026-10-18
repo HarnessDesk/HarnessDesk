@@ -455,11 +455,11 @@ test('pending plan remains fenced across reconciliation checkpoint and reopen th
   await recovered.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'insight/goal', sourceIds: ['corpus-1'],
     goalId: 'team-1', executionIds: ['run-1'], quality: 'known', usdMicros: 0 })
   const next = { ...request, start: contract.steps[1]! }
-  const blocked = await recovered.execute({ id: 'blocked', request: next, context, stepId: 'second' }, async () => ({ value: null,
+  const blocked = await recovered.execute({ id: 'blocked', request: next, context, stepId: 'second', predecessor: { runId: 'run-1', ready: true } }, async () => ({ value: null,
     identity: { correlationId: 'blocked', runId: 'must-not-exist', teamId: 'team-1' } }))
   assert.equal(blocked.outcome, 'denied')
   await recovered.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest }, 300)
-  assert.equal((await recovered.execute({ id: 'second', request: { ...next, start: revised.steps[1]! }, context, stepId: 'second' }, async () => ({ value: null,
+  assert.equal((await recovered.execute({ id: 'second', request: { ...next, start: revised.steps[1]! }, context, stepId: 'second', predecessor: { runId: 'run-1', ready: true } }, async () => ({ value: null,
     identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
   assert.equal(recovered.state.runs.length, 2)
 })

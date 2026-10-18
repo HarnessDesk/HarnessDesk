@@ -255,7 +255,7 @@ export class LeadSupervisor {
         }
         case 'execute': {
           const input = ipcObject(args[0])
-          ipcObject(input, Object.hasOwn(input, 'stepId') ? ['id', 'request', 'context', 'stepId'] : ['id', 'request', 'context'])
+          ipcObject(input, ['id', 'request', 'context', ...(Object.hasOwn(input, 'stepId') ? ['stepId'] : []), ...(Object.hasOwn(input, 'predecessor') ? ['predecessor'] : [])])
           const request = ipcObject(input.request)
           const call = callFrom({ method: request.method, params: request.params })
           const scope = await this.options.resolveTool(call)
@@ -263,7 +263,7 @@ export class LeadSupervisor {
           // All authority is derived again in the host. The child's project,
           // context, approved start and step claims confer no authority.
           value = await durable(journal.execute({ id: ipcText(input.id, 256), request: { ...call, project: scope.project,
-            runId: scope.runId, start: scope.start }, context: scope.context, stepId: scope.stepId },
+            runId: scope.runId, start: scope.start }, context: scope.context, stepId: scope.stepId, predecessor: scope.predecessor },
           (admitted, correlationId) => this.#reverse(running, { type: 'dispatch', rpcId: id, call: admitted, correlationId }) as Promise<LeadDispatchResult>))
           break
         }

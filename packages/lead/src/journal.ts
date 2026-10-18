@@ -186,7 +186,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
 export const prepareLeadJournalRecord = (value: unknown, security: LeadJournalSecurity = {}): LeadJournalRecord =>
   parseLeadJournalRecord(prepareLeadJournalData(value, security))
 
-export interface LeadToolAttempt { readonly id: string; readonly request: LeadPermissionRequest; readonly context: LeadPermissionContext; readonly stepId?: string | null }
+export interface LeadToolAttempt { readonly id: string; readonly request: LeadPermissionRequest; readonly context: LeadPermissionContext; readonly stepId?: string | null; readonly predecessor?: { readonly runId: string; readonly ready: boolean } }
 /** The trusted host may explicitly prove a start created nothing. A thrown or
  * ambiguous response never supplies that proof. */
 export type LeadDispatchResult = { readonly value: unknown } & (
@@ -492,6 +492,13 @@ export class LeadJournal {
         decision = refusal('start', 'Management is stopped pending recovery or user action')
       if (method === 'flow/start-goal' && (!step || step.state !== 'pending' || request.start?.id !== step.id ||
         this.#state.steps.find(step => step.state !== 'started')?.id !== step.id)) decision = refusal('start', 'Step is unapproved, out of order or already admitted')
+      if (method === 'flow/start-goal' && step) {
+        const index = this.#state.steps.indexOf(step)
+        const previous = this.#state.steps[index - 1]
+        const owned = previous && this.#state.runs.find(run => run.correlationId === previous.attemptId)
+        if (index > 0 && (!owned || input.predecessor?.runId !== owned.runId || input.predecessor.ready !== true))
+          decision = refusal('start', 'lead-predecessor-not-ready')
+      }
       await this.#append({ type: 'decision', id, effect: decision.effect, reason: decision.floor ?? 'policy', rule: decision.rule })
       await this.#append({ type: 'dispatch-start', id, dispatched: decision.effect === 'allow' })
       if (decision.effect !== 'allow' || decision.call === null) {

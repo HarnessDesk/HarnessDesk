@@ -869,3 +869,27 @@ test('the chosen Lead name enters the system prompt without changing authority',
   assert.deepEqual(s.journal.state.policy, before)
   await loop.close()
 })
+
+
+test('a premature predecessor refusal stays transient without waiting for a person', async () => {
+  const s = await fixture([message([tool('premature', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  const second = { ...contract.steps[0]!, id: 'second' }
+  const two = protocol.parseLeadAcceptanceContract({ ...contract, steps: [...contract.steps, second] })
+  await s.journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: two.digest, contract: two })
+  await s.journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: two.digest, choice: 'approve' }, 1000)
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.execute(startCall())
+  s.setEvidence({ ...spendEvidence(), reviews: [] })
+  const resolve = s.options.resolveTool
+  s.options.resolveTool = async (call: any) => ({ ...await resolve(call), stepId: 'second', start: second, predecessor: { runId: 'run-1', ready: false } })
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    const result = await loop.request(input)
+    const attempt = [...s.journal.state.attempts.values()].find(one => one.stepId === 'second' && one.method === 'flow/start-goal')!
+    assert.equal(attempt.outcome, 'denied')
+    assert.equal(attempt.dispatched, false)
+    assert.deepEqual(result.transientTools, ['premature'])
+    assert.equal(s.journal.state.phase, 'running')
+    assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
+  } finally { await loop.close() }
+})

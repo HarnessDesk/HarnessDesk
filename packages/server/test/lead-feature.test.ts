@@ -4,8 +4,9 @@ import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
 import { createLeadJournal } from '@harnessdesk/lead'
-import { approvalId } from '@harnessdesk/protocol'
+import { approvalId, parseLeadAcceptanceContract } from '@harnessdesk/protocol'
 import { Host, StateStore } from '../src/index.js'
+import { SeatBook } from '../src/evidence/seats.js'
 import { LeadControls } from '../src/lead/controls.js'
 import { evidenceDesk, writeAgent } from './fixtures/evidence-desk.js'
 import { LeadBudgets } from '../src/lead/budgets.js'
@@ -111,4 +112,46 @@ test('an unrelated Team approval neither projects Lead nor invalidates a concurr
   assert.equal(changed.mock.callCount(), 0, 'only approvals from Lead-owned Seats push a Lead projection')
   assert.equal(journal.state.seq, before.revision + 1, 'only the name save advances the journal')
   assert.equal(saved.settings.name, 'lex')
+})
+
+
+test('a worker approval resolved after its Seat closes clears the window projection', async t => {
+  const { host, runtime, stateDir, repo } = await evidenceDesk(t, { leadEnabled: true })
+  await writeAgent(stateDir)
+  const goal = await host.call('goal/create', { root: repo.dir, sentence: 'Owned work' })
+  const card = await host.call('team/add', { room: goal.goal.id, title: 'Inspect owned work' })
+  const seat = await host.call('goal/seat', { goal: goal.goal.id, card: card.id, agent: 'scout' })
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'projection-test', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 1000 })
+  const state = journal.state
+  const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Owned work', project: { id: 'demo', path: repo.dir }, policyRevision: 1,
+    steps: [{ id: 'work', title: 'Work', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended',
+      assignments: [{ role: 'implement', agent: 'scout', seat: { runtime: 'fake' }, ceiling: 'read' }] }],
+    assertions: [{ id: 'review', kind: 'review', description: 'Reviewed' }], caps: { usdMicros: 100, rounds: 3 } })
+  // This test isolates live approval projection from Flow execution/accounting.
+  Object.defineProperty(journal, 'state', { get: () => ({ ...state, contract, runs: [{ runId: 'owned-run', teamId: goal.goal.id, correlationId: 'owned-start' }] }) })
+  t.mock.method(host.credentials, 'leadStatus', async () => ({ configured: false, protection: 'synthetic cipher' }))
+  const service = host.createLeadService({ journal, project: contract.project, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  t.after(() => service.close())
+  let book!: SeatBook
+  const all = SeatBook.prototype.all
+  t.mock.method(SeatBook.prototype, 'all', function(this: SeatBook) { book = this; return all.call(this) })
+  const changed = t.mock.method(LeadControls.prototype, 'workerApprovalsChanged')
+  const pushes: any[] = []
+  host.addBroadcaster(value => { if (value.method === 'lead/changed') pushes.push(value.params) })
+  const live = runtime.sessions.get(seat.session.sessionId)!
+  void live.askApproval(approvalId('owned-command'))
+  await Promise.all(changed.mock.calls.map(call => call.result))
+  assert.ok(pushes.at(-1)?.thread.cards.some((one: any) => one.kind === 'worker-approval'))
+  await book.closeId(seat.id, 'Worker closed')
+  assert.ok((await host.call('evidence/seat', seat.session))!.closed)
+  const before = changed.mock.callCount()
+  await live.respondToApproval(approvalId('owned-command'), { type: 'cancel' })
+  await Promise.all(changed.mock.calls.map(call => call.result))
+  assert.equal(changed.mock.callCount(), before + 1, 'resolution must re-project ownership even after close')
+  assert.equal(pushes.at(-1)?.thread.cards.some((one: any) => one.kind === 'worker-approval'), false)
 })

@@ -118,7 +118,7 @@ export const createLeadTools = (options: LeadToolsOptions) => {
   const execute = async (call: LeadPermissionCall) => {
     const scope = await resolve(call)
     const result = await journal.execute({ id: nextId(), request: { method: call.method, params: call.params,
-      project: scope.project, runId: scope.runId, start: scope.start }, context: scope.context, stepId: scope.stepId }, dispatch)
+      project: scope.project, runId: scope.runId, start: scope.start }, context: scope.context, stepId: scope.stepId, predecessor: scope.predecessor }, dispatch)
     await settleStarts()
     return result
   }

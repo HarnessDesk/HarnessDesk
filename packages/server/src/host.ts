@@ -724,7 +724,7 @@ export class Host {
   readonly #lanes: LaneAllocator
   #leadService: LeadService | null = null
   #leadControls: LeadControls | null = null
-  #leadOwnsWorker: ((runtime: string, sessionId: string) => boolean) | null = null
+  #leadOwnsWorker: ((runtime: string, sessionId: string, includeClosed: boolean) => boolean) | null = null
   #leadListenersAvailable = true
   #leadReady = false
   readonly #credentials: CredentialBroker
@@ -3363,6 +3363,21 @@ export class Host {
     const detach = journal.onChange(trackOwned)
     this.onDispose(detach)
     this.#leadService = new LeadService({ ...options, broker: this.#credentials,
+      resolveTool: async call => {
+        const scope = await options.resolveTool(call)
+        // Derive readiness from host-owned runs and cards again for every journal
+        // decision; the child's own readiness claim grants no authority.
+        const state = journal.state, index = state.steps.findIndex(step => step.id === scope.stepId)
+        const previous = state.steps[index - 1]
+        const owned = previous && state.runs.find(run => run.correlationId === previous.attemptId)
+        if (call.method !== 'flow/start-goal' || !owned) return { ...scope, predecessor: undefined }
+        const run = this.#flows.leadRuns().find(run => run.id === owned.runId && run.goal === owned.teamId)
+        const review = run?.rounds.filter(round => round.role === 'review').at(-1), acceptance = run?.rounds.at(-1)
+        const cards = acceptance?.cards.map(id => this.#team.stateFor(owned.teamId).intents.find(card => card.id === id)) ?? []
+        return { ...scope, predecessor: { runId: owned.runId, ready: review?.state === 'closed' && acceptance?.role === 'accept' &&
+          cards.length > 0 && cards.every(card => acceptance.state === 'running' && card?.state === 'open' ||
+            acceptance.state === 'closed' && card?.state === 'done' && card.outcome === 'accepted') } }
+      },
       register: () => this.registerLead(journal, project),
       childStarted: () => {
         const end = this.#leadBudgets.childStarted(journal)
@@ -3380,11 +3395,11 @@ export class Host {
         if (results.some(result => result.status === 'rejected')) throw new Error('lead-owned-work-stop-pending')
       },
     })
-    const ownedWorker = (runtime: string, sessionId: string) => {
-      const seat = this.#evidence.seats.all().find(seat => seat.session.runtime === runtime && seat.session.sessionId === sessionId && !seat.closed)
+    const ownedWorker = (runtime: string, sessionId: string, includeClosed = false) => {
+      const seat = this.#evidence.seats.all().find(seat => seat.session.runtime === runtime && seat.session.sessionId === sessionId && (includeClosed || !seat.closed))
       return seat && journal.state.runs.find(run => run.teamId === seat.board)
     }
-    this.#leadOwnsWorker = (runtime, sessionId) => !!ownedWorker(runtime, sessionId)
+    this.#leadOwnsWorker = (runtime, sessionId, includeClosed) => !!ownedWorker(runtime, sessionId, includeClosed)
     this.#leadControls = new LeadControls({ journal, service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
       readWorkerApprovals: () => {
@@ -3424,6 +3439,7 @@ export class Host {
     if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
     const close = this.#leadBudgets.register(journal)
     return { admission: new LeadAdmission({ journal, project, budgets: this.#leadBudgets, previews: this.#flowPreviews,
+      readIntents: goal => this.#team.stateFor(goal).intents,
       now: () => Date.now(), nextId: () => `lead-start-${randomUUID()}` }), close }
   }
 
@@ -8899,7 +8915,7 @@ export class Host {
       (notification.params.event.type === 'approval/requested' || notification.params.event.type === 'approval/resolved')) {
       const { runtime, event } = notification.params
       const sessionId = event.type === 'approval/requested' ? event.approval.sessionId : event.sessionId
-      if (this.#leadOwnsWorker?.(String(runtime), String(sessionId)))
+      if (this.#leadOwnsWorker?.(String(runtime), String(sessionId), event.type === 'approval/resolved'))
         void this.#leadControls?.workerApprovalsChanged().catch(() => { this.#logger.warn('Lead worker approval projection is unavailable') })
     }
     if (!this.#disposed && notification.method === 'evidence/changed' && this.#team.hasRoom(notification.params.room)) {

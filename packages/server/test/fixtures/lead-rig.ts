@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
+import { WebSocket } from 'ws'
 import { Ledger } from '../../src/ledger/index.js'
 import type { UsageSample } from '../../src/ledger/insight.js'
 import type { LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
@@ -42,6 +43,7 @@ export interface LeadRigOptions {
   readonly holdWorkers?: boolean
   readonly holdPlanning?: boolean
   readonly holdRunning?: boolean
+  readonly premature?: boolean
   readonly eager?: boolean
   readonly workerSpend?: boolean
 }
@@ -66,9 +68,10 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
   const checkStarts = new Set<string>()
   let evidenceFailure: Error | undefined
   let currentStep = '', preview: { token: string; source: string; expiresAt: number } | undefined
+  let deskSocketPath = ''
   let supervisorOptions!: LeadSupervisorOptions
   const eagerResults: { tool_use_id: string; is_error: boolean }[] = []
-  let eagerStart = false, eagerApproval = false
+  let eagerStart = false, eagerApproval = false, prematureStart = false
   let provider: Awaited<ReturnType<typeof leadMessagesServer>>
   let restoreGoalSave: (() => void) | undefined
   let restoreUsage: (() => void) | undefined
@@ -162,8 +165,10 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
           ? { root: project.path, source: leadReviewedResultSource.replace('grant: edit', 'grant: merge'), seats, vars: {}, attended: true } : {} }]
       }
       const step = state.steps.find(one => one.state === 'pending')
+      const reviewing = options.premature && !prematureStart && step?.id === 'second' &&
+        host.flowsPlane.leadRuns().some(run => run.rounds.at(-1)?.role === 'review')
       const priorReady = state.runs.every(run => host.teamPlane.stateFor(run.teamId).intents.some(card => card.role === 'accept' && card.state === 'open'))
-      if (step && priorReady && !state.budget?.stop) {
+      if (step && (priorReady || reviewing) && !state.budget?.stop) {
         currentStep = step.id
         const latest = body.messages?.at(-1)?.content ?? []
         const result = latest.find((one: any) => one.type === 'tool_result' && !one.is_error)
@@ -171,6 +176,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         try { value = result && JSON.parse(result.content) } catch { /* The next request obtains another real preview. */ }
         if (value?.token) {
           preview = { token: value.token, source: leadReviewedResultSource, expiresAt: value.expiresAt ?? Date.now() + 60_000 }
+          if (reviewing) prematureStart = true
           return [{ type: 'tool_use', id: `tool-${++toolId}`, name: 'flow_start_goal', input: { root: project.path, source: leadReviewedResultSource, token: value.token, sentence: task, seats, vars: {}, attended: true } }]
         }
         return [{ type: 'tool_use', id: `tool-${++toolId}`, name: 'flow_preview', input: { root: project.path, source: leadReviewedResultSource, seats, vars: {}, attended: true } }]
@@ -297,6 +303,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
           supervisorOptions = settings
           const supervisor = new LeadSupervisor({ ...settings,
           connectDesk: async (descriptor, signal) => {
+            deskSocketPath = descriptor.socketPath
             // A byte-for-byte socket bridge injects a real connection loss. No
             // client reply, authorization or Flow method is substituted.
             const socketPath = join(home, `fd3-${children.length}.sock`)
@@ -329,6 +336,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       await service.setEnabled(true)
     }
     if (options.workerSpend) {
+      // This process-wide patch requires all tests in lead-e2e.test.ts to stay sequential (concurrency: false).
       const readInsight = Ledger.prototype.readInsight
       restoreUsage = () => { Ledger.prototype.readInsight = readInsight }
       Ledger.prototype.readInsight = async function(query, settings) {
@@ -337,7 +345,10 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       }
     }
     await setupHost()
-    if (!options.holdWorkers) await releaseWorkers()
+    if (!options.holdWorkers) {
+      if (options.premature) { for (const marker of ['write', 'repair']) await writeFile(join(gates, marker), '') }
+      else await releaseWorkers()
+    }
     const decide = async (card: LeadCard, choice: LeadCardDecision['choice']) => {
       if (card.type === 'stopped') throw new Error('stopped cards have no decision')
       return host.call('lead/card/decide', {
@@ -370,6 +381,43 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     }
     return { get host() { return host }, logger, home, project, get journal() { return journal }, get service() { return service },
       provider, children, calls, windowNotifications, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
+      async probeExpiredConsent() {
+        await sendGoal(); await waitFor(() => provider.pending, 'held planning request')
+        const socket = new WebSocket(`ws+unix://${deskSocketPath}:/client`)
+        await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject) })
+        let next = 0
+        const call = (method: string, params: unknown): Promise<any> => new Promise((resolve, reject) => {
+          const id = ++next
+          const receive = (raw: Buffer) => {
+            const reply = JSON.parse(raw.toString())
+            if (reply.id !== id) return
+            socket.off('message', receive)
+            if (reply.ok) resolve(reply.result); else reject(Object.assign(new Error('synthetic door refusal'), { code: reply.error.code }))
+          }
+          socket.on('message', receive); socket.send(JSON.stringify({ id, method, params }))
+        })
+        await call('client/hello', { client: { name: 'synthetic', version: '1' }, protocol: 1 })
+        try {
+          const held = await call('flow/preview', { root: project.path, source: leadReviewedResultSource, seats, vars: {}, attended: true })
+          assert.ok(held.token, 'real preview held before consent')
+          assert.equal(journal.state.consent, null)
+          provider.release(); await waitFor(() => !!pending('plan'), 'plan')
+          await waitFor(async () => !(await host.call('lead/thread/read', {})).requestInFlight, 'idle planning turn')
+          const card = pending('plan')!
+          const expiresAt = Date.now() + 250
+          await journal.decideCard({ version: 1, cardId: card.id, cardType: 'plan', expectedRevision: card.revision, contractDigest: card.contractDigest, choice: 'approve' }, expiresAt)
+          const params = { root: project.path, source: leadReviewedResultSource, token: held.token, sentence: task, seats, vars: {}, attended: true }
+          let code: string | null = null
+          await journal.execute({ id: 'eager-door', stepId: 'first', request: { method: 'flow/start-goal', params, project, runId: null, start: journal.state.contract!.steps[0]! },
+            context: { desk: journal.state.policy!, projectPolicy: null, project, approved: null, budget: null, now: Date.now(), policyInterpretation: 'idle' } }, async () => {
+            await sleep(Math.max(0, expiresAt - Date.now() + 5))
+            try { await call('flow/start-goal', params) } catch (error) { code = (error as { code: string }).code }
+            return { value: null, identity: null, created: false }
+          })
+          assert.equal(journal.state.attempts.get('eager-door')!.dispatched, true, 'probe bypasses the child guard and reaches the door')
+          assert.equal(code, 'leadStartNotApproved', 'the host admission consent guard must refuse before Flow effects')
+        } finally { socket.terminate() }
+      },
       async assertEagerRefused(id: string) { await waitFor(() => eagerResults.some(one => one.tool_use_id === id && one.is_error), `${id} refused by real tools and permission door`) },
       async eagerApprovalTurn() {
         // A worker event normally wakes the turn. If its batch has not run,

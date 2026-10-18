@@ -350,7 +350,7 @@ test('a quarantine block fences starts while reads and cancellation remain avail
     identity: { correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' } }))
   storage.records.push({ version: 1, seq: storage.records.length + 1, type: 'recovery-block' })
   const recovered = await open(storage)
-  assert.equal((await recovered.execute({ id: 'start-2', request: { ...request, start: second }, context, stepId: 'second' }, async () => { throw new Error('must not start') })).decision.effect, 'deny')
+  assert.equal((await recovered.execute({ id: 'start-2', request: { ...request, start: second }, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => { throw new Error('must not start') })).decision.effect, 'deny')
   const cancel = { ...request, method: 'flow/execution/stop', params: { run: 'run-1', reason: 'Stop work' }, runId: 'run-1', start: null }
   assert.equal((await recovered.execute({ id: 'stop-1', request: cancel, context }, async () => ({ value: null, identity: null }))).outcome, 'succeeded')
   await recovered.stop()
@@ -367,7 +367,7 @@ test('a conflicting reconciliation identity refuses one call and leaves Stop wri
   await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
     identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))
   await observeStarted(journal, 'run-1')
-  await journal.execute({ id: 'second', request: { ...request, start: second }, context, stepId: 'second' }, async () => { throw new Error('lost response') })
+  await journal.execute({ id: 'second', request: { ...request, start: second }, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => { throw new Error('lost response') })
   const actions = await journal.recover(async () => ([{ correlationId: 'second', runId: 'run-1', teamId: 'team-1' }]).map(identity => runEvidence(identity)))
   assert.deepEqual(actions.map((action: any) => [action.id, action.type]), [['second', 'needs-user']])
   assert.equal(journal.state.budget.stop.reason, 'unknown-spend')
@@ -395,14 +395,14 @@ test('undecided plan survives waiting decisions and reconciliation and can repla
   await journal.recover(async () => ([{ correlationId: 'first', runId: 'run-1', teamId: 'team-1' }]).map(identity => runEvidence(identity)))
   await observeStarted(journal, 'run-1')
   const nextRequest = { ...request, start: second }
-  const blocked = await journal.execute({ id: 'blocked', request: nextRequest, context, stepId: 'second' }, async () => { throw new Error('must not dispatch') })
+  const blocked = await journal.execute({ id: 'blocked', request: nextRequest, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => { throw new Error('must not dispatch') })
   assert.equal(blocked.outcome, 'denied', 'a pending plan is independent of phase')
   await journal.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest }, 300)
   assert.equal(journal.state.steps[0].state, 'started')
   assert.deepEqual(journal.state.runs, [{ correlationId: 'first', runId: 'run-1', teamId: 'team-1' }])
   assert.equal(journal.state.contract.digest, revised.digest)
   assert.equal((await journal.execute({ id: 'second', request: { ...nextRequest, start: updatedSecond,
-    params: { ...request.params, sentence: revised.goal, vars: updatedSecond.variables } }, context, stepId: 'second' },
+    params: { ...request.params, sentence: revised.goal, vars: updatedSecond.variables } }, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } },
     async () => ({ value: null, identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
 })
 
@@ -563,7 +563,7 @@ test('declining a running plan revision keeps the approved contract and permits 
   assert.equal(journal.state.phase, 'running')
   assert.equal(journal.state.contract.digest, original.digest)
   const reopened = await open(storage)
-  assert.equal((await reopened.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+  assert.equal((await reopened.execute({ id: 'second', request: next, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => ({ value: null,
     identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
 })
 
@@ -592,7 +592,7 @@ test('approving a newer plan durably supersedes every lower pending contract rev
   const reopened = await open(storage)
   assert.ok(reopened.state.decidedCards.includes('plan-2:1'))
   await assert.rejects(reopened.decideCard({ ...click, cardId: 'plan-2', contractDigest: second.digest }, 300))
-  assert.equal((await reopened.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+  assert.equal((await reopened.execute({ id: 'second', request: next, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => ({ value: null,
     identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
 })
 
@@ -605,7 +605,7 @@ test('unapprovable plan revisions are refused at offer time without leaving a pe
         problem === 'project' ? { project: { ...contract.project, path: '/workspace/other' } } :
           { steps: [{ ...original.steps[0]!, title: 'Changed started work' }, original.steps[1]!] }) }
     await assert.rejects(journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised }))
-    assert.equal((await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+    assert.equal((await journal.execute({ id: 'second', request: next, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => ({ value: null,
       identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded', problem)
   }
 })
@@ -654,7 +654,7 @@ test('historical unapprovable proposals remain dismissible after recovery', asyn
   await observeStarted(journal, 'run-1')
   await journal.decideCard({ ...click, expectedRevision: 2, choice: 'decline' })
   assert.equal(journal.state.phase, 'running')
-  assert.equal((await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+  assert.equal((await journal.execute({ id: 'second', request: next, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => ({ value: null,
     identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
 })
 
@@ -710,7 +710,7 @@ test('approval durably supersedes equal-revision sibling plans without a pending
   assert.ok(reopened.state.decidedCards.includes('plan-left:1'))
   assert.equal(reopened.state.phase, 'running')
   await assert.rejects(reopened.decideCard({ ...click, cardId: 'plan-left', contractDigest: revised.digest }, 300))
-  assert.equal((await reopened.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+  assert.equal((await reopened.execute({ id: 'second', request: next, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => ({ value: null,
     identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
 })
 
@@ -793,7 +793,7 @@ test('a start atomically admits its first round and unbound spend fences a secon
   const { journal, next } = await runningTwoStepPlan()
   assert.equal(journal.state.budget.roundsAdmitted, 1)
   assert.equal(journal.state.budget.spend, 'unknown')
-  const result = await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => { throw new Error('must not dispatch') })
+  const result = await journal.execute({ id: 'second', request: next, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => { throw new Error('must not dispatch') })
   assert.equal(result.decision.floor, 'budget')
 })
 
@@ -807,7 +807,7 @@ for (const moneyStop of [false, true]) test(`cap-one reviewed result accepts aft
   assert.equal((await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({ value: null,
     identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' } }))).outcome, 'succeeded')
   await observeStarted(journal, 'run-1')
-  const refused = await journal.execute({ id: 'second-before-result', request: { ...request, start: approved.steps[1]! }, context, stepId: 'second' },
+  const refused = await journal.execute({ id: 'second-before-result', request: { ...request, start: approved.steps[1]! }, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } },
     async () => { throw new Error('round two must not dispatch') })
   assert.equal(refused.decision.floor, 'budget')
   await assert.rejects(journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'review', inputTokens: 1, maxOutputTokens: 1,
@@ -818,7 +818,7 @@ for (const moneyStop of [false, true]) test(`cap-one reviewed result accepts aft
     outcome: 'reviewed', summary: 'Reviewed result', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget, 100) })
   await journal.decideCard({ version: 1, cardId: 'result-1', cardType: 'result', expectedRevision: 1, contractDigest: approved.digest, choice: 'accept' })
   assert.equal(journal.state.phase, 'accepted')
-  assert.equal((await journal.execute({ id: 'second', request: { ...request, start: approved.steps[1]! }, context, stepId: 'second' },
+  assert.equal((await journal.execute({ id: 'second', request: { ...request, start: approved.steps[1]! }, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } },
     async () => { throw new Error('must not dispatch') })).outcome, 'denied')
 })
 
@@ -835,7 +835,7 @@ for (const via of ['budget-card', 'plan']) test(`${via} increase updates the eff
     await journal.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest }, 200)
   }
   assert.deepEqual(journal.state.budget.caps, caps)
-  assert.equal((await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => ({ value: null,
+  assert.equal((await journal.execute({ id: 'second', request: next, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => ({ value: null,
     identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-1' } }))).outcome, 'succeeded')
 })
 
@@ -1202,7 +1202,7 @@ test('history exhaustion records execution 101 and its stop atomically across ch
 test('conflicting evidence needs the user while another attempt still recovers', async () => {
   const { journal, next } = await runningTwoStepPlan()
   await observeStarted(journal, 'run-1')
-  await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => { throw new Error('lost response') })
+  await journal.execute({ id: 'second', request: next, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => { throw new Error('lost response') })
   await journal.recover(async (attempt: any) => attempt.id === 'first'
     ? [runEvidence({ correlationId: 'first', runId: 'run-1', teamId: 'team-1' })] : [])
   const actions = await journal.recover(async (attempt: any) => attempt.id === 'first'
@@ -1282,7 +1282,7 @@ test('the window can confirm the retained run after a conflicting lookup', async
 test('a lookup row naming another start\'s run is a conflict that never stops the rest of recovery', async () => {
   const { journal, next } = await runningTwoStepPlan()
   await observeStarted(journal, 'run-1')
-  await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => { throw new Error('lost response') })
+  await journal.execute({ id: 'second', request: next, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => { throw new Error('lost response') })
   await journal.recover(async (attempt: any) => attempt.id === 'second' ? [runEvidence({ correlationId: 'second', runId: 'run-2', teamId: 'team-1' })] : [])
   assert.equal(journal.state.attempts.get('first').evidence, null, 'a lookup that omits a tracked run proves nothing and records nothing')
   assert.equal(journal.state.budget.stop, null)
@@ -1408,7 +1408,7 @@ test('a live run left out because the run index is full contests its start', asy
     identity: { correlationId: 'first', runId: 'first-1', teamId: 'team-1' } }))
   await journal.recover(async () => sixtyFour('first'))
   await observeAll(journal)
-  const started = await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => { throw new Error('lost response') })
+  const started = await journal.execute({ id: 'second', request: next, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => { throw new Error('lost response') })
   assert.equal(started.outcome, 'uncertain')
   const actions = await journal.recover(async (attempt: any) => attempt.id === 'first' ? sixtyFour('first')
     : [runEvidence({ correlationId: 'second', runId: 'run-b', teamId: 'team-1' })])
@@ -1723,7 +1723,7 @@ test('legacy checkpoint cards precede every new message after reopen', async () 
 test('two approved steps bind distinct host Goals and recover each without resetting shared accounting', async () => {
   const { journal, storage, next } = await runningTwoStepPlan()
   await observeStarted(journal, 'run-1')
-  const result = await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => {
+  const result = await journal.execute({ id: 'second', request: next, context, stepId: 'second', predecessor: { runId: journal.state.runs[0]?.runId ?? '', ready: true } }, async () => {
     await journal.updateBudget({ version: 1, type: 'bind', now: 100, startId: 'second', goalId: 'team-2', executionId: 'run-2', firstRoundId: 'run-2:round:1' })
     return { value: null, identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-2' } }
   })
@@ -1738,4 +1738,33 @@ test('two approved steps bind distinct host Goals and recover each without reset
   assert.equal(reopened.state.budget.accountingIncomplete, false)
   assert.equal(reopened.state.budget.rounds.length, 2)
   assert.deepEqual(reopened.state.runs, journal.state.runs)
+})
+
+
+test('a premature next step is denied before dispatch and can start when its predecessor awaits acceptance', async () => {
+  const storage = memory(), journal = await open(storage)
+  const second = { ...contract.steps[0]!, id: 'second' }
+  const two = parseLeadAcceptanceContract({ ...contract, steps: [...contract.steps, second] })
+  await journal.setPolicy(policy)
+  await journal.offerCard({ ...plan, contract: two })
+  await initializeBudget(journal)
+  await journal.decideCard(click, 200)
+  await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({
+    value: null, identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' },
+  }))
+  await journal.updateBudget({ version: 1, type: 'bind', now: 100, startId: 'first', goalId: 'team-1', executionId: 'run-1', firstRoundId: '1' })
+  await observeAll(journal)
+  let starts = 0
+  const next = { request: { ...request, start: second }, context, stepId: 'second', predecessor: { runId: 'run-1', ready: false } }
+  const denied = await journal.execute({ ...next, id: 'premature' }, async () => { starts++; throw new Error('host refuses premature start') })
+  assert.equal(denied.outcome, 'denied')
+  assert.equal(starts, 0)
+  assert.equal(journal.state.attempts.get('premature').dispatched, false)
+  assert.equal(journal.state.steps[1].state, 'pending')
+  assert.equal(journal.state.phase, 'running')
+  const started = await journal.execute({ ...next, id: 'ready', predecessor: { runId: 'run-1', ready: true } }, async () => {
+    starts++; return { value: null, identity: { correlationId: 'ready', runId: 'run-2', teamId: 'team-2' } }
+  })
+  assert.equal(started.outcome, 'succeeded')
+  assert.equal(starts, 1)
 })
