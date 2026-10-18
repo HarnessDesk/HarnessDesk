@@ -7,8 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **Toasts sit at the bottom right, just above the composer when one is showing**, keeping page controls, Send and the model picker clear.
+Agents that cannot start now say exactly what is missing from the moment a
+desk opens, Antigravity holds a second Google account, the Library keeps your
+place, and toasts move out of the way of the composer.
 
+## 0.5.3 — 2026-10-18
+
+- **Toasts sit at the bottom right, just above the composer when one is showing**, keeping page controls, Send and the model picker clear.
 - **An agent run through a package runner (`npx`, `uvx`) says what is actually missing when the runner is not on PATH** — whether startup discovery finds the absence or a start attempt fails, the failure names the runner and what provides it (Node.js, uv) instead of offering the agent's own install command, and a required CLI that is installed but too old no longer reads as missing.
 - **An agent whose program or required CLI is missing shows Not installed when a fresh desk opens**, instead of Ready until its first conversation.
 - **A runtime is checked again when the shell's PATH arrives during startup discovery**, so a newly findable program no longer stays Not installed until its page is opened or the desk restarts.
@@ -1976,7 +1981,6 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
   room now says why beside the header's **Needs you**: what refused it, which
   of the round's other cards were held back with it (a round's cards start
   together), and what to do next.
-
 
 - **Wrapping a Goal right after stopping its run now waits for the stopped
   Seat's answer to finish saving.** That answer is written to disk a beat
