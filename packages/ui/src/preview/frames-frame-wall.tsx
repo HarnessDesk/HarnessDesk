@@ -1,4 +1,5 @@
 import { installSkillPageFixture } from './skill-page-fixture'
+import { README_RUNTIME_NAMES } from './readme-names'
 import { installLibraryChangesFixture, LibraryWriteToastFixture } from './library-changes-fixture'
 import { installEditorMainFixture } from './editor-main-fixture'
 import { EditorModeSelection, editorModeFixture, installEditorModeFixture, type EditorModeScene } from './frames-editor-mode'
@@ -261,6 +262,10 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (query.has('readme-names')) Object.assign(snapshot, { runtimes: snapshot.runtimes.map(info => {
+      const name = README_RUNTIME_NAMES[info.presentation.name] ?? info.presentation.name
+      return { ...info, name, presentation: { ...info.presentation, name } }
+    }) })
     if (destination === 'conversation' && query.has('frame-editor')) installEditorMainFixture(next, query.get('frame-editor') === 'entry')
     if (destination === 'conversation' && query.has('frame-editor-mode')) installEditorModeFixture(next, query.get('frame-editor-mode') as EditorModeScene)
     if (destination === 'conversation' && query.has('frame-explorer')) installExplorerFixture(next, query.get('frame-explorer')!)
