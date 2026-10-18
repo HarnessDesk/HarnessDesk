@@ -63,6 +63,25 @@ export const leaveSettingsDestination = (history: DestinationHistory): Destinati
   }
 }
 
+/**
+ * Where **Back to Library** goes from the Changes page.
+ *
+ * Step back when a Library page is directly behind it, so the section — and a
+ * skill detail — is restored exactly as it was left. Changes can also be
+ * reached from a toast raised elsewhere, with no Library page in history at
+ * all; then the fallback visits the Library section the person last used,
+ * falling back to Skills. This reads the store's one history; it adds none.
+ */
+export const libraryBack = (history: DestinationHistory): { readonly step: true } | { readonly step: false; readonly section: 'skill' | 'mcp' } => {
+  const previous = history.back.at(-1)
+  if (previous?.kind === 'library' && previous.section !== 'changes') return { step: true }
+  for (let index = history.back.length - 1; index >= 0; index--) {
+    const entry = history.back[index]
+    if (entry?.kind === 'library' && entry.section !== 'changes') return { step: false, section: entry.section }
+  }
+  return { step: false, section: 'skill' }
+}
+
 const object = (raw: unknown): Record<string, unknown> | null =>
   typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw as Record<string, unknown> : null
 const string = (raw: unknown): raw is string => typeof raw === 'string' && raw.length > 0

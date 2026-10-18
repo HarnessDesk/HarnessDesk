@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 import type { PageDestination } from '../state/destinations'
+import { libraryBack } from '../state/destinations'
+import { useStore } from '../state/context'
 import { DashboardEntry } from '../components/Usage'
 import { LibraryChanges } from '../components/LibraryChanges'
 import { LibrarySection } from '../components/Library'
@@ -20,6 +22,26 @@ export interface MainPageInput {
   readonly onNewTeam: () => void
   readonly libraryImportIntent: number
 }
+/**
+ * The Library destination's own page.
+ *
+ * Back to Library is a step into the store's one history when a Library page
+ * is behind the Changes page, and otherwise a visit to the section last used
+ * (`state/destinations`, `libraryBack`). It is a component rather than a
+ * branch of the registry so the store can be read where it is used.
+ */
+const LibraryPage = ({ page, visit, libraryImportIntent }: MainPageInput) => {
+  const store = useStore()
+  if (page.kind !== 'library') return null
+  const back = (): void => {
+    const target = libraryBack(store.getSnapshot().workbench.navigation)
+    if (target.step) { void store.navigateBack(); return }
+    visit({ kind: 'library', section: target.section })
+  }
+  return <Page width="wide">{page.section === 'changes'
+    ? <LibraryChanges onBack={back} />
+    : <LibrarySection id={page.id} section={page.section} onSection={section => visit({ kind: 'library', section })} importIntent={libraryImportIntent} />}</Page>
+}
 export const MAIN_PAGE_ENTRIES: Partial<Record<PageDestination['kind'], (input: MainPageInput) => ReactNode>> = {
   flows: ({page,visit}) => page.kind === 'flows'
     ? page.root === null
@@ -28,8 +50,7 @@ export const MAIN_PAGE_ENTRIES: Partial<Record<PageDestination['kind'], (input: 
   dashboard: input => <DashboardEntry {...input} />,
   agents: ({ page, visit }) => page.kind === 'agents'
     ? <AgentsWindow focus={page.id} onFocus={id => visit({ kind: 'agents', id })} /> : null,
-  library: ({page,visit,libraryImportIntent}) => page.kind === 'library'
-    ? <Page width="wide">{page.section === 'changes' ? <LibraryChanges onBack={() => visit({ kind: 'library', section: 'skill' })} /> : <LibrarySection id={page.id} section={page.section} onSection={section=>visit({kind:'library',section})} importIntent={libraryImportIntent} />}</Page> : null,
+  library: input => <LibraryPage {...input} />,
   plugins: ({ page, visit }) => page.kind === 'plugins'
     ? <Page width={page.id === null ? 'wide' : 'reading'}><PluginsSection section={page.section} id={page.id}
         onSection={section => visit({ kind: 'plugins', section, id: null })}

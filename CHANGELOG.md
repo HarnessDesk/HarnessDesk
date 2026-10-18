@@ -7,6 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Back to Library returns to the section and filters you left.** Leaving Changes always landed on Skills and reset the filter and search; Back now steps back to the Library page it was opened from, and each section keeps its filter, search, chip and list-or-matrix choice while the window is open.
 - **Skill pages show which files can run or contain binary data**, and when a sourced skill was installed or last updated.
 - **A Team's page action now lines up with its tabs.** The action beside View on a Team's Run and Findings tabs (Stop run…, Decide this run) stood two pixels taller than the tabs and View beside it; it now stands on the same control height, so the compact tab row reads one line. New `control` button size, beside `sm`.
 - **Opening a Team reliably clears its blue mark**, including news from an earlier Seat and activity whose inbox save is still arriving.

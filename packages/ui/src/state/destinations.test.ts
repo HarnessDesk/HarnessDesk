@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { destinationOf, leaveSettingsDestination, readDestination, readDestinationHistory, stepDestination, visitDestination } from './destinations'
+import { destinationOf, leaveSettingsDestination, libraryBack, readDestination, readDestinationHistory, stepDestination, visitDestination } from './destinations'
 
 const work = destinationOf({ kind: 'room', room: 'team-demo', framePage: 'findings' })
 const settings = { kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } } as const
@@ -100,4 +100,19 @@ test('Library skill names round trip, validate, and preserve Back and Forward wi
   expect(stepDestination(history, 'back')?.current).toEqual(library)
   expect(stepDestination(stepDestination(history, 'back')!, 'forward')?.current).toEqual(detail)
   expect(readDestination({ kind: 'settings', route: { kind: 'skill', name: 'code-review' } })).toEqual({ kind: 'settings', route: { kind: 'skill', name: 'code-review' } })
+})
+
+test('Back to Library steps onto the page behind it, and otherwise visits the section last used', () => {
+  const changes = { kind: 'library', section: 'changes' } as const
+  const skill = { kind: 'library', section: 'skill' } as const
+  const detail = { kind: 'library', section: 'skill', id: 'code-review' } as const
+  const mcp = { kind: 'library', section: 'mcp' } as const
+  // The Library page it came from, exactly — a detail keeps its id.
+  expect(libraryBack({ current: changes, back: [detail], forward: [] })).toEqual({ step: true })
+  expect(libraryBack({ current: changes, back: [skill], forward: [] })).toEqual({ step: true })
+  // Nothing Library behind it at all: Skills.
+  expect(libraryBack({ current: changes, back: [], forward: [] })).toEqual({ step: false, section: 'skill' })
+  expect(libraryBack({ current: changes, back: [dashboard], forward: [] })).toEqual({ step: false, section: 'skill' })
+  // A non-Library page directly behind, an MCP page earlier: visit MCP.
+  expect(libraryBack({ current: changes, back: [mcp, settings], forward: [] })).toEqual({ step: false, section: 'mcp' })
 })

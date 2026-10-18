@@ -18,6 +18,7 @@ import {
 import { runtimeLabel } from '../lib/accounts'
 import { isPathInside } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
+import { type LibraryViewFilter, emptyLibraryView, type LibraryViewState } from '../state/library-views'
 import { RuntimeMark } from './BrandIcons'
 import {
   AlertIcon,
@@ -109,15 +110,7 @@ const attachmentSupportWords = (info?: RuntimeInfo): string | null => {
   return `Skills ${support.skills === 'scoped' ? 'scoped' : 'unscoped'} · Servers ${support.mcp === 'scoped-gated' ? 'gated' : 'unscoped'}`
 }
 
-type Filter =
-  | 'all'
-  | 'problems'
-  | 'partial'
-  | 'hollow'
-  | 'differs'
-  | 'unreachable'
-  | 'unused'
-  | 'off'
+type Filter = LibraryViewFilter
 
 /**
  * The mark for one state.
@@ -240,14 +233,42 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
   const [failed, setFailed] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
   const [checkFailed, setCheckFailed] = useState<string | null>(null)
-  const [filter, setFilter] = useState<Filter>('all')
-  useEffect(() => { if (kind === 'skill') setFilter(value => value === 'problems' ? 'all' : value) }, [kind])
-  const [query, setQuery] = useState('')
+  /**
+   * The section's view choices, held by the store so leaving for Changes and
+   * returning keeps them (`state/library-views`). The old guard stays: a
+   * filter the skills view does not offer never survives the switch to it.
+   */
+  const section = kind === 'mcp' ? 'mcp' : 'skill'
+  /**
+   * A store that does not implement the view memory — a preview proxy, or a
+   * fixture — answers with a placeholder rather than a view; only a real
+   * answer is kept, and anything else starts from the empty view.
+   */
+  const storedView = (): LibraryViewState => {
+    const held = store.libraryView?.(section)
+    return held && typeof held.query === 'string' ? held : emptyLibraryView()
+  }
+  const [screen, setScreen] = useState<LibraryViewState>(storedView)
+  const [screenSection, setScreenSection] = useState(section)
+  /**
+   * What is on screen right now. `patchScreen` merges onto this, never onto
+   * the store's answer: a store without the view memory answers empty every
+   * time, and merging onto it dropped the filter as soon as a search followed.
+   */
+  const latest = useRef(screen)
+  latest.current = screen
+  if (screenSection !== section) {
+    setScreenSection(section)
+    const stored = storedView()
+    setScreen(section === 'skill' && stored.filter === 'problems' ? { ...stored, filter: 'all' } : stored)
+  }
+  const patchScreen = useCallback((patch: Partial<LibraryViewState>) => {
+    const next = { ...latest.current, ...patch }
+    latest.current = next
+    store.setLibraryView?.(section, next)
+    setScreen(next)
+  }, [store, section])
   const [open, setOpen] = useState<string | null>(null)
-  // MCP keeps its existing List/Matrix choices; skills have their own local view.
-  const [view, setView] = useState<'list' | 'matrix'>('list')
-  const [skillView, setSkillView] = useState<'cards' | 'matrix'>('cards')
-  const [chip, setChip] = useState<SkillChip>('all')
   /**
    * The entry whose sheet is open (the reading surface, by name) and the plan
    * that is open, held with the detail that opened them: `owner` is that
@@ -417,17 +438,17 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
 
   const searched = useMemo(() => {
     if (!library) return []
-    const needle = query.trim().toLowerCase()
+    const needle = screen.query.trim().toLowerCase()
     return listedEntries.filter(
       (entry) =>
         entry.kind === kind &&
         (needle === '' || `${entry.name} ${entry.title ?? ''}`.toLowerCase().includes(needle)),
     )
-  }, [library, listedEntries, kind, query])
+  }, [library, listedEntries, kind, screen.query])
 
   // State counts match the chip and search; chip counts cover the whole inventory.
   const chipEntries = useMemo(() => searched.filter(entry =>
-    kind !== 'skill' || chip === 'all' || chipFor(entry, columns) === chip), [searched, kind, chip, columns])
+    kind !== 'skill' || screen.chip === 'all' || chipFor(entry, columns) === screen.chip), [searched, kind, screen.chip, columns])
 
   /**
    * The Declared by filter, once.
@@ -452,19 +473,19 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
 
   const rows = useMemo(() => {
     return scopedEntries.filter((entry) => {
-      if (filter === 'problems') return entryHasProblem(entry)
-      if (filter === 'partial') {
+      if (screen.filter === 'problems') return entryHasProblem(entry)
+      if (screen.filter === 'partial') {
         const reaching = entry.reach.filter((one) => one.state === 'reaches').length
         return reaching> 0 && reaching < entry.reach.length
       }
-      if (filter === 'hollow') return entry.copies.some((copy) => copy.hollow)
-      if (filter === 'differs') {
+      if (screen.filter === 'hollow') return entry.copies.some((copy) => copy.hollow)
+      if (screen.filter === 'differs') {
         const digests = new Set(entry.copies.filter((one) => !one.hollow).map((one) => one.digest))
         return digests.size> 1
       }
-      if (filter === 'unreachable') return entry.reach.every((one) => one.state !== 'reaches')
-      if (filter === 'off') return entry.reach.some((one) => one.state === 'off')
-      if (filter === 'unused') {
+      if (screen.filter === 'unreachable') return entry.reach.every((one) => one.state !== 'reaches')
+      if (screen.filter === 'off') return entry.reach.some((one) => one.state === 'off')
+      if (screen.filter === 'unused') {
         return (
           usage !== null &&
           entry.reach.some((one) => one.state === 'reaches') &&
@@ -473,18 +494,18 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
       }
       return true
     })
-  }, [scopedEntries, filter, usage])
+  }, [scopedEntries, screen.filter, usage])
 
   // Cards always sort by name. Matrix retains the existing cost order for
   // Never fired, and MCP retains its own list/matrix ordering.
   const ordered = useMemo(
     () =>
-      (kind === 'mcp' || skillView === 'matrix') && filter === 'unused'
+      (kind === 'mcp' || screen.skillView === 'matrix') && screen.filter === 'unused'
         ? [...rows].sort(
             (a, b) => (b.catalogTokens ?? 0) - (a.catalogTokens ?? 0) || a.name.localeCompare(b.name),
           )
-        : kind === 'skill' && skillView === 'cards' ? [...rows].sort((a, b) => a.name.localeCompare(b.name)) : rows,
-    [rows, filter, kind, skillView],
+        : kind === 'skill' && screen.skillView === 'cards' ? [...rows].sort((a, b) => a.name.localeCompare(b.name)) : rows,
+    [rows, screen.filter, kind, screen.skillView],
   )
 
   /**
@@ -642,13 +663,13 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
       title: usage === null ? undefined : `Reaches at least one runtime, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.` }] : []),
   ]
   const libraryChoices: readonly PageOption[] = [
-    { id: 'view', label: 'How to show the library', value: view,
+    { id: 'view', label: 'How to show the library', value: screen.view,
       items: [{ value: 'list', label: 'List' }, { value: 'matrix', label: 'Matrix' }],
       mode: 'menu',
-      change: value => { setView(value as 'list' | 'matrix'); setOpen(null) } },
-    { id: 'filter', label: 'Filter the library', value: filter, mode: 'menu',
-      items: filterData.filter(item => counts === null || item.value === 'all' || item.value === filter || (item.count ?? 0)> 0).map(item => ({ ...item, disabled: counts === null ? 'Reading every runtime’s directories…' : item.disabled })),
-      change: value => setFilter(value as Filter) },
+      change: value => { patchScreen({ view: value as 'list' | 'matrix' }); setOpen(null) } },
+    { id: 'filter', label: 'Filter the library', value: screen.filter, mode: 'menu',
+      items: filterData.filter(item => counts === null || item.value === 'all' || item.value === screen.filter || (item.count ?? 0)> 0).map(item => ({ ...item, disabled: counts === null ? 'Reading every runtime’s directories…' : item.disabled })),
+      change: value => patchScreen({ filter: value as Filter }) },
     { id: 'agent', label: 'Declared by', value: agentFilter, mode: 'menu',
       items: [{ value: '', label: 'Any agent' }, ...(snapshot.agents ?? []).map(entry => ({ value: `${entry.origin}:${entry.id}`, label: entry.definition?.name ?? entry.id }))], change: setAgentFilter },
   ]
@@ -674,15 +695,15 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
     <>
       <LibraryBar kind={kind} counts={kindCounts} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
         author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} github={() => setFlow({ type: 'github' })} checking={checking} check={() => void checkUpdates()} rescan={() => void load()}
-        choices={kind === 'mcp' ? libraryChoices : []} search={kind === 'mcp' ? { label: 'Search library', value: query, change: setQuery } : undefined} />
+        choices={kind === 'mcp' ? libraryChoices : []} search={kind === 'mcp' ? { label: 'Search library', value: screen.query, change: value => patchScreen({ query: value }) } : undefined} />
       {/* MCP retains its PageOptions, list, matrix and filters; only skills use cards and chips. */}
-      {kind === 'skill' ? <LibrarySkillsControls chip={chip} counts={chipCounts} onChip={setChip} view={skillView} onView={next => { setSkillView(next); setOpen(null) }}
-        filters={{ ...libraryChoices[1]!, items: filterData.filter(one => one.value !== 'problems' && (one.value === 'all' || one.value === filter || Boolean(one.disabled) || (one.count ?? 0) > 0)).map(one => ({ ...one, disabled: counts === null ? 'Reading skills…' : one.disabled })) }}
-        agent={libraryChoices[2]!} search={{ label: 'Search library', value: query, change: setQuery }} /> : <PageExplanation>Every skill and MCP server your runtimes can load, wherever each one keeps them.</PageExplanation>}
+      {kind === 'skill' ? <LibrarySkillsControls chip={screen.chip} counts={chipCounts} onChip={value => patchScreen({ chip: value })} view={screen.skillView} onView={next => { patchScreen({ skillView: next }); setOpen(null) }}
+        filters={{ ...libraryChoices[1]!, items: filterData.filter(one => one.value !== 'problems' && (one.value === 'all' || one.value === screen.filter || Boolean(one.disabled) || (one.count ?? 0) > 0)).map(one => ({ ...one, disabled: counts === null ? 'Reading skills…' : one.disabled })) }}
+        agent={libraryChoices[2]!} search={{ label: 'Search library', value: screen.query, change: value => patchScreen({ query: value }) }} /> : <PageExplanation>Every skill and MCP server your runtimes can load, wherever each one keeps them.</PageExplanation>}
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
       {checkFailed !== null && <ActionError>{checkFailed}</ActionError>}
 
-      {kind === 'skill' && chip === 'needs-you' && (hollowCopies.length> 0 || overloaded.length> 0) && (
+      {kind === 'skill' && screen.chip === 'needs-you' && (hollowCopies.length> 0 || overloaded.length> 0) && (
         <div data-slot="library-attention"><FormStack>
           {hollowCopies.length> 0 && <Banner
             tone="warning"
@@ -702,7 +723,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
             tone="neutral"
             title={`${column.label} skill catalogue`}
             actions={neverFired !== null && neverFired> 0
-              ? <Button variant="outline" size="sm" onClick={() => { setChip('all'); setFilter('unused') }}>Show never fired</Button>
+              ? <Button variant="outline" size="sm" onClick={() => patchScreen({ chip: 'all', filter: 'unused' })}>Show never fired</Button>
               : undefined}
           >
             ≈{total.toLocaleString()} tokens of skill catalogue ride every {column.label} turn
@@ -727,16 +748,16 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
             <Button size="sm" onClick={() => setFlow({ type: 'author' })}>Write a skill</Button>
             <Button variant="outline" size="sm" onClick={() => setFlow({ type: 'github' })}>From GitHub…</Button>
           </Toolbar>}
-        </EmptyState> : kind === 'skill' && chip === 'needs-you' && chipCounts['needs-you'] === 0 && !query.trim() && filter === 'all' && !agentFilter ? (
+        </EmptyState> : kind === 'skill' && screen.chip === 'needs-you' && chipCounts['needs-you'] === 0 && !screen.query.trim() && screen.filter === 'all' && !agentFilter ? (
           <EmptyState tight title="Nothing needs you" />
         ) : <EmptyState tight icon={<SearchIcon size={16} />} title="Nothing matches">
-          <Button variant="outline" size="sm" onClick={() => { setQuery(''); setFilter('all'); setAgentFilter(''); setChip('all') }}>Clear the filters</Button>
+          <Button variant="outline" size="sm" onClick={() => { patchScreen({ query: '', filter: 'all', chip: 'all' }); setAgentFilter('') }}>Clear the filters</Button>
         </EmptyState>
-      ) : kind === 'skill' && skillView === 'cards' ? (
+      ) : kind === 'skill' && screen.skillView === 'cards' ? (
         <CompactBoardCardGrid data-slot="skill-cards">
           {ordered.map(entry => <SkillCard key={entry.name} entry={entry} columns={columns} onOpen={() => openEntry(entry)} />)}
         </CompactBoardCardGrid>
-      ) : kind === 'mcp' && view === 'list' ? (
+      ) : kind === 'mcp' && screen.view === 'list' ? (
         <SkillList kind={kind}>
           {ordered.map((entry) => (
             <SkillRow
@@ -763,7 +784,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
                 return { id: reach.runtime, state: reach.state, label, problem: isReachProblem(reach.state), help: reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state], mark: <ReachMark state={reach.state} label={label} placement="cell" /> } }),
               expanded: open === entry.name ? <EntryDetail entry={entry} columns={columns} usage={usage} scanOrder={scanOrder} hosts={hosts} home={library?.home} onFlow={setFlow} onRead={() => openEntry(entry)} /> : undefined,
             }))}
-            footer={kind === 'skill' ? { label: `Advertised each turn${chip !== 'all' || filter !== 'all' || query.trim() !== '' ? ' (these rows)' : ''}`,
+            footer={kind === 'skill' ? { label: `Advertised each turn${screen.chip !== 'all' || screen.filter !== 'all' || screen.query.trim() !== '' ? ' (these rows)' : ''}`,
               title: 'Name and description at ≈3.6 characters per token — the catalogue line a runtime carries for every skill it loads, fired or not. How each runtime advertises varies; this prices the standard line.',
               values: Object.fromEntries(columns.map((column, index) => [column.id, rows.reduce((sum, entry) => entry.reach[index]?.state === 'reaches' ? sum + (entry.catalogTokens ?? 0) : sum, 0)])) } : undefined}
             fired={kind === 'skill' && usage !== null ? { label: 'Fired here, ever', title: 'Of the rows on screen, how many this runtime loaded in a conversation this desk stores. Conversations held elsewhere are not counted.',

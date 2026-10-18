@@ -1109,10 +1109,13 @@ reached from More or the **View changes** action on each write's toast. All,
 Can restore and Failed chips show counts; search matches names and paths.
 Today, Yesterday and Earlier group the entries, with time, runtime and path.
 Only a completed change with a backup offers **Restore…**, which previews what
-it puts back and replaces. Applying a restore refreshes the page. The Library
-has no history list at its foot. Successful writes share one success toast;
-failures share a persistent failure toast with the first reason. Skipped
-operations raise nothing, and the write toasts offer no Undo.
+it puts back and replaces. Applying a restore refreshes the page. **Back to
+Library** returns to the page it was opened from — a skill's own page, or the
+Skills or MCP list — and otherwise opens the section last used; each section
+keeps its filter, search, chip and list-or-matrix choice while the window is
+open. The Library has no history list at its foot. Successful writes share one
+success toast; failures share a persistent failure toast with the first
+reason. Skipped operations raise nothing, and the write toasts offer no Undo.
 
 The Library's skills page opens as a grid of cards sorted by name. Each card
 visits the skill’s page, shows its description in at most two lines,

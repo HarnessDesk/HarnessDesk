@@ -1,4 +1,4 @@
-import { LibraryDestinationFixture } from './library-destination-fixture'
+import { LibraryChangesFixture } from './library-destination-fixture'
 import { Notice, NoticeHost, Input, Text } from '../design'
 import { libraryNoticeResults } from './notice-fixture'
 import { SettingsPreviewScope } from './settings-pages'
@@ -315,7 +315,7 @@ export const CoverageFrames = () => {
         </StoreProvider>
       </Frame>
       <Frame id="coverage-library" title="Library — Changes made here">
-        <div className="h-[900px]"><LibraryDestinationFixture query="frame-kind=changes" /></div>
+        <div className="h-[900px]"><LibraryChangesFixture /></div>
       </Frame>
       <Frame id="coverage-panel-actions" title="Panel actions context">
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>

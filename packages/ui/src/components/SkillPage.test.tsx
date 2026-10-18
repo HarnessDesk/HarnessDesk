@@ -1,4 +1,4 @@
-import { act, useLayoutEffect, type ReactElement } from 'react'
+import { act, useLayoutEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runtimeId, type Library, type LibraryEntry, type LibrarySkillUpdate, type LibraryUsage, type RuntimeInfo } from '@harnessdesk/protocol'
@@ -49,9 +49,9 @@ const mount = async (entries = [skill()], id = 'review', definition: unknown = {
   return request
 }
 it('visits a wide skill detail and returns to Library through the head and history', async () => {
-  const entry = MAIN_PAGE_ENTRIES.library!({ page: route(), visit: vi.fn(), replace: vi.fn(), onSignIn: vi.fn(), onNewTeam: vi.fn(), libraryImportIntent: 0 }) as ReactElement<{ width: string }>
-  expect(entry.props.width).toBe('wide')
-  await mount(); expect(page()).toBeTruthy(); expect(page().closest('[role="dialog"]')).toBeNull()
+  await mount()
+  expect(box.querySelector('[data-slot="page"]')?.getAttribute('data-width')).toBe('wide')
+  expect(page()).toBeTruthy(); expect(page().closest('[role="dialog"]')).toBeNull()
   await press('Back to Library'); expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'library', section: 'skill' })
   await act(async () => { await store.navigateBack(); await new Promise(resolve => requestAnimationFrame(resolve)) }); expect(page()).toBeTruthy()
 })
