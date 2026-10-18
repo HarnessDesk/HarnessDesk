@@ -58,6 +58,10 @@ const stable = (value: unknown): string => JSON.stringify(value, (_key, item: un
   typeof item === 'object' && item !== null && !Array.isArray(item)
     ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : item)
 const same = (a: unknown, b: unknown): boolean => stable(a) === stable(b)
+/** Saved policy equality ignores only its revision, not authority-neutral rule edits. */
+export const sameLeadPolicyValues = (a: LeadPermissionPolicy, b: LeadPermissionPolicy): boolean =>
+  a.mode === b.mode && same(a.rules, b.rules)
+
 const irreversible = (method: string, action: string | null): boolean =>
   [...method.split('/'), action ?? ''].some(word => ['merge', 'publish', 'delete', 'wrap'].includes(word.toLowerCase()))
 

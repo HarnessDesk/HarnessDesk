@@ -3,6 +3,7 @@ import { Markdown } from '../../components/Markdown'
 import { SendIcon } from '../../components/Icons'
 import { Banner } from '../primitives/Banner'
 import { Button } from '../ui/button'
+import { Card, CardContent } from '../ui/card'
 import { ComposerShell, ComposerText, ComposerTools, ComposerSend, ComposerGap } from '../ui/composer'
 import { Message, MessageContent } from '../ui/message'
 import { Bubble, BubbleContent } from '../ui/bubble'
@@ -10,8 +11,9 @@ import { Page } from './Page'
 import styles from './lead-contract.module.css'
 import { Chip, Spinner, Text } from './Settings'
 
-/** One Lead decision surface. Row groups inherit its edge and prose uses the
- * transcript's Markdown pipeline, including sanitization and code interactions. */
+/** One Lead decision surface, composed from Card and CardContent. Inset Rows
+ * inherit its edge and prose uses the
+ * transcript's Markdown pipeline, including sanitization and code interactions. Requires a StoreProvider. */
 export const LeadContract = ({ title, revision, summary, children, links, pending = false, approveLabel = 'Approve', onApprove, onDecline, notice, cardId, cardType, focusRef, state }: {
   readonly title: string
   readonly revision: number
@@ -28,6 +30,7 @@ export const LeadContract = ({ title, revision, summary, children, links, pendin
   readonly focusRef?: Ref<HTMLElement>
   readonly state?: string
 }) => <section ref={focusRef} tabIndex={-1} data-slot="lead-contract" data-lead-card={cardId} data-lead-card-type={cardType} aria-label={`${title}, revision ${revision}`} className={styles.surface}>
+  <Card radius="lg"><CardContent className={styles.content}>
   <header className={styles.cardHead}>
     <div className="flex flex-wrap items-center gap-2"><Text as="h2" role="subject">{title}</Text><span data-lead-state><Chip tone="neutral">{state ?? (onApprove || onDecline ? 'Pending' : 'Waiting')}</Chip></span></div>
     <Text role="meta">Revision {revision}</Text>
@@ -40,10 +43,11 @@ export const LeadContract = ({ title, revision, summary, children, links, pendin
     {onApprove && <Button disabled={pending} aria-busy={pending} onClick={onApprove}>{pending && <Spinner aria-hidden />}{approveLabel}</Button>}
     {onDecline && <Button variant="secondary" disabled={pending} aria-busy={pending} onClick={onDecline}>{pending && <Spinner aria-hidden />}Decline</Button>}
   </div>}
+  </CardContent></Card>
 </section>
 
 /** Lead turns use the transcript's message alignment, bubble and rhythm. */
-export const LeadMessage = ({ role, text }: { readonly role: 'user' | 'assistant'; readonly text: string }) => <Message align={role === 'user' ? 'end' : 'start'} rhythm="transcript" aria-label={role === 'user' ? 'You' : 'Lead'}>
+export const LeadMessage = ({ role, text }: { readonly role: 'user' | 'assistant'; readonly text: string }) => <Message align={role === 'user' ? 'end' : 'start'} rhythm="transcript" role="article" aria-label={role === 'user' ? 'You' : 'Lead'}>
   <MessageContent className={role === 'user' ? 'items-end' : undefined}><Bubble variant={role === 'user' ? 'secondary' : 'ghost'}><BubbleContent>{role === 'user' ? text : <Markdown text={text} />}</BubbleContent></Bubble></MessageContent>
 </Message>
 

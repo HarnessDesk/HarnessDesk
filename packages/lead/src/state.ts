@@ -1,5 +1,5 @@
 import { clientTierFor, parseLeadCardDecisionFor, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
-import { applyLeadPolicyDecision, compareLeadPolicyAuthority } from './permissions.js'
+import { applyLeadPolicyDecision, compareLeadPolicyAuthority, sameLeadPolicyValues } from './permissions.js'
 import { parseLeadJournalRecord, parseLeadRunEvidence, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity } from './journal.js'
 import { reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
 
@@ -154,6 +154,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, budget, phase: budget.stop ? 'stopped' : state.phase }; break
     }
     case 'policy':
+      if (state.policy && sameLeadPolicyValues(state.policy, event.policy)) break
       ensure(state.policy === null || event.policy.revision > state.policy.revision &&
         ['narrowing', 'unchanged'].includes(compareLeadPolicyAuthority(state.policy, event.policy)))
       state = { ...state, policy: event.policy }; break

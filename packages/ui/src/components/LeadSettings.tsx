@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { LEAD_LIMITS, type ClientMethodName, type LeadPermissionPolicy, type LeadSettingsProjection, type LeadSettingsUpdate } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, Dialog, FormStack, InlineParts, Input, NativeSelect, Row, Rows, SectionHead, Text } from '../design'
 
-import { PERMISSION_LABELS } from './LeadPage'
+import { formatReset } from '../lib/limits'
+import { PERMISSION_LABELS } from './lead-permission-labels'
 
 const modes = { plan: 0, default: 1, manage: 2 }
 const effects = { deny: 0, ask: 1, allow: 2 }
@@ -35,24 +36,25 @@ export const LeadSettings = ({ settings, expiry, update, onClose, onError, error
   const validCaps = dollars.trim() !== '' && rounds.trim() !== '' && Number.isSafeInteger(micros) && micros >= 0 && micros <= LEAD_LIMITS.maxUsdMicros && Number.isSafeInteger(roundCount) && roundCount >= 0 && roundCount <= LEAD_LIMITS.rounds
   const capsChanged = micros !== settings.caps.usdMicros || roundCount !== settings.caps.rounds
   const capsWiden = micros > settings.caps.usdMicros || roundCount > settings.caps.rounds
-  const submit = async (value: Omit<LeadSettingsUpdate, 'expectedRevision'>, close = false) => {
+  const submit = async (value: Omit<LeadSettingsUpdate, 'expectedRevision'>, onSuccess?: () => void) => {
     if (busy.current) return
     busy.current = true; setPending(true)
-    try { await update(value); if (close) onClose(); setRemove(false) }
+    try { await update(value); onSuccess?.(); setRemove(false) }
     catch (error) { setRemove(false); onError(error) }
     finally { busy.current = false; setPending(false) }
   }
   const credential = () => {
     if (busy.current || !key.current?.value.trim()) return
     const value = key.current.value.trim(); key.current.value = ''
-    void submit({ credential: { provider: 'anthropic', key: value } })
+    void submit({ credential: { provider: 'anthropic', key: value } }, () => setEditingKey(false))
   }
   return <>
     <Dialog title="Lead settings" onClose={() => { if (key.current) key.current.value = ''; onClose() }} footer={<Button onClick={onClose}>Done</Button>}>
+      <FormStack sizing="content">
       {error && <Banner role="alert" tone="warning">{error}</Banner>}
       <SectionHead name="Provider key" />
       <Rows>
-        <Row title="Provider key" titleChip={<Chip tone="neutral">{settings.key.configured ? 'Configured' : 'Not set'}</Chip>} control={<InlineParts>
+        <Row title="Key" titleChip={<Chip tone="neutral">{settings.key.configured ? 'Configured' : 'Not set'}</Chip>} control={<InlineParts>
           {editingKey ? <><Input ref={key} aria-label="Provider key" type="password" autoComplete="new-password" disabled={pending} /><Button disabled={pending || settings.key.protection !== 'encrypted'} aria-busy={pending} onClick={credential}>Save</Button><Button variant="quiet" disabled={pending} onClick={() => { if (key.current) key.current.value = ''; setEditingKey(false) }}>Cancel</Button></>
             : <Button variant="outline" disabled={pending} onClick={() => setEditingKey(true)}>{settings.key.configured ? 'Replace…' : 'Add…'}</Button>}
           {settings.key.configured && <Button variant="destructive" disabled={pending} onClick={() => setRemove(true)}>Remove</Button>}
@@ -71,15 +73,15 @@ export const LeadSettings = ({ settings, expiry, update, onClose, onError, error
         </FormStack>} control={<Button variant="quiet" disabled={pending} onClick={() => setPolicy({ ...policy, rules: policy.rules.filter(one => one.id !== rule.id) })}>Remove rule</Button>} />)}
         <Row title="Rules" control={<Button variant="outline" disabled={pending || policy.rules.length >= LEAD_LIMITS.rules} onClick={() => setPolicy({ ...policy, rules: [...policy.rules, { id: crypto.randomUUID(), effect: 'ask', method: 'flow/start-goal', action: null, project: null }] })}>Add rule</Button>} />
       </Rows>
-      <Button disabled={pending || !policyChanged} aria-busy={pending} onClick={() => void submit({ policy: { ...policy, revision: settings.policy.revision + 1 } })}>Save permissions</Button>
+      <Row title={null} control={<Button disabled={pending || !policyChanged} aria-busy={pending} onClick={() => void submit({ policy: { ...policy, revision: settings.policy.revision + 1 } })}>Save permissions</Button>} />
       <SectionHead name="Allowances" />
       <Rows>
-        <Row title="Dollar allowance" control={<Input aria-label="Dollar allowance" type="number" min={0} step="0.000001" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} />} />
+        <Row title="Dollar allowance" desc={capsWiden ? 'Creates a card for your approval.' : 'Tightening applies at once. Stops when reported spend reaches the cap.'} control={<Input aria-label="Dollar allowance" type="number" min={0} step="0.000001" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} />} />
         <Row title="Round allowance" control={<Input aria-label="Round allowance" type="number" min={0} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} />} />
-        <Row title="Reported spend" desc={capsWiden ? 'Creates a card for your approval.' : 'Tightening applies at once. Stops when reported spend reaches the cap.'} />
-        {expiry !== null && <Row title="Plan consent expires" desc={new Date(expiry).toLocaleString()} />}
+        {expiry !== null && <Row title="Plan consent expires" desc={formatReset(expiry)} />}
       </Rows>
-      <Button disabled={pending || !validCaps || !capsChanged} aria-busy={pending} onClick={() => void submit({ caps: { usdMicros: micros, rounds: roundCount } })}>Save allowances</Button>
+      <Row title={null} control={<Button disabled={pending || !validCaps || !capsChanged} aria-busy={pending} onClick={() => void submit({ caps: { usdMicros: micros, rounds: roundCount } })}>Save allowances</Button>} />
+      </FormStack>
     </Dialog>
     {remove && <ConfirmDialog title="Remove Lead key?" confirmLabel="Remove key" cancelLabel="Keep key" tone="destructive" busy={pending} onConfirm={() => void submit({ credential: { provider: 'anthropic', key: null } })} onCancel={() => setRemove(false)}><Text role="prose">Removes the saved provider key and stops paid Lead requests.</Text></ConfirmDialog>}
   </>

@@ -22,9 +22,10 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const legacy = stored && !['messages', 'olderMessages', 'sends'].some(key => Object.hasOwn(stored, key))
   const threadSource = legacy ? { ...stored, messages: [], olderMessages: 0, sends: [] } : stored
   // Earlier checkpoints predate inline ordering; their retained card order is
-  // preserved after the retained thread suffix. New writes keep exact positions.
+  // preserved at the retained suffix boundary. Stable ordering puts all saved
+  // cards after that message and before the next journal write.
   const source = threadSource && !Object.hasOwn(threadSource, 'cardPositions')
-    ? { ...threadSource, cardPositions: Object.fromEntries(threadSource.cards.map((card, index) => [card.id, Math.max(0, ...threadSource.messages.map(message => message.revision)) + index + 1])) } : threadSource
+    ? { ...threadSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : threadSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
   assert(Number.isSafeInteger(source.seq) && source.seq > 0 && source.seq === checkpoint.seq)
   assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'].includes(source.phase))

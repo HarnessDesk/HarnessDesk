@@ -2,7 +2,8 @@ import { useRef, useState, type MutableRefObject } from 'react'
 import type { LeadAcceptanceContract, LeadBudgetState, LeadCard, LeadCardDecision, RuntimeInfo } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, LeadContract, Row, Rows, Text } from '../design'
 import { Markdown } from './Markdown'
-import { PERMISSION_LABELS } from './LeadPage'
+import { formatReset } from '../lib/limits'
+import { PERMISSION_LABELS } from './lead-permission-labels'
 
 export const leadDollars = (micros: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 6 }).format(micros / 1000000)
 
@@ -42,8 +43,8 @@ export const LeadCards = ({ cards, contract, budget, runtimes, onDecide, onChang
       : card.type === 'result' ? 'Result' : card.type === 'permission-change' ? 'Permission change' : card.type === 'budget-change' ? 'Allowance change' : 'Stopped'
     const worker = card.type === 'waiting' && card.kind === 'worker-approval'
     const renewal = card.type === 'plan' && expiry != null && card.contractDigest === contract?.digest && JSON.stringify(card.contract) === JSON.stringify(contract)
-    const workerLabel = [...new Set(contract?.steps.flatMap(step => step.assignments.map(assignment => runtimes.find(runtime => runtime.id === assignment.seat.runtime)?.presentation.name ?? 'Worker')) ?? ['Worker'])].join(', ')
-    const summary = worker ? `${workerLabel} is waiting for a command approval.` : renewal ? `The earlier approval expired at ${new Date(expiry!).toLocaleString()}. ${card.contract.goal}` : card.type === 'permission-change' ? 'Review the proposed permissions before the Lead uses them.' : card.type === 'budget-change' ? 'Review the higher allowances before work continues.' : 'summary' in card ? card.summary : card.type === 'plan' ? card.contract.goal : undefined
+
+    const summary = worker ? 'A worker is waiting for a command approval.' : renewal ? `The earlier approval expired at ${formatReset(expiry!)}. ${card.contract.goal}` : card.type === 'permission-change' ? 'Review the proposed permissions before the Lead uses them.' : card.type === 'budget-change' ? 'Review the higher allowances before work continues.' : 'summary' in card ? card.summary : card.type === 'plan' ? card.contract.goal : undefined
     const spend = 'budget' in card ? card.budget : budget
     const assertions = 'assertions' in card ? card.assertions : []
     const caps = renewal && budget ? budget.caps : card.type === 'plan' ? card.contract.caps : undefined
@@ -57,15 +58,15 @@ export const LeadCards = ({ cards, contract, budget, runtimes, onDecide, onChang
 
       </> : undefined}>
       {card.type === 'plan' && <>
-        <Rows>{card.contract.steps.map(step => <Row key={step.id} layout="record" title={step.title} desc={step.assignments.map((assignment, i) => <Text key={i} as="span" role="meta">{runtimes.find(runtime => runtime.id === assignment.seat.runtime)?.presentation.name ?? 'Worker unavailable'}{assignment.seat.model ? ` · ${assignment.seat.model}` : ''}{i < step.assignments.length - 1 ? '; ' : ''}</Text>)} />)}</Rows>
-        <Rows>{card.contract.assertions.map(assertion => <Row key={assertion.id} title={assertion.description} titleChip={<Chip tone="neutral">{{ check: 'Check', review: 'Review', 'blocking-findings': 'Findings', diff: 'Changes' }[assertion.kind]}</Chip>} />)}</Rows>
-        <Rows>
+        <Rows variant="inset">{card.contract.steps.map(step => <Row key={step.id} layout="record" title={step.title} desc={step.assignments.map((assignment, i) => <Text key={i} as="span" role="meta">{runtimes.find(runtime => runtime.id === assignment.seat.runtime)?.presentation.name ?? 'Worker unavailable'}{assignment.seat.model ? ` · ${assignment.seat.model}` : ''}{i < step.assignments.length - 1 ? '; ' : ''}</Text>)} />)}</Rows>
+        <Rows variant="inset">{card.contract.assertions.map(assertion => <Row key={assertion.id} title={assertion.description} titleChip={<Chip tone="neutral">{{ check: 'Check', review: 'Review', 'blocking-findings': 'Findings', diff: 'Changes' }[assertion.kind]}</Chip>} />)}</Rows>
+        <Rows variant="inset">
           <Row title="Allowance" desc="Stops when reported spend reaches the cap." control={<span>{leadDollars(caps!.usdMicros)} · {caps!.rounds} rounds</span>} />
           <Row title="Approval scope" desc={<><Text as="div" role="meta">{card.contract.project.path}</Text><Markdown text="Only these steps, assignments and acceptance assertions. Publishing, merging and deleting require separate approval." /></>} />
         </Rows>
       </>}
       {(card.type === 'waiting' && !worker || card.type === 'result') && <>
-        <Rows>{(['check', 'review', 'blocking-findings', 'diff'] as const).map(kind => {
+        <Rows variant="inset">{(['check', 'review', 'blocking-findings', 'diff'] as const).map(kind => {
           const expected = scope?.assertions.filter(assertion => assertion.kind === kind) ?? []
           const results = expected.map(assertion => assertions.find(result => result.assertionId === assertion.id))
           const known = expected.length > 0 && results.every(result => result && result.contractRevision === scope?.revision && result.evidence.length > 0)
@@ -76,16 +77,16 @@ export const LeadCards = ({ cards, contract, budget, runtimes, onDecide, onChang
             </div>)}
           </>} />
         })}</Rows>
-        <Rows><Row title="Lead spend" control={<span>{spend ? leadDollars(spend.leadUsdMicros) : 'Unknown'}</span>} />
+        <Rows variant="inset"><Row title="Lead spend" control={<span>{spend ? leadDollars(spend.leadUsdMicros) : 'Unknown'}</span>} />
           <Row title="Worker spend (reported)" control={<span>{spend?.spend === 'known' ? leadDollars(spend.workerUsdMicros) : 'Unknown'}</span>} /></Rows>
 
       </>}
       {card.type === 'permission-change' && <>
-        {([{ label: 'Current policy', policy: card.previous }, { label: 'Proposed policy', policy: card.proposed }] as const).map(({ label, policy }) => <Rows key={label}><Row title={label} titleChip={<Chip tone="neutral">{{ plan: 'Plan', default: 'Default', manage: 'Manage' }[policy.mode]}</Chip>} />
+        {([{ label: 'Current policy', policy: card.previous }, { label: 'Proposed policy', policy: card.proposed }] as const).map(({ label, policy }) => <Rows variant="inset" key={label}><Row title={label} titleChip={<Chip tone="neutral">{{ plan: 'Plan', default: 'Default', manage: 'Manage' }[policy.mode]}</Chip>} />
           {policy.rules.map(rule => <Row key={rule.id} title={<span title={rule.method}>{PERMISSION_LABELS[rule.method]}</span>} titleChip={<Chip tone="neutral">{{ allow: 'Allow', ask: 'Ask', deny: 'Deny' }[rule.effect]}</Chip>} desc={`${rule.action ?? 'All actions'} · ${rule.project ?? 'Approved project'}`} />)}
         </Rows>)}
       </>}
-      {card.type === 'budget-change' && <Rows><Row title="Dollar allowance" desc={`${leadDollars(card.previous.caps.usdMicros)} → ${leadDollars(card.proposed.usdMicros)}`} /><Row title="Round allowance" desc={`${card.previous.caps.rounds} → ${card.proposed.rounds}`} /></Rows>}
+      {card.type === 'budget-change' && <Rows variant="inset"><Row title="Dollar allowance" desc={`${leadDollars(card.previous.caps.usdMicros)} → ${leadDollars(card.proposed.usdMicros)}`} /><Row title="Round allowance" desc={`${card.previous.caps.rounds} → ${card.proposed.rounds}`} /></Rows>}
       {card.type === 'stopped' && <Banner>{card.reason === 'unknown-spend' ? 'Worker spend is unknown. Inspect the run before continuing.' : 'The Lead stopped. Inspect its allowance and run.'}</Banner>}
     </LeadContract>
   })}</>

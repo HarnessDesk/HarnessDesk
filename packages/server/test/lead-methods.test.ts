@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createLeadLoop, createLeadJournal, leadCheckpoint, parseLeadCheckpoint, type LeadJournalRecord } from '@harnessdesk/lead'
+import { createLeadLoop, createLeadJournal, leadBudgetProjection, leadCheckpoint, parseLeadCheckpoint, type LeadJournalRecord } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract, type LeadCard, type WireNotification } from '@harnessdesk/protocol'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 
@@ -1155,5 +1155,42 @@ test('genuine policy tightening gives a pending plan a typed stale refusal', asy
     await s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, policy: { ...policy, revision: 2, mode: 'plan' } })
     await assert.rejects(s.call('lead/card/decide', planClick), code('lead-card-stale'))
     assert.equal((await s.call('lead/thread/read')).wayOut, 'decide-plan')
+  } finally { s.controls.close() }
+})
+
+for (const revision of [1, 32]) test(`a full card table reports typed renewal blocking at plan revision ${revision}`, async () => {
+  let now = 100
+  const s = await rig({ controls: { now: () => now } })
+  try {
+    await s.journal.offerCard(plan); await s.call('lead/card/decide', planClick); await s.controls.idle()
+    for (let i = 1; i < revision; i++) {
+      const expiry = s.journal.state.consent!.expiresAt
+      await s.journal.renewPlan(expiry)
+      await s.journal.decideCard({ ...planClick, expectedRevision: i + 1 }, expiry + 100)
+    }
+    for (let i = 0; i < 63; i++) await s.journal.offerCard({ version: 1, id: `filler-${i}`, revision: 1, type: 'result', outcome: 'reviewed', contractDigest: contract.digest, summary: 'Synthetic result', assertions: [], budget: leadBudgetProjection(s.journal.state.budget!, 100) })
+    assert.equal(s.journal.state.cards.length, 64)
+    now = s.journal.state.consent!.expiresAt
+    const before = s.journal.state.seq, projection = await s.call('lead/thread/read')
+    assert.equal(projection.waitReason, 'lead-renewal-blocked'); assert.equal(projection.wayOut, null)
+    assert.equal(s.journal.state.seq, before + 1); assert.equal(s.journal.state.cards.length, 64)
+    assert.equal((await s.call('lead/settings/read')).waitReason, 'lead-renewal-blocked')
+    assert.equal(s.journal.state.seq, before + 1)
+    assert.equal((await createLeadJournal(s.storage)).state.managementReason, 'lead-renewal-blocked')
+    const removed = await s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, credential: { provider: 'anthropic', key: null } })
+    assert.equal(removed.settings.key.configured, false)
+  } finally { s.controls.close() }
+})
+
+for (const mode of ['plan', 'default'] as const) test(`Add rule Save is retained on settings reopen in ${mode} mode`, async () => {
+  const s = await rig()
+  try {
+    if (mode === 'plan') await s.journal.setPolicy({ ...policy, revision: 2, mode })
+    const before = await s.call('lead/settings/read')
+    const proposed = { ...before.settings.policy, revision: before.settings.policy.revision + 1, rules: [{ id: 'added-rule', method: 'flow/start-goal', effect: 'ask', action: null, project: null }] }
+    const saved = await s.call('lead/settings/update', { expectedRevision: before.revision, policy: proposed })
+    assert.deepEqual(saved.settings.policy, proposed)
+    assert.deepEqual((await s.call('lead/settings/read')).settings.policy, proposed)
+    assert.deepEqual((await createLeadJournal(s.storage)).state.policy, proposed)
   } finally { s.controls.close() }
 })

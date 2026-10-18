@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { type ClientMethodName, type LeadControlRefusal, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { type LeadControlRefusal, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { Banner, Button, LeadJournal, LeadMessage, Text } from '../design'
 import { DestinationBar, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { LeadCards, leadDollars } from './LeadCards'
 import { LeadSettings } from './LeadSettings'
+import { formatReset } from '../lib/limits'
 
 /** Closed refusal vocabulary; transport messages and typed codes never render. */
 const REFUSALS: Record<LeadControlRefusal, string> = {
@@ -20,16 +21,8 @@ const REFUSALS: Record<LeadControlRefusal, string> = {
   'lead-thread-closed': 'This Lead thread has finished.', 'lead-budget-stopped': 'The Lead has reached a stopped allowance.',
   'lead-protection-unavailable': 'Encrypted key storage is unavailable.', 'lead-request-in-flight': 'Wait for the current request to finish.',
 }
-/** Human vocabulary for the closed client surface. Raw methods remain hover facts. */
-export const PERMISSION_LABELS = {
-  'client/hello': 'Connect to the desk', 'client/subscribe': 'Watch desk activity', 'session/loadout': 'Read conversation context',
-  'attachment/seat': 'Read worker attachments', 'goal/list': 'List Teams', 'goal/read': 'Read a Team', 'team/intent': 'Update a Team',
-  'flow/catalog': 'Browse Flows', 'flow/source': 'Read a Flow', 'flow/preview': 'Preview a run', 'flow/start-goal': 'Start a run',
-  'workspace/open': 'Open a project', 'flow/execution': 'Read a run', 'flow/execution/stop': 'Stop a run', 'flow/executions': 'List runs',
-  'finding/run': 'Read run findings', 'finding/list': 'List findings', 'evidence/board': 'Read board evidence', 'evidence/seat': 'Read worker evidence',
-  'insight/goal': 'Read Team insights', 'library/read': 'Browse the library', 'library/definition': 'Read a library item', 'library/usage': 'Read library usage',
-} satisfies Record<ClientMethodName, string>
 const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
+  'lead-renewal-blocked': 'The plan could not be renewed because the decision card limit was reached.',
   'lead-disabled': 'The Lead was disabled.',
   'lead-key-changed': 'The provider key changed. Continue with the current key.',
   'lead-host-shutdown': 'The desk stopped while the Lead was working.',
@@ -70,10 +63,11 @@ export const LeadPage = ({ initialSettingsOpen = false, initialGoal = '' }: { re
   useEffect(() => {
     if (!active || state.planConsentExpiresAt === null || state.wayOut === 'decide-plan' || state.thread && ['stopped', 'accepted', 'declined'].includes(state.thread.state)) return
     let cancelled = false, timer: ReturnType<typeof setTimeout>, backoff = 1000
-    const refresh = async () => {
+    const refresh = async (final = false) => {
       try { await store.lead.readThread() } catch (error) { refusal(error) }
-      if (!cancelled && store.lead.state.wayOut !== 'decide-plan' && store.lead.state.planConsentExpiresAt === state.planConsentExpiresAt) {
-        timer = setTimeout(refresh, backoff); backoff = Math.min(backoff * 2, 30000)
+      if (!final && !cancelled && store.lead.state.wayOut !== 'decide-plan' && store.lead.state.planConsentExpiresAt === state.planConsentExpiresAt) {
+        const delay = backoff
+        timer = setTimeout(() => void refresh(delay === 30000), delay); backoff = Math.min(backoff * 2, 30000)
       }
     }
     timer = setTimeout(refresh, Math.max(0, Math.min(state.planConsentExpiresAt - Date.now() + 50, 2147483647)))
@@ -94,13 +88,13 @@ export const LeadPage = ({ initialSettingsOpen = false, initialGoal = '' }: { re
   const entries = [...(state.thread?.messages ?? []).map(message => ({ revision: message.revision, kind: 'message' as const, message })),
     ...cards.map(card => ({ revision: state.thread?.cardPositions?.[card.id] ?? card.revision, kind: 'card' as const, card }))].sort((a, b) => a.revision - b.revision)
   const actionablePlan = entries.filter(entry => entry.kind === 'card' && entry.card.type === 'plan').at(-1)
-  const reviewPlan = () => {
+  const reviewPlan = (focus = true) => {
     if (actionablePlan?.kind !== 'card') return
     const element = [...(thread.current?.querySelectorAll<HTMLElement>('[data-lead-card]') ?? [])].find(node => node.dataset.leadCard === actionablePlan.card.id)
-    element?.scrollIntoView?.({ block: 'end' }); element?.focus({ preventScroll: true })
+    element?.scrollIntoView?.({ block: 'end' }); if (focus) element?.focus({ preventScroll: true })
   }
   useEffect(() => { if (pinned.current && thread.current) thread.current.scrollTop = thread.current.scrollHeight }, [active, state.revision])
-  useEffect(() => { if (state.wayOut === 'decide-plan') reviewPlan() }, [state.wayOut, actionablePlan?.kind === 'card' ? `${actionablePlan.card.id}:${actionablePlan.card.revision}` : null])
+  useEffect(() => { if (state.wayOut === 'decide-plan') reviewPlan(false) }, [state.wayOut, actionablePlan?.kind === 'card' ? `${actionablePlan.card.id}:${actionablePlan.card.revision}` : null])
   return <>
     <DestinationBar place="Lead" />
     <LeadJournal onSettings={() => setSettingsOpen(true)} threadRef={thread} onThreadScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 24 }} inputRef={input} text={goal} onText={setGoal} onSend={() => void send()}
@@ -108,10 +102,11 @@ export const LeadPage = ({ initialSettingsOpen = false, initialGoal = '' }: { re
       allowances={!state.thread?.messages.some(message => message.role === 'user') && state.settings ? { dollars: leadDollars(state.settings.caps.usdMicros), rounds: state.settings.caps.rounds } : undefined}
       notices={<>
         {!settingsOpen && (error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
+        {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
         {state.wayOut === 'resume' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
           {state.waitReason ? WAITS[state.waitReason] ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
         </Banner>}
-        {state.wayOut === 'decide-plan' && <Banner actions={<Button onClick={reviewPlan}>Review plan</Button>}>{renewal ? `The earlier approval expired at ${new Date(state.planConsentExpiresAt!).toLocaleString()}. Review the plan to continue.` : 'The plan needs your decision before work continues.'}</Banner>}
+        {state.wayOut === 'decide-plan' && <Banner actions={<Button onClick={() => reviewPlan()}>Review plan</Button>}>{renewal ? `The earlier approval expired at ${formatReset(state.planConsentExpiresAt!)}. Review the plan to continue.` : 'The plan needs your decision before work continues.'}</Banner>}
       </>}>
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
         {entries.length ? entries.map(entry => entry.kind === 'message'

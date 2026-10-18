@@ -27,7 +27,7 @@ const fixtureStore = (scene: LeadScene) => {
     const params = input as Record<string, any>
     if (method === 'lead/settings/update') {
       if (params.credential) emit({ ...current, revision: current.revision + 1, settings: { ...current.settings, key: { ...current.settings.key, configured: params.credential.key !== null } } })
-      else emit({ ...current, revision: current.revision + 1 })
+      else emit({ ...current, revision: current.revision + 1, settings: { ...current.settings, ...(params.policy ? { policy: params.policy } : {}), ...(params.caps ? { caps: params.caps } : {}) } })
       return current
     }
     if (method === 'lead/card/decide') { emit({ ...current, revision: current.revision + 1, wayOut: null, thread: { ...current.thread, cards: current.thread.cards.filter(card => card.id !== params.cardId) } }); return current }
@@ -74,7 +74,8 @@ const LEAD_CONTRACT_CATALOG_STATES = ['default', 'loading'] as const
 /** The catalog renders the real pattern, including narrow action wrapping. */
 export const LeadContractSpecimen = () => <div className="flex flex-col gap-6">{LEAD_CONTRACT_CATALOG_STATES.map(state => <div key={state} data-variant={LEAD_CONTRACT_CATALOG_VARIANTS[0]} data-size={LEAD_CONTRACT_CATALOG_SIZES[0]} data-state={state}>
   <LeadContract pending={state === 'loading'} title="Plan" revision={2} summary="Implement, check and review the keyboard path." onApprove={() => {}} onDecline={() => {}}>
-    <Rows><Row title="Review keyboard focus" desc="Demo runtime · demo-model" /><Row title="Keyboard checks pass" titleChip={<Chip tone="neutral">Check</Chip>} /></Rows>
-    <Rows><Row title="Allowance" control={<Text role="meta">$5 · 4 rounds</Text>} /><Row title="Approval scope" desc="Only the approved steps in /workspace/demo." /></Rows>
+    <Rows variant="inset"><Row title="Review keyboard focus" desc="Demo runtime · demo-model" /></Rows>
+    <Rows variant="inset"><Row title="Keyboard checks pass" titleChip={<Chip tone="neutral">Check</Chip>} /></Rows>
+    <Rows variant="inset"><Row title="Allowance" control={<Text role="meta">$5 · 4 rounds</Text>} /><Row title="Approval scope" desc="Only the approved steps in /workspace/demo." /></Rows>
   </LeadContract>
 </div>)}</div>

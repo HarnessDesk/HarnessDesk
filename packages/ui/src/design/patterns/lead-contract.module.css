@@ -36,22 +36,13 @@
 }
 
 .surface {
+  min-width: 0;
+}
+.content {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  gap: var(--hd-space-4);
-  padding: var(--hd-inset-card);
-  border: var(--hd-border-width) solid var(--hd-border);
-  border-radius: var(--hd-radius-lg);
-  background: var(--hd-card);
-}
-.surface > [data-slot='rows'] {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-}
-.surface > [data-slot='rows'] + [data-slot='rows'] {
-  border-top: var(--hd-border-width) solid var(--hd-border);
+  gap: var(--hd-page-stack);
 }
 .cardHead {
   display: flex;

@@ -2323,7 +2323,8 @@ one long label ("Detail optional").
 Fields, stacked — the body of a dialog that asks for more than one thing.
 Inside a dialog it keeps the dialog's form rhythm (`DialogForm`): 16px
 between fields by default, a named 24px section gap when requested, and a
-legend 6px over its group.
+legend 6px over its group. `sizing="content"` keeps the stack's intrinsic
+height inside a bounded scrolling body, so its row groups cannot shrink.
 
 ### `Note`
 
@@ -2406,7 +2407,9 @@ A card with nothing in it is not drawn: an empty list left a stray 2px
 rule in the middle of a form. Inside a dialog, a card that is a radio group
 of `RowChoice` rows and nothing else is a `ChoiceList` — no card, and each
 row a compact radio row. A radio group of anything else (a branch picker of
-row buttons) keeps its card, its edge and its ground.
+row buttons) keeps its card, its edge and its ground. `variant="inset"`
+groups rows inside an existing card: it inherits that surface and has no
+bottom margin; adjacent inset groups keep one divider.
 
 ### `Row`
 
@@ -2680,8 +2683,9 @@ rather than straight after its name, and the name column stays one width.
 
 `packages/ui/src/design/patterns/lead-contract.tsx`
 
-One Lead decision surface. Row groups inherit its edge and prose uses the
-transcript's Markdown pipeline, including sanitization and code interactions.
+One Lead decision surface, composed from Card and CardContent. Inset Rows
+inherit its edge and prose uses the
+transcript's Markdown pipeline, including sanitization and code interactions. Requires a StoreProvider.
 
 ### `LeadMessage`
 

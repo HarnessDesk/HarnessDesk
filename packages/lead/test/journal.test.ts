@@ -571,7 +571,7 @@ test('a plan made stale by a later policy change can be declined without ending 
   const { journal, original } = await runningTwoStepPlan()
   const revised = { ...original, revision: 2, digest: 'b'.repeat(64) }
   await journal.offerCard({ ...plan, revision: 2, contractDigest: revised.digest, contract: revised })
-  await journal.setPolicy({ ...policy, revision: 2 })
+  await journal.setPolicy({ ...policy, revision: 2, rules: [{ id: 'tighten-read', method: 'library/usage', effect: 'deny', action: null, project: null }] })
   await journal.decideCard({ ...click, expectedRevision: 2, contractDigest: revised.digest, choice: 'decline' })
   assert.equal(journal.state.phase, 'running')
   assert.equal(journal.state.contract.digest, original.digest)
@@ -1662,12 +1662,12 @@ test('renewal admission retries with a fresh id when replacing cannot fit', asyn
   assert.ok(journal.state.decidedCards.includes(`${old.id}:${old.revision}`))
 })
 
-test('legacy checkpoints put saved cards after the retained message suffix', async () => {
+test('legacy checkpoints keep saved card order at the retained message boundary', async () => {
   const journal = await open(memory()); await journal.setPolicy(policy); await initializeBudget(journal); await journal.offerCard(plan); await journal.appendReply('Retained answer'); await journal.offerCard({ ...plan, id: 'later' })
   const checkpoint: any = lead.leadCheckpoint(journal.state, '0'.repeat(64)); delete checkpoint.state.cardPositions
   const state = lead.parseLeadCheckpoint(checkpoint).state
   const last = Math.max(...state.messages.map(message => message.revision))
-  assert.deepEqual(state.cards.map(card => state.cardPositions[card.id]), [last + 1, last + 2])
+  assert.deepEqual(state.cards.map(card => state.cardPositions[card.id]), [last, last])
 })
 
 test('replacing a pending renewal keeps checkpoints and reopen parseable', async () => {
@@ -1693,4 +1693,28 @@ test('renewal reducer independently requires monotonic expiry and one renewal pe
   assert.throws(() => lead.reduceLeadRecord(renewed, { version: 1, seq: renewed.seq + 1, type: 'card-decision', decision: { ...click, expectedRevision: 2 }, expiresAt: 200 }))
   const decided = { ...renewed, decidedCards: [...renewed.decidedCards, 'plan-1:2'] }
   assert.throws(() => lead.reduceLeadRecord(decided, { version: 1, seq: decided.seq + 1, type: 'renew-plan', now: 201 }))
+})
+
+for (const mode of ['plan', 'default']) for (const combined of [false, true]) test(`authority-neutral Add rule persists in ${mode}, combined=${combined}`, async () => {
+  const storage = memory(), journal = await open(storage)
+  await journal.setPolicy({ ...policy, mode }); await initializeBudget(journal)
+  const proposed = { ...policy, mode, revision: 2, rules: [{ id: 'added-rule', method: 'flow/start-goal', effect: 'ask', action: null, project: null }] }
+  if (combined) await journal.changePolicyAndBudgetCaps(proposed, contract.caps, journal.state.seq, { policy: 'edit', caps: 'caps' }, 100)
+  else await journal.changePolicy(proposed, journal.state.seq, 'edit')
+  assert.deepEqual(journal.state.policy, proposed)
+  assert.deepEqual((await open(storage)).state.policy, proposed)
+  await journal.changePolicy({ ...proposed, revision: 3, rules: [] }, journal.state.seq, 'remove')
+  assert.deepEqual(journal.state.policy.rules, [])
+})
+test('reducer ignores identical policy values regardless of revision', () => {
+  const state = lead.reduceLeadRecord(lead.initialLeadState(), { version: 1, seq: 1, type: 'policy', policy })
+  const next = lead.reduceLeadRecord(state, { version: 1, seq: 2, type: 'policy', policy: { ...policy, revision: 2 } })
+  assert.deepEqual(next.policy, policy)
+})
+test('legacy checkpoint cards precede every new message after reopen', async () => {
+  const journal = await open(memory()); await journal.setPolicy(policy); await journal.offerCard(plan); await journal.offerCard({ ...plan, id: 'second' }); await journal.appendReply('Last retained message')
+  const checkpoint: any = lead.leadCheckpoint(journal.state, '0'.repeat(64)); delete checkpoint.state.cardPositions
+  const state = lead.parseLeadCheckpoint(checkpoint).state
+  const next = lead.reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'message', idempotencyKey: null, message: { version: 1, id: `message-${state.seq + 1}`, revision: state.seq + 1, role: 'assistant', text: 'New message' } })
+  assert.ok(next.cards.every(card => next.cardPositions[card.id]! < next.messages.at(-1)!.revision))
 })

@@ -477,14 +477,15 @@ export const Field = ({
  * Fields, stacked — the body of a dialog that asks for more than one thing.
  * Inside a dialog it keeps the dialog's form rhythm (`DialogForm`): 16px
  * between fields by default, a named 24px section gap when requested, and a
- * legend 6px over its group.
+ * legend 6px over its group. `sizing="content"` keeps the stack's intrinsic
+ * height inside a bounded scrolling body, so its row groups cannot shrink.
  */
-export const FormStack = ({ children, spacing = 'form' }: { children: ReactNode; spacing?: 'form' | 'section' }) => {
+export const FormStack = ({ children, spacing = 'form', sizing }: { children: ReactNode; spacing?: 'form' | 'section'; sizing?: 'content' }) => {
   const inDialog = useDialogForm()
   const className = inDialog
     ? cx(dialogStackClass, spacing === 'section' && dialogSectionStackClass)
     : styles.formStack
-  return <div className={className} data-slot="form-stack" data-spacing={spacing}>{children}</div>
+  return <div className={className} data-slot="form-stack" data-spacing={spacing} {...(sizing ? { 'data-sizing': sizing } : {})}>{children}</div>
 }
 
 /**
@@ -904,13 +905,16 @@ const RowsCardContext = createContext(false)
  * rule in the middle of a form. Inside a dialog, a card that is a radio group
  * of `RowChoice` rows and nothing else is a `ChoiceList` — no card, and each
  * row a compact radio row. A radio group of anything else (a branch picker of
- * row buttons) keeps its card, its edge and its ground.
+ * row buttons) keeps its card, its edge and its ground. `variant="inset"`
+ * groups rows inside an existing card: it inherits that surface and has no
+ * bottom margin; adjacent inset groups keep one divider.
  */
 export const Rows = ({
   children,
   className,
+  variant,
   ...props
-}: HTMLAttributes<HTMLDivElement> & { children: ReactNode; className?: string }) => {
+}: HTMLAttributes<HTMLDivElement> & { children: ReactNode; className?: string; variant?: 'inset' }) => {
   const inDialog = useDialogForm()
   const rows = Children.toArray(children)
   if (rows.length === 0) return null
@@ -920,6 +924,7 @@ export const Rows = ({
   return (
     <div
       className={cx(styles.rows, className)}
+      {...(variant ? { 'data-variant': variant } : {})}
       // Not when this card is also a `radiogroup`: outside a dialog that
       // role is a bare wrapper around a list of answers (a branch picker's
       // row buttons, say) rather than the settings card a `SectionHead`'s

@@ -3754,13 +3754,21 @@ revision limit also applies to renewal. When another revision would exceed it,
 or its replacement cannot fit the projection, renewal creates a fresh plan card id
 with the same contract digest and leaves the old card decided. Other renewal
 failures leave the last durable projection readable, including Settings and key
-removal. A terminal phase closes pending renewal cards.
+removal. A full 64-card table blocks renewal and records one durable
+`lead-renewal-blocked` wait, so the banner explains why no decision is offered.
+Repeated reads append nothing further. A terminal phase closes pending renewal cards.
 
 
 New journals keep each card's first journal sequence separately from its local
 revision counter, so replacement preserves its inline position. Checkpoints from
 before this field retain only card order, not exact interleaving with messages;
-their cards keep that saved order after the retained message suffix, starting at
-its maximum message revision plus one. These synthetic positions can extend
-beyond the checkpoint sequence by at most the retained card count. New writes
-and full journal replay retain exact positions.
+their cards share the retained suffix’s last message position (or one when it is
+empty). Stable journal rendering puts the message first, then all saved cards in
+their original order, before every new message. Synthetic positions never extend
+beyond the checkpoint sequence. New writes and full journal replay retain exact
+positions. This supersedes the earlier maximum-plus-index migration, which could
+interleave saved cards with new messages.
+
+Policy saves compare mode and rules structurally, ignoring revision alone. An edit
+that leaves effective authority unchanged is still stored as a tightening; only
+equal values are a no-op. Widening and mixed edits still require a decision card.

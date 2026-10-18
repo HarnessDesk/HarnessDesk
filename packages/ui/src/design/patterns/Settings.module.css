@@ -569,6 +569,11 @@
   color: var(--hd-muted-foreground);
 }
 
+/* A bounded dialog scrolls around this stack rather than shrinking its groups. */
+[data-slot='form-stack'][data-sizing='content'] {
+  min-height: max-content;
+}
+
 /* A form: fields stacked with a step of air between them. */
 .formStack {
   display: flex;
@@ -903,6 +908,17 @@
   background: var(--hd-card-fill, var(--hd-card));
   overflow: hidden;
   margin-bottom: var(--hd-space-1-5);
+}
+
+/* A group inset in another card inherits that card's surface. */
+.rows[data-variant='inset'] {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  margin-bottom: 0;
+}
+.rows[data-variant='inset'] + .rows[data-variant='inset'] {
+  border-top: var(--hd-border-width) solid var(--hd-border);
 }
 
 /* In a dialog the form stack spaces its cards. */

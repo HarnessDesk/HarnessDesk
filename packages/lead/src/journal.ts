@@ -3,7 +3,7 @@ import {
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_MANAGEMENT_REASONS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy, type LeadBudgetEvent, type LeadBudgetState, type LeadCaps,
 } from '@harnessdesk/protocol'
-import { compareLeadPolicyAuthority, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
+import { compareLeadPolicyAuthority, sameLeadPolicyValues, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
 import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, assertPlanApprovable, type LeadState } from './state.js'
@@ -292,8 +292,8 @@ export class LeadJournal {
   #policyChange(state: LeadState, policy: LeadPermissionPolicy, id: string): LeadJournalEvent | null {
     if (!state.policy) throw new Error('lead-policy-unavailable')
     const comparison = compareLeadPolicyAuthority(state.policy, policy)
-    if (comparison === 'unchanged') return null
-    if (comparison === 'narrowing') return { type: 'policy', policy }
+    if (sameLeadPolicyValues(state.policy, policy)) return null
+    if (comparison === 'narrowing' || comparison === 'unchanged') return { type: 'policy', policy }
     if (state.cards.some(card => card.type === 'permission-change' && !state.decidedCards.includes(`${card.id}:${card.revision}`)))
       throw Object.assign(new Error('lead-change-pending'), { wireCode: 'lead-change-pending' })
     return { type: 'card', card: { version: 1, id, revision: 1, type: 'permission-change',
@@ -351,6 +351,11 @@ export class LeadJournal {
     const old = [...state.cards].reverse().find(card => card.type === 'plan' && card.contractDigest === state.contract?.digest &&
       JSON.stringify(card.contract) === JSON.stringify(state.contract) && state.decidedCards.includes(`${card.id}:${card.revision}`))
     if (!old) return
+    if (state.cards.length >= 64) {
+      if (state.managementReason !== 'lead-renewal-blocked')
+        await this.#append({ type: 'management', phase: 'waiting-for-user', reason: 'lead-renewal-blocked' })
+      return
+    }
     const freshId = `renewal-${state.seq + 1}`
     const preflight = (cardId?: string) => {
       const event = { type: 'renew-plan' as const, now, ...(cardId ? { cardId } : {}) }

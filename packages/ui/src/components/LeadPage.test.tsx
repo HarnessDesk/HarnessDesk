@@ -8,10 +8,16 @@ import { previewStore } from '../preview/harness'
 import { leadPlan, leadProjection } from '../preview/lead-fixture'
 import { DestinationPageScope } from '../panels/destination-page'
 import { TopBarProvider } from '../panels/top-bar'
+import { formatReset } from '../lib/limits'
+const decisionHandlers = vi.hoisted(() => [] as { onApprove?: () => void }[])
+vi.mock('../design', async importOriginal => {
+  const actual = await importOriginal<typeof import('../design')>()
+  return { ...actual, LeadContract: (props: React.ComponentProps<typeof actual.LeadContract>) => { decisionHandlers.push(props); return <actual.LeadContract {...props} /> } }
+})
 const modules = import.meta.glob('./LeadPage.tsx', { eager: true }) as Record<string, { LeadPage: React.ComponentType<any> }>
 const LeadPage = modules['./LeadPage.tsx']?.LeadPage ?? (() => null)
 const clean: (() => void)[] = []
-afterEach(() => { clean.splice(0).forEach(fn => fn()); vi.restoreAllMocks() })
+afterEach(() => { clean.splice(0).forEach(fn => fn()); vi.restoreAllMocks(); decisionHandlers.length = 0 })
 const mount = async (projection = leadProjection()) => {
   const store = new AppStore('ws://localhost:0/'), box = document.createElement('div'); document.body.append(box)
   Object.assign(store.getSnapshot(), previewStore({ leadAvailable: true }).getSnapshot())
@@ -186,4 +192,67 @@ it.each([100, Date.now() + 3600000])('names expired approval in the banner and r
   const base = leadProjection(); const { box } = await mount({ ...base, planConsentExpiresAt: expiry, wayOut: 'decide-plan', thread: { ...base.thread, contract: leadPlan.contract, cards: [{ ...leadPlan, revision: 2 }] } })
   expect(box.querySelector('[data-lead-state]')?.textContent).toBe('Renewal')
   expect(box.textContent?.match(/earlier approval expired at/g)).toHaveLength(2)
+})
+
+it('a decide-plan update scrolls without taking focus or text from the composer', async () => {
+  const base = leadProjection(), { box, update } = await mount(base)
+  const area = box.querySelector('textarea')!; area.focus(); await input(area, 'Half a sentence')
+  await update({ wayOut: 'decide-plan', thread: { ...base.thread, cards: [leadPlan], cardPositions: { plan: 2 } } })
+  expect(document.activeElement).toBe(area); expect(area.value).toBe('Half a sentence')
+  await input(area, 'Half a sentence finished'); expect(area.value).toBe('Half a sentence finished')
+  await act(async () => button('Review plan').click()); expect(document.activeElement?.getAttribute('data-lead-card')).toBe('plan')
+})
+it('closes the key editor only after a successful save', async () => {
+  const { store } = await mount(); await act(async () => button('Settings').click()); await act(async () => button('Replace…').click())
+  vi.spyOn(store.lead, 'updateSettings').mockResolvedValue(leadProjection())
+  await input(document.querySelector<HTMLInputElement>('input[type="password"]')!, 'synthetic-key')
+  await act(async () => button('Save').click()); expect(document.querySelector('input[type="password"]')).toBeNull()
+})
+it('locks retained callbacks across separate cards before pending state renders', async () => {
+  const base = leadProjection(), { store } = await mount({ ...base, thread: { ...base.thread, cards: [leadPlan, { ...leadPlan, id: 'other' }] } })
+  let done!: () => void
+  const decide = vi.spyOn(store.lead, 'decide').mockImplementation(() => new Promise<LeadWindowProjection>(resolve => { done = () => resolve(base) }))
+  const [first, second] = decisionHandlers.slice(-2).map(handler => handler.onApprove!)
+  await act(async () => { first!(); second!() }); expect(decide).toHaveBeenCalledTimes(1)
+  await act(async () => done())
+})
+it('caps expiry backoff at 30 seconds, reads once at the cap and waits for changed', async () => {
+  vi.useFakeTimers()
+  try {
+    const now = Date.now(), { store, update } = await mount({ ...leadProjection(), planConsentExpiresAt: now + 100 })
+    const read = vi.spyOn(store.lead, 'readThread').mockResolvedValue(leadProjection().thread)
+    await act(async () => vi.advanceTimersByTimeAsync(40000)); expect(read).toHaveBeenCalledTimes(6)
+    await act(async () => vi.advanceTimersByTimeAsync(21150)); expect(read).toHaveBeenCalledTimes(7)
+    await act(async () => vi.advanceTimersByTimeAsync(300000)); expect(read).toHaveBeenCalledTimes(7)
+    await update({ wayOut: 'decide-plan' }); expect(button('Review plan')).toBeDefined()
+  } finally { vi.useRealTimers() }
+})
+it('formats renewal notices and settings expiry with the shared minute formatter', async () => {
+  const expiry = 1792328434567, base = leadProjection()
+  const { box } = await mount({ ...base, planConsentExpiresAt: expiry, wayOut: 'decide-plan', thread: { ...base.thread, contract: leadPlan.contract, cards: [leadPlan] } })
+  expect(box.textContent?.split(formatReset(expiry)!).length).toBe(3)
+  await act(async () => button('Settings').click()); expect(document.querySelector('[role="dialog"]')?.textContent).toContain(formatReset(expiry))
+})
+it('explains a blocked renewal even without a Resume way out', async () => {
+  const { box } = await mount({ ...leadProjection(), wayOut: null, waitReason: 'lead-renewal-blocked' })
+  expect(box.textContent).toContain('The plan could not be renewed because the decision card limit was reached.')
+  expect(button('Resume')).toBeUndefined()
+})
+it('names the key row once and puts the allowance note on its dollar row', async () => {
+  await mount(); await act(async () => button('Settings').click())
+  const rows = [...document.querySelectorAll('[role="dialog"] [data-slot="row"]')]
+  expect(rows.some(row => row.textContent?.startsWith('Key'))).toBe(true)
+  expect(rows.some(row => row.textContent?.startsWith('Reported spend'))).toBe(false)
+  expect(rows.find(row => row.textContent?.startsWith('Dollar allowance'))?.textContent).toContain('Stops when reported spend reaches the cap.')
+})
+
+it('keeps Lead settings rows intrinsically sized and saves in trailing action rows', async () => {
+  await mount(); await act(async () => button('Settings').click())
+  const groups = [...document.querySelectorAll('[role="dialog"] [data-slot="rows"]')]
+  expect(groups).toHaveLength(3)
+  for (const group of groups) {
+    expect(group.parentElement?.getAttribute('data-slot')).toBe('form-stack')
+    expect(group.parentElement?.getAttribute('data-sizing')).toBe('content')
+  }
+  for (const name of ['Save permissions', 'Save allowances']) expect(button(name).closest('[data-slot="row"]')).not.toBeNull()
 })

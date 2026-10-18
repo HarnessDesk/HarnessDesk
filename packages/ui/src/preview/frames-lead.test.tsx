@@ -31,3 +31,16 @@ it.each(['light', 'dark'])('shows the selected Lead in the enabled app shell in 
     expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
   } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
 }, 30000)
+
+it('retains an added permission rule when the synthetic settings specimen reopens', async () => {
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === name)!
+  try {
+    await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="settings-configured" /></StoreProvider>))
+    await act(async () => button('Add rule').click()); await act(async () => button('Save permissions').click())
+    expect(button('Save permissions').disabled).toBe(true)
+    await act(async () => button('Done').click()); await act(async () => button('Settings').click())
+    expect(document.querySelector<HTMLSelectElement>('[aria-label="Rule 1 effect"]')?.value).toBe('ask')
+    expect(document.querySelector<HTMLSelectElement>('[aria-label="Rule 1 method"]')?.value).toBe('flow/start-goal')
+  } finally { act(() => root.unmount()); box.remove() }
+})

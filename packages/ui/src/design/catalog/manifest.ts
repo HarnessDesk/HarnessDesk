@@ -764,7 +764,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
 const PATTERN_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
   'Menu': { 'MenuLabel': { 'size': ['default', 'compact'] } },
   'Notices': { 'InboxPanel': { 'size': ['icon-sm', 'icon-xs'] } },
-  'Settings': { 'AccountMark': { 'size': ['sm', 'lg', 'dot', 'row', 'menu'] }, 'Chip': { 'size': ['default', 'sm'], 'variant': ['default', 'outline', 'quiet'] }, 'CodeText': { 'size': ['default', 'inherit'] }, 'Dot': { 'variant': ['default', 'navigation', 'presence'] }, 'Search': { 'size': ['default', 'compact', 'bare'] } },
+  'Settings': { 'AccountMark': { 'size': ['sm', 'lg', 'dot', 'row', 'menu'] }, 'Chip': { 'size': ['default', 'sm'], 'variant': ['default', 'outline', 'quiet'] }, 'CodeText': { 'size': ['default', 'inherit'] }, 'Dot': { 'variant': ['default', 'navigation', 'presence'] }, 'Rows': { 'variant': ['inset'] }, 'Search': { 'size': ['default', 'compact', 'bare'] } },
   'ToolBody': { 'ToolProse': { 'variant': ['prose', 'note'] } },
 }
 
@@ -892,7 +892,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
-  ['lead-contract', 'lead-contract', 'Single-surface Lead decisions, transcript messages and the shared composer'],
+  ['lead-contract', 'lead-contract', 'Lead decisions composed from Card and inset Rows, named speakers and the shared composer'],
   ['CommandPalette', 'conversation', 'Fixed search surface, title-led results and a keyboard-hint footer'],
   ['DashboardBands', 'dashboard-bands', 'Recorded plan, spend and activity readings through canonical page blocks'],
   ['MainDestination', 'main-destination', 'Retained work and visited pages share one main region'],

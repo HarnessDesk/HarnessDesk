@@ -102,3 +102,11 @@ it.each(['permission-change', 'budget-change'] as const)('gives %s a summary ins
   const { box } = mount([card]); expect(box.querySelector('[data-lead-prose]')).not.toBeNull()
   if (type === 'permission-change') { expect(box.textContent).toContain('Start a run'); expect(box.textContent).not.toContain('flow/start-goal'); expect(box.querySelector('[title="flow/start-goal"]')).not.toBeNull() }
 })
+
+it('does not attribute a worker approval to every runtime in the plan', () => {
+  const box = document.createElement('div'), root = createRoot(box)
+  const other = { ...leadRuntime, id: 'second-runtime', presentation: { ...leadRuntime.presentation, name: 'Second worker' } }
+  act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[{ ...leadWaiting, kind: 'worker-approval', personCardId: null }]} contract={{ ...leadContract, steps: [...leadContract.steps, { ...leadContract.steps[0]!, id: 'other', assignments: [{ ...leadContract.steps[0]!.assignments[0]!, seat: { runtime: other.id } }] }] }} runtimes={[leadRuntime, other]} onDecide={vi.fn()} onChanges={vi.fn()} onApprovals={vi.fn()} /></StoreProvider>))
+  try { expect(box.textContent).toContain('A worker is waiting for a command approval.'); expect(box.textContent).not.toContain('Second worker') }
+  finally { act(() => root.unmount()) }
+})

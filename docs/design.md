@@ -2336,7 +2336,8 @@ change an entry's add, download, blocked or registered behaviour.
 
 `LeadJournal` owns the reading-width page: the body starts with Lead and Settings,
 without a title glyph. The journal uses the transcript's `Message`, `MessageContent`,
-`Bubble` and `BubbleContent` alignment and rhythm. Lead turns are assistant turns.
+`Bubble` and `BubbleContent` alignment and rhythm. Lead turns are assistant turns;
+each message exposes its speaker through an article role.
 It follows new entries until the person scrolls up. Review plan scrolls to and
 focuses the newest pending plan. The journal is a labelled region, keeping live
 announcements separate from its interactive decisions.
@@ -2345,23 +2346,29 @@ The composer uses `ComposerShell`, `ComposerText`, `ComposerTools` and
 `ComposerSend`. Its allowance chips share the action row with Send. Enter sends;
 Shift+Enter keeps a line break. Pending state belongs to Send.
 
-`LeadContract` is one bordered, rounded surface: kind and state on the header's
+`LeadContract` composes the shared `Card` and `CardContent` as one surface: kind and state on the header's
 left, revision as a fact on its right, then a Markdown summary, inset Rows groups
-and one wrapping action row. Internal recipe, source, digest and evidence ids
-never appear. Steps show their title and the agent's presentation name and model;
+and one wrapping action row. `Rows variant="inset"` inherits the card surface
+and has no bottom margin, so the page stack token alone spaces groups. The pattern requires a StoreProvider for Markdown. Internal
+recipe, source, digest and evidence ids never appear. Steps show their title and the agent's presentation name and model;
 assertion kinds use Check, Review and Findings chips. Permission methods share
 one closed human label table with settings; their wire ids are hover facts only.
 
-A worker command approval is a short card naming the waiting worker with one
-Open approvals button. Person gates alone have Accept and Decline. Evidence
+A worker command approval is a short card naming only the waiting worker (or
+“A worker” when its identity is unavailable), with one Open approvals button. Person gates alone have Accept and Decline. Evidence
 requires the current contract revision and a non-empty evidence list; everything
 else reads Unknown. Lead spend and reported worker spend remain separate facts.
 One decision is in flight across the page. A refusal keeps focus on its card.
-A renewal says when the earlier approval expired and wears a Renewal chip.
+A renewal says when the earlier approval expired, using the shared minute-level
+notice formatter, and wears a Renewal chip. Automatic plan updates scroll
+without moving composer focus; an explicit Review plan also focuses the card.
 
 Settings has Provider key, Permissions and Allowances groups. Key status is a
 chip; Add… or Replace… reveals a password input with Save and Cancel. Remove
 uses ConfirmDialog. The key is trimmed and the uncontrolled input emptied before
 its exclusive request. Permissions and Allowances each have one Save at their
-group's end, enabled only for changed values. Hints wrap, the body scrolls, and
-Done stays in the footer. Refusals appear in the active dialog and clear on close.
+group's end, right-aligned at normal width and enabled only for changed values.
+The key row is Key; its editor closes after a successful save. The dollar row
+carries the reported-spend hint. `FormStack sizing="content"` keeps groups at
+their natural height inside the bounded dialog; hints wrap,
+only the body scrolls, and Done stays in the footer. Refusals appear in the active dialog and clear on close.

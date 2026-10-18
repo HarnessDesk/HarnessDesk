@@ -1910,17 +1910,24 @@ A person gate offers Accept and Decline; a worker command approval opens the
 existing worker approval surface and cannot be answered by Lead's controls.
 
 The host supplies the only way out: Resume explains why work stopped, while
-Review plan focuses the plan requiring a decision. An interrupted request also
+Review plan focuses the plan requiring a decision. An arriving plan scrolls into
+view without taking focus from the composer. An interrupted request also
 continues when a message is sent. Expired consent re-offers the approved plan
 under a new revision, or a new card when the revision bound or display fit
 requires it. Its Renewal chip and sentence name the earlier expiry. It needs
 fresh approval; Resume never renews consent. Renewal failures leave reads and
-settings available, and terminal threads close pending renewals.
+settings available, and terminal threads close pending renewals. A full card table
+reports that renewal is blocked, without offering Resume. Expiry reads back off
+to 30 seconds, make one final read, then wait for host changes.
 
 Settings contains the write-only provider key, permission policy and allowances.
-Provider key, Permissions and Allowances form three groups. Add… or Replace…
-reveals the password input with Save and Cancel; status is Configured or Not set.
+Provider key, Permissions and Allowances form three groups. The key row is
+named Key. Add… or Replace… reveals the password input with Save and Cancel; status is Configured or Not set.
 A key change is submitted alone, its password input cleared immediately. Remove
 asks for confirmation. Each authority group has one Save, enabled only for edits;
-unchanged server updates preserve revisions. The body scrolls with Done in its footer. Tightening applies at once; widening creates a card
-for approval in the journal. Existing consent shows its expiry time.
+equal policy values preserve revisions; authority-neutral rule edits are stored.
+The key editor closes after a successful save. The shared form stack keeps groups
+at their natural height;
+only the body scrolls, with Done in its footer. Group Saves have normal width,
+aligned right, and the reported-spend note belongs to the dollar row. Tightening
+applies at once; widening creates a card for approval in the journal. Existing consent shows its expiry time.
