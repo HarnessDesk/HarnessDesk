@@ -1092,8 +1092,10 @@ holds per-copy Remove, Resolve copies, empty-copy cleanup and Install to.
 Remove shortens home paths in its label and keeps the full path on hover.
 Install availability and refusal cautions stay beside the install actions in More.
 Every write still opens the existing reviewed plan. MCP details keep their
-dialog. Definition reads do not carry install dates or runnable/binary flags;
-file safety chips remain in the install and update plans that provide them.
+dialog. Definition reads carry per-file runnable and binary flags for the Files
+card’s Can run and Binary chips. Source shows the recorded install or update
+date when available; older copies may have no recorded date.
+Symlinked files and folders inside a bundle are not listed in Files, matching the install copy.
 
 Update plans label each file Added, Changed or Removed. Read opens the new
 runnable or binary file; removed files have no Read action. The definition diff

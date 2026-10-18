@@ -355,6 +355,8 @@ export interface LibraryUsage {
 
 /** A public repository revision and the path of one skill within it. */
 export interface LibrarySkillOrigin {
+  /** When this copy was installed or last updated, in epoch milliseconds. */
+  readonly installedAt?: number
   readonly url: string
   readonly ref: string
   readonly commit: string
@@ -640,6 +642,10 @@ export const summarise = (library: Library): LibrarySummary => {
 
 /** One file inside a skill bundle, relative to the bundle's own directory. */
 export interface LibraryFile {
+  /** Executable mode, script name or content indicates this file can run. */
+  readonly runnable?: true
+  /** The bounded content sample is binary rather than UTF-8 text. */
+  readonly binary?: true
   /** Relative to the bundle root, `/`-separated. `SKILL.md` is always first. */
   readonly path: string
   readonly bytes: number

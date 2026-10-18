@@ -325,3 +325,50 @@ it('Files does not invent an on-disk size when a flat definition is truncated', 
   expect(card('Files')!.textContent).toContain('SKILL.md')
   expect(card('Files')!.textContent).not.toMatch(/\d+ B/)
 })
+
+
+it('shows host file flags on their own rows and the recorded install date', async () => {
+  const installedAt = Date.UTC(2026, 9, 10, 12)
+  const entry = skill()
+  await mount([{ ...entry, copies: entry.copies.map(copy => ({ ...copy, origin: { ...origin, installedAt } })) }], 'review', {
+    name: 'review', kind: 'skill', path: entry.copies[0]!.path, text: raw, truncated: false, moreFiles: 0,
+    files: [{ path: 'SKILL.md', bytes: 90 }, { path: 'runner', bytes: 20, runnable: true }, { path: 'data.bin', bytes: 10, binary: true },
+      { path: 'a.txt', bytes: 1 }, { path: 'b.txt', bytes: 1 }, { path: 'hidden.sh', bytes: 2, runnable: true }],
+  })
+  const rows = [...card('Files')!.querySelectorAll('[data-slot="row"]')]
+  expect(rows.find(row => row.textContent?.includes('runner'))?.querySelector('[data-slot="chip"]')?.textContent).toBe('Can run')
+  expect(rows.find(row => row.textContent?.includes('data.bin'))?.querySelector('[data-slot="chip"]')?.textContent).toBe('Binary')
+  expect(rows[0]?.querySelector('[data-slot="chip"]')).toBeNull()
+  expect(card('Source')?.textContent).toContain(`Installed${new Date(installedAt).toLocaleDateString()}`)
+  await press('Show all files')
+  expect(card('Files')?.textContent).toContain('hidden.shCan run')
+})
+it('omits unreported file flags and install date', async () => {
+  await mount()
+  expect(card('Files')?.querySelector('[data-slot="chip"]')).toBeNull()
+  expect(card('Files')?.querySelector('[data-slot="row-title-chip"]')).toBeNull()
+  expect(card('Source')?.textContent).not.toContain('Installed')
+})
+
+it('renders the recorded install date independently of file flags', async () => {
+  const installedAt = Date.UTC(2026, 9, 10, 12), entry = skill()
+  await mount([{ ...entry, copies: entry.copies.map(copy => ({ ...copy, origin: { ...origin, installedAt } })) }])
+  expect(card('Source')?.textContent).toContain(`Installed${new Date(installedAt).toLocaleDateString()}`)
+})
+
+it.each([false, true])('merges matching sources and shows the newest copy date (reversed: %s)', async reverse => {
+  const entry = skill(), older = Date.UTC(2026, 9, 9, 12), newer = Date.UTC(2026, 9, 10, 12)
+  const copies = [
+    { ...entry.copies[0]!, origin: { ...origin, installedAt: older } },
+    { ...entry.copies[0]!, path: '/home/jane/.two/skills/review', readBy: [two], origin: { ...origin, installedAt: newer } },
+  ]
+  await mount([skill({ copies: reverse ? copies.reverse() : copies })])
+  const source = card('Source')!
+  expect([...source.querySelectorAll('[data-slot="row"]')].filter(row => row.textContent === 'acme-dev/skills')).toHaveLength(1)
+  const date = source.querySelector('[title="Installed or updated"]')!
+  expect(date).toBeTruthy()
+  expect(date.querySelector('[data-slot="row-title"]')?.textContent).toBe('Installed')
+  expect(date.textContent).toBe(`Installed${new Date(newer).toLocaleDateString()}`)
+  expect(date.querySelector('[data-slot="row-ctl"]')?.textContent).toBe(new Date(newer).toLocaleDateString())
+  expect(source.textContent).not.toContain(new Date(older).toLocaleDateString())
+})

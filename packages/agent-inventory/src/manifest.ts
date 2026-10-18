@@ -79,7 +79,12 @@ export class LibraryManifest {
           const { origin, ...rest } = entry
           const validOrigin = origin && typeof origin.url === 'string' && typeof origin.ref === 'string' &&
             typeof origin.commit === 'string' && /^[a-f0-9]{40}$/i.test(origin.commit) && typeof origin.path === 'string'
-          manifest.#entries.set(keyOf(entry.kind, entry.path, entry.name), { ...rest, ...(validOrigin ? { origin } : {}) })
+          let storedOrigin = origin
+          if (validOrigin && origin) {
+            const { installedAt, ...source } = origin
+            storedOrigin = { ...source, ...(typeof installedAt === 'number' && Number.isFinite(installedAt) && installedAt > 0 ? { installedAt } : {}) }
+          }
+          manifest.#entries.set(keyOf(entry.kind, entry.path, entry.name), { ...rest, ...(validOrigin ? { origin: storedOrigin } : {}) })
         }
       }
     } catch {

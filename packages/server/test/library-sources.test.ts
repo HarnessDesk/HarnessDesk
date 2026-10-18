@@ -263,7 +263,8 @@ test('fetched commit installs through the ordinary preview and persists its orig
     assert.equal((await applyLibrary(plan.ops.map(op => ({ ...op, acknowledged: true })), context))[0]?.outcome, 'done')
     assert.deepEqual(await readFile(join(plan.ops[0]!.targetPath, 'bytes.bin')), Buffer.from('\0\u0001é\n'))
     const manifest = JSON.parse(await readFile(join(context.libraryDir, 'manifest.json'), 'utf8'))
-    assert.deepEqual(manifest.entries[0].origin, { url: URL, ref: 'main', commit, path: 'demo' })
+    assert.equal(typeof manifest.entries[0].origin.installedAt, 'number')
+    assert.deepEqual(manifest.entries[0].origin, { url: URL, ref: 'main', commit, path: 'demo', installedAt: manifest.entries[0].at })
   }, { 'demo/SKILL.md': { body: BODY }, 'demo/bytes.bin': { body: '\0\u0001é\n' } })
 })
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -144,4 +144,25 @@ test('a symlink out of a root is followed only as far as the root allows', async
   const answer = readDefinition({ kind: 'skill', name: 'linked', path }, { home: root })
   assert.ok(answer, 'a link inside a scanned root is what the agent would load')
   assert.equal(answer.text, 'linked')
+})
+
+
+test('definition flags classify bounded file prefixes and never follow file or directory symlinks', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const path = await bundle(root, 'flags', 'Plain text')
+  await writeFile(join(path, 'runner'), 'echo demo')
+  await chmod(join(path, 'runner'), 0o755)
+  await writeFile(join(path, 'data.bin'), Buffer.from([0, 1, 2]))
+  await writeFile(join(path, 'note.txt'), 'Plain note')
+  await writeFile(join(root, 'secret'), 'Outside')
+  await symlink(join(root, 'secret'), join(path, 'linked'))
+  await symlink(root, join(path, 'linked-dir'))
+  const files = readDefinition({ kind: 'skill', name: 'flags', path }, { home: root })!.files
+  assert.deepEqual(files, [
+    { path: 'SKILL.md', bytes: 10 },
+    { path: 'data.bin', bytes: 3, binary: true },
+    { path: 'note.txt', bytes: 10 },
+    { path: 'runner', bytes: 9, runnable: true },
+  ])
 })

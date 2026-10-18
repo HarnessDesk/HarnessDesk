@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { isReachProblem, type LibraryDefinition, type LibraryEntry, type LibraryIntent, type LibraryUsage, type RuntimeId } from '@harnessdesk/protocol'
+import { isReachProblem, type LibraryDefinition, type LibrarySkillOrigin, type LibraryEntry, type LibraryIntent, type LibraryUsage, type RuntimeId } from '@harnessdesk/protocol'
 import { useStore } from '../state/context'
 import { DestinationBar, useDestinationPage } from '../panels/destination-page'
 import { Banner, Button, Chip, CodeBlock, CodeText, EmptyState, MenuItem, PageOptions, PageStack, PageColumns, Section, SectionBody, Row, RowValue, Switch, Text, ToggleGroup, ToggleGroupItem, Toolbar, ToolbarGap, ToolSection, ToolProse, ToolBodyControls, ToolFold, MenuNote } from '../design'
@@ -45,7 +45,14 @@ export const SkillPage = ({ entry, columns, hosts, cwd, usage, home, onBack, onC
   const rereadAndStillStale = staleIn.filter(one => rereadDone.has(one.runtime))
   const digests = new Set(entry.copies.filter(one => !one.hollow).map(one => one.digest))
 
-  const origins = [...new Map(entry.copies.flatMap(copy => copy.origin ? [[JSON.stringify(copy.origin), copy.origin] as const] : [])).values()]
+  const sources = new Map<string, LibrarySkillOrigin>()
+  for (const { origin } of entry.copies) {
+    if (!origin) continue
+    const key = JSON.stringify([origin.url, origin.ref, origin.commit, origin.path])
+    const previous = sources.get(key)
+    if (!previous || (origin.installedAt ?? 0) > (previous.installedAt ?? 0)) sources.set(key, origin)
+  }
+  const origins = [...sources.values()]
   // One banner per reason. It warns only when a runtime behind it is in a problem state: a note on
   // `off`, `stale` or `unscanned` explains, it does not alarm (isReachProblem, #838).
   const groupedWhy = new Map<string, { names: string[], problem: boolean }>()
@@ -235,6 +242,7 @@ export const SkillPage = ({ entry, columns, hosts, cwd, usage, home, onBack, onC
           {origins.length === 0 ? <Row density="compact" title="This Mac" /> : origins.map(origin => <div key={JSON.stringify(origin)}>
             <Row density="compact" title={<CodeText>{libraryRepository(origin)}</CodeText>} />
             <ToolProse variant="note">{origin.path || 'Repository root'} · {origin.ref}, pinned at {origin.commit.slice(0, 7)}</ToolProse>
+            {origin.installedAt !== undefined && <Row density="compact" title="Installed" tooltip="Installed or updated" control={<RowValue numeric>{new Date(origin.installedAt).toLocaleDateString()}</RowValue>} />}
           </div>)}
           {entry.copies.map(copy => <div key={copy.path}>
             <Row density="compact" title={<CodeText wrap>{shortPath(copy.path, home)}</CodeText>} />
@@ -244,8 +252,8 @@ export const SkillPage = ({ entry, columns, hosts, cwd, usage, home, onBack, onC
         <ToolSection label="Files" value={definition ? `${definition.files.length + definition.moreFiles || 1}` : undefined}>
           {definition === null ? <ToolProse variant="note">{reading ? 'Reading files…' : 'No file list to read'}</ToolProse> : <>
             {definition.files.length === 0 && <Row density="compact" title={<CodeText>SKILL.md</CodeText>} />}
-            {definition.files.slice(0, 5).map(file => <Row density="compact" key={file.path} title={<CodeText wrap>{file.path}</CodeText>} control={<RowValue numeric>{fileSize(file.bytes)}</RowValue>} />)}
-            {definition.files.length > 5 && <ToolFold label="Show all files">{definition.files.slice(5).map(file => <Row density="compact" key={file.path} title={<CodeText wrap>{file.path}</CodeText>} control={<RowValue numeric>{fileSize(file.bytes)}</RowValue>} />)}</ToolFold>}
+            {definition.files.slice(0, 5).map(file => <Row density="compact" key={file.path} title={<CodeText wrap>{file.path}</CodeText>} titleChip={(file.runnable || file.binary) && <>{file.runnable && <Chip tone="neutral">Can run</Chip>}{file.binary && <Chip tone="neutral">Binary</Chip>}</>} control={<RowValue numeric>{fileSize(file.bytes)}</RowValue>} />)}
+            {definition.files.length > 5 && <ToolFold label="Show all files">{definition.files.slice(5).map(file => <Row density="compact" key={file.path} title={<CodeText wrap>{file.path}</CodeText>} titleChip={(file.runnable || file.binary) && <>{file.runnable && <Chip tone="neutral">Can run</Chip>}{file.binary && <Chip tone="neutral">Binary</Chip>}</>} control={<RowValue numeric>{fileSize(file.bytes)}</RowValue>} />)}</ToolFold>}
             {definition.moreFiles > 0 && <ToolProse variant="note">and {definition.moreFiles} more {definition.moreFiles === 1 ? 'file' : 'files'} not listed</ToolProse>}
           </>}
         </ToolSection>
