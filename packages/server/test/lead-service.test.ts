@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { LeadSupervisor } from '@harnessdesk/lead/supervisor'
 import { createLeadMessages } from '@harnessdesk/lead'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createLeadJournal, type LeadJournalRecord } from '@harnessdesk/lead'
 import { LeadBudgets } from '../src/lead/budgets.js'
 
@@ -206,13 +206,16 @@ test('host provider-send attaches a transient key and returns only bounded, reda
   assert.equal(requests[0].origin, 'https://api.anthropic.com')
   assert.equal(requests[0].path, '/v1/messages')
   assert.equal(requests[0].method, 'POST')
-  body = JSON.stringify({ error: key }).replace('test', '\\u0074est')
-  await assert.rejects(s.options().providerSend(requestId, requestBody, signal), /lead-provider-failed/)
+  for (const escaped of [false, true]) {
+    body = JSON.stringify({ type: 'message', usage: { input_tokens: 1, output_tokens: 1 }, error: key })
+    if (escaped) body = body.replace('test', '\\u0074est')
+    await assert.rejects(s.options().providerSend(requestId, requestBody, signal), /lead-provider-failed/)
+  }
   body = 'x'.repeat(1_048_577)
   await assert.rejects(s.options().providerSend(requestId, requestBody, signal), /lead-provider-failed/)
   await s.service.deleteKey('anthropic')
   await assert.rejects(s.options().providerSend(requestId, requestBody, signal))
-  assert.equal(requests.length, 3)
+  assert.equal(requests.length, 4)
 })
 
 const providerPrice = { inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 1 }
@@ -240,12 +243,14 @@ const providerUntil = async (predicate: () => boolean) => {
   assert.ok(predicate(), 'provider boundary did not answer')
 }
 /** Real service, supervisor and journal; only the child pipes, broker and provider are synthetic. */
-const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: { resolveLead?: () => Promise<string>; holdExit?: boolean; prices?: Record<string, typeof providerPrice> } = {}) => {
+const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: { resolveLead?: () => Promise<string>; holdExit?: boolean; journal?: Awaited<ReturnType<typeof createLeadJournal>>; prices?: Record<string, typeof providerPrice> } = {}) => {
   const home = await mkdtemp('/tmp/hd-provider-')
   t.after(() => rm(home, { recursive: true, force: true }))
-  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
-  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
-  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'provider-boundary', caps: { usdMicros: 100_000, rounds: 4 }, freshnessMs: 1000 })
+  const journal = hooks.journal ?? await createLeadJournal({ read: async () => [], append: async () => {} })
+  if (!journal.state.budget) {
+    await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+    await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'provider-boundary', caps: { usdMicros: 100_000, rounds: 4 }, freshnessMs: 1000 })
+  }
   const child: any = new EventEmitter()
   child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough()
   let killed = false, stopped = 0, rpcId = 0, settings: any, pending = Buffer.alloc(0)
@@ -453,7 +458,7 @@ for (const [name, body] of Object.entries(refusedBodies)) test(`provider schema 
 for (const mode of ['no sends', 'all not-started'] as const) test(`host budget permits zero settle with ${mode}`, async t => {
   let calls = 0
   const s = await providerRig(t, async () => { calls++; return { status: 429, body: '{}', processing: 'not-started' } })
-  await providerReserve(s.journal, 'zero')
+  await reserveThroughChild(s, 'zero')
   if (mode === 'all not-started') for (let i = 0; i < 3; i++) await s.rpc('zero', providerBody())
   await s.journalRpc('updateBudget', [{ version: 1, type: 'settle', now: 100, requestId: 'zero', inputTokens: 0, outputTokens: 0 }])
   assert.equal(s.journal.state.budget?.leadUsdMicros, 0)
@@ -510,7 +515,7 @@ test('host serializes a valid body before checking its reservation and forwardin
 test('host budget closes provider admission before a zero settlement becomes durable', async t => {
   let calls = 0
   const s = await providerRig(t, async () => { calls++; return { status: 200, body: '{"usage":{"input_tokens":1,"output_tokens":1}}' } })
-  await providerReserve(s.journal, 'settling')
+  await reserveThroughChild(s, 'settling')
   const settling = s.journalRpc('updateBudget', [{ version: 1, type: 'settle', now: 100, requestId: 'settling', inputTokens: 0, outputTokens: 0 }])
   const sending = s.rpc('settling', providerBody())
   await assert.rejects(sending, /synthetic provider refusal/)
@@ -518,4 +523,116 @@ test('host budget closes provider admission before a zero settlement becomes dur
   assert.equal(calls, 0)
   assert.equal(s.journal.state.budget?.leadUsdMicros, 0)
   assert.equal(s.supervisor.live, true)
+})
+
+
+const reserveThroughChild = (s: Awaited<ReturnType<typeof providerRig>>, requestId: string) => s.journalRpc('updateBudget', [{
+  version: 1, type: 'reserve', now: 100, requestId, inputTokens: Buffer.byteLength(providerBody()) + 1024, maxOutputTokens: 32, ...providerPrice,
+}])
+const settleThroughChild = (s: Awaited<ReturnType<typeof providerRig>>, requestId: string, inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0) =>
+  s.journalRpc('updateBudget', [{ version: 1, type: 'settle', now: 100, requestId, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens }])
+const refusedSettle = async (s: Awaited<ReturnType<typeof providerRig>>, requestId: string, inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0) => {
+  const before = s.replies.length
+  void settleThroughChild(s, requestId, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
+  await providerUntil(() => s.killed() || s.replies.length > before)
+  assert.equal(s.killed(), true, 'unproven settlement must stop the child')
+  assert.equal(s.journal.state.budget?.settled.length, 0)
+}
+
+test('R7 inherited billed reservation refuses zero settle after persisted journal restart and writes off in full', async t => {
+  const home = await mkdtemp('/tmp/hd-provider-restart-'), path = home + '/journal.json'
+  t.after(() => rm(home, { recursive: true, force: true }))
+  await writeFile(path, '[]')
+  const reopen = () => createLeadJournal({ read: async () => JSON.parse(await readFile(path, 'utf8')),
+    append: async record => { const records = JSON.parse(await readFile(path, 'utf8')); records.push(record); await writeFile(path, JSON.stringify(records)) } })
+  const first = await providerRig(t, async () => ({ status: 200, body: '{"usage":{"input_tokens":2000,"output_tokens":1000}}' }), { journal: await reopen() })
+  await reserveThroughChild(first, 'inherited')
+  await first.rpc('inherited', providerBody())
+  const reserved = first.journal.state.budget!.reservedUsdMicros
+  await first.service.close()
+  const second = await providerRig(t, async () => { assert.fail('inherited settle must not send') }, { journal: await reopen() })
+  assert.equal(second.journal.state.budget?.requests[0]?.uncertain, false)
+  await refusedSettle(second, 'inherited')
+  await second.service.close()
+  const recovered = await providerRig(t, async () => { assert.fail('recovery must not send') }, { journal: await reopen() })
+  await recovered.journalRpc('recoverUnsettledRequests', [])
+  assert.equal(recovered.journal.state.budget?.requests[0]?.uncertain, true)
+  await recovered.journalRpc('updateBudget', [{ version: 1, type: 'write-off', now: 100, requestId: 'inherited' }])
+  assert.equal(recovered.journal.state.budget?.leadUsdMicros, reserved)
+  assert.equal(recovered.journal.state.budget?.reservedUsdMicros, 0)
+  assert.equal(recovered.journal.state.budget?.settled[0]?.digest, 'write-off')
+  assert.equal(recovered.supervisor.live, true)
+})
+
+for (const billed of [false, true]) test(`host refuses uncertain reservation settlement with ${billed ? 'matching provider usage' : 'no send'}`, async t => {
+  const s = await providerRig(t, async () => ({ status: 200, body: '{"usage":{"input_tokens":1,"output_tokens":2}}' }))
+  await reserveThroughChild(s, 'uncertain-settle')
+  if (billed) await s.rpc('uncertain-settle', providerBody())
+  await s.journalRpc('updateBudget', [{ version: 1, type: 'uncertain', now: 100, requestId: 'uncertain-settle' }])
+  await refusedSettle(s, 'uncertain-settle', billed ? 1 : 0, billed ? 2 : 0)
+})
+
+test('R8 zero settle while resolveLead holds a send stops the child', async t => {
+  let hold = false, entered = false, release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const s = await providerRig(t, async () => ({ status: 200, body: '{"usage":{"input_tokens":1,"output_tokens":2}}' }), {
+    resolveLead: async () => { if (hold) { entered = true; await held }; return key },
+  })
+  await reserveThroughChild(s, 'resolving')
+  hold = true
+  void s.rpc('resolving', providerBody()).catch(() => {})
+  await providerUntil(() => entered)
+  try { await refusedSettle(s, 'resolving') }
+  finally { release() }
+})
+
+test('kill while resolveLead holds a send refuses before calling transport', async t => {
+  let hold = false, entered = false, release!: () => void, calls = 0
+  const held = new Promise<void>(resolve => { release = resolve })
+  const s = await providerRig(t, async () => { calls++; return { status: 200, body: '{"usage":{"input_tokens":1,"output_tokens":2}}' } }, {
+    holdExit: true, resolveLead: async () => { if (hold) { entered = true; await held }; return key },
+  })
+  await reserveThroughChild(s, 'killed-resolving')
+  hold = true
+  const sending = s.rpc('killed-resolving', providerBody()).then(() => true, () => false)
+  await providerUntil(() => entered)
+  const stopping = s.supervisor.stop('synthetic-stop')
+  await providerUntil(s.killed)
+  try {
+    release()
+    const sent = await sending
+    assert.equal(calls, 0, 'an aborted send must not call transport')
+    assert.equal(sent, false, 'the aborted provider RPC replies ok:false')
+  } finally { release(); s.child.emit('exit', 0, null); await stopping }
+})
+
+test('R5b success then not-started preserves billed usage and refuses zero settle', async t => {
+  let calls = 0
+  const s = await providerRig(t, async () => ++calls === 1
+    ? { status: 200, body: '{"usage":{"input_tokens":1,"output_tokens":2}}' }
+    : { status: 429, body: '{}', processing: 'not-started' })
+  await reserveThroughChild(s, 'billed-retry')
+  await s.rpc('billed-retry', providerBody()); await s.rpc('billed-retry', providerBody())
+  await refusedSettle(s, 'billed-retry')
+  assert.equal(calls, 2)
+})
+
+for (const sum of [true, false]) test(`two successful sends ${sum ? 'settle the sum of all usage' : 'refuse the second usage alone'}`, async t => {
+  let calls = 0
+  const s = await providerRig(t, async () => ({ status: 200, body: JSON.stringify({ usage: ++calls === 1
+    ? { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 }
+    : { input_tokens: 5, output_tokens: 6, cache_read_input_tokens: 7, cache_creation_input_tokens: 8 } }) }))
+  await reserveThroughChild(s, 'two-sends')
+  await s.rpc('two-sends', providerBody()); await s.rpc('two-sends', providerBody())
+  if (sum) {
+    const before = s.replies.length
+    const settling = settleThroughChild(s, 'two-sends', 6, 8, 10, 12)
+    await providerUntil(() => s.killed() || s.replies.length > before)
+    assert.equal(s.killed(), false, 'the summed usage must be admitted')
+    await settling
+    assert.equal(s.journal.state.budget?.leadUsdMicros, 4, 'all four summed usage fields are charged')
+    assert.equal(s.journal.state.budget?.reservedUsdMicros, 0)
+    assert.equal(s.supervisor.live, true)
+  } else await refusedSettle(s, 'two-sends', 5, 6, 7, 8)
+  assert.equal(calls, 2)
 })

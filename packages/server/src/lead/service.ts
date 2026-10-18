@@ -42,10 +42,11 @@ export class LeadService {
   #generation = 0
   #changingKeys = 0
   readonly #providerSends = new Set<string>()
+  readonly #reservedHere = new Set<string>()
   // Final admission is synchronous; the journal's durable settlement may still
   // be queued when the next child frame arrives. Request ids cannot be reused.
   readonly #providerFinalized = new Set<string>()
-  // Absent means no send; null means some send has unproven billing. Never erase
+  // Absent means no send in this lifetime; null means unproven billing. Never erase
   // ambiguity with a later retry's usage or an unprocessed response.
   readonly #providerUsage = new Map<string, MessagesUsage | null>()
   #cleanupFailed = false
@@ -87,9 +88,11 @@ export class LeadService {
           if (!Object.hasOwn(options.prices, model) || !price ||
             event.inputUsdMicrosPerMillion !== price.inputUsdMicrosPerMillion || event.outputUsdMicrosPerMillion !== price.outputUsdMicrosPerMillion ||
             event.cacheReadUsdMicrosPerMillion !== price.cacheReadUsdMicrosPerMillion || event.cacheWriteUsdMicrosPerMillion !== price.cacheWriteUsdMicrosPerMillion) throw new Error('lead-budget-price')
+          this.#reservedHere.add(event.requestId)
         } else if (event.type === 'settle') {
           const recorded = this.#providerUsage.get(event.requestId)
-          if (this.#providerSends.has(event.requestId) || recorded === null ||
+          if (!this.#reservedHere.has(event.requestId) || options.journal.state.budget?.requests.some(request => request.reservation.requestId === event.requestId && request.uncertain) ||
+            this.#providerSends.has(event.requestId) || recorded === null ||
             event.inputTokens !== (recorded?.inputTokens ?? 0) || event.outputTokens !== (recorded?.outputTokens ?? 0) ||
             (event.cacheReadTokens ?? 0) !== (recorded?.cacheReadTokens ?? 0) || (event.cacheWriteTokens ?? 0) !== (recorded?.cacheWriteTokens ?? 0)) throw new Error('lead-budget-usage')
           this.#providerFinalized.add(event.requestId)
@@ -120,6 +123,7 @@ export class LeadService {
           const key = await options.broker.resolveLead('anthropic')
           this.#assertOpen()
           if (generation !== this.#generation || this.#changingKeys) throw new Error('lead-lifecycle-changed')
+          if (signal.aborted) throw new Error('lead-provider-failed')
           const previousUsage = this.#providerUsage.get(requestId)
           this.#providerUsage.set(requestId, null)
           const response = await (options.messagesTransport ?? leadProviderTransport).send({
