@@ -10,26 +10,35 @@ const same = (left: unknown, right: unknown): boolean => JSON.stringify(left, (_
   value && typeof value === 'object' && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value)
 
+/** Old checkpoints have no pin. Only the run's own admission binding may fill it. */
+export const leadStepContractDigest = (step: LeadState['steps'][number] | undefined, run: StoredFlowExecution): string | null =>
+  step?.contractDigest ?? (step && run.lead?.startId === step.attemptId ? run.lead.contractDigest : null)
+
 /** One host-owned readiness rule for both pre-dispatch resolution and the door.
  * Each started step retains the contract binding under which its run was admitted. */
 export const leadPredecessorReadiness = (state: LeadState, stepId: string, runs: readonly StoredFlowExecution[],
-  readIntents: LeadAdmissionOptions['readIntents']): { ready: boolean; base?: string } => {
+  readIntents: LeadAdmissionOptions['readIntents']): { ready: boolean; terminal?: true; base?: string } => {
   const index = state.contract?.steps.findIndex(step => step.id === stepId) ?? -1
   if (index === 0) return { ready: true }
-  if (index < 0) return { ready: false }
+  if (index < 0) return { ready: false, terminal: true }
   const predecessor = state.contract!.steps[index - 1]!
   const recorded = state.steps.find(step => step.id === predecessor.id)
   const owned = state.runs.find(run => run.correlationId === recorded?.attemptId)
   const run = owned && runs.find(run => run.id === owned.runId && run.goal === owned.teamId &&
-    run.lead?.logicalGoalId === state.budget?.logicalGoalId && run.lead?.contractDigest === recorded?.contractDigest &&
+    run.lead?.logicalGoalId === state.budget?.logicalGoalId && run.lead?.contractDigest === leadStepContractDigest(recorded, run) &&
     run.lead?.stepId === predecessor.id && run.lead?.startId === owned.correlationId)
-  const review = run?.rounds.filter(round => round.role === 'review').at(-1), acceptance = run?.rounds.at(-1)
-  const cards = acceptance?.cards?.map(id => readIntents(run!.goal).find(card => card.id === id)) ?? []
-  const ready = cards.length > 0 && cards.every(card => acceptance?.state === 'running' && card?.state === 'open' ||
-    acceptance?.state === 'closed' && card?.state === 'done' && card.outcome === 'accepted')
-  const plan = review && run?.seatPlans?.[String(review.n)]
-  if (recorded?.state !== 'started' || !run || !review || review.state !== 'closed' || acceptance?.role !== 'accept' || !ready ||
-    !plan?.base || !/^[a-f0-9]{40,64}$/.test(plan.base) || plan.handed.length !== 1 || plan.handed[0]!.at !== plan.base) return { ready: false }
+  if (recorded?.state !== 'started' || !run || run.state !== 'running') return { ready: false, terminal: true }
+  const review = run.rounds.filter(round => round.role === 'review').at(-1), acceptance = run.rounds.at(-1)
+  const cards = acceptance?.cards?.map(id => readIntents(run.goal).find(card => card.id === id)) ?? []
+  if (acceptance?.role === 'accept' && acceptance.state === 'closed' &&
+    (!cards.length || !cards.every(card => card?.state === 'done' && card.outcome === 'accepted'))) return { ready: false, terminal: true }
+  if (!review || review.state !== 'closed' || acceptance?.role !== 'accept') return { ready: false }
+  const plan = run.seatPlans?.[String(review.n)]
+  if (!plan?.base || !/^[a-f0-9]{40,64}$/.test(plan.base) || plan.handed.length !== 1 || plan.handed[0]!.at !== plan.base)
+    return { ready: false, terminal: true }
+  const ready = cards.length > 0 && cards.every(card => acceptance.state === 'running' && card?.state === 'open' ||
+    acceptance.state === 'closed' && card?.state === 'done' && card.outcome === 'accepted')
+  if (!ready) return { ready: false }
   return { ready: true, base: plan.base }
 }
 

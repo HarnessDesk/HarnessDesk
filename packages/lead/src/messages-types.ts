@@ -60,7 +60,7 @@ export interface MessagesToolScope {
   readonly runId: string | null
   readonly start: LeadPlanStep | null
   readonly context: LeadPermissionContext
-  readonly predecessor?: { readonly runId: string; readonly ready: boolean }
+  readonly predecessor?: { readonly runId: string; readonly ready: boolean; readonly terminal?: true }
   readonly stepId?: string | null
 }
 export interface LeadMessagesOptions {

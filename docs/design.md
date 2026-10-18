@@ -2352,7 +2352,8 @@ ApprovalDialog and its keyboard policy, pending states, one filled action and
 focusable surface. The thread retains a one-word decided state. Window revision
 and digest fences, the page-wide decision lock and explicit focus return remain.
 Automatic plan arrivals never move composer focus; explicit navigation focuses
-the dock. A visible decision has no duplicate plan banner or Review plan action.
+the dock. A visible decision has no duplicate plan banner. When its plan is absent,
+the dock states that a decision is needed without offering an action.
 Refusal, Resume and renewal banners share ComposerNoticeStack with the decision
 controls, using the session's gap above the composer. Renewal's banner states
 only the earlier expiry time, once. An idle dock has

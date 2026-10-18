@@ -13,6 +13,7 @@ import { sidebarPlacement } from '../state/workbench'
 import { formatLeadConsentTime } from './lead-consent-time'
 
 const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
+  'lead-predecessor-unavailable': 'The previous step cannot provide an accepted result with a matching reviewed revision.',
   'lead-renewal-blocked': 'The plan could not be renewed because the pending request limit was reached.',
   'lead-disabled': 'The Lead was disabled.',
   'lead-key-changed': 'The provider key changed. Continue with the current key.',
@@ -84,14 +85,13 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     ...cards.map(card => ({ revision: state.thread?.cardPositions?.[card.id] ?? card.revision, kind: 'card' as const, card })),
     ...(state.thread?.decisions ?? []).map(decision => ({ revision: decision.position, kind: 'decided' as const, decision }))].sort((a, b) => a.revision - b.revision)
   const actionablePlan = entries.filter(entry => entry.kind === 'card' && entry.card.type === 'plan').at(-1)
-  const reviewPlan = (focus = true) => {
+  const scrollToPlan = () => {
     if (actionablePlan?.kind !== 'card') return
     const element = [...(thread.current?.querySelectorAll<HTMLElement>('[data-lead-card]') ?? [])].find(node => node.dataset.leadCard === actionablePlan.card.id)
     element?.scrollIntoView?.({ block: 'end' })
-    if (focus) { requestedDecisionFocus.current = actionablePlan.card.id; setSelectedDecision(actionablePlan.card.id); focusDock(actionablePlan.card.id) }
   }
   useEffect(() => { if (pinned.current && thread.current) thread.current.scrollTop = thread.current.scrollHeight }, [active, state.revision])
-  useEffect(() => { if (state.wayOut === 'decide-plan') reviewPlan(false) }, [state.wayOut, actionablePlan?.kind === 'card' ? `${actionablePlan.card.id}:${actionablePlan.card.revision}` : null])
+  useEffect(() => { if (state.wayOut === 'decide-plan') scrollToPlan() }, [state.wayOut, actionablePlan?.kind === 'card' ? `${actionablePlan.card.id}:${actionablePlan.card.revision}` : null])
   const focusedDecision = useRef<string | null>(null)
   useEffect(() => {
     if (!active) { focusedDecision.current = null; return }
@@ -132,7 +132,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           </Banner>}
           {state.wayOut === 'decide-plan' && (renewal
             ? <Banner>{`The earlier approval expired at ${formatLeadConsentTime(state.planConsentExpiresAt!)}.`}</Banner>
-            : !cards.some(card => card.type === 'plan') && <Banner actions={<Button onClick={() => reviewPlan()}>Review plan</Button>}>The plan needs your decision before work continues.</Banner>)}
+            : !cards.some(card => card.type === 'plan') && <Banner>The plan needs your decision before work continues.</Banner>)}
           <LeadCards {...cardProps} cards={cards} placement="dock" />
         </ComposerNoticeStack>} form={{ 'aria-label': 'Lead composer', onSubmit: event => { event.preventDefault(); if (!requestPending && goal.trim() && !state.error && state.revision >= 0) void send() } }}>
               <ComposerText rows={1} ref={input} aria-label="Goal or message" placeholder={`Message ${label}…`} value={goal} onChange={event => setGoal(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!state.error && state.revision >= 0) void send() } }} />

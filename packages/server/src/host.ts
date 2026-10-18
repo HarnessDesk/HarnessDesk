@@ -3371,8 +3371,8 @@ export class Host {
         const previous = state.steps[index - 1]
         const owned = previous && state.runs.find(run => run.correlationId === previous.attemptId)
         if (call.method !== 'flow/start-goal' || !owned) return { ...scope, predecessor: undefined }
-        const { ready } = leadPredecessorReadiness(state, scope.stepId!, this.#flows.leadRuns(), goal => this.#team.stateFor(goal).intents)
-        return { ...scope, predecessor: { runId: owned.runId, ready } }
+        const { ready, terminal } = leadPredecessorReadiness(state, scope.stepId!, this.#flows.leadRuns(), goal => this.#team.stateFor(goal).intents)
+        return { ...scope, predecessor: { runId: owned.runId, ready, ...(terminal ? { terminal } : {}) } }
       },
       register: () => this.registerLead(journal, project),
       childStarted: () => {

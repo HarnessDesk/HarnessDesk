@@ -75,3 +75,19 @@ it.each(['light', 'dark'])('previews consent expiry once alongside its decision 
     expect(notices.textContent).toContain('Approve this plan?')
   } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
 })
+
+
+it.each(['light', 'dark'])('previews a missing plan without an inert action and explains an unavailable predecessor in %s', async theme => {
+  const url = window.location.href; window.history.replaceState(null, '', `?theme=${theme}`)
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  try {
+    await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="missing-plan" /></StoreProvider>))
+    const notices = box.querySelector('[data-slot="composer-notices"]')!
+    expect(notices.textContent).toContain('The plan needs your decision before work continues.')
+    expect(notices.querySelector('button')).toBeNull()
+    expect(box.querySelector('[data-lead-decision]')).toBeNull()
+    await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="predecessor-unavailable" /></StoreProvider>))
+    expect(box.textContent).toContain('The previous step cannot provide an accepted result with a matching reviewed revision.')
+    expect(box.querySelector('[data-slot="composer-notices"]')?.textContent).toContain('Resume')
+  } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
+})

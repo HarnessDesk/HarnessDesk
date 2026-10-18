@@ -328,6 +328,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       available = LIMIT.bytes - (bytes(body) - bytes(json(messages))) - bytes(safeJson(continuation)) - reserved.reduce((sum, space) => sum + space, 0)
       if (available < 0) fail()
     } catch { return { status: 'invalid-response', reason: 'lead-messages-continuation-limit', usage: used, toolResults: results } }
+    let predecessorUnavailable = false
     const permissionDeniedTools: string[] = []
     const transientTools: string[] = [], succeededTools: string[] = [], deskActivityTools: string[] = []
     for (const [position, { use, index }] of uses.entries()) {
@@ -346,6 +347,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
               catch (error) { dispatchError = error; throw error }
             })
           if (executed.decision.effect !== 'allow') permissionDeniedTools.push(use.id)
+          if (executed.outcome === 'denied' && executed.decision.reason === 'lead-predecessor-unavailable') predecessorUnavailable = true
           if (executed.outcome === 'denied' && executed.decision.reason === 'lead-predecessor-not-ready') {
             const index = journal.state.contract?.steps.findIndex(step => step.id === scope.stepId) ?? 0
             const result = { ...results[position]!, content: predecessorRefusal(index) }
@@ -370,6 +372,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       }
     }
     return { status: parsed.stop_reason === 'max_tokens' ? 'max-tokens' : signal.aborted ? 'cancelled' : 'completed', usage: used,
+      ...(predecessorUnavailable ? { reason: 'lead-predecessor-unavailable' } : {}),
       text: output.text, proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, messages: continuation }
   } }
 }

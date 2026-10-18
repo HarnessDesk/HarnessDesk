@@ -206,3 +206,20 @@ test('the host door refuses an eager real preview when its admitted consent has 
 })
 
 })
+
+
+test('declining step 1 acceptance parks a model retry of step 2 as predecessor unavailable', async t => {
+  const rig = await createLeadRig({ declinedPredecessor: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve')
+  await rig.waitFor(() => rig.journal.state.runs.length === 1 && rig.host.teamPlane.stateFor(rig.journal.state.runs[0]!.teamId).intents.some(card => card.role === 'accept' && card.state === 'open'), 'step 1 acceptance')
+  const run = rig.journal.state.runs[0]!
+  const acceptance = rig.host.teamPlane.stateFor(run.teamId).intents.find(card => card.role === 'accept' && card.state === 'open')!
+  await rig.host.call('team/intent', { room: run.teamId, id: acceptance.id, action: 'done', outcome: 'declined' })
+  await rig.waitFor(() => rig.journal.state.phase === 'waiting-for-user', 'terminal predecessor wait')
+  assert.equal(rig.journal.state.managementReason, 'lead-predecessor-unavailable')
+  const retry = [...rig.journal.state.attempts.values()].find(attempt => attempt.stepId === 'second' && attempt.method === 'flow/start-goal')!
+  assert.equal(retry.outcome, 'denied'); assert.equal(retry.dispatched, false)
+  assert.equal(rig.journal.state.runs.length, 1)
+  await rig.assertNoForbiddenEffects()
+})

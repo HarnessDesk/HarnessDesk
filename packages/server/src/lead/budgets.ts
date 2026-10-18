@@ -5,6 +5,7 @@ import { attributeSample, goalSpend, meterSample, meterTurn, openMeter } from '.
 import { seatWindowOf } from '../insight/attribution.js'
 import type { UsageSample } from '../ledger/insight.js'
 import { leadRoundId, type FlowLeadBinding, type FlowLeadGuard, type StoredFlowExecution } from '../flow-execution.js'
+import { leadStepContractDigest } from './admission.js'
 
 export interface LeadBudgetPort {
   usage?(project: string, from: number, to: number): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
@@ -103,8 +104,8 @@ export class LeadBudgets implements FlowLeadGuard {
   #journal(run: StoredFlowExecution): LeadJournal {
     const journal = run.lead && this.#journals.get(run.lead.logicalGoalId)
     const step = journal?.state.steps.find(step => step.id === run.lead?.stepId && step.attemptId === run.lead.startId)
-    if (!journal || run.source !== leadReviewedResultSource || !run.requireHeld || !step?.contractDigest ||
-      step.contractDigest !== run.lead!.contractDigest) throw new Error('lead-guard-unavailable')
+    if (!journal || run.source !== leadReviewedResultSource || !run.requireHeld || !step ||
+      leadStepContractDigest(step, run) !== run.lead!.contractDigest) throw new Error('lead-guard-unavailable')
     return journal
   }
   async bind(run: StoredFlowExecution): Promise<void> {

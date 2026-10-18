@@ -3,7 +3,9 @@ import { Markdown } from '../../components/Markdown'
 import { TranscriptAssistantMessage } from './ConversationShell'
 import { Text } from './Settings'
 
-/** A decision's details are ordinary assistant prose; its controls live in the dock. */
+/** A decision's details are ordinary assistant prose; its controls live in the dock.
+ * Explicit navigation scrolls these details and focuses the dock. An absent plan
+ * offers only a needed-decision sentence, with no action that cannot reach it. */
 export const LeadContract = ({ summary, children, cardId, cardType, focusRef, state }: {
   readonly summary?: string
   readonly children?: ReactNode

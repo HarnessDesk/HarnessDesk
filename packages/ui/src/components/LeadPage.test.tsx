@@ -167,7 +167,8 @@ it('explicit navigation focuses and scrolls the newest pending plan and tolerate
   const base = leadProjection(), scroll = vi.fn(), originalScroll = HTMLElement.prototype.scrollIntoView; HTMLElement.prototype.scrollIntoView = scroll
   clean.push(() => { HTMLElement.prototype.scrollIntoView = originalScroll })
   const { box, update, focusDecision } = await mount({ ...base, wayOut: 'decide-plan', thread: { ...base.thread, cards: [leadPlan, { ...leadPlan, id: 'newest', revision: 2, contract: { ...leadPlan.contract, revision: 2 } }], cardPositions: { plan: 2, newest: 3 } } })
-  await focusDecision('newest'); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('newest'); expect(scroll).toHaveBeenCalled()
+  scroll.mockClear()
+  await focusDecision('newest'); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('newest'); expect(scroll).toHaveBeenCalledTimes(1); expect(scroll.mock.instances[0]).toBe(box.querySelector('[data-lead-card="newest"]'))
   await update({ thread: { ...base.thread, cards: [] } }); await focusDecision('missing'); expect(box.querySelector('[data-lead-card]')).toBeNull()
 })
 it('locks decisions across all cards and keeps refused decision focus on its card', async () => {
@@ -257,7 +258,7 @@ it('caps expiry backoff at 30 seconds, reads once at the cap and waits for chang
     await act(async () => vi.advanceTimersByTimeAsync(40000)); expect(read).toHaveBeenCalledTimes(6)
     await act(async () => vi.advanceTimersByTimeAsync(21150)); expect(read).toHaveBeenCalledTimes(7)
     await act(async () => vi.advanceTimersByTimeAsync(300000)); expect(read).toHaveBeenCalledTimes(7)
-    await update({ wayOut: 'decide-plan' }); expect(button('Review plan')).toBeDefined()
+    await update({ wayOut: 'decide-plan' }); expect(button('Review plan')).toBeUndefined(); expect(document.body.textContent).toContain('The plan needs your decision before work continues.')
   } finally { vi.useRealTimers() }
 })
 it('formats renewal notices and settings expiry with the Lead date-aware minute formatter', async () => {

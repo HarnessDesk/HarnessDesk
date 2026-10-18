@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { createLeadJournal, leadCheckpoint, parseLeadCheckpoint, leadReviewedResultSource, type LeadJournalRecord } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract } from '@harnessdesk/protocol'
 import { LeadAdmission, leadPredecessorReadiness } from '../src/lead/admission.js'
+import { LeadBudgets } from '../src/lead/budgets.js'
 import { sourceDigest } from '../src/flow-execution.js'
 import { executionOf } from '../src/flow-recovery.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
@@ -92,7 +93,7 @@ test('a closed accepted predecessor can seed the next Lead step', async () => {
 })
 
 
-test('an approved plan revision starts step 2 from step 1 reviewed revision', async () => {
+for (const legacy of [false, true]) test(`an approved plan revision starts step 2 from step 1 reviewed revision${legacy ? ' with an old-shape checkpoint' : ''}`, async () => {
   const s = rig(), records: LeadJournalRecord[] = []
   const storage = { async read() { return structuredClone(records) }, async append(record: LeadJournalRecord) { records.push(record) } }
   const journal = await createLeadJournal(storage)
@@ -120,10 +121,20 @@ test('an approved plan revision starts step 2 from step 1 reviewed revision', as
   const revised = { ...contract, revision: 2, digest: 'b'.repeat(64), goal: 'Revised repair' }
   await approve(revised)
   const replayed = await createLeadJournal(storage)
-  const { state } = parseLeadCheckpoint(leadCheckpoint(replayed.state, 'c'.repeat(64)))
-  assert.equal(state.steps[0]!.contractDigest, contract.digest)
+  const checkpoint: any = leadCheckpoint(replayed.state, 'c'.repeat(64))
+  if (legacy) for (const step of checkpoint.state.steps) delete step.contractDigest
+  const { state } = parseLeadCheckpoint(checkpoint)
+  assert.equal(state.steps[0]!.contractDigest, legacy ? null : contract.digest)
   const reopened = await createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
   Object.assign(s.admission.options, { journal: reopened })
+  s.previous.source = leadReviewedResultSource; s.previous.requireHeld = true; s.previous.operations = []
+  const budgets = new LeadBudgets({ now: () => 100, runs: () => [s.previous], member: async () => true,
+    interruptChecks() {}, stop: async () => {} })
+  const unregister = budgets.register(reopened)
+  try { assert.deepEqual(await budgets.gate(s.previous), { ok: true }, 'step 1 keeps dispatching under its original binding') }
+  finally { unregister() }
+  s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'accepted'
+
   const params = { ...s.params, sentence: revised.goal }
   const predecessor = leadPredecessorReadiness(reopened.state, 'second', [s.previous], () => [s.acceptance] as any)
   const result = await reopened.execute({ id: 'start-second', stepId: 'second', context,
@@ -137,3 +148,15 @@ test('an approved plan revision starts step 2 from step 1 reviewed revision', as
   assert.equal(s.binding().base, s.revision)
   assert.equal(s.binding().contractDigest, revised.digest)
 })
+
+for (const changed of ['finished run', 'declined acceptance', 'wrong binding', 'missing pin', 'wrong revision'] as const) {
+  test(`predecessor readiness is terminal for ${changed}`, () => {
+    const s = rig()
+    if (changed === 'finished run') s.previous.state = 'settled'
+    if (changed === 'declined acceptance') { s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'declined' }
+    if (changed === 'wrong binding') s.previous.lead.contractDigest = 'other'
+    if (changed === 'missing pin') s.previous.seatPlans['2'].base = null
+    if (changed === 'wrong revision') s.previous.seatPlans['2'].handed[0].at = 'b'.repeat(40)
+    assert.deepEqual(leadPredecessorReadiness(s.state, 'second', [s.previous], () => [s.acceptance] as any), { ready: false, terminal: true })
+  })
+}

@@ -18,7 +18,7 @@ export const leadProjection = (over: Partial<LeadWindowProjection> = {}): LeadWi
   thread: { version: 1, id: 'lead', revision: 10, state: 'draft', project: leadContract.project, olderMessages: 0, messages: [], cards: [] },
   requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, ...over })
 
-export const LEAD_SCENES = ['loading', 'empty', 'goal-composer', 'pending-plan', 'running', 'waiting', 'result-person-gate', 'worker-approval', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
+export const LEAD_SCENES = ['loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'running', 'waiting', 'result-person-gate', 'worker-approval', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -31,6 +31,8 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   if (scene === 'result-person-gate') { thread.cards = [leadResult]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.cardPositions = { result: 3 } }
   if (scene === 'worker-approval') { thread.cards = [{ ...leadWaiting, kind: 'worker-approval', personCardId: null }]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = { ...leadBudget, spend: 'unknown' }; thread.cardPositions = { waiting: 3 } }
   if (scene === 'running') { thread.state = 'running'; projection = { ...projection, requestInFlight: true }; thread.messages = [...thread.messages, { version: 1, id: 'reply', revision: 2, role: 'assistant', text: 'The approved Flow is running. I will read its checks and review before asking you to accept.' }] }
+  if (scene === 'missing-plan') projection = { ...projection, wayOut: 'decide-plan' }
+  if (scene === 'predecessor-unavailable') { thread.state = 'waiting-for-user'; projection = { ...projection, wayOut: 'resume', waitReason: 'lead-predecessor-unavailable' } }
   if (scene === 'resume') { thread.state = 'waiting-for-user'; projection = { ...projection, wayOut: 'resume', waitReason: 'lead-request-failed' } }
   // Renewal adds only the expiry fact above the same docked plan decision.
   if (scene === 'consent-expired') { thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { plan: 2 } }

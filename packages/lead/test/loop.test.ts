@@ -930,3 +930,64 @@ for (const permanent of [false, true]) test(`a retrying premature start waits fo
     assert.equal(s.journal.state.runs[1]!.runId, 'run-2')
   } finally { await loop.close() }
 })
+
+test('a start-only retry does not count refusals across three desk changes', async () => {
+  const retry = message([tool('premature', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })
+  const s = await fixture(Array.from({ length: 8 }, () => structuredClone(retry)))
+  const second = { ...contract.steps[0]!, id: 'second' }
+  const two = protocol.parseLeadAcceptanceContract({ ...contract, steps: [...contract.steps, second] })
+  await s.journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: two.digest, contract: two })
+  await s.journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: two.digest, choice: 'approve' }, 1000)
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.execute(startCall()); s.setEvidence({ ...spendEvidence(), reviews: [] })
+  let ready = false
+  const resolve = s.options.resolveTool
+  s.options.resolveTool = async (call: any) => ({ ...await resolve(call), stepId: 'second', start: second, predecessor: { runId: 'run-1', ready } })
+  const call = s.options.desk.call
+  s.options.desk.call = async (method: string, params: unknown) => method === 'flow/start-goal'
+    ? { id: 'run-2', goal: 'team-2', rounds: [{ n: 1 }], state: 'running' } : call(method, params)
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.start()
+    const first = await loop.request(input)
+    assert.equal(first.toolResults.find((tool: any) => tool.tool_use_id === 'premature').content, 'Step 1 is not yet awaiting acceptance; wait for desk activity.')
+    for (let i = 0; i < 5; i++) await s.tick()
+    assert.equal(s.fake.requests.length, 1, 'only one provider request between desk changes')
+    assert.notEqual(s.journal.state.managementReason, 'lead-tools-refused')
+    for (let change = 0; change < 3; change++) {
+      s.emit({ type: 'run.changed', run: 'run-1' }); await s.drain(); await s.tick(); await loop.idle()
+      for (let i = 0; i < 5; i++) await s.tick()
+      assert.equal(s.fake.requests.length, change + 2)
+      assert.notEqual(s.journal.state.managementReason, 'lead-tools-refused')
+      assert.equal(s.journal.state.phase, 'running')
+    }
+    ready = true
+    s.emit({ type: 'run.changed', run: 'run-1' }); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.journal.state.steps[1]!.state, 'started')
+    assert.equal(s.journal.state.runs[1]!.runId, 'run-2')
+  } finally { await loop.close() }
+})
+
+test('a declined predecessor acceptance parks step 2 immediately', async () => {
+  const s = await fixture([message([tool('premature', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  const second = { ...contract.steps[0]!, id: 'second' }
+  const two = protocol.parseLeadAcceptanceContract({ ...contract, steps: [...contract.steps, second] })
+  await s.journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: two.digest, contract: two })
+  await s.journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: two.digest, choice: 'approve' }, 1000)
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.execute(startCall())
+  s.setEvidence({ ...spendEvidence(), reviews: [] })
+  const resolve = s.options.resolveTool
+  s.options.resolveTool = async (call: any) => ({ ...await resolve(call), stepId: 'second', start: second, predecessor: { runId: 'run-1', ready: false, terminal: true } })
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    const result = await loop.request(input)
+    const attempt = [...s.journal.state.attempts.values()].find(one => one.stepId === 'second' && one.method === 'flow/start-goal')!
+    assert.equal(attempt.outcome, 'denied')
+    assert.equal(attempt.dispatched, false)
+    assert.deepEqual(result.deskActivityTools, [])
+    assert.equal(s.journal.state.phase, 'waiting-for-user')
+    assert.equal(s.journal.state.managementReason, 'lead-predecessor-unavailable')
+    assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
+  } finally { await loop.close() }
+})
