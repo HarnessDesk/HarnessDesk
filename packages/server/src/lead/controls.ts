@@ -85,8 +85,9 @@ export class LeadControls {
       key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
   }
   async #projection(): Promise<LeadWindowProjection> {
-    await this.options.journal.renewPlan(this.options.now(), card =>
-      admitLeadCard(this.options.journal.state, card, this.options.project, this.options.model))
+    // Renewal is opportunistic. A refusal must leave reads and key removal usable.
+    try { await this.options.journal.renewPlan(this.options.now(), card =>
+      admitLeadCard(this.options.journal.state, card, this.options.project, this.options.model)) } catch { /* Keep the last durable projection readable. */ }
     const settings = await this.#settings(), state = this.options.journal.state
     // Settings reads may yield to a journal write. Retry from one coherent revision.
     if (settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps)) return this.#projection()

@@ -3750,12 +3750,17 @@ run identities, consumed rounds, reported spend and any tighter caps applied
 since the original approval. It cannot replay a start or restore an older
 allowance. Stale clicks still refuse. A declined renewal is recorded once for that consent
 expiry and is not immediately re-offered by the next read. The bounded per-card
-revision limit also
-applies to renewal; exhaustion fails closed rather than granting consent.
+revision limit also applies to renewal. When another revision would exceed it,
+or its replacement cannot fit the projection, renewal creates a fresh plan card id
+with the same contract digest and leaves the old card decided. Other renewal
+failures leave the last durable projection readable, including Settings and key
+removal. A terminal phase closes pending renewal cards.
 
 
 New journals keep each card's first journal sequence separately from its local
 revision counter, so replacement preserves its inline position. Checkpoints from
 before this field retain only card order, not exact interleaving with messages;
-their cards keep that saved order before the retained message suffix. New writes
+their cards keep that saved order after the retained message suffix, starting at
+its maximum message revision plus one. These synthetic positions can extend
+beyond the checkpoint sequence by at most the retained card count. New writes
 and full journal replay retain exact positions.

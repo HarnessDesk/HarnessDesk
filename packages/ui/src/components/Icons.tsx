@@ -358,9 +358,9 @@ export const BackgroundIcon = animated(ActivityGlyph, Activity, 'BackgroundIcon'
 export const ToolIcon = animated(WrenchGlyph, Wrench, 'ToolIcon')
 /** The agent's own reasoning. */
 export const BrainIcon = animated(BrainGlyph, Brain, 'BrainIcon')
-/** A saved Agent: its brief, ceiling and preferred seats. Sub-agents qualify this robot with ↳; runtimes use their own marks. */
 /** The host-owned Lead has its own navigation glyph. */
 export const LeadIcon = icon(Compass, 'LeadIcon')
+/** A saved Agent: its brief, ceiling and preferred seats. Sub-agents qualify this robot with ↳; runtimes use their own marks. */
 export const AgentIcon = animated(BotGlyph, Bot, 'AgentIcon')
 /** The robot with its delegation qualifier, including at navigation size. */
 export const SubagentIcon = ({ size = 16, className, style, ...rest }: IconProps) => (

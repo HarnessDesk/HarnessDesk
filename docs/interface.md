@@ -1894,9 +1894,15 @@ When the host enables Lead, its sidebar row opens a reading-width journal page.
 The title and Settings belong to the body; the top bar keeps its fixed tools.
 Messages and decision cards follow journal order, and a newer card revision
 replaces its predecessor at the same position. Send waits for an in-flight
-request. Initial dollar and round allowances are visible beside the goal input.
+request. Messages use Chat’s alignment and spacing. The shared composer keeps
+initial dollar and round allowance chips beside Send in its action row. Enter
+sends and Shift+Enter adds a line. New entries stay in view until the person
+scrolls up. Only one card decision can be pending across the page; a refusal
+keeps focus on that card.
 
-Plans show every Flow, assignment, acceptance assertion, cap and approval scope.
+Each decision is one surface, with its kind and state, a revision fact, a summary,
+grouped rows and one action row. Plans show step titles, agent presentation names
+and models, acceptance assertions, caps and approval scope; internal ids stay hidden.
 Approve and Decline refer to the displayed card revision and contract digest.
 Results show revision-qualified evidence, separate Lead spend and reported worker
 spend, and a way to inspect the patch in Changes. Unknown evidence stays unknown.
@@ -1906,10 +1912,15 @@ existing worker approval surface and cannot be answered by Lead's controls.
 The host supplies the only way out: Resume explains why work stopped, while
 Review plan focuses the plan requiring a decision. An interrupted request also
 continues when a message is sent. Expired consent re-offers the approved plan
-under a new revision of the same card and needs fresh approval; Resume never
-renews consent.
+under a new revision, or a new card when the revision bound or display fit
+requires it. Its Renewal chip and sentence name the earlier expiry. It needs
+fresh approval; Resume never renews consent. Renewal failures leave reads and
+settings available, and terminal threads close pending renewals.
 
 Settings contains the write-only provider key, permission policy and allowances.
+Provider key, Permissions and Allowances form three groups. Add… or Replace…
+reveals the password input with Save and Cancel; status is Configured or Not set.
 A key change is submitted alone, its password input cleared immediately. Remove
-key asks for confirmation. Tightening applies at once; widening creates a card
+asks for confirmation. Each authority group has one Save, enabled only for edits;
+unchanged server updates preserve revisions. The body scrolls with Done in its footer. Tightening applies at once; widening creates a card
 for approval in the journal. Existing consent shows its expiry time.

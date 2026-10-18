@@ -6,7 +6,9 @@ import { previewStore } from './harness'
 import { LeadFrame } from './frames-lead'
 import { LEAD_SCENES } from './lead-fixture'
 
-it.each(LEAD_SCENES.flatMap(scene => (['light', 'dark'] as const).map(theme => ({ scene, theme }))))('renders $scene in $theme with a synthetic window facade', async ({ scene, theme }) => {
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+it.each(LEAD_SCENES.filter(scene => scene !== 'app-shell').flatMap(scene => (['light', 'dark'] as const).map(theme => ({ scene, theme }))))('renders $scene in $theme with a synthetic window facade', async ({ scene, theme }) => {
   const url = window.location.href
   window.history.replaceState(null, '', `?lead-synthetic=${scene}&theme=${theme}`)
   const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
@@ -17,3 +19,15 @@ it.each(LEAD_SCENES.flatMap(scene => (['light', 'dark'] as const).map(theme => (
     expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
   } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
 })
+
+it.each(['light', 'dark'])('shows the selected Lead in the enabled app shell in %s', async theme => {
+  const url = window.location.href; window.history.replaceState(null, '', `?theme=${theme}`)
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  try {
+    await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="app-shell" /></StoreProvider>))
+    expect(box.querySelector('[data-page-destination="lead"] h1')?.textContent).toBe('Lead')
+    expect(box.querySelector('button[title="Lead"][aria-current="page"]')).not.toBeNull()
+    expect(box.querySelector('[data-slot="top-bar"]')).not.toBeNull()
+    expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
+  } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
+}, 30000)

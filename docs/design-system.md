@@ -2680,17 +2680,21 @@ rather than straight after its name, and the name column stays one width.
 
 `packages/ui/src/design/patterns/lead-contract.tsx`
 
-Revision-qualified Lead decision, composed from the app's row and notice grammar.
-Prose is untrusted and always passes the transcript sanitizer. Actions wrap in
-document order; a worker approval supplies a link, never decision callbacks.
+One Lead decision surface. Row groups inherit its edge and prose uses the
+transcript's Markdown pipeline, including sanitization and code interactions.
+
+### `LeadMessage`
+
+`packages/ui/src/design/patterns/lead-contract.tsx`
+
+Lead turns use the transcript's message alignment, bubble and rhythm.
 
 ### `LeadJournal`
 
 `packages/ui/src/design/patterns/lead-contract.tsx`
 
-Lead's reading page template: one title, a scrolling journal and an in-flow
-composer anchored at the bottom, using the same page measure as Chat.
-Screens supply data and decisions; this pattern owns the page geometry.
+Reading page with the app's shared composer and a non-live journal region.
+Decision controls remain navigable without re-announcing the entire thread.
 
 ## Known drift
 

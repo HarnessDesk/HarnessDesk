@@ -23,7 +23,7 @@ export type LeadJournalEvent =
   | { readonly type: 'management'; readonly phase: 'planning' | 'waiting-for-user'; readonly reason?: string | null }
   | { readonly type: 'invalidate-results' | 'resume' | 'settings-changed' }
   | { readonly type: 'message'; readonly idempotencyKey: string | null; readonly message: LeadMessage }
-  | { readonly type: 'renew-plan'; readonly now: number }
+  | { readonly type: 'renew-plan'; readonly now: number; readonly cardId?: string }
   | { readonly type: 'restore-result'; readonly id: string; readonly revision: number }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
@@ -119,7 +119,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    'renew-plan': ['now'], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': [], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
+    'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': [], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
@@ -131,7 +131,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']), ...(Object.hasOwn(source, 'reason') ? { reason: source.reason === null ? null : choice(source.reason, LEAD_MANAGEMENT_REASONS) } : {}) }; break
     case 'message': event = { type, idempotencyKey: nullable(source.idempotencyKey, identifier), message: parseLeadMessage(source.message) }; break
     case 'settings-changed': case 'invalidate-results': case 'resume': event = { type }; break
-    case 'renew-plan': event = { type, now: integer(source.now, 0) }; break
+    case 'renew-plan': event = { type, now: integer(source.now, 0), ...(Object.hasOwn(source, 'cardId') ? { cardId: identifier(source.cardId) } : {}) }; break
     case 'restore-result': event = { type, id: identifier(source.id), revision: integer(source.revision, 1) }; break
     case 'start-resolution': {
       const identity = nullable(source.identity, parseLeadRunIdentity), goalId = nullable(source.goalId, identifier)
@@ -289,10 +289,11 @@ export class LeadJournal {
     return this.#append({ type: 'message', idempotencyKey: null,
       message: { version: 1, id: `message-${revision}`, revision, role: 'assistant', text } })
   }) }
-  #policyChange(state: LeadState, policy: LeadPermissionPolicy, id: string): LeadJournalEvent {
+  #policyChange(state: LeadState, policy: LeadPermissionPolicy, id: string): LeadJournalEvent | null {
     if (!state.policy) throw new Error('lead-policy-unavailable')
     const comparison = compareLeadPolicyAuthority(state.policy, policy)
-    if (comparison === 'narrowing' || comparison === 'unchanged') return { type: 'policy', policy }
+    if (comparison === 'unchanged') return null
+    if (comparison === 'narrowing') return { type: 'policy', policy }
     if (state.cards.some(card => card.type === 'permission-change' && !state.decidedCards.includes(`${card.id}:${card.revision}`)))
       throw Object.assign(new Error('lead-change-pending'), { wireCode: 'lead-change-pending' })
     return { type: 'card', card: { version: 1, id, revision: 1, type: 'permission-change',
@@ -301,6 +302,7 @@ export class LeadJournal {
   changePolicy(policy: LeadPermissionPolicy, expectedRevision: number, id: string, admit?: (card: LeadCard) => void): Promise<void> { return this.#queue(async () => {
     this.#expectRevision(expectedRevision)
     const event = this.#policyChange(this.#state, policy, id)
+    if (!event) return
     if (event.type === 'card') admit?.(event.card)
     await this.#append(event)
   }) }
@@ -312,17 +314,16 @@ export class LeadJournal {
       this.#expectRevision(expectedRevision)
       let state = this.#state
       const policyEvent = this.#policyChange(state, policy, ids.policy)
-      const events = [policyEvent]
+      const events: LeadJournalEvent[] = []
       const preflight = (event: LeadJournalEvent) => {
         if (event.type === 'card') admit?.(state, event.card)
         const prepared = prepareLeadJournalRecord({ version: 1, seq: state.seq + 1, ...event }, this.security)
         const record = this.storage.prepare ? this.storage.prepare(prepared, state) : prepared
         state = reduceLeadRecord(state, record)
       }
-      preflight(policyEvent)
+      if (policyEvent) { preflight(policyEvent); events.push(policyEvent) }
       const capsEvent = this.#capsChange(state, caps, { id: ids.caps, revision: 1 }, now)
-      preflight(capsEvent)
-      events.push(capsEvent)
+      if (capsEvent) { preflight(capsEvent); events.push(capsEvent) }
       for (const event of events) await this.#append(event)
     }, stopEffects)
   }
@@ -347,11 +348,21 @@ export class LeadJournal {
     const state = this.#state
     if (!state.consent || state.consent.renewalCardRevision !== undefined || state.consent.expiresAt > now || state.budget?.stop || state.recoveryBlocked ||
       ['stopped', 'accepted', 'declined'].includes(state.phase) || hasPendingLeadPlan(state)) return
-    const event = { version: 1 as const, seq: state.seq + 1, type: 'renew-plan' as const, now }
-    const next = reduceLeadRecord(state, event)
-    const card = next.cards.find(card => !state.cards.some(old => old.id === card.id && old.revision === card.revision))!
-    admit?.(card)
-    await this.#append({ type: 'renew-plan', now })
+    const old = [...state.cards].reverse().find(card => card.type === 'plan' && card.contractDigest === state.contract?.digest &&
+      JSON.stringify(card.contract) === JSON.stringify(state.contract) && state.decidedCards.includes(`${card.id}:${card.revision}`))
+    if (!old) return
+    const freshId = `renewal-${state.seq + 1}`
+    const preflight = (cardId?: string) => {
+      const event = { type: 'renew-plan' as const, now, ...(cardId ? { cardId } : {}) }
+      const next = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, ...event })
+      const card = next.cards.find(card => !state.cards.some(old => old.id === card.id && old.revision === card.revision))!
+      admit?.(card)
+      return event
+    }
+    let event: ReturnType<typeof preflight>
+    try { event = preflight() }
+    catch { event = preflight(freshId) }
+    await this.#append(event)
   }) }
   async decideCard(input: LeadCardDecision, expiresAt: number | null = null, stopEffects?: () => Promise<void>, beforeDecision?: () => Promise<void>, committed?: () => void): Promise<void> {
     const decision = parseLeadCardDecision(input)
@@ -363,6 +374,9 @@ export class LeadJournal {
         throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
       if (this.#state.decidedCards.includes(`${card.id}:${card.revision}`))
         throw Object.assign(new Error('lead-card-decided'), { wireCode: 'lead-card-decided' })
+      if (card.type === 'plan' && decision.choice === 'approve' && this.#state.policy?.revision !== card.contract.policyRevision &&
+        !(this.#state.consent?.renewalCardRevision === card.revision && JSON.stringify(this.#state.contract) === JSON.stringify(card.contract)))
+        throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
       // Validate the immutable card and reducer transition before any human side effect.
       reduceLeadRecord(this.#state, { version: 1, seq: this.#state.seq + 1, type: 'card-decision', decision, expiresAt })
       await beforeDecision?.()
@@ -376,9 +390,10 @@ export class LeadJournal {
       return structuredClone(this.#state.budget!)
     }, stopEffects)
   }
-  #capsChange(state: LeadState, value: LeadCaps, card: { id: string; revision: number }, now: number): LeadJournalEvent {
+  #capsChange(state: LeadState, value: LeadCaps, card: { id: string; revision: number }, now: number): LeadJournalEvent | null {
     const caps = parseLeadCaps(value), budget = state.budget
     if (!budget || !Number.isSafeInteger(now) || now < budget.now) throw new Error('lead-budget-refused')
+    if (caps.usdMicros === budget.caps.usdMicros && caps.rounds === budget.caps.rounds) return null
     if (caps.usdMicros <= budget.caps.usdMicros && caps.rounds <= budget.caps.rounds)
       return { type: 'budget', event: { version: 1, type: 'tighten', now, caps } }
     if (state.cards.some(card => card.type === 'budget-change' && !state.decidedCards.includes(`${card.id}:${card.revision}`)))
@@ -390,6 +405,7 @@ export class LeadJournal {
     return this.#budgetWrite(async () => {
       this.#expectRevision(expectedRevision)
       const event = this.#capsChange(this.#state, value, card, now)
+      if (!event) return null
       if (event.type === 'card') admit?.(event.card)
       await this.#append(event)
       return event.type === 'card' ? structuredClone(this.#state.cards.at(-1)!) : null

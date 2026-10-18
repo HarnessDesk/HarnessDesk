@@ -695,7 +695,7 @@ const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
 }
 
 const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
-  'lead-contract': ['LeadContract', 'LeadJournal'],
+  'lead-contract': ['LeadContract', 'LeadJournal', 'LeadMessage'],
   'ActionError': ['ActionError'],
   'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],
   'ApprovalDialog': ['ApprovalChoiceHint', 'ApprovalCode', 'ApprovalDialog', 'ApprovalFilePath', 'ApprovalMeta', 'ApprovalPermissionList', 'ApprovalQuestionText', 'ApprovalReason'],
@@ -892,7 +892,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
-  ['lead-contract', 'lead-contract', 'Revision-qualified Lead decisions, evidence and separate reported spend'],
+  ['lead-contract', 'lead-contract', 'Single-surface Lead decisions, transcript messages and the shared composer'],
   ['CommandPalette', 'conversation', 'Fixed search surface, title-led results and a keyboard-hint footer'],
   ['DashboardBands', 'dashboard-bands', 'Recorded plan, spend and activity readings through canonical page blocks'],
   ['MainDestination', 'main-destination', 'Retained work and visited pages share one main region'],

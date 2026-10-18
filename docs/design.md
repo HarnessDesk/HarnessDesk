@@ -2334,25 +2334,34 @@ change an entry's add, download, blocked or registered behaviour.
 
 ## Lead decisions in a reading column
 
-`LeadJournal` owns the page template over `Page width="reading"`: its kind is the body's first heading, with
-Settings at the right, under the destination's fixed tools. Its journal stream
-scrolls above the composer; the composer shows the initial dollar and round
-allowances as chips before the first send. The host's `wayOut` alone chooses a
-Resume notice, a plan-decision notice, or no notice. A plan-decision action
-focuses the current plan card rather than sending a decision.
+`LeadJournal` owns the reading-width page: the body starts with Lead and Settings,
+without a title glyph. The journal uses the transcript's `Message`, `MessageContent`,
+`Bubble` and `BubbleContent` alignment and rhythm. Lead turns are assistant turns.
+It follows new entries until the person scrolls up. Review plan scrolls to and
+focuses the newest pending plan. The journal is a labelled region, keeping live
+announcements separate from its interactive decisions.
 
-`LeadContract` composes Rows, Row, Chip, Button and Banner. A card's original
-journal position stays fixed through revision replacement. Its revision and
-approval scope are visible; actions wrap in keyboard order and lock together
-while a decision is pending. Prose passes the transcript sanitizer. Missing
-checks, review, findings and reported worker spend say Unknown. Lead spend is
-attributed separately. A worker approval links to its existing surface and has
-no person acceptance controls. Only a person gate offers Accept and Decline.
+The composer uses `ComposerShell`, `ComposerText`, `ComposerTools` and
+`ComposerSend`. Its allowance chips share the action row with Send. Enter sends;
+Shift+Enter keeps a line break. Pending state belongs to Send.
 
-Lead settings use the application Dialog and row grammar. The key is write-only:
-only configured status is read, and an uncontrolled password input is cleared
-before its exclusive credential request. Removal uses ConfirmDialog. Policy
-and allowance widening explains that it creates an approval card; tightening
-applies immediately. Consent expiry is a dated fact, not a second control.
-The synthetic specimens are `preview.html?lead-synthetic=<scene>`; the catalog's
-`lead-contract` board renders the same pattern.
+`LeadContract` is one bordered, rounded surface: kind and state on the header's
+left, revision as a fact on its right, then a Markdown summary, inset Rows groups
+and one wrapping action row. Internal recipe, source, digest and evidence ids
+never appear. Steps show their title and the agent's presentation name and model;
+assertion kinds use Check, Review and Findings chips. Permission methods share
+one closed human label table with settings; their wire ids are hover facts only.
+
+A worker command approval is a short card naming the waiting worker with one
+Open approvals button. Person gates alone have Accept and Decline. Evidence
+requires the current contract revision and a non-empty evidence list; everything
+else reads Unknown. Lead spend and reported worker spend remain separate facts.
+One decision is in flight across the page. A refusal keeps focus on its card.
+A renewal says when the earlier approval expired and wears a Renewal chip.
+
+Settings has Provider key, Permissions and Allowances groups. Key status is a
+chip; Add… or Replace… reveals a password input with Save and Cancel. Remove
+uses ConfirmDialog. The key is trimmed and the uncontrolled input emptied before
+its exclusive request. Permissions and Allowances each have one Save at their
+group's end, enabled only for changed values. Hints wrap, the body scrolls, and
+Done stays in the footer. Refusals appear in the active dialog and clear on close.

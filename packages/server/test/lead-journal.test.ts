@@ -861,3 +861,25 @@ test('expired consent renewal keeps its card identity and journal position throu
   assert.equal(reopened.state.cardPositions.plan, position)
   assert.equal(reopened.state.consent!.expiresAt, 400)
 })
+
+
+test('replacing a pending renewal survives file checkpoint rotation and reopen', async t => {
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  t.after(() => disk.close())
+  const contract = { version: 1 as const, revision: 1, digest: 'a'.repeat(64), goal: 'Synthetic goal', project: { id: 'demo', path: '/workspace/demo' }, policyRevision: 1,
+    steps: [{ id: 'work', title: 'Review', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended' as const, assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' }, ceiling: 'edit' as const }] }],
+    assertions: [{ id: 'check', kind: 'check' as const, description: 'Checks pass' }], caps: { usdMicros: 500, rounds: 3 } }
+  await journal.setPolicy(policy)
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical', caps: contract.caps, freshnessMs: 1000 })
+  await journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+  await journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, 200)
+  await journal.renewPlan(250)
+  const replacement = { ...contract, revision: 2, digest: 'b'.repeat(64) }
+  await journal.offerCard({ version: 1, id: 'plan', revision: 3, type: 'plan', contractDigest: replacement.digest, contract: replacement })
+  for (let i = 0; i < 1100; i++) await journal.appendReply('Synthetic rotation message')
+  const live = journal.state; await disk.close()
+  const reopened = await open(home); t.after(() => reopened.close())
+  assert.deepEqual((await createLeadJournal(reopened)).state, live)
+  const frame = JSON.parse((await fs.readFile(join(home, 'lead', 'thread-1.ndjson'), 'utf8')).split('\n')[0]!)
+  assert.equal(frame.record.type, 'checkpoint')
+})

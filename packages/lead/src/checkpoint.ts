@@ -22,9 +22,9 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const legacy = stored && !['messages', 'olderMessages', 'sends'].some(key => Object.hasOwn(stored, key))
   const threadSource = legacy ? { ...stored, messages: [], olderMessages: 0, sends: [] } : stored
   // Earlier checkpoints predate inline ordering; their retained card order is
-  // preserved before the retained thread suffix. New writes keep exact positions.
+  // preserved after the retained thread suffix. New writes keep exact positions.
   const source = threadSource && !Object.hasOwn(threadSource, 'cardPositions')
-    ? { ...threadSource, cardPositions: Object.fromEntries(threadSource.cards.map((card, index) => [card.id, Math.min(threadSource.seq, index + 1)])) } : threadSource
+    ? { ...threadSource, cardPositions: Object.fromEntries(threadSource.cards.map((card, index) => [card.id, Math.max(0, ...threadSource.messages.map(message => message.revision)) + index + 1])) } : threadSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
   assert(Number.isSafeInteger(source.seq) && source.seq > 0 && source.seq === checkpoint.seq)
   assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'].includes(source.phase))
@@ -47,7 +47,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const cards = source.cards.map(card => parseLeadCard(card))
   assert(new Set(cards.map(card => card.id)).size === cards.length)
   assert(source.cardPositions && Object.keys(source.cardPositions).length === cards.length)
-  for (const card of cards) assert(Number.isSafeInteger(source.cardPositions[card.id]) && source.cardPositions[card.id]! > 0 && source.cardPositions[card.id]! <= source.seq)
+  for (const card of cards) assert(Number.isSafeInteger(source.cardPositions[card.id]) && source.cardPositions[card.id]! > 0 && source.cardPositions[card.id]! <= Math.max(source.seq, Math.max(0, ...messages.map(message => message.revision)) + cards.length))
   assert(source.cardRevisions && Object.keys(source.cardRevisions).length === cards.length)
   for (const card of cards) assert(Number.isInteger(source.cardRevisions[card.id]) && source.cardRevisions[card.id]! >= 1 && source.cardRevisions[card.id]! <= 32)
   assert(Array.isArray(source.decidedCards) && source.decidedCards.length <= 2048 && source.decidedCards.every(key => typeof key === 'string' && key.length <= 300))

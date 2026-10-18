@@ -105,11 +105,15 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'renew-plan': {
       ensure(state.consent && state.contract && state.consent.expiresAt <= event.now && !state.budget?.stop &&
         !state.recoveryBlocked && !['stopped', 'accepted', 'declined'].includes(state.phase) && !hasPendingLeadPlan(state) && state.consent.renewalCardRevision === undefined)
-      const old = state.cards.find(card => card.type === 'plan' && card.contractDigest === state.contract?.digest &&
+      const old = [...state.cards].reverse().find(card => card.type === 'plan' && card.contractDigest === state.contract?.digest &&
         JSON.stringify(card.contract) === JSON.stringify(state.contract) && state.decidedCards.includes(cardKey(card)))
-      ensure(old && (state.cardRevisions[old.id] ?? 0) < 32 && old.revision < Number.MAX_SAFE_INTEGER)
-      const card = { ...old!, revision: old!.revision + 1 } as LeadCard
-      state = { ...state, phase: 'awaiting-plan', consent: { ...state.consent!, renewalCardRevision: card.revision }, cards: state.cards.map(old => old.id === card.id ? card : old),
+      ensure(old)
+      if (event.cardId) ensure(!state.cards.some(card => card.id === event.cardId) && state.cards.length < 64)
+      else ensure((state.cardRevisions[old!.id] ?? 0) < 32 && old!.revision < Number.MAX_SAFE_INTEGER)
+      const card = { ...old!, id: event.cardId ?? old!.id, revision: event.cardId ? 1 : old!.revision + 1 } as LeadCard
+      state = { ...state, phase: 'awaiting-plan', consent: { ...state.consent!, renewalCardRevision: card.revision },
+        cards: event.cardId ? [...state.cards, card] : state.cards.map(old => old.id === card.id ? card : old),
+        cardPositions: { ...state.cardPositions, [card.id]: state.cardPositions[card.id] ?? event.seq },
         cardRevisions: { ...state.cardRevisions, [card.id]: (state.cardRevisions[card.id] ?? 0) + 1 } }
       break
     }
@@ -160,7 +164,11 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure((state.cardRevisions[event.card.id] ?? 0) < 32)
       state = { ...state, cards: old ? state.cards.map(card => card.id === event.card.id ? event.card : card) : [...state.cards, event.card],
         cardPositions: { ...state.cardPositions, [event.card.id]: state.cardPositions[event.card.id] ?? event.seq }, cardRevisions: { ...state.cardRevisions, [event.card.id]: (state.cardRevisions[event.card.id] ?? 0) + 1 } }
-      if (event.card.type === 'plan') state = { ...state, phase: 'awaiting-plan' }
+      if (event.card.type === 'plan') {
+        const replacingRenewal = old?.type === 'plan' && old.contractDigest === state.consent?.contractDigest && old.revision === state.consent?.renewalCardRevision
+        const { renewalCardRevision: _, ...consent } = state.consent ?? {}
+        state = { ...state, phase: 'awaiting-plan', consent: replacingRenewal ? consent as NonNullable<LeadState['consent']> : state.consent }
+      }
       break
     }
     case 'card-decision': {
@@ -356,6 +364,10 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     event.type === 'stop' && previous.phase !== 'stopped' && !previous.budget?.stop)
     state = { ...state, stopEffectsPending: event.seq }
   if (previous.phase === 'waiting-for-user' && state.phase !== 'waiting-for-user') state = { ...state, managementReason: null }
+  if (['stopped', 'accepted', 'declined'].includes(state.phase) && state.consent?.renewalCardRevision !== undefined) {
+    state = { ...state, decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'plan' &&
+      card.contractDigest === state.consent?.contractDigest && card.revision === state.consent?.renewalCardRevision).map(cardKey)])] }
+  }
   return state
 }
 export const replayLeadJournal = (records: readonly LeadJournalRecord[]): LeadState => records.reduce(reduceLeadRecord, initialLeadState())

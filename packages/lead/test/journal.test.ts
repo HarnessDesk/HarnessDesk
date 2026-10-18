@@ -1626,3 +1626,71 @@ test('offerCard returns a replacement at its original position, with its origina
   assert.deepEqual(journal.state.cards.map((card: any) => card.id), [plan.id, 'later'])
   assert.equal(journal.state.cardPositions[plan.id], position)
 })
+
+
+test('unchanged policy and allowances preserve revisions and pending plan approval', async () => {
+  const journal = await open(memory()); await journal.setPolicy(policy); await initializeBudget(journal); await journal.offerCard(plan)
+  const before = journal.state
+  await journal.changePolicy({ ...policy, revision: 2 }, before.seq, 'unused')
+  assert.deepEqual(journal.state, before)
+  await journal.changeBudgetCaps(contract.caps, { id: 'unused', revision: 1 }, 100, undefined, before.seq)
+  assert.deepEqual(journal.state, before)
+  await journal.changePolicyAndBudgetCaps({ ...policy, revision: 2 }, contract.caps, before.seq, { policy: 'unused', caps: 'unused' }, 100)
+  assert.deepEqual(journal.state, before)
+  await journal.decideCard(click, 200)
+})
+
+test('forty renewals rotate exhausted plan ids preserving digest and decided history', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  for (let i = 0; i < 40; i++) {
+    const expiry = journal.state.consent.expiresAt
+    await journal.renewPlan(expiry)
+    const card = journal.state.cards.find((card: any) => card.type === 'plan' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))
+    assert.ok(card); assert.equal(card.contractDigest, contract.digest)
+    await journal.decideCard({ ...click, cardId: card.id, expectedRevision: card.revision }, expiry + 100)
+    assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint(journal.state, '0'.repeat(64))).state, journal.state)
+  }
+  assert.ok(journal.state.cards.length > 1)
+  assert.deepEqual((await open(storage)).state, journal.state)
+})
+
+test('renewal admission retries with a fresh id when replacing cannot fit', async () => {
+  const journal = await prepare(memory()), old = journal.state.cards[0]
+  await journal.renewPlan(200, (card: any) => { if (card.id === old.id) throw new Error('lead-card-too-large') })
+  const offered = journal.state.cards.find((card: any) => !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))
+  assert.ok(offered); assert.notEqual(offered.id, old.id); assert.equal(offered.contractDigest, old.contractDigest)
+  assert.ok(journal.state.decidedCards.includes(`${old.id}:${old.revision}`))
+})
+
+test('legacy checkpoints put saved cards after the retained message suffix', async () => {
+  const journal = await open(memory()); await journal.setPolicy(policy); await initializeBudget(journal); await journal.offerCard(plan); await journal.appendReply('Retained answer'); await journal.offerCard({ ...plan, id: 'later' })
+  const checkpoint: any = lead.leadCheckpoint(journal.state, '0'.repeat(64)); delete checkpoint.state.cardPositions
+  const state = lead.parseLeadCheckpoint(checkpoint).state
+  const last = Math.max(...state.messages.map(message => message.revision))
+  assert.deepEqual(state.cards.map(card => state.cardPositions[card.id]), [last + 1, last + 2])
+})
+
+test('replacing a pending renewal keeps checkpoints and reopen parseable', async () => {
+  const storage = memory(), journal = await prepare(storage); await journal.renewPlan(200)
+  await journal.offerCard({ ...plan, revision: 3, contractDigest: 'b'.repeat(64), contract: { ...contract, revision: 2, digest: 'b'.repeat(64) } })
+  assert.equal(journal.state.consent.renewalCardRevision, undefined)
+  assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint(journal.state, '0'.repeat(64))).state, journal.state)
+  assert.deepEqual((await open(storage)).state, journal.state)
+})
+
+test('terminal result decision closes a pending renewal', async () => {
+  const journal = await prepare(memory()); await journal.renewPlan(200)
+  await journal.offerCard({ version: 1, id: 'result', revision: 1, type: 'result', outcome: 'reviewed', contractDigest: contract.digest, summary: 'Ready', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget, 100) })
+  await journal.decideCard({ version: 1, cardId: 'result', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' })
+  assert.equal(journal.state.phase, 'accepted')
+  assert.ok(journal.state.decidedCards.includes('plan-1:2'))
+  await assert.rejects(journal.decideCard({ ...click, expectedRevision: 2 }, 400))
+})
+
+test('renewal reducer independently requires monotonic expiry and one renewal per consent', async () => {
+  const journal = await prepare(memory()), state = journal.state
+  const renewed = lead.reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'renew-plan', now: 200 })
+  assert.throws(() => lead.reduceLeadRecord(renewed, { version: 1, seq: renewed.seq + 1, type: 'card-decision', decision: { ...click, expectedRevision: 2 }, expiresAt: 200 }))
+  const decided = { ...renewed, decidedCards: [...renewed.decidedCards, 'plan-1:2'] }
+  assert.throws(() => lead.reduceLeadRecord(decided, { version: 1, seq: decided.seq + 1, type: 'renew-plan', now: 201 }))
+})

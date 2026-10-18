@@ -1117,3 +1117,43 @@ test('thread exposes journal positions and approved scope for inline replacement
   assert.deepEqual(approved.thread.contract, contract)
   assert.equal(approved.thread.budget.leadUsdMicros, 0)
 })
+
+
+test('forty renewals leave reads Settings and key removal available', async () => {
+  let now = 100
+  const s = await rig({ configured: true, controls: { now: () => now } })
+  try {
+    await s.journal.offerCard(plan); await s.call('lead/card/decide', planClick); await s.controls.idle()
+    for (let i = 0; i < 40; i++) {
+      now = s.journal.state.consent!.expiresAt
+      const projection = await s.call('lead/thread/read')
+      const card = projection.thread.cards.find((card: any) => card.type === 'plan')
+      assert.ok(card)
+      await s.call('lead/card/decide', { ...planClick, cardId: card.id, expectedRevision: card.revision }); await s.controls.idle()
+    }
+    await s.call('lead/settings/read')
+    const result = await s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, credential: { provider: 'anthropic', key: null } })
+    assert.equal(result.settings.key.configured, false)
+  } finally { s.controls.close() }
+})
+
+test('renewal failures cannot make reads or key removal fail', async () => {
+  const s = await rig({ configured: true })
+  try {
+    s.journal.renewPlan = async () => { throw new Error('synthetic renewal refusal') }
+    await s.call('lead/thread/read'); await s.call('lead/settings/read')
+    const result = await s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, credential: { provider: 'anthropic', key: null } })
+    assert.equal(result.settings.key.configured, false)
+  } finally { s.controls.close() }
+})
+
+
+test('genuine policy tightening gives a pending plan a typed stale refusal', async () => {
+  const s = await rig()
+  try {
+    await s.journal.offerCard(plan)
+    await s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, policy: { ...policy, revision: 2, mode: 'plan' } })
+    await assert.rejects(s.call('lead/card/decide', planClick), code('lead-card-stale'))
+    assert.equal((await s.call('lead/thread/read')).wayOut, 'decide-plan')
+  } finally { s.controls.close() }
+})

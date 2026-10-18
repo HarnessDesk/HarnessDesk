@@ -8,8 +8,13 @@ import { leadContract, leadPlan, leadResult, leadRuntime, leadWaiting } from '..
 // An absent implementation renders nothing, so the first run fails on the promised behavior.
 const modules = import.meta.glob('./LeadCards.tsx', { eager: true }) as Record<string, { LeadCards: React.ComponentType<any> }>
 const LeadCards = modules['./LeadCards.tsx']?.LeadCards ?? (() => null)
+const handlers = vi.hoisted(() => [] as { onApprove?: () => void }[])
+vi.mock('../design', async importOriginal => {
+  const actual = await importOriginal<typeof import('../design')>()
+  return { ...actual, LeadContract: (props: React.ComponentProps<typeof actual.LeadContract>) => { handlers.push(props); return <actual.LeadContract {...props} /> } }
+})
 const clean: (() => void)[] = []
-afterEach(() => clean.splice(0).forEach(fn => fn()))
+afterEach(() => { clean.splice(0).forEach(fn => fn()); handlers.length = 0 })
 const mount = (cards: readonly LeadCard[], decide = vi.fn(async () => {})) => {
   const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
   const render = (next: readonly LeadCard[]) => act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={next} contract={leadContract} runtimes={[leadRuntime]} onDecide={decide} onChanges={() => {}} onApprovals={() => {}} /></StoreProvider>))
@@ -52,4 +57,48 @@ it('locks both decisions during a pending request and restores focus after it', 
   await act(async () => { box.querySelector<HTMLButtonElement>('button')!.click() }); expect(decide).toHaveBeenCalledTimes(1)
   await act(async () => done())
   expect(box.contains(document.activeElement)).toBe(true)
+})
+
+
+it.each(['stale contract', 'empty passed evidence', 'empty failed evidence'] as const)('qualifies %s as Unknown', scenario => {
+  const assertions = leadContract.assertions.map(assertion => ({ assertionId: assertion.id, revision: 1, contractRevision: scenario === 'stale contract' ? 99 : leadContract.revision,
+    status: scenario === 'empty failed evidence' ? 'failed' as const : 'passed' as const, evidence: scenario === 'stale contract' ? [{ kind: 'check' as const, id: 'synthetic', revision: 'synthetic-head' }] : [], reason: null }))
+  const { box } = mount([{ ...leadResult, assertions }])
+  expect(box.textContent).not.toContain('Passed'); expect(box.textContent).not.toContain('Failed')
+})
+it('renders Passed only for qualified non-empty evidence', () => {
+  const assertions = leadContract.assertions.map(assertion => ({ assertionId: assertion.id, revision: 1, contractRevision: leadContract.revision, status: 'passed' as const, evidence: [{ kind: 'check' as const, id: 'synthetic', revision: 'synthetic-head' }], reason: null }))
+  const { box } = mount([{ ...leadResult, assertions }]); expect(box.textContent?.match(/Passed/g)).toHaveLength(3)
+})
+it('rejects retained stale decision callbacks independently of DOM removal', async () => {
+  const { render, decide } = mount([leadPlan]); const old = handlers.at(-1)!.onApprove!
+  render([{ ...leadPlan, revision: 2 }]); await act(async () => old()); expect(decide).not.toHaveBeenCalled()
+})
+it('rejects two same-tick callbacks before disabled controls render', async () => {
+  let done!: () => void; const decide = vi.fn(() => new Promise<void>(resolve => { done = resolve }))
+  mount([leadPlan], decide); const approve = handlers.at(-1)!.onApprove!
+  await act(async () => { approve(); approve() }); expect(decide).toHaveBeenCalledTimes(1)
+  await act(async () => done())
+})
+it('person gates have no worker approval link', () => {
+  const { box } = mount([leadWaiting]); expect(button(box, 'Open approvals')).toBeUndefined()
+})
+it('renders a worker as a short presentation-labelled card', () => {
+  const { box } = mount([{ ...leadWaiting, kind: 'worker-approval', personCardId: null }])
+  expect(box.textContent).not.toContain('Lead spend'); expect(box.textContent).not.toContain('Checks')
+  expect(box.querySelectorAll('button')).toHaveLength(1)
+})
+it('keeps internal identifiers out of cards and uses human assertion chips', () => {
+  const { box } = mount([leadPlan, leadResult])
+  for (const text of ['lead-reviewed-result', 'recipe-1', 'attended', 'Ceiling:', 'task:', 'head-demo', leadContract.digest, 'Assertion revision', 'Contract revision']) expect(box.textContent).not.toContain(text)
+  expect(box.textContent).toContain('Demo runtime · demo-model'); expect(box.textContent).toContain('Findings')
+})
+
+it.each(['permission-change', 'budget-change'] as const)('gives %s a summary inside its one surface', type => {
+  const policy = { version: 1 as const, revision: 1, mode: 'default' as const, rules: [] }
+  const card: LeadCard = type === 'permission-change' ? { version: 1, id: 'policy', revision: 1, type, contractDigest: leadContract.digest, previous: policy,
+    proposed: { ...policy, revision: 2, mode: 'manage', rules: [{ id: 'rule', effect: 'allow', method: 'flow/start-goal', action: null, project: null }] } }
+    : { version: 1, id: 'caps', logicalGoalId: 'synthetic-goal', revision: 1, type, contractDigest: leadContract.digest, previous: { revision: 1, caps: leadContract.caps }, proposed: { usdMicros: 6000000, rounds: 5 } }
+  const { box } = mount([card]); expect(box.querySelector('[data-lead-prose]')).not.toBeNull()
+  if (type === 'permission-change') { expect(box.textContent).toContain('Start a run'); expect(box.textContent).not.toContain('flow/start-goal'); expect(box.querySelector('[title="flow/start-goal"]')).not.toBeNull() }
 })
