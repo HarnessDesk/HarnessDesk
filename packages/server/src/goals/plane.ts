@@ -342,7 +342,7 @@ export class GoalPlane {
       // Inbox persistence can trail the renderer's acknowledgement. Its hint only
       // decides whether to write, never the stored time (even for a future hint).
       if (document.lastSeenAt !== undefined && Math.max(latest, newsAt) <= document.lastSeenAt) return view
-      await this.store.mark(id, { lastSeenAt: Math.max(this.now(), latest) })
+      await this.store.mark(id, { lastSeenAt: Math.max(this.now(), latest, document.lastSeenAt ?? 0) })
       const seen = await this.view(id)
       this.port.changed(seen, { install: false })
       return seen

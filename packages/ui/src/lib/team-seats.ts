@@ -16,6 +16,7 @@ export type TeamSeat = LinkedTeamSeat | {
 }
 export const hasConversation = (seat: TeamSeat): seat is LinkedTeamSeat => seat.key !== null
 
+/** Keep open Team membership in sync with teamNewsSessions in packages/server/src/goals/members.ts. */
 export const teamSeats = (
   goal: GoalView | null | undefined,
   team: TeamState | null | undefined,

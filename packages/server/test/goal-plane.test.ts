@@ -868,6 +868,20 @@ test('goal/seen news hint acknowledges an inbox entry saved after an otherwise s
 })
 
 
+test('goal/seen preserves its stored seen time when the host clock steps backwards', async (t) => {
+  const proof = await rig()
+  let at = 30
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  await plane.seen('g1')
+  assert.equal(proof.store.read('g1').lastSeenAt, 30)
+  at = 20
+  const mark = t.mock.method(proof.store, 'mark')
+  const seen = await goalMethods['goal/seen']({ goals: plane } as never, { goal: 'g1', newsAt: 40 })
+  assert.equal(mark.mock.calls[0]?.arguments[1].lastSeenAt, 30, 'the plane must not request a backwards write')
+  assert.equal(proof.store.read('g1').lastSeenAt, 30, 'a hinted write cannot lower the stored seen time')
+  assert.equal(seen.lastSeenAt, 30)
+})
+
 test('goal/seen uses a future news hint only to trigger a host-timed write', async () => {
   const proof = await rig()
   let at = 10
