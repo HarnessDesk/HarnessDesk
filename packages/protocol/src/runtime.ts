@@ -578,6 +578,8 @@ export interface RuntimeInfo {
     readonly asksName?: true
     /** This account keeps its own folder and conversations, separate from its peers. */
     readonly ownSessions?: true
+    /** The agent can also run an account against the person’s own endpoint. */
+    readonly gateways?: true
     /**
      * Set when this account reaches the model through an endpoint of the
      * user's own — an API key or a gateway — rather than the vendor plan the

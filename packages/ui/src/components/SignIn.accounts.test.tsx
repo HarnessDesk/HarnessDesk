@@ -615,9 +615,9 @@ it('keeps an added credential separate from the runtime’s own sessions', async
 
 
 describe('naming another account', () => {
-  const setup = async (asksName = true) => {
+  const setup = async (asksName = true, addResult = async () => ({ runtime: 'new-account' })) => {
     const info = runtime({ ...PRIMARY, slot: { ...PRIMARY.slot, ...(asksName ? { asksName: true, ownSessions: true } : {}) } })
-    const request = vi.fn(async () => ({ runtime: 'new-account' }))
+    const request = vi.fn(addResult)
     const store = await mount({ runtimes: [info], accountsByRuntime: { codex: status([{ label: 'dev@example.com' }], ['browser']) } } as never,
       'codex', () => {}, { transport: { request } as never, addAccount: AppStore.prototype.addAccount })
     const press = async (label: string) => {
@@ -637,7 +637,8 @@ describe('naming another account', () => {
     const input = dialog?.querySelector('input')
     expect(input?.placeholder).toBe('Codex 2')
     expect(input?.maxLength).toBe(80)
-    expect(dialog?.textContent).toContain('Google account')
+    expect(dialog?.textContent).toContain('Name it after the account you will sign in to, for example “Work” or dev@example.com.')
+    expect(dialog?.textContent).not.toContain('Google')
     expect(dialog?.textContent).toContain('Work')
   })
 
@@ -663,6 +664,45 @@ describe('naming another account', () => {
     })
     expect(document.body.querySelector('[aria-label="Name this account"]')).toBeNull()
     expect(request).not.toHaveBeenCalled()
+  })
+
+  it('keeps Cancel disabled and refuses Escape while an add is pending', async () => {
+    let resolve!: (value: { runtime: string }) => void
+    const pending = new Promise<{ runtime: string }>(done => { resolve = done })
+    const { request, press } = await setup(true, () => pending)
+    try {
+      await press('Add')
+      const dialog = () => document.body.querySelector('[aria-label="Name this account"]')
+      const cancel = [...dialog()!.querySelectorAll('button')].find(node => node.textContent === 'Cancel')!
+      expect(cancel.disabled).toBe(true)
+      await act(async () => cancel.click())
+      await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+      expect(dialog()).not.toBeNull()
+      expect(request).toHaveBeenCalledTimes(1)
+    } finally {
+      await act(async () => { resolve({ runtime: 'new-account' }); await pending })
+    }
+  })
+
+  it('Enter submits Work once even when pressed twice before the add resolves', async () => {
+    let resolve!: (value: { runtime: string }) => void
+    const pending = new Promise<{ runtime: string }>(done => { resolve = done })
+    const { request } = await setup(true, () => pending)
+    try {
+      const input = document.body.querySelector<HTMLInputElement>('[aria-label="Name this account"] input')!
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Work')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      act(() => {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      })
+      expect(request).toHaveBeenCalledWith('runtime/account/add', { runtime: 'codex', name: 'Work' })
+      expect(request).toHaveBeenCalledTimes(1)
+    } finally {
+      await act(async () => { resolve({ runtime: 'new-account' }); await pending })
+    }
   })
 
   it('adds straight away when a name is not requested', async () => {

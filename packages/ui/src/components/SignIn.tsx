@@ -650,8 +650,6 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
 
   return (
     <>
-      {namingAccount && <AccountNameDialog info={info} adding={adding}
-        onAdd={addAccount} onClose={() => setNamingAccount(false)} />}
       <CardHead mark={<RuntimeMark runtime={info} size={20} />} name={info.presentation.name}>
         {info.presentation.tagline ?? `${STATUS_LABEL[row.status]}.`}
       </CardHead>
@@ -819,6 +817,8 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           sign-in worked.
         </FinePrint>
       ) : null}
+      {namingAccount && <AccountNameDialog info={info} adding={adding}
+        onAdd={addAccount} onClose={() => setNamingAccount(false)} />}
     </>
   )
 }

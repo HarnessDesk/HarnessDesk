@@ -29,13 +29,19 @@ export const AccountNameDialog = ({ info, adding, onAdd, onClose }: {
   }
 
   return (
-    <Dialog title="Name this account" onClose={onClose} footer={<>
+    <Dialog title="Name this account" onClose={() => { if (!adding && !submitting.current) onClose() }} footer={<>
       <Button variant="default" disabled={adding} onClick={() => void add()}>{adding ? 'Adding…' : 'Add'}</Button>
-      <Button variant="secondary" onClick={onClose}>Cancel</Button>
+      <Button variant="secondary" disabled={adding} onClick={onClose}>Cancel</Button>
     </>}>
-      <Field label="Name" hint={'Name it after the Google account you will sign in to, for example “Work” or dev@example.com.'}>
+      <Field label="Name" hint={'Name it after the account you will sign in to, for example “Work” or dev@example.com.'}>
         {control => <Input {...control} value={name} placeholder={placeholder} maxLength={80} autoFocus
-          onChange={event => setName(event.target.value)} />}
+          onChange={event => setName(event.target.value)}
+          onKeyDown={event => {
+            if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+              event.preventDefault()
+              void add()
+            }
+          }} />}
       </Field>
     </Dialog>
   )

@@ -331,9 +331,10 @@ export const createDefaultHost = (
             agent: slot.agent,
             home: slot.home,
             removable: true,
+            gateways: true,
             ...(slot.gateway ? { gateway: { ...slot.gateway } } : {}),
           }
-        : { agent: CODEX_RUNTIME_ID, home: codexHome, removable: false }
+        : { agent: CODEX_RUNTIME_ID, home: codexHome, removable: false, gateways: true }
     },
     add: async (info, gateway, name) => {
       // An ACP agent has no gateway story: an account of one is a signed-in

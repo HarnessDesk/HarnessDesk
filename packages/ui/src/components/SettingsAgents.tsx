@@ -647,7 +647,7 @@ const AgentAccounts = ({
               )}
               {/* Offered even with no plan account signed in: paying your own way
                   is a first-class way to run this agent, not a fallback. */}
-              {info.slot?.canAdd && (
+              {info.slot?.gateways && (
                 <Button
                   size="sm"
                   variant="outline"

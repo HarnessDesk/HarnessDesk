@@ -375,6 +375,8 @@ const hostWithAccounts = async (options: {
   readonly single?: boolean
   /** Facts declared by an account factory, independent of agent identity. */
   readonly namedAccounts?: boolean
+  /** Whether this fake agent supports accounts on a custom endpoint. */
+  readonly gateways?: boolean
   /** Handed to the host, so a test can drive the registry's own verbs. */
   readonly agents?: AgentDirectory
 } = {}): Promise<{
@@ -406,9 +408,10 @@ const hostWithAccounts = async (options: {
             home: slot.home,
             removable: true,
             ...(options.namedAccounts ? { asksName: true as const, ownSessions: true as const } : {}),
+            ...(options.gateways ? { gateways: true as const } : {}),
             ...(slot.gateway ? { gateway: { ...slot.gateway } } : {}),
           }
-        : { agent: FAKE_RUNTIME_ID, home: primary, removable: false, ...(options.namedAccounts ? { asksName: true as const, ownSessions: true as const } : {}) }
+        : { agent: FAKE_RUNTIME_ID, home: primary, removable: false, ...(options.namedAccounts ? { asksName: true as const, ownSessions: true as const } : {}), ...(options.gateways ? { gateways: true as const } : {}) }
     },
     add: async (info: RuntimeInfo, gateway, name): Promise<AgentRuntime> => {
       names.push(name)
@@ -492,6 +495,21 @@ for (const namedAccounts of [true, false]) {
         assert.equal(Object.hasOwn(info.slot!, 'asksName'), false)
         assert.equal(Object.hasOwn(info.slot!, 'ownSessions'), false)
       }
+    }
+    check(host.syncPayload().params.runtimes[0]!)
+    const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+    check(added.info)
+    for (const info of host.syncPayload().params.runtimes) check(info)
+  })
+}
+
+for (const gateways of [true, false]) {
+  test(`gateway support reaches clients only when the factory declares it (${gateways})`, async (t) => {
+    const { host, stateDir } = await hostWithAccounts({ gateways })
+    t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+    const check = (info: RuntimeInfo) => {
+      assert.equal(info.slot?.gateways, gateways ? true : undefined)
+      assert.equal(Object.hasOwn(info.slot!, 'gateways'), gateways)
     }
     check(host.syncPayload().params.runtimes[0]!)
     const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })

@@ -1444,3 +1444,15 @@ it('Settings describes an account with ownSessions as owning its folder and conv
   await mountNamingAccount()
   expect(button('Add account')!.title).toBe('A new Agent account gets a folder of its own, with its own conversations.')
 })
+
+
+it.each([false, true])('offers a gateway only when its slot declares gateways (%s)', async (gateways) => {
+  const info = runtime({ id: 'gateway-agent', name: 'Agent',
+    slot: { agent: 'gateway-agent', home: null, removable: false, canAdd: true,
+      ...(gateways ? { gateways: true } : {}) } })
+  await mountList({ runtimes: [info], activeRuntime: info.id,
+    accountsByRuntime: { [info.id]: signedIn([{ label: 'dev@example.com' }], ['browser']) } })
+  await act(async () => line('Agent').click())
+  expect(Boolean(button('Add gateway account'))).toBe(gateways)
+  expect(button('Add account')).toBeDefined()
+})
