@@ -8,6 +8,7 @@ import { StagedRun } from '../../site-demo/fake-run'
 import { SignInMode } from '../components/SignInMode'
 import { FlowStart, type FlowChoice } from '../components/FlowStart'
 import { Sidebar } from '../components/Sidebar'
+import { SideBySideStill } from './site-stills'
 import { seedTeamFrame, TeamFramePreview } from './TeamFramePreview'
 import { TeamRunView } from '../components/TeamRunView'
 import { TeamsWindow } from '../components/TeamsWindow'
@@ -28,7 +29,7 @@ import { SIDE_BY_SIDE_KEYS } from './side-by-side-fixture'
 import { teamsPageStore } from './teams-page-fixture'
 import { usagePreviewStore } from './usage-fixture'
 import { STILL_HOURS, STILL_LIBRARY, STILL_PLUGINS, STILL_RUNTIMES } from './release-stills-data'
-import { SITE_SCENES, SideBySideStill, SiteStills, siteStillStore } from './site-stills'
+import { SITE_SCENES, SiteStills, siteStillStore } from './site-stills'
 
 const CatalogueTeamRunView = (props: ComponentProps<typeof TeamRunView>) => <TopBarProvider>
   <TopBarOutlet owner="" fallback={{ place: 'Recorded Run', more: () => null }} />
