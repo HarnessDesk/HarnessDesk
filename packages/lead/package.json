@@ -10,12 +10,21 @@
     ".": {
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
+    },
+    "./supervisor": {
+      "types": "./dist/src/supervisor.d.ts",
+      "default": "./dist/src/supervisor.js"
     }
   },
   "dependencies": {
     "@harnessdesk/client": "workspace:*",
     "@harnessdesk/protocol": "workspace:*"
   },
-  "files": ["dist"],
-  "license": "MIT"
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test dist/test/*.test.js"
+  }
 }

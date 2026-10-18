@@ -122,6 +122,8 @@ import { Agents } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
 import { LeadAdmission } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
+import { LeadService, type LeadServiceOptions } from './lead/service.js'
+import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import type { LeadJournal } from '@harnessdesk/lead'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
@@ -716,6 +718,9 @@ export class Host {
   readonly #worktrees: Worktrees
   readonly #laneStore: LaneStore
   readonly #lanes: LaneAllocator
+  #leadService: LeadService | null = null
+  #leadListenersAvailable = true
+  #leadReady = false
   readonly #credentials: CredentialBroker
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
@@ -2529,6 +2534,10 @@ export class Host {
       return
     }
     this.#goalWriter = writer
+    await cleanupLeadClientDoors(this.#state.directory).catch(() => {
+      this.#leadListenersAvailable = false
+      this.#logger.warn('Lead listener cleanup is unavailable; ordinary desk startup continues')
+    })
     await this.#state.load()
     if (this.#disposed) return
     await this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)
@@ -2713,6 +2722,7 @@ export class Host {
     })().catch(resumeFailed)
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
     this.#startIdleReaper()
+    this.#leadReady = true
   }
 
   /**
@@ -3200,6 +3210,8 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    // close() latches Lead dispatch synchronously, before ordinary teardown yields.
+    const leadClosed = this.#leadService?.close().catch(() => { this.#logger.warn('Lead shutdown cleanup remains pending') })
     this.#sessionIndexAbort.abort()
     clearTimeout(this.#removalSweep)
     this.#historyImport.close()
@@ -3264,6 +3276,7 @@ export class Host {
         }),
       ),
     )
+    await leadClosed
     for (const disposer of this.#disposers.splice(0)) {
       await Promise.resolve()
         .then(disposer)
@@ -3321,8 +3334,33 @@ export class Host {
     await this.#audit.flush()
   }
 
-  /** The supervisor registers the host journal before recovery, and keeps this
-   * registration across child crashes. No wire field can create one. */
+  /** One host-owned supervisor, enabled explicitly by the authenticated Lead
+   * service owner in the next slice step. Construction itself never spawns. */
+  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence'>): LeadService {
+    if (this.#disposed) throw new Error('lead-host-closed')
+    if (!this.#leadListenersAvailable) throw new Error('lead-listener-unavailable')
+    if (!this.#leadReady) throw new Error('lead-host-starting')
+    if (this.#leadService) throw new Error('lead-service-exists')
+    const { journal, project } = options
+    this.#leadService = new LeadService({ ...options, broker: this.#credentials,
+      register: () => this.registerLead(journal, project),
+      childStarted: () => this.#leadBudgets.childStarted(journal),
+      recover: () => this.#leadBudgets.recover(),
+      openDoor: async admission => openLeadClientDoor({ host: this, logger: this.#logger, home: this.#state.directory,
+        hostVersion: this.options.version ?? '0.1.0', authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission }) }),
+      stopOwned: async reason => {
+        const results = await Promise.allSettled(journal.state.runs.map(async run => {
+          this.#flows.interruptChecks(run.teamId)
+          await this.#flows.stopRun(run.runId, reason, 'desk')
+        }))
+        if (results.some(result => result.status === 'rejected')) throw new Error('lead-owned-work-stop-pending')
+      },
+    })
+    return this.#leadService
+  }
+
+  /** The supervisor registers before recovery and unregisters after exit.
+   * No wire field can create this host owner. */
   registerLead(journal: LeadJournal, project: LeadProject): { admission: LeadAdmission; close: () => void } {
     const close = this.#leadBudgets.register(journal)
     return { admission: new LeadAdmission({ journal, project, budgets: this.#leadBudgets, previews: this.#flowPreviews,

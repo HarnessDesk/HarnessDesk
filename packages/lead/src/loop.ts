@@ -1,3 +1,4 @@
+import type { LeadJournalPort } from './child-ipc.js'
 import { clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
 import { leadReviewedResultSource } from './recipes/reviewed-result.js'
@@ -6,7 +7,6 @@ import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, Mess
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
 import { evaluateLeadAcceptance, type LeadAcceptanceEvidence, type LeadAcceptanceResult } from './acceptance.js'
 import { leadBudgetProjection } from './budget.js'
-import type { LeadJournal } from './journal.js'
 import type { LeadDeskPort } from './ports.js'
 import type { LeadPermissionCall } from './permissions.js'
 
@@ -17,7 +17,7 @@ export interface LeadLoopClock {
   schedule(callback: () => void): () => void
 }
 export interface LeadLoopOptions {
-  readonly journal: LeadJournal
+  readonly journal: LeadJournalPort
   readonly desk: LeadDeskPort
   readonly project: LeadProject
   readonly clock: LeadLoopClock

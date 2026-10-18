@@ -1,5 +1,6 @@
+import type { LeadJournalPort } from './child-ipc.js'
 import type { LeadAcceptanceContract, LeadCard, LeadProject, LeadPlanStep } from '@harnessdesk/protocol'
-import type { LeadDispatch, LeadJournal } from './journal.js'
+import type { LeadDispatch } from './journal.js'
 import type { LeadPermissionCall, LeadPermissionContext } from './permissions.js'
 
 /** Provider dialect is private to this package; no provider SDK escapes into protocol. */
@@ -65,7 +66,7 @@ export interface LeadMessagesOptions {
   readonly model?: string
   readonly prices: Readonly<Record<string, MessagesPrice>>
   readonly transport: MessagesTransport
-  readonly journal: LeadJournal
+  readonly journal: LeadJournalPort
   readonly now: () => number
   /** Unique trusted journal identifier, never a provider tool_use id. */
   readonly nextId: () => string

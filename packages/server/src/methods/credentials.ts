@@ -37,7 +37,9 @@ export const credentialMethods = {
     const gateways = new Map(
       ctx.accounts.gatewayCredentials().map((one) => [one.ref, one.name] as const),
     )
-    return (await ctx.credentials.describe()).map(({ agent, writer, ...rest }) => ({
+    // Lead has its own configured/protection projection; its reference never
+    // enters the renderer's generic endpoint-key collection.
+    return (await ctx.credentials.describe()).filter(entry => entry.writer !== 'lead').map(({ agent, writer, ...rest }) => ({
       ...rest,
       owner: ownerOf({ agent, writer }, gateways, rest.ref),
     }))

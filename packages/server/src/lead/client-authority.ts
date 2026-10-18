@@ -105,6 +105,36 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
   } satisfies ClientConnectionPolicy)
 }
 
+const leadClientParent = async (home: string, create: boolean): Promise<string | null> => {
+  const parent = join(await fs.realpath(home), 'lead-clients')
+  if (create) {
+    try { await fs.mkdir(parent, { mode: 0o700 }) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
+  }
+  let stat
+  try { stat = await fs.lstat(parent) }
+  catch (error) { if (!create && (error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error }
+  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid!() || (stat.mode & 0o7777) !== 0o700)
+    throw new Error('lead-listener-parent')
+  return parent
+}
+
+/** Call only after acquiring the home's single desk writer. Recovery is confined
+ * to that home's reserved parent; no global temporary-directory sweep occurs. */
+export const cleanupLeadClientDoors = async (home: string): Promise<void> => {
+  if (process.platform === 'win32') return
+  const parent = await leadClientParent(home, false)
+  if (parent === null) return
+  for (const name of await fs.readdir(parent)) {
+    if (!/^hd-lead-[A-Za-z0-9]{6}$/.test(name)) continue
+    const path = join(parent, name)
+    const stat = await fs.lstat(path)
+    // Foreign entries and links are preserved, including links to other homes.
+    if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid!() || (stat.mode & 0o7777) !== 0o700) continue
+    await fs.rm(path, { recursive: true, force: true })
+  }
+}
+
 /** The descriptor stays in the parent until the supervisor writes it to the
  * child's private input. There is no discovery pointer, argv or env marker.
  * Socket ownership is not an OS sandbox against another same-user process. */
@@ -112,9 +142,10 @@ export const openLeadClientDoor = async (
   options: Omit<ClientDoorOptions, 'policy' | 'discovery'> & { readonly authority: ClientConnectionPolicy },
 ): Promise<ClientDoor | null> => {
   if (process.platform === 'win32') return null
-  // A fresh, short directory avoids the platform's Unix-socket path limit and
-  // never shares the ordinary door's discovery directory or environment switch.
-  const directory = await fs.mkdtemp(join(options.directory ?? '/tmp', 'hd-lead-'))
+  // Every private socket belongs to this home, rather than a global /tmp sweep.
+  // The ordinary door's directory and discovery/environment switches stay separate.
+  const parent = await leadClientParent(options.home, true)
+  const directory = await fs.mkdtemp(join(parent!, 'hd-lead-'))
   try {
     const door = await openClientDoor({ host: options.host, logger: options.logger, home: options.home,
       hostVersion: options.hostVersion, directory, policy: { ...options.authority, identity: 'lead',

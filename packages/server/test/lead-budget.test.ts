@@ -21,6 +21,37 @@ const journal = async () => {
   await value.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: { usdMicros: 100, rounds: 10 }, freshnessMs: 1000 })
   return value
 }
+
+test('host recovery refuses to run while a registered Lead child is live', async t => {
+  const s = await leadRig(t)
+  const before = structuredClone(s.records)
+  const ended = s.budgets.childStarted(s.journal)
+  await assert.rejects(s.budgets.recover(), /lead-child-live/)
+  assert.deepEqual(s.records, before, 'refusal precedes every recovery write')
+  ended()
+  await s.budgets.recover()
+})
+
+test('child exit unregisters its budget owner, live latch and pending retries', async t => {
+  const s = await leadRig(t)
+  await s.start()
+  const scheduled = new Set<() => void>()
+  Object.assign(s.budgets.port, { schedule: (callback: () => void) => {
+    scheduled.add(callback)
+    return () => { scheduled.delete(callback) }
+  } })
+  const ended = s.budgets.childStarted(s.journal)
+  s.setStopFails(true)
+  await s.observe(100_000).catch(() => {})
+  await s.budgets.idle()
+  assert.equal(scheduled.size, 1)
+  s.unregister()
+  assert.equal(scheduled.size, 0)
+  await s.budgets.recover()
+  await assert.rejects(s.budgets.update('logical-1', { version: 1, type: 'stop', now: 100, reason: 'budget' }), /lead-budget-owner/)
+  assert.ok(ended, 'host must receive the child lifetime disposer')
+  ended()
+})
 for (const scenario of ['delayed round transition', 'worker Seat crash', 'host restart']) {
   test(`${scenario} cannot dispatch after a host cap latch`, async t => {
     const ledger = await journal()

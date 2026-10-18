@@ -195,6 +195,13 @@ export { LEAD_MANAGEMENT_REASONS } from '@harnessdesk/protocol'
 /** One serialized management writer. All effects use injected ports; this module owns
  * no files, processes, network, clock or ID generator. IDs come from its trusted owner. */
 export class LeadJournal {
+  #childLive = false
+  #recovering = 0
+  /** Host supervisor owns this latch; never expose it in the child journal port. */
+  setChildLive(live: boolean): void {
+    if (live && this.#recovering > 0) throw new Error('lead-recovery-active')
+    this.#childLive = live
+  }
   readonly #listeners = new Set<() => void>()
   /** Durable changes only. Observers schedule host work outside the journal queue. */
   onChange(listener: () => void): () => void { this.#listeners.add(listener); return () => { this.#listeners.delete(listener) } }
@@ -438,7 +445,10 @@ export class LeadJournal {
    * Every identity proves project membership and its first-round id. Omission,
    * paging and lookup failure never prove termination. No recovery path dispatches. */
   recover(reconcile: (attempt: { id: string; correlationId: string; method: string }) => Promise<readonly LeadRunObservation[]>): Promise<readonly LeadRecoveryAction[]> {
+    if (this.#childLive) return Promise.reject(new Error('lead-recovery-live-child'))
+    this.#recovering++
     return this.#queue(async () => {
+      if (this.#childLive) throw new Error('lead-recovery-live-child')
       const actions: LeadRecoveryAction[] = []
       for (const pending of [...this.#state.attempts.values()].filter(attempt => !attempt.recoveryReported && (attempt.phase !== 'finished' || attempt.outcome === 'uncertain' || attempt.resolutionPending || this.#state.runs.some(run => run.correlationId === attempt.correlationId)))) {
         if (pending.phase === 'attempted') await this.#append({ type: 'decision', id: pending.id, effect: 'deny', reason: 'recovery', rule: null })
@@ -485,7 +495,7 @@ export class LeadJournal {
         }
       }
       return actions
-    })
+    }).finally(() => { this.#recovering-- })
   }
 }
 /** The host owns the sole writer for a Lead. Child tools must share that journal

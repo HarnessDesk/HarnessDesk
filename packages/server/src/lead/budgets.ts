@@ -31,6 +31,8 @@ export class LeadBudgets implements FlowLeadGuard {
   readonly #retries = new Map<string, () => void>()
   readonly #backoff = new Map<string, number>()
   readonly #pending = new Map<string, { journal: LeadJournal; stepId: string; params: unknown; project: LeadProject }>()
+  readonly #children = new Map<LeadJournal, () => void>()
+  #recovering = false
   constructor(readonly port: LeadBudgetPort) {}
   register(journal: LeadJournal): () => void {
     const id = journal.state.budget?.logicalGoalId
@@ -39,10 +41,22 @@ export class LeadBudgets implements FlowLeadGuard {
     this.#detach.set(id, journal.onChange(() => this.#changed(id, journal)))
     this.#changed(id, journal)
     return () => {
+      if (this.#journals.get(id) !== journal) return
+      this.#children.get(journal)?.()
       this.#detach.get(id)?.(); this.#detach.delete(id); this.#journals.delete(id)
       this.#clearRetry(id)
       for (const [start, pending] of this.#pending) if (pending.journal === journal) this.#pending.delete(start)
     }
+  }
+  /** The supervisor holds this latch from child start until fully observed exit. */
+  childStarted(journal: LeadJournal): () => void {
+    const id = journal.state.budget?.logicalGoalId
+    if (!id || this.#journals.get(id) !== journal) throw new Error('lead-budget-owner')
+    if (this.#recovering) throw new Error('lead-recovery-live')
+    if (this.#children.has(journal)) throw new Error('lead-child-live')
+    const ended = () => { if (this.#children.get(journal) === ended) this.#children.delete(journal) }
+    this.#children.set(journal, ended)
+    return ended
   }
   #changed(id: string, journal: LeadJournal): void {
     const state = journal.state
@@ -232,19 +246,24 @@ export class LeadBudgets implements FlowLeadGuard {
     this.#retries.set(id, cancel)
   }
   async recover(): Promise<void> {
-    const errors: unknown[] = []
-    for (const [id, journal] of this.#journals) {
-      try {
-        if (journal.state.contract && !await this.port.member(journal.state.contract.project)) {
-          await journal.updateBudget({ version: 1, type: 'stop', now: this.port.now(), reason: 'unknown-spend' })
-        }
-        await journal.recover(async attempt => this.port.runs().filter(run => run.lead?.logicalGoalId === id && run.lead.startId === attempt.correlationId).map(run => ({
-          correlationId: attempt.correlationId, runId: run.id, teamId: run.goal, firstRoundId: leadRoundId(run.id, 1), terminal: !['running', 'stalled'].includes(run.state),
-        })))
-        if (journal.state.stopEffectsPending !== null) await this.cleanup(id)
-      } catch (error) { errors.push(error) }
-    }
-    if (errors.length) throw new AggregateError(errors, 'lead-recovery-failed')
+    if (this.#children.size) throw new Error('lead-child-live')
+    if (this.#recovering) throw new Error('lead-recovery-live')
+    this.#recovering = true
+    try {
+      const errors: unknown[] = []
+      for (const [id, journal] of this.#journals) {
+        try {
+          if (journal.state.contract && !await this.port.member(journal.state.contract.project)) {
+            await journal.updateBudget({ version: 1, type: 'stop', now: this.port.now(), reason: 'unknown-spend' })
+          }
+          await journal.recover(async attempt => this.port.runs().filter(run => run.lead?.logicalGoalId === id && run.lead.startId === attempt.correlationId).map(run => ({
+            correlationId: attempt.correlationId, runId: run.id, teamId: run.goal, firstRoundId: leadRoundId(run.id, 1), terminal: !['running', 'stalled'].includes(run.state),
+          })))
+          if (journal.state.stopEffectsPending !== null) await this.cleanup(id)
+        } catch (error) { errors.push(error) }
+      }
+      if (errors.length) throw new AggregateError(errors, 'lead-recovery-failed')
+    } finally { this.#recovering = false }
   }
   async idle(): Promise<void> { while (this.#cleaning.size || this.#observing.size || this.#metering.size) await Promise.allSettled([...this.#cleaning.values(), ...this.#observing.values(), ...this.#metering.values()]) }
 }

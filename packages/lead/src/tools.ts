@@ -1,6 +1,7 @@
+import type { LeadJournalPort } from './child-ipc.js'
 import { CLIENT_METHODS, clientTierFor, parseClientMessage, type ClientMethodName, type LeadProject, type ClientTopic } from '@harnessdesk/protocol'
 import type { ClientSnapshot } from '@harnessdesk/client'
-import type { LeadJournal, LeadDispatchResult } from './journal.js'
+import type { LeadDispatchResult } from './journal.js'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadDeskPort } from './ports.js'
 import type { MessagesToolUse, MessagesToolScope } from './messages-types.js'
@@ -55,7 +56,7 @@ export interface LeadResolvedTool extends MessagesToolScope {
   readonly preview?: { readonly token: string; readonly source: string; readonly expiresAt: number }
 }
 export interface LeadToolsOptions {
-  readonly journal: LeadJournal
+  readonly journal: LeadJournalPort
   readonly desk: LeadDeskPort
   readonly project: LeadProject
   readonly now: () => number
