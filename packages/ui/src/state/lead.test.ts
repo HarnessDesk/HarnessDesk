@@ -9,7 +9,7 @@ const settings = { version: 1, model: 'fixture-model', key: { configured: false,
   policy: { version: 1, revision: 1, mode: 'default', rules: [] }, caps: { usdMicros: 100, rounds: 3 } }
 const thread = (revision = 1, state = 'draft', cards: unknown[] = []) => ({ version: 1, id: 'lead', revision, state,
   project: null, olderMessages: 0, messages: [], cards })
-const projection = (revision: number, state = 'running', cards: unknown[] = []) => ({ version: 1, revision, thread: thread(revision, state, cards), settings, waitReason: state === 'waiting-for-user' ? 'lead-request-failed' : null, planConsentExpiresAt: null, wayOut: state === 'stopped' ? null : cards.length ? 'decide-plan' : state === 'waiting-for-user' ? 'resume' : null })
+const projection = (revision: number, state = 'running', cards: unknown[] = []) => ({ version: 1, revision, thread: thread(revision, state, cards), settings, waitReason: state === 'waiting-for-user' ? 'lead-request-failed' : null, planConsentExpiresAt: null, requestInFlight: false, wayOut: state === 'stopped' ? null : cards.length ? 'decide-plan' : state === 'waiting-for-user' ? 'resume' : null })
 
 describe('Lead state facade', () => {
   it('gates every operation on capability and has a typed caller for all six controls', async () => {
@@ -74,4 +74,16 @@ it('keeps a typed projection failure from changed notifications', async () => {
   expect(facade.state.error).toBe('lead-projection-failed')
   facade.changed({ method: 'lead/changed', params: projection(4) })
   expect(facade.state.error).toBe(null)
+})
+
+it('a successful projection at the error revision clears the error and allows credential deletion', async () => {
+  const { createLeadState } = await load()
+  const request = vi.fn(async () => projection(7))
+  const facade = createLeadState({ request }, () => true)
+  facade.changed({ method: 'lead/changed', params: { version: 1, revision: 7, error: 'lead-projection-failed' } })
+  expect(facade.state.error).toBe('lead-projection-failed')
+  await facade.readThread()
+  expect(facade.state.error).toBeNull()
+  await facade.updateSettings({ credential: { provider: 'anthropic', key: null } })
+  expect(request).toHaveBeenLastCalledWith('lead/settings/update', { expectedRevision: 7, credential: { provider: 'anthropic', key: null } })
 })

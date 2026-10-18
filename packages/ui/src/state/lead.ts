@@ -9,6 +9,7 @@ export interface LeadState {
   readonly revision: number
   readonly thread: LeadThread | null
   readonly settings: LeadSettingsProjection | null
+  readonly requestInFlight: boolean
   readonly wayOut: 'resume' | 'decide-plan' | null
   readonly waitReason: LeadWindowProjection['waitReason']
   readonly planConsentExpiresAt: number | null
@@ -16,16 +17,16 @@ export interface LeadState {
 }
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
 export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
-  let state: LeadState = { revision: -1, thread: null, settings: null, wayOut: null, waitReason: null, planConsentExpiresAt: null, error: null }
+  let state: LeadState = { revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, error: null }
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
   const checkRead = () => { check(); if (state.revision < 0 || state.error) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
   const apply = (projection: LeadChanged) => {
-    if (projection.revision <= state.revision) return
+    if (projection.revision < state.revision || projection.revision === state.revision && ('error' in projection || !state.error)) return
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
       : structuredClone({ revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
-        waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, error: null })
+        requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, error: null })
     for (const listener of listeners) listener()
   }
   return {

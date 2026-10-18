@@ -81,6 +81,7 @@ test('resume reports plan-pending, stale and no-wait reasons without changing st
   await assert.rejects(s.call('lead/resume', { expectedRevision: before.seq }), code('lead-plan-pending'))
   assert.deepEqual(s.journal.state, before)
   await s.call('lead/card/decide', planClick)
+  await s.controls.idle()
   await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
   await s.call('lead/resume', { expectedRevision: s.journal.state.seq })
   assert.equal(s.journal.state.phase, 'running')
@@ -616,4 +617,209 @@ test('an unanswered message with a paid request in flight does not advertise cra
   await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'held-request', inputTokens: 1, maxOutputTokens: 1,
     inputUsdMicrosPerMillion: 1000000, outputUsdMicrosPerMillion: 1000000, cacheReadUsdMicrosPerMillion: 1000000, cacheWriteUsdMicrosPerMillion: 1000000 })
   assert.equal((await s.controls.readThread()).wayOut, null)
+})
+
+for (const action of ['approve', 'resume'] as const) test(`${action} commits and continues despite a failed response projection`, async () => {
+  let broken = false
+  const s = await rig({ configured: true, service: { async assertPublic() { if (broken) throw Object.assign(new Error('locked'), { wireCode: 'lead-protection-unavailable' }) } } })
+  await s.journal.offerCard(plan)
+  if (action === 'resume') {
+    await s.controls.decide(planClick); await s.controls.idle()
+    await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  }
+  const before = s.sends.length
+  broken = true
+  await assert.rejects(action === 'approve' ? s.controls.decide(planClick) : s.controls.resume({ expectedRevision: s.journal.state.seq }), code('lead-protection-unavailable'))
+  await s.controls.idle()
+  assert.equal(s.sends.length, before + 1)
+  broken = false; s.controls.close()
+})
+
+test('an in-flight request refuses a new send without keeping its key and every request ends in a user turn', async () => {
+  let release!: () => void, began!: () => void
+  const started = new Promise<void>(resolve => { began = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const requests: any[] = []
+  const s = await rig({ configured: true, service: { async send(request: any) { requests.push(request); began(); await held; return { status: 'completed', text: 'Reply' } } } })
+  try {
+    await s.controls.send({ idempotencyKey: 'first', text: 'First' }); await started
+    assert.equal((await s.controls.readThread()).requestInFlight, true)
+    assert.equal((await s.controls.readThread()).wayOut, null)
+    await assert.rejects(s.controls.send({ idempotencyKey: 'retry', text: 'Second' }), code('lead-request-in-flight'))
+    await assert.rejects(s.controls.resume({ expectedRevision: s.journal.state.seq }), code('lead-request-in-flight'))
+    assert.equal(s.journal.state.sends.some(send => send.key === 'retry'), false)
+  } finally { release(); await s.controls.idle() }
+  assert.equal((await s.controls.readThread()).requestInFlight, false)
+  assert.equal((s.notifications.at(-1) as any).params.requestInFlight, false)
+  await s.controls.send({ idempotencyKey: 'retry', text: 'Second' }); await s.controls.idle()
+  assert.equal(requests.length, 2)
+  assert.ok(requests.every(request => request.messages.at(-1).role === 'user'))
+  assert.deepEqual(s.journal.state.messages.map(message => message.role), ['user', 'assistant', 'user', 'assistant'])
+  s.controls.close()
+})
+
+for (const kind of ['policy', 'caps'] as const) test(`a ${kind} settings card must fit before journal admission`, async () => {
+  const { leadWindowThread } = await import('../src/lead/projection.js')
+  const s = await rig({ configured: true })
+  const card = (i: number, length: number) => ({ ...plan, id: `fill-${i}`, contract: { ...contract, goal: 'g'.repeat(length) } })
+  const admit = (candidate: any) => {
+    const state = s.journal.state
+    leadWindowThread({ ...state, cards: [...state.cards, candidate] }, project, { version: 1, model: 'fixture-model', policy: state.policy!, caps: state.budget!.caps, key: { configured: true, protection: 'encrypted' } })
+  }
+  let i = 0
+  while (i < 64) { try { await s.journal.offerCard(card(i, 16000), admit); i++ } catch { break } }
+  let lo = 1, hi = 16000
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; try { admit(card(i, mid)); lo = mid } catch { hi = mid - 1 } }
+  await s.journal.offerCard(card(i, lo), admit)
+  await s.controls.idle(); await s.controls.readThread()
+  const before = s.journal.state
+  await assert.rejects(s.controls.updateSettings({ expectedRevision: before.seq, ...(kind === 'policy' ?
+    { policy: { ...policy, revision: 2, mode: 'manage' } } : { caps: { ...contract.caps, rounds: 6 } }) }), code('lead-card-too-large'))
+  assert.deepEqual(s.journal.state, before)
+  await s.controls.readThread(); s.controls.close()
+})
+
+for (const stop of ['decline', 'budget'] as const) test(`a ${stop} before detached start prevents paid work and replies`, async () => {
+  const s = await rig({ configured: true }); await s.journal.offerCard(plan)
+  await Promise.all([s.controls.send({ idempotencyKey: 'race', text: 'Inspect' }), stop === 'decline' ?
+    s.controls.decide({ ...planClick, choice: 'decline' }) : s.journal.updateBudget({ version: 1, type: 'stop', now: 100, reason: 'budget' })])
+  await s.controls.idle()
+  assert.equal(s.sends.length, 0)
+  assert.equal(s.journal.state.messages.some(message => message.role === 'assistant'), false)
+  s.controls.close()
+})
+
+for (const kind of ['result', 'person', 'expired'] as const) test(`resume agrees with null wayOut for ${kind}`, async () => {
+  const s = await rig({ configured: true }); await s.journal.offerCard(plan)
+  await s.journal.decideCard(planClick, kind === 'expired' ? 99 : 1000)
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  if (kind === 'result') await s.journal.offerCard({ version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Reviewed', assertions: [],
+    budget: (await import('@harnessdesk/lead')).leadBudgetProjection(s.journal.state.budget!, 100) })
+  if (kind === 'person') await s.journal.offerCard({ version: 1, id: 'person', revision: 1, type: 'waiting', kind: 'person', contractDigest: contract.digest, runId: 'run', personCardId: 'person', summary: 'Decide', assertions: [] })
+  assert.equal((await s.controls.readThread()).wayOut, null)
+  const before = s.journal.state
+  await assert.rejects(s.controls.resume({ expectedRevision: before.seq }), code('lead-no-person-wait'))
+  await s.controls.idle(); assert.equal(s.sends.length, 0); assert.deepEqual(s.journal.state, before); s.controls.close()
+})
+
+test('send maps a status broker failure to protection-unavailable without retaining a receipt', async () => {
+  const s = await rig({ service: { async status() { throw new Error(key) } } })
+  await assert.rejects(s.controls.send({ idempotencyKey: 'locked', text: 'Inspect' }), code('lead-protection-unavailable'))
+  assert.equal(s.journal.state.sends.length, 0); s.controls.close()
+})
+
+for (const read of ['readThread', 'readSettings'] as const) test(`${read} bypasses a queued credential write`, async () => {
+  let release!: () => void, began!: () => void
+  const started = new Promise<void>(resolve => { began = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const s = await rig({ service: { async setKey() { began(); await held } } })
+  const write = s.controls.updateSettings({ expectedRevision: s.journal.state.seq, credential: { provider: 'anthropic', key } })
+  try { await started; await within(s.controls[read]()) } finally { release(); await write; await s.controls.idle(); s.controls.close() }
+})
+
+for (const action of ['approve', 'resume'] as const) test(`${action} returns before a held continuation finishes`, async () => {
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const s = await rig({ configured: true, service: { async send() { await held; return { status: 'completed' } } } })
+  await s.journal.offerCard(plan)
+  if (action === 'resume') { await s.journal.decideCard(planClick, 1000); await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed') }
+  const operation = action === 'approve' ? s.controls.decide(planClick) : s.controls.resume({ expectedRevision: s.journal.state.seq })
+  try { await within(operation) } finally { release(); await operation; await s.controls.idle(); s.controls.close() }
+})
+
+test('a failed detached journal chain is caught and published as a typed error', async () => {
+  const s = await rig({ configured: true, service: { async send() { throw new Error('synthetic failure') } } })
+  s.journal.setManagementPhase = async () => { throw new Error('synthetic append failure') }
+  await s.controls.send({ idempotencyKey: 'failed-chain', text: 'Inspect' }); await s.controls.idle()
+  assert.equal((s.notifications.at(-1) as any).params.error, 'lead-projection-failed')
+  await assert.rejects(s.controls.readThread(), code('lead-projection-failed')); s.controls.close()
+})
+
+test('the first read independently reports an unbuildable projection', async () => {
+  const s = await rig(); s.controls.close()
+  const large = (id: string) => ({ ...plan, id, contract: { ...contract, steps: Array.from({ length: 6 }, (_, i) => ({ ...contract.steps[0]!, id: `s${i}`,
+    variables: Object.fromEntries(Array.from({ length: 8 }, (_, j) => [`v${j}`, 'x'.repeat(16000)])) })) } })
+  await s.journal.offerCard(large('one')); await s.journal.offerCard(large('two'))
+  const { LeadControls } = await controlsModule()
+  const fresh = new LeadControls({ journal: s.journal, service: s.service, project, model: 'fixture-model', now: () => 100, nextId: () => 'card', push() {}, decidePerson: async () => {}, decideResult: async () => {} })
+  await assert.rejects(fresh.readThread(), code('lead-projection-failed')); fresh.close()
+})
+
+test('continuation latch stress leaves every admitted message answered', async () => {
+  for (let iter = 0; iter < 400; iter++) {
+    const requests: any[] = []
+    const s = await rig({ configured: true, service: { async send(request: any) { requests.push(request); await Promise.resolve(); return { status: 'completed', text: 'Reply' } } } })
+    const sends = []
+    for (let i = 0; i < 1 + iter % 5; i++) {
+      sends.push(s.controls.send({ idempotencyKey: `k${i}`, text: `Message ${i}` }).catch((error: any) => { assert.equal(error.wireCode, 'lead-request-in-flight') }))
+      for (let j = 0; j < (iter + i) % 9; j++) await Promise.resolve()
+      if (iter % 3 === 0) await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    await Promise.all(sends); await s.controls.idle()
+    assert.equal(s.journal.state.messages.at(-1)?.role, 'assistant')
+    assert.equal(requests.length, s.journal.state.sends.length)
+    assert.ok(requests.every(request => request.messages.at(-1).role === 'user'))
+    s.controls.close()
+  }
+})
+
+test('resuming after a reply also ends the paid request in a user turn', async () => {
+  const s = await rig({ configured: true })
+  await s.controls.send({ idempotencyKey: 'first', text: 'Inspect' }); await s.controls.idle()
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  await s.controls.resume({ expectedRevision: s.journal.state.seq }); await s.controls.idle()
+  assert.equal(s.sends.length, 2)
+  assert.ok(s.sends.every((request: any) => request.messages.at(-1).role === 'user'))
+  s.controls.close()
+})
+
+for (const action of ['send', 'approve', 'resume'] as const) test(`${action} publishes in-flight at the committed revision before its held request`, async () => {
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const s = await rig({ configured: true, service: { async send() { await held; return { status: 'completed', text: 'Reply' } } } })
+  if (action !== 'send') await s.journal.offerCard(plan)
+  if (action === 'resume') { await s.journal.decideCard(planClick, 1000); await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed') }
+  try {
+    await (action === 'send' ? s.controls.send({ idempotencyKey: 'held', text: 'Inspect' }) :
+      action === 'approve' ? s.controls.decide(planClick) : s.controls.resume({ expectedRevision: s.journal.state.seq }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const revision = s.journal.state.seq
+    const notification = s.notifications.findLast((value: any) => value.params.revision === revision) as any
+    assert.equal(notification?.params.requestInFlight, true)
+    assert.equal((await s.controls.readThread()).requestInFlight, true)
+  } finally { release(); await s.controls.idle(); s.controls.close() }
+})
+
+test('a repeated request failure still publishes a newer idle revision', async () => {
+  const s = await rig({ configured: true, service: { async send() { throw new Error('synthetic unavailable') } } })
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  const receipt = await s.controls.send({ idempotencyKey: 'failed-again', text: 'Try again' })
+  await s.controls.idle()
+  assert.ok(s.journal.state.seq > receipt.revision)
+  assert.equal((s.notifications.at(-1) as any).params.requestInFlight, false)
+  s.controls.close()
+})
+
+test('a refused stale approval cannot restore a completed request flag', async () => {
+  let releaseSend!: () => void, beganSend!: () => void, releaseWrite!: () => void, beganWrite!: () => void
+  const sending = new Promise<void>(resolve => { beganSend = resolve }), heldSend = new Promise<void>(resolve => { releaseSend = resolve })
+  const writing = new Promise<void>(resolve => { beganWrite = resolve }), heldWrite = new Promise<void>(resolve => { releaseWrite = resolve })
+  const s = await rig({ configured: true, service: { async send() { beganSend(); await heldSend; return { status: 'completed', text: 'Reply' } } } })
+  await s.journal.offerCard(plan)
+  await s.controls.send({ idempotencyKey: 'first', text: 'Inspect' }); await sending
+  const append = s.storage.append.bind(s.storage)
+  s.storage.append = async record => {
+    if (record.type === 'card' && record.card.id === plan.id && record.card.revision === 2) { beganWrite(); await heldWrite }
+    await append(record)
+  }
+  const change = s.journal.offerCard({ ...plan, revision: 2 })
+  await writing
+  const click = s.controls.decide(planClick)
+  const refused = assert.rejects(click, code('lead-card-stale'))
+  try {
+    await new Promise(resolve => setTimeout(resolve, 0))
+    releaseSend()
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    releaseWrite(); await change; await refused; await s.controls.idle()
+    assert.equal((s.notifications.at(-1) as any).params.requestInFlight, false)
+    assert.equal((await s.controls.readThread()).requestInFlight, false)
+  } finally { releaseSend(); releaseWrite(); await change; await refused; await s.controls.idle(); s.controls.close() }
 })

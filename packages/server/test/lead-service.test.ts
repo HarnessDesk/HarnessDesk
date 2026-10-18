@@ -705,11 +705,16 @@ test('public scans resolve once per revision and invalidate after key lifecycle 
   let resolutions = 0
   const resolve = s.broker.resolveLead
   s.broker.resolveLead = async () => { resolutions++; return resolve() }
-  await Promise.all([s.service.assertPublic('first'), s.service.assertPublic('second')])
-  await s.service.assertPublic('third')
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const controls = new LeadControls({ journal: s.journal, service: s.service, project: { id: 'demo', path: '/workspace/demo' }, model: 'synthetic-model', now: () => 100,
+    nextId: () => 'card', push() {}, decidePerson: async () => {}, decideResult: async () => {} })
+  t.after(() => controls.close())
+  await Promise.all([controls.readThread(), controls.readSettings()])
+  await controls.readThread()
   assert.equal(resolutions, 1)
-  await s.journal.settingsChanged(); await s.service.assertPublic('next revision')
+  await s.journal.settingsChanged(); await controls.readThread()
   assert.equal(resolutions, 2)
+  controls.close()
   await s.service.deleteKey('anthropic'); await s.service.assertPublic(key)
   assert.equal(resolutions, 2)
 })
@@ -739,4 +744,24 @@ test('host card admission refuses the second large plan before journal append an
     nextId: () => 'card', push() {}, decidePerson: async () => {}, decideResult: async () => {} })
   t.after(() => controls.close())
   assert.equal((await controls.readThread()).thread.cards.length, 1)
+})
+
+test('a failed public scan recovers at the same revision and arbitrary values are always scanned', async t => {
+  const s = await rig(t), resolve = s.broker.resolveLead
+  let broken = true
+  s.broker.resolveLead = async () => { if (broken) throw new Error('locked'); return resolve() }
+  const revision = s.journal.state.seq
+  await assert.rejects(s.service.assertPublic('Ready'), (error: any) => error.wireCode === 'lead-protection-unavailable')
+  broken = false
+  await s.service.assertPublic('Ready')
+  await assert.rejects(s.service.assertPublic(key), (error: any) => error.wireCode === 'lead-secret-refused')
+  assert.equal(s.journal.state.seq, revision)
+})
+
+test('the service preserves the send deadline latch reason after child exit', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true); await s.service.send(input)
+  await s.process().stop('lead-send-deadline')
+  assert.equal(s.journal.state.phase, 'waiting-for-user')
+  assert.equal(s.journal.state.managementReason, 'lead-send-deadline')
 })

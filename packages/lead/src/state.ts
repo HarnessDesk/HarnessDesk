@@ -179,8 +179,14 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         ensure(card!.contractDigest === state.contract?.digest)
         state = { ...state, phase: decision.choice === 'decline' ? 'declined' : card!.type === 'result' ? 'accepted' : 'running' }
       }
-      state = { ...state, decidedCards: [...state.decidedCards, cardKey(card!)],
-        cards: card!.type === 'permission-change' || card!.type === 'budget-change' ? state.cards.filter(other => other.id !== card!.id) : state.cards }
+      const prune = card!.type === 'permission-change' || card!.type === 'budget-change'
+      const cards = prune ? state.cards.filter(other => other.id !== card!.id) : state.cards
+      const cardRevisions = { ...state.cardRevisions }
+      if (prune) delete cardRevisions[card!.id]
+      const decidedCards = [...state.decidedCards, cardKey(card!)]
+      const retained = new Set(cards.map(cardKey))
+      const tombstones = new Set(decidedCards.filter(key => !retained.has(key)).slice(-256))
+      state = { ...state, cards, cardRevisions, decidedCards: decidedCards.filter(key => retained.has(key) || tombstones.has(key)) }
       break
     }
     case 'team-approved':

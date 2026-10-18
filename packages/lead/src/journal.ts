@@ -238,7 +238,7 @@ export class LeadJournal {
       return value
     })
   }
-  async #append(event: LeadJournalEvent): Promise<void> {
+  async #append(event: LeadJournalEvent, committed?: () => void): Promise<void> {
     const raw = { version: 1, seq: this.#state.seq + 1, ...event }
     const prepared = prepareLeadJournalRecord(raw, this.security)
     const record = this.storage.prepare ? this.storage.prepare(prepared) : prepared
@@ -249,13 +249,15 @@ export class LeadJournal {
     try { await this.storage.append(record) }
     catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
     this.#state = next
+    // The window marks paid work pending at this durable boundary, before projections observe it.
+    committed?.()
     for (const listener of this.#listeners) { try { listener() } catch { /* Observers cannot undo a durable write. */ } }
   }
   setManagementPhase(phase: 'planning' | 'waiting-for-user', reason: string | null = null): Promise<void> { return this.#queue(async () => {
     if (this.#state.phase === phase && this.#state.managementReason === reason) return
     await this.#append({ type: 'management', phase, reason })
   }) }
-  resume(expectedRevision?: number, unanswered = false): Promise<void> { return this.#queue(async () => {
+  resume(expectedRevision?: number, unanswered = false, committed?: () => void): Promise<void> { return this.#queue(async () => {
     this.#expectRevision(expectedRevision)
     if (this.#state.cards.some(card => card.type === 'plan' && !this.#state.decidedCards.includes(`${card.id}:${card.revision}`)))
       throw Object.assign(new Error('lead-plan-pending'), { wireCode: 'lead-plan-pending' })
@@ -263,20 +265,20 @@ export class LeadJournal {
       await this.#append({ type: 'management', phase: 'waiting-for-user', reason: 'lead-request-failed' })
     if (this.#state.phase !== 'waiting-for-user' || this.#state.budget?.stop || this.#state.recoveryBlocked)
       throw Object.assign(new Error('lead-no-person-wait'), { wireCode: 'lead-no-person-wait' })
-    return this.#append({ type: 'resume' })
+    return this.#append({ type: 'resume' }, committed)
   }) }
   #expectRevision(expected?: number): void {
     if (expected !== undefined && expected !== this.#state.seq) throw Object.assign(new Error('lead-revision-stale'), { wireCode: 'lead-revision-stale' })
   }
   settingsChanged(): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed' })) }
-  appendMessage(idempotencyKey: string, text: string): Promise<LeadSendReceipt> {
+  appendMessage(idempotencyKey: string, text: string, committed?: () => void): Promise<LeadSendReceipt> {
     const input = parseLeadThreadSend({ idempotencyKey, text })
     return this.#queue(async () => {
       const previous = this.#state.sends.find(send => send.key === input.idempotencyKey)
       if (previous) return { messageId: previous.messageId, revision: previous.revision }
       const revision = this.#state.seq + 1, messageId = `message-${revision}`
       await this.#append({ type: 'message', idempotencyKey: input.idempotencyKey,
-        message: { version: 1, id: messageId, revision, role: 'user', text: input.text } })
+        message: { version: 1, id: messageId, revision, role: 'user', text: input.text } }, committed)
       return { messageId, revision }
     })
   }
@@ -285,7 +287,7 @@ export class LeadJournal {
     return this.#append({ type: 'message', idempotencyKey: null,
       message: { version: 1, id: `message-${revision}`, revision, role: 'assistant', text } })
   }) }
-  changePolicy(policy: LeadPermissionPolicy, expectedRevision: number, id: string): Promise<void> { return this.#queue(async () => {
+  changePolicy(policy: LeadPermissionPolicy, expectedRevision: number, id: string, admit?: (card: LeadCard) => void): Promise<void> { return this.#queue(async () => {
     this.#expectRevision(expectedRevision)
     if (!this.#state.policy) throw new Error('lead-policy-unavailable')
     const comparison = compareLeadPolicyAuthority(this.#state.policy, policy)
@@ -293,8 +295,10 @@ export class LeadJournal {
     else {
       if (this.#state.cards.some(card => card.type === 'permission-change' && !this.#state.decidedCards.includes(`${card.id}:${card.revision}`)))
         throw Object.assign(new Error('lead-change-pending'), { wireCode: 'lead-change-pending' })
-      await this.#append({ type: 'card', card: { version: 1, id, revision: 1, type: 'permission-change',
-        contractDigest: this.#state.contract?.digest ?? null, previous: this.#state.policy, proposed: policy } })
+      const card: LeadCard = { version: 1, id, revision: 1, type: 'permission-change',
+        contractDigest: this.#state.contract?.digest ?? null, previous: this.#state.policy, proposed: policy }
+      admit?.(card)
+      await this.#append({ type: 'card', card })
     }
   }) }
   restoreResult(id: string, revision: number): Promise<void> { return this.#queue(() => this.#append({ type: 'restore-result', id, revision })) }
@@ -306,7 +310,7 @@ export class LeadJournal {
   invalidateResults(): Promise<void> { return this.#queue(() => this.#append({ type: 'invalidate-results' })) }
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
   offerCard(card: LeadCard, admit?: (card: LeadCard) => void): Promise<LeadCard> { return this.#queue(async () => { admit?.(card); await this.#append({ type: 'card', card }); return structuredClone(this.#state.cards.at(-1)!) }) }
-  async decideCard(input: LeadCardDecision, expiresAt: number | null = null, stopEffects?: () => Promise<void>, beforeDecision?: () => Promise<void>): Promise<void> {
+  async decideCard(input: LeadCardDecision, expiresAt: number | null = null, stopEffects?: () => Promise<void>, beforeDecision?: () => Promise<void>, committed?: () => void): Promise<void> {
     const decision = parseLeadCardDecision(input)
     return this.#budgetWrite(async () => {
       const card = this.#state.cards.find(card => card.id === decision.cardId)
@@ -319,7 +323,7 @@ export class LeadJournal {
       // Validate the immutable card and reducer transition before any human side effect.
       reduceLeadRecord(this.#state, { version: 1, seq: this.#state.seq + 1, type: 'card-decision', decision, expiresAt })
       await beforeDecision?.()
-      await this.#append({ type: 'card-decision', decision, expiresAt })
+      await this.#append({ type: 'card-decision', decision, expiresAt }, committed)
     }, stopEffects)
   }
   /** Caller must await durable admission before sending a paid request or opening a round. */
@@ -329,7 +333,7 @@ export class LeadJournal {
       return structuredClone(this.#state.budget!)
     }, stopEffects)
   }
-  changeBudgetCaps(value: LeadCaps, card: { id: string; revision: number }, now: number, stopEffects?: () => Promise<void>, expectedRevision?: number): Promise<LeadCard | null> {
+  changeBudgetCaps(value: LeadCaps, card: { id: string; revision: number }, now: number, stopEffects?: () => Promise<void>, expectedRevision?: number, admit?: (card: LeadCard) => void): Promise<LeadCard | null> {
     return this.#budgetWrite(async () => {
       this.#expectRevision(expectedRevision)
       const caps = parseLeadCaps(value), budget = this.#state.budget
@@ -340,8 +344,10 @@ export class LeadJournal {
       }
       if (this.#state.cards.some(card => card.type === 'budget-change' && !this.#state.decidedCards.includes(`${card.id}:${card.revision}`)))
         throw Object.assign(new Error('lead-change-pending'), { wireCode: 'lead-change-pending' })
-      await this.#append({ type: 'card', card: { version: 1, ...card, type: 'budget-change', logicalGoalId: budget.logicalGoalId,
-        contractDigest: this.#state.contract?.digest ?? null, previous: { revision: budget.capsRevision, caps: budget.caps }, proposed: caps } })
+      const offered: LeadCard = { version: 1, ...card, type: 'budget-change', logicalGoalId: budget.logicalGoalId,
+        contractDigest: this.#state.contract?.digest ?? null, previous: { revision: budget.capsRevision, caps: budget.caps }, proposed: caps }
+      admit?.(offered)
+      await this.#append({ type: 'card', card: offered })
       return structuredClone(this.#state.cards.at(-1)!)
     }, stopEffects)
   }

@@ -839,3 +839,21 @@ test('an oversized plan refusal parks with its typed reason rather than hanging'
     assert.equal(s.journal.state.cards.length, 0)
   } finally { await loop.close() }
 })
+
+test('an oversized host result parks with the typed admission reason', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const offer = s.journal.offerCard.bind(s.journal)
+  s.journal.offerCard = async (card: any) => {
+    if (card.type === 'result') throw Object.assign(new Error('lead-card-too-large'), { wireCode: 'lead-card-too-large' })
+    return offer(card)
+  }
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.equal(loop.state.phase, 'waiting-for-user')
+    assert.equal(loop.state.reason, 'lead-card-too-large')
+    assert.equal(s.journal.state.managementReason, 'lead-card-too-large')
+    assert.equal(s.journal.state.cards.some(card => card.type === 'result'), false)
+  } finally { await loop.close() }
+})

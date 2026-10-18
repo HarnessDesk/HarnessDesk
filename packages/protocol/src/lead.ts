@@ -211,6 +211,7 @@ export interface LeadHostProjection {
 export type LeadPersonAction = 'resume' | 'decide-plan' | null
 /** Window projection adds the host's guarded way out; child observations grant no control. */
 export interface LeadWindowProjection extends LeadHostProjection {
+  readonly requestInFlight: boolean
   readonly wayOut: LeadPersonAction
   readonly waitReason: typeof LEAD_MANAGEMENT_REASONS[number] | null
   readonly planConsentExpiresAt: number | null
@@ -221,7 +222,7 @@ export const LEAD_CONTROL_REFUSALS = ['lead-unavailable', 'lead-operation-refuse
   'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-one-change', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
-  'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable'] as const
+  'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
@@ -543,6 +544,6 @@ export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
 export const parseLeadEmpty: Validator<Record<string, never>> = object({})
 
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
-  version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, wayOut: nullable(literalUnion('resume', 'decide-plan')),
+  version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),
   waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)),
 }))

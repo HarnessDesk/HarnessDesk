@@ -750,3 +750,25 @@ test('terminal duplicate runs and no-run resolution never erase disk accounting 
   assert.equal(restored.state.budget!.spend, 'known')
   assert.equal(restored.state.budget!.roundsAdmitted, 2)
 })
+
+for (const cycles of [1, 2100]) test(`pruned settings cards survive file rotation and reopen after ${cycles} cycles`, async t => {
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  await journal.setPolicy(policy)
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical', caps: { usdMicros: 1000, rounds: 4 }, freshnessMs: 1000 })
+  for (let i = 0; i < cycles; i++) {
+    const card = await journal.changeBudgetCaps({ usdMicros: 2000, rounds: 4 }, { id: `caps-${i}`, revision: 1 }, 100)
+    assert.ok(card)
+    await journal.decideCard({ version: 1, cardId: card.id, cardType: 'budget-change', expectedRevision: card.revision, contractDigest: null, choice: 'decline' })
+  }
+  for (let i = 0; i < 1100; i++) await journal.appendMessage(`rotate-${i}`, 'Rotate the journal')
+  const live = journal.state
+  await disk.close()
+  const reopenedDisk = await open(home)
+  t.after(() => reopenedDisk.close())
+  const reopened = await createLeadJournal(reopenedDisk)
+  assert.deepEqual(reopened.state, live)
+  assert.equal(Object.keys(live.cardRevisions).length, 0)
+  assert.ok(live.decidedCards.length <= 256)
+  await assert.rejects(reopened.decideCard({ version: 1, cardId: 'caps-0', cardType: 'budget-change', expectedRevision: 1, contractDigest: null, choice: 'decline' }),
+    (error: any) => error.wireCode === (cycles > 256 ? 'lead-card-stale' : 'lead-card-decided'))
+})

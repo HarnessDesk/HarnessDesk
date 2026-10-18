@@ -7,7 +7,7 @@ import type { ClientDoor } from '../client-door.js'
 import type { LeadAdmission } from './admission.js'
 import { leadProviderTransport } from './provider-transport.js'
 import { loadLeadProjectPolicy } from './project-policy.js'
-import { leadWindowThread } from './projection.js'
+import { admitLeadCard } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
 
 const publicRefusal = (wireCode: LeadControlRefusal) => Object.assign(new Error(wireCode), { wireCode })
@@ -41,7 +41,8 @@ export interface LeadServiceOptions {
  * Lifecycle operations serialize; a long model send does not hold that queue. */
 export class LeadService {
   readonly #supervisor: LeadProcess
-  #publicKey: { revision: number; generation: number; value: Promise<string | null> } | null = null
+  #publicProjection: { revision: number; generation: number; clean: true } | null = null
+  #publicScans: Promise<void> = Promise.resolve()
   #enabled = false
   #closed = false
   #generation = 0
@@ -87,16 +88,7 @@ export class LeadService {
             project: options.project, prices: options.prices, ...(options.model === undefined ? {} : { model: options.model }), projectPolicy: this.#policy }
         } catch (error) { await this.#release(); throw error }
       },
-      admitCardOffer: card => {
-        const state = options.journal.state
-        if (!state.policy || !state.budget) throw publicRefusal('lead-unavailable')
-        try {
-          leadWindowThread({ ...state, cards: [...state.cards.filter(old => old.id !== card.id), card] }, options.project, {
-            version: 1, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
-            policy: state.policy, caps: state.budget.caps, key: { configured: true, protection: 'unavailable' },
-          })
-        } catch { throw publicRefusal('lead-card-too-large') }
-      },
+      admitCardOffer: card => admitLeadCard(options.journal.state, card, options.project, options.model ?? LEAD_MESSAGES_DEFAULTS.model),
       admitBudgetEvent: event => {
         if (event.type === 'reserve') {
           const model = options.model ?? LEAD_MESSAGES_DEFAULTS.model, price = options.prices[model]
@@ -254,21 +246,24 @@ export class LeadService {
       finally { await this.#release() }
     }
   }
-  /** One in-memory resolution per journal/key generation; never part of persisted state. */
-  async assertPublic(value: unknown): Promise<void> {
-    const revision = this.options.journal.state.seq, generation = this.#generation
-    if (!this.#publicKey || this.#publicKey.revision !== revision || this.#publicKey.generation !== generation) {
-      const resolved = (async () => {
-        try {
-          if (!(await this.options.broker.leadStatus('anthropic')).configured) return null
-          return await this.options.broker.resolveLead('anthropic')
-        } catch { throw publicRefusal('lead-protection-unavailable') }
-      })()
-      this.#publicKey = { revision, generation, value: resolved }
+  /** Only host-built projections opt into revision caching. Other inputs always scan.
+   * The queue resolves to void; only a clean boolean survives, never a key or broker promise. */
+  assertPublic(value: unknown, projectionRevision?: number): Promise<void> {
+    const scan = async (): Promise<void> => {
+      const revision = this.options.journal.state.seq, generation = this.#generation
+      const projection = projectionRevision === revision
+      if (projection && this.#publicProjection?.revision === revision && this.#publicProjection.generation === generation) return
+      let key: string | null
+      try {
+        key = (await this.options.broker.leadStatus('anthropic')).configured ? await this.options.broker.resolveLead('anthropic') : null
+      } catch { throw publicRefusal('lead-protection-unavailable') }
+      if (generation !== this.#generation) return scan()
+      if (key && leadContainsSecret(value, key)) throw publicRefusal('lead-secret-refused')
+      if (projection && revision === this.options.journal.state.seq) this.#publicProjection = { revision, generation, clean: true }
     }
-    const key = await this.#publicKey.value
-    if (generation !== this.#generation) return this.assertPublic(value)
-    if (key && leadContainsSecret(value, key)) throw publicRefusal('lead-secret-refused')
+    const next = this.#publicScans.then(scan)
+    this.#publicScans = next.catch(() => {})
+    return next
   }
   status(provider: 'anthropic') { return this.options.broker.leadStatus(provider) }
   setEnabled(enabled: boolean): Promise<void> {
@@ -304,7 +299,7 @@ export class LeadService {
   #changeKey(provider: 'anthropic', write: () => Promise<unknown>, deleting = false): Promise<void> {
     if (provider !== 'anthropic') return Promise.reject(new Error('lead-provider-unsupported'))
     if (this.#closed) return Promise.reject(new Error('lead-closed'))
-    this.#publicKey = null
+    this.#publicProjection = null
     ++this.#generation; ++this.#changingKeys
     return this.#queue(async () => {
       try {
@@ -348,7 +343,7 @@ export class LeadService {
   }
   close(): Promise<void> {
     if (this.#closed) return this.#tail.then(() => {})
-    this.#publicKey = null; this.#closed = true; this.#enabled = false; ++this.#generation
+    this.#publicProjection = null; this.#closed = true; this.#enabled = false; ++this.#generation
     return this.#queue(async () => {
       await this.#halt('lead-host-shutdown')
     })
