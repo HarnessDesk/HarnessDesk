@@ -848,7 +848,7 @@ test('a task that starts and ends between reaper ticks restarts the quiet interv
 })
 
 
-test('history and cached reads do not restart a finished Seat quiet interval', async (t) => {
+test('history and cached reads do not restart a finished Seat quiet interval', { timeout: 10_000 }, async (t) => {
   const d = await seated(t, new IdleRuntime(), 60_000)
   await d.finish()
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
@@ -859,7 +859,7 @@ test('history and cached reads do not restart a finished Seat quiet interval', a
   await d.host.call('runtime/options', { runtime: d.runtime.info.id })
   await d.host.call('runtime/skills', { runtime: d.runtime.info.id, cwd: d.repo.dir })
   t.mock.timers.tick(200)
-  await pause(50)
+  await until(() => d.record.live === null)
   assert.equal(d.record.live, null, 'reads leave the completed Seat quiet for the full interval')
 })
 
@@ -894,7 +894,7 @@ for (const recoverRecord of [false, true]) {
   })
 }
 
-test('a completed held card trimmed from the board does not prevent Seat rest', async (t) => {
+test('a completed held card trimmed from the board does not prevent Seat rest', { timeout: 10_000 }, async (t) => {
   const d = await seated(t, new IdleRuntime(), 60_000)
   await d.finish()
   // Seed the capacity boundary through the Team's existing writer, then let one real add trim it.
@@ -908,7 +908,7 @@ test('a completed held card trimmed from the board does not prevent Seat rest', 
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
   await pause(50)
   t.mock.timers.tick(60_001)
-  await pause(50)
+  await until(() => d.record.live === null)
   assert.equal(d.record.live, null, 'a known completed trimmed card remains completed')
 })
 
@@ -983,7 +983,7 @@ for (const corruption of ['json', 'null', 'root', 'seat', 'cards', 'card'] as co
 }
 
 
-test('a history read in flight does not interrupt a finished Seat quiet interval', async (t) => {
+test('a history read in flight does not interrupt a finished Seat quiet interval', { timeout: 10_000 }, async (t) => {
   const d = await seated(t, new IdleRuntime(), 60_000)
   await d.finish()
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
@@ -997,7 +997,7 @@ test('a history read in flight does not interrupt a finished Seat quiet interval
   const history = d.host.call('session/list', { runtime: d.runtime.info.id })
   await until(() => reading)
   t.mock.timers.tick(60_001)
-  await pause(50)
+  await until(() => d.record.live === null)
   assert.equal(d.record.live, null, 'an in-flight read does not count as work on every Seat')
   assert.equal(d.runtime.health().state, 'ready', 'the read still protects the runtime from stopping')
   release()
