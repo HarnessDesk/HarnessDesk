@@ -16,6 +16,7 @@ import { attachmentGateway } from './attachments/wiring.js'
 import { builtinPlugins } from '@harnessdesk/plugins'
 
 import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
+import { AcpAccounts } from './acp-accounts.js'
 import { AcpRegistry } from './acp-registry.js'
 import { applyLoginShellPath } from './installs/shell-path.js'
 import { developerToolsEnvironment, type DeveloperToolsOptions } from './installs/developer-tools.js'
@@ -318,9 +319,9 @@ export const createDefaultHost = (
     })
 
   const accounts: AccountFactory = {
-    canAdd: (info) => isCodex(info),
+    canAdd: (info) => isCodex(info) || acpAccounts.canAdd(info.id),
     slotOf: (info) => {
-      if (!isCodex(info)) return null
+      if (!isCodex(info)) return acpAccounts.slotOf(info.id)
       const slot = slots.find(info.id)
       return slot
         ? {
@@ -331,12 +332,37 @@ export const createDefaultHost = (
           }
         : { agent: CODEX_RUNTIME_ID, home: codexHome, removable: false }
     },
-    add: async (info, gateway) => {
+    add: async (info, gateway, name) => {
+      // An ACP agent has no gateway story: an account of one is a signed-in
+      // Google account over its own home, and there is no endpoint of the
+      // user's own it could be pointed at instead.
+      if (!isCodex(info)) {
+        if (gateway) {
+          throw new Error(`${info.presentation.name} accounts have no gateway.`)
+        }
+        const config = acpAccounts.add(info.id, name)
+        // Count this row's turns from the desk's transcript. The agy CLI's
+        // quota belongs to its own sign-in, not this account's GEMINI_HOME.
+        const local = localUsageFor(
+          { ...config, accountOf: agentRegistry.entry(config.id)?.['accountOf'] },
+          installs.knowledgeFor(config),
+          (agentId, envName) => host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
+          (agentId) => acpRuntimes.get(agentId)?.launchedVersion,
+        )
+        if (local) host.bindUsage(runtimeId(config.id), local)
+        return buildAcpRuntime(config)
+      }
       const agent = slots.find(info.id)?.agent ?? info.id
       const slot = slots.add(agent, codexHome, stateDir, gateway)
       return codexAccount(slot.id, slot.home)
     },
     remove: async (id) => {
+      // An Antigravity account is a registry row, so it is forgotten by
+      // `acp-accounts.ts` — which also moves its folder to the Trash.
+      if (acpAccounts.slotOf(id)?.removable) {
+        await acpAccounts.remove(id)
+        return
+      }
       slots.remove(id)
     },
     // Read off the credential rather than asked of Codex: `account/read`
@@ -474,6 +500,18 @@ export const createDefaultHost = (
     registryVersion: (id) => acpRegistry.currentVersion(id),
     log: (message, details) => logger.child('installs').info(message, details),
   })
+  // More than one account of an ACP agent that keeps one credential — today
+  // Antigravity. Unlike Codex this is not a slot under `accounts.ts`: the
+  // server keeps its Google token in the keychain unless
+  // `AGY_ACP_FORCE_FILE_STORAGE=1` and a `GEMINI_HOME` of its own move it to a
+  // file, so an extra account is a second agent row over a folder of its own.
+  // See `acp-accounts.ts` for the measurement behind it.
+  const acpAccounts = new AcpAccounts({
+    store: agentRegistry,
+    stateDir,
+    ...(options.trashPath ? { trash: options.trashPath } : {}),
+    log: (message, details) => logger.child('accounts').info(message, details),
+  })
   // The latest runtime built for each agent, so a notice about one of them —
   // a tool server its own configuration composed — reaches its window.
   const acpRuntimes = new Map<string, AcpRuntime>()
@@ -521,7 +559,7 @@ export const createDefaultHost = (
     build: buildAcpRuntime,
     usageFor: (agent) =>
       localUsageFor(
-        agent,
+        { ...agent, accountOf: agentRegistry.entry(agent.id)?.['accountOf'] },
         installs.knowledgeFor(agent),
         (agentId, envName) => host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
         (agentId) => acpRuntimes.get(agentId)?.launchedVersion,
@@ -597,7 +635,7 @@ export const createDefaultHost = (
   void host.credentials.warm()
   for (const agent of agentRegistry.configs()) {
     const local = localUsageFor(
-      agent,
+      { ...agent, accountOf: agentRegistry.entry(agent.id)?.['accountOf'] },
       installs.knowledgeFor(agent),
       (agentId, envName) => host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
       (agentId) => acpRuntimes.get(agentId)?.launchedVersion,
@@ -663,7 +701,7 @@ export const createDefaultHost = (
 const OPENROUTER_SECRET_ENV = 'OPENROUTER_API_KEY'
 
 export const localUsageFor = (
-  agent: AcpAgentConfig,
+  agent: AcpAgentConfig & { readonly accountOf?: unknown },
   known?: Pick<KnownAgent, 'cli'> | undefined,
   /**
    * The desk's own stored copy of a row's secret, when it has one — the
@@ -680,6 +718,9 @@ export const localUsageFor = (
    */
   launchedVersion?: (agentId: string) => string | null | undefined,
 ): { meter?: UsageMeter; corpus?: CorpusKind; root?: string; remote?: RemoteEventsSource; deskTurns?: boolean } | null => {
+  // Extra accounts isolate credentials the vendor CLI's meter cannot read.
+  // Returning here also avoids binding the fallback OpenRouter meter.
+  if (typeof agent.accountOf === 'string') return { deskTurns: true }
   const named = agent.executable?.command ?? agent.account?.status?.command ?? known?.cli.commands[0] ?? ownCli(agent)
   // Where the agent keeps its records is decided by its own environment — a
   // row can move an agent's home to hold a second account — so paths are

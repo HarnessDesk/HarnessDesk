@@ -597,7 +597,14 @@ export interface AccountFactory {
     /** Present when this account pays through an endpoint of the user's own. */
     gateway?: { name: string; endpoint: string; credentialRef: string }
   } | null
-  add(info: RuntimeInfo, gateway?: NewGatewayAccount): Promise<AgentRuntime>
+  /**
+   * One more account of an agent.
+   *
+   * `name` is the person's own name for the account, for an agent whose
+   * account cannot be named from its credential; absent means "the wiring
+   * knows a name, or the row is fine unnamed".
+   */
+  add(info: RuntimeInfo, gateway?: NewGatewayAccount, name?: string): Promise<AgentRuntime>
   remove(runtime: RuntimeId): Promise<void>
   /**
    * Who this account is signed in as, as a string the host only ever compares
@@ -4710,7 +4717,7 @@ export class Host {
         sendNow: (record, input, held) => this.#sendNow(record, input, held),
       },
       accounts: {
-        add: (runtime, gateway) => this.#addAccount(runtime, gateway),
+        add: (runtime, gateway, name) => this.#addAccount(runtime, gateway, name),
         remove: (runtime) => this.#removeAccount(runtime),
         reloadSecrets: (runtime) => this.#reloadSecrets(runtime),
         announce: (runtime) => this.#announceAccount(runtime),
@@ -8194,6 +8201,7 @@ export class Host {
   async #addAccount(
     id: RuntimeId,
     gateway?: { readonly name: string; readonly endpoint: string; readonly apiKey: string },
+    name?: string,
   ): Promise<{ runtime: RuntimeId; info: RuntimeInfo }> {
     const accounts = this.options.accounts
     const of = this.#runtime({ runtime: id })
@@ -8209,7 +8217,7 @@ export class Host {
           credentialRef: await this.#credentials.store(`${gateway.name} key`, gateway.apiKey, { kind: 'gateway' }),
         }
       : undefined
-    const runtime = await accounts.add(of.info, spec)
+    const runtime = await accounts.add(of.info, spec, name)
     // Before `register`, so the row never exists in a state where a turn could
     // reach a Codex that has not been told where to send it.
     await this.#prepareGateway(runtime)

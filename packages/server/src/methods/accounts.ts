@@ -84,6 +84,18 @@ export const accountMethods = {
         `${runtime.info.presentation.name} is not in the agent registry, so there is nothing to unregister.`,
       )
     }
+    // An extra account of an agent is an ordinary registry row, so removing
+    // it as an agent would drop the row and leave the account signed in with
+    // its folder still on disk. It goes the account's own way instead: sign
+    // out, unregister, then let the factory forget the home.
+    if (ctx.runtimes.infoOf(runtime).slot?.removable === true) {
+      await ctx.accounts.remove(runtime.info.id)
+      ctx.logger.info('account removed from the interface', { runtime: runtime.info.id })
+      return null
+    }
+    if (agents.entries().some((row) => row['accountOf'] === runtime.info.id)) {
+      throw new Error('Remove its other accounts first.')
+    }
     await ctx.runtimes.unregister(runtime.info.id)
     await agents.remove(runtime.info.id)
     ctx.logger.info('agent unregistered from the interface', { runtime: runtime.info.id })
@@ -149,6 +161,13 @@ export const accountMethods = {
       restarted = check.changed && check.restarted
       collectable = restarted
     }
+    for (const row of agents.entries()) {
+      if (row['accountOf'] !== runtime.info.id || typeof row['id'] !== 'string') continue
+      const extra = ctx.runtimes.get(row['id'])
+      if (!extra?.checkInstallation) continue
+      const check = await extra.checkInstallation().catch(() => ({ changed: false as const }))
+      if (!check.changed || !check.restarted) collectable = false
+    }
     if (collectable && from !== to) agents.discardVersion(runtime.info.id, from)
     await describeInstall(ctx, runtime)
     const info = ctx.runtimes.infoOf(runtime)
@@ -157,7 +176,7 @@ export const accountMethods = {
     return { runtime: runtime.info.id, info }
   },
 
-  'runtime/account/add': (ctx, params) => ctx.accounts.add(params.runtime, params.gateway),
+  'runtime/account/add': (ctx, params) => ctx.accounts.add(params.runtime, params.gateway, params.name),
 
   'runtime/account/remove': async (ctx, params) => {
     await ctx.accounts.remove(params.runtime)

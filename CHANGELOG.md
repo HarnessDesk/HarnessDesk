@@ -7,6 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Antigravity can hold more than one account** — Add another account makes a second row over a folder of its own, with the token kept in that folder so two Google accounts stay signed in side by side; each account keeps its own conversations, gets a row called “Antigravity 2”, “Antigravity 3” and so on, and can be removed on its own, which asks it to sign out and moves its folder to the Trash. The add method also takes a name, for a UI that asks for one.
 - **Starting a Team now says, under each seat, which of its Agent's skills and servers will load and names the ones that won't.**
 
 ## 0.5.2 — 2026-10-17

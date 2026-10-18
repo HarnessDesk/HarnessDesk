@@ -1088,6 +1088,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/account/add': shape({
     runtime: isString,
     gateway: optional(shape({ name: isString, endpoint: isString, apiKey: isString })),
+    name: optional(isString),
   }),
   'runtime/account/remove': shape({ runtime: isString }),
 
