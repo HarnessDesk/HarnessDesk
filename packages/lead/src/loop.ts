@@ -207,7 +207,6 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     }
     try { await tools.settleStarts() }
     catch { await waitForUser('lead-start-binding-failed'); return result }
-    if (result.reason === 'lead-predecessor-unavailable') { await waitForUser(result.reason); return result }
     if (journal.state.budget?.stop) reason = 'lead-budget-stopped'
     const proposal = result.proposals?.plan
     if (proposal && !terminal(journal.state.phase)) {
@@ -221,6 +220,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // Model-proposed result/waiting cards are summaries only. The loop constructs
     // actionable cards from fresh reads, and never offers a worker approval card.
     await refresh()
+    if (result.reason === 'lead-predecessor-unavailable' || result.reason === 'lead-predecessor-unverifiable') { await waitForUser(result.reason); return result }
     const waitForDesk = !!result.deskActivityTools?.length
     const countedTools = result.toolResults?.filter(tool => !result.deskActivityTools?.includes(tool.tool_use_id)) ?? []
     if (countedTools.length) {

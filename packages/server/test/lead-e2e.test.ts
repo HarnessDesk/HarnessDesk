@@ -223,3 +223,27 @@ test('declining step 1 acceptance parks a model retry of step 2 as predecessor u
   assert.equal(rig.journal.state.runs.length, 1)
   await rig.assertNoForbiddenEffects()
 })
+
+
+test('accepting step 1 before the model starts step 2 seeds its reviewed revision', async t => {
+  const rig = await createLeadRig({ acceptedPredecessor: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve')
+  await rig.waitFor(() => rig.journal.state.runs.length === 1 && rig.host.teamPlane.stateFor(rig.journal.state.runs[0]!.teamId).intents.some(intent => intent.role === 'accept' && intent.state === 'open'), 'step 1 acceptance')
+  const first = rig.journal.state.runs[0]!
+  const acceptance = rig.host.teamPlane.stateFor(first.teamId).intents.find(intent => intent.role === 'accept' && intent.state === 'open')!
+  assert.equal(rig.journal.state.runs.length, 1)
+  assert.equal([...rig.journal.state.attempts.values()].some(attempt => attempt.stepId === 'second' && attempt.method === 'flow/start-goal'), false)
+  await rig.host.call('team/intent', { room: first.teamId, id: acceptance.id, action: 'done', outcome: 'accepted' })
+  await rig.waitFor(() => rig.journal.state.runs.length === 2, 'step 2 after accepted step 1')
+  const runs = rig.host.flowsPlane.leadRuns()
+  const previous = runs.find(run => run.id === first.runId)!
+  assert.equal(previous.state, 'settled')
+  const review = previous.rounds.filter(round => round.role === 'review').at(-1)!
+  const base = previous.seatPlans![String(review.n)]!.base!
+  assert.match(base, /^[a-f0-9]{40,64}$/)
+  const next = runs.find(run => run.id === rig.journal.state.runs[1]!.runId)!
+  assert.equal(next.lead!.base, base)
+  assert.equal(next.seatPlans!['1']!.base, base)
+  await rig.assertNoForbiddenEffects()
+})

@@ -14,31 +14,47 @@ const same = (left: unknown, right: unknown): boolean => JSON.stringify(left, (_
 export const leadStepContractDigest = (step: LeadState['steps'][number] | undefined, run: StoredFlowExecution): string | null =>
   step?.contractDigest ?? (step && run.lead?.startId === step.attemptId ? run.lead.contractDigest : null)
 
-/** One host-owned readiness rule for both pre-dispatch resolution and the door.
- * Each started step retains the contract binding under which its run was admitted. */
+/** One host-owned readiness table for pre-dispatch resolution and the door.
+ * Each started step retains the contract binding under which its run was admitted.
+ *
+ * | predecessor | result |
+ * | acceptance closed accepted, review and plan hold (any run state, including settled) | ready, with base |
+ * | acceptance open awaiting the person, review and plan hold | ready, with base |
+ * | acceptance closed and not accepted | terminal: lead-predecessor-unavailable |
+ * | run stopped, or settled without an accepted acceptance | terminal: lead-predecessor-unavailable |
+ * | binding, pin or reviewed revision cannot be confirmed | terminal: lead-predecessor-unverifiable |
+ * | running or stalled (any other live state) | not yet: desk wait |
+ */
 export const leadPredecessorReadiness = (state: LeadState, stepId: string, runs: readonly StoredFlowExecution[],
-  readIntents: LeadAdmissionOptions['readIntents']): { ready: boolean; terminal?: true; base?: string } => {
+  readIntents: LeadAdmissionOptions['readIntents']): { ready: boolean; terminal?: true; reason?: 'lead-predecessor-unavailable' | 'lead-predecessor-unverifiable'; base?: string } => {
+  const unavailable = { ready: false, terminal: true, reason: 'lead-predecessor-unavailable' } as const
+  const unverifiable = { ready: false, terminal: true, reason: 'lead-predecessor-unverifiable' } as const
   const index = state.contract?.steps.findIndex(step => step.id === stepId) ?? -1
   if (index === 0) return { ready: true }
-  if (index < 0) return { ready: false, terminal: true }
+  if (index < 0) return unverifiable
   const predecessor = state.contract!.steps[index - 1]!
   const recorded = state.steps.find(step => step.id === predecessor.id)
   const owned = state.runs.find(run => run.correlationId === recorded?.attemptId)
-  const run = owned && runs.find(run => run.id === owned.runId && run.goal === owned.teamId &&
-    run.lead?.logicalGoalId === state.budget?.logicalGoalId && run.lead?.contractDigest === leadStepContractDigest(recorded, run) &&
-    run.lead?.stepId === predecessor.id && run.lead?.startId === owned.correlationId)
-  if (recorded?.state !== 'started' || !run || run.state !== 'running') return { ready: false, terminal: true }
-  const review = run.rounds.filter(round => round.role === 'review').at(-1), acceptance = run.rounds.at(-1)
+  const run = owned && runs.find(run => run.id === owned.runId && run.goal === owned.teamId)
+  if (!run) return unverifiable
+  const acceptance = run.rounds.at(-1)
   const cards = acceptance?.cards?.map(id => readIntents(run.goal).find(card => card.id === id)) ?? []
-  if (acceptance?.role === 'accept' && acceptance.state === 'closed' &&
-    (!cards.length || !cards.every(card => card?.state === 'done' && card.outcome === 'accepted'))) return { ready: false, terminal: true }
-  if (!review || review.state !== 'closed' || acceptance?.role !== 'accept') return { ready: false }
+  const accepted = acceptance?.role === 'accept' && acceptance.state === 'closed' && cards.length > 0 &&
+    cards.every(card => card?.state === 'done' && card.outcome === 'accepted')
+  const open = acceptance?.role === 'accept' && acceptance.state === 'running' && cards.length > 0 &&
+    cards.every(card => card?.state === 'open')
+  // Acceptance decides before run state: a person decision settles the run.
+  if (acceptance?.role === 'accept' && acceptance.state === 'closed' && !accepted) return unavailable
+  if (!accepted && (run.state === 'stopped' || run.state === 'settled')) return unavailable
+  if (recorded?.state !== 'started' || run.lead?.logicalGoalId !== state.budget?.logicalGoalId ||
+    run.lead?.contractDigest !== leadStepContractDigest(recorded, run) || run.lead?.stepId !== predecessor.id ||
+    run.lead?.startId !== owned!.correlationId) return unverifiable
+  if (!accepted && !open) return { ready: false }
+  const review = run.rounds.filter(round => round.role === 'review').at(-1)
+  if (!review || review.state !== 'closed') return unverifiable
   const plan = run.seatPlans?.[String(review.n)]
   if (!plan?.base || !/^[a-f0-9]{40,64}$/.test(plan.base) || plan.handed.length !== 1 || plan.handed[0]!.at !== plan.base)
-    return { ready: false, terminal: true }
-  const ready = cards.length > 0 && cards.every(card => acceptance.state === 'running' && card?.state === 'open' ||
-    acceptance.state === 'closed' && card?.state === 'done' && card.outcome === 'accepted')
-  if (!ready) return { ready: false }
+    return unverifiable
   return { ready: true, base: plan.base }
 }
 

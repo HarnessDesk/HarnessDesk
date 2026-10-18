@@ -115,6 +115,7 @@ export class LeadControls {
     const cards = state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))
     if (cards.some(card => card.type === 'plan')) return 'decide-plan'
     if (this.#inFlight() || cards.some(card => card.type === 'result' || card.type === 'waiting' && card.kind === 'person')) return null
+    if (state.managementReason === 'lead-predecessor-unavailable' || state.managementReason === 'lead-predecessor-unverifiable') return null
     return (!state.consent || state.consent.expiresAt > this.options.now()) &&
       (state.phase === 'waiting-for-user' || this.#unanswered()) ? 'resume' : null
   }
@@ -143,7 +144,9 @@ export class LeadControls {
     try { configured = (await service.status('anthropic')).configured } catch { throw leadRefusal('lead-protection-unavailable') }
     if (!configured) throw leadRefusal('lead-key-missing')
     try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
-    const resume = this.#wayOut(journal.state) === 'resume'
+    const wayOut = this.#wayOut(journal.state)
+    const resume = wayOut === 'resume' || wayOut !== 'decide-plan' && journal.state.phase === 'waiting-for-user' &&
+      (journal.state.managementReason === 'lead-predecessor-unavailable' || journal.state.managementReason === 'lead-predecessor-unverifiable')
     return this.#commitRequest(async committed => {
       const receipt = await journal.appendMessage(input.idempotencyKey, input.text, committed)
       if (resume) await journal.resume(undefined, true, committed)
@@ -264,6 +267,8 @@ export class LeadControls {
   resume(input: { readonly expectedRevision: number }): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const parsed = parseLeadResume(input)
     this.#expectRevision(parsed.expectedRevision)
+    const reason = this.options.journal.state.managementReason
+    if (reason === 'lead-predecessor-unavailable' || reason === 'lead-predecessor-unverifiable') throw leadRefusal('lead-no-person-wait')
     const wayOut = this.#wayOut(this.options.journal.state)
     if (wayOut === 'decide-plan') throw leadRefusal('lead-plan-pending')
     if (this.#inFlight()) throw leadRefusal('lead-request-in-flight')

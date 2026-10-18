@@ -13,7 +13,8 @@ import { sidebarPlacement } from '../state/workbench'
 import { formatLeadConsentTime } from './lead-consent-time'
 
 const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
-  'lead-predecessor-unavailable': 'The previous step cannot provide an accepted result with a matching reviewed revision.',
+  'lead-predecessor-unavailable': "The previous step's result wasn't accepted, so the next step can't start. Message {label} to change the plan, or stop this goal.",
+  'lead-predecessor-unverifiable': "HarnessDesk can't confirm what the previous step produced, so the next step won't start. Message {label} to change the plan, or stop this goal.",
   'lead-renewal-blocked': 'The plan could not be renewed because the pending request limit was reached.',
   'lead-disabled': 'The Lead was disabled.',
   'lead-key-changed': 'The provider key changed. Continue with the current key.',
@@ -126,8 +127,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     {active && <ConversationDock ref={dock}>
       <ConversationComposerFrame before={<ComposerNoticeStack>
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
+          {(state.waitReason === 'lead-predecessor-unavailable' || state.waitReason === 'lead-predecessor-unverifiable') && <Banner>{WAITS[state.waitReason].replace('{label}', label)}</Banner>}
           {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
-          {state.wayOut === 'resume' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
+          {state.wayOut === 'resume' && state.waitReason !== 'lead-predecessor-unavailable' && state.waitReason !== 'lead-predecessor-unverifiable' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
             {state.waitReason ? WAITS[state.waitReason] ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
           </Banner>}
           {state.wayOut === 'decide-plan' && (renewal

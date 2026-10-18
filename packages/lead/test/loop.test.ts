@@ -968,7 +968,7 @@ test('a start-only retry does not count refusals across three desk changes', asy
   } finally { await loop.close() }
 })
 
-test('a declined predecessor acceptance parks step 2 immediately', async () => {
+for (const terminalReason of ['lead-predecessor-unavailable', 'lead-predecessor-unverifiable']) test(`${terminalReason} parks step 2 immediately with a specific tool result`, async () => {
   const s = await fixture([message([tool('premature', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
   const second = { ...contract.steps[0]!, id: 'second' }
   const two = protocol.parseLeadAcceptanceContract({ ...contract, steps: [...contract.steps, second] })
@@ -978,7 +978,7 @@ test('a declined predecessor acceptance parks step 2 immediately', async () => {
   await tools.execute(startCall())
   s.setEvidence({ ...spendEvidence(), reviews: [] })
   const resolve = s.options.resolveTool
-  s.options.resolveTool = async (call: any) => ({ ...await resolve(call), stepId: 'second', start: second, predecessor: { runId: 'run-1', ready: false, terminal: true } })
+  s.options.resolveTool = async (call: any) => ({ ...await resolve(call), stepId: 'second', start: second, predecessor: { runId: 'run-1', ready: false, terminal: true, reason: terminalReason } })
   const loop = exported('createLeadLoop')(s.options)
   try {
     const result = await loop.request(input)
@@ -987,7 +987,38 @@ test('a declined predecessor acceptance parks step 2 immediately', async () => {
     assert.equal(attempt.dispatched, false)
     assert.deepEqual(result.deskActivityTools, [])
     assert.equal(s.journal.state.phase, 'waiting-for-user')
-    assert.equal(s.journal.state.managementReason, 'lead-predecessor-unavailable')
+    assert.equal(s.journal.state.managementReason, terminalReason)
+    assert.equal(result.toolResults[0].content, `Step 2 cannot start: step 1's result ${terminalReason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`)
+    assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
+  } finally { await loop.close() }
+})
+
+for (const terminalReason of ['lead-predecessor-unavailable', 'lead-predecessor-unverifiable']) test(`${terminalReason} keeps a revised plan proposed in the refused start turn`, async () => {
+  const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', plan: { ...contract, revision: 2, digest: 'b'.repeat(64), goal: 'Revise the remaining work' } }) }, tool('premature', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  const second = { ...contract.steps[0]!, id: 'second' }
+  const two = protocol.parseLeadAcceptanceContract({ ...contract, steps: [...contract.steps, second] })
+  await s.journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: two.digest, contract: two })
+  await s.journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: two.digest, choice: 'approve' }, 1000)
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.execute(startCall())
+  s.setEvidence({ ...spendEvidence(), reviews: [] })
+  const resolve = s.options.resolveTool
+  s.options.resolveTool = async (call: any) => ({ ...await resolve(call), stepId: 'second', start: second, predecessor: { runId: 'run-1', ready: false, terminal: true, reason: terminalReason } })
+  let refreshedWithPlan = false
+  const synced = s.options.desk.synced
+  s.options.desk.synced = async () => { await synced(); refreshedWithPlan ||= s.journal.state.cards.some(card => card.type === 'plan' && card.contract.goal === 'Revise the remaining work') }
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    const result = await loop.request(input)
+    const attempt = [...s.journal.state.attempts.values()].find(one => one.stepId === 'second' && one.method === 'flow/start-goal')!
+    assert.equal(attempt.outcome, 'denied')
+    assert.equal(attempt.dispatched, false)
+    assert.deepEqual(result.deskActivityTools, [])
+    assert.ok(s.journal.state.cards.some(card => card.type === 'plan' && card.contract.goal === 'Revise the remaining work'))
+    assert.equal(refreshedWithPlan, true, 'refresh observes the proposal before parking')
+    assert.equal(s.journal.state.phase, 'waiting-for-user')
+    assert.equal(s.journal.state.managementReason, terminalReason)
+    assert.equal(result.toolResults[0].content, `Step 2 cannot start: step 1's result ${terminalReason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`)
     assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
   } finally { await loop.close() }
 })

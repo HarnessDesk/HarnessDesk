@@ -178,7 +178,7 @@ export interface LeadMessage {
 }
 export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'accepted' | 'declined' | 'stopped'
 export const LEAD_MANAGEMENT_REASONS = [
-  'lead-predecessor-unavailable', 'lead-renewal-blocked',
+  'lead-predecessor-unavailable', 'lead-predecessor-unverifiable', 'lead-renewal-blocked',
   'lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-child-exited', 'lead-ownership-withdrawn',
   'lead-result-awaiting-person', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
   'lead-card-too-large', 'lead-send-deadline', 'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',

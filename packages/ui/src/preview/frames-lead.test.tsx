@@ -77,7 +77,7 @@ it.each(['light', 'dark'])('previews consent expiry once alongside its decision 
 })
 
 
-it.each(['light', 'dark'])('previews a missing plan without an inert action and explains an unavailable predecessor in %s', async theme => {
+it.each(['light', 'dark'])('previews a missing plan without an inert action and explains terminal predecessors in %s', async theme => {
   const url = window.location.href; window.history.replaceState(null, '', `?theme=${theme}`)
   const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
   try {
@@ -87,7 +87,10 @@ it.each(['light', 'dark'])('previews a missing plan without an inert action and 
     expect(notices.querySelector('button')).toBeNull()
     expect(box.querySelector('[data-lead-decision]')).toBeNull()
     await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="predecessor-unavailable" /></StoreProvider>))
-    expect(box.textContent).toContain('The previous step cannot provide an accepted result with a matching reviewed revision.')
-    expect(box.querySelector('[data-slot="composer-notices"]')?.textContent).toContain('Resume')
+    expect(box.textContent).toContain("The previous step's result wasn't accepted, so the next step can't start. Message Dex to change the plan, or stop this goal.")
+    expect(box.querySelector('[data-slot="composer-notices"] button')).toBeNull()
+    await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="predecessor-unverifiable" /></StoreProvider>))
+    expect(box.textContent).toContain("HarnessDesk can't confirm what the previous step produced, so the next step won't start. Message Dex to change the plan, or stop this goal.")
+    expect(box.querySelector('[data-slot="composer-notices"] button')).toBeNull()
   } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
 })

@@ -44,6 +44,7 @@ export interface LeadRigOptions {
   readonly holdPlanning?: boolean
   readonly holdRunning?: boolean
   readonly declinedPredecessor?: boolean
+  readonly acceptedPredecessor?: boolean
   readonly premature?: boolean
   readonly eager?: boolean
   readonly workerSpend?: boolean
@@ -168,7 +169,13 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       const step = state.steps.find(one => one.state === 'pending')
       const reviewing = options.premature && !prematureStart && step?.id === 'second' &&
         host.flowsPlane.leadRuns().some(run => run.rounds.at(-1)?.role === 'review')
-      const priorReady = state.runs.every(run => host.teamPlane.stateFor(run.teamId).intents.some(card => card.role === 'accept' && (options.declinedPredecessor ? card.state === 'done' && card.outcome === 'declined' : card.state === 'open')))
+      const priorReady = state.runs.every(run => {
+        if (options.acceptedPredecessor && !host.flowsPlane.leadRuns().some(flow => flow.id === run.runId && flow.state === 'settled')) return false
+        return host.teamPlane.stateFor(run.teamId).intents.some(intent => intent.role === 'accept' &&
+          (options.declinedPredecessor || options.acceptedPredecessor
+            ? intent.state === 'done' && intent.outcome === (options.acceptedPredecessor ? 'accepted' : 'declined')
+            : intent.state === 'open'))
+      })
       if (step && (priorReady || reviewing) && !state.budget?.stop) {
         currentStep = step.id
         const latest = body.messages?.at(-1)?.content ?? []

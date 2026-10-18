@@ -1322,3 +1322,25 @@ test('a name-only settings save ignores a stale revision without scanning', asyn
   assert.deepEqual(s.journal.state.policy, before.policy)
   assert.deepEqual(s.journal.state.budget, before.budget)
 })
+
+for (const reason of ['lead-predecessor-unavailable', 'lead-predecessor-unverifiable']) test(`${reason} refuses Resume but a message resumes with new instructions`, async () => {
+  const s = await rig({ configured: true })
+  try {
+    await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+    await s.journal.setManagementPhase('waiting-for-user', reason)
+    const projection = await s.call('lead/thread/read')
+    assert.equal(projection.wayOut, null)
+    assert.equal(projection.waitReason, reason)
+    const seq = s.journal.state.seq
+    await assert.rejects(s.call('lead/resume', { expectedRevision: seq }), code('lead-no-person-wait'))
+    assert.equal(s.journal.state.seq, seq)
+    s.service.send = async (value: any) => {
+      assert.equal(s.journal.state.phase, 'running')
+      assert.equal(value.messages.at(-1).content[0].text, 'Change the plan')
+      return { status: 'completed', text: 'Plan change received' }
+    }
+    await s.call('lead/thread/send', { idempotencyKey: 'change-plan', text: 'Change the plan' }); await s.controls.idle()
+    assert.equal(s.records.filter(record => record.type === 'resume').length, 1)
+    assert.equal(s.journal.state.messages.at(-1)!.text, 'Plan change received')
+  } finally { s.controls.close() }
+})

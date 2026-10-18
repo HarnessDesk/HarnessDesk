@@ -48,7 +48,7 @@ test('a later Lead step freezes its predecessor reviewed revision as the Flow la
 for (const changed of ['missing run', 'unreviewed', 'missing pin', 'wrong owner', 'wrong revision', 'declined acceptance'] as const) {
   test(`a later Lead step refuses ${changed} instead of starting from the project checkout`, async () => {
     const s = rig()
-    if (changed === 'declined acceptance') { s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'declined' }
+    if (changed === 'declined acceptance') { s.previous.state = 'settled'; s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'declined' }
     if (changed === 'missing run') s.state.runs = []
     if (changed === 'unreviewed') s.previous.rounds.pop()
     if (changed === 'missing pin') s.previous.seatPlans['2'].base = null
@@ -85,9 +85,10 @@ test('a frozen Lead base reaches the existing isolated Flow seed lane and surviv
   }
 })
 
-test('a closed accepted predecessor can seed the next Lead step', async () => {
+test('a settled accepted predecessor can seed the next Lead step', async () => {
   const s = rig()
-  s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'accepted'
+  s.previous.state = 'settled'; s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'accepted'
+  assert.deepEqual(leadPredecessorReadiness(s.state, 'second', [s.previous], () => [s.acceptance] as any), { ready: true, base: s.revision })
   assert.equal(await s.admission.authorizeStart(s.params), true)
   assert.equal(s.binding().base, s.revision)
 })
@@ -133,7 +134,7 @@ for (const legacy of [false, true]) test(`an approved plan revision starts step 
   const unregister = budgets.register(reopened)
   try { assert.deepEqual(await budgets.gate(s.previous), { ok: true }, 'step 1 keeps dispatching under its original binding') }
   finally { unregister() }
-  s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'accepted'
+  s.previous.state = 'settled'; s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'accepted'
 
   const params = { ...s.params, sentence: revised.goal }
   const predecessor = leadPredecessorReadiness(reopened.state, 'second', [s.previous], () => [s.acceptance] as any)
@@ -149,14 +150,26 @@ for (const legacy of [false, true]) test(`an approved plan revision starts step 
   assert.equal(s.binding().contractDigest, revised.digest)
 })
 
-for (const changed of ['finished run', 'declined acceptance', 'wrong binding', 'missing pin', 'wrong revision'] as const) {
+for (const changed of ['settled without acceptance', 'stopped', 'declined acceptance', 'wrong binding', 'missing pin', 'wrong revision', 'missing reviewed revision'] as const) {
   test(`predecessor readiness is terminal for ${changed}`, () => {
     const s = rig()
-    if (changed === 'finished run') s.previous.state = 'settled'
-    if (changed === 'declined acceptance') { s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'declined' }
+    if (changed === 'settled without acceptance') { s.previous.state = 'settled'; s.previous.rounds.pop() }
+    if (changed === 'stopped') { s.previous.state = 'stopped'; s.previous.rounds.pop() }
+    if (changed === 'declined acceptance') { s.previous.state = 'settled'; s.previous.rounds.at(-1).state = 'closed'; s.acceptance.state = 'done'; s.acceptance.outcome = 'declined' }
     if (changed === 'wrong binding') s.previous.lead.contractDigest = 'other'
     if (changed === 'missing pin') s.previous.seatPlans['2'].base = null
     if (changed === 'wrong revision') s.previous.seatPlans['2'].handed[0].at = 'b'.repeat(40)
-    assert.deepEqual(leadPredecessorReadiness(s.state, 'second', [s.previous], () => [s.acceptance] as any), { ready: false, terminal: true })
+    if (changed === 'missing reviewed revision') s.previous.rounds.splice(1, 1)
+    const unavailable = ['settled without acceptance', 'stopped', 'declined acceptance'].includes(changed)
+    assert.deepEqual(leadPredecessorReadiness(s.state, 'second', [s.previous], () => [s.acceptance] as any),
+      { ready: false, terminal: true, reason: unavailable ? 'lead-predecessor-unavailable' : 'lead-predecessor-unverifiable' })
   })
 }
+for (const runState of ['running', 'stalled']) test(`predecessor readiness waits for a live ${runState} review`, () => {
+  const s = rig(); s.previous.state = runState; s.previous.rounds.pop(); s.previous.rounds.at(-1).state = 'running'
+  assert.deepEqual(leadPredecessorReadiness(s.state, 'second', [s.previous], () => [s.acceptance] as any), { ready: false })
+})
+test('predecessor readiness allows open acceptance with its reviewed base', () => {
+  const s = rig()
+  assert.deepEqual(leadPredecessorReadiness(s.state, 'second', [s.previous], () => [s.acceptance] as any), { ready: true, base: s.revision })
+})

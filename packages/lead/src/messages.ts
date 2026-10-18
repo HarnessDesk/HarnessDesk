@@ -319,8 +319,9 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     const continuation: MessagesTurn[] = [...messages, { role: 'assistant', content }, ...(results.length ? [{ role: 'user' as const, content: results }] : [])]
     const bytes = (text: string) => new TextEncoder().encode(text).byteLength
     const predecessorRefusal = (index: number) => `Step ${index} is not yet awaiting acceptance; wait for desk activity.`
+    const terminalRefusal = (index: number, reason: string) => `Step ${index + 1} cannot start: step ${index}'s result ${reason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`
     // A preceding read cannot consume the space needed to explain a later start refusal.
-    const refusalSpace = bytes(json(predecessorRefusal(LEAD_LIMITS.steps))) - bytes(json('Tool refused'))
+    const refusalSpace = Math.max(...[predecessorRefusal(LEAD_LIMITS.steps), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unavailable'), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unverifiable')].map(text => bytes(json(text)))) - bytes(json('Tool refused'))
     const reserved = uses.map(({ use }) => use.name === 'flow_start_goal' ? refusalSpace : 0)
     let available: number
     try {
@@ -328,7 +329,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       available = LIMIT.bytes - (bytes(body) - bytes(json(messages))) - bytes(safeJson(continuation)) - reserved.reduce((sum, space) => sum + space, 0)
       if (available < 0) fail()
     } catch { return { status: 'invalid-response', reason: 'lead-messages-continuation-limit', usage: used, toolResults: results } }
-    let predecessorUnavailable = false
+    let predecessorReason: string | undefined
     const permissionDeniedTools: string[] = []
     const transientTools: string[] = [], succeededTools: string[] = [], deskActivityTools: string[] = []
     for (const [position, { use, index }] of uses.entries()) {
@@ -347,7 +348,13 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
               catch (error) { dispatchError = error; throw error }
             })
           if (executed.decision.effect !== 'allow') permissionDeniedTools.push(use.id)
-          if (executed.outcome === 'denied' && executed.decision.reason === 'lead-predecessor-unavailable') predecessorUnavailable = true
+          if (executed.outcome === 'denied' && ['lead-predecessor-unavailable', 'lead-predecessor-unverifiable'].includes(executed.decision.reason)) {
+            predecessorReason = executed.decision.reason
+            const index = journal.state.contract?.steps.findIndex(step => step.id === scope.stepId) ?? 0
+            const result = { ...results[position]!, content: terminalRefusal(index, predecessorReason) }
+            available -= bytes(json(result)) - bytes(json(results[position]))
+            results[position] = result
+          }
           if (executed.outcome === 'denied' && executed.decision.reason === 'lead-predecessor-not-ready') {
             const index = journal.state.contract?.steps.findIndex(step => step.id === scope.stepId) ?? 0
             const result = { ...results[position]!, content: predecessorRefusal(index) }
@@ -372,7 +379,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       }
     }
     return { status: parsed.stop_reason === 'max_tokens' ? 'max-tokens' : signal.aborted ? 'cancelled' : 'completed', usage: used,
-      ...(predecessorUnavailable ? { reason: 'lead-predecessor-unavailable' } : {}),
+      ...(predecessorReason ? { reason: predecessorReason } : {}),
       text: output.text, proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, messages: continuation }
   } }
 }

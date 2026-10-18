@@ -2357,7 +2357,11 @@ the dock states that a decision is needed without offering an action.
 Refusal, Resume and renewal banners share ComposerNoticeStack with the decision
 controls, using the session's gap above the composer. Renewal's banner states
 only the earlier expiry time, once. An idle dock has
-no empty reading-measure or form-stack wrapper.
+no empty reading-measure or form-stack wrapper. Unavailable and unverifiable
+predecessor notices explain whether the previous result was not accepted or
+cannot be confirmed, and name the Lead to message to change the plan or stop
+the goal. They have no Resume action; the composer continues with the person's
+new instructions. Both waits have synthetic preview scenes in both themes.
 
 Settings › Lead uses canonical Section, Rows, Row, Input and Button patterns,
 ordered Name, Provider key, Allowances, Permissions. LeadNameChoice composes the

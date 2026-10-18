@@ -186,7 +186,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
 export const prepareLeadJournalRecord = (value: unknown, security: LeadJournalSecurity = {}): LeadJournalRecord =>
   parseLeadJournalRecord(prepareLeadJournalData(value, security))
 
-export interface LeadToolAttempt { readonly id: string; readonly request: LeadPermissionRequest; readonly context: LeadPermissionContext; readonly stepId?: string | null; readonly predecessor?: { readonly runId: string; readonly ready: boolean; readonly terminal?: true } }
+export interface LeadToolAttempt { readonly id: string; readonly request: LeadPermissionRequest; readonly context: LeadPermissionContext; readonly stepId?: string | null; readonly predecessor?: { readonly runId: string; readonly ready: boolean; readonly terminal?: true; readonly reason?: 'lead-predecessor-unavailable' | 'lead-predecessor-unverifiable' } }
 /** The trusted host may explicitly prove a start created nothing. A thrown or
  * ambiguous response never supplies that proof. */
 export type LeadDispatchResult = { readonly value: unknown } & (
@@ -497,7 +497,7 @@ export class LeadJournal {
         const previous = this.#state.steps[index - 1]
         const owned = previous && this.#state.runs.find(run => run.correlationId === previous.attemptId)
         if (index > 0 && (!owned || input.predecessor?.runId !== owned.runId || input.predecessor.ready !== true))
-          decision = refusal('start', input.predecessor?.terminal || !owned ? 'lead-predecessor-unavailable' : 'lead-predecessor-not-ready')
+          decision = refusal('start', input.predecessor?.terminal || !owned ? input.predecessor?.reason ?? 'lead-predecessor-unavailable' : 'lead-predecessor-not-ready')
       }
       await this.#append({ type: 'decision', id, effect: decision.effect, reason: decision.floor ?? 'policy', rule: decision.rule })
       await this.#append({ type: 'dispatch-start', id, dispatched: decision.effect === 'allow' })

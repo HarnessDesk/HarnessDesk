@@ -1923,8 +1923,15 @@ needed decision without an action. Explicit navigation focuses
 the approval dock; an arriving plan scrolls without taking composer focus. Expiry
 re-offers the approved plan with only the earlier expiry time in its banner, once,
 and a fresh approval requirement in the message. The host owns renewal; terminal threads
-cannot renew. A predecessor that has ended, lost its binding or reviewed revision,
-or closed acceptance without being accepted parks for a person with an explanation.
+cannot renew. An accepted predecessor can seed the next step after its run settles;
+an open acceptance can also seed it. A live running or stalled predecessor still
+being reviewed waits for desk activity. A stopped run or a settled result that
+wasn't accepted parks with `lead-predecessor-unavailable`. A binding or reviewed
+revision that cannot be confirmed parks with `lead-predecessor-unverifiable`.
+Both explain what happened and ask the person to message the chosen Lead name
+to change the plan, or stop the goal. Neither offers Resume; sending a message
+continues with those instructions. A revised plan proposed in the refused-start
+turn is retained for approval before the Lead parks.
 Reads back off to 30 seconds, read once more, then wait for changes.
 
 Settings › Lead exists only with the host capability. Its groups are Name,
