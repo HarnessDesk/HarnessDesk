@@ -3852,3 +3852,11 @@ ToggleGroup gained a `chips` variant, and BoardCard gained `marks`, `finding`, `
 ## Orange waits on a person; blue is unseen Team news — 2026-10-17
 
 A Team’s orange mark means someone waits on the person: an answer, an approval, a held queue, a Flow decision or another actionable board reason. Done cards whose only reason is “nothing checked” keep that column on the Board but raise no Team attention, with or without a Run. Ready to wrap is news, so it joins unread Seat activity and ended Runs under a blue mark, cleared by opening any Team tab. The existing Goal store owns last-seen and ready times so another window, a restart and the phone agree. Overview counts the same attention list it renders and gives unchecked finished cards a quiet count and Board action; no badge can ask for an answer its body does not show.
+
+## Starting a Team says, beside each seat, what will load — 2026-10-17
+
+The dry run already computed, for each seat whose Agent declares skills or MCP servers, whether every declared name would load when the seat opens — but the person read it only as sentences in the problems list, away from the seat they were about, and a seat whose declarations all load said nothing at all. Now the seats section draws one line under such a seat: it counts what would load, says the runtime’s defaults where the Agent declares none, and lists only the names that would not, each in the host’s own words; a refused seat says its refusal in warning ink on the same line.
+
+The line is a rendering of facts the host already decided (`FlowPreviewSeat.attachments`), not a second decision: it adds no problem, removes none, and touches neither `startable` nor the Start button, wherever the seats section is rendered — the Start dialog, the dry-run report on a Flow page, a trigger’s preview and a saved Run again. A declaration of kind `notes` is neither skill nor server and stays out of the line entirely.
+
+**Rule:** a seat's attachment facts sit under that seat; the problems list still decides whether Start is allowed.

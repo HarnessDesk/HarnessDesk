@@ -1597,7 +1597,11 @@ seat a role would open, every candidate this machine tried and why each was
 passed over, the effective ceiling each seat would hold, every check command
 verbatim with its checkout and timeout, and the plain rule list a round
 would move through — an unevidenced rule (answers alone, no observed fact)
-carries a warning chip rather than reading as already satisfied. Editing the
+carries a warning chip rather than reading as already satisfied. Under a seat
+whose Agent declares skills or servers, one line says which would load —
+counted, so a name that loads is never written — and names only the ones that
+would not, each in the Agent page's own words; a seat the host refused says its
+refusal there in warning ink. The problems list still decides Start. Editing the
 source or a variable invalidates Start immediately; a stale reply can never
 re-enable it. Starting a flow opens exactly one new Goal, through one host
 operation — never a bare Goal made first and a flow started into it after.

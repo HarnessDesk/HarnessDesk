@@ -1,6 +1,6 @@
 import { CurrentPagePreview } from './page-preview'
 import { useMemo, useState } from 'react'
-import type { FlowEntry, FlowPolicy, FlowPreview, FrontDoorPreviewInput, ShapeLayout } from '@harnessdesk/protocol'
+import type { FlowEntry, FlowPolicy, FlowPreview, FlowPreviewSeat, FrontDoorPreviewInput, ShapeLayout } from '@harnessdesk/protocol'
 import { FrontDoor } from '../components/FrontDoor'
 import { Sidebar } from '../components/Sidebar'
 import { Button, Text } from '../design'
@@ -12,6 +12,37 @@ import { usagePreviewStore } from './usage-fixture'
 import { TEAM_START_POLICIES, TEAM_START_SOURCES } from './team-start-fixture'
 
 const TEAM_ROOT = '/work/storefront'
+
+/**
+ * What a seat's Agent declares beyond its brief, as the host dry-runs it
+ * (#1582) — invented here so the Start frames show every line the seats
+ * section draws: the seed Agent's skill and server all load, the reviewer's
+ * Agent declares one skill that would not load, and an Agent that declares
+ * nothing shows its runtime's defaults, the one place a defaults line appears.
+ * Names are fixture personas.
+ */
+type SeatAttachments = NonNullable<FlowPreviewSeat['attachments']>
+export const SEAT_ATTACHMENTS: Readonly<Record<'all' | 'wont' | 'defaults', SeatAttachments>> = {
+  all: {
+    skillsMode: 'allowlist', mcpMode: 'allowlist',
+    declarations: [
+      { kind: 'skill', name: 'review-checklist', identity: null, problem: null },
+      { kind: 'skill', name: 'checkout-retries', identity: null, problem: null },
+      { kind: 'mcp', name: 'browser', identity: null, problem: null },
+    ],
+    refusal: null,
+  },
+  wont: {
+    skillsMode: 'allowlist', mcpMode: 'allowlist',
+    declarations: [
+      { kind: 'skill', name: 'review-checklist', identity: null, problem: null },
+      { kind: 'skill', name: 'frontend-design', identity: null, problem: 'Review this content before loading it.' },
+      { kind: 'mcp', name: 'browser', identity: null, problem: null },
+    ],
+    refusal: null,
+  },
+  defaults: { skillsMode: 'runtime-defaults', mcpMode: 'runtime-defaults', declarations: [], refusal: null },
+}
 
 const header = (source: string, key: string): string => {
   const value = source.match(new RegExp(`^${key}: (.+)$`, 'm'))?.[1] ?? ''
@@ -57,18 +88,26 @@ export const teamStartStore = (): AppStore => {
         const runtime = target.getSnapshot().runtimes[role.id === policy.seed.role ? index : role.id === 'judge' ? 2 : 1]!
         const seat = role.seats[index] ?? role.seats[0] ?? { runtime: runtime.id, model: 'opus', effort: 'high' }
         const presentation = target.getSnapshot().runtimes.find(one => one.id === seat.runtime)?.presentation ?? runtime.presentation
+        // The seed Agent's declarations all load; the reviewer's declare one skill that would not; anything else shows runtime defaults.
+        const attachments = role.id === policy.seed.role ? SEAT_ATTACHMENTS.all : role.id === 'reviewer' ? SEAT_ATTACHMENTS.wont : SEAT_ATTACHMENTS.defaults
         if (new URLSearchParams(location.search).has('unheld-read') && role.grant === 'read' && !runtimes.find(one => one.id === seat.runtime)?.ceilings.read) return { role: role.id, index, agent, isolate: role.isolate, reviews: true, plan: {
           id: agent, from: 'prefer' as const, winner: null, blocked: null, ceiling: null,
           candidates: [{ seat, label: presentation.name, runtimeName: presentation.name, state: 'passed' as const, reason: { kind: 'unheld' as const, level: 'read', required: true, detail: null }, fix: { kind: 'seats' as const } }],
         } }
-        return { role: role.id, index, agent, isolate: role.isolate, reviews: role.grant === 'read', plan: {
+        return { role: role.id, index, agent, isolate: role.isolate, reviews: role.grant === 'read', attachments, plan: {
           id: agent, from: 'prefer' as const, winner: 0, blocked: null, ceiling: { level: role.grant, hold: 'held' as const },
           candidates: [{ seat, label: presentation.name, runtimeName: presentation.name, state: 'taken' as const, reason: null, fix: null }],
         } }
       }))
+      // The problems list repeats a declaration's own sentence with where it is about, as the host writes both (#1582).
+      const problems: FlowPreview['problems'] = seats.flatMap(seat => (seat.attachments?.declarations ?? [])
+        .filter(one => one.problem !== null).map(one => ({
+          level: 'warning' as const, at: `roles.${seat.role}.seat`,
+          text: `${seat.role}[${seat.index + 1}] ${one.kind === 'mcp' ? 'server' : 'skill'} “${one.name}”: ${one.problem}`,
+        })))
       const flow: FlowPreview = { token: 'synthetic-team-start', compiled: { document: { format: 'agents', flow: policy }, bindings: [], problems: [] }, seats, // hd-secrets-ok: invented preview token, never a host credential.
         commands: policy.roles.flatMap(role => role.kind === 'check' ? [{ role: role.id, run: role.check.run, cwd: TEAM_ROOT, timeout: role.check.timeout, permission: 'read' as const }] : []),
-        guards: [], messaging: 'board-only', problems: [] }
+        guards: [], messaging: 'board-only', problems }
       const preview = { flow, source: input.source, vars: input.vars, sentence: policy.name, goal: input.goal ?? null,
         target: { label: 'this project', base: null, head: null, dirty: false, independence: 'unknown' as const } }
       const mutable = target as unknown as { patch: (partial: Partial<AppSnapshot>) => void }

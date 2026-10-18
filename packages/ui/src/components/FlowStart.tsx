@@ -10,7 +10,7 @@ import { evidenceGuardsWords, messagingWords } from '../lib/flows'
 import { stepName } from '../lib/flow-model'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { AgentIcon, CaretIcon } from './Icons'
+import { AgentIcon, AlertIcon, CaretIcon, CheckIcon } from './Icons'
 import { CeilingChip } from './CeilingChip'
 import styles from './FlowStart.module.css'
 
@@ -535,6 +535,50 @@ export const FlowPreviewReport = ({
   </>
 )
 
+/**
+ * What a Seat's Agent would carry in beyond its brief, as the host dry-ran it
+ * (#1582): one line under the seat counts what would load — a name that loads
+ * is only counted — and, under it, only the names that would not, each in the
+ * host's own words. A refused seat says so in that line's second line, in
+ * warning ink. The problems list above still decides Start; this says, beside
+ * the seat it is about, what the person would open with. A seat whose Agent
+ * declares nothing, or whose attachments the host did not dry-run, shows
+ * nothing new. A declaration of kind `notes` is neither skill nor server and
+ * is outside this line entirely.
+ */
+const SeatAttachmentRows = ({ seat }: { readonly seat: FlowPreviewSeat }) => {
+  const attachments = seat.attachments
+  if (!attachments) return null
+  const counts = (kind: 'skill' | 'mcp'): { load: number; wont: number } => {
+    const mine = attachments.declarations.filter(one => one.kind === kind)
+    return { load: mine.filter(one => one.problem === null).length, wont: mine.filter(one => one.problem !== null).length }
+  }
+  const part = (label: string, mode: 'runtime-defaults' | 'allowlist', counts: { load: number; wont: number }): string =>
+    mode === 'runtime-defaults'
+      ? `${label}: agent defaults`
+      : `${label}: ${counts.load} will load${counts.wont > 0 ? ` · ${counts.wont} won’t load` : ''}`
+  const skills = counts('skill')
+  const servers = counts('mcp')
+  const refused = attachments.refusal !== null
+  return (
+    <>
+      <Row
+        mark={!refused && skills.wont === 0 && servers.wont === 0 ? <CheckIcon size={14} /> : <AlertIcon size={14} />}
+        title={<Text role="meta">{[part('Skills', attachments.skillsMode, skills), part('Servers', attachments.mcpMode, servers)].join(' · ')}</Text>}
+        desc={refused ? <Text role="meta" tone="warning">{attachments.refusal}</Text> : undefined}
+      />
+      {attachments.declarations.map((declaration, index) => (declaration.kind !== 'notes' && declaration.problem !== null) ? (
+        <Row
+          key={`${declaration.kind}-${declaration.name}-${index}`}
+          mark={<AlertIcon size={14} />}
+          title={<CodeText as="code">{declaration.name}</CodeText>}
+          desc={declaration.problem}
+        />
+      ) : null)}
+    </>
+  )
+}
+
 /** One role's slot: the Agent it names, its effective ceiling, and every candidate this machine tried. */
 const SeatPreviewRows = ({ seat, roster }: { readonly seat: FlowPreviewSeat; readonly roster: ReadonlyMap<string, AgentEntry> }) => {
   const snapshot = useSnapshot()
@@ -567,6 +611,7 @@ const SeatPreviewRows = ({ seat, roster }: { readonly seat: FlowPreviewSeat; rea
         desc={reason ?? undefined}
         control={seat.plan.ceiling ? <CeilingChip ceiling={seat.plan.ceiling} /> : <Text role="meta">Unavailable</Text>}
       />
+      <SeatAttachmentRows seat={seat} />
       {seat.plan.candidates.map((candidate, index) => {
         const words = candidate.state === 'passed' && candidate.reason
           ? [

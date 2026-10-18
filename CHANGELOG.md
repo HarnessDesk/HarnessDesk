@@ -5,6 +5,10 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **Starting a Team now says, under each seat, which of its Agent's skills and servers will load and names the ones that won't.**
+
 ## 0.5.2 — 2026-10-17
 
 Skills open as pages in the Library, a Team's sidebar mark now tells waiting
