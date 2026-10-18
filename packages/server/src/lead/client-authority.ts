@@ -43,8 +43,12 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
         // Re-resolve the pinned location, including on reads, rather than allowing
         // a renamed/deleted project to be replaced by a new alias at dispatch.
         if (!await inProject(project)) return 'leadScope'
+        // Lead reads cover only this contract's owned Goals and runs, inside
+        // its canonical project. The door filters collections and subscriptions
+        // with the same single-read checks; project scope never grants ownership.
         switch (request.method) {
-          case 'client/hello': case 'library/usage': return null
+          case 'client/hello': return null
+          case 'library/usage': return 'leadScope'
           case 'workspace/open': return await inProject(request.params.path) ? null : 'leadScope'
           case 'flow/catalog': case 'flow/source': case 'goal/list':
             return request.params.root !== undefined && await inProject(request.params.root) ? null : 'leadScope'
@@ -69,7 +73,7 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
           }
           case 'client/subscribe': {
             const scope = request.params.scope
-            if (!scope || Object.keys(scope).length === 0) return 'leadScope'
+            if (scope?.team === undefined && scope?.run === undefined && scope?.project === undefined) return 'leadScope'
             if (scope.project !== undefined && !await inProject(scope.project)) return 'leadScope'
             if (scope.team !== undefined && !await goalInScope(scope.team)) return 'leadScope'
             if (scope.run !== undefined && !await runInScope(scope.run, scope.team)) return 'leadScope'
@@ -89,7 +93,7 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
           case 'library/read':
             return request.params.cwd !== undefined && await inProject(request.params.cwd) ? null : 'leadScope'
           case 'library/definition':
-            return request.params.cwd === undefined || await inProject(request.params.cwd) ? null : 'leadScope'
+            return request.params.cwd !== undefined && await inProject(request.params.cwd) ? null : 'leadScope'
           default: return 'leadScope'
         }
       } catch { return 'leadScope' }

@@ -181,6 +181,75 @@ test('Lead cancellation stays bound to owned execution cards and permits an owne
   assert.equal((await peer.call('flow/execution/stop', { run: owned.id, reason: 'Synthetic stop' })).ok, true)
 })
 
+for (const [name, scope] of [
+  ['empty', {}], ['null fields', { team: null, run: null, project: null }], ['missing', undefined],
+] as const) test(`Lead refuses ${name} subscription scope without delivering another project`, async t => {
+  const { host, peer, directory } = await rig(t)
+  const other = join(directory, 'other-project')
+  await mkdir(other)
+  await host.call('workspace/open', { path: other })
+  const preview = await host.call('flow/preview', { root: other, source })
+  const foreign = await host.call('flow/start-goal', { root: other, source, sentence: 'Other project goal', token: preview.token! })
+  await peer.hello()
+  const before = peer.messages.length
+  const reply = await peer.call('client/subscribe', { topics: ['teams', 'runs'], scope })
+  assert.equal(peer.messages.slice(before).some(frame => frame.method === 'goal/changed' && frame.params.view.goal.id === foreign.goal), false,
+    'another project Goal was delivered')
+  assert.equal(reply.error?.code, 'leadScope')
+})
+
+test('Lead project lists and subscriptions agree with ownership-scoped single reads', async t => {
+  const { peer, host, home, owned, unrelated } = await rig(t)
+  await peer.hello()
+  assert.equal((await peer.call('goal/read', { goal: unrelated.goal })).error?.code, 'leadScope')
+  const goals = await peer.call('goal/list', { root: home })
+  const runs = await peer.call('flow/executions', { project: home })
+  const before = peer.messages.length
+  const subscription = await peer.call('client/subscribe', { topics: ['teams', 'runs', 'cards'], scope: { project: home } })
+  assert.equal(subscription.ok, true)
+  const baseline = peer.messages.slice(before)
+  const visibleGoals = baseline.filter(frame => frame.method === 'goal/changed').map(frame => frame.params.view.goal.id)
+  const visibleRuns = baseline.filter(frame => frame.method === 'flow/execution-changed').map(frame => frame.params.execution.id)
+  const after = peer.messages.length
+  await host.call('flow/execution/stop', { run: unrelated.id, reason: 'Synthetic stop' })
+  await peer.hello() // Drain broadcasts queued before this request.
+  assert.deepEqual({ goals: goals.result.map((view: any) => view.goal.id), runs: runs.result.map((run: any) => run.id), visibleGoals, visibleRuns },
+    { goals: [owned.goal], runs: [owned.id], visibleGoals: [owned.goal], visibleRuns: [owned.id] })
+  assert.equal(baseline.some(frame => frame.method === 'team/changed' && frame.params.state.id === unrelated.goal), false)
+  assert.equal(peer.messages.slice(after).some(frame => frame.method === 'flow/execution-changed' && frame.params.execution.id === unrelated.id), false)
+})
+
+test('Lead refuses desk-wide library usage', async t => {
+  const { peer } = await rig(t)
+  await peer.hello()
+  assert.equal((await peer.call('library/usage', {})).error?.code, 'leadScope')
+})
+
+test('Lead library definitions require the approved canonical project cwd', async t => {
+  const { peer, home, directory } = await rig(t)
+  await peer.hello()
+  const params = { kind: 'skill', name: 'synthetic', path: join(home, 'SKILL.md') }
+  assert.equal((await peer.call('library/definition', params)).error?.code, 'leadScope')
+  assert.equal((await peer.call('library/definition', { ...params, cwd: directory })).error?.code, 'leadScope')
+  const alias = join(directory, 'project-alias')
+  await symlink(home, alias)
+  assert.equal((await peer.call('library/definition', { ...params, cwd: alias })).ok, true)
+})
+
+test('Lead live run subscription loses authority when host ownership is withdrawn', async t => {
+  let ownership: readonly { goal: string; run: string }[] = []
+  const { peer, host, owned } = await rig(t, { readOwned: () => ownership })
+  ownership = [{ goal: owned.goal, run: owned.id }]
+  await peer.hello()
+  assert.equal((await peer.call('client/subscribe', { topics: ['runs'], scope: { run: owned.id } })).ok, true)
+  ownership = []
+  const before = peer.messages.length
+  await host.call('flow/execution/stop', { run: owned.id, reason: 'Synthetic host stop' })
+  await peer.hello()
+  assert.equal((await peer.call('flow/execution', { run: owned.id })).error?.code, 'leadScope')
+  assert.equal(peer.messages.slice(before).filter(frame => frame.method === 'flow/execution-changed').length, 0)
+})
+
 test('Lead listener is separate, private and undiscoverable; descriptor and cleanup stay host-owned', async t => {
   const { directory, door } = await rig(t)
   const privateDirectory = dirname(door.socketPath)

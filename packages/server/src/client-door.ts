@@ -162,6 +162,26 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
     maximumTiers: Object.freeze([...options.policy.maximumTiers]),
     authorize: options.policy.authorize,
   })
+  const allowed = async (request: ClientConnectionRequest): Promise<boolean> => {
+    if (!policy) return true
+    try { return await policy.authorize(request) === null } catch { return false }
+  }
+  const filterAllowed = async <T>(items: readonly T[], request: (item: T) => ClientConnectionRequest): Promise<readonly T[]> => {
+    if (!policy) return items
+    const admitted = await Promise.all(items.map(item => allowed(request(item))))
+    return items.filter((_item, index) => admitted[index])
+  }
+  const goalRequest = (view: GoalView): ClientConnectionRequest => ({ id: 0, method: 'goal/read', params: { goal: view.goal.id } })
+  const runRequest = (run: Pick<FlowExecutionSummary, 'id'>): ClientConnectionRequest => ({ id: 0, method: 'flow/execution', params: { run: run.id } })
+  const connectionViews = async (scope: Subscription['scope']) => filterAllowed(await viewsInScope(options.host, scope), goalRequest)
+  const notificationAllowed = async (notification: WireNotification, selection: Subscription): Promise<boolean> => {
+    if (!policy) return true
+    // Scope and item authority are live host facts, including for a baseline
+    // collected before ownership changed. A remembered approval is no exemption.
+    if (!await allowed({ id: 0, method: 'client/subscribe', params: selection })) return false
+    if (!inScope(notification, await connectionViews(selection.scope), selection.scope)) return false
+    return notification.method !== 'flow/execution-changed' || await allowed(runRequest(notification.params.execution))
+  }
   const effectiveTiers = () => options.host.clientTiers().filter(tier => policy === undefined || policy.maximumTiers.includes(tier))
   const publishDiscovery = options.discovery !== false
   if (process.platform === 'win32') {
@@ -249,6 +269,10 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
           pendingSnapshots.delete(notification)
           if (consumedSnapshots.delete(notification)) return
           if (!hello || !topicsOf(notification).some(t => topics().has(t))) return
+          if (policy) {
+            if (await notificationAllowed(notification, subscription)) send(notification)
+            return
+          }
           const resolved = notification.method === 'event' && notification.params.event.type === 'approval/resolved'
           const key = approvalKey(notification)
           if ((resolved && key !== null && shownApprovals.has(key)) ||
@@ -319,12 +343,13 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             const collecting = proposal = { snapshots: [...pendingSnapshots] }
             const selectedTopics = topics(next)
             const viewsReadAt = collecting.snapshots.length
-            const views = await viewsInScope(options.host, next.scope)
+            const views = await connectionViews(next.scope)
             // A Team's newest Run stays part of that Team's state after it ends, as the window shows it,
             // so a Team scope also starts from that Run; otherwise only active Runs (or the named one) are read.
-            const runs = next.scope?.run ? await options.host.call('flow/executions', { active: false })
+            const availableRuns = next.scope?.run ? await options.host.call('flow/executions', { active: false })
               : next.scope?.team ? activeAndNewest(await options.host.call('flow/executions', { team: next.scope.team, active: false }))
               : await options.host.call('flow/executions', { active: true })
+            const runs = await filterAllowed(availableRuns, runRequest)
             const baseline = new Map<string, WireNotification>()
             const readAt = new Map<string, number>()
             const remember = (notification: WireNotification, sampledAt = viewsReadAt) => {
@@ -367,6 +392,14 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             if (selectedTopics.has('waiting')) for (const notification of options.host.pendingApprovalEvents()) {
               if (inScope(notification, views, next.scope)) approvals.push(notification)
             }
+            if (policy) {
+              for (const [key, notification] of baseline) {
+                if (!await notificationAllowed(notification, next)) baseline.delete(key)
+              }
+              for (let index = approvals.length - 1; index >= 0; index--) {
+                if (!await notificationAllowed(approvals[index]!, next)) approvals.splice(index, 1)
+              }
+            }
             for (const notification of consumed) consumedSnapshots.add(notification)
             subscription = next
             shownApprovals.clear()
@@ -376,7 +409,11 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             for (const notification of baseline.values()) send(notification)
             for (const notification of approvals) send(notification)
           } else {
-            const result = parsed.method === 'team/intent'
+            const result = parsed.method === 'goal/list'
+              ? await filterAllowed(await options.host.call('goal/list', parsed.params as HostParams<'goal/list'>), goalRequest)
+              : parsed.method === 'flow/executions'
+              ? await filterAllowed(await options.host.call('flow/executions', parsed.params as HostParams<'flow/executions'>), runRequest)
+              : parsed.method === 'team/intent'
               ? await options.host.clientIntent(parsed.params as HostParams<'team/intent'>, identity)
               : await options.host.call(parsed.method, parsed.params as never)
             send({ id, ok: true, result })
