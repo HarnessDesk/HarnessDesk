@@ -533,3 +533,21 @@ test('a finished run admits no rounds and a lower final report never lowers its 
   state = reduce(state, observe({ source: 'worker-samples', revision: 3, executionIds: ['run-1'], terminal: true, usdMicros: 22 }))
   assert.equal(projection(state).workerUsdMicros, 25)
 })
+
+
+test('write-off charges only uncertain requests once and survives checkpoint', async () => {
+  const storage = memory(), journal: any = await open(storage)
+  await journal.updateBudget(init); await journal.updateBudget(reserve('lost'))
+  const event = { version: 1, type: 'write-off', now: 100, requestId: 'lost' }
+  await assert.rejects(journal.updateBudget(event))
+  await journal.updateBudget({ ...event, type: 'uncertain' })
+  await journal.updateBudget(event)
+  const checkpoint = lead.parseLeadCheckpoint(lead.leadCheckpoint(journal.state, '0'.repeat(64))).state
+  assert.equal(projection(checkpoint.budget).leadUsdMicros, 70)
+  assert.equal(projection(checkpoint.budget).reservedUsdMicros, 0)
+  assert.equal(projection(checkpoint.budget).spend, 'known')
+  const restored: any = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return checkpoint } })
+  await restored.updateBudget(event)
+  assert.equal(restored.state.budget.leadUsdMicros, 70)
+  await assert.rejects(restored.updateBudget({ ...event, requestId: 'missing' }))
+})

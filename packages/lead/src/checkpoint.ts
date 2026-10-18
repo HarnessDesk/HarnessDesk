@@ -20,6 +20,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
   assert(Number.isSafeInteger(source.seq) && source.seq > 0 && source.seq === checkpoint.seq)
   assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'].includes(source.phase))
+  parseLeadJournalRecord({ version: 1, seq: 1, type: 'management', phase: 'waiting-for-user', reason: source.managementReason })
   const policy = source.policy === null ? null : parseLeadPermissionPolicy(source.policy)
   const contract = source.contract === null ? null : parseLeadAcceptanceContract(source.contract)
   const budget = source.budget === null ? null : parseLeadBudgetLedger(source.budget)

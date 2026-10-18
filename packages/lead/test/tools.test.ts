@@ -36,3 +36,10 @@ test('worker approvals have relay information and no answer tool or answerable c
   await tools.execute({ method: 'team/intent', params: { action: 'done' } }).catch(() => {})
   assert.equal(s.calls.length, 0)
 })
+
+
+test('arbitrary Flow source cannot even be previewed', async () => {
+  const s = await fixture(), tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await assert.rejects(tools.execute({ method: 'flow/preview', params: { root: project.path, source: 'arbitrary shell recipe', vars: {} } }))
+  assert.equal(s.calls.length, 0)
+})

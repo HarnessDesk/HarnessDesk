@@ -17,9 +17,9 @@ test('loop proposes a plan without starting before the authenticated approval', 
 })
 
 test('ordinary activity bursts cost at most one model request and gaps replace observations without restarting', async () => {
-  const s = await fixture([message(), message(), message()]), loop = exported('createLeadLoop')(s.options)
-  await s.approve(); await loop.request(input)
-  for (let i = 0; i < 20; i++) s.emit({ type: 'notice', team: null, text: 'Activity' })
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message()]), loop = exported('createLeadLoop')(s.options)
+  await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request(input)
+  for (let i = 0; i < 20; i++) s.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'running', flow: 'lead-reviewed-result', round: 1, reason: null })
   await s.drain(); await s.tick(); await loop.idle()
   assert.equal(s.fake.requests.length, 2)
   s.setReady(false); s.emit({ type: 'gap', reason: 'lost baseline' }); await s.drain()
@@ -29,7 +29,7 @@ test('ordinary activity bursts cost at most one model request and gaps replace o
   s.setSnapshot({ teams: [], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] })
   s.setReady(true); await loop.refresh()
   assert.equal(loop.state.synchronized, true)
-  assert.equal(s.calls.filter(c => c.method === 'flow/start-goal').length, 0)
+  assert.equal(s.calls.filter(c => c.method === 'flow/start-goal').length, 1)
   assert.equal(s.fake.requests.length, 2)
   await loop.close()
 })
@@ -53,7 +53,10 @@ test('replay converts a crash-mid-send reservation to uncertain without settling
   const s = await fixture()
   await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'lost-request', inputTokens: 100, maxOutputTokens: 100,
     inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 1_000_000, cacheWriteUsdMicrosPerMillion: 1_000_000 })
-  const recovered = await lead.createLeadJournal(s.storage)
+  const recovered: any = await lead.createLeadJournal(s.storage)
+  assert.equal(s.records.at(-1)!.type, 'budget')
+  assert.equal(recovered.state.budget!.requests[0]!.uncertain, false)
+  await recovered.recoverUnsettledRequests()
   assert.equal(recovered.state.budget!.requests[0]!.uncertain, true)
   assert.equal(recovered.state.budget!.reservedUsdMicros, 200)
   const count = s.records.length
@@ -73,14 +76,14 @@ test('worker approval events only relay and model result-card prose cannot manuf
   await loop.close()
 })
 
-test('a recovered paid reservation waits for the user with a static reason and sends nothing', async () => {
+test('a recovered paid reservation is written off automatically without a model call', async () => {
   const s = await fixture()
   await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'lost-request', inputTokens: 1, maxOutputTokens: 1,
     inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 1_000_000, cacheWriteUsdMicrosPerMillion: 1_000_000 })
   const recovered = await lead.createLeadJournal(s.storage), loop = exported('createLeadLoop')({ ...s.options, journal: recovered })
-  await loop.request(input)
-  assert.equal(loop.state.phase, 'waiting-for-user')
-  assert.equal(loop.state.reason, 'lead-budget-unknown')
+  await loop.start()
+  assert.equal(recovered.state.budget!.requests.length, 0)
+  assert.equal(recovered.state.budget!.leadUsdMicros, 2)
   assert.equal(s.fake.requests.length, 0)
   await loop.close()
 })
@@ -173,7 +176,10 @@ test('untrusted result proposals and worker-answer tools cannot create acceptanc
   await s.approve(); const loop = exported('createLeadLoop')(s.options); await loop.request(input)
   assert.equal(s.journal.state.cards.some(card => card.type === 'result'), false)
   assert.deepEqual(s.calls.map(call => call.method), ['client/subscribe'])
-  assert.equal(loop.state.phase, 'running')
+  assert.equal(loop.state.phase, 'waiting-for-user')
+  assert.equal(loop.state.reason, 'lead-tools-refused')
+  await s.tick(); await loop.idle()
+  assert.equal(s.fake.requests.length, 1)
   await loop.close()
 })
 
@@ -247,16 +253,21 @@ test('an ordinary event prevents an older in-flight evidence read from restoring
   await loop.close()
 })
 
-test('missing worker accounting cannot produce reviewed acceptance or another model call', async () => {
-  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
-  await s.approve(); s.setEvidence({ ...evidence(), spendComplete: true })
+test('missing worker accounting fences acceptance and calls, then automatically resumes when known', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message()])
+  await s.approve(); s.setEvidence({ ...evidence(), spendComplete: true, reviews: [] })
   const loop = exported('createLeadLoop')(s.options); await loop.request(input)
-  assert.equal(loop.state.phase, 'waiting-for-user')
+  assert.equal(loop.state.phase, 'running')
   assert.equal(loop.state.reason, 'lead-budget-unknown')
   assert.equal(loop.state.acceptance[0].result.status, 'unknown')
   assert.equal(s.journal.state.cards.some(card => card.type === 'result'), false)
   await s.tick(); await loop.idle()
   assert.equal(s.fake.requests.length, 1)
+  s.setEvidence({ ...spendEvidence(), reviews: [] })
+  s.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'running' })
+  await s.drain(); await s.tick(); await loop.idle()
+  assert.equal(loop.state.phase, 'running')
+  assert.equal(s.fake.requests.length, 2)
   await loop.close()
 })
 
@@ -275,4 +286,168 @@ test('unchanged notice batches do not exhaust result-card revisions', async () =
   assert.equal(s.journal.state.decidedCards.includes(`${last.id}:${last.revision}`), false)
   assert.equal(s.fake.requests.length, 1)
   await loop.close()
+})
+
+
+test('a gap during a request still settles usage and permits a later reviewed result', async () => {
+  let release!: (value: any) => void
+  const s = await fixture([() => new Promise(resolve => { release = resolve })])
+  await s.approve()
+  await exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true }).execute(startCall())
+  s.setEvidence({ ...spendEvidence(), reviews: [] })
+  const loop = exported('createLeadLoop')(s.options), request = loop.request(input)
+  for (let i = 0; i < 500 && !release; i++) await Promise.resolve()
+  assert.ok(release)
+  s.emit({ type: 'gap', reason: 'baseline replaced' }); await s.drain()
+  release(message()); const result = await request; await loop.idle()
+  assert.equal(result.status, 'completed')
+  assert.equal(s.journal.state.budget!.requests.length, 0)
+  s.setEvidence(spendEvidence()); await loop.refresh()
+  assert.equal(loop.state.acceptance[0].result.status, 'reviewed')
+  assert.ok(s.journal.state.cards.some(card => card.type === 'result'))
+  await loop.close()
+})
+
+test('crash or close mid-send writes off once and still permits reviewed person acceptance', async () => {
+  for (const variant of ['crash', 'close']) {
+    let sent = false
+    const s = await fixture([() => { sent = true; return new Promise(() => {}) }])
+    await s.approve()
+    await exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true }).execute(startCall())
+    s.setEvidence({ ...spendEvidence(), reviews: [] })
+    let recovered: any
+    if (variant === 'crash') {
+      await s.journal.updateBudget(spendEvidence().spend as any)
+      await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'lost', inputTokens: 100, maxOutputTokens: 100,
+        inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 1_000_000, cacheWriteUsdMicrosPerMillion: 1_000_000 })
+      recovered = await lead.createLeadJournal(s.storage)
+    } else {
+      const old = exported('createLeadLoop')(s.options), pending = old.request(input)
+      for (let i = 0; i < 500 && !sent; i++) await Promise.resolve()
+      assert.ok(sent); await old.close(); await pending
+      recovered = await lead.createLeadJournal(s.storage)
+    }
+    const loop = exported('createLeadLoop')({ ...s.options, journal: recovered })
+    s.setEvidence(spendEvidence()); await loop.start(); await loop.refresh()
+    assert.equal(recovered.state.budget.leadUsdMicros, 200)
+    assert.equal(recovered.state.budget.reservedUsdMicros, 0)
+    assert.equal(s.records.filter((record: any) => record.type === 'budget' && record.event.type === 'write-off').length, 1)
+    const card = recovered.state.cards.find((card: any) => card.type === 'result')!
+    assert.ok(card)
+    await recovered.decideCard({ version: 1, cardId: card.id, cardType: 'result', expectedRevision: card.revision, contractDigest: contract.digest, choice: 'accept' })
+    assert.equal(recovered.state.phase, 'accepted')
+    await loop.close()
+  }
+})
+
+test('unchanged relevant events preserve one live result at its original revision', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  const first = s.journal.state.cards.find(card => card.type === 'result')!
+  for (let i = 0; i < 40; i++) {
+    s.emit({ type: 'seat.changed', team: 'team-1', seat: 'seat-1' })
+    await s.drain(); await s.tick(); await loop.idle()
+  }
+  const live = s.journal.state.cards.filter(card => card.type === 'result' && !s.journal.state.decidedCards.includes(`${card.id}:${card.revision}`))
+  assert.equal(loop.state.synchronized, true)
+  assert.equal(live.length, 1); assert.equal(live[0]!.revision, first.revision)
+  await loop.close()
+})
+
+test('notices and seat/team changes refresh observations without waking the model', async () => {
+  const s = await fixture([message(), message(), message(), message()])
+  await s.approve()
+  await exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true }).execute(startCall())
+  s.setEvidence({ ...spendEvidence(), reviews: [] })
+  let refreshes = 0
+  const synced = s.options.desk.synced
+  s.options.desk.synced = async () => { refreshes++; await synced() }
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  for (const event of [{ type: 'notice', team: null, text: 'Unrelated prose' }, { type: 'notice', team: 'team-1', text: 'Prose' },
+    { type: 'seat.changed', team: 'team-1', seat: 'seat-1' }, { type: 'team.changed', team: 'team-1' }]) {
+    const before = refreshes
+    s.emit(event); await s.drain(); await s.tick(); await loop.idle()
+    assert.ok(refreshes > before, event.type + ' refreshes observations')
+    assert.equal(s.fake.requests.length, 1, event.type)
+  }
+  await loop.close()
+})
+
+test('background journal failures never produce an unhandled rejection', async () => {
+  const { spawnSync } = await import('node:child_process')
+  const fixtureUrl = new URL('./fixtures/loop.js', import.meta.url).href
+  const leadUrl = new URL('../src/index.js', import.meta.url).href
+  const program = `
+    import { fixture, input, contract, evidence } from ${JSON.stringify(fixtureUrl)};
+    import { createLeadLoop, createLeadTools, leadReviewedResultSource } from ${JSON.stringify(leadUrl)};
+    let unhandled = 0; process.on('unhandledRejection', () => { unhandled++ });
+    for (const variant of ['gap', 'batch']) {
+      const s = await fixture(); await s.approve();
+      await createLeadTools({ ...s.options, now: s.options.clock.now, synchronized: () => true }).execute({ method: 'flow/start-goal', params: {
+        root: contract.project.path, source: leadReviewedResultSource, token: 'preview-1', sentence: contract.goal, vars: {}, attended: true,
+        seats: { implement: [contract.steps[0].assignments[0].seat], review: [contract.steps[0].assignments[1].seat] } } });
+      s.setEvidence({ ...evidence(), spend: { version: 1, type: 'observe', now: 100, at: 100, revision: 1, source: 'worker-samples',
+        sourceIds: ['sample-1'], goalId: 'team-1', executionIds: ['run-1'], quality: 'known', usdMicros: 1 } });
+      const loop = createLeadLoop(s.options); await loop.request(input);
+      let invalidations = 0;
+      s.journal.invalidateResults = async () => { if (++invalidations > 1) throw Error('writer fault') };
+      s.journal.setManagementPhase = async () => { throw Error('writer latched') };
+      s.options.desk.synced = async () => { throw Error('observations unavailable') };
+      s.emit(variant === 'gap' ? { type: 'gap', reason: 'replace' } : { type: 'card.changed', team: 'team-1', card: 'card-1' });
+      await new Promise(resolve => setImmediate(resolve)); await s.tick(); await loop.idle(); await new Promise(resolve => setImmediate(resolve)); await loop.close();
+    }
+    if (unhandled) { console.error('unhandled:', unhandled); process.exitCode = 1 }
+  `
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', program], { encoding: 'utf8' })
+  assert.equal(child.status, 0, child.stderr)
+})
+
+
+test('journal opens read-only until owner explicitly recovers paid requests', async () => {
+  const s = await fixture()
+  await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'lost', inputTokens: 1, maxOutputTokens: 1,
+    inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 1_000_000, cacheWriteUsdMicrosPerMillion: 1_000_000 })
+  const count = s.records.length
+  const journal: any = await lead.createLeadJournal({ read: s.storage.read, async append() { throw Error('read-only') } })
+  assert.equal(journal.state.budget.requests[0].uncertain, false)
+  assert.equal(s.records.length, count)
+  await assert.rejects(journal.recoverUnsettledRequests())
+})
+
+test('request failure reason survives reopen/checkpoint and guarded resume is durable', async () => {
+  const s = await fixture([{ status: 401, processing: 'not-started', body: '' }, message()])
+  await s.approve()
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input); await loop.close()
+  const checkpoint = lead.parseLeadCheckpoint(lead.leadCheckpoint(s.journal.state, '0'.repeat(64))).state
+  const recovered: any = await lead.createLeadJournal(s.storage)
+  const next = exported('createLeadLoop')({ ...s.options, journal: recovered })
+  assert.equal(next.state.reason, 'lead-request-failed')
+  assert.equal((checkpoint as any).managementReason, 'lead-request-failed')
+  await recovered.resume()
+  assert.equal(recovered.state.phase, 'running')
+  assert.equal(recovered.state.managementReason, null)
+  await next.request(input); assert.equal(s.fake.requests.length, 2)
+  await assert.rejects(recovered.resume())
+  await recovered.stop(); await assert.rejects(recovered.resume())
+  await next.close()
+})
+
+test('resume refuses terminal phases budget stops and pending plans', async () => {
+  for (const variant of ['draft', 'accepted', 'declined', 'stopped', 'budget', 'plan']) {
+    const s = await fixture()
+    const journal: any = s.journal
+    assert.equal(typeof journal.resume, 'function')
+    if (variant === 'budget') await journal.updateBudget({ version: 1, type: 'stop', now: 100, reason: 'budget' })
+    else if (variant === 'plan' || variant === 'declined') {
+      await journal.offerCard({ version: 1, id: 'pending', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+      if (variant === 'declined') await journal.decideCard({ version: 1, cardId: 'pending', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'decline' })
+      else await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+    } else if (variant === 'accepted') {
+      await s.approve()
+      await journal.offerCard({ version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Reviewed', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget, 100) })
+      await journal.decideCard({ version: 1, cardId: 'result', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' })
+    } else if (variant === 'stopped') await journal.stop()
+    await assert.rejects(journal.resume(), variant)
+  }
 })

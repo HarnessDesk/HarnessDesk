@@ -19,8 +19,9 @@ export interface LeadArgumentSummary {
 interface Base { readonly version: 1; readonly seq: number }
 export type LeadAttemptOutcome = 'succeeded' | 'failed' | 'denied' | 'asked' | 'malformed' | 'uncertain' | 'interrupted'
 export type LeadJournalEvent =
-  | { readonly type: 'management'; readonly phase: 'planning' | 'waiting-for-user' }
-  | { readonly type: 'invalidate-results' }
+  | { readonly type: 'management'; readonly phase: 'planning' | 'waiting-for-user'; readonly reason?: string | null }
+  | { readonly type: 'invalidate-results' | 'resume' }
+  | { readonly type: 'restore-result'; readonly id: string; readonly revision: number }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
@@ -115,7 +116,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    management: ['phase'], 'invalidate-results': [], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
+    management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
@@ -124,8 +125,9 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   object(source, ['version', 'seq', 'type', ...keys[type]!])
   let event: LeadJournalEvent
   switch (type) {
-    case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']) }; break
-    case 'invalidate-results': event = { type }; break
+    case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']), ...(Object.hasOwn(source, 'reason') ? { reason: source.reason === null ? null : choice(source.reason, LEAD_MANAGEMENT_REASONS) } : {}) }; break
+    case 'invalidate-results': case 'resume': event = { type }; break
+    case 'restore-result': event = { type, id: identifier(source.id), revision: integer(source.revision, 1) }; break
     case 'start-resolution': {
       const identity = nullable(source.identity, parseLeadRunIdentity), goalId = nullable(source.goalId, identifier)
       if ((identity === null) !== (goalId === null)) throw new Error('lead-journal-start-resolution')
@@ -188,6 +190,11 @@ export type LeadDispatch = (call: LeadPermissionCall, correlationId: string) => 
 export interface LeadRecoveryAction { readonly id: string; readonly type: 'retry-read' | 'reconciled' | 'needs-user' | 'not-dispatched'; readonly count?: number }
 const refusal = (floor: 'start' | 'invalid-input', reason: string): LeadPermissionDecision => ({ effect: 'deny', floor, reason, rule: null, call: null })
 
+export const LEAD_MANAGEMENT_REASONS = [
+  'lead-result-awaiting-person', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
+  'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
+] as const
+
 /** One serialized management writer. All effects use injected ports; this module owns
  * no files, processes, network, clock or ID generator. IDs come from its trusted owner. */
 export class LeadJournal {
@@ -233,7 +240,14 @@ export class LeadJournal {
     catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
     this.#state = next
   }
-  setManagementPhase(phase: 'planning' | 'waiting-for-user'): Promise<void> { return this.#queue(() => this.#append({ type: 'management', phase })) }
+  setManagementPhase(phase: 'planning' | 'waiting-for-user', reason: string | null = null): Promise<void> { return this.#queue(() => this.#append({ type: 'management', phase, reason })) }
+  resume(): Promise<void> { return this.#queue(() => this.#append({ type: 'resume' })) }
+  restoreResult(id: string, revision: number): Promise<void> { return this.#queue(() => this.#append({ type: 'restore-result', id, revision })) }
+  /** Call only after acquiring exclusive ownership, before sending any requests. */
+  recoverUnsettledRequests(): Promise<void> { return this.#queue(async () => {
+    for (const request of this.#state.budget?.requests ?? []) if (!request.uncertain)
+      await this.#append({ type: 'budget', event: { version: 1, type: 'uncertain', now: this.#state.budget!.now, requestId: request.reservation.requestId } })
+  }) }
   invalidateResults(): Promise<void> { return this.#queue(() => this.#append({ type: 'invalidate-results' })) }
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
   offerCard(card: LeadCard): Promise<LeadCard> { return this.#queue(async () => { await this.#append({ type: 'card', card }); return structuredClone(this.#state.cards.at(-1)!) }) }
@@ -465,10 +479,5 @@ export class LeadJournal {
   }
 }
 export const createLeadJournal = async (storage: LeadJournalStorage, security: LeadJournalSecurity = {}): Promise<LeadJournal> => {
-  const journal = new LeadJournal(storage, await storage.read(), security, storage.checkpoint?.() ?? null)
-  // Once ownership is recovered, a durable reserve without a settle is possibly
-  // billed. Keep its full reservation; never resend or zero-settle it on replay.
-  for (const request of journal.state.budget?.requests ?? []) if (!request.uncertain)
-    await journal.updateBudget({ version: 1, type: 'uncertain', now: journal.state.budget!.now, requestId: request.reservation.requestId })
-  return journal
+  return new LeadJournal(storage, await storage.read(), security, storage.checkpoint?.() ?? null)
 }

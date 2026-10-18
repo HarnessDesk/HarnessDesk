@@ -320,6 +320,13 @@ test('normal state admission reserves space for plan approval Stop and status re
   // Approval duplicates the active contract into reduced state. That reserved growth
   // must not make terminal writes or the final status report fail validation.
   await journal.decideCard({ version: 1, cardId: last, cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, 200)
+  const reserveChecks = ['management', 'invalidate-results'].map(type => {
+    try { disk.prepare({ version: 1, seq: journal.state.seq + 1, type, ...(type === 'management' ? { phase: 'waiting-for-user' } : {}) }); return null }
+    catch (error) { return String(error) }
+  })
+  assert.deepEqual(reserveChecks, [null, null])
+  await (journal as any).setManagementPhase('waiting-for-user', 'lead-request-failed')
+  await journal.invalidateResults()
   await journal.stop()
   assert.equal((await journal.execute({ id: 'status-1', request: { method: 'library/usage', params: {}, project: null, runId: null, start: null },
     context: { desk: policy, projectPolicy: null, project: null, approved: null, budget: null, now: 0, policyInterpretation: 'idle' } },

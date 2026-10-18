@@ -65,8 +65,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     return next
   }
   const waitForUser = async (code: string) => {
-    reason = code
-    if (!terminal(journal.state.phase)) await journal.setManagementPhase('waiting-for-user')
+    if (!terminal(journal.state.phase)) await journal.setManagementPhase('waiting-for-user', code)
+    else reason = code
   }
   const read = async (call: LeadPermissionCall): Promise<unknown> => {
     if (clientTierFor(call.method, call.params) !== 'read') throw new Error('lead-observation-read-only')
@@ -77,8 +77,11 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   const invalidate = async () => {
     if (lastResultSignature !== null || journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`)))
       await journal.invalidateResults()
-    lastResultSignature = null
     acceptance = []
+  }
+  const writeOffUncertain = async () => {
+    for (const request of journal.state.budget?.requests ?? []) if (request.uncertain)
+      await journal.updateBudget({ version: 1, type: 'write-off', now: clock.now(), requestId: request.reservation.requestId })
   }
   const refresh = async (): Promise<void> => {
     if (closed) return
@@ -90,6 +93,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       if (generation !== expected || closed) return
       snapshot = next
       await tools.settleStarts()
+      await writeOffUncertain()
       const state = journal.state, contract = state.contract
       relays = (next.waiting ?? []).filter(item => item.kind === 'approval' && item.team !== null && state.teams.includes(item.team)).map(leadWorkerApprovalRelay)
       const evaluated: typeof acceptance = []
@@ -99,6 +103,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         if (closed || generation !== expected) return
         if (!contract || facts.runId !== run.runId || facts.contractDigest !== contract.digest ||
           facts.project.id !== project.id || facts.project.path !== project.path) throw new Error('lead-evidence-scope')
+        // Step 8 runs stop effects when observed worker spend crosses a cap.
         if (facts.spend) await journal.updateBudget(facts.spend)
         const accounting = journal.state.budget && leadBudgetProjection(journal.state.budget!, clock.now())
         evaluated.push({ runId: run.runId, result: evaluateLeadAcceptance(contract, { ...facts,
@@ -126,11 +131,18 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           await journal.offerCard({ version: 1, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1,
             type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Fresh checks and review are ready for your decision.', assertions, budget: budget! })
           if (closed || generation !== expected) { await invalidate(); return }
+        } else {
+          const card = journal.state.cards.find(card => card.id === `result-${contract.revision}`)!
+          if (journal.state.decidedCards.includes(`${card.id}:${card.revision}`)) {
+            await journal.restoreResult(card.id, card.revision)
+            if (closed || generation !== expected) { await invalidate(); return }
+          }
         }
         await waitForUser('lead-result-awaiting-person')
       }
       acceptance = evaluated
-      if (!terminal(journal.state.phase) && budget && budget.spend !== 'known') await waitForUser('lead-budget-unknown')
+      if (!terminal(journal.state.phase) && budget && budget.spend !== 'known') reason = 'lead-budget-unknown'
+      else if (reason === 'lead-budget-unknown') reason = null
       if (generation === expected && !closed) {
         synchronized = true
         if (['lead-connection-gap', 'lead-observations-unavailable'].includes(reason ?? '')) reason = null
@@ -145,13 +157,14 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     const state = journal.state, budget = state.budget && leadBudgetProjection(state.budget, clock.now())
     if (terminal(state.phase)) { reason ??= state.budget?.stop ? 'lead-budget-stopped' : 'lead-terminal'; return true }
     if (state.phase === 'waiting-for-user' || state.recoveryBlocked || !synchronized || closed) return true
-    if (!budget || budget.stop || budget.spend !== 'known' || state.budget!.requests.length) return true
+    if (!budget || budget.stop || budget.spend !== 'known' || state.budget!.requests.length) {
+      if (budget?.spend !== 'known') reason = 'lead-budget-unknown'
+      return true
+    }
+    if (reason === 'lead-budget-unknown') reason = null
     return false
   }
   const step = async (input: LeadMessagesRequest, signal?: AbortSignal): Promise<LeadMessagesResult | null> => {
-    const budget = journal.state.budget
-    if (!terminal(journal.state.phase) && budget && leadBudgetProjection(budget, clock.now()).spend !== 'known')
-      await waitForUser('lead-budget-unknown')
     if (blocked()) return null
     if (journal.state.phase === 'draft') await journal.setManagementPhase('planning')
     active = new AbortController()
@@ -165,6 +178,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     history = result.messages ?? history
     requestTemplate = input
     if (!['completed'].includes(result.status)) {
+      await writeOffUncertain()
       await waitForUser(`lead-request-${result.status}`)
       return result
     }
@@ -183,6 +197,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // Model-proposed result/waiting cards are summaries only. The loop constructs
     // actionable cards from fresh reads, and never offers a worker approval card.
     await refresh()
+    if (result.toolResults?.length && result.toolResults.every(tool => tool.is_error && tool.content === 'Tool refused')) {
+      await waitForUser('lead-tools-refused')
+      return result
+    }
     if (result.toolResults?.length && !result.proposals?.plan && !blocked()) {
       continuationPending = true
       schedule(false)
@@ -195,29 +213,29 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     cancelBatch = clock.schedule(() => {
       cancelBatch = null
       void queue(async () => {
-        if ((!dirty && !continuationPending) || closed) return
-        const activity = dirty
+        if (closed) return
+        const activity = dirty, continueTools = continuationPending
         dirty = false; continuationPending = false
         await refresh()
-        if (blocked() || journal.state.phase === 'awaiting-plan' || !history || !requestTemplate) return
+        if ((!activity && !continueTools) || blocked() || journal.state.phase === 'awaiting-plan' || !history || !requestTemplate) return
         const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: 'Desk activity changed. Inspect fresh desk observations before acting.' }] }
         await step({ ...requestTemplate!, messages: [...history!, ...(activity ? [observation] : [])] })
-      }).catch(async () => { await waitForUser('lead-activity-failed') })
+      }).catch(async () => { await waitForUser('lead-activity-failed') }).catch(() => {})
     })
   }
   const observe = async () => {
     try {
       while (!closed && iterator) {
         const item = await iterator.next()
-        if (item.done) { if (!closed) { synchronized = false; generation++; active?.abort(); await invalidate(); reason = 'lead-connection-ended' }; return }
+        if (item.done) { if (!closed) { synchronized = false; generation++; await invalidate(); reason = 'lead-connection-ended' }; return }
         const event = item.value
         if (event.type === 'gap' || event.type === 'end') {
-          synchronized = false; generation++; active?.abort(); snapshot = null; relays = []
+          synchronized = false; generation++; snapshot = null; relays = []
           cancelBatch?.(); cancelBatch = null; dirty = false; continuationPending = false
           // Fence immediately, then invalidate durable cards through the writer.
           await invalidate(); reason = event.type === 'gap' ? 'lead-connection-gap' : 'lead-connection-ended'
           if (event.type === 'end') return
-          void queue(refresh)
+          void queue(refresh).catch(() => {})
         } else {
           const state = journal.state
           if ('run' in event && !state.runs.some(run => run.runId === event.run)) continue
@@ -229,25 +247,28 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
             // A person can click while observations coalesce: invalidate first.
             await invalidate()
           }
-          schedule()
+          const wakesModel = ['run.changed', 'card.changed', 'review.changed', 'waiting'].includes(event.type) &&
+            (('run' in event && state.runs.some(run => run.runId === event.run)) || ('team' in event && event.team !== null && state.teams.includes(event.team)))
+          schedule(wakesModel)
         }
       }
-    } catch { synchronized = false; generation++; active?.abort(); reason = 'lead-connection-ended'; await invalidate() }
+    } catch { synchronized = false; generation++; reason = 'lead-connection-ended'; await invalidate() }
   }
   let started = false
   const start = async () => {
     if (started || closed) return
     started = true
     iterator = desk.events()[Symbol.asyncIterator]()
-    pump = observe()
+    pump = observe().catch(() => {})
     try {
+      await journal.recoverUnsettledRequests()
       const subscribed = await tools.execute({ method: 'client/subscribe', params: { topics: LEAD_TOPICS, scope: { project: project.path } } })
       if (subscribed.outcome !== 'succeeded') throw new Error('lead-subscription-refused')
       await refresh()
     } catch { synchronized = false; await waitForUser('lead-subscription-failed') }
   }
   return {
-    get state(): LeadLoopState { return structuredClone({ phase: journal.state.phase, reason, synchronized, snapshot, relays, acceptance }) },
+    get state(): LeadLoopState { return structuredClone({ phase: journal.state.phase, reason: journal.state.phase === 'waiting-for-user' ? journal.state.managementReason ?? reason : reason, synchronized, snapshot, relays, acceptance }) },
     start: () => queue(start),
     request: (input: LeadMessagesRequest, signal?: AbortSignal) => queue(async () => { await start(); return step(input, signal) }),
     refresh: () => queue(async () => { await start(); await refresh() }),

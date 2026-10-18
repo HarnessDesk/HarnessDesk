@@ -136,16 +136,17 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
       ensure(state.leadUsdMicros + state.workerUsdMicros + state.reservedUsdMicros + charge(event, null) <= state.caps.usdMicros)
       next = { ...next, requests: [...state.requests, request] }; break
     }
-    case 'settle': case 'uncertain': {
+    case 'settle': case 'uncertain': case 'write-off': {
       const settled = state.settled.find(item => item.id === event.requestId)
-      if (settled) { ensure(event.type === 'settle' && settled.digest === usageDigest(event)); return duplicate() }
+      if (settled) { ensure(event.type === 'write-off' ? settled.digest === 'write-off' : event.type === 'settle' && settled.digest === usageDigest(event)); return duplicate() }
       const request = state.requests.find(request => request.reservation.requestId === event.requestId)
       ensure(request)
-      if (event.type === 'settle') {
-        const actual = charge(request!.reservation, event)
+      if (event.type === 'settle' || event.type === 'write-off') {
+        ensure(event.type !== 'write-off' || request!.uncertain)
+        const actual = charge(request!.reservation, event.type === 'settle' ? event : null)
         next = { ...next, requests: state.requests.filter(item => item !== request),
           spendOverflow: state.spendOverflow || actual > LEAD_LIMITS.maxUsdMicros,
-          settled: [...state.settled, { id: event.requestId, digest: usageDigest(event), usdMicros: Math.min(LEAD_LIMITS.maxUsdMicros, actual) }] }
+          settled: [...state.settled, { id: event.requestId, digest: event.type === 'write-off' ? 'write-off' : usageDigest(event), usdMicros: Math.min(LEAD_LIMITS.maxUsdMicros, actual) }] }
       } else {
         if (request!.uncertain) return duplicate()
         next = { ...next, requests: state.requests.map(item => item === request ? { ...item, uncertain: true } : item) }
@@ -232,7 +233,7 @@ export const parseLeadBudgetLedger = (value: unknown): LeadBudgetLedger => {
   for (const item of source.settled) {
     ensure(item && Object.keys(item).sort().join() === ['id', 'digest', 'usdMicros'].sort().join())
     parseLeadBudgetEvent({ version: 1, type: 'uncertain', now: source.now, requestId: item.id })
-    ensure(!ids.has(item.id) && typeof item.digest === 'string' && /^(?:[0-9a-z]{1,6}\.){3}[0-9a-z]{1,6}$/.test(item.digest))
+    ensure(!ids.has(item.id) && typeof item.digest === 'string' && (item.digest === 'write-off' || /^(?:[0-9a-z]{1,6}\.){3}[0-9a-z]{1,6}$/.test(item.digest)))
     ensure(Number.isSafeInteger(item.usdMicros) && item.usdMicros >= 0 && item.usdMicros <= LEAD_LIMITS.maxUsdMicros)
     ids.add(item.id)
   }

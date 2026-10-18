@@ -18,6 +18,7 @@ export interface LeadState {
   /** Journal sequence of the latched stop whose idempotent cancellation effects need acknowledgement. */
   readonly stopEffectsPending: number | null
   readonly seq: number
+  readonly managementReason: string | null
   readonly phase: 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'accepted' | 'declined' | 'stopped'
   readonly policy: LeadPermissionPolicy | null
   readonly contract: LeadAcceptanceContract | null
@@ -31,7 +32,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ seq: 0, phase: 'draft', policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
+export const initialLeadState = (): LeadState => ({ seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
   cards: [], decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardRevisions: {}, runs: [], teams: [] })
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-transition') }
 const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.revision}`
@@ -79,7 +80,15 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'management':
       ensure(!['stopped', 'accepted', 'declined'].includes(state.phase))
       if (event.phase === 'planning') ensure(state.contract === null && ['draft', 'planning'].includes(state.phase))
-      state = { ...state, phase: event.phase }; break
+      state = { ...state, phase: event.phase, managementReason: event.reason ?? null }; break
+    case 'resume':
+      ensure(state.phase === 'waiting-for-user' && !state.budget?.stop && !hasPendingLeadPlan(state))
+      state = { ...state, phase: 'running', managementReason: null }; break
+    case 'restore-result': {
+      const card = state.cards.find(card => card.id === event.id && card.revision === event.revision && card.type === 'result')
+      ensure(card && card.contractDigest === state.contract?.digest && !['stopped', 'accepted', 'declined'].includes(state.phase))
+      state = { ...state, decidedCards: state.decidedCards.filter(key => key !== cardKey(card!)) }; break
+    }
     case 'invalidate-results':
       state = { ...state, decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'result').map(cardKey)])] }; break
 

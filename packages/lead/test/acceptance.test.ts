@@ -14,3 +14,11 @@ test('acceptance refuses stale or incompatible evidence, missing checks, reviews
     assert.notEqual(evaluate(contract, { ...fresh, ...patch }, { now: 100, freshnessMs: 50, revision: 1 }).status, 'reviewed', JSON.stringify(patch))
   }
 })
+
+
+test('omitting any mandatory acceptance gate cannot produce reviewed acceptance', () => {
+  for (const kind of ['check', 'review', 'blocking-findings']) {
+    const proposal = { ...contract, assertions: contract.assertions.filter(assertion => assertion.kind !== kind) }
+    assert.equal(exported('evaluateLeadAcceptance')(proposal, evidence(), { now: 100, freshnessMs: 50, revision: 1 }).status, 'unknown', kind)
+  }
+})

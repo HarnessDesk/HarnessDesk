@@ -121,6 +121,8 @@ export type LeadBudgetEvent = { readonly version: 1; readonly now: number } & (
   | { readonly type: 'settle'; readonly requestId: string; readonly inputTokens: number; readonly outputTokens: number;
       readonly cacheReadTokens?: number; readonly cacheWriteTokens?: number }
   | { readonly type: 'uncertain'; readonly requestId: string }
+  /** Conservatively settle a possibly billed request at its full reservation. */
+  | { readonly type: 'write-off'; readonly requestId: string }
   | { readonly type: 'observe'; readonly at: number; readonly revision: number; readonly source: 'insight/goal' | 'worker-samples';
       readonly sourceIds: readonly string[]; readonly goalId: string; readonly executionIds: readonly string[];
       readonly quality: LeadBudgetState['spend']; readonly usdMicros: number | null; readonly terminal?: boolean }
@@ -374,6 +376,7 @@ const budgetEvent = tag<LeadBudgetEvent>({
     maxOutputTokens: tokenCount, inputUsdMicrosPerMillion: micros, outputUsdMicrosPerMillion: micros,
     cacheReadUsdMicrosPerMillion: micros, cacheWriteUsdMicrosPerMillion: micros }),
   settle: object<BudgetOf<'settle'>>({ ...budgetBase, type: literalUnion('settle'), requestId: id, inputTokens: tokenCount, outputTokens: tokenCount, cacheReadTokens: optional(tokenCount), cacheWriteTokens: optional(tokenCount) }),
+  'write-off': object<BudgetOf<'write-off'>>({ ...budgetBase, type: literalUnion('write-off'), requestId: id }),
   uncertain: object<BudgetOf<'uncertain'>>({ ...budgetBase, type: literalUnion('uncertain'), requestId: id }),
   observe: object<BudgetOf<'observe'>>({ ...budgetBase, type: literalUnion('observe'), at: integer(), revision, source: literalUnion('insight/goal', 'worker-samples'),
     sourceIds: list(id, 128, 0, item => item), goalId: id, executionIds: list(id, LEAD_LIMITS.rounds, 0, item => item),
