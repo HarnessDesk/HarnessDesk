@@ -2998,7 +2998,8 @@ test('reachability recognizes the typed client call first literal argument', () 
 
 /**
  * The test files that run in invocations of their own: the server's (#1000,
- * #1003), the command line's end-to-end file (#1289), and retention (#1648).
+ * #1003), the command line's end-to-end file (#1289), retention (#1648),
+ * and the server's Lead end-to-end file.
  * Each names its package, its glob, and its step in the gate and in CI.
  */
 const CARVED_OUT = [
@@ -3006,6 +3007,7 @@ const CARVED_OUT = [
   { pkg: 'server', name: 'intake-*.test.js', step: 'intake tests', ciStep: 'Intake tests' },
   { pkg: 'cli', name: 'e2e*.test.js', step: 'cli e2e tests', ciStep: 'CLI end-to-end tests' },
   { pkg: 'server', name: 'host-retention.test.js', step: 'host-retention tests', ciStep: 'Host retention tests', timeout: 120000, job: 'node-tests' },
+  { pkg: 'server', name: 'lead-e2e.test.js', step: 'lead e2e tests', ciStep: 'Lead end-to-end tests' },
 ]
 const carvedOutPaths = (top, dist, tests) => CARVED_OUT.map((one) => `${top}/${one.pkg}/${dist}/${tests}/${one.name}`)
 

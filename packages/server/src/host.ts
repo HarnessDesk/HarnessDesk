@@ -724,6 +724,7 @@ export class Host {
   readonly #lanes: LaneAllocator
   #leadService: LeadService | null = null
   #leadControls: LeadControls | null = null
+  #leadOwnsWorker: ((runtime: string, sessionId: string) => boolean) | null = null
   #leadListenersAvailable = true
   #leadReady = false
   readonly #credentials: CredentialBroker
@@ -3379,14 +3380,18 @@ export class Host {
         if (results.some(result => result.status === 'rejected')) throw new Error('lead-owned-work-stop-pending')
       },
     })
+    const ownedWorker = (runtime: string, sessionId: string) => {
+      const seat = this.#evidence.seats.all().find(seat => seat.session.runtime === runtime && seat.session.sessionId === sessionId && !seat.closed)
+      return seat && journal.state.runs.find(run => run.teamId === seat.board)
+    }
+    this.#leadOwnsWorker = (runtime, sessionId) => !!ownedWorker(runtime, sessionId)
     this.#leadControls = new LeadControls({ journal, service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
       readWorkerApprovals: () => {
         const contract = journal.state.contract
         if (!contract) return []
         return this.registry.all().flatMap(record => {
-          const seat = this.#evidence.seats.all().find(seat => seat.session.runtime === record.runtime && seat.session.sessionId === record.session.id && !seat.closed)
-          const owned = seat && journal.state.runs.find(run => run.teamId === seat.board)
+          const owned = ownedWorker(String(record.runtime), String(record.session.id))
           if (!owned) return []
           return [...record.approvals.values()].map(approval => ({ version: 1 as const,
             id: `worker-${createHash('sha256').update(`${record.runtime}:${record.session.id}:${approval.id}`).digest('hex')}`,
@@ -8892,7 +8897,10 @@ export class Host {
     if (!this.#disposed) this.#intake?.noticed(notification)
     if (!this.#disposed && notification.method === 'event' &&
       (notification.params.event.type === 'approval/requested' || notification.params.event.type === 'approval/resolved')) {
-      void this.#leadControls?.workerApprovalsChanged().catch(() => { this.#logger.warn('Lead worker approval projection is unavailable') })
+      const { runtime, event } = notification.params
+      const sessionId = event.type === 'approval/requested' ? event.approval.sessionId : event.sessionId
+      if (this.#leadOwnsWorker?.(String(runtime), String(sessionId)))
+        void this.#leadControls?.workerApprovalsChanged().catch(() => { this.#logger.warn('Lead worker approval projection is unavailable') })
     }
     if (!this.#disposed && notification.method === 'evidence/changed' && this.#team.hasRoom(notification.params.room)) {
       this.#provenance.evidenceChanged(this.#team.stateFor(notification.params.room).root)

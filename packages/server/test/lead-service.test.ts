@@ -209,10 +209,13 @@ test('host provider-send attaches a transient key and returns only bounded, reda
   for (const escaped of [false, true]) {
     body = JSON.stringify({ type: 'message', usage: { input_tokens: 1, output_tokens: 1 }, error: key })
     if (escaped) body = body.replace('test', '\\u0074est')
-    await assert.rejects(s.options().providerSend(requestId, requestBody, signal), /lead-provider-failed/)
+    const redactionId = `provider-redaction-${escaped ? 'escaped' : 'literal'}`
+    await providerReserve(s.journal, redactionId, requestBody)
+    await assert.rejects(s.options().providerSend(redactionId, requestBody, signal), /lead-provider-failed/)
   }
   body = 'x'.repeat(1_048_577)
-  await assert.rejects(s.options().providerSend(requestId, requestBody, signal), /lead-provider-failed/)
+  await providerReserve(s.journal, 'provider-oversized', requestBody)
+  await assert.rejects(s.options().providerSend('provider-oversized', requestBody, signal), /lead-provider-failed/)
   await s.service.deleteKey('anthropic')
   await assert.rejects(s.options().providerSend(requestId, requestBody, signal))
   assert.equal(requests.length, 4)
@@ -483,7 +486,10 @@ for (const mode of ['unknown', 'throw', 'malformed usage', 'in-flight', 'unknown
     const sending = s.rpc('unproven', providerBody()).catch(() => {})
     if (mode === 'in-flight') await providerUntil(() => calls === 1)
     else await sending
-    if (mode === 'unknown then success') await s.rpc('unproven', providerBody())
+    if (mode === 'unknown then success') {
+      await assert.rejects(s.rpc('unproven', providerBody()), /synthetic provider refusal/)
+      assert.equal(calls, 1, 'a successful retry cannot erase the unknown first bill')
+    }
     const before = s.replies.length
     void s.journalRpc('updateBudget', [{ version: 1, type: 'settle', now: 100, requestId: 'unproven', inputTokens: 0, outputTokens: 0 }])
     await providerUntil(() => s.killed() || s.replies.length > before)
@@ -786,4 +792,21 @@ test('child exit writes off an interrupted bounded request without permanently l
   assert.equal(s.journal.state.phase, 'waiting-for-user')
   await s.service.recover()
   assert.equal(s.journal.state.budget!.leadUsdMicros, 30, 'retry never double charges')
+})
+
+for (const failure of ['transport', 'unknown-response', 'missing-usage'] as const) test(`provider refuses same-id resend after ${failure} leaves usage ambiguous`, async t => {
+  let calls = 0, resolutions = 0
+  const s = await providerRig(t, async () => {
+    calls++
+    if (failure === 'transport') throw new Error('synthetic interrupted send')
+    return failure === 'unknown-response' ? { status: 503, body: '{}', processing: 'unknown' } : { status: 200, body: '{}' }
+  }, { resolveLead: async () => { resolutions++; return key } })
+  await providerReserve(s.journal, 'ambiguous-send')
+  if (failure === 'unknown-response') await s.rpc('ambiguous-send', providerBody())
+  else await assert.rejects(s.rpc('ambiguous-send', providerBody()))
+  const before = resolutions
+  await assert.rejects(s.rpc('ambiguous-send', providerBody()), /synthetic provider refusal/)
+  assert.equal(calls, 1, 'one reservation must never cover a second possibly billed send')
+  assert.equal(resolutions, before, 'ambiguous resend refuses before resolving the key')
+  assert.equal(s.supervisor.live, true)
 })

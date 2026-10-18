@@ -9,12 +9,11 @@ import { Host, StateStore } from '../src/index.js'
 
 test('host start sweeps stale private Lead listeners after acquiring the home writer', async t => {
   const home = await mkdtemp('/tmp/hd-l-')
-  t.after(() => rm(home, { recursive: true, force: true }))
   const parent = join(home, 'lead-clients'), stale = join(parent, 'hd-lead-ABC123')
   await mkdir(parent, { mode: 0o700 }); await mkdir(stale, { mode: 0o700 })
   await writeFile(join(stale, 'old.sock'), '')
   const host = new Host({ leadEnabled: true, logger: silent, state: new StateStore(join(home, 'state.json')), version: 'test', catalogRefreshMs: 0 })
-  t.after(() => host.dispose())
+  t.after(async () => { await host.dispose(); await rm(home, { recursive: true, force: true }) })
   await host.start()
   await assert.rejects(lstat(stale), { code: 'ENOENT' })
 })

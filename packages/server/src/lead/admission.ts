@@ -50,7 +50,27 @@ export class LeadAdmission {
         (assignment.role === 'review' && assignment.agent === 'code-reviewer' && assignment.ceiling === 'read')))) return false
     const projection = budgets.startBudget(journal, attempt.correlationId)
     if (projection.stop || projection.spend !== 'known' || projection.reservedUsdMicros > 0) return false
-    const binding: FlowLeadBinding = { logicalGoalId: budget.logicalGoalId, contractDigest: contract.digest, stepId: step.id, startId: attempt.correlationId }
+    // Array order is execution order. Only the host's frozen review seating can
+    // supply the next step's base; a model-chosen ref or the project's current
+    // HEAD cannot stand in for the work the previous independent reviewer saw.
+    const index = contract.steps.findIndex(one => one.id === step.id)
+    let base: string | undefined
+    if (index > 0) {
+      const predecessor = contract.steps[index - 1]!
+      const recorded = state.steps.find(one => one.id === predecessor.id)
+      const owned = state.runs.find(one => one.correlationId === recorded?.attemptId)
+      const run = owned && budgets.port.runs().find(one => one.id === owned.runId && one.goal === owned.teamId &&
+        one.lead?.logicalGoalId === budget.logicalGoalId && one.lead.contractDigest === contract.digest &&
+        one.lead.stepId === predecessor.id && one.lead.startId === owned.correlationId)
+      const review = run?.rounds.filter(one => one.role === 'review').at(-1)
+      const acceptance = run?.rounds.at(-1)
+      const plan = review && run?.seatPlans?.[String(review.n)]
+      if (recorded?.state !== 'started' || !run || !review || review.state !== 'closed' || acceptance?.role !== 'accept' ||
+        !plan?.base || !/^[a-f0-9]{40,64}$/.test(plan.base) || plan.handed.length !== 1 || plan.handed[0]!.at !== plan.base) return false
+      base = plan.base
+    }
+    const binding: FlowLeadBinding = { logicalGoalId: budget.logicalGoalId, contractDigest: contract.digest, stepId: step.id,
+      startId: attempt.correlationId, ...(base ? { base } : {}) }
     if (budgets.prepared(binding.startId) || journal.state.steps.find(item => item.id === step.id)?.attemptId !== attempt.id ||
       journal.state.attempts.get(attempt.id)?.phase !== 'started' || !previews.bindLead(params, binding)) return false
     budgets.prepare(binding.startId, journal, step.id, params, project)

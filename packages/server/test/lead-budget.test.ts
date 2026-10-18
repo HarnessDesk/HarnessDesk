@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { createLeadJournal, type LeadJournalRecord } from '@harnessdesk/lead'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 import { sourceDigest } from '../src/flow-execution.js'
+import { LeadBudgets } from '../src/lead/budgets.js'
 
 const SOURCE = `version: 2
 name: Guarded work
@@ -319,4 +320,29 @@ test('with the Lead child absent the registered host owner still refuses dispatc
   await s.rig.team.complete(card.id, { outcome: 'committed' }, s.rig.sessionOf(String(run.rounds[0]!.seats[0]!)))
   await s.rig.flows.flush(); await s.budgets.idle()
   assert.equal(s.rig.events.filter(event => event.startsWith('open:') || event.startsWith('order:')).length, before)
+})
+
+for (const multi of [false, true]) test(`host bind ${multi ? 'permits' : 'refuses'} a new Goal for a ${multi ? 'multi' : 'single'}-step contract`, async t => {
+  const s = await leadRig(t), run = await s.start()
+  const state = s.journal.state, stored = s.rig.flows.leadRuns().find(item => item.id === run.id)!
+  // The existing anchor represents an earlier bound Goal. The host still has
+  // exact ownership proof for this run and must apply the contract's Goal limit.
+  let writes = 0
+  const bound = new Proxy(s.journal, { get(target, key) {
+    if (key === 'state') return { ...state, budget: { ...state.budget!, goalId: 'previous-goal' },
+      contract: { ...state.contract!, steps: multi ? [...state.contract!.steps, { ...state.contract!.steps[0]!, id: 'next' }] : state.contract!.steps } }
+    if (key === 'updateBudget') return async (event: Parameters<typeof target.updateBudget>[0]) => { writes++; await target.updateBudget(event) }
+    const value = Reflect.get(target, key)
+    return typeof value === 'function' ? value.bind(target) : value
+  } })
+  const budgets = new LeadBudgets({ now: () => 100, runs: () => [stored], member: async () => true, interruptChecks() {}, stop: async () => {} })
+  const unregister = budgets.register(bound)
+  t.after(unregister)
+  const before = s.journal.state.seq
+  if (multi) { await budgets.bind(stored); assert.equal(writes, 1) }
+  else {
+    await assert.rejects(budgets.bind(stored), /lead-start-not-approved/)
+    assert.equal(writes, 0)
+    assert.equal(s.journal.state.seq, before)
+  }
 })

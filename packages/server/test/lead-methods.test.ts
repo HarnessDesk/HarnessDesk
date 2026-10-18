@@ -1206,10 +1206,22 @@ test('live host worker relays are visible without entering the journal decision 
   assert.equal(s.journal.state.cards.some(card => card.id === 'worker-live'), false)
   await assert.rejects(s.call('lead/card/decide', { version: 1, cardId: 'worker-live', cardType: 'waiting', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' }), code('lead-worker-approval'))
   assert.equal(s.answers.length, 0)
+  const before = s.journal.state.seq, records = s.records.length, notifications = s.notifications.length
   waiting = []
-  await s.controls.workerApprovalsChanged(); await s.controls.idle()
+  const changed = s.controls.workerApprovalsChanged()
+  const saved = s.call('lead/settings/update', { expectedRevision: before, name: 'lex' })
+  await Promise.all([changed, saved]); await s.controls.idle()
+  assert.equal(s.journal.state.seq, before + 1, 'only the settings save may append a journal record')
+  assert.equal(s.records.length, records + 1)
+  assert.ok(s.notifications.length >= notifications + 1, 'same-revision approval changes still push a projection')
+  const notification = s.notifications[notifications]!
+  assert.equal(notification.method, 'lead/changed')
+  if (notification.method === 'lead/changed' && !('error' in notification.params)) {
+    assert.equal(notification.params.revision, before)
+    assert.equal(notification.params.thread.cards.some(card => card.id === 'worker-live'), false)
+  }
+  assert.equal(s.journal.state.name, 'lex', 'the concurrent settings save keeps its revision fence')
   assert.equal((await s.call('lead/thread/read')).thread.cards.some((card: LeadCard) => card.id === 'worker-live'), false)
-  assert.ok(s.notifications.at(-1)?.method === 'lead/changed')
 })
 
 

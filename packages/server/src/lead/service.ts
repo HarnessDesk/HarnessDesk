@@ -123,7 +123,7 @@ export class LeadService {
           if (Buffer.byteLength(body) > 1_048_576) throw new Error('lead-provider-failed')
           const budget = options.journal.state.budget
           const request = budget?.requests.find(item => item.reservation.requestId === requestId)
-          if (!request || request.uncertain || this.#providerFinalized.has(requestId) || budget?.settled.some(item => item.id === requestId)) throw new Error('lead-provider-failed')
+          if (!request || request.uncertain || this.#providerUsage.get(requestId) === null || this.#providerFinalized.has(requestId) || budget?.settled.some(item => item.id === requestId)) throw new Error('lead-provider-failed')
           const reservation = request.reservation
           if (payload.model !== (options.model ?? LEAD_MESSAGES_DEFAULTS.model) ||
             payload.max_tokens > reservation.maxOutputTokens || Buffer.byteLength(body) + 1024 > reservation.inputTokens ||

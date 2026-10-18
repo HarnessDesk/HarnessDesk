@@ -136,3 +136,28 @@ it.each([{ caps: settings.caps }, { policy: settings.policy }, { credential: { p
   const facade = createLeadState({ request }, () => true); facade.changed({ method: 'lead/changed', params: projection(2) })
   await expect(facade.updateSettings(update)).rejects.toMatchObject({ code: 'lead-revision-stale' }); expect(request).toHaveBeenCalledOnce()
 })
+
+it('applies live worker approval changes without advancing the journal revision', async () => {
+  const { createLeadState } = await load()
+  const facade = createLeadState({ request: vi.fn() }, () => true)
+  facade.changed({ method: 'lead/changed', params: projection(2) })
+  const card = { version: 1, id: 'worker-live', revision: 1, type: 'waiting', kind: 'worker-approval' }
+  facade.changed({ method: 'lead/changed', params: projection(2, 'running', [card]) })
+  expect(facade.state.thread.cards).toEqual([card])
+  expect(facade.state.revision).toBe(2)
+  facade.changed({ method: 'lead/changed', params: projection(2) })
+  expect(facade.state.thread.cards).toEqual([])
+})
+
+it('a delayed read cannot undo a newer live approval projection at the same journal revision', async () => {
+  const { createLeadState } = await load()
+  let resolve!: (value: unknown) => void
+  const facade = createLeadState({ request: () => new Promise(done => { resolve = done }) }, () => true)
+  facade.changed({ method: 'lead/changed', params: projection(2) })
+  const pending = facade.readThread()
+  const card = { version: 1, id: 'worker-live', revision: 1, type: 'waiting', kind: 'worker-approval' }
+  facade.changed({ method: 'lead/changed', params: projection(2, 'running', [card]) })
+  resolve(projection(2))
+  await pending
+  expect(facade.state.thread.cards).toEqual([card])
+})

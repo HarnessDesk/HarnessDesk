@@ -56,8 +56,30 @@ for (const theme of ['light', 'dark'] as const) test(`the flag-off host has no L
       // Read real DOM contracts from the same screen with the feature enabled;
       // variable ids and isolated project paths never enter the comparison.
       await expect.poll(async () => JSON.stringify(await body.evaluate(structure))).toBe(expected.get(destination))
+      // Assert absence independently of the enabled comparison: a control
+      // leaking into both sittings must still fail this contract.
+      await expect(sections.getByRole('button', { name: /^(Lead|Dex|Lex)$/ })).toHaveCount(0)
+      await expect(sections.locator('[title="Lead"]')).toHaveCount(0)
       await expect(page.locator('[data-page-destination="lead"]')).toHaveCount(0)
       await expect(page.getByRole('region', { name: 'Dex thread', exact: true })).toHaveCount(0)
+      await expect(page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Lead settings', exact: true })).toHaveCount(0)
+      // Neither programmatic route may replace Agents, Flows or Dashboard.
+      await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'lead' }))
+      await expect(body).toBeVisible()
+      await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } }))
+      await expect(body).toBeVisible()
+      await expect(page.locator('[data-page-destination="lead"]')).toHaveCount(0)
+      // Inspect a real Settings navigation, rather than asserting against
+      // a section that has never been mounted.
+      await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } }))
+      const settings = page.getByRole('navigation', { name: 'Settings navigation', exact: true })
+      await expect(settings).toBeVisible()
+      await expect(settings.getByRole('button', { name: 'Lead', exact: true })).toHaveCount(0)
+      await expect(page.getByRole('heading', { name: 'Lead', exact: true })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Lead settings', exact: true })).toHaveCount(0)
+      await expect(page.getByRole('spinbutton', { name: /^(Dollar|Round) allowance$/ })).toHaveCount(0)
+      await page.evaluate(value => (window as any).__hdStore.openDestination({ kind: value }), destination)
+      await expect(body).toBeVisible()
     }
     // Restored or programmatic navigation cannot mount a hidden destination.
     await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'lead' }))
@@ -67,7 +89,9 @@ for (const theme of ['light', 'dark'] as const) test(`the flag-off host has no L
     // Search the real palette as well as the nav and restored route.
     await page.getByRole('button', { name: 'Search everything', exact: true }).click()
     const palette = page.getByRole('dialog', { name: 'Command palette', exact: true })
-    await palette.getByRole('textbox').fill('lead')
+    const search = palette.getByRole('searchbox')
+    await search.fill('lead')
+    await expect(search).toHaveValue('lead')
     await expect(palette.getByRole('option').filter({ hasText: 'Settings › Lead' })).toHaveCount(0)
     await page.keyboard.press('Escape')
     const refusal = await bounded('disabled Lead wire refusal', () => page.evaluate(async () => {

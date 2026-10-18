@@ -46,20 +46,22 @@ export class LeadControls {
   }
   readonly #detach: () => void
   constructor(private readonly options: LeadControlsOptions) {
-    this.#detach = options.journal.onChange(() => {
-      this.#notifications = this.#notifications.then(async () => {
-        const projection = await this.#projection()
-        if (projection.revision <= this.#lastRevision) return
-        try { options.push({ method: 'lead/changed', params: projection }) }
-        catch { this.#failedRevision = projection.revision; throw leadRefusal('lead-projection-failed') }
-        this.#lastRevision = projection.revision
-      }).catch(() => {
-        const revision = options.journal.state.seq
-        if (revision <= this.#lastRevision) return
-        try { options.push({ method: 'lead/changed', params: { version: 1, revision, error: 'lead-projection-failed' } }); this.#lastRevision = revision }
-        catch { this.#failedRevision = revision }
-      })
+    this.#detach = options.journal.onChange(() => { void this.#notify() })
+  }
+  #notify(liveApprovals = false): Promise<void> {
+    this.#notifications = this.#notifications.then(async () => {
+      const projection = await this.#projection()
+      if (projection.revision < this.#lastRevision || !liveApprovals && projection.revision === this.#lastRevision) return
+      try { this.options.push({ method: 'lead/changed', params: projection }) }
+      catch { this.#failedRevision = projection.revision; throw leadRefusal('lead-projection-failed') }
+      this.#lastRevision = projection.revision
+    }).catch(() => {
+      const revision = this.options.journal.state.seq
+      if (revision < this.#lastRevision || !liveApprovals && revision === this.#lastRevision) return
+      try { this.options.push({ method: 'lead/changed', params: { version: 1, revision, error: 'lead-projection-failed' } }); this.#lastRevision = revision }
+      catch { this.#failedRevision = revision }
     })
+    return this.#notifications
   }
   close(): void { this.#closed = true; this.#detach() }
   async idle(): Promise<void> {
@@ -141,7 +143,7 @@ export class LeadControls {
     return !this.#continuation && state.messages.at(-1)?.role === 'user'
   }
   workerApprovalsChanged(): Promise<void> {
-    return this.#queue(async () => { if (!this.#closed) await this.options.journal.settingsChanged() })
+    return this.#queue(async () => { if (!this.#closed) await this.#notify(true) })
   }
   readThread(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }
   readSettings(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }

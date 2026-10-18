@@ -3,7 +3,11 @@ import { lstat, mkdir, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
+import { createLeadJournal } from '@harnessdesk/lead'
+import { approvalId } from '@harnessdesk/protocol'
 import { Host, StateStore } from '../src/index.js'
+import { LeadControls } from '../src/lead/controls.js'
+import { evidenceDesk, writeAgent } from './fixtures/evidence-desk.js'
 import { LeadBudgets } from '../src/lead/budgets.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -78,4 +82,33 @@ for (const enabled of [false, true]) test(`the private Lead recipe is never in t
   const catalogue = await host.call('flow/catalog', { root: project })
   assert.ok(catalogue.length > 0, 'ordinary built-in Flows remain available')
   assert.equal(catalogue.some(entry => entry.id === 'lead-reviewed-result'), false)
+})
+
+test('an unrelated Team approval neither projects Lead nor invalidates a concurrent settings save', async t => {
+  const { host, runtime, stateDir, repo } = await evidenceDesk(t, { leadEnabled: true })
+  await writeAgent(stateDir)
+  const goal = await host.call('goal/create', { root: repo.dir, sentence: 'Unrelated work' })
+  const card = await host.call('team/add', { room: goal.goal.id, title: 'Inspect unrelated work' })
+  const seat = await host.call('goal/seat', { goal: goal.goal.id, card: card.id, agent: 'scout' })
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'projection-test', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 1000 })
+  t.mock.method(host.credentials, 'leadStatus', async () => ({ configured: false, protection: 'synthetic cipher' }))
+  const service = host.createLeadService({ journal, project: { id: 'demo', path: repo.dir }, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  t.after(() => service.close())
+  const changed = t.mock.method(LeadControls.prototype, 'workerApprovalsChanged')
+  const before = await host.call('lead/settings/read', {})
+  const live = runtime.sessions.get(seat.session.sessionId)!
+  void live.askApproval(approvalId('unrelated-command'))
+  await host.call('lead/thread/read', {})
+  assert.equal(journal.state.seq, before.revision, 'an unrelated approval request leaves the journal unchanged')
+  const resolved = live.respondToApproval(approvalId('unrelated-command'), { type: 'cancel' })
+  const saved = await host.call('lead/settings/update', { expectedRevision: before.revision, name: 'lex' })
+  await resolved
+  assert.equal(changed.mock.callCount(), 0, 'only approvals from Lead-owned Seats push a Lead projection')
+  assert.equal(journal.state.seq, before.revision + 1, 'only the name save advances the journal')
+  assert.equal(saved.settings.name, 'lex')
 })

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { createLeadRig } from './fixtures/lead-rig.js'
 
 // Every case owns the actual host, child, restricted door, journal and Flow engine.
@@ -28,9 +29,22 @@ test('two-run reviewed result follows failed review and repair and retries a fai
     const flow = await rig.host.call('flow/execution', { run: run.runId })
     assert.deepEqual(flow.rounds.map(one => one.role), ['implement', 'review', 'implement', 'review', 'accept'])
   }
+  const heads = rig.journal.state.runs.map(run => {
+    const flow = rig.host.flowsPlane.leadRuns().find(one => one.id === run.runId)!
+    const review = flow.rounds.filter(one => one.role === 'review').at(-1)!
+    const plan = flow.seatPlans![String(review.n)]!
+    const checkout = plan.handed[0]!.cwd
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: checkout, encoding: 'utf8' }).trim()
+  })
+  execFileSync('git', ['merge-base', '--is-ancestor', heads[0]!, heads[1]!], { cwd: rig.project.path })
+  for (const run of rig.journal.state.runs) {
+    const evidence = await rig.host.call('evidence/board', { room: run.teamId })
+    assert.ok(evidence.cards.flatMap(card => card.facts).some(one => one.record.fact.kind === 'review' &&
+      one.record.fact.verdict === 'approve' && one.record.fact.at === heads[rig.journal.state.runs.indexOf(run)] && one.freshness.state === 'fresh'))
+  }
   const card = rig.pending('result')!
   rig.failSecondGateSave()
-  await assert.rejects(rig.decide(card, 'accept'))
+  await assert.rejects(rig.decide(card, 'accept'), { wireCode: 'lead-gate-save-failed' })
   assert.notEqual(rig.journal.state.phase, 'accepted')
   assert.equal(rig.personGates().filter(one => one.state === 'done').length, 1)
   await rig.decide(card, 'accept')
@@ -52,13 +66,18 @@ test('gate decline preserves both worktrees and committed changes without forbid
 })
 
 for (const cap of ['dollars', 'rounds', 'unknown'] as const) test(`full fixture stops dispatch at ${cap} equality or unknown spend`, async t => {
-  const rig = await createLeadRig({ holdWorkers: true }); t.after(() => rig.dispose())
+  const rig = await createLeadRig({ holdWorkers: true, workerSpend: cap === 'dollars' }); t.after(() => rig.dispose())
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
   await rig.decide(rig.pending('plan')!, 'approve')
   await rig.waitFor(() => rig.journal.state.runs.length > 0, 'first run')
   await rig.workerWaiting()
   await rig.reachCap(cap)
   const before = await rig.dispatchCounts()
+  if (cap === 'rounds') await rig.postCapSend()
+  if (cap === 'dollars') {
+    assert.ok(rig.journal.state.budget!.workerUsdMicros > 0)
+    assert.equal(rig.journal.state.budget!.caps.usdMicros, rig.journal.state.budget!.leadUsdMicros + rig.journal.state.budget!.workerUsdMicros)
+  }
   await rig.releaseWorkers(); await rig.waitFor(() => !!rig.journal.state.budget!.stop, 'host stops the next round'); await rig.settle()
   assert.deepEqual(await rig.dispatchCounts(), before, 'no extra worker round or provider request past the cap')
   assert.ok(rig.journal.state.budget!.stop)
@@ -90,13 +109,15 @@ for (const interruption of ['child-crash', 'host-restart', 'connection-gap'] as 
 })
 
 test('worker approval reaches the window and no Lead answer frame reaches the worker', async t => {
-  const rig = await createLeadRig({ scenario: 'worker-approval' }); t.after(() => rig.dispose())
+  const rig = await createLeadRig({ scenario: 'worker-approval', eager: true }); t.after(() => rig.dispose())
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.assertEagerRefused('eager-start')
   await rig.decide(rig.pending('plan')!, 'approve')
   await rig.waitFor(() => rig.windowNotifications.some((one: any) => one.method === 'lead/changed' && one.params.thread?.cards.some((card: any) => card.kind === 'worker-approval')), 'worker approval card')
   const card = (await rig.host.call('lead/thread/read', {})).thread.cards.find(one => one.type === 'waiting')!
   assert.equal(card.type === 'waiting' && card.kind, 'worker-approval')
-  await assert.rejects(rig.decide(card, 'accept'))
+  await assert.rejects(rig.decide(card, 'accept'), { wireCode: 'lead-worker-approval' })
+  await rig.eagerApprovalTurn()
   assert.equal((await rig.workerCalls()).filter(one => one.method === 'worker-approval-answer').length, 0)
   await rig.assertNoForbiddenEffects()
 })
@@ -130,4 +151,28 @@ test('full fixture refuses merge, publication, deletion, forge and push proposal
   }
   assert.equal((await rig.workerCalls()).length, 0)
   await rig.assertAccounting()
+})
+
+test('abrupt host-restart writes off the durable reservation before Resume or a new child', async t => {
+  const rig = await createLeadRig({ holdPlanning: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => rig.provider.pending, 'durable paid reservation')
+  const request = rig.journal.state.budget!.requests[0]!
+  const children = rig.children.length
+  await rig.abruptRestart()
+  assert.equal(rig.children.length, children, 'recovery must not start a child')
+  assert.equal(rig.journal.state.budget!.requests.length, 0, 'new host recovers before Resume')
+  const charged = rig.journal.state.budget!.settled.find(one => one.id === request.reservation.requestId)
+  assert.equal(charged?.digest, 'write-off')
+  assert.equal(charged?.usdMicros, Math.ceil(request.reservation.inputTokens * request.reservation.inputUsdMicrosPerMillion / 1_000_000) +
+    Math.ceil(request.reservation.maxOutputTokens * request.reservation.outputUsdMicrosPerMillion / 1_000_000))
+  await rig.assertAccounting()
+})
+
+test('eager scripted model cannot start a Flow before plan consent', async t => {
+  const rig = await createLeadRig({ eager: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan after eager refusal')
+  await rig.assertEagerRefused('eager-start')
+  assert.equal(rig.journal.state.runs.length, 0)
+  assert.equal((await rig.workerCalls()).length, 0)
+  await rig.assertNoForbiddenEffects()
 })

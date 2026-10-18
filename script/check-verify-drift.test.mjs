@@ -5,10 +5,25 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-import { ciCommands, missingFromCI } from './check-verify-drift.mjs'
+import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
 
 const unit = { command: 'pnpm', args: ['--filter', '@harnessdesk/ui', 'run', 'test'] }
 const command = 'pnpm --filter @harnessdesk/ui run test'
+
+test('Lead end-to-end tests have a dedicated 600s run outside every ordinary Node run', () => {
+  const file = 'packages/server/dist/test/lead-e2e.test.js'
+  const exclusion = `! -path '${file}'`
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  const verify = gateCommands(readFileSync(new URL('./verify.mjs', import.meta.url), 'utf8'))
+  const workflow = ciCommands(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'))
+  for (const [name, commands] of [['verify', verify], ['CI', workflow]]) {
+    const ordinary = commands.find(entry => entry.command === 'bash' && entry.args.some(arg => arg.includes('find packages/*/dist/test')))
+    assert.ok(ordinary?.args.some(arg => arg.includes(exclusion)), `${name} excludes Lead e2e from the 120s run`)
+    assert.equal(commands.filter(entry => entry.command === 'node' && entry.args.join(' ') === `--test --test-timeout=600000 ${file}`).length, 1, `${name} runs Lead e2e once at 600s`)
+  }
+  assert.ok(manifest.scripts.test.includes(exclusion), 'pnpm test excludes Lead e2e from the 120s run')
+  assert.ok(manifest.scripts.test.includes(`node --test --test-timeout=600000 "${file}"`), 'pnpm test runs Lead e2e at 600s')
+})
 
 // Dealt filenames stand for the whole suite only in the unconditional,
 // single-line command. Comments and unevaluated shell text cannot supply it.

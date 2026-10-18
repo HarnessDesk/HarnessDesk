@@ -171,6 +171,8 @@ export interface FlowLeadBinding {
   readonly contractDigest: string
   readonly startId: string
   readonly stepId: string
+  /** Previous approved step's frozen reviewed commit; supplied only by host admission. */
+  readonly base?: string
 }
 export interface FlowLeadGuard {
   validateStart?(binding: FlowLeadBinding): Promise<void>
@@ -2759,7 +2761,7 @@ export class FlowExecutions {
           root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
           origin: { kind: 'flow', run: id },
           // Every Seat of a review of a branch, a pull request or a diff works at the commit its preview resolved.
-          ...(base || request.target?.head ? { at: base?.at ?? request.target!.head! } : {}),
+          ...(base || request.lead?.base || request.target?.head ? { at: base?.at ?? request.lead?.base ?? request.target!.head! } : {}),
         })
       } catch (error) {
         await this.#abortBaseStart(id, error)
@@ -3358,7 +3360,7 @@ export class FlowExecutions {
         await this.#team.flush()
         if ('at' in target) return { base: target.at, handed: [] }
       }
-      return { base: run.base?.at ?? null, handed: [] }
+      return { base: run.base?.at ?? run.lead?.base ?? null, handed: [] }
     }
     const board = this.#team.stateFor(run.goal)
     const shared = board.cwd ?? board.root
@@ -3371,8 +3373,8 @@ export class FlowExecutions {
     const handed = closure.subjects.map((one) => ({ card: one.card, at: one.at, branch: one.checkout.branch, cwd: one.checkout.cwd }))
     // The one rule a dry run states too (`rolesAtPredecessor`), so what it said is what runs.
     const where = handedCheckout(isolate, handed.map((one) => ({ apart: !sameCanonicalPath(one.cwd, shared) })))
-    if (where === 'own') return { base: run.base?.at ?? null, handed: [] }
-    return { base: where === 'lane' ? handed[0]!.at : run.base?.at ?? null, handed }
+    if (where === 'own') return { base: run.base?.at ?? run.lead?.base ?? null, handed: [] }
+    return { base: where === 'lane' ? handed[0]!.at : run.base?.at ?? run.lead?.base ?? null, handed }
   }
 
   async #seatRound(

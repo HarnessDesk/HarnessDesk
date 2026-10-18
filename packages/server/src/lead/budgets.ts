@@ -108,8 +108,10 @@ export class LeadBudgets implements FlowLeadGuard {
   async bind(run: StoredFlowExecution): Promise<void> {
     const journal = this.#journal(run), lead = run.lead!
     if (!await this.port.member(journal.state.contract!.project)) throw new Error('lead-project-withdrawn')
+    const state = journal.state
+    if (state.budget!.goalId !== null && state.budget!.goalId !== run.goal && state.contract!.steps.length <= 1) throw new Error('lead-start-not-approved')
     const pending = this.#pending.get(lead.startId)
-    const owned = journal.state.runs.find(item => item.correlationId === lead.startId || item.runId === run.id)
+    const owned = state.runs.find(item => item.correlationId === lead.startId || item.runId === run.id)
     if (owned ? owned.runId !== run.id || owned.teamId !== run.goal || owned.correlationId !== lead.startId
       : !pending || pending.journal !== journal || pending.stepId !== lead.stepId) throw new Error('lead-start-not-approved')
     await journal.updateBudget({ version: 1, type: 'bind', now: this.port.now(), startId: lead.startId,

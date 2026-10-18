@@ -6,6 +6,9 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
+import { Ledger } from '../../src/ledger/index.js'
+import type { UsageSample } from '../../src/ledger/insight.js'
+import type { LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
 import { createLeadJournal, leadBudgetProjection, leadReviewedResultSource, type LeadAcceptanceEvidence, type LeadJournal, type LeadPermissionCall } from '@harnessdesk/lead'
 import { LeadSupervisor } from '@harnessdesk/lead/supervisor'
 import { parseLeadAcceptanceContract, type LeadCard, type LeadCardDecision, type RuntimeId } from '@harnessdesk/protocol'
@@ -39,6 +42,8 @@ export interface LeadRigOptions {
   readonly holdWorkers?: boolean
   readonly holdPlanning?: boolean
   readonly holdRunning?: boolean
+  readonly eager?: boolean
+  readonly workerSpend?: boolean
 }
 /** Synthetic services around the actual host, fd-3 child, client door and Flow.
  * Each instance owns its temp home and restores its environment before removal.
@@ -59,16 +64,23 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
   let journal!: LeadJournal, storage: LeadFileJournal | undefined, service!: LeadService, host!: Host
   let disposed = false, workerMicros = 0, failGate = false, failedGate = false
   const checkStarts = new Set<string>()
+  let evidenceFailure: Error | undefined
   let currentStep = '', preview: { token: string; source: string; expiresAt: number } | undefined
+  let supervisorOptions!: LeadSupervisorOptions
+  const eagerResults: { tool_use_id: string; is_error: boolean }[] = []
+  let eagerStart = false, eagerApproval = false
   let provider: Awaited<ReturnType<typeof leadMessagesServer>>
   let restoreGoalSave: (() => void) | undefined
+  let restoreUsage: (() => void) | undefined
+  let workerSample: UsageSample | undefined
   const enabled = options.enabled !== false
   const gitBinary = execFileSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).trim()
   const git = (cwd: string, ...args: string[]) => execFileSync(gitBinary, args, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
   const waitFor = async (predicate: () => boolean | Promise<boolean>, label = 'rig state') => {
-    const until = Date.now() + 90_000
+    const until = Date.now() + 240_000
     while (!await predicate()) {
-      if (Date.now() >= until) throw new Error(`Timed out waiting for ${label}; phase=${journal?.state.phase}; reason=${journal?.state.managementReason}`)
+      if (evidenceFailure && /spawnSync ps.*EPERM/.test(evidenceFailure.message)) throw evidenceFailure
+      if (Date.now() >= until) throw new Error(`Timed out waiting for ${label}; phase=${journal?.state.phase}; reason=${journal?.state.managementReason}; evidence=${evidenceFailure?.message ?? 'none'}`)
       await sleep(25)
     }
   }
@@ -89,12 +101,16 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     if (disposed) return
     disposed = true
     for (const id of ['rig-writer', 'rig-reviewer']) await chmod(join(home, id, 'sessions'), 0o700).catch(() => {})
-    restoreGoalSave?.()
+    restoreGoalSave?.(); restoreUsage?.()
     try { await host?.dispose(); await extensions?.dispose(); setTeamEngine(null); await storage?.close(); await provider?.close(); for (const socket of bridgeSockets) socket.destroy(); await Promise.all(bridgeServers.map(server => new Promise<void>(resolve => server.close(() => resolve())))) }
     finally { restoreEnvironment(); await rm(scratch, { recursive: true, force: true, maxRetries: 5 }) }
   }
   try {
     await mkdir(home, { recursive: true }); await mkdir(project.path); await mkdir(gates)
+    // A fresh local catalogue and explicit rates keep even usage reads offline.
+    await mkdir(join(home, 'cache'))
+    await writeFile(join(home, 'cache/model-pricing.json'), JSON.stringify({ fetchedAt: Date.now(), catalogue: {} }))
+    await writeFile(join(home, 'pricing.json'), JSON.stringify({ 'fixture-worker': { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }))
     await mkdir(join(project.path, '.harnessdesk'))
     // fast-import supplies placeholder authors without changing Git config or identity environment.
     git(project.path, 'init', '-b', 'main')
@@ -105,13 +121,14 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     git(project.path, 'checkout', 'main')
     await writeFile(passes, JSON.stringify({ passes: {}, done: [] }))
     const bin = join(home, 'bin'); await mkdir(bin)
-    // Observe actual Git effects, including those the host invokes internally.
+    // Observe Git effects routed through PATH, including host-internal calls.
+    // This audit cannot see absolute-path git or direct fs.rm; decline also
+    // verifies every retained lane and its file contents after the decision.
     const wrapper = join(bin, 'git')
     await mkdir(gitLog)
     const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
-    // A shell builtin records the exact argv without launching a Node process
-    // for every Git read. Each invocation owns a file, including concurrent reads.
-    await writeFile(wrapper, `#!/bin/sh\nprintf '%s\\0' "$@" > ${quote(gitLog)}/$$\nexec ${quote(gitBinary)} "$@"\n`)
+    // mktemp owns a unique file even after PID reuse and under concurrent reads.
+    await writeFile(wrapper, `#!/bin/sh\nlog=$(mktemp ${quote(gitLog)}/call.XXXXXXXX) || exit 1\nprintf '%s\\0' "$@" > "$log"\nexec ${quote(gitBinary)} "$@"\n`)
     await chmod(wrapper, 0o755); process.env['PATH'] = `${bin}:${previousPath ?? ''}`
     const assignments = [
       { role: 'implement', agent: 'implementer', seat: { runtime: 'rig-writer', model: 'gpt-5.5' }, ceiling: 'edit' },
@@ -125,7 +142,20 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     let toolId = 0, forbiddenAttempt = 0
     const reply = (body: Record<string, any>): unknown[] => {
       const state = journal.state
-      if (!state.contract || !state.consent) return [text(JSON.stringify({ version: 1, type: 'lead-output', text: 'Review the two-part repair before work starts.', plan: proposal }))]
+      if (!state.contract || !state.consent) {
+        const plan = text(JSON.stringify({ version: 1, type: 'lead-output', text: 'Review the two-part repair before work starts.', plan: proposal }))
+        if (options.eager && !eagerStart) {
+          eagerStart = true
+          return [plan, { type: 'tool_use', id: 'eager-start', name: 'flow_start_goal', input: {
+            root: project.path, source: leadReviewedResultSource, token: 'unapproved-token', sentence: task, seats, vars: {}, attended: true } }]
+        }
+        return [plan]
+      }
+      if (options.eager && options.scenario === 'worker-approval' && !eagerApproval &&
+        windowNotifications.some((one: any) => one.method === 'lead/changed' && one.params.thread?.cards.some((card: any) => card.kind === 'worker-approval'))) {
+        eagerApproval = true
+        return [{ type: 'tool_use', id: 'eager-approval', name: 'approval_respond', input: { decision: 'accept' } }]
+      }
       if (options.scenario === 'forbidden') {
         const name = ['flow_preview', 'forge_publish', 'git_merge', 'project_delete', 'git_push'][forbiddenAttempt++ % 5]!
         return [{ type: 'tool_use', id: `forbidden-${++toolId}`, name, input: name === 'flow_preview'
@@ -167,7 +197,21 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         if (/^(?:forge\/(?:create|publish|merge)|git\/(?:push|merge)|.*\/(?:delete|publish))$/.test(method)) forbidden.push(method)
         return realCall(method as never, params as never)
       }) as typeof host.call
-      host.addBroadcaster(notification => windowNotifications.push(notification))
+      host.addBroadcaster(notification => {
+        windowNotifications.push(notification)
+        if (options.workerSpend && workerMicros === 0 && notification.method === 'event' &&
+          notification.params.runtime === 'rig-writer' && notification.params.event.type === 'turn/started') {
+          const at = Date.now(), exact = (value: number) => ({ value, quality: 'exact' as const })
+          // One explicit synthetic usage source at the normalized ledger boundary.
+          // Attribution, meter folding and host dispatch gates remain real.
+          workerSample = { key: 'synthetic-worker-bill', source: { id: 'synthetic-worker', kind: 'corpus', label: 'Synthetic usage',
+            observedAt: at, checkedAt: at, stale: false, problem: null }, runtime: 'rig-writer', sessionId: notification.params.event.sessionId,
+            turnId: null, requestId: 'synthetic-worker-bill', project: project.path, model: 'fixture-worker', from: at, to: at,
+            scope: 'call', includesChildren: false, input: exact(1000), output: exact(0), cacheRead: exact(0), cacheWrite: exact(0),
+            usd: exact(0.001), moneyBasis: 'vendorMetered' }
+          workerMicros = 1000
+        }
+      })
       setTeamEngine(host.teamPlane); await extensions!.load(teamPlugin)
       await host.start()
       for (const [id, providerName] of [['rig-writer', 'synthetic-writer'], ['rig-reviewer', 'synthetic-reviewer']] as const) {
@@ -181,6 +225,10 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
             review: { kind: 'review', title: 'Check and review the committed result', outcomes: ['request-changes', 'approve'] },
           } }) },
         }, providerName)
+        // The priced-source variant starts its synthetic runtime before the
+        // host observes it: no predecessor epoch exists whose delegation is lost.
+        // Ordinary/eager fixtures still prove zero worker processes pre-consent.
+        if (options.workerSpend) await runtime.start()
         host.register(runtime)
         // Even an empty source is explicit and confined to this rig's synthetic home.
         const usage = join(codexHome, 'sessions'); await mkdir(usage, { recursive: true })
@@ -195,6 +243,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'synthetic-goal', caps: proposal.caps, freshnessMs: 60_000 })
       }
       const readEvidence = async (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>): Promise<LeadAcceptanceEvidence> => {
+        try {
         const owned = journal.state.runs.find(one => one.runId === runId)!
         const execution = await read({ method: 'flow/execution', params: { run: runId } }) as Awaited<ReturnType<Host['call']>> & { rounds: { cards: number[] }[] }
         const board = await host.call('goal/read', { goal: owned.teamId })
@@ -211,20 +260,26 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
           if (check && checks.at) {
             checkStarts.add(`${runId}:${revision}`)
             try { await host.call('evidence/check/run', { room: owned.teamId, card: implementation.id, name: check.name, seen: check.run, digest: git(project.path, 'rev-parse', 'HEAD:.harnessdesk/checks.yml') }) }
-            catch (error) { checkStarts.delete(`${runId}:${revision}`); throw error }
+            catch (error) { checkStarts.delete(`${runId}:${revision}`); evidenceFailure = error instanceof Error ? error : new Error(String(error)); throw error }
           }
           evidence = await read({ method: 'evidence/board', params: { room: owned.teamId } }) as typeof evidence
         }
         const facts = evidence.cards.filter(card => cardIds.has(card.card)).flatMap(card => card.facts).filter(one => one.freshness.state === 'fresh').map(one => one.record)
+        const blocked = facts.find(record => record.fact.kind === 'check' && /spawnSync ps.*EPERM/.test(record.fact.tail ?? ''))
+        if (blocked?.fact.kind === 'check') throw new Error(blocked.fact.tail)
         const findings = await host.call('finding/run', { goal: owned.teamId, run: runId })
+        // These facts were re-read and verified fresh at this revision now.
+        // Use that read time so multi-step rig runtime cannot age a valid fact.
+        const readAt = Date.now()
         return { project, runId, contractDigest: journal.state.contract!.digest, revision, observedAt: Date.now(), complete: true,
           spendComplete: leadBudgetProjection(journal.state.budget!, Date.now()).spend === 'known',
-          checks: facts.flatMap(record => record.fact.kind === 'check' && record.fact.at === revision ? [{ assertionId: 'unit', id: record.id, revision: record.fact.at, observedAt: record.observedAt,
+          checks: facts.flatMap(record => record.fact.kind === 'check' && record.fact.at === revision ? [{ assertionId: 'unit', id: record.id, revision: record.fact.at, observedAt: readAt,
             exit: record.fact.exit, timedOut: record.fact.timedOut, dirty: record.fact.dirty, counted: record.fact.counted === true }] : []),
           reviews: facts.flatMap(record => record.fact.kind === 'review' && record.fact.at === revision ? [{ assertionId: 'review', id: record.id,
-            revision: record.fact.at, observedAt: record.observedAt, verdict: record.fact.verdict, complete: true }] : []),
+            revision: record.fact.at, observedAt: readAt, verdict: record.fact.verdict, complete: true }] : []),
           findingsComplete: !findings.embargoed, findings: findings.blocking ? [{ id: `${runId}:blocking`, revision, blocking: true, resolved: false }] : [], diffs: [],
         }
+        } catch (error) { evidenceFailure = error instanceof Error ? error : new Error(String(error)); throw error }
       }
       service = host.createLeadService({ journal, project, model, prices, messagesTransport: provider.transport,
         freezePlan: async value => {
@@ -238,7 +293,9 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
             stepId: step?.id ?? null, ...(preview ? { preview } : {}),
             context: { desk: state.policy!, projectPolicy: null, project, approved: null, budget: null, now: Date.now(), policyInterpretation: 'idle' } }
         }, readEvidence,
-        createSupervisor: settings => new LeadSupervisor({ ...settings,
+        createSupervisor: settings => {
+          supervisorOptions = settings
+          const supervisor = new LeadSupervisor({ ...settings,
           connectDesk: async (descriptor, signal) => {
             // A byte-for-byte socket bridge injects a real connection loss. No
             // client reply, authorization or Flow method is substituted.
@@ -259,9 +316,25 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
           }, spawn: (binary, args, spawnOptions) => {
           assert.ok(args.includes('--permission')); assert.equal(spawnOptions.stdio.length, 4, 'desk socket inherited as fd 3')
           const child = spawn(binary, [...args], spawnOptions) as ChildProcessWithoutNullStreams; children.push(child); return child
-        } }),
+        } })
+          const send = supervisor.send.bind(supervisor)
+          supervisor.send = async input => {
+            const result = await send(input)
+            eagerResults.push(...result.toolResults ?? [])
+            return result
+          }
+          return supervisor
+        },
       })
       await service.setEnabled(true)
+    }
+    if (options.workerSpend) {
+      const readInsight = Ledger.prototype.readInsight
+      restoreUsage = () => { Ledger.prototype.readInsight = readInsight }
+      Ledger.prototype.readInsight = async function(query, settings) {
+        const result = await readInsight.call(this, query, settings)
+        return query.root === project.path && workerSample ? { ...result, samples: [...result.samples, workerSample] } : result
+      }
     }
     await setupHost()
     if (!options.holdWorkers) await releaseWorkers()
@@ -297,6 +370,43 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     }
     return { get host() { return host }, logger, home, project, get journal() { return journal }, get service() { return service },
       provider, children, calls, windowNotifications, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
+      async assertEagerRefused(id: string) { await waitFor(() => eagerResults.some(one => one.tool_use_id === id && one.is_error), `${id} refused by real tools and permission door`) },
+      async eagerApprovalTurn() {
+        // A worker event normally wakes the turn. If its batch has not run,
+        // explicitly send through the window after its current request ends.
+        await waitFor(async () => !(await host.call('lead/thread/read', {})).requestInFlight, 'idle Lead before eager answer turn')
+        if (!eagerApproval) await sendGoal()
+        // Wait for the paid proposal to finish at the real tool refusal gate.
+        await waitFor(() => eagerApproval && journal.state.phase === 'waiting-for-user' &&
+          journal.state.managementReason === 'lead-tools-refused', 'eager worker answer turn finishes refused')
+      },
+      async postCapSend() {
+        // Script an eager child's reserve + send through the actual supervisor
+        // callbacks. The normal loop parks at equality; this probes host admission.
+        const requestId = 'post-cap-attempt', body = JSON.stringify(provider.requests[0]!.body)
+        const event = { version: 1 as const, type: 'reserve' as const, now: Date.now(), requestId, inputTokens: Buffer.byteLength(body) + 1024, maxOutputTokens: 4096, ...prices[model] }
+        try {
+          supervisorOptions.admitBudgetEvent!(event)
+          await journal.updateBudget(event)
+          await supervisorOptions.providerSend!(requestId, body, new AbortController().signal)
+        } catch { /* The assertion below distinguishes refusal from a billed send. */ }
+      },
+      async abruptRestart() {
+        const requestId = journal.state.budget!.requests[0]!.reservation.requestId
+        // Close durable storage first: the old host cannot record a graceful
+        // write-off. Its normal shutdown is only resource cleanup after the crash.
+        await storage!.close()
+        await host.dispose(); await extensions!.dispose(); setTeamEngine(null)
+        const durable = await LeadFileJournal.open(home, 'synthetic-thread', { canaries: [LEAD_RIG_KEY] })
+        try {
+          const inherited = await createLeadJournal(durable)
+          assert.ok(inherited.state.budget!.requests.some(one => one.reservation.requestId === requestId), 'reservation survives old-host teardown durably')
+          assert.ok(!inherited.state.budget!.settled.some(one => one.id === requestId), 'old host recorded no write-off')
+        } finally { await durable.close() }
+        storage = undefined; provider.interrupt()
+        await setupHost()
+        await service.recover()
+      },
       async workerWaiting() { await waitFor(() => journal.state.runs.some(run => host.teamPlane.stateFor(run.teamId).intents.some(card => card.role === 'implement' && card.state === 'claimed')), 'scripted worker reaches its gate') },
       async reviewed() { await sendGoal(); await waitFor(() => !!pending('plan'), 'plan'); await decide(pending('plan')!, 'approve'); await waitFor(() => !!pending('result'), 'reviewed result') },
       async interrupt() { provider.interrupt(); await waitFor(() => journal.state.phase === 'waiting-for-user' || journal.state.phase === 'stopped', 'interrupted request') },
@@ -305,6 +415,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         if (kind === 'unknown') {
           for (const id of ['rig-writer', 'rig-reviewer']) await chmod(join(home, id, 'sessions'), 0)
         } else {
+          if (kind === 'dollars' && options.workerSpend) await waitFor(() => journal.state.budget!.workerUsdMicros === workerMicros && workerMicros > 0, 'real ledger reports synthetic worker spend')
           const budget = leadBudgetProjection(journal.state.budget!, Date.now())
           await host.call('lead/settings/update', { expectedRevision: journal.state.seq, caps: { usdMicros: kind === 'dollars' ? budget.leadUsdMicros + budget.workerUsdMicros : budget.caps.usdMicros,
             rounds: kind === 'rounds' ? budget.roundsAdmitted : budget.caps.rounds } })

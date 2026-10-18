@@ -157,7 +157,8 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   const lead = raw['lead']
   if (lead !== undefined && (!object(lead) || raw['requireHeld'] !== true ||
     !['logicalGoalId', 'contractDigest', 'startId', 'stepId'].every(key => text(lead[key]) && lead[key] !== '') ||
-    !/^[a-f0-9]{64}$/.test(String(lead['contractDigest'])))) bad('has unreadable Lead authority')
+    !/^[a-f0-9]{64}$/.test(String(lead['contractDigest'])) ||
+    lead['base'] !== undefined && (!text(lead['base']) || !/^[a-f0-9]{40,64}$/.test(lead['base'])))) bad('has unreadable Lead authority')
   const reserving = raw['reserving']
   if (reserving !== undefined && (!object(reserving) || !text(reserving['goal']) || !reserving['goal'] || !integer(reserving['revision']))) {
     bad('names a Goal reservation it cannot describe')
