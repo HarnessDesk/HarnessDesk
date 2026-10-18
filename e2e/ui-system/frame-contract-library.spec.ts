@@ -70,14 +70,18 @@ test('E6 Library retains search and matrix under another destination', async ({ 
 test('E6 Library sections record visits while retaining local choices', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library', 'light')
   await expectDestinationTab(page, 'skill')
-  await page.getByRole('searchbox', { name: 'Search library', exact: true }).fill('design')
+  const search = page.getByRole('searchbox', { name: 'Search library', exact: true })
+  await search.fill('design')
   await selectFrameTab(page, 'mcp')
   await expectDestinationTab(page, 'mcp')
+  // Each section keeps its own search (#1773): MCP starts empty, Skills keeps what was typed.
+  await expect(search).toHaveValue('')
   await page.keyboard.press('Meta+[')
   await expectDestinationTab(page, 'skill')
+  await expect(search).toHaveValue('design')
   await page.keyboard.press('Meta+]')
   await expectDestinationTab(page, 'mcp')
-  await expect(page.getByRole('searchbox', { name: 'Search library', exact: true })).toHaveValue('design')
+  await expect(search).toHaveValue('')
 })
 for (const label of ['Teams', 'Agents', 'Plugins', 'Dashboard', 'Settings']) test(`E6 Library column ${label} door navigates away`, async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library', 'light')
