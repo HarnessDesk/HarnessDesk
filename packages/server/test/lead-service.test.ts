@@ -479,7 +479,7 @@ for (const mode of ['unknown', 'throw', 'malformed usage', 'in-flight', 'unknown
     return { status: 500, body: '{}', processing: 'unknown' }
   })
   try {
-    await providerReserve(s.journal, 'unproven')
+    await reserveThroughChild(s, 'unproven')
     const sending = s.rpc('unproven', providerBody()).catch(() => {})
     if (mode === 'in-flight') await providerUntil(() => calls === 1)
     else await sending
@@ -538,6 +538,54 @@ const refusedSettle = async (s: Awaited<ReturnType<typeof providerRig>>, request
   assert.equal(s.killed(), true, 'unproven settlement must stop the child')
   assert.equal(s.journal.state.budget?.settled.length, 0)
 }
+
+test('R9 refused inherited reserve cannot authorize a restarted child to zero settle billed usage', async t => {
+  const home = await mkdtemp('/tmp/hd-provider-r9-'), path = home + '/journal.json'
+  t.after(() => rm(home, { recursive: true, force: true }))
+  await writeFile(path, '[]')
+  const reopen = () => createLeadJournal({ read: async () => JSON.parse(await readFile(path, 'utf8')),
+    append: async record => { const records = JSON.parse(await readFile(path, 'utf8')); records.push(record); await writeFile(path, JSON.stringify(records)) } })
+  let billed = 0
+  const first = await providerRig(t, async () => {
+    billed++
+    return { status: 200, body: '{"usage":{"input_tokens":2000,"output_tokens":1000}}' }
+  }, { journal: await reopen() })
+  await reserveThroughChild(first, 'inherited-r9')
+  await first.rpc('inherited-r9', providerBody())
+  assert.equal(billed, 1)
+  const reserved = first.journal.state.budget!.reservedUsdMicros
+  assert.ok(reserved > 0)
+  await first.service.close()
+
+  const second = await providerRig(t, async () => { assert.fail('inherited request must not send again') }, { journal: await reopen() })
+  assert.equal(second.journal.state.budget?.requests[0]?.uncertain, false)
+  const before = second.replies.length
+  void reserveThroughChild(second, 'inherited-r9')
+  await providerUntil(() => second.stopped() === 1 || second.replies.length > before)
+  assert.equal(second.killed(), true, 'duplicate reserve must stop child 1')
+  assert.equal(second.replies.length, before)
+  assert.equal(second.journal.state.budget?.requests.length, 1)
+  assert.equal(second.journal.state.budget?.reservedUsdMicros, reserved)
+
+  await second.supervisor.ensure()
+  assert.equal(second.supervisor.live, true)
+  // The restarted synthetic child starts a fresh IPC request sequence.
+  second.child.stdout.write(providerFrame({ version: 1, type: 'rpc', id: 1, operation: 'updateBudget', args: [
+    { version: 1, type: 'settle', now: 100, requestId: 'inherited-r9', inputTokens: 0, outputTokens: 0 },
+  ] }))
+  await providerUntil(() => second.stopped() === 2 || second.replies.length > before)
+  assert.equal(second.stopped(), 2, 'zero settle must stop child 2; refused reserve grants no lifetime evidence')
+  assert.equal(second.replies.length, before)
+  assert.equal(second.journal.state.budget?.settled.length, 0)
+  await second.service.close()
+
+  const recovered = await providerRig(t, async () => { assert.fail('write-off must not send') }, { journal: await reopen() })
+  await recovered.journalRpc('recoverUnsettledRequests', [])
+  await recovered.journalRpc('updateBudget', [{ version: 1, type: 'write-off', now: 100, requestId: 'inherited-r9' }])
+  assert.equal(recovered.journal.state.budget?.leadUsdMicros, reserved)
+  assert.equal(recovered.journal.state.budget?.reservedUsdMicros, 0)
+  assert.deepEqual(recovered.journal.state.budget?.settled, [{ id: 'inherited-r9', digest: 'write-off', usdMicros: reserved }])
+})
 
 test('R7 inherited billed reservation refuses zero settle after persisted journal restart and writes off in full', async t => {
   const home = await mkdtemp('/tmp/hd-provider-restart-'), path = home + '/journal.json'

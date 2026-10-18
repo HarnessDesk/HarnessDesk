@@ -88,6 +88,8 @@ export class LeadService {
           if (!Object.hasOwn(options.prices, model) || !price ||
             event.inputUsdMicrosPerMillion !== price.inputUsdMicrosPerMillion || event.outputUsdMicrosPerMillion !== price.outputUsdMicrosPerMillion ||
             event.cacheReadUsdMicrosPerMillion !== price.cacheReadUsdMicrosPerMillion || event.cacheWriteUsdMicrosPerMillion !== price.cacheWriteUsdMicrosPerMillion) throw new Error('lead-budget-price')
+          if (options.journal.state.budget?.requests.some(request => request.reservation.requestId === event.requestId) ||
+            options.journal.state.budget?.settled.some(item => item.id === event.requestId)) throw new Error('lead-budget-request')
           this.#reservedHere.add(event.requestId)
         } else if (event.type === 'settle') {
           const recorded = this.#providerUsage.get(event.requestId)
