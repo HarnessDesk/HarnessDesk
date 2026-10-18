@@ -21,7 +21,7 @@ export interface MainPageInput {
   readonly libraryImportIntent: number
 }
 export const MAIN_PAGE_ENTRIES: Partial<Record<PageDestination['kind'], (input: MainPageInput) => ReactNode>> = {
-  lead: () => <LeadPage />,
+  lead: ({page}) => <LeadPage focus={page.kind === 'lead' ? page.focus : null} />,
   flows: ({page,visit}) => page.kind === 'flows'
     ? page.root === null
       ? <FlowsWindow onNew={root => visit({kind:'flows',root,id:null,origin:null})} onOpen={(root,id,origin) => visit({kind:'flows',root,id,origin})} />

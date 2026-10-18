@@ -1,9 +1,10 @@
+import { LeadSidebarEntry } from './LeadSidebarEntry'
 import { describeStrip, type StripMeter } from '../lib/plan-strip'
 import { SidebarUpdate } from './SidebarUpdate'
 import { LeftColumnModeHead } from '../design'
 import { SettingsNavigation } from './SettingsNavigation'
 import { LeftColumn, LeftColumnBody, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnTop, LeftColumnRow, LeftColumnSeat, LeftColumnGroup } from '../design'
-import { LeadIcon, LibraryIcon } from './Icons'
+import { LibraryIcon } from './Icons'
 import { Slot } from '../slots/registry'
 import { sidebarPlacement } from '../state/workbench'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -159,7 +160,7 @@ export const Sidebar = ({
     <Text role="wordmark" truncate title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
   </Bar>
   const pageDoors = [
-    ...(snapshot.leadAvailable ? [{ id: 'lead' as const, label: 'Lead', icon: <LeadIcon size={16} />, run: () => store.openDestination({ kind: 'lead' }), count: 0 }] : []),
+    ...(snapshot.leadAvailable ? [{ id: 'lead' as const, label: 'Lead', icon: null, run: () => store.openDestination({ kind: 'lead' }), count: 0 }] : []),
     { id: 'teams' as const, label: 'Teams', icon: <TeamIcon size={16} />, run: onOpenTeams, count: 0 },
     { id: 'flows' as const, label: 'Flows', icon: <FlowIcon size={16} />, run: onOpenFlows ?? (() => store.openDestination({kind:'flows',root:null,id:null,origin:null})), count: 0 },
     { id: 'agents' as const, label: 'Agents', icon: <AgentIcon size={16} />, run: onOpenAgents, count: 0 },
@@ -175,7 +176,7 @@ export const Sidebar = ({
         menu={{ icons: 'all', label: 'More ways to start', onOpenChange: open => { if (open) { void store.loadWorktrees(); if (snapshot.workspace) void store.refreshWorkspaceGit(snapshot.workspace.path) } },
           content: close => <WorktreeItems close={close} onBrowseFolders={onBrowseFolders} onChoose={() => { store.returnToWork(); setStarting(true) }} /> }} />
       <LeftColumnGroup label="Main sections" heading={false}>
-        {pageDoors.map(door => <LeftColumnRow key={door.id} label={door.label} icon={door.icon}
+        {pageDoors.map(door => door.id === 'lead' ? <LeadSidebarEntry key={door.id} selected={activeDestination === 'lead'} /> : <LeftColumnRow key={door.id} label={door.label} icon={door.icon}
           selected={activeDestination === door.id} onClick={door.run}
           title={door.id === 'agents' && agentsBroken ? 'Agents, some unavailable' : door.label}
           trailing={door.count > 0 ? { kind: 'count', value: door.count,

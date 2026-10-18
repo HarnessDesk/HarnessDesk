@@ -158,3 +158,13 @@ test('pending-plan derivation cannot override an explicit person wait during rec
   assert.equal(state.phase, 'waiting-for-user')
   assert.equal(state.managementReason, 'lead-request-cancelled')
 })
+
+test('a checkpoint defaults only absent name state and rejects a null name', () => {
+  const state = lead.initialLeadState()
+  const changed = lead.reduceLeadRecord(state, { version: 1, seq: 1, type: 'settings-changed', name: 'lex' })
+  const checkpoint = lead.leadCheckpoint(changed, '0'.repeat(64))
+  const legacy = JSON.parse(JSON.stringify(checkpoint)); delete legacy.state.name; delete legacy.state.decisionMessages
+  assert.equal(lead.parseLeadCheckpoint(legacy).state.name, 'dex')
+  const malformed = JSON.parse(JSON.stringify(checkpoint)); malformed.state.name = null
+  assert.throws(() => lead.parseLeadCheckpoint(malformed))
+})

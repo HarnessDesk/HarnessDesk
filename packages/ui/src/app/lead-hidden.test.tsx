@@ -59,10 +59,10 @@ it('registers the enabled destination and mounts its design-system page and comp
   const store = new AppStore('ws://localhost:0/')
   seed(store, true); store.openDestination(lead)
   const box = await mount(store)
-  expect(box.querySelector('[data-page-destination="lead"] [data-slot="page"]')).not.toBeNull()
-  expect(box.querySelector('h1')?.textContent).toBe('Lead')
+  expect(box.querySelector('[data-page-destination="lead"] [data-slot="conversation-empty-state"]')).not.toBeNull()
+  expect(box.querySelector('[data-slot="conversation-shell"]')).not.toBeNull()
   expect(box.querySelector('textarea[aria-label="Goal or message"]')).not.toBeNull()
-  expect([...box.querySelectorAll('button')].some(button => button.textContent === 'Settings')).toBe(true)
+  expect(box.querySelector('[data-page-destination="lead"] button[aria-label="Lead settings"]')).toBeNull()
   await act(async () => { store.returnToWork(); await store.navigateBack() })
   expect(store.getSnapshot().workbench.navigation.current).toEqual(lead)
 })
@@ -124,11 +124,11 @@ it('the enabled sidebar click opens the Lead destination', async () => {
   const store = new AppStore('ws://localhost:0/')
   seed(store, true)
   const box = await mount(store, true)
-  const door = [...box.querySelectorAll('button')].find(button => button.textContent === 'Lead')!
+  const door = [...box.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Dex')!
   expect(door).toBeDefined()
   await act(async () => { door.click(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
   expect(store.getSnapshot().workbench.navigation.current).toEqual(lead)
-  expect(box.querySelector('[data-page-destination="lead"] h1')?.textContent).toBe('Lead')
+  expect(box.querySelector('[data-page-destination="lead"] [data-slot="conversation-shell"]')).not.toBeNull()
 })
 
 it('rechecks the host capability when a transport reconnects', async () => {

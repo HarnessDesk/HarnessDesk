@@ -1,4 +1,4 @@
-import { LeadContractSpecimen } from '../../preview/frames-lead'
+import { LeadAvatarSpecimen, LeadContractSpecimen } from '../../preview/frames-lead'
 import { PagePreview } from '../../preview/page-preview'
 import { InfoCardBody, SubjectActionsMenu } from '..'
 import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
@@ -3252,10 +3252,11 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     about: 'A change, with its sign said in colour as well as in punctuation.',
     render: DeltaBoard,
   },
+  { id: 'lead-avatar', title: 'Lead avatar', about: 'Dex and Lex share one artwork slot.', render: LeadAvatarSpecimen },
   {
     id: 'lead-contract',
     title: 'Lead contract',
-    about: 'Revision-qualified person decisions from the app’s row grammar.',
+    about: 'Assistant prose and the shared docked approval surface.',
     render: LeadContractSpecimen,
   },
   {

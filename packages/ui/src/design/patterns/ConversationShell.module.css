@@ -1,0 +1,24 @@
+.shell {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
+}
+.dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--shared-composer-h, 0px);
+  z-index: var(--hd-z-sticky);
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+.dock > * { pointer-events: auto; }

@@ -332,7 +332,7 @@ export class LeadService {
   setKey(provider: 'anthropic', key: string): Promise<void> {
     const check = () => {
       const state = this.options.journal.state
-      if (leadContainsSecret([state.messages, state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))], key))
+      if (leadContainsSecret([state.messages, state.decisionMessages, state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))], key))
         throw publicRefusal('lead-secret-in-thread')
     }
     try { check() } catch (error) { return Promise.reject(error) }

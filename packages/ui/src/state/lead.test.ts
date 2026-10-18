@@ -5,7 +5,7 @@ const load = async () => {
   expect(typeof modules['./lead.ts'], 'typed Lead facade must exist').toBe('function')
   return await modules['./lead.ts']!() as any
 }
-const settings = { version: 1, model: 'fixture-model', key: { configured: false, protection: 'unavailable' },
+const settings = { version: 1, name: 'dex', model: 'fixture-model', key: { configured: false, protection: 'unavailable' },
   policy: { version: 1, revision: 1, mode: 'default', rules: [] }, caps: { usdMicros: 100, rounds: 3 } }
 const thread = (revision = 1, state = 'draft', cards: unknown[] = []) => ({ version: 1, id: 'lead', revision, state,
   project: null, olderMessages: 0, messages: [], cards })

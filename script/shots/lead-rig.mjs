@@ -35,7 +35,7 @@ try {
       page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 1, reducedMotion: 'reduce' })
       await page.goto(`${server.url}/?token=${server.token}`)
       await page.waitForFunction(() => window.__hdStore?.getSnapshot().status === 'open')
-      await page.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Lead', exact: true }).click()
+      await page.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Dex', exact: true }).click()
       await page.getByRole('textbox', { name: 'Goal or message', exact: true }).fill('Repair checkout retry and review both steps')
       await page.getByRole('button', { name: 'Send', exact: true }).click()
       if (state === 'planning') {
@@ -45,9 +45,9 @@ try {
         await rig.waitFor(() => rig.provider.requests.length === 1, 'interrupted request starts')
         await rig.interrupt()
         await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeVisible({ timeout: 30_000 })
-        await expect(page.getByRole('form', { name: 'Lead composer' })).toContainText('interrupted')
+        await expect(page.locator('[data-slot="conversation-dock"]')).toContainText('interrupted')
       } else {
-        const approve = page.locator('[data-lead-card-type="plan"]').getByRole('button', { name: 'Approve', exact: true })
+        const approve = page.locator('[data-lead-decision-type="plan"]').getByRole('button', { name: 'Approve', exact: true })
         await expect(approve).toBeVisible({ timeout: 30_000 })
         if (state !== 'approval') {
           await approve.click()
@@ -55,15 +55,15 @@ try {
             await rig.waitFor(() => rig.journal.state.runs.length > 0, 'approved Flow starts')
             await page.waitForFunction(() => window.__hdStore.lead.state.thread?.state === 'running')
           }
-          if (state === 'waiting') await expect(page.locator('[data-lead-card-type="waiting"]').getByRole('button', { name: 'Open approvals', exact: true })).toBeVisible({ timeout: 90_000 })
-          if (state === 'result') await expect(page.locator('[data-lead-card-type="result"]').getByRole('button', { name: 'Accept', exact: true })).toBeVisible({ timeout: 90_000 })
+          if (state === 'waiting') await expect(page.locator('[data-lead-decision-type="waiting"]').getByRole('button', { name: 'Open approvals', exact: true })).toBeVisible({ timeout: 90_000 })
+          if (state === 'result') await expect(page.locator('[data-lead-decision-type="result"]').getByRole('button', { name: 'Accept', exact: true })).toBeVisible({ timeout: 90_000 })
           if (state === 'stopped') {
-            await page.locator('[data-page-destination="lead"]').getByRole('button', { name: 'Settings', exact: true }).click()
-            const settings = page.getByRole('dialog', { name: 'Lead settings', exact: true })
+            await page.getByRole('button', { name: 'Lead settings', exact: true }).click()
+            const settings = page.locator('[data-page-destination="settings"]')
             await settings.getByLabel('Dollar allowance', { exact: true }).fill('0')
             await settings.getByRole('button', { name: 'Save allowances', exact: true }).click()
             await rig.waitFor(() => rig.journal.state.phase === 'stopped', 'zero allowance stops dispatch')
-            await settings.getByRole('button', { name: 'Done', exact: true }).click()
+            await page.getByRole('button', { name: 'Back', exact: true }).click()
             await page.waitForFunction(() => window.__hdStore.lead.state.thread?.state === 'stopped')
           }
         }
@@ -78,9 +78,9 @@ try {
         await page.evaluate(async () => { await document.fonts.ready; await new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))) })
         const surface = page.locator('[data-page-destination="lead"]')
         await expect(surface).toBeVisible()
-        if (state === 'approval') await surface.locator('[data-lead-card-type="plan"]').scrollIntoViewIfNeeded()
-        if (state === 'waiting') await surface.locator('[data-lead-card-type="waiting"]').scrollIntoViewIfNeeded()
-        if (state === 'result') await surface.locator('[data-lead-card-type="result"]').scrollIntoViewIfNeeded()
+        if (state === 'approval') await surface.locator('[data-lead-decision-type="plan"]').scrollIntoViewIfNeeded()
+        if (state === 'waiting') await surface.locator('[data-lead-decision-type="waiting"]').scrollIntoViewIfNeeded()
+        if (state === 'result') await surface.locator('[data-lead-decision-type="result"]').scrollIntoViewIfNeeded()
         const reasons = textReasons(await page.evaluate(COLLECT), { user: USER })
         if (reasons.length) throw new Error(reasons.join('\n'))
         const filename = `${state}-${name}-${theme}.png`

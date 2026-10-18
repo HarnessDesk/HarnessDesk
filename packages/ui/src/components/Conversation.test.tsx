@@ -197,7 +197,7 @@ it('loads in the same column as every other empty state, clear of the composer',
   // shape. Pane-filling empty states keep the word in place; notice-only
   // restores move the explanation up beside their notice.
   const column = empty?.parentElement
-  expect(column?.dataset.slot).toBe('pane-column')
+  expect(column?.dataset.slot).toBe('conversation-thread')
   expect(column?.dataset.inset).toBe('reading')
   expect(column?.style.padding).toContain('--composer-h')
 })
@@ -638,7 +638,7 @@ it('a click on a link inside the transcript releases the pin', () => {
   render(rig(transcriptSession()).store)
   expect(jumpToLatest()).toBeUndefined()
 
-  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const scrollEl = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   const link = document.createElement('a')
   link.href = '#'
   link.textContent = 'the log'
@@ -652,7 +652,7 @@ it('a selection landing inside the transcript releases the pin', () => {
   render(rig(transcriptSession()).store)
   expect(jumpToLatest()).toBeUndefined()
 
-  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const scrollEl = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   const text = document.createTreeWalker(scrollEl, NodeFilter.SHOW_TEXT).nextNode()
   if (!text) throw new Error('no text node in the transcript to select')
   const range = document.createRange()
@@ -670,7 +670,7 @@ it('a selection landing inside the transcript releases the pin', () => {
 
 it('a collapsed selection (a plain click) does not release the pin', () => {
   render(rig(transcriptSession()).store)
-  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const scrollEl = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   const text = document.createTreeWalker(scrollEl, NodeFilter.SHOW_TEXT).nextNode()
   if (!text) throw new Error('no text node in the transcript to select')
   const range = document.createRange()
@@ -694,7 +694,7 @@ it('a collapsed selection (a plain click) does not release the pin', () => {
 
 it('a selection outside the transcript — in the dock area a composer shares — does not release the pin', () => {
   render(rig(transcriptSession()).store)
-  const dock = container.getElementsByClassName(styles.dockArea!)[0]!
+  const dock = container.querySelectorAll('[data-slot="conversation-dock"]')[0]!
   const note = document.createElement('span')
   note.textContent = 'not the transcript'
   dock.appendChild(note)
@@ -748,7 +748,7 @@ it('a selection in a second conversation pane does not release the first pane’
   })
 
   const [firstPane, secondPane] = [...container.firstElementChild!.children]
-  const [firstScroll, secondScroll] = [...container.getElementsByClassName(styles.scroll!)]
+  const [firstScroll, secondScroll] = [...container.querySelectorAll('[data-slot="conversation-thread"]')]
   expect(firstScroll).toBeDefined()
   expect(secondScroll).toBeDefined()
 
@@ -777,11 +777,11 @@ it('only the transcript’s own scroll container is marked as the live transcrip
   // No turns: the "Nothing to show" pitch is what `.scroll` holds here, and
   // a selection landing in it must not be mistaken for one in the transcript.
   render(rig(session({ updatedAt: 9_000 })).store)
-  const emptyScroll = container.getElementsByClassName(styles.scroll!)[0]!
+  const emptyScroll = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   expect(emptyScroll.hasAttribute('data-live-transcript')).toBe(false)
 
   render(rig(transcriptSession()).store)
-  const liveScroll = container.getElementsByClassName(styles.scroll!)[0]!
+  const liveScroll = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   expect(liveScroll.hasAttribute('data-live-transcript')).toBe(true)
 })
 
@@ -790,7 +790,7 @@ it('a new turn re-engages follow, undoing an earlier release', () => {
   const { store } = rig(session({ updatedAt: 9_000, turns: [first] }))
   render(store)
 
-  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const scrollEl = container.querySelectorAll('[data-slot="conversation-thread"]')[0]!
   const link = document.createElement('a')
   link.href = '#'
   link.textContent = 'a link'
@@ -1039,7 +1039,7 @@ it('a refused local file entry consumes the link instead of falling through to b
   const { store } = rig(transcriptSession()); store.enterEditorFile = vi.fn(() => false)
   render(store)
   const link = document.createElement('a'); link.setAttribute('href', '/repo/file.ts:12')
-  container.getElementsByClassName(styles.scroll!)[0]!.append(link)
+  container.querySelectorAll('[data-slot="conversation-thread"]')[0]!.append(link)
   const event = new MouseEvent('click', { bubbles: true, cancelable: true })
   act(() => link.dispatchEvent(event))
   expect(event.defaultPrevented).toBe(true)

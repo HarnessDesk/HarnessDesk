@@ -2332,43 +2332,29 @@ Add a runtime keeps the machine's catalogue first. Browse more… reveals the
 registry, with one MenuNote for its third-party, unreviewed status. It does not
 change an entry's add, download, blocked or registered behaviour.
 
-## Lead decisions in a reading column
+## Lead is a conversation
 
-`LeadJournal` owns the reading-width page: the body starts with Lead and Settings,
-without a title glyph. The journal uses the transcript's `Message`, `MessageContent`,
-`Bubble` and `BubbleContent` alignment and rhythm. Lead turns are assistant turns;
-each message exposes its speaker through an article role.
-It follows new entries until the person scrolls up. Review plan scrolls to and
-focuses the newest pending plan. The journal is a labelled region, keeping live
-announcements separate from its interactive decisions.
+Lead and a session share ConversationShell, ConversationThread, ConversationDock,
+ComposerShell reading and the same top-bar registration. LeadMessage uses Items;
+assistant decision prose uses the same TranscriptAssistantMessage frame as Items.
+The empty state is ConversationEmptyState with a single LeadAvatar slot and one
+short greeting. The chosen name occupies the title slot and composer placeholder.
+The tools slot holds one settings glyph opening Settings › Lead.
 
-The composer uses `ComposerShell`, `ComposerText`, `ComposerTools` and
-`ComposerSend`. Its allowance chips share the action row with Send. Enter sends;
-Shift+Enter keeps a line break. Pending state belongs to Send.
+LeadContract is borderless assistant prose. Its plan is a numbered list, acceptance
+checks, allowance/folder meta and the separate-approval fine print. Its result
+uses compact qualified statuses, reason prose and separately attributed spend.
+No internal ids or revision facts render. Decisions use the canonical docked
+ApprovalDialog and its keyboard policy, pending states, one filled action and
+focusable surface. The thread retains a one-word decided state. Window revision
+and digest fences, the page-wide decision lock and explicit focus return remain.
+Automatic plan arrivals never move composer focus; Review plan explicitly focuses
+the dock. Refusal, Resume and renewal banners remain beside it.
 
-`LeadContract` composes the shared `Card` and `CardContent` as one surface: kind and state on the header's
-left, revision as a fact on its right, then a Markdown summary, inset Rows groups
-and one wrapping action row. `Rows variant="inset"` inherits the card surface
-and has no bottom margin, so the page stack token alone spaces groups. The pattern requires a StoreProvider for Markdown. Internal
-recipe, source, digest and evidence ids never appear. Steps show their title and the agent's presentation name and model;
-assertion kinds use Check, Review and Findings chips. Permission methods share
-one closed human label table with settings; their wire ids are hover facts only.
-
-A worker command approval is a short card saying a worker is waiting, with one
-Open approvals button. Person gates alone have Accept and Decline. Evidence
-requires the current contract revision and a non-empty evidence list; everything
-else reads Unknown. Lead spend and reported worker spend remain separate facts.
-One decision is in flight across the page. A refusal keeps focus on its card.
-A renewal says when the earlier approval expired, using the shared minute-level
-notice formatter, and wears a Renewal chip. Automatic plan updates scroll
-without moving composer focus; an explicit Review plan also focuses the card.
-
-Settings has Provider key, Permissions and Allowances groups. Key status is a
-chip; Add… or Replace… reveals a password input with Save and Cancel. Remove
-uses ConfirmDialog. The key is trimmed and the uncontrolled input emptied before
-its exclusive request. Permissions and Allowances each have one Save at their
-group's end, right-aligned at normal width and enabled only for changed values.
-The key row is Key; its editor closes after a successful save. The dollar row
-carries the reported-spend hint. A plain `FormStack` groups the settings inside
-the bounded dialog; hints wrap,
-only the body scrolls, and Done stays in the footer. Refusals appear in the active dialog and clear on close.
+Settings › Lead uses canonical Section, Rows, Row, Input and Button patterns,
+ordered Name, Provider key, Allowances, Permissions. LeadNameChoice composes the
+existing two-choice control. Name changes save immediately; authority widening
+shows a waiting sentence and Open to the conversation decision. The uncontrolled
+password input is emptied before its exclusive request, even when refused.
+There is no settings dialog or inset Rows variant. LeadAvatar is the sole slot
+for future Dex/Lex artwork and uses the shared round identity tile and type tokens.

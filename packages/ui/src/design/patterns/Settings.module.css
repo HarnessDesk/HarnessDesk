@@ -906,15 +906,6 @@
 }
 
 /* A group inset in another card inherits that card's surface. */
-.rows[data-variant='inset'] {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  margin-bottom: 0;
-}
-.rows[data-variant='inset'] + .rows[data-variant='inset'] {
-  border-top: var(--hd-border-width) solid var(--hd-border);
-}
 
 /* In a dialog the form stack spaces its cards. */
 .rows[data-context='dialog'] {

@@ -1,7 +1,7 @@
 import type { FlowOrigin, RuntimeId, StartContext } from '@harnessdesk/protocol'
 import { readView, type PaneView } from './layout'
 
-export const SETTINGS_SECTIONS = ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage', 'runtimes', 'models', 'skills', 'extensions', 'permissions', 'browser'] as const
+export const SETTINGS_SECTIONS = ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage', 'runtimes', 'models', 'skills', 'extensions', 'permissions', 'browser', 'lead'] as const
 export type SettingsSection = typeof SETTINGS_SECTIONS[number]
 export type WorkView = Extract<PaneView, { kind: 'conversation' | 'room' }>
 export interface FlowPageStart {
@@ -18,7 +18,7 @@ export type SettingsRoute =
   | { readonly kind: 'runtime'; readonly runtime: RuntimeId }
   | { readonly kind: 'account'; readonly runtime: RuntimeId; readonly key: string }
 export type PageDestination =
-  | { readonly kind: 'lead' }
+  | { readonly kind: 'lead'; readonly focus?: string }
   | { readonly kind: 'settings'; readonly route: SettingsRoute }
   | { readonly kind: 'dashboard'; readonly view: 'overview' | 'plans' | 'spend' | 'activity' | 'projects'; readonly scope: RuntimeId | null }
   | { readonly kind: 'agents'; readonly id: string | null }
@@ -93,7 +93,7 @@ const workView = (raw: unknown): WorkView | null => {
   const view = readView(raw)
   return view.kind === 'conversation' || view.kind === 'room' ? view : null
 }
-export const destinationAvailable = (destination: Destination, leadAvailable = false): boolean => destination.kind !== 'lead' || leadAvailable
+export const destinationAvailable = (destination: Destination, leadAvailable = false): boolean => (destination.kind !== 'lead' && !(destination.kind === 'settings' && destination.route.kind === 'section' && destination.route.section === 'lead')) || leadAvailable
 
 /** Withdrawing a capability removes its visits, including dormant Back/Forward entries. */
 export const availableDestinationHistory = (history: DestinationHistory, fallback: () => Destination, leadAvailable = false): DestinationHistory => {
@@ -106,13 +106,14 @@ export const readDestination = (raw: unknown, leadAvailable = false): Destinatio
   const data = object(raw)
   if (!data) return null
   switch (data.kind) {
-    case 'lead': return leadAvailable ? { kind: 'lead' } : null
+    case 'lead': return leadAvailable ? { kind: 'lead', ...(typeof data.focus === 'string' ? { focus: data.focus } : {}) } : null
     case 'work': { const view = workView(data.view); return view ? destinationOf(view) : null }
     case 'settings': {
       const route = object(data.route)
       if (!route) return null
       switch (route.kind) {
-        case 'section': return oneOf(route.section, SETTINGS_SECTIONS) && nullable(route.focus)
+        case 'section': if (route.section === 'lead' && !leadAvailable) return { kind: 'settings', route: { kind: 'section', section: 'runtimes', focus: null } }
+          return oneOf(route.section, SETTINGS_SECTIONS) && nullable(route.focus)
           ? { kind: 'settings', route: { kind: 'section', section: route.section, focus: route.focus } } : null
         case 'project': return string(route.root) ? { kind: 'settings', route: { kind: 'project', root: route.root } } : null
         case 'skill': return string(route.name) ? { kind: 'settings', route: { kind: 'skill', name: route.name } } : null

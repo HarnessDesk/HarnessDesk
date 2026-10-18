@@ -24,9 +24,17 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // Earlier checkpoints predate inline ordering; their retained card order is
   // preserved at the retained suffix boundary. Stable ordering puts all saved
   // cards after that message and before the next journal write.
-  const source = threadSource && !Object.hasOwn(threadSource, 'cardPositions')
-    ? { ...threadSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : threadSource
+  const namedSource = threadSource && { ...threadSource, name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
+  const source = namedSource && !Object.hasOwn(namedSource, 'cardPositions')
+    ? { ...namedSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : namedSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
+  assert(source.name === 'dex' || source.name === 'lex')
+  assert(Array.isArray(source.decisionMessages) && source.decisionMessages.length <= 64)
+  for (const message of source.decisionMessages) {
+    assert(Object.keys(message).sort().join() === ['card', 'choice', 'position'].sort().join())
+    parseLeadCard(message.card)
+    assert(['approve', 'accept', 'decline'].includes(message.choice) && Number.isSafeInteger(message.position) && message.position > 0 && message.position <= source.seq)
+  }
   assert(Number.isSafeInteger(source.seq) && source.seq > 0 && source.seq === checkpoint.seq)
   assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'].includes(source.phase))
   parseLeadJournalRecord({ version: 1, seq: 1, type: 'management', phase: 'waiting-for-user', reason: source.managementReason })

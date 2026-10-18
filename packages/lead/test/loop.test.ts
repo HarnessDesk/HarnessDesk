@@ -857,3 +857,15 @@ test('an oversized host result parks with the typed admission reason', async () 
     assert.equal(s.journal.state.cards.some(card => card.type === 'result'), false)
   } finally { await loop.close() }
 })
+
+
+test('the chosen Lead name enters the system prompt without changing authority', async () => {
+  const s = await fixture([message()])
+  await (s.journal as any).settingsChanged('lex')
+  const before = s.journal.state.policy
+  const loop = exported('createLeadLoop')(s.options)
+  await loop.request(input)
+  assert.match(JSON.stringify(s.fake.requests[0]), /Your name is Lex\./)
+  assert.deepEqual(s.journal.state.policy, before)
+  await loop.close()
+})

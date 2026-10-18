@@ -1,3 +1,4 @@
+import { LeadSettingsSection } from './LeadSettings'
 import SettingsNewConversations from './SettingsNewConversations'
 import { Toolbar } from '../design'
 import type { SettingsRoute, SettingsSection } from '../state/destinations'
@@ -118,6 +119,7 @@ export type Section =
   | 'plugins'
   | 'permissions'
   | 'browser'
+  | 'lead'
 
 /**
  * The pages that used to exist, mapped to where their rows went.
@@ -137,10 +139,10 @@ const MOVED: Readonly<Record<string, Section>> = {
 }
 const SECTIONS: readonly Section[] = [
   'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage',
-  'runtimes', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser',
+  'runtimes', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser', 'lead',
 ]
-export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes'): Section =>
-  name && (SECTIONS as readonly string[]).includes(name)
+export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes', leadAvailable = false): Section =>
+  name === 'lead' && !leadAvailable ? fallback : name && (SECTIONS as readonly string[]).includes(name)
     ? (name as Section)
     : (name && MOVED[name]) || fallback
 
@@ -1678,7 +1680,7 @@ const WorktreeRows = () => {
 const SETTINGS_LABELS = {
   profile: 'Profile', general: 'General', appearance: 'Appearance', notifications: 'Notifications', shortcuts: 'Keyboard shortcuts',
   workspaces: 'Workspaces', archive: 'Archive', history: 'History', storage: 'Storage', runtimes: 'Runtimes', models: 'Models',
-  skills: 'Skills', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser',
+  skills: 'Skills', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser', lead: 'Lead',
 } as const
 export const Settings = ({ route, onRoute, onSignIn }: {
   readonly route: SettingsRoute; readonly onRoute: (route: SettingsRoute) => void; readonly onSignIn: (runtime: RuntimeId) => void
@@ -1687,13 +1689,14 @@ export const Settings = ({ route, onRoute, onSignIn }: {
 
   const store = useStore(), runtime = useRuntime(), snapshot = useSnapshot()
   const { active } = useDestinationPage()
-  const section: SettingsSection = route.kind === 'section' ? route.section : route.kind === 'project' ? 'workspaces' : route.kind === 'skill' ? 'skills' : 'runtimes'
+  const section: SettingsSection = route.kind === 'section' ? route.section === 'lead' && !snapshot.leadAvailable ? 'runtimes' : route.section : route.kind === 'project' ? 'workspaces' : route.kind === 'skill' ? 'skills' : 'runtimes'
   const focus = route.kind === 'section' ? route.focus : null
   const sectionRoute = (next: SettingsSection, nextFocus: string | null = null): void => onRoute({ kind: 'section', section: next, focus: nextFocus })
   const hasExtensions = runtime.capabilities.extensionStore || runtime.capabilities.mcp
   useEffect(() => {
     if (!destinationActive) return
- if (active && section === 'extensions' && !hasExtensions) sectionRoute('runtimes') }, [destinationActive, active, section, hasExtensions])
+ if (active && route.kind === 'section' && route.section === 'lead' && !snapshot.leadAvailable) sectionRoute('runtimes')
+ if (active && section === 'extensions' && !hasExtensions) sectionRoute('runtimes') }, [destinationActive, active, section, hasExtensions, snapshot.leadAvailable])
   const runtimeView: RuntimeSettingsView = route.kind === 'runtime' ? { kind: 'agent', runtime: route.runtime }
     : route.kind === 'account' ? { kind: 'account', runtime: route.runtime, key: route.key }
     : route.kind === 'add-runtime' ? { kind: 'add' } : { kind: 'list' }
@@ -1728,6 +1731,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
       onSkill={name => name ? onRoute({ kind: 'skill', name }) : sectionRoute('skills')} onUse={() => store.returnToWork()} />}
     {section === 'permissions' && <PermissionsSection focus={focus} />}
     {section === 'browser' && <BrowserSection />}
+    {section === 'lead' && snapshot.leadAvailable && <LeadSettingsSection />}
   </Page>
 }
 

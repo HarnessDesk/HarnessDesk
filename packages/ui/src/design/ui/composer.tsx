@@ -1,6 +1,7 @@
 import { forwardRef, type ComponentProps } from 'react'
 
 import { CrossIcon } from '@/components/Icons'
+import styles from './composer.module.css'
 import { cn } from '@/lib/utils'
 
 /**
@@ -66,9 +67,10 @@ ComposerDock.displayName = 'ComposerDock'
  * attach button has not left the box. And it deepens the shadow rather than
  * lighting an accent ring — the box says it has your keystrokes; it is not
  * asking for attention.
+ *
+ * `reading` shares the positioned, centered session composer width with non-session threads.
  */
-
-const ComposerShell = ({ className, ...props }: React.ComponentProps<'div'>) => (
+const ComposerShell = ({ className, reading = false, ...props }: React.ComponentProps<'div'> & { reading?: boolean }) => (
   <div
     data-slot="composer"
     className={cn(
@@ -82,6 +84,7 @@ const ComposerShell = ({ className, ...props }: React.ComponentProps<'div'>) => 
       // one of them one keystroke from the other.
       'transition-shadow focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),var(--hd-composer-shell-shadow-focus)]',
       'focus-within:ring-(--hd-border-heavy)',
+      reading && styles.reading,
       className,
     )}
     {...props}

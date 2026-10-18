@@ -9,9 +9,9 @@ import { leadContract, leadPlan, leadResult, leadRuntime, leadWaiting } from '..
 const modules = import.meta.glob('./LeadCards.tsx', { eager: true }) as Record<string, { LeadCards: React.ComponentType<any> }>
 const LeadCards = modules['./LeadCards.tsx']?.LeadCards ?? (() => null)
 const handlers = vi.hoisted(() => [] as { onApprove?: () => void }[])
-vi.mock('../design', async importOriginal => {
-  const actual = await importOriginal<typeof import('../design')>()
-  return { ...actual, LeadContract: (props: React.ComponentProps<typeof actual.LeadContract>) => { handlers.push(props); return <actual.LeadContract {...props} /> } }
+vi.mock('./LeadDecision', async importOriginal => {
+  const actual = await importOriginal<typeof import('./LeadDecision')>()
+  return { ...actual, LeadDecision: (props: React.ComponentProps<typeof actual.LeadDecision>) => { handlers.push(props); return <actual.LeadDecision {...props} /> } }
 })
 const clean: (() => void)[] = []
 afterEach(() => { clean.splice(0).forEach(fn => fn()); handlers.length = 0 })
@@ -21,7 +21,7 @@ const mount = (cards: readonly LeadCard[], decide = vi.fn(async () => {})) => {
   render(cards); clean.push(() => { act(() => root.unmount()); box.remove() })
   return { box, render, decide }
 }
-const button = (box: Element, name: string) => [...box.querySelectorAll('button')].find(node => node.textContent === name)!
+const button = (box: Element, name: string) => [...box.querySelectorAll('button')].find(node => (node.getAttribute('aria-label') ?? node.textContent) === name)!
 it('fences decisions to the seen card revision and digest, replacing stale controls in place', async () => {
   const { box, render, decide } = mount([leadPlan])
   const old = button(box, 'Approve'); expect(old).toBeDefined()
@@ -40,8 +40,8 @@ it('never enables a worker approval and links to the existing approval surface',
 it('keeps missing checks, review, findings and worker spend explicitly unknown', () => {
   const { box } = mount([{ ...leadResult, assertions: [], budget: { ...leadResult.budget, spend: 'unknown' } } as LeadCard])
   expect(box.textContent).toContain('Checks'); expect(box.textContent).toContain('Review'); expect(box.textContent).toContain('Findings')
-  expect(box.textContent?.match(/Unknown/g)?.length).toBeGreaterThanOrEqual(4)
-  expect(box.textContent).not.toContain('Passed')
+  expect(box.textContent?.match(/unknown/g)?.length).toBeGreaterThanOrEqual(4)
+  expect(box.textContent).not.toContain('passed')
 })
 it('sanitizes unsafe summaries and findings', () => {
   const { box } = mount([{ ...leadWaiting, summary: '<script>alert(1)</script><img src=x onerror=alert(1)><a href="javascript:alert(1)">Read</a>', assertions: [{ ...leadWaiting.assertions[0]!, reason: '<svg onload=alert(1)>unsafe</svg>' }] } as LeadCard])
@@ -64,11 +64,11 @@ it.each(['stale contract', 'empty passed evidence', 'empty failed evidence'] as 
   const assertions = leadContract.assertions.map(assertion => ({ assertionId: assertion.id, revision: 1, contractRevision: scenario === 'stale contract' ? 99 : leadContract.revision,
     status: scenario === 'empty failed evidence' ? 'failed' as const : 'passed' as const, evidence: scenario === 'stale contract' ? [{ kind: 'check' as const, id: 'synthetic', revision: 'synthetic-head' }] : [], reason: null }))
   const { box } = mount([{ ...leadResult, assertions }])
-  expect(box.textContent).not.toContain('Passed'); expect(box.textContent).not.toContain('Failed')
+  expect(box.textContent).not.toContain('passed'); expect(box.textContent).not.toContain('failed')
 })
 it('renders Passed only for qualified non-empty evidence', () => {
   const assertions = leadContract.assertions.map(assertion => ({ assertionId: assertion.id, revision: 1, contractRevision: leadContract.revision, status: 'passed' as const, evidence: [{ kind: 'check' as const, id: 'synthetic', revision: 'synthetic-head' }], reason: null }))
-  const { box } = mount([{ ...leadResult, assertions }]); expect(box.textContent?.match(/Passed/g)).toHaveLength(3)
+  const { box } = mount([{ ...leadResult, assertions }]); expect(box.textContent?.match(/passed/g)).toHaveLength(3)
 })
 it('rejects retained stale decision callbacks independently of DOM removal', async () => {
   const { render, decide } = mount([leadPlan]); const old = handlers.at(-1)!.onApprove!
@@ -88,7 +88,7 @@ it('renders a worker as a short presentation-labelled card', () => {
   expect(box.textContent).not.toContain('Lead spend'); expect(box.textContent).not.toContain('Checks')
   expect(box.querySelectorAll('button')).toHaveLength(1)
 })
-it('keeps internal identifiers out of cards and uses human assertion chips', () => {
+it('keeps internal identifiers out of cards and uses compact assertion statuses', () => {
   const { box } = mount([leadPlan, leadResult])
   for (const text of ['lead-reviewed-result', 'recipe-1', 'attended', 'Ceiling:', 'task:', 'head-demo', leadContract.digest, 'Assertion revision', 'Contract revision']) expect(box.textContent).not.toContain(text)
   expect(box.textContent).toContain('Demo runtime · demo-model'); expect(box.textContent).toContain('Findings')
@@ -100,13 +100,13 @@ it.each(['permission-change', 'budget-change'] as const)('gives %s a summary ins
     proposed: { ...policy, revision: 2, mode: 'manage', rules: [{ id: 'rule', effect: 'allow', method: 'flow/start-goal', action: null, project: null }] } }
     : { version: 1, id: 'caps', logicalGoalId: 'synthetic-goal', revision: 1, type, contractDigest: leadContract.digest, previous: { revision: 1, caps: leadContract.caps }, proposed: { usdMicros: 6000000, rounds: 5 } }
   const { box } = mount([card]); expect(box.querySelector('[data-lead-prose]')).not.toBeNull()
-  if (type === 'permission-change') { expect(box.textContent).toContain('Start a run'); expect(box.textContent).not.toContain('flow/start-goal'); expect(box.querySelector('[title="flow/start-goal"]')).not.toBeNull() }
+  if (type === 'permission-change') { expect(box.textContent).toContain('Start a run'); expect(box.textContent).not.toContain('flow/start-goal') }
 })
 
 it('does not attribute a worker approval to every runtime in the plan', () => {
   const box = document.createElement('div'), root = createRoot(box)
   const other = { ...leadRuntime, id: 'second-runtime', presentation: { ...leadRuntime.presentation, name: 'Second worker' } }
   act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[{ ...leadWaiting, kind: 'worker-approval', personCardId: null }]} contract={{ ...leadContract, steps: [...leadContract.steps, { ...leadContract.steps[0]!, id: 'other', assignments: [{ ...leadContract.steps[0]!.assignments[0]!, seat: { runtime: other.id } }] }] }} runtimes={[leadRuntime, other]} onDecide={vi.fn()} onChanges={vi.fn()} onApprovals={vi.fn()} /></StoreProvider>))
-  try { expect(box.textContent).toContain('A worker is waiting for a command approval.'); expect(box.textContent).not.toContain('Second worker') }
+  try { expect(box.textContent).toContain('A worker is waiting for you to approve a command.'); expect(box.textContent).not.toContain('Second worker') }
   finally { act(() => root.unmount()) }
 })

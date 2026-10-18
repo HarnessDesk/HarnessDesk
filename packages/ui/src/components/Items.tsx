@@ -55,7 +55,7 @@ import {
   MiddleTruncate,
   Lightbox,
   ListRowDetail,
-  Message,
+  Message, TranscriptAssistantMessage,
   MessageContent,
   MessageFooter,
   Note,
@@ -685,9 +685,7 @@ const AssistantMessage = ({
 }) => (
   /* Same rhythm option as `UserMessage` above: 6px each way, this row's own
      value for the transcript's answer. */
-  <Message align="start" rhythm="transcript">
-    <Bubble variant="ghost">
-      <Text as="div" role="prose" {...(item.phase === 'commentary' ? { ink: 'secondary' as const } : {})}>
+  <TranscriptAssistantMessage muted={item.phase === 'commentary'}>
         <Markdown text={item.text} />
         {/* Still writing: the system's running mark, the one the inspector's
             running rows and the header's status wear. */}
@@ -698,9 +696,7 @@ const AssistantMessage = ({
         )}
         {/* No actions here: they sit once at the end of the turn (TurnTail), for
             the whole answer, rather than under every paragraph of it. */}
-      </Text>
-    </Bubble>
-  </Message>
+  </TranscriptAssistantMessage>
 )
 
 const Reasoning = ({ item }: { item: ReasoningItem }) => {

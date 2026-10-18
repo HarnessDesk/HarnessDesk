@@ -1383,6 +1383,30 @@ copying the tenth.
 A live update that removes the opener or disables confirmation can request
 `focusCancel`, moving focus to the keeping verb while the question stays open.
 
+### `ConversationShell`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+The shared session window frame, independent of its transcript source.
+
+### `ConversationThread`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+A transcript keeps the session's reading gutter and measured dock clearance.
+
+### `ConversationDock`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+The same floating composer and approval dock in every conversation.
+
+### `TranscriptAssistantMessage`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+Assistant prose has one rendering frame, shared with Items.
+
 ### `CopyButton`
 
 `packages/ui/src/design/patterns/CopyButton.tsx`
@@ -1831,6 +1855,18 @@ minute-by-minute countdowns cannot leave the card holding an older fact.
 `packages/ui/src/design/patterns/HeaderStatusGroup.tsx`
 
 Works outside a group too; only grouped readings contribute to its card.
+
+### `LeadAvatar`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+The Lead's single artwork slot; until artwork arrives it holds the chosen initial.
+
+### `LeadNameChoice`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+A name is an immediate preference; this control never grants authority.
 
 ### `LeftColumnTop`
 
@@ -2406,9 +2442,7 @@ A card with nothing in it is not drawn: an empty list left a stray 2px
 rule in the middle of a form. Inside a dialog, a card that is a radio group
 of `RowChoice` rows and nothing else is a `ChoiceList` — no card, and each
 row a compact radio row. A radio group of anything else (a branch picker of
-row buttons) keeps its card, its edge and its ground. `variant="inset"`
-groups rows inside an existing card: it inherits that surface and has no
-bottom margin; adjacent inset groups keep one divider.
+row buttons) keeps its card, its edge and its ground.
 
 ### `Row`
 
@@ -2682,22 +2716,13 @@ rather than straight after its name, and the name column stays one width.
 
 `packages/ui/src/design/patterns/lead-contract.tsx`
 
-One Lead decision surface, composed from Card and CardContent. Inset Rows
-inherit its edge and prose uses the
-transcript's Markdown pipeline, including sanitization and code interactions. Requires a StoreProvider.
+A decision's details are ordinary assistant prose; its controls live in the dock.
 
 ### `LeadMessage`
 
 `packages/ui/src/design/patterns/lead-contract.tsx`
 
-Lead turns use the transcript's message alignment, bubble and rhythm.
-
-### `LeadJournal`
-
-`packages/ui/src/design/patterns/lead-contract.tsx`
-
-Reading page with the app's shared composer and a non-live journal region.
-Decision controls remain navigable without re-announcing the entire thread.
+The same item renderer as a session, without inventing a protocol Session.
 
 ## Known drift
 
@@ -2732,8 +2757,8 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
-| `pageMeasureInScreen` | 19 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2064 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `pageMeasureInScreen` | 18 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
+| `screenLayout` | 2043 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
 ## Screens against the standard
 

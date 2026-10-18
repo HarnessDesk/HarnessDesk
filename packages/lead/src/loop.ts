@@ -195,7 +195,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     if (signal?.aborted) active.abort()
     signal?.addEventListener('abort', abort, { once: true })
     let result: LeadMessagesResult
-    try { result = await messages.request({ ...input, system: `${input.system ?? ''}\nYou manage one approved goal through the desk API. Propose a version 1 lead-output plan before starting. Never answer worker approvals or invent evidence. Slice 1 uses only this private Flow source (seats are supplied through Flow seating):\n${leadReviewedResultSource}` }, active.signal) }
+    try { result = await messages.request({ ...input, system: `${input.system ?? ''}\nYour name is ${journal.state.name === 'lex' ? 'Lex' : 'Dex'}.\nYou manage one approved goal through the desk API. Propose a version 1 lead-output plan before starting. Never answer worker approvals or invent evidence. Slice 1 uses only this private Flow source (seats are supplied through Flow seating):\n${leadReviewedResultSource}` }, active.signal) }
     catch { result = { status: 'failed', reason: 'lead-messages-failed' } }
     finally { signal?.removeEventListener('abort', abort); active = null }
     history = result.messages ?? history

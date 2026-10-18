@@ -169,7 +169,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'TerminalShellTabs', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
-  'lead-contract', 'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
+  'LeadAvatar', 'ConversationShell', 'lead-contract', 'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
   'SettingsRowMenu', 'HeaderStatusGroup', 'SelectionAction',
 ])
 
@@ -179,6 +179,8 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  LeadAvatar: ['default'],
+  ConversationShell: ['default'],
   'lead-contract': ['default'],
   CommandPalette: ['default'],
   SignInRail: ['default'],
@@ -310,6 +312,8 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  LeadAvatar: ['default'],
+  ConversationShell: ['default'],
   'lead-contract': ['default', 'loading'],
   CommandPalette: ['default'],
   SignInRail: ['default'],
@@ -453,6 +457,7 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
   Object.keys(VARIANTS).map((name) => [name, DEFAULT_SIZE]),
 )
 Object.assign(SIZES, {
+  LeadAvatar: ['navigation', 'default', 'lg'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
@@ -472,6 +477,8 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  'LeadAvatar': 'packages/ui/src/components/LeadPage.tsx',
+  'ConversationShell': 'packages/ui/src/components/Conversation.tsx',
   'lead-contract': 'packages/ui/src/components/LeadCards.tsx',
   SignInRail: 'packages/ui/src/components/SignIn.tsx',
   DashboardBands: 'packages/ui/src/components/Usage.tsx',
@@ -543,6 +550,8 @@ Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sideba
 Object.assign(PATTERN_CONSUMER, { ComposerTrack: 'packages/ui/src/components/ComposerControls.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  'LeadAvatar': 'packages/ui/src/preview/frames-lead.tsx',
+  'ConversationShell': 'packages/ui/src/preview/frames-lead.tsx',
   'lead-contract': 'packages/ui/src/preview/frames-lead.tsx',
   BoardCard: 'packages/ui/src/design/explorer/board-card-example.tsx',
   CommandPalette: 'packages/ui/src/preview/frames-transcript.tsx',
@@ -695,7 +704,9 @@ const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
 }
 
 const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
-  'lead-contract': ['LeadContract', 'LeadJournal', 'LeadMessage'],
+  'lead-contract': ['LeadContract', 'LeadMessage'],
+  'LeadAvatar': ['LeadAvatar', 'LeadNameChoice'],
+  'ConversationShell': ['ConversationShell', 'ConversationThread', 'ConversationDock', 'TranscriptAssistantMessage'],
   'ActionError': ['ActionError'],
   'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],
   'ApprovalDialog': ['ApprovalChoiceHint', 'ApprovalCode', 'ApprovalDialog', 'ApprovalFilePath', 'ApprovalMeta', 'ApprovalPermissionList', 'ApprovalQuestionText', 'ApprovalReason'],
@@ -762,9 +773,10 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
 }
 
 const PATTERN_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
+  'LeadAvatar': { 'LeadAvatar': { 'size': ['navigation', 'default', 'lg'] } },
   'Menu': { 'MenuLabel': { 'size': ['default', 'compact'] } },
   'Notices': { 'InboxPanel': { 'size': ['icon-sm', 'icon-xs'] } },
-  'Settings': { 'AccountMark': { 'size': ['sm', 'lg', 'dot', 'row', 'menu'] }, 'Chip': { 'size': ['default', 'sm'], 'variant': ['default', 'outline', 'quiet'] }, 'CodeText': { 'size': ['default', 'inherit'] }, 'Dot': { 'variant': ['default', 'navigation', 'presence'] }, 'Rows': { 'variant': ['inset'] }, 'Search': { 'size': ['default', 'compact', 'bare'] } },
+  'Settings': { 'AccountMark': { 'size': ['sm', 'lg', 'dot', 'row', 'menu'] }, 'Chip': { 'size': ['default', 'sm'], 'variant': ['default', 'outline', 'quiet'] }, 'CodeText': { 'size': ['default', 'inherit'] }, 'Dot': { 'variant': ['default', 'navigation', 'presence'] }, 'Search': { 'size': ['default', 'compact', 'bare'] } },
   'ToolBody': { 'ToolProse': { 'variant': ['prose', 'note'] } },
 }
 
@@ -892,7 +904,9 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
-  ['lead-contract', 'lead-contract', 'Lead decisions composed from Card and inset Rows, named speakers and the shared composer'],
+  ['LeadAvatar', 'lead-avatar', 'The chosen Lead name initial in its single artwork slot'],
+  ['ConversationShell', 'conversation', 'The session and Lead share their window, transcript and floating composer dock'],
+  ['lead-contract', 'lead-contract', 'Lead decision prose in the shared transcript, with docked session approvals'],
   ['CommandPalette', 'conversation', 'Fixed search surface, title-led results and a keyboard-hint footer'],
   ['DashboardBands', 'dashboard-bands', 'Recorded plan, spend and activity readings through canonical page blocks'],
   ['MainDestination', 'main-destination', 'Retained work and visited pages share one main region'],

@@ -1135,8 +1135,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
           />
         )}
       </ComposerNoticeStack>
-      <ComposerShell
-        className={`${styles.shell} ${styles.anchor}`}
+      <ComposerShell reading
         {...(dragging ? { 'data-dropping': '' } : {})}
         onDragEnter={onDragEnter}
         onDragOver={onDragOver}

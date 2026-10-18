@@ -195,12 +195,17 @@ export interface LeadThread {
   readonly olderMessages: number
   readonly messages: readonly LeadMessage[]
   readonly cards: readonly LeadCard[]
+  /** Read-only decided prose; it confers no person decision authority. */
+  readonly decisions?: readonly LeadDecisionMessage[]
   /** Host journal positions remain fixed when a card gets a newer revision. */
   readonly cardPositions?: Readonly<Record<string, number>>
   readonly contract?: LeadAcceptanceContract | null
   readonly budget?: LeadBudgetState | null
 }
+export type LeadName = 'dex' | 'lex'
+export interface LeadDecisionMessage { readonly card: LeadCard; readonly choice: LeadCardDecision['choice']; readonly position: number }
 export interface LeadSettingsProjection {
+  readonly name: LeadName
   readonly version: 1
   readonly model: string
   readonly key: { readonly configured: boolean; readonly protection: 'encrypted' | 'unavailable' }
@@ -231,6 +236,7 @@ export const LEAD_CONTROL_REFUSALS = ['lead-unavailable', 'lead-operation-refuse
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
+  readonly name?: LeadName
   readonly expectedRevision: LeadRevision
   readonly policy?: LeadPermissionPolicy
   readonly caps?: LeadCaps
@@ -485,7 +491,7 @@ export const parseLeadThread: Validator<LeadThread> = object({
   version, id, revision, state: literalUnion('draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'),
   // One current snapshot per card. Revisions belong to each card, so different cards may
   // share revision 1; the state machine must compare old/new revisions when replacing a card.
-  project: nullable(project), olderMessages: integer(), cardPositions: optional(cardPositions),
+  project: nullable(project), olderMessages: integer(), cardPositions: optional(cardPositions), decisions: optional(list(object({ card: parseLeadCard, choice: literalUnion('approve', 'accept', 'decline'), position: revision }), 64)),
   contract: optional(nullable(parseLeadAcceptanceContract)), budget: optional(nullable(parseLeadBudgetState)),
   messages: list(parseLeadMessage, LEAD_LIMITS.messages, 0, message => message.id), cards: list(parseLeadCard, LEAD_LIMITS.cards, 0, card => card.id),
 })
@@ -496,9 +502,15 @@ export const parseLeadThread: Validator<LeadThread> = object({
  * then validate the completed frame. Oversized cards/metadata fail closed instead of vanishing. */
 export const windowLeadThread = (value: unknown, maxBytes: number): LeadThread => {
   const limit = integer(1, LEAD_LIMITS.ipcBytes)(maxBytes, 'maxBytes')
-  const thread = parseLeadThread(value)
+  let thread = parseLeadThread(value)
   const bytesOf = (data: LeadThread | LeadMessage) => new TextEncoder().encode(JSON.stringify(data)).byteLength
   let bytes = bytesOf(thread)
+  // Decided prose grants no authority. Older history gives way to live decisions
+  // and messages before the message suffix needs to be shortened.
+  while (bytes > limit && thread.decisions?.length) {
+    thread = { ...thread, decisions: thread.decisions.slice(1) }
+    bytes = bytesOf(thread)
+  }
   let offset = 0
   let olderMessages = thread.olderMessages
   while (bytes > limit && offset < thread.messages.length) {
@@ -523,7 +535,7 @@ export const migrateLeadThread: Validator<LeadThread> = (value, path = '') => {
   }
 }
 export const parseLeadSettingsProjection: Validator<LeadSettingsProjection> = object({
-  version, model: opaque, key: object({ configured: isBoolean, protection: literalUnion('encrypted', 'unavailable') }),
+  version, name: literalUnion('dex', 'lex'), model: opaque, key: object({ configured: isBoolean, protection: literalUnion('encrypted', 'unavailable') }),
   policy: parseLeadPermissionPolicy, caps: parseLeadCaps,
 })
 export const parseLeadHostProjection: Validator<LeadHostProjection> = object({
@@ -549,7 +561,7 @@ export const nextLeadRevision = (current: LeadRevision): LeadRevision => {
 export const parseLeadThreadSend: Validator<LeadThreadSend> = object({ idempotencyKey: id, text: prose })
 export const parseLeadResume: Validator<{ readonly expectedRevision: number }> = object({ expectedRevision: revision })
 export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
-  expectedRevision: revision, policy: optional(parseLeadPermissionPolicy), caps: optional(parseLeadCaps),
+  expectedRevision: revision, name: optional(literalUnion('dex', 'lex')), policy: optional(parseLeadPermissionPolicy), caps: optional(parseLeadCaps),
   credential: optional(object({ provider: (value, path = '') => value === 'anthropic' ? 'anthropic' : fail(path, 'expected Lead credential provider'), key: nullable(text(4096)) })),
 })
 export const parseLeadEmpty: Validator<Record<string, never>> = object({})

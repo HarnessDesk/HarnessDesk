@@ -27,8 +27,8 @@ export const openLeadHost = async (browser: Browser, uiRoot: string, options: Pa
 
 export const openLead = async (page: Page, theme: 'light' | 'dark' = 'light') => {
   await page.evaluate(value => (window as any).__hdStore.setTheme(value), theme)
-  await page.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Lead', exact: true }).click()
-  await expect(page.locator('[data-page-destination="lead"] h1')).toHaveText('Lead')
+  await page.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Dex', exact: true }).click()
+  await expect(page.locator('[data-page-destination="lead"] [data-slot="conversation-shell"]')).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Goal or message', exact: true })).toBeVisible()
 }
 

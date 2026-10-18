@@ -1,11 +1,3 @@
-.conversation {
-  position: relative;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
 .headerButton {
   display: inline-flex;
   align-items: center;
@@ -33,39 +25,8 @@
   overflow-wrap: anywhere;
 }
 
-.scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  /* Room for the floating composer, plus a breath: at scroll-bottom the last
-     message sits fully above it; at scroll-top nothing changes. */
-  /* The transcript and the composer are both `--hd-column` and both centred,
-     but only one of them scrolls — so this box lost 8px to its own scrollbar
-     off the right edge alone and carried its column 4px left of the box the
-     reader types in. A jog that size under a 736px column is not noticed and
-     is felt. Reserved on both edges the gutter is symmetric, so the centre is
-     the pane's centre whether the scrollbar is there or not, and the dock
-     below needs to know nothing about it. */
-  scrollbar-gutter: stable both-edges;
-}
-
-.dockArea {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: var(--shared-composer-h, 0px); /* desk: lift local strips above the shared dock; zero without one */
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  pointer-events: none;
-}
-
 /* The gradient overlay passes clicks through; each interactive strip
    beneath it opts itself back in. */
-.dockArea > * {
-  pointer-events: auto;
-}
-
 .turnDivider {
   max-width: var(--hd-column);
   margin: var(--hd-space-4) auto 6px; /* desk: canonical One UI System scale */

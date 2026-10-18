@@ -31,9 +31,9 @@ const cards = [
   { ...base, type: 'result', outcome: 'reviewed', summary: 'Ready for acceptance', assertions: [result], budget },
   { ...base, type: 'stopped', reason: 'budget', summary: 'Reported spend reached the cap', budget },
 ].map((card, index) => ({ ...card, id: `card-${index + 1}` }))
-const thread = { version: 1, id: 'thread-1', revision: 2, state: 'awaiting-plan', project: contract.project,
+const thread = { cardPositions: undefined, contract: undefined, budget: undefined, decisions: undefined, version: 1, id: 'thread-1', revision: 2, state: 'awaiting-plan', project: contract.project,
   olderMessages: 0, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'user', text: 'Repair the check' }], cards }
-const settings = { version: 1, model: 'model-demo', key: { configured: true, protection: 'encrypted' }, policy, caps }
+const settings = { version: 1, name: 'dex', model: 'model-demo', key: { configured: true, protection: 'encrypted' }, policy, caps }
 
 test('Lead assignments round-trip structured Flow seats including slash model ids and optional effort', () => {
   for (const seat of [
@@ -182,7 +182,7 @@ test('Lead revisions only advance by safe integers and refuse overflow', () => {
     assert.throws(() => next(value), protocol.ValidationError)
 })
 
-test('Lead thread, settings and child projections have no credential or human decision field', () => {
+test('Lead thread, settings and child projections have no credential or human decision authority field', () => {
   const projection = { version: 1, revision: 2, thread, settings }
   assert.deepEqual(validator('parseLeadHostProjection')(projection), projection)
   for (const apiKey of ['synthetic-secret']) {
@@ -445,4 +445,13 @@ test('terminal spend observations require one run and a known final cost', () =>
   assert.deepEqual(protocol.parseLeadBudgetEvent(event), event)
   for (const patch of [{ executionIds: [] }, { executionIds: ['run-1', 'run-2'] }, { quality: 'partial' }, { usdMicros: null }, { terminal: 'yes' }])
     assert.throws(() => protocol.parseLeadBudgetEvent({ ...event, ...patch }), protocol.ValidationError)
+})
+
+test('decided history cannot crowd live decisions or messages out of the window envelope', () => {
+  const value = { ...thread, cards: [cards[0]], decisions: [1, 2].map(position => ({ position, choice: 'approve', card: { ...cards[0], contract: { ...contract, goal: 'x'.repeat(10000) } } })) }
+  const result = (protocol as any).windowLeadThread(value, 4000)
+  assert.deepEqual(result.cards, value.cards)
+  assert.deepEqual(result.messages, value.messages)
+  assert.deepEqual(result.decisions, [])
+  assert.ok(new TextEncoder().encode(JSON.stringify(result)).byteLength <= 4000)
 })

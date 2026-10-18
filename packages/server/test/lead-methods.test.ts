@@ -741,7 +741,7 @@ for (const kind of ['policy', 'caps'] as const) test(`a ${kind} settings card mu
   const card = (i: number, length: number) => ({ ...plan, id: `fill-${i}`, contract: { ...contract, goal: 'g'.repeat(length) } })
   const admit = (candidate: any) => {
     const state = s.journal.state
-    leadWindowThread({ ...state, seq: state.seq + 1, cardPositions: { ...state.cardPositions, [candidate.id]: state.seq + 1 }, cards: [...state.cards, candidate] }, project, { version: 1, model: 'fixture-model', policy: state.policy!, caps: state.budget!.caps, key: { configured: true, protection: 'encrypted' } })
+    leadWindowThread({ ...state, seq: state.seq + 1, cardPositions: { ...state.cardPositions, [candidate.id]: state.seq + 1 }, cards: [...state.cards, candidate] }, project, { version: 1, name: 'dex', model: 'fixture-model', policy: state.policy!, caps: state.budget!.caps, key: { configured: true, protection: 'encrypted' } })
   }
   let i = 0
   while (i < 64) { try { await s.journal.offerCard(card(i, 16000), admit); i++ } catch { break } }
@@ -1210,4 +1210,54 @@ test('live host worker relays are visible without entering the journal decision 
   await s.controls.workerApprovalsChanged(); await s.controls.idle()
   assert.equal((await s.call('lead/thread/read')).thread.cards.some((card: LeadCard) => card.id === 'worker-live'), false)
   assert.ok(s.notifications.at(-1)?.method === 'lead/changed')
+})
+
+
+test('Lead name defaults to Dex and saves alone without authority or a card, surviving replay and checkpoint', async () => {
+  const s = await rig(), before = s.journal.state
+  assert.equal((await s.call('lead/settings/read')).settings.name, 'dex')
+  const result = await s.call('lead/settings/update', { expectedRevision: before.seq, name: 'lex' })
+  assert.equal(result.settings.name, 'lex')
+  assert.deepEqual(s.journal.state.policy, before.policy)
+  assert.deepEqual(s.journal.state.budget, before.budget)
+  assert.deepEqual(s.journal.state.cards, [])
+  const reopened = await createLeadJournal(s.storage)
+  assert.equal((reopened.state as any).name, 'lex')
+  assert.equal((parseLeadCheckpoint(leadCheckpoint(reopened.state, '0'.repeat(64))).state as any).name, 'lex')
+})
+test('Lead name validation and credential exclusivity refuse before any side effect', async () => {
+  const s = await rig(), before = s.journal.state
+  for (const name of ['other', '', null, 1]) await assert.rejects(s.call('lead/settings/update', { expectedRevision: before.seq, name }))
+  await assert.rejects(s.call('lead/settings/update', { expectedRevision: before.seq, name: 'lex', credential: { provider: 'anthropic', key } }), code('lead-settings-combination'))
+  assert.deepEqual(s.journal.state, before)
+  assert.equal((await s.call('lead/settings/read')).settings.key.configured, false)
+})
+
+test('a decided plan remains a journal-positioned message with its state through replay', async () => {
+  const s = await rig(); await s.journal.offerCard(plan)
+  await s.call('lead/card/decide', { ...planClick, choice: 'decline' })
+  const projection = await s.call('lead/thread/read')
+  assert.deepEqual(projection.thread.cards, [])
+  assert.deepEqual(projection.thread.decisions, [{ card: plan, choice: 'decline', position: s.journal.state.cardPositions.plan }])
+  const reopened = await createLeadJournal(s.storage)
+  assert.deepEqual(reopened.state.decisionMessages, projection.thread.decisions)
+})
+test('a new credential present in decided message details refuses before broker storage', async () => {
+  const s = await rig()
+  const secretPlan = { ...plan, contract: { ...contract, goal: key } }
+  await s.journal.offerCard(secretPlan)
+  await s.journal.decideCard({ ...planClick, choice: 'decline' })
+  await assert.rejects(s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, credential: { provider: 'anthropic', key } }), code('lead-secret-in-thread'))
+  assert.equal((await s.service.status()).configured, false)
+})
+
+test('renewed decisions replace earlier prose for the same card at its original journal position', async () => {
+  const s = await rig(); await s.journal.offerCard(plan)
+  await s.journal.decideCard(planClick, 101)
+  const position = s.journal.state.cardPositions.plan
+  await s.journal.renewPlan(102)
+  await s.journal.decideCard({ ...planClick, expectedRevision: 2 }, 200)
+  assert.equal(s.journal.state.decisionMessages.length, 1)
+  assert.equal(s.journal.state.decisionMessages[0]!.card.revision, 2)
+  assert.equal(s.journal.state.decisionMessages[0]!.position, position)
 })

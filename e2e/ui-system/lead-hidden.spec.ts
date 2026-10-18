@@ -2,6 +2,7 @@ import { readdir } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
 import { buildLeadRenderer, openLeadHost } from './lead-host'
 
+test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 let renderer: string
 test.beforeAll(async ({}, info) => { test.setTimeout(120_000); renderer = info.outputPath('renderer'); await buildLeadRenderer(renderer) })
 const destinations = [['Agents', 'agents'], ['Flows', 'flows'], ['Dashboard', 'dashboard']] as const
@@ -43,7 +44,7 @@ for (const theme of ['light', 'dark'] as const) test(`the flag-off host has no L
   try {
     await page.evaluate(value => (window as any).__hdStore.setTheme(value), theme)
     const sections = page.locator('[aria-label="Main sections"]')
-    await expect(sections.getByRole('button', { name: 'Lead', exact: true })).toHaveCount(0)
+    await expect(sections.getByRole('button', { name: 'Dex', exact: true })).toHaveCount(0)
     const labels = await sections.getByRole('button').allTextContents()
     expect(labels.map(label => label.trim())).toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
     for (const [label, destination] of destinations) {
@@ -56,10 +57,12 @@ for (const theme of ['light', 'dark'] as const) test(`the flag-off host has no L
       // variable ids and isolated project paths never enter the comparison.
       await expect.poll(async () => JSON.stringify(await body.evaluate(structure))).toBe(expected.get(destination))
       await expect(page.locator('[data-page-destination="lead"]')).toHaveCount(0)
-      await expect(page.getByRole('region', { name: 'Lead thread', exact: true })).toHaveCount(0)
+      await expect(page.getByRole('region', { name: 'Dex thread', exact: true })).toHaveCount(0)
     }
     // Restored or programmatic navigation cannot mount a hidden destination.
     await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'lead' }))
+    await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } }))
+    await expect(page.getByRole('button', { name: 'Lead', exact: true })).toHaveCount(0)
     await expect(page.locator('[data-page-destination="lead"]')).toHaveCount(0)
     const refusal = await page.evaluate(async () => {
       try { await (window as any).__hdStore.transport.request('lead/thread/read', {}); return null }

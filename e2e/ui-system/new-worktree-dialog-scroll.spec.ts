@@ -4,30 +4,6 @@ import { expect, test } from '@playwright/test'
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 for (const theme of ['light', 'dark'] as const) for (const height of [1000, 480, 360]) {
-  test(`Lead settings groups stay whole at 1280x${height} in ${theme}`, async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height })
-    await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?lead-synthetic=settings-configured&theme=${theme}`)
-    const dialog = page.getByRole('dialog', { name: 'Lead settings', exact: true })
-    await expect(dialog).toBeVisible()
-    await page.evaluate(async () => { await document.fonts.ready })
-    const groups = dialog.locator('[data-slot="rows"]')
-    await expect(groups).toHaveCount(3)
-    for (const group of await groups.all()) {
-      const metrics = await group.evaluate(node => ({ scroll: node.scrollHeight, client: node.clientHeight }))
-      expect(metrics.client).toBeGreaterThan(0)
-      expect(metrics.scroll).toBeLessThanOrEqual(metrics.client + 1)
-    }
-    const body = dialog.locator('[data-slot="modal-dialog-body"]')
-    const metrics = await body.evaluate(node => ({ scroll: node.scrollHeight, client: node.clientHeight, overflow: getComputedStyle(node).overflowY }))
-    expect(metrics.client).toBeGreaterThan(0)
-    expect(metrics.overflow).toBe('auto')
-    if (height === 480) expect(metrics.scroll).toBeGreaterThan(metrics.client + 1)
-    if (metrics.scroll > metrics.client + 1) {
-      expect(await body.evaluate(node => { node.scrollTop = node.scrollHeight; return node.scrollTop })).toBeGreaterThan(0)
-    }
-  })
-
   test(`New worktree branches keep their scrolling cap at 1280x${height} in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height })
     await page.emulateMedia({ colorScheme: theme })

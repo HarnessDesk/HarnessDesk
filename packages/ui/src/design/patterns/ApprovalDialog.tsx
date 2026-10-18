@@ -17,6 +17,8 @@ export type ApprovalDialogAction = {
   label: string
   description?: string
   icon?: ReactNode
+  disabled?: boolean
+  pending?: boolean
   shortcut: number
   placement: 'safe' | 'proceed'
   tone?: 'default' | 'destructive'
@@ -225,6 +227,9 @@ const Action = ({ action, variant }: {
   <Button
     className={styles.action}
     variant={variant ?? (action.tone === 'destructive' ? 'destructive' : action.placement === 'proceed' ? 'default' : 'secondary')}
+    disabled={action.disabled}
+    aria-busy={action.pending}
+    aria-label={action.label}
     onClick={action.onSelect}
     title={action.description}
   >

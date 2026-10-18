@@ -83,7 +83,7 @@ export class LeadControls {
     const { policy, budget } = this.options.journal.state
     if (!policy || !budget) throw leadRefusal('lead-unavailable')
     const key = await this.options.service.status('anthropic')
-    return parseLeadSettingsProjection({ version: 1, model: this.options.model,
+    return parseLeadSettingsProjection({ version: 1, name: this.options.journal.state.name, model: this.options.model,
       key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
   }
   async #projection(): Promise<LeadWindowProjection> {
@@ -92,7 +92,7 @@ export class LeadControls {
       admitLeadCard(this.options.journal.state, card, this.options.project, this.options.model)) } catch { /* Keep the last durable projection readable. */ }
     const settings = await this.#settings(), state = this.options.journal.state
     // Settings reads may yield to a journal write. Retry from one coherent revision.
-    if (settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps)) return this.#projection()
+    if (settings.name !== state.name || settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps)) return this.#projection()
     if (this.#failedRevision === state.seq) throw leadRefusal('lead-projection-failed')
     let thread: ReturnType<typeof leadWindowThread>
     try { thread = leadWindowThread(state, this.options.project, settings, this.options.now(), this.options.readWorkerApprovals?.() ?? []) }
@@ -229,13 +229,13 @@ export class LeadControls {
     const input = parseLeadSettingsUpdate(value), { journal, service } = this.options
     this.#expectRevision(input.expectedRevision)
     // Credentials stay exclusive; combined authority changes are preflighted together.
-    if (input.credential ? input.policy !== undefined || input.caps !== undefined : !input.policy && !input.caps) throw leadRefusal('lead-settings-combination')
+    if (input.credential ? input.name !== undefined || input.policy !== undefined || input.caps !== undefined : input.name === undefined && !input.policy && !input.caps) throw leadRefusal('lead-settings-combination')
     if (input.credential) {
       const { provider, key } = input.credential
       if (key === null) await service.deleteKey(provider)
       else {
         const state = journal.state
-        if (leadContainsSecret([state.messages, state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))], key))
+        if (leadContainsSecret([state.messages, state.decisionMessages, state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))], key))
           throw leadRefusal('lead-secret-in-thread')
         await service.setKey(provider, key)
       }
@@ -250,6 +250,7 @@ export class LeadControls {
       else if (input.caps) await journal.changeBudgetCaps(input.caps, { id: this.options.nextId(), revision: 1 }, this.options.now(), this.options.stopEffects, input.expectedRevision, card =>
         admitLeadCard(journal.state, card, this.options.project, this.options.model))
     }
+    if (input.name !== undefined) await journal.settingsChanged(input.name)
     return this.#projection()
   }) }
   resume(input: { readonly expectedRevision: number }): Promise<LeadWindowProjection> { return this.#queue(async () => {

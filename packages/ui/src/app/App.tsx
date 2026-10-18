@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
+import { useLeadName } from '../components/use-lead-name'
 import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setTraySummary, setWindowTitle } from '../lib/desktop'
 import { sessionLabel, shortLabel } from '../lib/sessions'
 import { describeTray } from '../lib/tray'
@@ -62,6 +63,7 @@ export const App = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
+  const leadName = useLeadName()
   const editorAvailable = effectiveWindowMode('editor', snapshot.workbench) === 'editor'
   const editorSubject = editorAvailable ? fixedSubject(snapshot.workbench.main) : null
   useEffect(() => {
@@ -85,7 +87,7 @@ export const App = () => {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const openPage = useCallback((target: PageDestination) => store.openDestination(target), [store])
   const openSettingsAt = useCallback((section: Section, focus: string | null) => {
-    const target=destinationForSettings(section,focus)
+    const target=destinationForSettings(section,focus,store.getSnapshot().leadAvailable)
     openPage(target)
   },[openPage])
   const openAgents = useCallback((focus?:string)=>openPage({kind:'agents',id:focus??null}),[openPage])
@@ -224,7 +226,7 @@ export const App = () => {
   // closing the window does not reopen it.
   useEffect(() => {
     if (!snapshot.settingsFor) return
-    openSettingsAt(resolveSection(snapshot.settingsFor), snapshot.settingsFocus)
+    openSettingsAt(resolveSection(snapshot.settingsFor, 'runtimes', snapshot.leadAvailable), snapshot.settingsFocus)
     store.askSettings(null)
   }, [snapshot.settingsFor, snapshot.settingsFocus, store, openSettingsAt])
 
@@ -351,8 +353,8 @@ export const App = () => {
   // conversation's label is the user's whole opening message, so it is
   // shortened here rather than left to overrun the menu.
   useEffect(() => {
-    setWindowTitle(session ? shortLabel(sessionLabel(session.title, session.preview, 'HarnessDesk')) : 'HarnessDesk')
-  }, [session?.title, session?.preview])
+    setWindowTitle(snapshot.workbench.navigation.current.kind === 'lead' ? leadName === 'lex' ? 'Lex' : 'Dex' : session ? shortLabel(sessionLabel(session.title, session.preview, 'HarnessDesk')) : 'HarnessDesk')
+  }, [session?.title, session?.preview, snapshot.workbench.navigation.current.kind, leadName])
 
   // One table decides which chords exist; this dispatches from it, and the
   // Keyboard shortcuts page prints the same rows. Two lists is the

@@ -1890,43 +1890,41 @@ no completion badge, activity, glow or motion.
 
 ## Lead
 
-When the host enables Lead, its sidebar row opens a reading-width journal page.
-The title and Settings belong to the body; the top bar keeps its fixed tools.
-Messages and decision cards follow journal order, and a newer card revision
-replaces its predecessor at the same position. Send waits for an in-flight
-request. Messages use Chat’s alignment and spacing. The shared composer keeps
-initial dollar and round allowance chips beside Send in its action row. Enter
-sends and Shift+Enter adds a line. New entries stay in view until the person
-scrolls up. Only one card decision can be pending across the page; a refusal
-keeps focus on that card.
+When the host enables Lead, its chosen name, Dex or Lex, opens the conversation
+pane from the sidebar (hover title: Lead). Lead uses the same window shell,
+top bar, thread, Items message renderer, empty-state layout and measured floating
+composer as a session. Its name occupies the session title slot; the one tool is
+the settings glyph, titled Lead settings, opening Settings › Lead. There is no
+body heading. A single LeadAvatar slot holds the name's initial until artwork arrives.
+The composer says Message Dex… or Message Lex… and shows initial dollar and round
+allowance chips. Enter sends, Shift+Enter adds a line, and Send waits for the
+host's in-flight request. The Lead remains a host-owned thread, never a Session.
 
-Each decision is one surface, with its kind and state, a revision fact, a summary,
-grouped rows and one action row. Plans show step titles, agent presentation names
-and models, acceptance assertions, caps and approval scope; internal ids stay hidden.
-Approve and Decline refer to the displayed card revision and contract digest.
-Results show revision-qualified evidence, separate Lead spend and reported worker
-spend, and a way to inspect the patch in Changes. Unknown evidence stays unknown.
-A person gate offers Accept and Decline; a worker command approval opens the
-existing worker approval surface and cannot be answered by Lead's controls.
+Decision details are assistant Markdown in journal order, without card borders,
+inset rows, revision labels or internal identifiers. Plans show numbered steps,
+worker presentation names and models, acceptance checks, the allowance and folder,
+and the separate-approval boundary for publishing, merging and deleting. Results
+show qualified check, review, findings and changes status, reasons and separately
+attributed Lead and reported worker spend. Unknown values remain unknown.
 
-The host supplies the only way out: Resume explains why work stopped, while
-Review plan focuses the plan requiring a decision. An arriving plan scrolls into
-view without taking focus from the composer. An interrupted request also
-continues when a message is sent. Expired consent re-offers the approved plan
-under a new revision, or a new card when the revision bound or display fit
-requires it. Its Renewal chip and sentence name the earlier expiry. It needs
-fresh approval; Resume never renews consent. Renewal failures leave reads and
-settings available, and terminal threads close pending renewals. A full card table
-reports that renewal is blocked, without offering Resume. Expiry reads back off
-to 30 seconds, make one final read, then wait for host changes.
+The shared ApprovalDialog docks the question and buttons above the composer.
+Plans and widenings offer Approve and Decline; a result offers Open changes,
+Accept and Decline. A worker command request offers Open approvals and cannot be
+answered by Lead. Decision clicks still carry the seen revision and digest, share
+one page-wide lock, expose pending state and refuse stale revisions. Decided
+messages retain Approved, Declined or Accepted in the meta style; their controls
+leave the dock. New entries follow until the person scrolls up.
 
-Settings contains the write-only provider key, permission policy and allowances.
-Provider key, Permissions and Allowances form three groups. The key row is
-named Key. Add… or Replace… reveals the password input with Save and Cancel; status is Configured or Not set.
-A key change is submitted alone, its password input cleared immediately. Remove
-asks for confirmation. Each authority group has one Save, enabled only for edits;
-equal policy values preserve revisions; authority-neutral rule edits are stored.
-The key editor closes after a successful save. A plain form stack groups the
-settings; only the body scrolls, with Done in its footer. Group Saves have normal width,
-aligned right, and the reported-spend note belongs to the dollar row. Tightening
-applies at once; widening creates a card for approval in the journal. Existing consent shows its expiry time.
+Resume, Review plan, renewal-blocked and refusal banners remain above the composer.
+Review plan explicitly focuses the approval dock; an arriving plan scrolls without
+taking composer focus. Expiry re-offers the approved plan with the earlier expiry
+time and a fresh approval requirement. The host owns renewal; terminal threads
+cannot renew. Reads back off to 30 seconds, read once more, then wait for changes.
+
+Settings › Lead exists only with the host capability. Its groups are Name,
+Provider key, Allowances and Permissions. Dex/Lex saves immediately and changes
+no authority. The uncontrolled key input is emptied before its exclusive request,
+including refusal; removing a key asks for confirmation. Changed authority groups
+have a trailing Save. Tightening applies immediately; widening creates a decision
+message and shows Waiting for your approval in the conversation with an Open
+button that lands on that decision. Consent expiry remains a settings fact.

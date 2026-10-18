@@ -280,4 +280,7 @@ export { LeftColumnExplorerHead, LeftColumnExplorerFoot } from './patterns/LeftC
 
 export { SelectionAction } from './patterns/SelectionAction'
 
-export { LeadContract, LeadJournal, LeadMessage } from './patterns/lead-contract'
+export { LeadContract, LeadMessage } from './patterns/lead-contract'
+
+export { ConversationShell, ConversationThread, ConversationDock, TranscriptAssistantMessage } from './patterns/ConversationShell'
+export { LeadAvatar, LeadNameChoice } from './patterns/LeadAvatar'

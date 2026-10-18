@@ -3774,3 +3774,19 @@ that leaves effective authority unchanged is still stored as a tightening; only
 equal values are a no-op. Widening and mixed edits still require a decision card.
 An authority-neutral edit intentionally bumps the policy revision, making a
 pending plan card stale and requiring replanning.
+
+
+## Lead is a named conversation with settings in Settings — 2026-10-18
+
+Lead uses the session window's shared shell, thread, Items messages, composer,
+empty state and top-bar registration. Its decisions are assistant prose with
+the question and actions in the same docked ApprovalDialog a session uses.
+The old bordered decision cards and settings dialog are retired. All window-only
+authority, revision/digest fences, consent renewal and credential rules remain.
+
+There is one Lead. Its host-journaled name is Dex or Lex, default Dex, with one
+LeadAvatar artwork slot. Choosing a name never widens or tightens authority;
+its system prompt names it without changing its tools or allowances. Name,
+Provider key, Allowances and Permissions live in capability-gated Settings › Lead.
+A widening save links back to the conversation for the person's decision.
+Bounded decision messages retain the chosen state after the dock is dismissed.
