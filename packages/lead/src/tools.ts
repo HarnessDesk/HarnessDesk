@@ -6,7 +6,9 @@ import type { LeadDeskPort } from './ports.js'
 import type { MessagesToolUse, MessagesToolScope } from './messages-types.js'
 import { leadReviewedResultSource } from './recipes/reviewed-result.js'
 
-const fail = (): never => { throw new Error('lead-tool-refused') }
+export class LeadToolRefusedError extends Error { constructor() { super('lead-tool-refused') } }
+export class LeadToolFencedError extends Error { constructor() { super('lead-tool-fenced') } }
+const fail = (): never => { throw new LeadToolRefusedError() }
 const object = (value: unknown, allowed: readonly string[]): Record<string, unknown> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return fail()
   const item = value as Record<string, unknown>
@@ -72,26 +74,30 @@ export const createLeadTools = (options: LeadToolsOptions) => {
   const now = options.now
   const pending = new Map<string, { goalId: string; executionId: string; firstRoundId: string }>()
   const resolve = async (call: LeadPermissionCall): Promise<MessagesToolScope> => {
-    const scope = structuredClone(await resolveTool(call)), params = call.params as Record<string, unknown>
+    if (clientTierFor(call.method, call.params) === 'run' && !synchronized()) throw new LeadToolFencedError()
+    let scope: LeadResolvedTool
+    try { scope = structuredClone(await resolveTool(call)) } catch { return fail() }
+    const params = call.params as Record<string, unknown>
+    if (clientTierFor(call.method, call.params) === 'run' && !synchronized()) throw new LeadToolFencedError()
     if (call.method === 'flow/preview' || call.method === 'flow/start-goal') {
       if (params.source !== leadReviewedResultSource) fail()
     }
     if (call.method === 'flow/start-goal') {
       const state = journal.state, step = state.contract?.steps.find(step => step.id === scope.stepId)
-      if (!synchronized() || !state.contract || !state.consent || state.consent.expiresAt <= now() ||
+      if (!state.contract || !state.consent || state.consent.expiresAt <= now() ||
         state.consent.contractDigest !== state.contract.digest || !same(state.contract.project, project) ||
         !step || step.flow !== 'lead-reviewed-result' || step.sourceRevision !== 'recipe-1' || !same(step, scope.start) ||
         !scope.preview || !Number.isSafeInteger(scope.preview.expiresAt) || scope.preview.expiresAt <= now() ||
         scope.preview.token !== params.token || scope.preview.source !== params.source) fail()
     }
-    if (clientTierFor(call.method, call.params) === 'run' && !synchronized()) fail()
     return { ...scope, context: { ...scope.context, now: now() } }
   }
   const dispatch = async (call: LeadPermissionCall, correlationId: string, signal?: AbortSignal): Promise<LeadDispatchResult> => {
     if (signal?.aborted) fail()
     // A gap or changed preview may arrive during permission resolution/journal I/O.
     await resolve(call)
-    if (signal?.aborted || clientTierFor(call.method, call.params) === 'run' && !synchronized()) fail()
+    if (signal?.aborted) fail()
+    if (clientTierFor(call.method, call.params) === 'run' && !synchronized()) throw new LeadToolFencedError()
     const value = await desk.call(call.method, call.params as never)
     if (call.method !== 'flow/start-goal') return { value, identity: null }
     const run = value as { id: string; goal: string; rounds: readonly { n: number }[] }

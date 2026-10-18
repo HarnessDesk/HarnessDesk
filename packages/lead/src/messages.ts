@@ -1,5 +1,5 @@
-import { leadToolDefinitions, parseLeadToolCall } from './tools.js'
-import { parseLeadAcceptanceContract, parseLeadCard,
+import { leadToolDefinitions, parseLeadToolCall, LeadToolFencedError, LeadToolRefusedError } from './tools.js'
+import { clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
   type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
@@ -291,6 +291,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       if (available < 0) fail()
     } catch { return { status: 'invalid-response', reason: 'lead-messages-continuation-limit', usage: used, toolResults: results } }
     const permissionDeniedTools: string[] = []
+    const transientTools: string[] = [], succeededTools: string[] = []
     for (const [position, { use, index }] of uses.entries()) {
       if (!signal.aborted && parsed.stop_reason !== 'max_tokens') {
         try {
@@ -298,19 +299,30 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
           safeJson(call, LIMIT.text)
           const scope = await cancellable(() => resolveTool(structuredClone(call)), signal)
           if (signal.aborted) fail()
+          let dispatchError: unknown
           const executed = await journal.execute({ id: `${requestId}/tool/${index}`, request: { method: call.method, params: call.params,
             project: scope.project, runId: scope.runId, start: scope.start }, context: scope.context, stepId: scope.stepId },
-            (approved, id) => cancellable(() => dispatch(approved, id, signal), signal))
+            async (approved, id) => {
+              try { return await cancellable(() => dispatch(approved, id, signal), signal) }
+              catch (error) { dispatchError = error; throw error }
+            })
           if (executed.decision.effect !== 'allow') permissionDeniedTools.push(use.id)
+          if (dispatchError instanceof LeadToolFencedError || executed.outcome === 'failed' &&
+            clientTierFor(call.method, call.params) === 'read' && !(dispatchError instanceof LeadToolRefusedError)) transientTools.push(use.id)
           if (executed.outcome === 'succeeded') {
+            succeededTools.push(use.id)
             const result = { ...results[position]!, content: safeJson(executed.value ?? null, LIMIT.text), is_error: false }
             const extra = bytes(json(result)) - bytes(json(results[position]))
             if (extra <= available) { results[position] = result; available -= extra }
+            else transientTools.push(use.id)
           }
-        } catch { /* Static correlated error: no raw exception, argument or credential is echoed. */ }
+        } catch (error) {
+          if (error instanceof LeadToolFencedError) transientTools.push(use.id)
+          // Static correlated error: no raw exception, argument or credential is echoed.
+        }
       }
     }
     return { status: parsed.stop_reason === 'max_tokens' ? 'max-tokens' : signal.aborted ? 'cancelled' : 'completed', usage: used,
-      text: output.text, proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, messages: continuation }
+      text: output.text, proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, succeededTools, messages: continuation }
   } }
 }

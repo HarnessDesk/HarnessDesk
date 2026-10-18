@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import * as lead from '../src/index.js'
+import * as protocol from '@harnessdesk/protocol'
 import { contract, evidence, exported, fixture, input } from './fixtures/loop.js'
 import { message, tool } from './fixtures/fake-messages.js'
 
@@ -176,10 +177,10 @@ test('untrusted result proposals and worker-answer tools cannot create acceptanc
   await s.approve(); const loop = exported('createLeadLoop')(s.options); await loop.request(input)
   assert.equal(s.journal.state.cards.some(card => card.type === 'result'), false)
   assert.deepEqual(s.calls.map(call => call.method), ['client/subscribe'])
-  assert.equal(loop.state.phase, 'running')
-  assert.equal(loop.state.reason, null)
+  assert.equal(loop.state.phase, 'waiting-for-user')
+  assert.equal(loop.state.reason, 'lead-tools-refused')
   await s.tick(); await loop.idle()
-  assert.equal(s.fake.requests.length, 2)
+  assert.equal(s.fake.requests.length, 1)
   await loop.close()
 })
 
@@ -592,6 +593,12 @@ test('a result at the revision cap stays invalid after repeated refused offers',
   await loop.refresh()
   assert.equal(loop.state.synchronized, false)
   assert.equal(liveResults(s).length, 0)
+  assert.equal(loop.state.reason, 'lead-result-revisions-exhausted')
+  assert.equal(s.journal.state.managementReason, 'lead-result-revisions-exhausted')
+  const reopened = await lead.createLeadJournal(s.storage)
+  assert.equal(reopened.state.managementReason, 'lead-result-revisions-exhausted')
+  const checkpoint = lead.parseLeadCheckpoint(lead.leadCheckpoint(reopened.state, '0'.repeat(64)))
+  assert.equal(checkpoint.state.managementReason, 'lead-result-revisions-exhausted')
   const old = s.journal.state.cards.find(card => card.type === 'result')!
   assert.equal(old.revision, 32)
   await assert.rejects(s.journal.decideCard({ version: 1, cardId: old.id, cardType: 'result', expectedRevision: old.revision, contractDigest: contract.digest, choice: 'accept' }))
@@ -624,4 +631,147 @@ test('a successful tool result beyond the continuation budget does not park the 
   await s.tick(); await loop.idle()
   assert.equal(s.fake.requests.length, 2)
   await loop.close()
+})
+
+for (const variant of ['expired consent', 'wrong recipe', 'unknown tool', 'malformed arguments', 'host scope', 'dispatch scope']) {
+  test(`${variant} parks after one refused tool turn`, async () => {
+    const use = variant === 'unknown tool' ? tool('refused', 'approval_answer', {})
+      : variant === 'malformed arguments' ? tool('refused', 'flow_catalog', { root: 3 })
+      : variant === 'host scope' || variant === 'dispatch scope' ? tool('refused', 'flow_catalog', { root: contract.project.path })
+      : tool('refused', 'flow_start_goal', { ...startCall().params, ...(variant === 'wrong recipe' ? { source: 'wrong recipe' } : {}) })
+    const s = await fixture([message([use], { stop_reason: 'tool_use' }), message()])
+    await s.approve()
+    if (variant === 'expired consent') s.setNow(2000)
+    const resolve = s.options.resolveTool
+    let resolutions = 0
+    s.options.resolveTool = async (call: any) => {
+      if (call.method === 'flow/catalog' && ++resolutions >= (variant === 'dispatch scope' ? 2 : 1)) throw Error('host scope refused')
+      return resolve(call)
+    }
+    const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+    assert.equal(loop.state.phase, 'waiting-for-user')
+    assert.equal(loop.state.reason, 'lead-tools-refused')
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 1)
+    assert.equal(s.calls.filter(call => call.method === 'flow/start-goal' || call.method === 'flow/catalog').length, 0)
+    await loop.close()
+  })
+}
+
+test('three consecutive transient read failures park without a fourth request', async () => {
+  const s = await fixture(Array.from({ length: 4 }, (_, i) => message([tool(`read-${i}`, 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' })))
+  const call = s.options.desk.call
+  s.options.desk.call = async (method: string, params: unknown) => { if (method === 'flow/catalog') throw Error('read failed'); return call(method, params) }
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  for (let i = 0; i < 4; i++) { await s.tick(); await loop.idle() }
+  assert.equal(s.fake.requests.length, 3)
+  assert.equal(loop.state.phase, 'waiting-for-user')
+  assert.equal(loop.state.reason, 'lead-tools-refused')
+  await loop.close()
+})
+
+test('a successful tool resets the consecutive no-progress bound', async () => {
+  const s = await fixture(Array.from({ length: 7 }, (_, i) => message([tool(`read-${i}`, 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' })))
+  const call = s.options.desk.call
+  let reads = 0
+  s.options.desk.call = async (method: string, params: unknown) => {
+    if (method === 'flow/catalog' && ++reads !== 3) throw Error('read failed')
+    return call(method, params)
+  }
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  for (let i = 0; i < 7; i++) { await s.tick(); await loop.idle() }
+  assert.equal(s.fake.requests.length, 6)
+  assert.equal(loop.state.reason, 'lead-tools-refused')
+  await loop.close()
+})
+
+test('a fenced batch preserves a continuation until a notice clears the fence', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message()])
+  await s.approve(); s.setEvidence({ ...evidence(), reviews: [] })
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  s.emit({ type: 'notice', team: null, text: 'Spend still missing' }); await s.drain(); await s.tick(); await loop.idle()
+  assert.equal(s.fake.requests.length, 1)
+  assert.equal(s.scheduled.length, 0)
+  s.setEvidence({ ...spendEvidence(), reviews: [] }); s.emit({ type: 'notice', team: null, text: 'Fresh spend' })
+  await s.drain(); await s.tick(); await loop.idle()
+  assert.equal(s.fake.requests.length, 2)
+  await loop.close()
+})
+
+for (const fence of ['batch', 'gap']) {
+  test(`dirty activity survives a ${fence} without a pending tool continuation`, async () => {
+    const s = await fixture([message(), message()])
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] })
+    const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+    assert.equal((await tools.execute(startCall())).outcome, 'succeeded')
+    const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+    assert.equal(s.scheduled.length, 0)
+    s.setReady(false); s.emit({ type: 'run.changed', run: 'run-1', team: 'team-1' }); await s.drain()
+    if (fence === 'gap') { s.emit({ type: 'gap', reason: 'new baseline' }); await s.drain() }
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 1)
+    assert.equal(s.scheduled.length, 0)
+    s.setReady(true); s.emit({ type: 'notice', team: null, text: 'Baseline ready' })
+    await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2)
+    await loop.close()
+  })
+}
+
+test('a pending continuation survives a gap before its batch runs', async () => {
+  const s = await fixture([message([tool('catalog', 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' }), message()])
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  assert.equal(s.scheduled.length, 1)
+  s.setReady(false); s.emit({ type: 'gap', reason: 'new baseline' }); await s.drain(); await loop.idle()
+  assert.equal(s.scheduled.length, 0)
+  assert.equal(s.fake.requests.length, 1)
+  s.setReady(true); await loop.refresh(); await s.tick(); await loop.idle()
+  assert.equal(s.fake.requests.length, 2)
+  await s.tick(); await loop.idle(); assert.equal(s.fake.requests.length, 2)
+  await loop.close()
+})
+
+test('refresh schedules no callbacks while a pending continuation is spend-fenced', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message()])
+  await s.approve(); s.setEvidence({ ...evidence(), reviews: [] })
+  let scheduled = 0
+  const schedule = s.options.clock.schedule
+  s.options.clock.schedule = (callback: () => void) => { scheduled++; return schedule(callback) }
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  for (let i = 0; i < 3; i++) { await loop.refresh(); await s.tick(); await loop.idle() }
+  assert.equal(scheduled, 0)
+  assert.equal(s.fake.requests.length, 1)
+  s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.refresh()
+  assert.equal(scheduled, 1)
+  await s.tick(); await loop.idle(); assert.equal(s.fake.requests.length, 2)
+  await loop.close()
+})
+
+test('a refused same-evidence offer resets the signature instead of restoring the stored card', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  const offer = s.journal.offerCard.bind(s.journal)
+  let offers = 0
+  s.journal.offerCard = async card => { if (++offers <= 2) throw Error('offer refused'); return offer(card) }
+  s.setEvidence({ ...spendEvidence(), revision: 'head-2', checks: [{ ...evidence().checks[0], revision: 'head-2' }],
+    reviews: [{ ...evidence().reviews[0], revision: 'head-2' }] })
+  await loop.refresh(); assert.equal(liveResults(s).length, 0)
+  s.setEvidence(spendEvidence())
+  await loop.refresh(); assert.equal(liveResults(s).length, 0)
+  await loop.refresh()
+  assert.equal(offers, 3)
+  assert.equal(liveResults(s)[0]!.revision, 2)
+  await loop.close()
+})
+
+test('the result-revision exhaustion reason is shared by protocol, record and checkpoint parsing', async () => {
+  const reasons = (protocol as Record<string, unknown>).LEAD_MANAGEMENT_REASONS
+  assert.ok(Array.isArray(reasons) && reasons.includes('lead-result-revisions-exhausted'))
+  const s = await fixture()
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-result-revisions-exhausted')
+  const reopened = await lead.createLeadJournal(s.storage)
+  assert.equal(reopened.state.managementReason, 'lead-result-revisions-exhausted')
+  const checkpoint = lead.parseLeadCheckpoint(lead.leadCheckpoint(reopened.state, '0'.repeat(64)))
+  assert.equal(checkpoint.state.managementReason, 'lead-result-revisions-exhausted')
 })

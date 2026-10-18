@@ -89,6 +89,11 @@ export interface LeadMessagesResult {
   readonly proposals?: { readonly plan: LeadAcceptanceContract | null; readonly cards: readonly LeadCard[] }
   /** Correlations refused by the permission gate, independent of static tool errors. */
   readonly permissionDeniedTools?: readonly string[]
+  /** Only synchronization fences, failed read dispatches and successful results
+   * beyond the continuation budget qualify for an automatic continuation. */
+  readonly transientTools?: readonly string[]
+  /** Dispatch successes, including results that could not fit the continuation. */
+  readonly succeededTools?: readonly string[]
   readonly toolResults?: readonly MessagesToolResult[]
   /** Validated continuation with one ordered result for every tool use. Still untrusted
    * content: the renderer must use its transcript sanitizer. */

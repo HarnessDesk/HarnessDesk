@@ -60,6 +60,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let pump: Promise<void> | null = null, active: AbortController | null = null
   let history: readonly MessagesTurn[] | null = null, requestTemplate: LeadMessagesRequest | null = null
   let lastResultSignature: string | null = null
+  let noProgressTurns = 0
   const tools = createLeadTools({ journal, desk, project, now: () => clock.now(), nextId, synchronized: () => synchronized && !closed,
     resolveTool: options.resolveTool })
   const messages = createLeadMessages({ ...options.messages, journal, now: () => clock.now(), nextId,
@@ -138,7 +139,12 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           lastResultSignature = signature
           try { await journal.offerCard({ version: 1, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1,
             type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Fresh checks and review are ready for your decision.', assertions, budget: budget! }) }
-          catch (error) { lastResultSignature = null; throw error }
+          catch (error) {
+            lastResultSignature = null
+            if ((journal.state.cardRevisions[`result-${contract.revision}`] ?? 0) >= 32)
+              await waitForUser('lead-result-revisions-exhausted')
+            throw error
+          }
           if (closed || generation !== expected) { await invalidate(); return }
         } else {
           const card = journal.state.cards.find(card => card.id === `result-${contract.revision}`)!
@@ -208,7 +214,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // Model-proposed result/waiting cards are summaries only. The loop constructs
     // actionable cards from fresh reads, and never offers a worker approval card.
     await refresh()
-    if (result.toolResults?.length && result.toolResults.every(tool => result.permissionDeniedTools?.includes(tool.tool_use_id))) {
+    noProgressTurns = result.succeededTools?.length ? 0 : noProgressTurns + 1
+    if (result.toolResults?.length && (noProgressTurns >= 3 ||
+      result.toolResults.every(tool => tool.is_error) && !result.transientTools?.length)) {
       await waitForUser('lead-tools-refused')
       return result
     }

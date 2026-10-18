@@ -177,6 +177,10 @@ export interface LeadMessage {
   readonly text: string
 }
 export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'accepted' | 'declined' | 'stopped'
+export const LEAD_MANAGEMENT_REASONS = [
+  'lead-result-awaiting-person', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
+  'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
+] as const
 export interface LeadThread {
   readonly version: 1
   readonly id: string

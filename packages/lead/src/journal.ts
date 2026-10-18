@@ -1,5 +1,5 @@
 import {
-  CLIENT_METHODS, CLIENT_ACTION_TIERS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
+  CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_MANAGEMENT_REASONS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy, type LeadBudgetEvent, type LeadBudgetState, type LeadCaps,
 } from '@harnessdesk/protocol'
 import { decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
@@ -190,10 +190,7 @@ export type LeadDispatch = (call: LeadPermissionCall, correlationId: string) => 
 export interface LeadRecoveryAction { readonly id: string; readonly type: 'retry-read' | 'reconciled' | 'needs-user' | 'not-dispatched'; readonly count?: number }
 const refusal = (floor: 'start' | 'invalid-input', reason: string): LeadPermissionDecision => ({ effect: 'deny', floor, reason, rule: null, call: null })
 
-export const LEAD_MANAGEMENT_REASONS = [
-  'lead-result-awaiting-person', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
-  'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
-] as const
+export { LEAD_MANAGEMENT_REASONS } from '@harnessdesk/protocol'
 
 /** One serialized management writer. All effects use injected ports; this module owns
  * no files, processes, network, clock or ID generator. IDs come from its trusted owner. */
