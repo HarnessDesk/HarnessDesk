@@ -16,7 +16,7 @@ import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
 import { STOP_HEAD_TIMEOUT_MS } from '../team.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
-import { goalMembers, memberProjection } from './members.js'
+import { goalMembers, memberProjection, teamNewsSessions } from './members.js'
 import { recoverOperation, reserveEmpty, type CarryPort, type GoalOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
 import { citationBlob, previewWrap, Wraps, type WrapInput } from './wrap.js'
@@ -331,15 +331,17 @@ export class GoalPlane {
     }
   }
 
-  async seen(id: string): Promise<GoalView> {
+  async seen(id: string, newsAt = 0): Promise<GoalView> {
     return this.serial.run(async () => {
       const document = this.store.read(id)
       const view = await this.view(id)
       if (document.goal.state === 'wrapped' || document.restored) return view
       const latest = Math.max(view.activity === 'ready-to-wrap' ? view.readyAt ?? 0 : 0,
         ...(this.port.executions?.(id) ?? []).map(run => run.state !== 'running' && run.state !== 'stalled' ? run.endedAt ?? 0 : 0),
-        this.port.unreadAt?.([...view.members, ...(view.pastMembers ?? [])].map(seat => seat.session)) ?? 0)
-      if (document.lastSeenAt !== undefined && latest <= document.lastSeenAt) return view
+        this.port.unreadAt?.(teamNewsSessions(view)) ?? 0)
+      // Inbox persistence can trail the renderer's acknowledgement. Its hint only
+      // decides whether to write, never the stored time (even for a future hint).
+      if (document.lastSeenAt !== undefined && Math.max(latest, newsAt) <= document.lastSeenAt) return view
       await this.store.mark(id, { lastSeenAt: Math.max(this.now(), latest) })
       const seen = await this.view(id)
       this.port.changed(seen, { install: false })

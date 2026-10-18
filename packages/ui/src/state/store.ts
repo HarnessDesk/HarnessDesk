@@ -1506,9 +1506,9 @@ export class AppStore {
   }
 
   /** The host owns read time so every window and relaunch reads the same news. */
-  markTeamSeen(id: string): void {
+  markTeamSeen(id: string, newsAt = 0): void {
     if (!this.#snapshot.goals.has(id)) return
-    void this.transport.request('goal/seen', { goal: id }).then(view => {
+    void this.transport.request('goal/seen', { goal: id, newsAt }).then(view => {
       if (view?.goal) this.#keepGoal(view)
     }).catch(error => this.notice('warning', `Team read mark was not saved: ${error instanceof Error ? error.message : String(error)}`))
   }

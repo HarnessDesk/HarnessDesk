@@ -13,7 +13,7 @@ it('persists Hide in preferences and Team seen time through the Goal on the host
  store.markTeamSeen('overview-team')
  await new Promise(resolve=>setTimeout(resolve,0))
  expect(store.getSnapshot().teamsPrefs.hidden['overview-team']).toEqual(expect.any(String))
- expect(writes).toHaveBeenCalledWith('goal/seen',{goal:'overview-team'})
+ expect(writes).toHaveBeenCalledWith('goal/seen',{goal:'overview-team',newsAt:0})
  expect(store.getSnapshot().goals.get('overview-team')).toMatchObject({lastSeenAt:123})
 })
 it('refuses to Hide active work and reports a failed host read-mark write',async()=>{
@@ -49,4 +49,21 @@ it('the Team list preview keeps seen marks and navigation in the same snapshot',
  store.openTeamRoom('team-4')
  expect(store.getSnapshot().goals.get('team-4')?.lastSeenAt).toBeGreaterThan(0)
  expect(store.getSnapshot().layout.root).toMatchObject({kind:'pane',view:{kind:'room',room:'team-4'}})
+})
+
+
+it('sends observed news as a hint while its inbox save is still pending', async () => {
+ const store = new AppStore('ws://localhost:0/')
+ const view = {...overviewTeamStore('running').getSnapshot().goals.get('overview-team')!, lastSeenAt: 10}
+ const handlers = (store.transport as unknown as {handlers:{onNotification(n:WireNotification):void}}).handlers
+ handlers.onNotification({method:'goal/changed',params:{view}})
+ const writes = vi.spyOn(store.transport,'request').mockImplementation(async method => {
+  if (method === 'app/state/set') return await new Promise(() => {})
+  return {...view,lastSeenAt:20} as never
+ })
+ store.keep({id:'seat-news',at:15,tone:'neutral',title:'New output',from:{runtime:'fake',sessionId:'earlier',name:'Agent'}})
+ store.markTeamSeen('overview-team',15)
+ await new Promise(resolve=>setTimeout(resolve,0))
+ expect(writes).toHaveBeenCalledWith('goal/seen',{goal:'overview-team',newsAt:15})
+ expect(store.getSnapshot().goals.get('overview-team')?.lastSeenAt).toBe(20)
 })

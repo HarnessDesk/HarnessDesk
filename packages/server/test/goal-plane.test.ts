@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { test } from 'node:test'
 
-import { placeCard } from '@harnessdesk/protocol'
+import { placeCard, sessionKey } from '@harnessdesk/protocol'
 import type { BoardEvidence, FlowExecution, GoalCitation, RuntimeId, SeatRecord } from '@harnessdesk/protocol'
 
 import { GoalPlane, type GoalMemorySupport, type GoalPlanePort } from '../src/goals/plane.js'
@@ -822,4 +822,63 @@ test('goal/seen refuses an unknown Goal without writing or broadcasting', async 
   await assert.rejects(goalMethods['goal/seen']({ goals: proof.plane } as never, { goal: 'missing' }), /That Goal is not on this desk/)
   assert.equal(mark.mock.callCount(), 0)
   assert.equal(changed.mock.callCount(), 0)
+})
+
+
+test('seen clears unread output from a board-only Seat', async (t) => {
+  const proof = await rig()
+  let at = 10
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  await plane.seen('g1')
+  const boardOnly = { runtime: 'fake', sessionId: 'earlier' }
+  const view = plane.view.bind(plane)
+  // The page can retain an earlier roster even when no Seat record is current.
+  t.mock.method(plane, 'view', async (id: string) => {
+    const current = await view(id)
+    return { ...current, board: { ...current.board, members: [sessionKey(boardOnly.runtime, boardOnly.sessionId)] } }
+  })
+  proof.port.unreadAt = sessions => sessions.some(one => one.runtime === boardOnly.runtime && one.sessionId === boardOnly.sessionId) ? 15 : 0
+  at = 20
+  const seen = await plane.seen('g1')
+  assert.deepEqual(seen.members, [])
+  assert.deepEqual(seen.pastMembers, [])
+  assert.equal(seen.lastSeenAt, 20, 'the board-only unread output is acknowledged')
+})
+
+test('goal/seen news hint acknowledges an inbox entry saved after an otherwise skipped read', async (t) => {
+  const proof = await rig()
+  let at = 10
+  let inboxAt = 0
+  proof.port.unreadAt = () => inboxAt
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  await plane.seen('g1')
+  at = 20
+  await plane.seen('g1')
+  assert.equal((await plane.view('g1')).lastSeenAt, 10, 'no host news yet, so this read was skipped')
+  const mark = t.mock.method(proof.store, 'mark')
+  // The renderer already shows this news, but its preference write is still pending.
+  const params = { goal: 'g1', newsAt: 15 }
+  const result = await goalMethods['goal/seen']({ goals: plane } as never, params)
+  inboxAt = 15
+  assert.equal(result.lastSeenAt, 20)
+  assert.ok((await plane.view('g1')).lastSeenAt! >= inboxAt, 'late persistence cannot restore the blue mark')
+  assert.equal(mark.mock.callCount(), 1)
+  await goalMethods['goal/seen']({ goals: plane } as never, params)
+  assert.equal(mark.mock.callCount(), 1, 'an already acknowledged hint still skips the write')
+})
+
+
+test('goal/seen uses a future news hint only to trigger a host-timed write', async () => {
+  const proof = await rig()
+  let at = 10
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  await plane.seen('g1')
+  at = 20
+  const params = { goal: 'g1', newsAt: Number.MAX_SAFE_INTEGER }
+  const seen = await goalMethods['goal/seen']({ goals: plane } as never, params)
+  assert.equal(seen.lastSeenAt, 20, 'the client cannot choose the stored seen time')
+  assert.equal(proof.store.read('g1').lastSeenAt, 20)
+  at = 30
+  proof.port.unreadAt = () => 25
+  assert.equal((await plane.seen('g1')).lastSeenAt, 30, 'later host news is not hidden by the future hint')
 })

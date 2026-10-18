@@ -7,6 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Opening a Team reliably clears its blue mark**, including news from an earlier Seat and activity whose inbox save is still arriving.
 - **An agent whose program cannot start appears under Needs attention** — failed spawns stay remembered after a restart, and startup discovery checks unused agents that support it before a session asks them. Settings › Runtimes shows the failure reason on its row.
 - **Antigravity can hold more than one account** — Add another account asks you to name the account, then makes a second row over a folder of its own, with the token kept in that folder so two Google accounts stay signed in side by side. An empty name uses “Antigravity 2”, “Antigravity 3” and so on. Each account keeps its own conversations and can be removed on its own, which asks it to sign out and moves its folder to the Trash.
 - **Starting a Team now says, under each seat, which of its Agent's skills and servers will load and names the ones that won't.**
