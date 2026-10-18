@@ -220,16 +220,18 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // Model-proposed result/waiting cards are summaries only. The loop constructs
     // actionable cards from fresh reads, and never offers a worker approval card.
     await refresh()
-    if (result.toolResults?.length) {
-      const permanentRefusal = result.toolResults.some(tool => tool.is_error && !result.transientTools?.includes(tool.tool_use_id))
+    const waitForDesk = !!result.deskActivityTools?.length
+    const countedTools = result.toolResults?.filter(tool => !result.deskActivityTools?.includes(tool.tool_use_id)) ?? []
+    if (countedTools.length) {
+      const permanentRefusal = countedTools.some(tool => tool.is_error && !result.transientTools?.includes(tool.tool_use_id))
       noProgressTurns = result.succeededTools?.length && !permanentRefusal ? 0 : noProgressTurns + 1
     }
-    if (result.toolResults?.length && (noProgressTurns >= 3 ||
-      result.toolResults.every(tool => tool.is_error) && !result.transientTools?.length)) {
+    if (countedTools.length && (noProgressTurns >= 3 ||
+      countedTools.every(tool => tool.is_error && !result.transientTools?.includes(tool.tool_use_id)))) {
       await waitForUser('lead-tools-refused')
       return result
     }
-    if (result.toolResults?.length && !result.proposals?.plan) {
+    if (result.toolResults?.length && !waitForDesk && !result.proposals?.plan) {
       continuationPending = true
       if (!blocked()) schedule(false)
     }

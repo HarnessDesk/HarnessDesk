@@ -27,15 +27,16 @@ const mount = async (projection = leadProjection(), loading = false) => {
   const request = vi.spyOn(store.transport, 'request').mockImplementation(async () => loading ? new Promise<never>(() => {}) : projection as never)
   const root = createRoot(box)
   let navigate: (settings: boolean) => void = () => {}
+  let setFocus: (id: string | null) => void = () => {}
   vi.spyOn(store, 'openDestination').mockImplementation(destination => navigate(destination.kind === 'settings'))
   const Surface = () => {
-    const [settings, setSettings] = useState(false); navigate = setSettings
-    return <TopBarProvider><TopBarOutlet owner="lead" fallback={{ place: null, more: () => null }} /><DestinationPageScope owner="lead" active>{settings ? <><button onClick={() => setSettings(false)}>Back</button><LeadSettingsSection /></> : <LeadPage />}</DestinationPageScope></TopBarProvider>
+    const [settings, setSettings] = useState(false), [focus, focusDecision] = useState<string | null>(null); navigate = setSettings; setFocus = focusDecision
+    return <TopBarProvider><TopBarOutlet owner="lead" fallback={{ place: null, more: () => null }} /><DestinationPageScope owner="lead" active>{settings ? <><button onClick={() => setSettings(false)}>Back</button><LeadSettingsSection /></> : <LeadPage focus={focus} />}</DestinationPageScope></TopBarProvider>
   }
   await act(async () => root.render(<StoreProvider store={store}><Surface /></StoreProvider>))
   clean.push(() => { act(() => root.unmount()); box.remove() })
   const update = async (over: Partial<LeadWindowProjection>) => { projection = { ...projection, ...over, revision: projection.revision + 1 }; await act(async () => store.lead.changed({ method: 'lead/changed', params: projection })) }
-  return { store, box, request, update }
+  return { store, box, request, update, focusDecision: async (id: string) => { await act(async () => setFocus(id)) } }
 }
 const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => (node.getAttribute('aria-label') ?? node.textContent) === (name === 'Settings' ? 'Lead settings' : name))!
 const input = async (node: HTMLInputElement | HTMLTextAreaElement, value: string) => act(async () => {
@@ -43,11 +44,12 @@ const input = async (node: HTMLInputElement | HTMLTextAreaElement, value: string
   Object.getOwnPropertyDescriptor(node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value')!.set!.call(node, value)
   node.dispatchEvent(new Event('input', { bubbles: true })); node.dispatchEvent(new Event('change', { bubbles: true }))
 })
-it('keeps banners and decision controls in the shared composer notice stack', async () => {
+it('keeps decision controls in the shared composer notice stack without a duplicate plan banner', async () => {
   const base = leadProjection(), { box } = await mount({ ...base, wayOut: 'decide-plan', thread: { ...base.thread, cards: [leadPlan] } })
   const notices = box.querySelector('[data-slot="composer-notices"]')
   expect(notices).not.toBeNull()
-  expect(button('Review plan').closest('[data-slot="composer-notices"]')).toBe(notices)
+  expect(button('Review plan')).toBeUndefined()
+  expect(box.textContent).not.toContain('The plan needs your decision')
   expect(box.querySelector('[data-lead-decision]')?.closest('[data-slot="composer-notices"]')).toBe(notices)
   expect(box.querySelector('[data-slot="reading-measure"] > [data-slot="form-stack"]')).toBeNull()
 })
@@ -62,10 +64,10 @@ it('greets without a name until settings have loaded', async () => {
   expect(box.querySelector('textarea')?.placeholder).toBe('Message Lead…')
 })
 it.each([null, 'resume', 'decide-plan'] as const)('shows Resume only for wayOut=%s', async wayOut => {
-  const base = leadProjection(), { box } = await mount({ ...base, wayOut, waitReason: 'lead-request-failed', thread: { ...base.thread, cards: wayOut === 'decide-plan' ? [leadPlan] : [] } })
+  const base = leadProjection(), { box, focusDecision } = await mount({ ...base, wayOut, waitReason: 'lead-request-failed', thread: { ...base.thread, cards: wayOut === 'decide-plan' ? [leadPlan] : [] } })
   expect(Boolean(button('Resume'))).toBe(wayOut === 'resume')
   if (wayOut === 'resume') expect(box.textContent).toContain('Sending a message also continues')
-  if (wayOut === 'decide-plan') { expect(button('Review plan')).toBeDefined(); await act(async () => button('Review plan').click()); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('plan') }
+  if (wayOut === 'decide-plan') { expect(button('Review plan')).toBeUndefined(); await focusDecision('plan'); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('plan') }
 })
 it('shows initial allowances and disables Send during requestInFlight', async () => {
   const { box, update } = await mount()
@@ -161,12 +163,12 @@ it('sorts cards by journal positions among messages', async () => {
   const text = box.querySelector('[aria-label="Dex thread"]')!.textContent!
   expect(text.indexOf('Before plan')).toBeLessThan(text.indexOf("Here\'s my plan:")); expect(text.indexOf("Here\'s my plan:")).toBeLessThan(text.indexOf('After plan'))
 })
-it('Review plan focuses and scrolls the newest pending plan and tolerates no DOM card', async () => {
+it('explicit navigation focuses and scrolls the newest pending plan and tolerates no DOM decision', async () => {
   const base = leadProjection(), scroll = vi.fn(), originalScroll = HTMLElement.prototype.scrollIntoView; HTMLElement.prototype.scrollIntoView = scroll
   clean.push(() => { HTMLElement.prototype.scrollIntoView = originalScroll })
-  const { box, update } = await mount({ ...base, wayOut: 'decide-plan', thread: { ...base.thread, cards: [leadPlan, { ...leadPlan, id: 'newest', revision: 2, contract: { ...leadPlan.contract, revision: 2 } }], cardPositions: { plan: 2, newest: 3 } } })
-  await act(async () => button('Review plan').click()); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('newest'); expect(scroll).toHaveBeenCalled()
-  await update({ thread: { ...base.thread, cards: [] } }); await act(async () => button('Review plan').click()); expect(box.querySelector('[data-lead-card]')).toBeNull()
+  const { box, update, focusDecision } = await mount({ ...base, wayOut: 'decide-plan', thread: { ...base.thread, cards: [leadPlan, { ...leadPlan, id: 'newest', revision: 2, contract: { ...leadPlan.contract, revision: 2 } }], cardPositions: { plan: 2, newest: 3 } } })
+  await focusDecision('newest'); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('newest'); expect(scroll).toHaveBeenCalled()
+  await update({ thread: { ...base.thread, cards: [] } }); await focusDecision('missing'); expect(box.querySelector('[data-lead-card]')).toBeNull()
 })
 it('locks decisions across all cards and keeps refused decision focus on its card', async () => {
   const base = leadProjection(); const { store, box } = await mount({ ...base, thread: { ...base.thread, cards: [leadPlan, { ...leadPlan, id: 'other' }] } })
@@ -222,12 +224,12 @@ it.each([100, Date.now() + 3600000])('names expired approval once in the banner 
 })
 
 it('a decide-plan update scrolls without taking focus or text from the composer', async () => {
-  const base = leadProjection(), { box, update } = await mount(base)
+  const base = leadProjection(), { box, update, focusDecision } = await mount(base)
   const area = box.querySelector('textarea')!; area.focus(); await input(area, 'Half a sentence')
   await update({ wayOut: 'decide-plan', thread: { ...base.thread, cards: [leadPlan], cardPositions: { plan: 2 } } })
   expect(document.activeElement).toBe(area); expect(area.value).toBe('Half a sentence')
   await input(area, 'Half a sentence finished'); expect(area.value).toBe('Half a sentence finished')
-  await act(async () => button('Review plan').click()); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('plan')
+  await focusDecision('plan'); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('plan')
 })
 it('closes the key editor only after a successful save', async () => {
   const { store } = await mount(); await act(async () => button('Settings').click()); await act(async () => button('Replace…').click())
@@ -291,12 +293,12 @@ it('uses unconstrained Lead settings groups and trailing Save rows', async () =>
   for (const name of ['Save permissions', 'Save allowances']) expect(button(name).closest('[data-slot="row"]')).not.toBeNull()
 })
 
-it.each(['2', 'Escape'])('guards typed-through %s after Review plan takes focus', async key => {
+it.each(['2', 'Escape'])('guards typed-through %s after explicit decision navigation takes focus', async key => {
   vi.useFakeTimers()
   try {
-    const base = leadProjection(), { store } = await mount({ ...base, wayOut: 'decide-plan', thread: { ...base.thread, cards: [leadPlan] } })
+    const base = leadProjection(), { store, focusDecision } = await mount({ ...base, wayOut: 'decide-plan', thread: { ...base.thread, cards: [leadPlan] } })
     const decide = vi.spyOn(store.lead, 'decide').mockResolvedValue(base)
-    await act(async () => button('Review plan').click())
+    await focusDecision('plan')
     const surface = document.activeElement!
     await act(async () => surface.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
     expect(decide).not.toHaveBeenCalled()

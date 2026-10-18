@@ -492,7 +492,7 @@ export class LeadJournal {
         decision = refusal('start', 'Management is stopped pending recovery or user action')
       if (method === 'flow/start-goal' && (!step || step.state !== 'pending' || request.start?.id !== step.id ||
         this.#state.steps.find(step => step.state !== 'started')?.id !== step.id)) decision = refusal('start', 'Step is unapproved, out of order or already admitted')
-      if (method === 'flow/start-goal' && step) {
+      if (decision.effect === 'allow' && method === 'flow/start-goal' && step) {
         const index = this.#state.steps.indexOf(step)
         const previous = this.#state.steps[index - 1]
         const owned = previous && this.#state.runs.find(run => run.correlationId === previous.attemptId)

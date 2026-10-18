@@ -180,7 +180,7 @@ bottom hairline is additional to its content inset.
 | Pane's reading column | reading · 24px | `PaneColumn inset="reading"` | The pane owns the gutter before the reading measure; scrollbar reservation is additional layout space. A floating composer's bottom reserve is clearance, not a surface inset. |
 | Bar and navigation rail | bar · 8px | `--hd-bar-pad`, `--hd-rail-inset` | The bar owns the control-box edge; `--hd-bar-ink` includes the control's own inset for labels. Native window controls may add clearance. |
 
-Floating composer clearance follows the dock's full border-box height,
+Removing the dock clears its root clearance variable. Floating composer clearance follows the dock's full border-box height,
 including padding and borders, so a spacing change keeps the last message clear.
 The observer follows the mounted dock, releasing a detached element and measuring
 its replacement when returning to a conversation.
@@ -2351,9 +2351,11 @@ No internal ids or revision facts render. Decisions use the canonical docked
 ApprovalDialog and its keyboard policy, pending states, one filled action and
 focusable surface. The thread retains a one-word decided state. Window revision
 and digest fences, the page-wide decision lock and explicit focus return remain.
-Automatic plan arrivals never move composer focus; Review plan explicitly focuses
-the dock. Refusal, Resume and renewal banners share ComposerNoticeStack with the
-decision controls, using the session's gap above the composer. An idle dock has
+Automatic plan arrivals never move composer focus; explicit navigation focuses
+the dock. A visible decision has no duplicate plan banner or Review plan action.
+Refusal, Resume and renewal banners share ComposerNoticeStack with the decision
+controls, using the session's gap above the composer. Renewal's banner states
+only the earlier expiry time, once. An idle dock has
 no empty reading-measure or form-stack wrapper.
 
 Settings › Lead uses canonical Section, Rows, Row, Input and Button patterns,

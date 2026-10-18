@@ -95,6 +95,8 @@ export interface LeadMessagesResult {
   /** Only synchronization fences, failed read dispatches and successful results
    * beyond the continuation budget qualify for an automatic continuation. */
   readonly transientTools?: readonly string[]
+  /** Predecessor readiness refusals wait for a new desk observation. */
+  readonly deskActivityTools?: readonly string[]
   /** Dispatch successes, including results that could not fit the continuation. */
   readonly succeededTools?: readonly string[]
   readonly toolResults?: readonly MessagesToolResult[]

@@ -122,7 +122,7 @@ import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
-import { LeadAdmission } from './lead/admission.js'
+import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
@@ -3371,12 +3371,8 @@ export class Host {
         const previous = state.steps[index - 1]
         const owned = previous && state.runs.find(run => run.correlationId === previous.attemptId)
         if (call.method !== 'flow/start-goal' || !owned) return { ...scope, predecessor: undefined }
-        const run = this.#flows.leadRuns().find(run => run.id === owned.runId && run.goal === owned.teamId)
-        const review = run?.rounds.filter(round => round.role === 'review').at(-1), acceptance = run?.rounds.at(-1)
-        const cards = acceptance?.cards.map(id => this.#team.stateFor(owned.teamId).intents.find(card => card.id === id)) ?? []
-        return { ...scope, predecessor: { runId: owned.runId, ready: review?.state === 'closed' && acceptance?.role === 'accept' &&
-          cards.length > 0 && cards.every(card => acceptance.state === 'running' && card?.state === 'open' ||
-            acceptance.state === 'closed' && card?.state === 'done' && card.outcome === 'accepted') } }
+        const { ready } = leadPredecessorReadiness(state, scope.stepId!, this.#flows.leadRuns(), goal => this.#team.stateFor(goal).intents)
+        return { ...scope, predecessor: { runId: owned.runId, ready } }
       },
       register: () => this.registerLead(journal, project),
       childStarted: () => {

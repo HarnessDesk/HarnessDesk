@@ -48,7 +48,7 @@ it('retains an added permission rule when the synthetic settings specimen reopen
   } finally { act(() => root.unmount()); box.remove() }
 })
 
-it.each(['light', 'dark'])('previews loading without a name and pending-plan notice spacing in %s', async theme => {
+it.each(['light', 'dark'])('previews loading without a name and pending-plan decision spacing in %s', async theme => {
   const url = window.location.href; window.history.replaceState(null, '', `?theme=${theme}`)
   const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
   try {
@@ -56,7 +56,22 @@ it.each(['light', 'dark'])('previews loading without a name and pending-plan not
     expect(box.textContent).toContain('Hi, tell me what you want done.')
     await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="pending-plan" /></StoreProvider>))
     const notices = box.querySelector('[data-slot="composer-notices"]')!
-    expect(notices.textContent).toContain('Review plan')
+    expect(notices.textContent).not.toContain('Review plan')
+    expect(notices.textContent).not.toContain('The plan needs your decision')
+    expect(notices.textContent).toContain('Approve this plan?')
     expect(notices.querySelector('[data-lead-decision]')).not.toBeNull()
+  } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
+})
+
+
+it.each(['light', 'dark'])('previews consent expiry once alongside its decision in %s', async theme => {
+  const url = window.location.href; window.history.replaceState(null, '', `?theme=${theme}`)
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  try {
+    await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="consent-expired" /></StoreProvider>))
+    const notices = box.querySelector('[data-slot="composer-notices"]')!
+    expect(notices.textContent?.match(/earlier approval expired at/g)).toHaveLength(1)
+    expect(notices.textContent).not.toContain('Review plan')
+    expect(notices.textContent).toContain('Approve this plan?')
   } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
 })

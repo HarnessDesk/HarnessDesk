@@ -139,6 +139,7 @@ it('releases the old dock and observes a remounted dock through unmount', () => 
   const oldDock = container.querySelector('[data-testid="dock"]'), oldObserver = observers.at(-1)!
   render(false)
   expect(oldObserver.disconnect).toHaveBeenCalledOnce()
+  expect(height()).toBe('')
   render(true); resize(160)
   const newDock = container.querySelector('[data-testid="dock"]'), newObserver = observers.at(-1)!
   expect(newDock).not.toBe(oldDock)

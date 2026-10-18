@@ -346,3 +346,20 @@ for (const multi of [false, true]) test(`host bind ${multi ? 'permits' : 'refuse
     assert.equal(s.journal.state.seq, before)
   }
 })
+
+
+test('a run keeps its admission contract binding after a plan revision is approved and replayed', async t => {
+  const s = await leadRig(t), run = await s.start()
+  const contract = { ...s.contract, revision: 2, digest: 'b'.repeat(64), goal: 'Revised repair goal' }
+  await s.journal.offerCard({ version: 1, id: 'revision', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+  await s.journal.decideCard({ version: 1, cardId: 'revision', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, 1000)
+  const stored = s.rig.flows.leadRuns().find(item => item.id === run.id)!
+  await s.observe(0)
+  assert.deepEqual(await s.budgets.gate(stored), { ok: true })
+  const reopened = await reopenJournal(s.storage)
+  const budgets = new LeadBudgets({ ...s.budgets.port })
+  const unregister = budgets.register(reopened); t.after(unregister)
+  assert.deepEqual(await budgets.gate(stored), { ok: true })
+  assert.deepEqual(await budgets.gate({ ...stored, lead: { ...stored.lead!, contractDigest: contract.digest } }),
+    { ok: false, reason: 'lead-guard-unavailable' })
+})

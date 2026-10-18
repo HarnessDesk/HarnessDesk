@@ -1768,3 +1768,20 @@ test('a premature next step is denied before dispatch and can start when its pre
   assert.equal(started.outcome, 'succeeded')
   assert.equal(starts, 1)
 })
+
+
+test('a management-stopped start keeps its refusal instead of predecessor readiness', async () => {
+  const journal = await open(memory()), second = { ...contract.steps[0]!, id: 'second' }
+  const two = parseLeadAcceptanceContract({ ...contract, steps: [...contract.steps, second] })
+  await journal.setPolicy(policy); await journal.offerCard({ ...plan, contract: two })
+  await initializeBudget(journal); await journal.decideCard(click, 200)
+  await journal.execute({ id: 'first', request, context, stepId: 'implement' }, async () => ({
+    value: null, identity: { correlationId: 'first', runId: 'run-1', teamId: 'team-1' },
+  }))
+  await journal.updateBudget({ version: 1, type: 'bind', now: 100, startId: 'first', goalId: 'team-1', executionId: 'run-1', firstRoundId: '1' })
+  await observeAll(journal); await journal.stop()
+  const result = await journal.execute({ id: 'second', request: { ...request, start: second }, context, stepId: 'second',
+    predecessor: { runId: 'run-1', ready: false } }, async () => { throw new Error('must not dispatch') })
+  assert.equal(result.decision.reason, 'Management is stopped pending recovery or user action')
+  assert.equal(result.outcome, 'denied')
+})

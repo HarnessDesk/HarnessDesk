@@ -130,7 +130,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           {state.wayOut === 'resume' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
             {state.waitReason ? WAITS[state.waitReason] ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
           </Banner>}
-          {state.wayOut === 'decide-plan' && <Banner actions={<Button onClick={() => reviewPlan()}>Review plan</Button>}>{renewal ? `The earlier approval expired at ${formatLeadConsentTime(state.planConsentExpiresAt!)}. Review the plan to continue.` : 'The plan needs your decision before work continues.'}</Banner>}
+          {state.wayOut === 'decide-plan' && (renewal
+            ? <Banner>{`The earlier approval expired at ${formatLeadConsentTime(state.planConsentExpiresAt!)}.`}</Banner>
+            : !cards.some(card => card.type === 'plan') && <Banner actions={<Button onClick={() => reviewPlan()}>Review plan</Button>}>The plan needs your decision before work continues.</Banner>)}
           <LeadCards {...cardProps} cards={cards} placement="dock" />
         </ComposerNoticeStack>} form={{ 'aria-label': 'Lead composer', onSubmit: event => { event.preventDefault(); if (!requestPending && goal.trim() && !state.error && state.revision >= 0) void send() } }}>
               <ComposerText rows={1} ref={input} aria-label="Goal or message" placeholder={`Message ${label}…`} value={goal} onChange={event => setGoal(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!state.error && state.revision >= 0) void send() } }} />

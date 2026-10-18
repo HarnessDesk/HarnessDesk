@@ -893,3 +893,40 @@ test('a premature predecessor refusal stays transient without waiting for a pers
     assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
   } finally { await loop.close() }
 })
+
+
+for (const permanent of [false, true]) test(`a retrying premature start waits for desk activity without paid continuations${permanent ? ' while preserving unrelated permanent refusals' : ''}`, async () => {
+  const retry = message([tool('status', 'flow_execution', { run: 'run-1' }), tool('premature', 'flow_start_goal', startCall().params),
+    ...(permanent ? [tool('invalid', 'unknown_tool')] : [])], { stop_reason: 'tool_use' })
+  const s = await fixture(Array.from({ length: 8 }, () => structuredClone(retry)))
+  const second = { ...contract.steps[0]!, id: 'second' }
+  const two = protocol.parseLeadAcceptanceContract({ ...contract, steps: [...contract.steps, second] })
+  await s.journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: two.digest, contract: two })
+  await s.journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: two.digest, choice: 'approve' }, 1000)
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.execute(startCall()); s.setEvidence({ ...spendEvidence(), reviews: [] })
+  let ready = false
+  const resolve = s.options.resolveTool
+  s.options.resolveTool = async (call: any) => ({ ...await resolve(call), stepId: 'second', start: second, predecessor: { runId: 'run-1', ready } })
+  const call = s.options.desk.call
+  s.options.desk.call = async (method: string, params: unknown) => method === 'flow/start-goal'
+    ? { id: 'run-2', goal: 'team-2', rounds: [{ n: 1 }], state: 'running' } : call(method, params)
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.start()
+    const first = await loop.request(input)
+    assert.equal(first.toolResults.find((tool: any) => tool.tool_use_id === 'premature').content, 'Step 1 is not yet awaiting acceptance; wait for desk activity.')
+    for (let i = 0; i < 5; i++) await s.tick()
+    assert.equal(s.fake.requests.length, 1, 'only one provider request between desk changes')
+    assert.notEqual(s.journal.state.managementReason, 'lead-tools-refused')
+    s.emit({ type: 'run.changed', run: 'run-1' }); await s.drain(); await s.tick(); await loop.idle()
+    for (let i = 0; i < 5; i++) await s.tick()
+    assert.equal(s.fake.requests.length, 2)
+    assert.notEqual(s.journal.state.managementReason, 'lead-tools-refused')
+    ready = !permanent
+    s.emit({ type: 'run.changed', run: 'run-1' }); await s.drain(); await s.tick(); await loop.idle()
+    if (permanent) { assert.equal(s.journal.state.managementReason, 'lead-tools-refused'); return }
+    assert.equal(s.journal.state.steps[1]!.state, 'started')
+    assert.equal(s.journal.state.runs[1]!.runId, 'run-2')
+  } finally { await loop.close() }
+})

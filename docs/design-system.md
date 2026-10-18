@@ -2180,7 +2180,7 @@ wires the two refs to its own markup; the observing and the `setProperty`
 call are this hook's alone. Observe the border box so padding and border
 changes update the same full height that offsetHeight measures. The callback
 ref follows conditional docks: release the previous observer when the dock
-leaves, then measure and observe the new element when it mounts.
+leaves, clear the root clearance, then measure and observe the new element when it mounts.
 
 ### `ReadingMeasure`
 

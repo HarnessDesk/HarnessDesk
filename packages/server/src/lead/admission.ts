@@ -1,7 +1,7 @@
-import { leadReviewedResultSource, type LeadJournal } from '@harnessdesk/lead'
+import { leadReviewedResultSource, type LeadJournal, type LeadState } from '@harnessdesk/lead'
 import type { HostParams, LeadProject, Intent } from '@harnessdesk/protocol'
 import type { FlowPreviews } from '../flow-preview.js'
-import type { FlowLeadBinding } from '../flow-execution.js'
+import type { FlowLeadBinding, StoredFlowExecution } from '../flow-execution.js'
 import type { LeadBudgets } from './budgets.js'
 
 const same = (left: unknown, right: unknown): boolean => JSON.stringify(left, (_key, value: unknown) =>
@@ -9,6 +9,29 @@ const same = (left: unknown, right: unknown): boolean => JSON.stringify(left, (_
     ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value) === JSON.stringify(right, (_key, value: unknown) =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value)
+
+/** One host-owned readiness rule for both pre-dispatch resolution and the door.
+ * Each started step retains the contract binding under which its run was admitted. */
+export const leadPredecessorReadiness = (state: LeadState, stepId: string, runs: readonly StoredFlowExecution[],
+  readIntents: LeadAdmissionOptions['readIntents']): { ready: boolean; base?: string } => {
+  const index = state.contract?.steps.findIndex(step => step.id === stepId) ?? -1
+  if (index === 0) return { ready: true }
+  if (index < 0) return { ready: false }
+  const predecessor = state.contract!.steps[index - 1]!
+  const recorded = state.steps.find(step => step.id === predecessor.id)
+  const owned = state.runs.find(run => run.correlationId === recorded?.attemptId)
+  const run = owned && runs.find(run => run.id === owned.runId && run.goal === owned.teamId &&
+    run.lead?.logicalGoalId === state.budget?.logicalGoalId && run.lead?.contractDigest === recorded?.contractDigest &&
+    run.lead?.stepId === predecessor.id && run.lead?.startId === owned.correlationId)
+  const review = run?.rounds.filter(round => round.role === 'review').at(-1), acceptance = run?.rounds.at(-1)
+  const cards = acceptance?.cards?.map(id => readIntents(run!.goal).find(card => card.id === id)) ?? []
+  const ready = cards.length > 0 && cards.every(card => acceptance?.state === 'running' && card?.state === 'open' ||
+    acceptance?.state === 'closed' && card?.state === 'done' && card.outcome === 'accepted')
+  const plan = review && run?.seatPlans?.[String(review.n)]
+  if (recorded?.state !== 'started' || !run || !review || review.state !== 'closed' || acceptance?.role !== 'accept' || !ready ||
+    !plan?.base || !/^[a-f0-9]{40,64}$/.test(plan.base) || plan.handed.length !== 1 || plan.handed[0]!.at !== plan.base) return { ready: false }
+  return { ready: true, base: plan.base }
+}
 
 export interface LeadAdmissionOptions {
   readonly journal: LeadJournal
@@ -54,25 +77,8 @@ export class LeadAdmission {
     // Array order is execution order. Only the host's frozen review seating can
     // supply the next step's base; a model-chosen ref or the project's current
     // HEAD cannot stand in for the work the previous independent reviewer saw.
-    const index = contract.steps.findIndex(one => one.id === step.id)
-    let base: string | undefined
-    if (index > 0) {
-      const predecessor = contract.steps[index - 1]!
-      const recorded = state.steps.find(one => one.id === predecessor.id)
-      const owned = state.runs.find(one => one.correlationId === recorded?.attemptId)
-      const run = owned && budgets.port.runs().find(one => one.id === owned.runId && one.goal === owned.teamId &&
-        one.lead?.logicalGoalId === budget.logicalGoalId && one.lead.contractDigest === contract.digest &&
-        one.lead.stepId === predecessor.id && one.lead.startId === owned.correlationId)
-      const review = run?.rounds.filter(one => one.role === 'review').at(-1)
-      const acceptance = run?.rounds.at(-1)
-      const cards = acceptance?.cards?.map(id => this.options.readIntents(run!.goal).find(card => card.id === id)) ?? []
-      const ready = cards.length > 0 && cards.every(card => acceptance?.state === 'running' && card?.state === 'open' ||
-        acceptance?.state === 'closed' && card?.state === 'done' && card.outcome === 'accepted')
-      const plan = review && run?.seatPlans?.[String(review.n)]
-      if (recorded?.state !== 'started' || !run || !review || review.state !== 'closed' || acceptance?.role !== 'accept' || !ready ||
-        !plan?.base || !/^[a-f0-9]{40,64}$/.test(plan.base) || plan.handed.length !== 1 || plan.handed[0]!.at !== plan.base) return false
-      base = plan.base
-    }
+    const { ready, base } = leadPredecessorReadiness(state, step.id, budgets.port.runs(), this.options.readIntents)
+    if (!ready) return false
     const binding: FlowLeadBinding = { logicalGoalId: budget.logicalGoalId, contractDigest: contract.digest, stepId: step.id,
       startId: attempt.correlationId, ...(base ? { base } : {}) }
     if (budgets.prepared(binding.startId) || journal.state.steps.find(item => item.id === step.id)?.attemptId !== attempt.id ||

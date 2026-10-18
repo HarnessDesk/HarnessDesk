@@ -1916,11 +1916,12 @@ one page-wide lock, expose pending state and refuse stale revisions. Decided
 messages retain Approved, Declined or Accepted in the meta style; their controls
 leave the dock. New entries follow until the person scrolls up.
 
-Resume, Review plan, renewal-blocked and refusal banners share the session's notice
-stack with the decision dock, including its gap above the composer.
-Review plan explicitly focuses the approval dock; an arriving plan scrolls without
-taking composer focus. Expiry re-offers the approved plan with the earlier expiry
-time in its banner and a fresh approval requirement in the message. The host owns renewal; terminal threads
+Resume, renewal-blocked and refusal banners share the session's notice stack
+with the decision dock, including its gap above the composer. A visible plan
+decision needs no extra banner or Review plan action. Explicit navigation focuses
+the approval dock; an arriving plan scrolls without taking composer focus. Expiry
+re-offers the approved plan with only the earlier expiry time in its banner, once,
+and a fresh approval requirement in the message. The host owns renewal; terminal threads
 cannot renew. Reads back off to 30 seconds, read once more, then wait for changes.
 
 Settings › Lead exists only with the host capability. Its groups are Name,

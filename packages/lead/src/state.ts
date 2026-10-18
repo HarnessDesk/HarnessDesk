@@ -14,7 +14,7 @@ export interface LeadAttemptState {
   /** A lookup contradicted this start: the window may confirm a run, never attest none. */
   readonly contested: boolean
 }
-export interface LeadStepState { readonly id: string; readonly state: 'pending' | 'admitted' | 'started' | 'uncertain'; readonly attemptId: string | null }
+export interface LeadStepState { readonly id: string; readonly state: 'pending' | 'admitted' | 'started' | 'uncertain'; readonly attemptId: string | null; readonly contractDigest: string | null }
 export interface LeadState {
   readonly name: LeadName
   readonly decisionMessages: readonly LeadDecisionMessage[]
@@ -82,7 +82,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   }
   const releaseStart = (id: string) => {
     if (state.budget) state = { ...state, budget: releaseLeadStart(state.budget, id) }
-    state = { ...state, steps: state.steps.map(step => step.attemptId === id ? { ...step, state: 'pending' as const, attemptId: null } : step) }
+    state = { ...state, steps: state.steps.map(step => step.attemptId === id ? { ...step, state: 'pending' as const, attemptId: null, contractDigest: null } : step) }
   }
   switch (event.type) {
     case 'settings-changed': if (event.name !== undefined) state = { ...state, name: event.name }; break
@@ -190,7 +190,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
           state = { ...state, contract, phase: 'running', teams: renewal || locked.length ? state.teams : [], runs: renewal || locked.length ? state.runs : [],
             consent: { contractDigest: card!.contract.digest, contractRevision: card!.contract.revision,
               policyRevision: card!.contract.policyRevision, expiresAt: event.expiresAt! },
-            steps: contract.steps.map(step => locked.find(existing => existing.id === step.id) ?? { id: step.id, state: 'pending', attemptId: null }),
+            steps: contract.steps.map(step => locked.find(existing => existing.id === step.id) ?? { id: step.id, state: 'pending', attemptId: null, contractDigest: null }),
             decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(other => other.type === 'plan' && other.id !== card!.id &&
               other.contract.revision <= contract.revision).map(cardKey)])] }
           if (state.budget && !renewal) state = { ...state, budget: applyLeadBudgetCaps(state.budget, contract.caps) }
@@ -249,7 +249,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         const step = state.steps.find(step => step.id === attempt!.stepId)
         ensure(state.phase === 'running' && !hasPendingLeadPlan(state) && step?.state === 'pending' && state.steps.find(step => step.state !== 'started')?.id === step.id)
         if (state.budget) state = { ...state, budget: reduceLeadBudget(state.budget, { version: 1, type: 'start', now: state.budget.now, startId: event.id }) }
-        state = { ...state, steps: state.steps.map(step => step.id === attempt!.stepId ? { ...step, state: 'admitted', attemptId: event.id } : step) }
+        state = { ...state, steps: state.steps.map(step => step.id === attempt!.stepId ? { ...step, state: 'admitted', attemptId: event.id, contractDigest: state.contract!.digest } : step) }
       }
       updateAttempt(event.id, attempt => ({ ...attempt, phase: 'started', dispatched: event.dispatched })); break
     }

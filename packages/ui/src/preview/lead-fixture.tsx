@@ -32,7 +32,8 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   if (scene === 'worker-approval') { thread.cards = [{ ...leadWaiting, kind: 'worker-approval', personCardId: null }]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = { ...leadBudget, spend: 'unknown' }; thread.cardPositions = { waiting: 3 } }
   if (scene === 'running') { thread.state = 'running'; projection = { ...projection, requestInFlight: true }; thread.messages = [...thread.messages, { version: 1, id: 'reply', revision: 2, role: 'assistant', text: 'The approved Flow is running. I will read its checks and review before asking you to accept.' }] }
   if (scene === 'resume') { thread.state = 'waiting-for-user'; projection = { ...projection, wayOut: 'resume', waitReason: 'lead-request-failed' } }
-  if (scene === 'consent-expired') { thread.contract = leadContract; thread.budget = leadBudget }
+  // Renewal adds only the expiry fact above the same docked plan decision.
+  if (scene === 'consent-expired') { thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { plan: 2 } }
   if (scene === 'consent-expired') projection = { ...projection, wayOut: 'decide-plan', planConsentExpiresAt: Date.parse('2026-10-18T12:00:00Z') }
   if (scene === 'renewal-blocked') { thread.state = 'waiting-for-user'; thread.contract = leadContract; projection = { ...projection, waitReason: 'lead-renewal-blocked', planConsentExpiresAt: Date.parse('2026-10-18T12:00:00Z') } }
   if (scene === 'settings-unconfigured' || scene === 'empty') projection = { ...projection, settings: { ...base.settings, key: { configured: false, protection: 'encrypted' } } }

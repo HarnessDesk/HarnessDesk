@@ -61,11 +61,15 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   for (const card of cards) assert(Number.isInteger(source.cardRevisions[card.id]) && source.cardRevisions[card.id]! >= 1 && source.cardRevisions[card.id]! <= 32)
   assert(Array.isArray(source.decidedCards) && source.decidedCards.length <= 2048 && source.decidedCards.every(key => typeof key === 'string' && key.length <= 300))
   assert(Array.isArray(source.steps) && source.steps.length <= 64)
-  for (const step of source.steps) {
-    assert(step && Object.keys(step).sort().join() === ['id', 'state', 'attemptId'].sort().join())
+  const steps = source.steps.map(step => {
+    assert(step && Object.keys(step).sort().join() === ['id', 'state', 'attemptId', ...(Object.hasOwn(step, 'contractDigest') ? ['contractDigest'] : [])].sort().join())
     assert(contract?.steps.some(approved => approved.id === step.id) && ['pending', 'admitted', 'started', 'uncertain'].includes(step.state))
     assert(step.attemptId === null || typeof step.attemptId === 'string' && step.attemptId.length <= 256)
-  }
+    assert(!Object.hasOwn(step, 'contractDigest') || step.contractDigest === null || typeof step.contractDigest === 'string' && /^[a-f0-9]{64}$/.test(step.contractDigest))
+    // An older snapshot cannot prove the digest at admission. Keep it unknown;
+    // the host guard must not adopt the latest plan as an old run's binding.
+    return { ...step, contractDigest: step.contractDigest ?? null }
+  })
   assert(Array.isArray(source.teams) && source.teams.length <= 4096 && source.teams.every(id => typeof id === 'string' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(id)))
   assert(Array.isArray(source.runs) && source.runs.length <= 64)
   const runs = source.runs.map(parseLeadRunIdentity)
@@ -95,6 +99,6 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     if (consent.renewalCardRevision !== undefined) assert(Number.isSafeInteger(consent.renewalCardRevision) && cards.some(card => card.type === 'plan' && card.contractDigest === consent.contractDigest && card.revision === consent.renewalCardRevision))
     assert(Number.isSafeInteger(consent.expiresAt) && consent.expiresAt > 0)
   }
-  const state = structuredClone({ ...source, policy, contract, budget, cards, runs, attempts, messages })
+  const state = structuredClone({ ...source, policy, contract, budget, cards, runs, steps, attempts, messages })
   return { checkpoint: structuredClone(checkpoint), state }
 }

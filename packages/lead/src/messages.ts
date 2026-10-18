@@ -1,5 +1,5 @@
 import { leadToolDefinitions, parseLeadToolCall, LeadToolFencedError, LeadToolRefusedError } from './tools.js'
-import { clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
+import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
   type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
@@ -318,15 +318,20 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     const results: MessagesToolResult[] = uses.map(({ use }) => ({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: 'Tool refused' }))
     const continuation: MessagesTurn[] = [...messages, { role: 'assistant', content }, ...(results.length ? [{ role: 'user' as const, content: results }] : [])]
     const bytes = (text: string) => new TextEncoder().encode(text).byteLength
+    const predecessorRefusal = (index: number) => `Step ${index} is not yet awaiting acceptance; wait for desk activity.`
+    // A preceding read cannot consume the space needed to explain a later start refusal.
+    const refusalSpace = bytes(json(predecessorRefusal(LEAD_LIMITS.steps))) - bytes(json('Tool refused'))
+    const reserved = uses.map(({ use }) => use.name === 'flow_start_goal' ? refusalSpace : 0)
     let available: number
     try {
       // Leave room for the next request's fixed tools/model/system wrapper too.
-      available = LIMIT.bytes - (bytes(body) - bytes(json(messages))) - bytes(safeJson(continuation))
+      available = LIMIT.bytes - (bytes(body) - bytes(json(messages))) - bytes(safeJson(continuation)) - reserved.reduce((sum, space) => sum + space, 0)
       if (available < 0) fail()
     } catch { return { status: 'invalid-response', reason: 'lead-messages-continuation-limit', usage: used, toolResults: results } }
     const permissionDeniedTools: string[] = []
-    const transientTools: string[] = [], succeededTools: string[] = []
+    const transientTools: string[] = [], succeededTools: string[] = [], deskActivityTools: string[] = []
     for (const [position, { use, index }] of uses.entries()) {
+      available += reserved[position]!
       if (!signal.aborted && parsed.stop_reason !== 'max_tokens') {
         try {
           const call = parseLeadToolCall(use)
@@ -341,7 +346,15 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
               catch (error) { dispatchError = error; throw error }
             })
           if (executed.decision.effect !== 'allow') permissionDeniedTools.push(use.id)
-          if (executed.outcome === 'denied' && executed.decision.reason === 'lead-predecessor-not-ready' ||
+          if (executed.outcome === 'denied' && executed.decision.reason === 'lead-predecessor-not-ready') {
+            const index = journal.state.contract?.steps.findIndex(step => step.id === scope.stepId) ?? 0
+            const result = { ...results[position]!, content: predecessorRefusal(index) }
+            const extra = bytes(json(result)) - bytes(json(results[position]))
+            results[position] = result; available -= extra
+            deskActivityTools.push(use.id)
+            transientTools.push(use.id)
+          }
+          if (
             dispatchError instanceof LeadToolFencedError || executed.outcome === 'failed' &&
             clientTierFor(call.method, call.params) === 'read' && !(dispatchError instanceof LeadToolRefusedError)) transientTools.push(use.id)
           if (executed.outcome === 'succeeded') {
@@ -357,6 +370,6 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       }
     }
     return { status: parsed.stop_reason === 'max_tokens' ? 'max-tokens' : signal.aborted ? 'cancelled' : 'completed', usage: used,
-      text: output.text, proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, succeededTools, messages: continuation }
+      text: output.text, proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, messages: continuation }
   } }
 }

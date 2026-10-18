@@ -102,7 +102,9 @@ export class LeadBudgets implements FlowLeadGuard {
   }
   #journal(run: StoredFlowExecution): LeadJournal {
     const journal = run.lead && this.#journals.get(run.lead.logicalGoalId)
-    if (!journal || run.source !== leadReviewedResultSource || !run.requireHeld || journal.state.contract?.digest !== run.lead!.contractDigest) throw new Error('lead-guard-unavailable')
+    const step = journal?.state.steps.find(step => step.id === run.lead?.stepId && step.attemptId === run.lead.startId)
+    if (!journal || run.source !== leadReviewedResultSource || !run.requireHeld || !step?.contractDigest ||
+      step.contractDigest !== run.lead!.contractDigest) throw new Error('lead-guard-unavailable')
     return journal
   }
   async bind(run: StoredFlowExecution): Promise<void> {

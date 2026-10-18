@@ -116,7 +116,7 @@ PaneColumn.displayName = 'PaneColumn'
  * call are this hook's alone. Observe the border box so padding and border
  * changes update the same full height that offsetHeight measures. The callback
  * ref follows conditional docks: release the previous observer when the dock
- * leaves, then measure and observe the new element when it mounts.
+ * leaves, clear the root clearance, then measure and observe the new element when it mounts.
  */
 export const useComposerHeightVar = (root: RefObject<HTMLElement | null>): RefCallback<HTMLDivElement> => {
   const [dockElement, setDock] = useState<HTMLDivElement | null>(null)
@@ -127,7 +127,7 @@ export const useComposerHeightVar = (root: RefObject<HTMLElement | null>): RefCa
     apply()
     const observer = new ResizeObserver(apply)
     observer.observe(dockElement, { box: 'border-box' })
-    return () => observer.disconnect()
+    return () => { observer.disconnect(); rootElement.style.removeProperty('--composer-h') }
   }, [dockElement, root])
   return setDock
 }

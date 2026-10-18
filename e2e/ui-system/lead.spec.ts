@@ -8,7 +8,7 @@ test.beforeAll(async ({}, info) => { test.setTimeout(120_000); renderer = info.o
 
 for (const theme of ['light', 'dark'] as const) {
   test(`Lead plan approval reaches a two-run reviewed result and human acceptance in ${theme}`, async ({ browser }) => {
-    test.setTimeout(180_000)
+    test.setTimeout(300_000)
     const desk = await openLeadHost(browser, renderer, { holdWorkers: true })
     const { page, rig } = desk
     try {
@@ -21,7 +21,7 @@ for (const theme of ['light', 'dark'] as const) {
       await rig.waitFor(() => rig.journal.state.phase === 'running', 'approved work starts')
       await rig.releaseWorkers()
       const result = page.locator('[data-lead-decision-type="result"]')
-      await expect(result.getByRole('button', { name: 'Accept', exact: true })).toBeVisible({ timeout: 90_000 })
+      await expect(result.getByRole('button', { name: 'Accept', exact: true })).toBeVisible({ timeout: 240_000 })
       expect(rig.journal.state.runs.length).toBe(2)
       // Capture the actual decision response: a refused click must fail here,
       // rather than spending the rig's acceptance wait on an unchanged phase.

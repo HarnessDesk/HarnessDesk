@@ -112,7 +112,8 @@ without updating the transcript reserve. The Side by side browser contract
 waits for the measured reserve, then checks both scroll position and the final
 answer's visible bounds as the dock grows and shrinks.
 Conditional docks use a callback ref held in state: detaching releases the old
-observer, and mounting a replacement measures and observes its border box.
+observer and clears the root clearance variable; mounting a replacement measures
+and observes its border box.
 
 ## Round is someone, square is a thing
 
