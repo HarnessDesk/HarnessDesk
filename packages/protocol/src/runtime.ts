@@ -627,6 +627,9 @@ export type RuntimeHealth =
        * on a schedule. A copy that is there is never `notInstalled`.
        * `spawnFailed` says discovery or launch found a program that could
        * not start; unlike `unknown` (also used for a stop), it is remembered.
+       * It also covers wrapped non-spawn start errors ("Could not start …",
+       * "Restart failed"); the worst case is one background start at the next
+       * desk open, which clears on ready.
        */
       readonly reason: 'notInstalled' | 'unreadable' | 'versionTooOld' | 'spawnFailed' | 'crashed' | 'unknown'
       readonly message: string

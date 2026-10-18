@@ -697,6 +697,7 @@ export class Host {
   /** Native metadata before registry rows are added, with the same lifecycle guard. */
   readonly #runtimeHistoryReaders = new WeakMap<AgentRuntime, (query?: ListSessionsQuery, startIfNeeded?: boolean) => Promise<Page<SessionSummary> | null>>()
   readonly #accountReads = new Map<string, AccountReads>()
+  readonly #discoveringRuntimes = new Map<string, Promise<void>>()
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #directRuntimeStarts = new Map<string, { startedAt: number; promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
@@ -2248,6 +2249,7 @@ export class Host {
       this.#invalidateDelegations(id)
       this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was replaced.'))
       this.#directRuntimeStarts.delete(String(id))
+      this.#discoveringRuntimes.delete(String(id))
       this.#accountReads.get(id)?.dispose()
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
@@ -2380,6 +2382,7 @@ export class Host {
     this.#catalogs.forget(id)
     this.#runtimes.delete(id)
     this.#runtimeSources.delete(String(id))
+    this.#discoveringRuntimes.delete(String(id))
     this.#coldRuntimes.delete(String(id))
     this.#modelsReadyAt.delete(String(id))
     this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was removed.'))
@@ -2704,9 +2707,15 @@ export class Host {
       // A fresh desk has nothing remembered. Discovery can already tell us
       // the program will not run, without launching an unused agent. Its
       // health event seeds the same cache as a failed start (#1778).
-      else void runtime.discoverProgram?.().catch((error: unknown) => {
-        this.#logger.warn('runtime program discovery failed', { runtime: runtime.info.id, error: String(error) })
-      })
+      else if (runtime.discoverProgram) {
+        const id = String(runtime.info.id)
+        const discovery = runtime.discoverProgram().catch((error: unknown) => {
+          this.#logger.warn('runtime program discovery failed', { runtime: id, error: String(error) })
+        }).finally(() => {
+          if (this.#discoveringRuntimes.get(id) === discovery) this.#discoveringRuntimes.delete(id)
+        })
+        this.#discoveringRuntimes.set(id, discovery)
+      }
     }
     /* Recovery sends enter the same live-operation start barrier as new work. */
     /* Held firings are released through their gates, and only then is any
@@ -2749,9 +2758,9 @@ export class Host {
    * doing.
    *
    * It never holds one runtime up behind another: each is judged after its own
-   * start, if it has one in flight, and not before. That start may have looked
-   * before the PATH landed and fail after it. And the wait ends at the deadline
-   * every start has (`startTimeoutMs`), because a start can neither resolve nor
+   * discovery and start, if either is in flight, and not before. Either may have
+   * looked before the PATH landed and fail after it. The start wait ends at
+   * the deadline every start has (`startTimeoutMs`), because a start can neither resolve nor
    * reject — an agent that speaks a protocol we do not never answers
    * `initialize` — and the look must not turn off with it.
    */
@@ -2786,6 +2795,10 @@ export class Host {
   async #askAgain(reasons: readonly UnavailableReason[], why: string): Promise<void> {
     await Promise.all([...this.#runtimes.values()].map(async (runtime) => {
       const id = String(runtime.info.id)
+      // Discovery can still answer about the PATH before this look, just like a start.
+      const discovery = this.#discoveringRuntimes.get(id)
+      if (discovery) await discovery
+      if (this.#disposed || this.#runtimes.get(id) !== runtime) return
       // A start in flight is judged once it settles, and `#startOne` is the wait: its own start, up to its deadline.
       if (this.#startingRuntimes.has(id)) await this.#startOne(runtime)
       // Still going after the deadline: left alone. Asking joins it, so there is nothing to ask.
@@ -3312,6 +3325,7 @@ export class Host {
     await Promise.all(this.#runtimeNoticeWrites)
     await this.#transcripts.close()
     this.#runtimes.clear()
+    this.#discoveringRuntimes.clear()
     /* Every seat parked inside `await_work` is a tool call held open, and a
        held tool call across a quit is a turn that never ends. */
     this.#team.stopWaiting('the desk is closing')

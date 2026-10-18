@@ -368,6 +368,44 @@ test('a fresh desk uses discovery failure before any session asks the agent', as
   assert.equal(cache.runtimes.one.wouldNotStart, 'unreadable', 'discovery seeds the same remembered program failure')
 })
 
+test('the PATH re-ask waits for a discovery in flight before judging the runtime', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-discovery-path-'))
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  t.after(() => release())
+  let discovered!: () => void
+  const discoveryFinished = new Promise<void>(resolve => { discovered = resolve })
+  class DiscoveredProgram extends Program {
+    discoveries = 0
+    async discoverProgram(): Promise<void> {
+      this.discoveries += 1
+      const sawIt = this.found
+      await gate
+      this.setHealth(sawIt ? { state: 'idle' } : notInstalled)
+      discovered()
+    }
+  }
+  const program = new DiscoveredProgram({ id: runtimeId('one') })
+  program.setHealth({ state: 'idle' })
+  const host = await relaunch(t, dir, program)
+  // Registered after the host's cleanup so its background cache writes finish first.
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  assert.equal(program.discoveries, 1, 'startup discovery is still looking')
+  assert.equal(program.starts, 0, 'startup has not launched the unused agent')
+
+  // Discovery saw the old PATH; the one re-ask must use the new one after it settles.
+  program.found = true
+  const asking = host.retryProgramLookup()
+  assert.equal(program.starts, 0, 'the re-ask cannot overtake discovery')
+  release()
+  await discoveryFinished
+  await asking
+
+  assert.equal(program.starts, 1, 'asked again after discovery reported not installed')
+  assert.deepEqual(program.health(), { state: 'ready' })
+  assert.deepEqual(host.syncPayload().params.health?.find(entry => entry.runtime === program.info.id)?.health, { state: 'ready' })
+})
+
 test('a stop that says unknown is not remembered as a program failure', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-stop-relaunch-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
@@ -393,7 +431,9 @@ test('startup discovers a never-started Codex without launching its app-server',
   // writes can still be landing in `dir` while the folder is removed.
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
   const cli = join(dir, 'codex')
-  await writeFile(cli, '#!/bin/sh\nexit 127\n')
+  const invocations = join(dir, 'invocations')
+  const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
+  await writeFile(cli, `#!/bin/sh\nprintf '%s\\n' "$*" >> ${quote(invocations)}\nexit 127\n`)
   await chmod(cli, 0o755)
   const runtime = new CodexRuntime({ binaryPath: cli, codexHome: join(dir, 'agent-home'),
     discovery: { env: { PATH: dir }, locations: [] } })
@@ -405,6 +445,9 @@ test('startup discovers a never-started Codex without launching its app-server',
   assert.match(health.message, /would not report its version/)
   // Closed here, before the folder is removed, so nothing is still writing to it.
   await host.dispose()
+  const args = await readFile(invocations, 'utf8')
+  assert.match(args, /--version/, 'discovery must have probed the fake program')
+  assert.doesNotMatch(args, /app-server/, 'discovery must never launch the app-server')
 })
 
 test('a Codex that would not report its version is asked again as the desk next opens, not drawn idle', async (t) => {
