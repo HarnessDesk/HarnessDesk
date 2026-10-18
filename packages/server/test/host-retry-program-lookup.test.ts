@@ -389,7 +389,9 @@ test('a stop that says unknown is not remembered as a program failure', async (t
 
 test('startup discovers a never-started Codex without launching its app-server', { skip: process.platform === 'win32' }, async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-codex-discovery-first-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  // Retried: discovery is fire-and-forget, and the remembered failure it
+  // writes can still be landing in `dir` while the folder is removed.
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
   const cli = join(dir, 'codex')
   await writeFile(cli, '#!/bin/sh\nexit 127\n')
   await chmod(cli, 0o755)
@@ -401,6 +403,8 @@ test('startup discovers a never-started Codex without launching its app-server',
   assert.ok(health?.state === 'unavailable')
   assert.equal(health.reason, 'unreadable')
   assert.match(health.message, /would not report its version/)
+  // Closed here, before the folder is removed, so nothing is still writing to it.
+  await host.dispose()
 })
 
 test('a Codex that would not report its version is asked again as the desk next opens, not drawn idle', async (t) => {
