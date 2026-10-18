@@ -1530,3 +1530,34 @@ test('host bind during dispatch refuses a different run in the start result and 
   assert.deepEqual(reopened.state, journal.state)
   assert.deepEqual(reopened.state.runs, [owned])
 })
+
+
+test('combined authority changes fence the journal revision before admission or writes', async () => {
+  const storage = memory(), journal = await prepare(storage), before = journal.state
+  let admissions = 0
+  await assert.rejects(journal.changePolicyAndBudgetCaps({ ...policy, revision: 2, mode: 'plan' },
+    { ...contract.caps, rounds: 4 }, before.seq - 1, { policy: 'policy-change', caps: 'caps-change' }, 100,
+    undefined, () => { admissions++ }), (error: any) => error.wireCode === 'lead-revision-stale')
+  assert.equal(admissions, 0)
+  assert.deepEqual(journal.state, before)
+  assert.equal(storage.records.at(-1).seq, before.seq)
+})
+
+test('combined authority preflight asks storage to prepare both simulated states before appending either', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  // Policy tightening precedes a caps card; fail the storage size check on the second event.
+  const before = journal.state, count = storage.records.length, prepared: number[] = []
+  Object.assign(storage, { prepare(value: unknown, previous: lead.LeadState = journal.state) {
+    const record = lead.prepareLeadJournalRecord(value)
+    assert.equal(storage.records.length, count, 'no event is appended until both storage checks succeed')
+    assert.equal(previous.seq, record.seq - 1)
+    prepared.push(record.seq)
+    if (record.type === 'card' && record.card.type === 'budget-change') throw new Error('synthetic state limit')
+    return record
+  } })
+  await assert.rejects(journal.changePolicyAndBudgetCaps({ ...policy, revision: 2, mode: 'plan' },
+    { ...contract.caps, rounds: 4 }, before.seq, { policy: 'policy-change', caps: 'caps-change' }, 100), /synthetic state limit/)
+  assert.deepEqual(prepared, [before.seq + 1, before.seq + 2])
+  assert.equal(storage.records.length, count)
+  assert.deepEqual(journal.state, before)
+})

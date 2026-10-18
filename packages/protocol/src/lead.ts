@@ -220,7 +220,7 @@ export interface LeadProjectionFailure { readonly version: 1; readonly revision:
 export type LeadChanged = LeadWindowProjection | LeadProjectionFailure
 export const LEAD_CONTROL_REFUSALS = ['lead-unavailable', 'lead-operation-refused', 'lead-secret-refused', 'lead-revision-stale',
   'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
-  'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-one-change', 'lead-evidence-read-refused',
+  'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
   'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]

@@ -41,7 +41,7 @@ export type LeadJournalEvent =
   | { readonly type: 'result'; readonly id: string; readonly outcome: LeadAttemptOutcome; readonly identity: LeadRunIdentity | null }
   | { readonly type: 'reconciliation'; readonly id: string; readonly identity: LeadRunIdentity | null; readonly count: number; readonly evidence: string }
 export type LeadJournalRecord = Base & LeadJournalEvent
-export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown): LeadJournalRecord; checkpoint?(): LeadState | null; journalSecurity?(): LeadJournalSecurity }
+export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown, previous?: LeadState): LeadJournalRecord; checkpoint?(): LeadState | null; journalSecurity?(): LeadJournalSecurity }
 const object = (value: unknown, keys?: readonly string[]): Record<string, unknown> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('lead-journal-shape')
   const source = value as Record<string, unknown>
@@ -313,7 +313,9 @@ export class LeadJournal {
       const events = [policyEvent]
       const preflight = (event: LeadJournalEvent) => {
         if (event.type === 'card') admit?.(state, event.card)
-        state = reduceLeadRecord(state, prepareLeadJournalRecord({ version: 1, seq: state.seq + 1, ...event }, this.security))
+        const prepared = prepareLeadJournalRecord({ version: 1, seq: state.seq + 1, ...event }, this.security)
+        const record = this.storage.prepare ? this.storage.prepare(prepared, state) : prepared
+        state = reduceLeadRecord(state, record)
       }
       preflight(policyEvent)
       const capsEvent = this.#capsChange(state, caps, { id: ids.caps, revision: 1 }, now)

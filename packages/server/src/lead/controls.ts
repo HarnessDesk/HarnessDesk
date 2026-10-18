@@ -133,16 +133,21 @@ export class LeadControls {
     try { configured = (await service.status('anthropic')).configured } catch { throw leadRefusal('lead-protection-unavailable') }
     if (!configured) throw leadRefusal('lead-key-missing')
     try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
-    return this.#commitRequest(committed => journal.appendMessage(input.idempotencyKey, input.text, committed))
+    const resume = this.#wayOut(journal.state) === 'resume'
+    return this.#commitRequest(async committed => {
+      const receipt = await journal.appendMessage(input.idempotencyKey, input.text, committed)
+      if (resume) await journal.resume(receipt.revision, true, committed)
+      return receipt
+    })
   }) }
   async #commitRequest<T>(commit: (committed: () => void) => Promise<T>): Promise<T> {
     let committed = false
     try { return await commit(() => { committed = true; this.#requestInFlight = true }) }
     finally { if (committed) this.#detachContinue() }
   }
-  #detachContinue(): void {
+  #detachContinue(forcePublication = false): void {
     if (this.#closed) return
-    const publishFlight = !this.#requestInFlight
+    const publishFlight = forcePublication || !this.#requestInFlight
     this.#requestInFlight = true
     if (this.#continuation) { this.#continueAgain = true; return }
     // A timer yields the durable receipt/projection to the caller before any paid work.
@@ -160,7 +165,7 @@ export class LeadControls {
     }).finally(() => {
       if (this.#continuation !== work) return
       this.#continuation = null
-      if (this.#continueAgain && !this.#closed) this.#detachContinue()
+      if (this.#continueAgain && !this.#closed) this.#detachContinue(true)
       else this.#requestInFlight = false
     })
     this.#continuation = work
@@ -181,11 +186,11 @@ export class LeadControls {
       ] })
       const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages })
       if (result.text) await service.assertPublic(result.text)
-      this.#requestInFlight = false
+      this.#requestInFlight = this.#continueAgain
       if (result.text) await journal.appendReply(result.text)
       else await journal.settingsChanged()
     } catch {
-      this.#requestInFlight = false
+      this.#requestInFlight = this.#continueAgain
       const revision = journal.state.seq
       if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase)) await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
       if (journal.state.seq === revision) await journal.settingsChanged()
@@ -215,7 +220,7 @@ export class LeadControls {
     const input = parseLeadSettingsUpdate(value), { journal, service } = this.options
     this.#expectRevision(input.expectedRevision)
     // Credentials stay exclusive; combined authority changes are preflighted together.
-    if (input.credential ? input.policy !== undefined || input.caps !== undefined : !input.policy && !input.caps) throw leadRefusal('lead-settings-one-change')
+    if (input.credential ? input.policy !== undefined || input.caps !== undefined : !input.policy && !input.caps) throw leadRefusal('lead-settings-combination')
     if (input.credential) {
       const { provider, key } = input.credential
       if (key === null) await service.deleteKey(provider)

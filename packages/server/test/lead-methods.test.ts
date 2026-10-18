@@ -193,8 +193,8 @@ test('a result click invokes the live person path instead of accepting only the 
   assert.equal(s.journal.state.phase, 'accepted')
 })
 
-test('the window resume resets the real loop no-progress counter', async () => {
-  const s = await rig(), scheduled: (() => void)[] = []
+for (const action of ['resume', 'send'] as const) test(`the window ${action} resets the real loop no-progress counter`, async () => {
+  const s = await rig({ configured: true }), scheduled: (() => void)[] = []
   let requests = 0, sequence = 0, end: (() => void) | undefined
   const loop = createLeadLoop({ journal: s.journal, project, now: () => 100,
     nextId: () => `loop-${++sequence}`,
@@ -219,7 +219,9 @@ test('the window resume resets the real loop no-progress counter', async () => {
   assert.equal(s.journal.state.phase, 'waiting-for-user')
   assert.equal((await s.call('lead/thread/read')).wayOut, 'resume')
   s.service.send = async input => { const result = await loop.request(input as any); return { status: result?.status ?? 'refused', text: result?.text ?? '' } }
-  await s.call('lead/resume', { expectedRevision: s.journal.state.seq }); await s.controls.idle()
+  await (action === 'resume' ? s.call('lead/resume', { expectedRevision: s.journal.state.seq }) :
+    s.call('lead/thread/send', { idempotencyKey: 'continue', text: 'Try the check again' }))
+  await s.controls.idle()
   assert.equal(requests, 4, 'the window control restarts the parked loop')
   assert.equal(s.journal.state.phase, 'running', 'the fourth failed tool turn starts a fresh allowance')
   for (const callback of scheduled.splice(0)) callback()
@@ -428,7 +430,7 @@ test('settings updates require authority changes or an exclusive credential chan
   const s = await rig(), before = s.journal.state
   for (const update of [{}, { credential: { provider: 'anthropic', key }, caps: { usdMicros: 5, rounds: 1 } },
     { credential: { provider: 'anthropic', key }, policy: { ...policy, revision: 2, mode: 'plan' } }])
-    await assert.rejects(s.controls.updateSettings({ expectedRevision: before.seq, ...update }), code('lead-settings-one-change'))
+    await assert.rejects(s.controls.updateSettings({ expectedRevision: before.seq, ...update }), code('lead-settings-combination'))
   assert.deepEqual(s.journal.state, before)
 })
 test('raw credential writer failures are normalized without echoing input', async () => {
@@ -681,6 +683,9 @@ for (const check of ['wake', 'projection'] as const) test(`approve during a held
       await new Promise(resolve => setTimeout(resolve, 0))
       assert.ok(duringSecond.length > 0)
       assert.ok(duringSecond.every((notification: any) => notification.params.requestInFlight === true))
+      const firstReceipt = s.journal.state.messages.find(message => message.role === 'user')!.revision
+      assert.ok(published.filter((notification: any) => notification.params.revision >= firstReceipt)
+        .every((notification: any) => notification.params.requestInFlight === true), 'chained requests never publish an idle gap')
       const latest = (published.at(-1) as any).params
       assert.equal(latest.requestInFlight, true, 'latest published projection while the second request runs')
       assert.ok(latest.revision > s.journal.state.messages.find(message => message.role === 'assistant')!.revision)
@@ -925,4 +930,69 @@ test('a refused stale approval cannot restore a completed request flag', async (
     assert.equal((s.notifications.at(-1) as any).params.requestInFlight, false)
     assert.equal((await s.controls.readThread()).requestInFlight, false)
   } finally { releaseSend(); releaseWrite(); await change; await refused; await s.controls.idle(); s.controls.close() }
+})
+
+
+test('an open paid reservation after restart still offers and accepts resume', async () => {
+  const s = await rig({ configured: true })
+  await s.journal.appendMessage('crash-reserved', 'Inspect')
+  await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'interrupted', inputTokens: 1, maxOutputTokens: 1,
+    inputUsdMicrosPerMillion: 1000000, outputUsdMicrosPerMillion: 1000000, cacheReadUsdMicrosPerMillion: 1000000, cacheWriteUsdMicrosPerMillion: 1000000 })
+  s.controls.close()
+  const journal = await createLeadJournal(s.storage), { LeadControls } = await controlsModule()
+  const controls = new LeadControls({ journal, service: s.service, project, model: 'fixture-model', now: () => 100,
+    nextId: () => 'card', push() {}, decidePerson: async () => {}, decideResult: async () => {} })
+  try {
+    assert.equal(journal.state.phase, 'draft')
+    assert.equal(journal.state.budget!.requests.filter(request => !request.uncertain).length, 1)
+    const projection = await controls.readThread()
+    assert.equal(projection.wayOut, 'resume')
+    await controls.resume({ expectedRevision: projection.revision }); await controls.idle()
+    assert.equal(s.sends.length, 1)
+    assert.equal(journal.state.messages.at(-1)?.role, 'assistant')
+  } finally { controls.close() }
+})
+
+test('send after a failed request resumes and answers the new message without a separate click', async () => {
+  const s = await rig({ configured: true })
+  let requests = 0
+  s.service.send = async () => {
+    requests++
+    if (requests === 1) throw new Error('synthetic interruption')
+    if (s.journal.state.phase === 'waiting-for-user') return { status: 'refused', text: '' }
+    return { status: 'completed', text: 'New message answered' }
+  }
+  try {
+    await s.controls.send({ idempotencyKey: 'first-failed', text: 'Inspect' }); await s.controls.idle()
+    assert.equal((await s.controls.readThread()).wayOut, 'resume')
+    assert.equal(s.journal.state.managementReason, 'lead-request-failed')
+    await s.controls.send({ idempotencyKey: 'continue-failed', text: 'Inspect the new check' }); await s.controls.idle()
+    assert.equal(requests, 2)
+    assert.deepEqual(s.journal.state.messages.slice(-2).map(message => [message.role, message.text]),
+      [['user', 'Inspect the new check'], ['assistant', 'New message answered']])
+    assert.equal(s.records.filter(record => record.type === 'resume').length, 1)
+  } finally { s.controls.close() }
+})
+
+test('combined policy and caps update refuses before either card when the policy card alone cannot fit', async () => {
+  const { admitLeadCard } = await import('../src/lead/projection.js')
+  const s = await rig({ configured: true })
+  const fill = (i: number, length: number) => ({ ...plan, id: `fill-${i}`, contract: { ...contract, goal: 'g'.repeat(length) } })
+  const admit = (card: LeadCard) => admitLeadCard(s.journal.state, card, project, 'fixture-model')
+  let i = 0
+  while (i < 64) { try { await s.journal.offerCard(fill(i, 16000), admit); i++ } catch { break } }
+  let lo = 1, hi = 16000
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; try { admit(fill(i, mid)); lo = mid } catch { hi = mid - 1 } }
+  await s.journal.offerCard(fill(i, lo), admit)
+  const before = s.journal.state, records = s.records.length
+  const proposed = { ...policy, revision: 2, mode: 'manage' as const }
+  const permission = { version: 1 as const, id: 'card-1', revision: 1, type: 'permission-change' as const, contractDigest: null, previous: policy, proposed }
+  assert.throws(() => admit(permission), code('lead-card-too-large'))
+  try {
+    // Tightening caps makes no card, so omitting policy admission cannot be masked by a caps admission failure.
+    await assert.rejects(s.controls.updateSettings({ expectedRevision: before.seq, policy: proposed, caps: { usdMicros: 50000, rounds: 3 } }), code('lead-card-too-large'))
+    assert.deepEqual(s.journal.state, before)
+    assert.equal(s.records.length, records)
+    assert.equal(s.journal.state.cards.some(card => card.type === 'budget-change'), false)
+  } finally { s.controls.close() }
 })

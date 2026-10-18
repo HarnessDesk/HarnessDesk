@@ -254,9 +254,9 @@ export class LeadFileJournal implements LeadJournalStorage {
     return next
   }
   read(): Promise<readonly LeadJournalRecord[]> { return this.#enqueue(async () => structuredClone(this.#records)) }
-  prepare(value: unknown): LeadJournalRecord {
+  prepare(value: unknown, previous: LeadState = this.#state): LeadJournalRecord {
     const record = prepareLeadJournalRecord(value, this.security)
-    const state = reduceLeadRecord(this.#state, record)
+    const state = reduceLeadRecord(previous, record)
     // Domain/card growth is refused before touching storage; existing terminal state always fits.
     if (!criticalRecord(record) && this.#stateBytes(state) > NORMAL_STATE_BYTES) throw new Error('lead-journal-state-limit')
     return record
