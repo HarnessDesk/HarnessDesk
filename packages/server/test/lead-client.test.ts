@@ -70,7 +70,7 @@ const rig = async (t: TestContext, settings: Pick<LeadClientAuthorityOptions, 'm
   const directory = await mkdtemp('/tmp/hd-lead-client-')
   const home = join(directory, 'home')
   await mkdir(home)
-  const host = new Host({ logger: silent, state: new StateStore(join(home, 'state.json')), version: 'test', catalogRefreshMs: 0 })
+  const host = new Host({ leadEnabled: true, logger: silent, state: new StateStore(join(home, 'state.json')), version: 'test', catalogRefreshMs: 0 })
   host.register(new FakeRuntime())
   await host.start()
   const h = { host }

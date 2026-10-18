@@ -295,7 +295,7 @@ test('the real HostContext connects window reads and idempotent sends to its Lea
   const { Host, StateStore } = await import('../src/index.js')
   const { silent } = await import('./fixtures/harness.js')
   const home = await mkdtemp('/tmp/hd-lead-window-')
-  const host = new Host({ logger: silent, state: new StateStore(join(home, 'state.json')), catalogRefreshMs: 0 })
+  const host = new Host({ leadEnabled: true, logger: silent, state: new StateStore(join(home, 'state.json')), catalogRefreshMs: 0 })
   t.after(async () => { await host.dispose(); await rm(home, { recursive: true, force: true }) })
   await host.start()
   const journal = await createLeadJournal({ async read() { return [] }, async append() {} })

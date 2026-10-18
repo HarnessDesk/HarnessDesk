@@ -21,6 +21,7 @@ import { decide, relevant } from './notifications.mjs'
 import { createIntakeNotifier } from './intake-notifications.mjs'
 import { createDockIconSetter, defaultIconPath } from './dock-icon.mjs'
 import { menuBarItemDecision } from './menu-bar-policy.mjs'
+import { leadEnabled } from './lead-feature.mjs'
 
 import { readWindowState, writeWindowState } from './window-state.mjs'
 import { isAppNavigation } from './navigation.mjs'
@@ -694,6 +695,7 @@ const watchDownloads = (guestSession, profile) => {
 
 const start = async () => {
   const bootstrap = createDefaultHost({
+    leadEnabled: leadEnabled(process.env),
     stateDir,
     version: app.getVersion(),
     browserEngine,

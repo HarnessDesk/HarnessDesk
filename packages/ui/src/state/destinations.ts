@@ -18,6 +18,7 @@ export type SettingsRoute =
   | { readonly kind: 'runtime'; readonly runtime: RuntimeId }
   | { readonly kind: 'account'; readonly runtime: RuntimeId; readonly key: string }
 export type PageDestination =
+  | { readonly kind: 'lead' }
   | { readonly kind: 'settings'; readonly route: SettingsRoute }
   | { readonly kind: 'dashboard'; readonly view: 'overview' | 'plans' | 'spend' | 'activity' | 'projects'; readonly scope: RuntimeId | null }
   | { readonly kind: 'agents'; readonly id: string | null }
@@ -33,7 +34,7 @@ export interface DestinationHistory {
   readonly forward: readonly Destination[]
 }
 export const destinationOf = (view: WorkView): Destination => ({ kind: 'work', view })
-export const sameDestination = (a: Destination, b: Destination): boolean => JSON.stringify(readDestination(a)) === JSON.stringify(readDestination(b))
+export const sameDestination = (a: Destination, b: Destination): boolean => JSON.stringify(readDestination(a, true)) === JSON.stringify(readDestination(b, true))
 export const visitDestination = (history: DestinationHistory, target: Destination, replace = false): DestinationHistory =>
   sameDestination(history.current, target) ? history : {
     current: target,
@@ -92,10 +93,20 @@ const workView = (raw: unknown): WorkView | null => {
   const view = readView(raw)
   return view.kind === 'conversation' || view.kind === 'room' ? view : null
 }
-export const readDestination = (raw: unknown): Destination | null => {
+export const destinationAvailable = (destination: Destination, leadAvailable = false): boolean => destination.kind !== 'lead' || leadAvailable
+
+/** Withdrawing a capability removes its visits, including dormant Back/Forward entries. */
+export const availableDestinationHistory = (history: DestinationHistory, fallback: Destination, leadAvailable = false): DestinationHistory => {
+  const keep = (entry: Destination) => destinationAvailable(entry, leadAvailable)
+  if (keep(history.current) && history.back.every(keep) && history.forward.every(keep)) return history
+  return { current: keep(history.current) ? history.current : fallback, back: history.back.filter(keep), forward: history.forward.filter(keep) }
+}
+
+export const readDestination = (raw: unknown, leadAvailable = false): Destination | null => {
   const data = object(raw)
   if (!data) return null
   switch (data.kind) {
+    case 'lead': return leadAvailable ? { kind: 'lead' } : null
     case 'work': { const view = workView(data.view); return view ? destinationOf(view) : null }
     case 'settings': {
       const route = object(data.route)
@@ -132,9 +143,9 @@ export const readDestination = (raw: unknown): Destination | null => {
     default: return null
   }
 }
-export const readDestinationHistory = (raw: unknown, fallback: Destination): DestinationHistory => {
+export const readDestinationHistory = (raw: unknown, fallback: Destination, leadAvailable = false): DestinationHistory => {
   const record = object(raw)
   const entries = (value: unknown): Destination[] => Array.isArray(value)
-    ? value.flatMap(item => { const read = readDestination(item); return read ? [read] : [] }).slice(-50) : []
-  return { current: readDestination(record?.current) ?? fallback, back: entries(record?.back), forward: entries(record?.forward) }
+    ? value.flatMap(item => { const read = readDestination(item, leadAvailable); return read ? [read] : [] }).slice(-50) : []
+  return { current: readDestination(record?.current, leadAvailable) ?? fallback, back: entries(record?.back), forward: entries(record?.forward) }
 }

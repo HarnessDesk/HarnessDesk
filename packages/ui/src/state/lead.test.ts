@@ -96,3 +96,13 @@ it('copies requestInFlight into state and clears it on the next idle projection'
   facade.changed({ method: 'lead/changed', params: projection(2) })
   expect(facade.state.requestInFlight).toBe(false)
 })
+
+it('does not read again after an accepted Send loses the capability', async () => {
+  const { createLeadState } = await load()
+  let available = true
+  const request = vi.fn(async () => { available = false; return { messageId: 'message-1', revision: 1 } })
+  const facade = createLeadState({ request }, () => available)
+  await expect(facade.send('Inspect', 'send-1')).rejects.toMatchObject({ code: 'lead-unavailable' })
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(request).toHaveBeenCalledWith('lead/thread/send', { text: 'Inspect', idempotencyKey: 'send-1' })
+})

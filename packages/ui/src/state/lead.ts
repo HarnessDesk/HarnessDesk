@@ -17,11 +17,13 @@ export interface LeadState {
 }
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
 export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
-  let state: LeadState = { revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, error: null }
+  const initial = (): LeadState => ({ revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, error: null })
+  let state = initial()
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
   const checkRead = () => { check(); if (state.revision < 0 || state.error) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
   const apply = (projection: LeadChanged) => {
+    if (!available()) return
     if (projection.revision < state.revision || projection.revision === state.revision && ('error' in projection || !state.error)) return
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
@@ -31,12 +33,14 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
   }
   return {
     get state(): LeadState { return state },
+    reset(): void { state = initial(); for (const listener of listeners) listener() },
     subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } },
     changed(notification: WireNotification): void { if (available() && notification.method === 'lead/changed') apply(notification.params) },
     async readThread() { check(); const result = await transport.request('lead/thread/read', {}); apply(result); return result.thread },
     async readSettings() { check(); const result = await transport.request('lead/settings/read', {}); apply(result); return result.settings },
     async send(text: string, idempotencyKey: string) {
       check(); const receipt = await transport.request('lead/thread/send', { text, idempotencyKey })
+      check()
       const result = await transport.request('lead/thread/read', {}); apply(result); return receipt
     },
     async decide(decision: LeadCardDecision) { check(); const result = await transport.request('lead/card/decide', decision); apply(result); return result },

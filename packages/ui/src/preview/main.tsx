@@ -8,7 +8,7 @@ import { FlowsDestinationFixture } from './flows-destination-fixture'
 import { RepositoryStatesPreview } from './repository-states'
 import { RepositoryMenuRepairsPreview } from './repository-menu-repairs'
 import { WorkspaceRecoveryPreview } from './workspace-recovery'
-import { CurrentPagePreview } from './page-preview'
+import { CurrentPagePreview, PagePreview } from './page-preview'
 import { DashboardDestinationFixture } from './dashboard-destination-fixture'
 import { SettingsPreview as Settings, RuntimesPreview as RuntimesSection, WorkspacesPreview as WorkspacesSection } from './settings-pages'
 import { FRAME } from '../design'
@@ -1222,6 +1222,13 @@ const TablesPreview = () => {
   return <div className="bg-background p-4 text-foreground"><Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame></div>
 }
 
+/** Only this explicit synthetic specimen enables Lead in the preview harness. */
+const LeadSyntheticPreview = () => {
+  useTheme()
+  const fixture = useMemo(() => previewStore({ leadAvailable: true }), [])
+  return <div className="h-screen"><PagePreview fixture={fixture} page={{ kind: 'lead' }} /></div>
+}
+
 const PublicationPreview = () => {
   useTheme()
   return <ReviewPublicationFrames />
@@ -1269,7 +1276,7 @@ createRoot(container).render(
     <SceneSteps />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
+        {new URLSearchParams(window.location.search).has('lead-synthetic') ? <LeadSyntheticPreview /> : new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
           : new URLSearchParams(window.location.search).has('flows-page')
             ? <FlowsDestinationFixture />

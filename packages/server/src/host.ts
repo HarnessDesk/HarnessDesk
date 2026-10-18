@@ -458,6 +458,8 @@ export const reportedProvider = async (runtime: AgentRuntime, cwd: string, throu
 export type QuestionTimers = Pick<QuestionPort, 'setTimer' | 'clearTimer'>
 
 export interface HostOptions {
+  /** Explicit startup capability; the host never reads an environment flag. */
+  readonly leadEnabled?: boolean
   /** Public skill source transport and bounds; tests use temporary bare repositories. */
   readonly librarySources?: LibrarySourcesOptions
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
@@ -2537,7 +2539,7 @@ export class Host {
       return
     }
     this.#goalWriter = writer
-    await cleanupLeadClientDoors(this.#state.directory).catch(() => {
+    if (this.options.leadEnabled === true) await cleanupLeadClientDoors(this.#state.directory).catch(() => {
       this.#leadListenersAvailable = false
       this.#logger.warn('Lead listener cleanup is unavailable; ordinary desk startup continues')
     })
@@ -2632,7 +2634,7 @@ export class Host {
         error: error instanceof Error ? error.message : String(error),
       })
     })
-    await this.#leadBudgets.recover().catch((error: unknown) => {
+    if (this.options.leadEnabled === true) await this.#leadBudgets.recover().catch((error: unknown) => {
       this.#logger.warn('Lead recovery cleanup remains pending', { error: error instanceof Error ? error.message : String(error) })
     })
     // After the runs: a finding command a stop left part-way is settled from
@@ -2725,7 +2727,7 @@ export class Host {
     })().catch(resumeFailed)
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
     this.#startIdleReaper()
-    this.#leadReady = true
+    this.#leadReady = this.options.leadEnabled === true
   }
 
   /**
@@ -3340,6 +3342,7 @@ export class Host {
   /** One host-owned supervisor, enabled explicitly by the authenticated Lead
    * service owner in the next slice step. Construction itself never spawns. */
   createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor'>): LeadService {
+    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
     if (this.#disposed) throw new Error('lead-host-closed')
     if (!this.#leadListenersAvailable) throw new Error('lead-listener-unavailable')
     if (!this.#leadReady) throw new Error('lead-host-starting')
@@ -3399,6 +3402,7 @@ export class Host {
   /** The supervisor registers before recovery and unregisters after exit.
    * No wire field can create this host owner. */
   registerLead(journal: LeadJournal, project: LeadProject): { admission: LeadAdmission; close: () => void } {
+    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
     const close = this.#leadBudgets.register(journal)
     return { admission: new LeadAdmission({ journal, project, budgets: this.#leadBudgets, previews: this.#flowPreviews,
       now: () => Date.now(), nextId: () => `lead-start-${randomUUID()}` }), close }
@@ -4563,12 +4567,12 @@ export class Host {
       team: this.#team,
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
-      leadThreadRead: () => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.readThread() },
-      leadThreadSend: params => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.send(params) },
-      leadCardDecide: params => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.decide(params) },
-      leadSettingsRead: () => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.readSettings() },
-      leadSettingsUpdate: params => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.updateSettings(params) },
-      leadResume: params => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.resume(params) },
+      leadThreadRead: () => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.readThread() },
+      leadThreadSend: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.send(params) },
+      leadCardDecide: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.decide(params) },
+      leadSettingsRead: () => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.readSettings() },
+      leadSettingsUpdate: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.updateSettings(params) },
+      leadResume: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.resume(params) },
       leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,
       authoring: this.#authoring,

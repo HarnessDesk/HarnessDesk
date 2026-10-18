@@ -77,9 +77,12 @@ it('disconnect clears health and rejects stale response application; reconnect r
   const pending = deferred<readonly CaptureHealth[]>(); request.mockReturnValueOnce(pending.promise)
   const read = store.loadCaptureHealth(); handlers().onStatus('reconnecting'); pending.resolve([health({ revision: 90 })]); await read
   expect(store.getSnapshot().captureHealth.size).toBe(0)
-  request.mockResolvedValue( [health({ revision: 1 })] )
+  request.mockImplementation(async (method: HostMethodName) => method === 'host/hello' ? {} : [health({ revision: 1 })])
   const before = request.mock.calls.length; handlers().onStatus('open'); handlers().onStatus('open'); await Promise.resolve()
-  expect(request.mock.calls.length - before).toBe(1)
+  const reconnected = request.mock.calls.slice(before)
+  expect(reconnected).toHaveLength(2)
+  expect(reconnected.filter(([method]) => method === 'provenance/status')).toHaveLength(1)
+  expect(reconnected.filter(([method]) => method === 'host/hello')).toHaveLength(1)
   expect(store.getSnapshot().provenanceRevision.get(ROOT)).toBe(1)
 })
 

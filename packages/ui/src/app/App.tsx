@@ -379,7 +379,7 @@ export const App = () => {
 
   const [leftFilter, setLeftFilter] = useState('')
   const current=snapshot.workbench.navigation.current
-  const pageActive=current.kind!=='work' && isMainPage(current.kind)
+  const pageActive=current.kind!=='work' && isMainPage(current.kind, snapshot.leadAvailable)
   const settingsSection:Section|null=current.kind!=='settings'?null:current.route.kind==='section'?current.route.section
     :current.route.kind==='project'?'workspaces':current.route.kind==='skill'?'skills':'runtimes'
   const renderLeftColumn=()=><Sidebar active

@@ -198,6 +198,8 @@ export const TOKENLESS_BRIDGE_NOTICE =
   'and the board refuses them.'
 
 export interface BootstrapOptions {
+  /** Parsed once by the desktop shell; absent is disabled. */
+  readonly leadEnabled?: boolean
   /** Injectable selection and filesystem probes for the opt-in macOS workaround. */
   readonly developerTools?: DeveloperToolsOptions
   readonly logLevel?: 'debug' | 'info' | 'warn' | 'error'
@@ -531,6 +533,7 @@ export const createDefaultHost = (
   })
 
   const host: Host = new Host({
+    leadEnabled: options.leadEnabled === true,
     logger,
     accounts,
     agents,

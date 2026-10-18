@@ -261,6 +261,8 @@ export interface TeamFrameRequest {
 }
 
 export interface AppSnapshot {
+  /** Startup capability proved by the host handshake; absent until then. */
+  readonly leadAvailable: boolean
   readonly teamFrameRequests: Readonly<Record<string, TeamFrameRequest>>
   /** Per-project state of local, opt-in commit-to-Seat capture. */
   readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
@@ -845,6 +847,7 @@ export const withClosedTurnFiles = (closed: ReadonlySet<string>, session: string
   new Set(closed).add(closedTurnFilesKey(session, turn))
 
 const EMPTY: AppSnapshot = {
+  leadAvailable: false,
   teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),

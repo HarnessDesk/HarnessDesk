@@ -11,7 +11,7 @@ vi.mock('../components/Settings',()=>({Settings:()=>null}))
 ;(globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true
 const original={...MAIN_PAGE_ENTRIES}
 afterEach(()=>{for(const key of Object.keys(MAIN_PAGE_ENTRIES))delete MAIN_PAGE_ENTRIES[key as keyof typeof MAIN_PAGE_ENTRIES];Object.assign(MAIN_PAGE_ENTRIES,original)})
-it('the production registry assembles every phase E page',()=>expect([...MIGRATED_PAGE_KINDS].sort()).toEqual(['agents','changes-review','dashboard','flows','library','plugins','settings','teams']))
+it('the production registry assembles every phase E page',()=>expect([...MIGRATED_PAGE_KINDS].sort()).toEqual(['agents','changes-review','dashboard','flows','lead','library','plugins','settings','teams']))
 it('retains one keyed body per kind, deactivates its callbacks and resets on project ownership change',async()=>{
   const box=document.createElement('div');document.body.append(box);const root=createRoot(box),store=new AppStore('ws://localhost:0/')
   const Body=({visit}:{visit:()=>void})=>{const active=useDestinationActive(),[draft,setDraft]=useState('remembered');return <div><input value={draft} onChange={event=>setDraft(event.target.value)}/><output>{String(active)}</output><button onClick={visit}>Visit</button></div>}

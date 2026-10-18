@@ -77,3 +77,13 @@ test('restored routes strip transient fields and validate every entity payload',
     kind: 'changes-review', root: '/synthetic/project', returnTo: { kind: 'room', room: 'team-demo', framePage: 'findings' },
   })
 })
+
+
+test('Lead route parsing and restored history require a host capability', () => {
+  const lead = { kind: 'lead' } as const
+  expect(readDestination(lead)).toBeNull()
+  expect(readDestination(lead, true)).toEqual(lead)
+  const raw = { current: lead, back: [work, lead], forward: [lead, dashboard] }
+  expect(readDestinationHistory(raw, work)).toEqual({ current: work, back: [work], forward: [dashboard] })
+  expect(readDestinationHistory(raw, work, true)).toEqual(raw)
+})

@@ -556,3 +556,15 @@ it('opens the same folder picker from Projects and the New session menu without 
   act(() => open.click())
   expect(choose).toHaveBeenCalledTimes(2)
 })
+
+// Captured before Lead registration: disabled navigation must keep this tree.
+it('keeps the pre-Lead disabled sidebar structure', () => {
+  mount()
+  expect(container.innerHTML).toMatchSnapshot()
+})
+
+it.each([false, true])('shows the Lead navigation row only for capability=%s', enabled => {
+  mount({ leadAvailable: enabled })
+  const rows = [...container.querySelectorAll('button')]
+  expect(rows.some(row => row.textContent === 'Lead')).toBe(enabled)
+})

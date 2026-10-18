@@ -3,7 +3,7 @@ import type { RuntimeId } from '@harnessdesk/protocol'
 import type { PageDestination } from '../state/destinations'
 import { DashboardEntry } from '../components/Usage'
 import { LibrarySection } from '../components/Library'
-import { Page } from '../design'
+import { Page, Text } from '../design'
 import { PluginsSection } from '../components/PluginsSection'
 import { Settings } from '../components/Settings'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -20,6 +20,7 @@ export interface MainPageInput {
   readonly libraryImportIntent: number
 }
 export const MAIN_PAGE_ENTRIES: Partial<Record<PageDestination['kind'], (input: MainPageInput) => ReactNode>> = {
+  lead: () => <Page width="reading"><Text as="h1" role="page">Lead</Text></Page>,
   flows: ({page,visit}) => page.kind === 'flows'
     ? page.root === null
       ? <FlowsWindow onNew={root => visit({kind:'flows',root,id:null,origin:null})} onOpen={(root,id,origin) => visit({kind:'flows',root,id,origin})} />

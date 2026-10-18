@@ -98,7 +98,7 @@ export const Sidebar = ({
   settings?: { section: Section; onSection: (section: Section) => void; onBack: () => void }
   listFilter?: { value: string; onChange: (value: string) => void }
   sessionsOwner?: boolean
-  activeDestination?: 'teams' | 'flows' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
+  activeDestination?: 'teams' | 'flows' | 'agents' | 'library' | 'plugins' | 'dashboard' | 'lead' | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -159,6 +159,7 @@ export const Sidebar = ({
     <Text role="wordmark" truncate title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
   </Bar>
   const pageDoors = [
+    ...(snapshot.leadAvailable ? [{ id: 'lead' as const, label: 'Lead', icon: <AgentIcon size={16} />, run: () => store.openDestination({ kind: 'lead' }), count: 0 }] : []),
     { id: 'teams' as const, label: 'Teams', icon: <TeamIcon size={16} />, run: onOpenTeams, count: 0 },
     { id: 'flows' as const, label: 'Flows', icon: <FlowIcon size={16} />, run: onOpenFlows ?? (() => store.openDestination({kind:'flows',root:null,id:null,origin:null})), count: 0 },
     { id: 'agents' as const, label: 'Agents', icon: <AgentIcon size={16} />, run: onOpenAgents, count: 0 },
