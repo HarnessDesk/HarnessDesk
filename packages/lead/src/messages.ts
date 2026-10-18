@@ -310,10 +310,9 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
           if (dispatchError instanceof LeadToolFencedError || executed.outcome === 'failed' &&
             clientTierFor(call.method, call.params) === 'read' && !(dispatchError instanceof LeadToolRefusedError)) transientTools.push(use.id)
           if (executed.outcome === 'succeeded') {
-            succeededTools.push(use.id)
             const result = { ...results[position]!, content: safeJson(executed.value ?? null, LIMIT.text), is_error: false }
             const extra = bytes(json(result)) - bytes(json(results[position]))
-            if (extra <= available) { results[position] = result; available -= extra }
+            if (extra <= available) { results[position] = result; available -= extra; succeededTools.push(use.id) }
             else transientTools.push(use.id)
           }
         } catch (error) {

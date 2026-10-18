@@ -60,7 +60,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let pump: Promise<void> | null = null, active: AbortController | null = null
   let history: readonly MessagesTurn[] | null = null, requestTemplate: LeadMessagesRequest | null = null
   let lastResultSignature: string | null = null
-  let noProgressTurns = 0
+  let noProgressTurns = 0, waitingForResume = false
   const tools = createLeadTools({ journal, desk, project, now: () => clock.now(), nextId, synchronized: () => synchronized && !closed,
     resolveTool: options.resolveTool })
   const messages = createLeadMessages({ ...options.messages, journal, now: () => clock.now(), nextId,
@@ -71,7 +71,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     return next
   }
   const waitForUser = async (code: string) => {
-    if (!terminal(journal.state.phase)) await journal.setManagementPhase('waiting-for-user', code)
+    if (!terminal(journal.state.phase)) {
+      await journal.setManagementPhase('waiting-for-user', code)
+      waitingForResume = true
+    }
     else reason = code
   }
   const read = async (call: LeadPermissionCall): Promise<unknown> => {
@@ -173,7 +176,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   const blocked = () => {
     const state = journal.state, budget = state.budget && leadBudgetProjection(state.budget, clock.now())
     if (terminal(state.phase)) { reason ??= state.budget?.stop ? 'lead-budget-stopped' : 'lead-terminal'; return true }
-    if (state.phase === 'waiting-for-user' || state.recoveryBlocked || !synchronized || closed) return true
+    if (state.phase === 'waiting-for-user') { waitingForResume = true; return true }
+    if (waitingForResume) { noProgressTurns = 0; waitingForResume = false }
+    if (state.recoveryBlocked || !synchronized || closed) return true
     if (!budget || budget.stop || budget.spend !== 'known' || state.budget!.requests.length) {
       if (budget?.spend !== 'known') reason = 'lead-budget-unknown'
       return true
@@ -214,7 +219,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // Model-proposed result/waiting cards are summaries only. The loop constructs
     // actionable cards from fresh reads, and never offers a worker approval card.
     await refresh()
-    noProgressTurns = result.succeededTools?.length ? 0 : noProgressTurns + 1
+    if (result.toolResults?.length) {
+      const permanentRefusal = result.toolResults.some(tool => tool.is_error && !result.transientTools?.includes(tool.tool_use_id))
+      noProgressTurns = result.succeededTools?.length && !permanentRefusal ? 0 : noProgressTurns + 1
+    }
     if (result.toolResults?.length && (noProgressTurns >= 3 ||
       result.toolResults.every(tool => tool.is_error) && !result.transientTools?.length)) {
       await waitForUser('lead-tools-refused')

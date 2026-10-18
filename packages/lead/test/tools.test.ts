@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { contract, exported, fixture, project } from './fixtures/loop.js'
+import { LeadToolFencedError, LeadToolRefusedError } from '../src/tools.js'
 
 test('tools cannot start before approval, after preview expiry, changed work or a baseline gap', async () => {
   const create = exported('createLeadTools')
@@ -42,4 +43,38 @@ test('arbitrary Flow source cannot even be previewed', async () => {
   const s = await fixture(), tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
   await assert.rejects(tools.execute({ method: 'flow/preview', params: { root: project.path, source: 'arbitrary shell recipe', vars: {} } }))
   assert.equal(s.calls.length, 0)
+})
+
+
+test('the fence after host tool lookup refuses before journaling a start', async () => {
+  const s = await fixture(); await s.approve()
+  let synced = true
+  const resolve = s.options.resolveTool
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => synced,
+    resolveTool: async (call: any) => { const result = await resolve(call); synced = false; return result } })
+  const source = (await import('../src/index.js')).leadReviewedResultSource
+  const Fenced = LeadToolFencedError
+  await assert.rejects(tools.execute({ method: 'flow/start-goal', params: { root: project.path, source, token: 'preview-1', sentence: contract.goal, vars: {}, attended: true } }),
+    (error: unknown) => error instanceof Fenced)
+  assert.equal(s.journal.state.attempts.size, 0)
+  assert.equal(s.calls.length, 0)
+})
+
+test('the dispatch fence has the typed fenced error', async () => {
+  const s = await fixture()
+  let checks = 0
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => ++checks <= 2 })
+  const Fenced = LeadToolFencedError
+  await assert.rejects(tools.dispatch({ method: 'workspace/open', params: { path: project.path } }, 'dispatch'),
+    (error: unknown) => error instanceof Fenced)
+  assert.equal(s.calls.length, 0)
+})
+
+test('tool resolution itself refuses expired consent', async () => {
+  const s = await fixture(); await s.approve(); s.setNow(1000); s.setPreviewExpires(2000)
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  const source = (await import('../src/index.js')).leadReviewedResultSource
+  await assert.rejects(tools.resolveTool({ method: 'flow/start-goal', params: { root: project.path, source, token: 'preview-1', sentence: contract.goal, vars: {}, attended: true } }),
+    (error: unknown) => error instanceof LeadToolRefusedError)
+  assert.equal(s.journal.state.attempts.size, 0)
 })

@@ -775,3 +775,53 @@ test('the result-revision exhaustion reason is shared by protocol, record and ch
   const checkpoint = lead.parseLeadCheckpoint(lead.leadCheckpoint(reopened.state, '0'.repeat(64)))
   assert.equal(checkpoint.state.managementReason, 'lead-result-revisions-exhausted')
 })
+
+
+test('text-only turns leave the no-progress counter alone', async () => {
+  const s = await fixture([message(), message(), message([tool('read', 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' }), message()])
+  const call = s.options.desk.call
+  s.options.desk.call = async (method: string, params: unknown) => { if (method === 'flow/catalog') throw Error('transient'); return call(method, params) }
+  const loop = exported('createLeadLoop')(s.options)
+  await loop.request(input); await loop.request(input); await loop.request(input)
+  assert.equal(loop.state.phase, 'planning')
+  await s.tick(); await loop.idle()
+  assert.equal(s.fake.requests.length, 4)
+  await loop.close()
+})
+
+test('a person resume resets the no-progress bound', async () => {
+  const s = await fixture([...Array.from({ length: 4 }, (_, i) => message([tool(`read-${i}`, 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' })), message()])
+  const call = s.options.desk.call
+  s.options.desk.call = async (method: string, params: unknown) => { if (method === 'flow/catalog') throw Error('transient'); return call(method, params) }
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  for (let i = 0; i < 3; i++) { await s.tick(); await loop.idle() }
+  assert.equal(loop.state.phase, 'waiting-for-user')
+  await s.journal.resume(); await loop.request(input)
+  assert.equal(loop.state.phase, 'running')
+  await s.tick(); await loop.idle()
+  assert.equal(s.fake.requests.length, 5)
+  await loop.close()
+})
+
+test('three oversized successful reads park without a fourth request', async () => {
+  const s = await fixture(Array.from({ length: 5 }, (_, i) => message([tool(`usage-${i}`, 'library_usage')], { stop_reason: 'tool_use' })))
+  const call = s.options.desk.call
+  s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(15_000) : call(method, params)
+  const loop = exported('createLeadLoop')(s.options)
+  await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(16_200) })) }] })
+  for (let i = 0; i < 4; i++) { await s.tick(); await loop.idle() }
+  assert.equal(s.fake.requests.length, 3)
+  assert.equal(loop.state.reason, 'lead-tools-refused')
+  await loop.close()
+})
+
+test('a permanent refusal counts as no progress even beside a successful tool', async () => {
+  const s = await fixture(Array.from({ length: 5 }, (_, i) => message([tool(`read-${i}`, 'flow_catalog', { root: contract.project.path }), tool(`start-${i}`, 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })))
+  await s.approve(); s.setNow(2000)
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  for (let i = 0; i < 4; i++) { await s.tick(); await loop.idle() }
+  assert.equal(s.fake.requests.length, 3)
+  assert.equal(loop.state.reason, 'lead-tools-refused')
+  assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 0)
+  await loop.close()
+})
