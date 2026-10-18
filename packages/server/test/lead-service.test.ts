@@ -810,3 +810,18 @@ for (const failure of ['transport', 'unknown-response', 'missing-usage'] as cons
   assert.equal(resolutions, before, 'ambiguous resend refuses before resolving the key')
   assert.equal(s.supervisor.live, true)
 })
+
+
+test('person stop ends the child and its owned work before a new logical goal can register', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true); await s.service.send(input)
+  const old = s.process(), budget = s.journal.state.budget!
+  await s.journal.stop(() => s.service.stopGoal())
+  assert.equal(old.live, false); assert.equal(s.stopped(), 1)
+  assert.equal(s.journal.state.stopEffectsPending, null)
+  await s.journal.beginGoal('next-logical-goal', 101)
+  assert.equal(s.journal.state.completedBudgets[0]!.logicalGoalId, budget.logicalGoalId)
+  await s.service.send(input)
+  assert.equal(s.spawns(), 2); assert.equal(s.process().live, true)
+  assert.ok(s.events.indexOf('stop-child') < s.events.lastIndexOf('register'))
+})

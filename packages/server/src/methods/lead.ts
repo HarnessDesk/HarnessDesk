@@ -7,5 +7,6 @@ export const leadMethods = {
   'lead/card/decide': (ctx, params) => ctx.leadCardDecide(params),
   'lead/settings/read': ctx => ctx.leadSettingsRead(),
   'lead/settings/update': (ctx, params) => ctx.leadSettingsUpdate(params),
+  'lead/stop': (ctx, params) => ctx.leadStop(params),
   'lead/resume': (ctx, params) => ctx.leadResume(params),
 } satisfies MethodsUnder<'lead/'>

@@ -37,7 +37,7 @@ const rig = async (over: { configured?: boolean; service?: Record<string, any>; 
     push: (value: WireNotification) => notifications.push(value), decidePerson: async (...args: unknown[]) => { answers.push(args) }, decideResult: async (...args: unknown[]) => { answers.push(args) }, ...over.controls })
   const ctx = { leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p),
     leadCardDecide: (p: unknown) => controls.decide(p), leadSettingsRead: () => controls.readSettings(),
-    leadSettingsUpdate: (p: unknown) => controls.updateSettings(p), leadResume: (p: unknown) => controls.resume(p) } as unknown as HostContext
+    leadSettingsUpdate: (p: unknown) => controls.updateSettings(p), leadResume: (p: unknown) => controls.resume(p), leadStop: (p: unknown) => controls.stop(p) } as unknown as HostContext
   const call = (method: string, params: unknown = {}) => dispatch(ctx, method as never, params as never) as Promise<any>
   return { controls, journal, records, storage, notifications, sends, answers, service, call }
 }
@@ -974,11 +974,11 @@ test('send after a failed request resumes and answers the new message without a 
   } finally { s.controls.close() }
 })
 
-for (const kind of ['result', 'person', 'expired', 'plan'] as const) test(`send preserves the resume guard for ${kind}`, async () => {
+for (const kind of ['result', 'person', 'plan'] as const) test(`send preserves the resume guard for ${kind}`, async () => {
   const s = await rig({ configured: true })
   try {
     await s.journal.offerCard(plan)
-    if (kind !== 'plan') await s.journal.decideCard(planClick, kind === 'expired' ? 99 : 1000)
+    if (kind !== 'plan') await s.journal.decideCard(planClick, 1000)
     await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
     if (kind === 'result') await s.journal.offerCard({ version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Reviewed', assertions: [],
       budget: (await import('@harnessdesk/lead')).leadBudgetProjection(s.journal.state.budget!, 100) })
@@ -1343,4 +1343,96 @@ for (const reason of ['lead-predecessor-unavailable', 'lead-predecessor-unverifi
     assert.equal(s.records.filter(record => record.type === 'resume').length, 1)
     assert.equal(s.journal.state.messages.at(-1)!.text, 'Plan change received')
   } finally { s.controls.close() }
+})
+
+
+for (const fence of ['recovery', 'expired consent'] as const) test(`a predecessor message refuses ${fence} before append or request`, async () => {
+  const s = await rig({ configured: true })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-predecessor-unavailable')
+  if (fence === 'recovery') {
+    // Replay a durable recovery fence without manufacturing any run identity.
+    const record = { version: 1 as const, seq: s.journal.state.seq + 1, type: 'recovery-block' as const }
+    s.records.push(record)
+  }
+  s.controls.close()
+  const journal = await createLeadJournal(s.storage), { LeadControls } = await controlsModule()
+  const controls = new LeadControls({ journal, service: s.service, project, model: 'fixture-model', now: () => fence === 'expired consent' ? 1001 : 100,
+    nextId: () => 'unused', push() {}, decidePerson: async () => {}, decideResult: async () => {} })
+  try {
+    assert.equal(journal.state.phase, 'waiting-for-user')
+    const before = journal.state
+    await assert.rejects(controls.send({ idempotencyKey: fence === 'recovery' ? 'fenced-recovery' : 'fenced-expiry', text: 'Change the plan' }), code('lead-no-person-wait'))
+    await controls.idle()
+    assert.deepEqual(journal.state, before)
+    assert.equal(s.sends.length, 0)
+  } finally { controls.close() }
+})
+
+
+test('Stop goal latches stopped with no way out and a later message starts a fresh goal', async () => {
+  let stops = 0
+  const s = await rig({ configured: true, controls: { stopEffects: async () => { stops++ } } })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-predecessor-unavailable')
+  const oldBudget = s.journal.state.budget
+  const stopped = await s.call('lead/stop', { expectedRevision: s.journal.state.seq })
+  assert.equal(stopped.thread.state, 'stopped'); assert.equal(stopped.wayOut, null)
+  assert.equal(stops, 1); assert.equal(s.journal.state.stopEffectsPending, null)
+  assert.equal(s.sends.length, 0); assert.deepEqual(s.answers, [])
+  await s.call('lead/thread/send', { idempotencyKey: 'new-goal', text: 'Inspect another check' })
+  await s.controls.idle()
+  assert.equal(s.journal.state.contract, null); assert.equal(s.journal.state.consent, null)
+  assert.equal(s.journal.state.budget!.stop, null)
+  assert.notEqual(s.journal.state.budget!.logicalGoalId, oldBudget!.logicalGoalId)
+  assert.equal(s.journal.state.completedBudgets[0]!.logicalGoalId, oldBudget!.logicalGoalId)
+  assert.deepEqual(s.journal.state.completedBudgets[0]!.rounds, oldBudget!.rounds)
+  assert.equal(s.journal.state.completedBudgets[0]!.leadUsdMicros, oldBudget!.leadUsdMicros)
+  assert.equal(s.sends.length, 1)
+  const reopened = await createLeadJournal(s.storage)
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(reopened.state, '0'.repeat(64))).state, reopened.state)
+})
+
+
+test('Stop goal keeps an unfinished cancellation closed to a new goal', async () => {
+  const s = await rig({ configured: true, controls: { stopEffects: async () => { throw new Error('stop pending') } } })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  const projection = await s.call('lead/stop', { expectedRevision: s.journal.state.seq })
+  assert.equal(projection.thread.state, 'stopped'); assert.equal(projection.wayOut, null)
+  assert.notEqual(s.journal.state.stopEffectsPending, null)
+  const before = s.journal.state
+  await assert.rejects(s.controls.send({ idempotencyKey: 'while-stopping', text: 'Another goal' }), code('lead-thread-closed'))
+  assert.deepEqual(s.journal.state, before); assert.equal(s.sends.length, 0)
+})
+
+
+test('Stop goal ends the request even when Flow cleanup already acknowledged cancellation', async t => {
+  let stops = 0
+  const s = await rig({ controls: { stopEffects: async () => {}, stopRequest: async () => { stops++ } } })
+  const cleanup = s.journal.runStopEffects.bind(s.journal)
+  t.mock.method(s.journal, 'runStopEffects', async (effects: () => Promise<void>) => {
+    await cleanup(async () => {}) // The independent Flow-only owner wins the marker.
+    await cleanup(effects)
+  })
+  const result = await s.call('lead/stop', { expectedRevision: s.journal.state.seq })
+  assert.equal(result.thread.state, 'stopped'); assert.equal(result.wayOut, null)
+  assert.equal(stops, 1, 'ending the Lead request cannot depend on the Flow cleanup marker')
+})
+
+test('a failed Lead process stop refuses a new goal before resetting its accounting', async t => {
+  let stopped = false
+  const s = await rig({ configured: true, controls: { stopEffects: async () => {}, stopRequest: async () => { if (!stopped) throw new Error('process still live') } } })
+  const cleanup = s.journal.runStopEffects.bind(s.journal)
+  t.mock.method(s.journal, 'runStopEffects', async (effects: () => Promise<void>) => {
+    await cleanup(async () => {})
+    await cleanup(effects)
+  })
+  await s.call('lead/stop', { expectedRevision: s.journal.state.seq }).catch(() => {})
+  const before = s.journal.state
+  await assert.rejects(s.controls.send({ idempotencyKey: 'failed-process-stop', text: 'Another goal' }))
+  await s.controls.idle()
+  assert.deepEqual(s.journal.state, before); assert.equal(s.sends.length, 0)
+  stopped = true
+  await s.controls.send({ idempotencyKey: 'after-process-stop', text: 'Another goal' })
+  await s.controls.idle(); assert.equal(s.sends.length, 1)
 })

@@ -24,7 +24,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // Earlier checkpoints predate inline ordering; their retained card order is
   // preserved at the retained suffix boundary. Stable ordering puts all saved
   // cards after that message and before the next journal write.
-  const namedSource = threadSource && { ...threadSource, name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
+  const namedSource = threadSource && { ...threadSource, completedBudgets: Object.hasOwn(threadSource, 'completedBudgets') ? threadSource.completedBudgets : [], name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
   const source = namedSource && !Object.hasOwn(namedSource, 'cardPositions')
     ? { ...namedSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : namedSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
@@ -49,6 +49,10 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   }
   const policy = source.policy === null ? null : parseLeadPermissionPolicy(source.policy)
   const contract = source.contract === null ? null : parseLeadAcceptanceContract(source.contract)
+  assert(Array.isArray(source.completedBudgets) && source.completedBudgets.length <= 64)
+  const completedBudgets = source.completedBudgets.map(value => parseLeadBudgetLedger(value))
+  assert(new Set(completedBudgets.map(budget => budget.logicalGoalId)).size === completedBudgets.length)
+  assert(completedBudgets.every(budget => budget.stop?.reason === 'cancelled' && budget.requests.length === 0))
   const budget = source.budget === null ? null : parseLeadBudgetLedger(source.budget)
   assert(!budget?.stop || ['stopped', 'accepted', 'declined'].includes(source.phase))
   assert(source.stopEffectsPending === null || Number.isSafeInteger(source.stopEffectsPending) && source.stopEffectsPending > 0 && source.stopEffectsPending <= source.seq && (budget?.stop || source.phase === 'stopped'))
@@ -99,6 +103,6 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     if (consent.renewalCardRevision !== undefined) assert(Number.isSafeInteger(consent.renewalCardRevision) && cards.some(card => card.type === 'plan' && card.contractDigest === consent.contractDigest && card.revision === consent.renewalCardRevision))
     assert(Number.isSafeInteger(consent.expiresAt) && consent.expiresAt > 0)
   }
-  const state = structuredClone({ ...source, policy, contract, budget, cards, runs, steps, attempts, messages })
+  const state = structuredClone({ ...source, completedBudgets, policy, contract, budget, cards, runs, steps, attempts, messages })
   return { checkpoint: structuredClone(checkpoint), state }
 }

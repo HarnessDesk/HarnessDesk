@@ -75,6 +75,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       }
       return result
     },
+    async stop() { checkRead(); const before = state, result = await transport.request('lead/stop', { expectedRevision: state.revision }); apply(result, before); return result },
     async resume() { checkRead(); const before = state, result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result, before); return result },
   }
 }

@@ -754,6 +754,7 @@ export interface HostMethods {
   'lead/card/decide': { params: LeadCardDecision; result: LeadWindowProjection }
   'lead/settings/read': { params: Record<string, never>; result: LeadWindowProjection }
   'lead/settings/update': { params: LeadSettingsUpdate; result: LeadWindowProjection | LeadNameReceipt }
+  'lead/stop': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }
   'lead/resume': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }
   'client/hello': {
     params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }

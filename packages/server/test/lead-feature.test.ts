@@ -55,7 +55,7 @@ for (const enabled of [undefined, false]) test(`disabled host (${String(enabled)
     ['lead/thread/read', {}], ['lead/thread/send', { idempotencyKey: 'off', text: 'Inspect' }],
     ['lead/card/decide', { version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: 'a'.repeat(64), choice: 'approve' }],
     ['lead/settings/read', {}], ['lead/settings/update', { expectedRevision: 0, credential: { provider: 'anthropic', key: 'synthetic-value' } }],
-    ['lead/resume', { expectedRevision: 0 }],
+    ['lead/resume', { expectedRevision: 0 }], ['lead/stop', { expectedRevision: 0 }],
   ] as const
   for (const [method, params] of requests) await assert.rejects(host.call(method as never, params as never), unavailable, method)
   assert.equal(keyCalls, 0)

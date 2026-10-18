@@ -63,7 +63,7 @@ for (const changed of ['missing run', 'unreviewed', 'missing pin', 'wrong owner'
 test('a frozen Lead base reaches the existing isolated Flow seed lane and survives restart', async t => {
   const revision = 'c'.repeat(40)
   const s = await goalRig(t, { executionOptions: { lead: {
-    bind: async () => {}, round: async () => {}, gate: async () => ({ ok: true }),
+    bind: async (run: any) => { assert.equal(run.lead.base, revision); assert.equal(run.seatPlans, undefined, 'binding precedes seat planning') }, round: async () => {}, gate: async () => ({ ok: true }),
   } } })
   const agents = [agent('implementer', ['committed']), agent('code-reviewer', ['approve', 'request-changes'], 'beta')]
   s.beforeClaim = n => { s.heads.set(`/repo/.lanes/${n}`, { at: revision, dirty: false }) }
@@ -172,4 +172,12 @@ for (const runState of ['running', 'stalled']) test(`predecessor readiness waits
 test('predecessor readiness allows open acceptance with its reviewed base', () => {
   const s = rig()
   assert.deepEqual(leadPredecessorReadiness(s.state, 'second', [s.previous], () => [s.acceptance] as any), { ready: true, base: s.revision })
+})
+
+
+test('a closed predecessor acceptance with a missing record is unverifiable', () => {
+  const s = rig()
+  s.previous.state = 'settled'; s.previous.rounds.at(-1).state = 'closed'
+  assert.deepEqual(leadPredecessorReadiness(s.state, 'second', [s.previous], () => []),
+    { ready: false, terminal: true, reason: 'lead-predecessor-unverifiable' })
 })

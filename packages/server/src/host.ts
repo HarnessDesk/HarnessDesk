@@ -3421,6 +3421,7 @@ export class Host {
           if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
           return this.call(call.method, call.params)
         }) }, card, decision, contract),
+      stopRequest: () => this.#leadService!.stopGoal(),
       stopEffects: async () => {
         for (const run of journal.state.runs) { this.#flows.interruptChecks(run.teamId); await this.#flows.stopRun(run.runId, 'lead-budget-stopped', 'desk') }
       },
@@ -4612,6 +4613,7 @@ export class Host {
       leadCardDecide: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.decide(params) },
       leadSettingsRead: () => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.readSettings() },
       leadSettingsUpdate: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.updateSettings(params) },
+      leadStop: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.stop(params) },
       leadResume: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.resume(params) },
       leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,

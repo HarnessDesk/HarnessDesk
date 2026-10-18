@@ -472,9 +472,18 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
           for (const id of ['rig-writer', 'rig-reviewer']) await chmod(join(home, id, 'sessions'), 0)
         } else {
           if (kind === 'dollars' && options.workerSpend) await waitFor(() => journal.state.budget!.workerUsdMicros === workerMicros && workerMicros > 0, 'real ledger reports synthetic worker spend')
-          const budget = leadBudgetProjection(journal.state.budget!, Date.now())
-          await host.call('lead/settings/update', { expectedRevision: journal.state.seq, caps: { usdMicros: kind === 'dollars' ? budget.leadUsdMicros + budget.workerUsdMicros : budget.caps.usdMicros,
-            rounds: kind === 'rounds' ? budget.roundsAdmitted : budget.caps.rounds } })
+          // A ledger observation may commit between the snapshot and the queued save.
+          // Only stale revision is retryable; recompute equality from that new snapshot.
+          for (let attempt = 0; ; attempt++) {
+            const budget = leadBudgetProjection(journal.state.budget!, Date.now())
+            try {
+              await host.call('lead/settings/update', { expectedRevision: journal.state.seq, caps: { usdMicros: kind === 'dollars' ? budget.leadUsdMicros + budget.workerUsdMicros : budget.caps.usdMicros,
+                rounds: kind === 'rounds' ? budget.roundsAdmitted : budget.caps.rounds } })
+              break
+            } catch (error) {
+              if ((error as { wireCode?: string }).wireCode !== 'lead-revision-stale' || attempt >= 19) throw error
+            }
+          }
         }
         await settle()
       },

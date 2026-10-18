@@ -22,6 +22,7 @@ export type LeadAttemptOutcome = 'succeeded' | 'failed' | 'denied' | 'asked' | '
 export type LeadJournalEvent =
   | { readonly type: 'management'; readonly phase: 'planning' | 'waiting-for-user'; readonly reason?: string | null }
   | { readonly type: 'invalidate-results' | 'resume' }
+  | { readonly type: 'new-goal'; readonly id: string; readonly now: number }
   | { readonly type: 'settings-changed'; readonly name?: LeadName }
   | { readonly type: 'message'; readonly idempotencyKey: string | null; readonly message: LeadMessage }
   | { readonly type: 'renew-plan'; readonly now: number; readonly cardId?: string }
@@ -120,6 +121,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
+    'new-goal': ['id', 'now'],
     'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': Object.hasOwn(source, 'name') ? ['name'] : [], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
@@ -129,6 +131,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   object(source, ['version', 'seq', 'type', ...keys[type]!])
   let event: LeadJournalEvent
   switch (type) {
+    case 'new-goal': event = { type, id: identifier(source.id), now: integer(source.now, 0) }; break
     case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']), ...(Object.hasOwn(source, 'reason') ? { reason: source.reason === null ? null : choice(source.reason, LEAD_MANAGEMENT_REASONS) } : {}) }; break
     case 'message': event = { type, idempotencyKey: nullable(source.idempotencyKey, identifier), message: parseLeadMessage(source.message) }; break
     case 'settings-changed': event = { type, ...(Object.hasOwn(source, 'name') ? { name: choice(source.name, ['dex', 'lex'] as const) } : {}) }; break
@@ -438,6 +441,7 @@ export class LeadJournal {
       await this.#append({ type: 'start-resolution', id, goalId, identity, evidenceSeq: integer(evidenceSeq, 1) })
     })
   }
+  beginGoal(id: string, now: number): Promise<void> { return this.#queue(() => this.#append({ type: 'new-goal', id, now })) }
   stop(stopEffects?: () => Promise<void>): Promise<void> { return this.#budgetWrite(() => this.#append({ type: 'stop' }), stopEffects) }
   /** The supervisor retries pending idempotent cancellation after a crash. */
   async runStopEffects(effects: () => Promise<void>): Promise<void> {

@@ -359,6 +359,11 @@ export class LeadService {
     try { await this.#latch('lead-ownership-withdrawn') }
     finally { await this.options.stopOwned('lead-ownership-withdrawn').catch(error => { this.#cleanupFailed = true; throw error }) }
   }
+  /** Stop the model process too, so no old reply or dispatch can reach a new goal. */
+  stopGoal(): Promise<void> {
+    ++this.#generation
+    return this.#queue(async () => { await this.#halt('lead-request-cancelled'); await this.#recoverRequests() }).then(() => this.recover())
+  }
   close(): Promise<void> {
     if (this.#closed) return this.#tail.then(() => {})
     this.#publicProjection = null; this.#closed = true; this.#enabled = false; ++this.#generation

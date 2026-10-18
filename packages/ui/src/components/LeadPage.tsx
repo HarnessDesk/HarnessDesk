@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { type LeadWindowProjection } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, Page, Spinner, Text, useComposerHeightVar } from '../design'
+import { Banner, Button, Chip, ConfirmDialog, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, Page, Spinner, Text, useComposerHeightVar } from '../design'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { LeadMessage } from './LeadMessage'
@@ -42,6 +42,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const store = useStore(), snapshot = useSnapshot(), active = useDestinationActive()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const [goal, setGoal] = useState(initialGoal), [error, setError] = useState<string | null>(null)
+  const [confirmStop, setConfirmStop] = useState(false), [stopping, setStopping] = useState(false)
+  const stoppingRef = useRef(false)
   const [sending, setSending] = useState(false), [resuming, setResuming] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null), inFlight = useRef(false), thread = useRef<HTMLDivElement>(null)
   const decisionLock = useRef(false), [decisionPending, setDecisionPending] = useState<string | null>(null)
@@ -55,7 +57,18 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const refusal = (error: unknown) => setError(leadRefusalText(error))
   const { owner } = useDestinationPage(), name = useLeadName(), label = name === 'lex' ? 'Lex' : name === 'dex' ? 'Dex' : 'Lead'
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
-  useConversationTopBar(owner, { place: label, tools: <Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={() => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } })}><SettingsIcon /></Button>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
+  const terminalWait = state.waitReason === 'lead-predecessor-unavailable' || state.waitReason === 'lead-predecessor-unverifiable'
+  const canStop = !!state.thread && !['stopped', 'accepted', 'declined'].includes(state.thread.state) &&
+    (state.thread.state !== 'draft' || state.thread.messages.some(message => message.role === 'user'))
+  const stopAction = <Button variant="ghost" disabled={stopping || decisionPending !== null} onClick={() => setConfirmStop(true)}>Stop goal</Button>
+  const stop = async () => {
+    if (stoppingRef.current || decisionLock.current) return
+    stoppingRef.current = true; decisionLock.current = true; setStopping(true); setError(null)
+    try { await store.lead.stop(); setConfirmStop(false) }
+    catch (error) { refusal(error) }
+    finally { stoppingRef.current = false; decisionLock.current = false; setStopping(false); input.current?.focus() }
+  }
+  useConversationTopBar(owner, { place: label, tools: <>{canStop && !terminalWait && stopAction}<Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={() => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } })}><SettingsIcon /></Button></>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
   useEffect(() => { if (active) void store.lead.readThread().catch(refusal) }, [active, store])
   // Expiry is host-owned; a read at its boundary obtains the renewed plan card.
   useEffect(() => {
@@ -127,7 +140,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     {active && <ConversationDock ref={dock}>
       <ConversationComposerFrame before={<ComposerNoticeStack>
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
-          {(state.waitReason === 'lead-predecessor-unavailable' || state.waitReason === 'lead-predecessor-unverifiable') && <Banner>{WAITS[state.waitReason].replace('{label}', label)}</Banner>}
+          {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replace('{label}', label)}</Banner>}
           {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
           {state.wayOut === 'resume' && state.waitReason !== 'lead-predecessor-unavailable' && state.waitReason !== 'lead-predecessor-unverifiable' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
             {state.waitReason ? WAITS[state.waitReason] ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
@@ -144,5 +157,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
               </ComposerTools>
       </ConversationComposerFrame>
     </ConversationDock>}
+    {active && confirmStop && <ConfirmDialog title="Stop this goal?" confirmLabel="Stop goal" cancelLabel="Keep working" busy={stopping} onConfirm={() => void stop()} onCancel={() => setConfirmStop(false)}>
+      <Text role="prose">Stops this goal and its running work. Files and worktrees are left as they are. You can send a new goal afterward.</Text>
+    </ConfirmDialog>}
   </ConversationShell>
 }

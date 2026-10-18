@@ -3806,3 +3806,21 @@ and decisions share the session's ComposerNoticeStack and composer gap.
 
 Lead is a conversation root for design accounting too. Its component-owned
 message renderer and session Items stay in the same measured screen family.
+
+
+## A person can stop the Lead goal and begin another — 2026-10-18
+
+Stop goal is a revision-fenced window operation. It first records the journal's
+stop latch, then ends the Lead request process and stops its owned Flow runs
+through the existing stop path. It never merges, publishes, pushes or removes
+worktrees. The confirmation states that files and worktrees are left as they are.
+Terminal predecessor waits put this action in their banner; other active phases
+put it beside settings in the top bar.
+
+The next explicit message starts a new logical goal only after cancellation is
+acknowledged, all provider reservations have settled and recovery has no pending
+or contested attempt. The previous goal's full budget ledger remains in the
+checkpoint, including unknown spend; new consent and a new plan are required.
+The bounded checkpoint retains 64 completed goal ledgers and refuses a further
+reset rather than discarding accounting. Old messages and decision receipts stay
+in the conversation. Budget stops cannot be cleared by sending a message.

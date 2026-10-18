@@ -26,6 +26,7 @@ interface LeadControlsOptions {
   /** Host revalidates the live Flow, card and evidence on the journal's decision queue. */
   readonly decidePerson: (card: Extract<LeadCard, { type: 'waiting' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly decideResult: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
+  readonly stopRequest?: () => Promise<void>
   readonly stopEffects?: () => Promise<void>
 }
 /** One host owner, no transport or rendering. Child ports never contain these operations. */
@@ -110,14 +111,18 @@ export class LeadControls {
   #inFlight(): boolean {
     return this.#requestInFlight
   }
+  #resumable(state: LeadState): boolean {
+    if (['stopped', 'accepted', 'declined'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked || this.#inFlight()) return false
+    const cards = state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))
+    return !cards.some(card => card.type === 'plan' || card.type === 'result' || card.type === 'waiting' && card.kind === 'person') &&
+      (!state.consent || state.consent.expiresAt > this.options.now()) &&
+      (state.phase === 'waiting-for-user' || this.#unanswered())
+  }
   #wayOut(state: LeadState): LeadWindowProjection['wayOut'] {
     if (['stopped', 'accepted', 'declined'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked) return null
-    const cards = state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))
-    if (cards.some(card => card.type === 'plan')) return 'decide-plan'
-    if (this.#inFlight() || cards.some(card => card.type === 'result' || card.type === 'waiting' && card.kind === 'person')) return null
+    if (state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(`${card.id}:${card.revision}`))) return 'decide-plan'
     if (state.managementReason === 'lead-predecessor-unavailable' || state.managementReason === 'lead-predecessor-unverifiable') return null
-    return (!state.consent || state.consent.expiresAt > this.options.now()) &&
-      (state.phase === 'waiting-for-user' || this.#unanswered()) ? 'resume' : null
+    return this.#resumable(state) ? 'resume' : null
   }
   #publicFailure(error: unknown): never {
     throw leadRefusal((error as { wireCode?: unknown })?.wireCode === 'lead-protection-unavailable' ? 'lead-protection-unavailable' : 'lead-secret-refused')
@@ -137,16 +142,24 @@ export class LeadControls {
     const previous = journal.state.sends.find(send => send.key === input.idempotencyKey)
     if (previous) return { messageId: previous.messageId, revision: previous.revision }
     if (journal.state.budget?.stop && journal.state.budget.stop.reason !== 'cancelled') throw leadRefusal('lead-budget-stopped')
-    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) throw leadRefusal('lead-thread-closed')
-    if (journal.state.budget?.stop) throw leadRefusal('lead-budget-stopped')
+    const newGoal = journal.state.phase === 'stopped' && journal.state.budget?.stop?.reason === 'cancelled' && journal.state.stopEffectsPending === null
+    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) && !newGoal) throw leadRefusal('lead-thread-closed')
+    if (journal.state.budget?.stop && !newGoal) throw leadRefusal('lead-budget-stopped')
     if (this.#inFlight()) throw leadRefusal('lead-request-in-flight')
     let configured: boolean
     try { configured = (await service.status('anthropic')).configured } catch { throw leadRefusal('lead-protection-unavailable') }
     if (!configured) throw leadRefusal('lead-key-missing')
     try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
-    const wayOut = this.#wayOut(journal.state)
-    const resume = wayOut === 'resume' || wayOut !== 'decide-plan' && journal.state.phase === 'waiting-for-user' &&
-      (journal.state.managementReason === 'lead-predecessor-unavailable' || journal.state.managementReason === 'lead-predecessor-unverifiable')
+    if (newGoal) {
+      // Flow cleanup alone cannot prove that the old model process has ended.
+      // Retry its stop even after a previous cancellation marker was acknowledged.
+      await this.options.stopRequest?.()
+      if (this.#continuation) await this.#continuation
+      await journal.beginGoal(this.options.nextId(), this.options.now())
+    }
+    const resume = this.#resumable(journal.state)
+    if (journal.state.phase === 'waiting-for-user' && (journal.state.recoveryBlocked ||
+      journal.state.consent && journal.state.consent.expiresAt <= this.options.now())) throw leadRefusal('lead-no-person-wait')
     return this.#commitRequest(async committed => {
       const receipt = await journal.appendMessage(input.idempotencyKey, input.text, committed)
       if (resume) await journal.resume(undefined, true, committed)
@@ -200,7 +213,7 @@ export class LeadControls {
       const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages })
       if (result.text) await service.assertPublic(result.text)
       this.#requestInFlight = this.#continueAgain
-      if (result.text) await journal.appendReply(result.text)
+      if (result.text && !['accepted', 'declined', 'stopped'].includes(journal.state.phase)) await journal.appendReply(result.text)
       else await journal.settingsChanged()
     } catch {
       this.#requestInFlight = this.#continueAgain
@@ -262,6 +275,18 @@ export class LeadControls {
       else if (input.caps) await journal.changeBudgetCaps(input.caps, { id: this.options.nextId(), revision: 1 }, this.options.now(), this.options.stopEffects, input.expectedRevision, card =>
         admitLeadCard(journal.state, card, this.options.project, this.options.model))
     }
+    return this.#projection()
+  }) }
+  stop(value: { readonly expectedRevision: number }): Promise<LeadWindowProjection> { return this.#queue(async () => {
+    const input = parseLeadResume(value), { journal } = this.options
+    this.#expectRevision(input.expectedRevision)
+    this.#continueAgain = false
+    await journal.stop(this.options.stopEffects)
+    // The independent Flow cleanup owner may already have cleared its marker.
+    // Process cancellation is unconditional and must succeed in its own right.
+    await this.options.stopRequest?.()
+    // Cancellation settles the old detached continuation before another goal is admitted.
+    if (this.#continuation) await this.#continuation
     return this.#projection()
   }) }
   resume(input: { readonly expectedRevision: number }): Promise<LeadWindowProjection> { return this.#queue(async () => {

@@ -455,11 +455,11 @@ for (const withdrawal of ['journal', 'membership'] as const) {
     peer.socket.close()
   })
 
-test('a Lead connection refuses all six window controls before parsing their params', async t => {
+test('a Lead connection refuses all seven window controls before parsing their params', async t => {
   const { host, peer, authority } = await rig(t)
   await host.call('app/state/set', { patch: { clientsMayAnswer: true } })
   await peer.hello()
-  for (const method of ['lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume']) {
+  for (const method of ['lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop']) {
     const result = await peer.call(method, { child: 'cannot impersonate a click' })
     assert.equal(result.ok, false)
     assert.equal(result.error.code, 'notOnClientSurface')

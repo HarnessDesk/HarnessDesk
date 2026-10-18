@@ -309,3 +309,29 @@ it.each(['2', 'Escape'])('guards typed-through %s after explicit decision naviga
     expect(decide).toHaveBeenCalledWith(expect.objectContaining({ choice: key === '2' ? 'approve' : 'decline' }))
   } finally { vi.useRealTimers() }
 })
+
+
+it.each(['running', 'waiting-for-user'] as const)('confirms Stop goal from %s and leaves files and worktrees in place', async phase => {
+  const base = leadProjection(), { box, request } = await mount({ ...base,
+    waitReason: phase === 'waiting-for-user' ? 'lead-predecessor-unavailable' : null,
+    thread: { ...base.thread, state: phase, contract: leadPlan.contract } })
+  expect(button('Stop goal')).toBeDefined()
+  await act(async () => button('Stop goal').click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Files and worktrees are left as they are.')
+  expect(request.mock.calls.filter(([method]) => method === 'lead/stop')).toHaveLength(0)
+  await act(async () => button('Keep working').click())
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+  await act(async () => button('Stop goal').click())
+  const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(node => node.textContent === 'Stop goal')!
+  let release!: () => void
+  request.mockImplementation(async method => {
+    if (method === 'lead/stop') await new Promise<void>(resolve => { release = resolve })
+    return { ...base, revision: base.revision + 1, thread: { ...base.thread, state: 'stopped' } } as never
+  })
+  await act(async () => { confirm.click(); confirm.click() })
+  expect(request.mock.calls.filter(([method]) => method === 'lead/stop')).toEqual([['lead/stop', { expectedRevision: base.revision }]])
+  await act(async () => release())
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+  expect(button('Stop goal')).toBeUndefined()
+  expect(box.querySelector('textarea')).not.toBeNull()
+})

@@ -10,9 +10,10 @@
  *   Patterns     ./patterns — typed HarnessDesk presentation contracts
  *   Screens      product code, which composes these and adds nothing shared
  *
- * Terminal predecessor waits use a Banner without actions in ComposerNoticeStack.
+ * Terminal predecessor waits use a Banner with a Stop goal action in ComposerNoticeStack.
  * Its sentence explains whether the previous result was not accepted or cannot
  * be confirmed, and names the Lead to message to change the plan or stop the goal.
+ * Stop goal uses ConfirmDialog, explaining that files and worktrees are left as they are.
  *
  * Changes flow down and never up. A screen may not reach sideways into
  * another screen; that is what `pnpm design:audit` checks.

@@ -18,6 +18,7 @@ export interface LeadStepState { readonly id: string; readonly state: 'pending' 
 export interface LeadState {
   readonly name: LeadName
   readonly decisionMessages: readonly LeadDecisionMessage[]
+  readonly completedBudgets: readonly LeadBudgetLedger[]
   readonly budget: LeadBudgetLedger | null
   /** Journal sequence of the latched stop whose idempotent cancellation effects need acknowledgement. */
   readonly stopEffectsPending: number | null
@@ -40,7 +41,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ name: 'dex', decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
+export const initialLeadState = (): LeadState => ({ completedBudgets: [], name: 'dex', decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
   cards: [], decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-transition') }
 const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.revision}`
@@ -85,6 +86,19 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     state = { ...state, steps: state.steps.map(step => step.attemptId === id ? { ...step, state: 'pending' as const, attemptId: null, contractDigest: null } : step) }
   }
   switch (event.type) {
+    case 'new-goal': {
+      ensure(state.phase === 'stopped' && state.budget?.stop?.reason === 'cancelled' && state.stopEffectsPending === null &&
+        !state.recoveryBlocked && !state.budget.requests.length && state.completedBudgets.length < 64 &&
+        !state.completedBudgets.some(budget => budget.logicalGoalId === event.id) && state.budget.logicalGoalId !== event.id &&
+        [...state.attempts.values()].every(attempt => attempt.phase === 'finished' && !attempt.resolutionPending && !attempt.contested &&
+          (attempt.outcome !== 'uncertain' && attempt.outcome !== 'interrupted' || attempt.recoveryReported)))
+      const budget = reduceLeadBudget(null, { version: 1, type: 'initialize', now: event.now, logicalGoalId: event.id,
+        caps: state.budget!.caps, freshnessMs: state.budget!.freshnessMs })
+      state = { ...initialLeadState(), seq: event.seq, name: state.name, policy: state.policy, budget,
+        completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends,
+        decisionMessages: state.decisionMessages }
+      break
+    }
     case 'settings-changed': if (event.name !== undefined) state = { ...state, name: event.name }; break
     case 'message': {
       ensure(event.message.revision === event.seq && event.message.id === `message-${event.seq}`)
@@ -359,7 +373,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   // thread; the monetary latch continues to prohibit all new work.
   const acceptsResult = previous.phase === 'stopped' && previous.budget?.stop && ['budget', 'rounds'].includes(previous.budget.stop.reason) &&
     event.type === 'card-decision' && event.decision.cardType === 'result' && event.decision.choice === 'accept'
-  if (['stopped', 'accepted', 'declined'].includes(previous.phase) && !acceptsResult) state = { ...state, phase: previous.phase }
+  if (event.type !== 'new-goal' && ['stopped', 'accepted', 'declined'].includes(previous.phase) && !acceptsResult) state = { ...state, phase: previous.phase }
   if (state.budget?.stop && !['accepted', 'declined'].includes(state.phase)) state = { ...state, phase: 'stopped' }
   // Discovery is a new cancellation generation, even if an older cleanup is
   // currently running or has already acknowledged the original stop.

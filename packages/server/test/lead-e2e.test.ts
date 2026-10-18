@@ -73,6 +73,14 @@ for (const cap of ['dollars', 'rounds', 'unknown'] as const) test(`full fixture 
   await rig.decide(rig.pending('plan')!, 'approve')
   await rig.waitFor(() => rig.journal.state.runs.length > 0, 'first run')
   await rig.workerWaiting()
+  if (cap === 'dollars') {
+    const call = rig.host.call.bind(rig.host)
+    let bump = true
+    t.mock.method(rig.host, 'call', async (method: any, params: any) => {
+      if (method === 'lead/settings/update' && bump) { bump = false; await rig.journal.settingsChanged() }
+      return call(method, params)
+    })
+  }
   await rig.reachCap(cap)
   const before = await rig.dispatchCounts()
   if (cap === 'rounds') await rig.postCapSend()
@@ -236,6 +244,7 @@ test('accepting step 1 before the model starts step 2 seeds its reviewed revisio
   assert.equal([...rig.journal.state.attempts.values()].some(attempt => attempt.stepId === 'second' && attempt.method === 'flow/start-goal'), false)
   await rig.host.call('team/intent', { room: first.teamId, id: acceptance.id, action: 'done', outcome: 'accepted' })
   await rig.waitFor(() => rig.journal.state.runs.length === 2, 'step 2 after accepted step 1')
+  await rig.waitFor(() => !!rig.host.flowsPlane.leadRuns().find(run => run.id === rig.journal.state.runs[1]!.runId)?.seatPlans?.['1'], 'step 2 first implementer seat plan')
   const runs = rig.host.flowsPlane.leadRuns()
   const previous = runs.find(run => run.id === first.runId)!
   assert.equal(previous.state, 'settled')
@@ -245,5 +254,23 @@ test('accepting step 1 before the model starts step 2 seeds its reviewed revisio
   const next = runs.find(run => run.id === rig.journal.state.runs[1]!.runId)!
   assert.equal(next.lead!.base, base)
   assert.equal(next.seatPlans!['1']!.base, base)
+  await rig.assertNoForbiddenEffects()
+})
+
+
+test('Stop goal stops only its owned live Flow and leaves worktrees and commits intact', async t => {
+  const rig = await createLeadRig({ holdWorkers: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve'); await rig.workerWaiting()
+  const owned = [...rig.journal.state.runs]
+  const paths = await rig.worktrees()
+  const before = await Promise.all(paths.map(path => readFile(join(path, '.git'), 'utf8')))
+  const stopped = await rig.host.call('lead/stop', { expectedRevision: rig.journal.state.seq })
+  await rig.settle()
+  assert.equal(stopped.thread.state, 'stopped'); assert.equal(stopped.wayOut, null)
+  assert.ok(owned.length > 0)
+  for (const run of owned) assert.equal(rig.host.flowsPlane.leadRuns().find(one => one.id === run.runId)!.state, 'stopped')
+  assert.deepEqual(await rig.worktrees(), paths)
+  assert.deepEqual(await Promise.all(paths.map(path => readFile(join(path, '.git'), 'utf8'))), before)
   await rig.assertNoForbiddenEffects()
 })

@@ -44,6 +44,7 @@ export const leadPredecessorReadiness = (state: LeadState, stepId: string, runs:
   const open = acceptance?.role === 'accept' && acceptance.state === 'running' && cards.length > 0 &&
     cards.every(card => card?.state === 'open')
   // Acceptance decides before run state: a person decision settles the run.
+  if (acceptance?.role === 'accept' && acceptance.state === 'closed' && cards.some(card => !card)) return unverifiable
   if (acceptance?.role === 'accept' && acceptance.state === 'closed' && !accepted) return unavailable
   if (!accepted && (run.state === 'stopped' || run.state === 'settled')) return unavailable
   if (recorded?.state !== 'started' || run.lead?.logicalGoalId !== state.budget?.logicalGoalId ||

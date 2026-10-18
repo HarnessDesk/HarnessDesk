@@ -978,6 +978,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'lead/settings/read': parseLeadEmpty,
   // This parser admits only dex/lex for name; the owner keeps credentials exclusive.
   'lead/settings/update': parseLeadSettingsUpdate,
+  'lead/stop': parseLeadResume,
   'lead/resume': parseLeadResume,
   'provenance/commits': shape({ root: provenanceRoot, shas: provenanceShas }),
   'provenance/status': shape({ root: provenanceOptionalRoot }),
