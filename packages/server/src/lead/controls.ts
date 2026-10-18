@@ -4,7 +4,7 @@ import {
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification,
 } from '@harnessdesk/protocol'
-import type { LeadJournal, LeadState } from '@harnessdesk/lead'
+import { canBeginLeadGoal, type LeadJournal, type LeadState } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -142,7 +142,7 @@ export class LeadControls {
     const previous = journal.state.sends.find(send => send.key === input.idempotencyKey)
     if (previous) return { messageId: previous.messageId, revision: previous.revision }
     if (journal.state.budget?.stop && journal.state.budget.stop.reason !== 'cancelled') throw leadRefusal('lead-budget-stopped')
-    const newGoal = journal.state.phase === 'stopped' && journal.state.budget?.stop?.reason === 'cancelled' && journal.state.stopEffectsPending === null
+    const newGoal = canBeginLeadGoal(journal.state)
     if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) && !newGoal) throw leadRefusal('lead-thread-closed')
     if (journal.state.budget?.stop && !newGoal) throw leadRefusal('lead-budget-stopped')
     if (this.#inFlight()) throw leadRefusal('lead-request-in-flight')
@@ -157,7 +157,7 @@ export class LeadControls {
       if (this.#continuation) await this.#continuation
       await journal.beginGoal(this.options.nextId(), this.options.now())
     }
-    const resume = this.#resumable(journal.state)
+    const resume = !newGoal && this.#resumable(journal.state)
     if (journal.state.phase === 'waiting-for-user' && (journal.state.recoveryBlocked ||
       journal.state.consent && journal.state.consent.expiresAt <= this.options.now())) throw leadRefusal('lead-no-person-wait')
     return this.#commitRequest(async committed => {
@@ -280,6 +280,7 @@ export class LeadControls {
   stop(value: { readonly expectedRevision: number }): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const input = parseLeadResume(value), { journal } = this.options
     this.#expectRevision(input.expectedRevision)
+    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) throw leadRefusal('lead-thread-closed')
     this.#continueAgain = false
     await journal.stop(this.options.stopEffects)
     // The independent Flow cleanup owner may already have cleared its marker.

@@ -315,13 +315,16 @@ it.each(['running', 'waiting-for-user'] as const)('confirms Stop goal from %s an
   const base = leadProjection(), { box, request } = await mount({ ...base,
     waitReason: phase === 'waiting-for-user' ? 'lead-predecessor-unavailable' : null,
     thread: { ...base.thread, state: phase, contract: leadPlan.contract } })
-  expect(button('Stop goal')).toBeDefined()
-  await act(async () => button('Stop goal').click())
+  const stopLabel = phase === 'running' ? 'Stop' : 'Stop goal'
+  expect(button(stopLabel)).toBeDefined()
+  expect(box.querySelector('[data-slot="top-bar"]')?.textContent).not.toContain('Stop goal')
+  if (phase === 'running') expect(box.querySelector('[data-composer-track="send"] [aria-label="Stop"]')).not.toBeNull()
+  await act(async () => button(stopLabel).click())
   expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Files and worktrees are left as they are.')
   expect(request.mock.calls.filter(([method]) => method === 'lead/stop')).toHaveLength(0)
   await act(async () => button('Keep working').click())
   expect(document.querySelector('[role="alertdialog"]')).toBeNull()
-  await act(async () => button('Stop goal').click())
+  await act(async () => button(stopLabel).click())
   const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(node => node.textContent === 'Stop goal')!
   let release!: () => void
   request.mockImplementation(async method => {
@@ -332,6 +335,6 @@ it.each(['running', 'waiting-for-user'] as const)('confirms Stop goal from %s an
   expect(request.mock.calls.filter(([method]) => method === 'lead/stop')).toEqual([['lead/stop', { expectedRevision: base.revision }]])
   await act(async () => release())
   expect(document.querySelector('[role="alertdialog"]')).toBeNull()
-  expect(button('Stop goal')).toBeUndefined()
+  expect(button(stopLabel)).toBeUndefined()
   expect(box.querySelector('textarea')).not.toBeNull()
 })

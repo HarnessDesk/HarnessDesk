@@ -274,3 +274,22 @@ test('Stop goal stops only its owned live Flow and leaves worktrees and commits 
   assert.deepEqual(await Promise.all(paths.map(path => readFile(join(path, '.git'), 'utf8'))), before)
   await rig.assertNoForbiddenEffects()
 })
+
+
+test('Stop goal preserves a settled accepted step and its prepared postings', async t => {
+  const rig = await createLeadRig({ acceptedPredecessor: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve')
+  await rig.waitFor(() => rig.journal.state.runs.length === 1 && rig.host.teamPlane.stateFor(rig.journal.state.runs[0]!.teamId).intents.some(intent => intent.role === 'accept' && intent.state === 'open'), 'step 1 acceptance')
+  const first = rig.journal.state.runs[0]!
+  const acceptance = rig.host.teamPlane.stateFor(first.teamId).intents.find(intent => intent.role === 'accept' && intent.state === 'open')!
+  await rig.host.call('team/intent', { room: first.teamId, id: acceptance.id, action: 'done', outcome: 'accepted' })
+  await rig.waitFor(() => rig.journal.state.runs.length === 2, 'step 2')
+  assert.equal(rig.host.flowsPlane.leadRuns().find(run => run.id === first.runId)!.state, 'settled')
+  const postings = structuredClone(rig.host.flowsPlane.publicationOf(first.runId))
+  const stop = t.mock.method(rig.host.flowsPlane, 'stopRun')
+  await rig.host.call('lead/stop', { expectedRevision: rig.journal.state.seq }); await rig.settle()
+  assert.equal(stop.mock.calls.some(call => call.arguments[0] === first.runId), false, 'a settled accepted step must never fire runStopped')
+  assert.deepEqual(rig.host.flowsPlane.publicationOf(first.runId), postings)
+  assert.equal(rig.host.flowsPlane.leadRuns().find(run => run.id === first.runId)!.state, 'settled')
+})

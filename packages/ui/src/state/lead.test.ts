@@ -143,7 +143,7 @@ it('applies a name-only receipt without replacing scanned thread or settings fac
   expect(facade.state.revision).toBe(before.revision)
   expect(request).toHaveBeenCalledOnce()
 })
-it.each([{ caps: settings.caps }, { policy: settings.policy }, { credential: { provider: 'anthropic', key: null } }, { name: 'lex', caps: settings.caps }])('never retries an authority or credential update %j', async update => {
+it.each([{ credential: { provider: 'anthropic', key: null } }, { name: 'lex', caps: settings.caps }])('never retries a credential or invalid combined update %j', async update => {
   const { createLeadState } = await load(), request = vi.fn().mockRejectedValue({ code: 'lead-revision-stale' })
   const facade = createLeadState({ request }, () => true); facade.changed({ method: 'lead/changed', params: projection(2) })
   await expect(facade.updateSettings(update)).rejects.toMatchObject({ code: 'lead-revision-stale' }); expect(request).toHaveBeenCalledOnce()
@@ -172,4 +172,24 @@ it('a delayed read cannot undo a newer live approval projection at the same jour
   resolve(projection(2))
   await pending
   expect(facade.state.thread.cards).toEqual([card])
+})
+
+
+it.each([{ caps: { usdMicros: 90, rounds: 2 } }, { policy: { ...settings.policy, revision: 2, mode: 'plan' } },
+  { caps: { usdMicros: 90, rounds: 2 }, policy: { ...settings.policy, revision: 2, mode: 'plan' } }])('retries a stale authority save once after an internal bump %j', async update => {
+  const { createLeadState } = await load()
+  const request = vi.fn().mockRejectedValueOnce({ code: 'lead-revision-stale' }).mockResolvedValueOnce(projection(9))
+    .mockResolvedValueOnce({ ...projection(10), settings: { ...settings, ...update } })
+  const facade = createLeadState({ request }, () => true)
+  facade.changed({ method: 'lead/changed', params: projection(2) })
+  await facade.updateSettings(update)
+  expect(request.mock.calls).toEqual([['lead/settings/update', { ...update, expectedRevision: 2 }], ['lead/settings/read', {}], ['lead/settings/update', { ...update, expectedRevision: 9 }]])
+  expect(facade.state.settings).toMatchObject(update)
+})
+it('shows a second stale authority refusal without another retry', async () => {
+  const { createLeadState } = await load()
+  const request = vi.fn().mockRejectedValueOnce({ wireCode: 'lead-revision-stale' }).mockResolvedValueOnce(projection(9)).mockRejectedValueOnce({ code: 'lead-revision-stale' })
+  const facade = createLeadState({ request }, () => true); facade.changed({ method: 'lead/changed', params: projection(2) })
+  await expect(facade.updateSettings({ caps: settings.caps })).rejects.toMatchObject({ code: 'lead-revision-stale' })
+  expect(request).toHaveBeenCalledTimes(3)
 })

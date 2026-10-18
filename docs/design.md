@@ -2342,8 +2342,9 @@ assistant decision prose uses the same TranscriptAssistantMessage frame as Items
 The empty state is ConversationEmptyState with a single LeadAvatar slot and one
 short greeting. Until settings load, the greeting is "Hi, tell me what you want
 done." The chosen name occupies the title slot and composer placeholder.
-The tools slot holds the settings glyph opening Settings › Lead and, for an
-active goal outside the terminal predecessor waits, Stop goal.
+The tools slot holds only the settings glyph opening Settings › Lead.
+Active goals outside terminal predecessor waits use ComposerTrack name="send":
+Stop occupies the session's composer corner, with Send inboard when a message is typed.
 
 LeadContract is borderless assistant prose. Its plan is a numbered list, acceptance
 checks, allowance/folder meta and the separate-approval fine print. Its result
@@ -2363,7 +2364,7 @@ predecessor notices explain whether the previous result was not accepted or
 cannot be confirmed, and name the Lead to message to change the plan or stop
 the goal. Their action is Stop goal, opening ConfirmDialog with the consequence
 that files and worktrees are left as they are. Other active goal phases offer
-Stop goal in the top bar. The composer continues with the person's new instructions;
+Stop in the composer's send track. The composer continues with the person's new instructions;
 after stopping it accepts a new goal. Both waits have synthetic preview scenes in both themes.
 
 Settings › Lead uses canonical Section, Rows, Row, Input and Button patterns,

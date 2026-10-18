@@ -1894,7 +1894,7 @@ When the host enables Lead, its chosen name, Dex or Lex, opens the conversation
 pane from the sidebar (hover title: Lead). Lead uses the same window shell,
 top bar, thread, Items message renderer, empty-state layout and measured floating
 composer as a session. Its name occupies the session title slot; the settings
-glyph, titled Lead settings, opens Settings › Lead. There is no
+glyph, titled Lead settings, is the only top-bar tool and opens Settings › Lead. There is no
 body heading. A single LeadAvatar slot holds the name's initial until artwork arrives.
 Until settings arrive, the name reads Lead and the greeting says "Hi, tell me what
 you want done." The composer says Message Dex… or Message Lex… and shows initial dollar and round
@@ -1931,7 +1931,7 @@ revision that cannot be confirmed parks with `lead-predecessor-unverifiable`.
 Both explain what happened and ask the person to message the chosen Lead name
 to change the plan, or stop the goal. Both offer Stop goal through ConfirmDialog,
 which explains that files and worktrees are left as they are. Every other active
-goal phase has Stop goal in the top bar. Stopping cancels only owned work and
+goal phase has Stop in the composer's corner, with Send beside it when a message is typed. Stopping cancels only owned work and
 leaves the thread ready for a new goal. Neither wait offers Resume; sending a message
 continues with those instructions. A revised plan proposed in the refused-start
 turn is retained for approval before the Lead parks.

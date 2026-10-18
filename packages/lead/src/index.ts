@@ -6,7 +6,7 @@ export type { LeadPermissionEffect, LeadPermissionFloor, LeadPermissionCall, Lea
 export { LEAD_JOURNAL_BYTES, summarizeLeadArguments, parseLeadJournalRecord, prepareLeadJournalRecord, parseLeadRunIdentity, LeadJournal, createLeadJournal } from './journal.js'
 export type { LeadJournalEvent, LeadJournalRecord, LeadJournalStorage, LeadRunIdentity, LeadRunObservation, LeadArgumentSummary,
   LeadAttemptOutcome, LeadToolAttempt, LeadDispatch, LeadDispatchResult, LeadRecoveryAction } from './journal.js'
-export { initialLeadState, reduceLeadRecord, replayLeadJournal } from './state.js'
+export { canBeginLeadGoal, initialLeadState, reduceLeadRecord, replayLeadJournal } from './state.js'
 export type { LeadState, LeadStepState, LeadAttemptState } from './state.js'
 
 export type { LeadJournalSecurity } from './journal-security.js'

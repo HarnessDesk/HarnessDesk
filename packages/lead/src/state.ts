@@ -49,6 +49,13 @@ const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.r
 /** Card decisions, not phase changes or recovery, release the plan fence. */
 export const hasPendingLeadPlan = (state: LeadState): boolean => state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(cardKey(card)))
 
+/** A cancelled goal may be replaced only after cancellation and recovery are settled. */
+export const canBeginLeadGoal = (state: LeadState): boolean =>
+  state.phase === 'stopped' && state.budget?.stop?.reason === 'cancelled' && state.stopEffectsPending === null &&
+  !state.recoveryBlocked && !state.budget.requests.length && state.completedBudgets.length < 64 &&
+  [...state.attempts.values()].every(attempt => attempt.phase === 'finished' && !attempt.resolutionPending && !attempt.contested &&
+    (attempt.outcome !== 'uncertain' && attempt.outcome !== 'interrupted' || attempt.recoveryReported))
+
 export const assertPlanApprovable = (state: LeadState, contract: LeadAcceptanceContract): void => {
   ensure(state.policy?.revision === contract.policyRevision)
   ensure(state.contract === null || contract.revision > state.contract.revision)
@@ -87,11 +94,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   }
   switch (event.type) {
     case 'new-goal': {
-      ensure(state.phase === 'stopped' && state.budget?.stop?.reason === 'cancelled' && state.stopEffectsPending === null &&
-        !state.recoveryBlocked && !state.budget.requests.length && state.completedBudgets.length < 64 &&
-        !state.completedBudgets.some(budget => budget.logicalGoalId === event.id) && state.budget.logicalGoalId !== event.id &&
-        [...state.attempts.values()].every(attempt => attempt.phase === 'finished' && !attempt.resolutionPending && !attempt.contested &&
-          (attempt.outcome !== 'uncertain' && attempt.outcome !== 'interrupted' || attempt.recoveryReported)))
+      ensure(canBeginLeadGoal(state) && !state.completedBudgets.some(budget => budget.logicalGoalId === event.id) && state.budget!.logicalGoalId !== event.id)
       const budget = reduceLeadBudget(null, { version: 1, type: 'initialize', now: event.now, logicalGoalId: event.id,
         caps: state.budget!.caps, freshnessMs: state.budget!.freshnessMs })
       state = { ...initialLeadState(), seq: event.seq, name: state.name, policy: state.policy, budget,

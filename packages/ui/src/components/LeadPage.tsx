@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { type LeadWindowProjection } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, ConfirmDialog, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, Page, Spinner, Text, useComposerHeightVar } from '../design'
+import { Banner, Button, Chip, ConfirmDialog, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, Page, Spinner, Text, useComposerHeightVar } from '../design'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { LeadMessage } from './LeadMessage'
 import { LeadCards, leadDollars } from './LeadCards'
 import { REFUSALS, leadRefusalText } from './lead-refusals'
 import { useConversationTopBar } from './use-conversation-top-bar'
-import { SettingsIcon, SendIcon } from './Icons'
+import { SettingsIcon, SendIcon, StopIcon } from './Icons'
 import { useLeadName } from './use-lead-name'
 import { sidebarPlacement } from '../state/workbench'
 import { formatLeadConsentTime } from './lead-consent-time'
@@ -60,6 +60,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const terminalWait = state.waitReason === 'lead-predecessor-unavailable' || state.waitReason === 'lead-predecessor-unverifiable'
   const canStop = !!state.thread && !['stopped', 'accepted', 'declined'].includes(state.thread.state) &&
     (state.thread.state !== 'draft' || state.thread.messages.some(message => message.role === 'user'))
+  const goalActive = canStop && !terminalWait
   const stopAction = <Button variant="ghost" disabled={stopping || decisionPending !== null} onClick={() => setConfirmStop(true)}>Stop goal</Button>
   const stop = async () => {
     if (stoppingRef.current || decisionLock.current) return
@@ -68,7 +69,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     catch (error) { refusal(error) }
     finally { stoppingRef.current = false; decisionLock.current = false; setStopping(false); input.current?.focus() }
   }
-  useConversationTopBar(owner, { place: label, tools: <>{canStop && !terminalWait && stopAction}<Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={() => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } })}><SettingsIcon /></Button></>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
+  useConversationTopBar(owner, { place: label, tools: <Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={() => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } })}><SettingsIcon /></Button>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
   useEffect(() => { if (active) void store.lead.readThread().catch(refusal) }, [active, store])
   // Expiry is host-owned; a read at its boundary obtains the renewed plan card.
   useEffect(() => {
@@ -153,7 +154,10 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
               <ComposerText rows={1} ref={input} aria-label="Goal or message" placeholder={`Message ${label}…`} value={goal} onChange={event => setGoal(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!state.error && state.revision >= 0) void send() } }} />
               <ComposerTools>
                 {!state.thread?.messages.some(message => message.role === 'user') && state.settings && <><Chip tone="neutral">{leadDollars(state.settings.caps.usdMicros)}</Chip><Chip tone="neutral">{state.settings.caps.rounds} rounds</Chip></>}
-                <ComposerGap /><ComposerSend type="submit" disabled={requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : 'Send'} title={requestPending ? 'Sending…' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>
+                <ComposerGap /><ComposerTrack name="send" contentSized={goalActive && !!goal.trim()}>
+                  {(!goalActive || goal.trim()) && <ComposerSend type="submit" disabled={requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : 'Send'} title={requestPending ? 'Sending…' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>}
+                  {goalActive && <ComposerSend type="button" aria-label="Stop" title="Stop goal" disabled={stopping || decisionPending !== null} onClick={() => setConfirmStop(true)}><StopIcon size={12} /></ComposerSend>}
+                </ComposerTrack>
               </ComposerTools>
       </ConversationComposerFrame>
     </ConversationDock>}

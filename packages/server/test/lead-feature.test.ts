@@ -155,3 +155,37 @@ test('a worker approval resolved after its Seat closes clears the window project
   assert.equal(changed.mock.callCount(), before + 1, 'resolution must re-project ownership even after close')
   assert.equal(pushes.at(-1)?.thread.cards.some((one: any) => one.kind === 'worker-approval'), false)
 })
+
+
+test('host Stop effects reach only running and stalled owned runs, preserving prepared postings', async t => {
+  const { host } = rig(t, true); await host.start()
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'stop-effects', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 1000 })
+  const descriptor = Object.getOwnPropertyDescriptor(journal, 'state')
+  const readState = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(journal), 'state')!.get!
+  const runs = ['running', 'stalled', 'settled', 'stopped'].map(state => ({ runId: `owned-${state}`, teamId: `team-${state}`, correlationId: `start-${state}` }))
+  // Isolate the host's cancellation boundary from worker execution and accounting.
+  Object.defineProperty(journal, 'state', { configurable: true, get: () => ({ ...readState.call(journal), runs }) })
+  const postings = { state: 'prepared', run: 'owned-settled' }
+  const before = JSON.stringify(postings), stopped: string[] = [], interrupted: string[] = []
+  t.mock.method(host.flowsPlane, 'leadRuns', () => runs.map(run => ({ id: run.runId, state: run.runId.slice(6) })) as any)
+  t.mock.method(host.flowsPlane, 'interruptChecks', (team: string) => { interrupted.push(team) })
+  t.mock.method(host.flowsPlane, 'stopRun', async (run: string) => { stopped.push(run); if (run === postings.run) postings.state = 'skipped' })
+  t.mock.method(host.credentials, 'leadStatus', async () => ({ configured: false, protection: 'synthetic cipher' }))
+  const service = host.createLeadService({ journal, project: { id: 'demo', path: '/workspace/demo' }, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  try {
+    await host.call('lead/stop', { expectedRevision: journal.state.seq })
+    assert.deepEqual(stopped, ['owned-running', 'owned-stalled'])
+    assert.deepEqual(interrupted, ['team-running', 'team-stalled'])
+    assert.equal(JSON.stringify(postings), before)
+  } finally {
+    if (descriptor) Object.defineProperty(journal, 'state', descriptor)
+    else Reflect.deleteProperty(journal, 'state')
+    assert.deepEqual(Object.getOwnPropertyDescriptor(journal, 'state'), descriptor, 'restore the exact state descriptor')
+    await service.close()
+  }
+})

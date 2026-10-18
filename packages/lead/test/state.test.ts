@@ -213,3 +213,28 @@ test('checkpoint rejects over 64 decisions, positions beyond seq, and extra deci
     const malformed = structuredClone(checkpoint); change(malformed); assert.throws(() => lead.parseLeadCheckpoint(malformed))
   }
 })
+
+
+test('canBeginLeadGoal shares every recovery and accounting fence with new-goal replay', async () => {
+  const ready = (lead as unknown as { canBeginLeadGoal: (state: lead.LeadState) => boolean }).canBeginLeadGoal
+  assert.equal(typeof ready, 'function')
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {} })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'old', caps: { usdMicros: 100, rounds: 2 }, freshnessMs: 1000 })
+  await journal.stop(async () => {})
+  const state = journal.state, event = { version: 1 as const, seq: state.seq + 1, type: 'new-goal' as const, now: 100, id: 'new' }
+  assert.equal(ready(state), true); assert.equal(lead.reduceLeadRecord(state, event).phase, 'draft')
+  const attempt = { id: 'uncertain', correlationId: 'uncertain', method: 'flow/start-goal', action: null, kind: 'mutation' as const, stepId: 'first', arguments: summarizeLeadArguments({}),
+    phase: 'finished' as const, effect: 'allow' as const, dispatched: true, outcome: 'uncertain' as const, recoveryReported: false,
+    evidence: null, evidenceSeq: null, resolutionPending: false, contested: false }
+  for (const blocked of [
+    { ...state, recoveryBlocked: true }, { ...state, stopEffectsPending: state.seq }, { ...state, phase: 'accepted' as const },
+    { ...state, completedBudgets: Array.from({ length: 64 }, () => state.budget!) },
+    { ...state, attempts: new Map([[attempt.id, attempt]]) },
+    { ...state, attempts: new Map([[attempt.id, { ...attempt, outcome: 'interrupted' } as lead.LeadAttemptState]]) },
+    { ...state, attempts: new Map([[attempt.id, { ...attempt, recoveryReported: true, resolutionPending: true } as lead.LeadAttemptState]]) },
+    { ...state, attempts: new Map([[attempt.id, { ...attempt, recoveryReported: true, contested: true } as lead.LeadAttemptState]]) },
+  ]) {
+    assert.equal(ready(blocked), false)
+    assert.throws(() => lead.reduceLeadRecord(blocked, event), /lead-journal-transition/)
+  }
+})

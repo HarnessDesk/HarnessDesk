@@ -3349,6 +3349,15 @@ export class Host {
     if (!this.#leadReady) throw new Error('lead-host-starting')
     if (this.#leadService) throw new Error('lead-service-exists')
     const { journal, project } = options
+    const stopOwned = async (reason: string) => {
+      const results = await Promise.allSettled(journal.state.runs.map(async run => {
+        const flow = this.#flows.leadRuns().find(flow => flow.id === run.runId)
+        if (flow?.state !== 'running' && flow?.state !== 'stalled') return
+        this.#flows.interruptChecks(run.teamId)
+        await this.#flows.stopRun(run.runId, reason, 'desk')
+      }))
+      if (results.some(result => result.status === 'rejected')) throw new Error('lead-owned-work-stop-pending')
+    }
     let childLive = false
     let owned = new Set<string>()
     const withdraw = (runId: string) => {
@@ -3383,13 +3392,7 @@ export class Host {
       recover: () => this.#leadBudgets.recover(),
       openDoor: async admission => openLeadClientDoor({ host: this, logger: this.#logger, home: this.#state.directory,
         hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission }) }),
-      stopOwned: async reason => {
-        const results = await Promise.allSettled(journal.state.runs.map(async run => {
-          this.#flows.interruptChecks(run.teamId)
-          await this.#flows.stopRun(run.runId, reason, 'desk')
-        }))
-        if (results.some(result => result.status === 'rejected')) throw new Error('lead-owned-work-stop-pending')
-      },
+      stopOwned,
     })
     const ownedWorker = (runtime: string, sessionId: string, includeClosed = false) => {
       const seat = this.#evidence.seats.all().find(seat => seat.session.runtime === runtime && seat.session.sessionId === sessionId && (includeClosed || !seat.closed))
@@ -3422,9 +3425,7 @@ export class Host {
           return this.call(call.method, call.params)
         }) }, card, decision, contract),
       stopRequest: () => this.#leadService!.stopGoal(),
-      stopEffects: async () => {
-        for (const run of journal.state.runs) { this.#flows.interruptChecks(run.teamId); await this.#flows.stopRun(run.runId, 'lead-budget-stopped', 'desk') }
-      },
+      stopEffects: () => stopOwned('lead-budget-stopped'),
     })
     this.onDispose(() => this.#leadControls?.close())
     return this.#leadService

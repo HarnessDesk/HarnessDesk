@@ -15,6 +15,8 @@ works on the sign-in screen, in a dialog, and in the design explorer alike.
   Patterns     ./patterns — typed HarnessDesk presentation contracts
   Screens      product code, which composes these and adds nothing shared
 
+Active goals use ComposerTrack name="send", with Send inboard of Stop when a message is typed.
+Stop occupies the session's composer corner and opens the same ConfirmDialog.
 Terminal predecessor waits use a Banner with a Stop goal action in ComposerNoticeStack.
 Its sentence explains whether the previous result was not accepted or cannot
 be confirmed, and names the Lead to message to change the plan or stop the goal.

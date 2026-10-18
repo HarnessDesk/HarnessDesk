@@ -94,3 +94,17 @@ it.each(['light', 'dark'])('previews a missing plan without an inert action and 
     expect([...box.querySelectorAll('[data-slot="composer-notices"] button')].map(node => node.textContent)).toEqual(['Stop goal'])
   } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
 })
+
+
+it.each((['light', 'dark'] as const).flatMap(theme => (['running', 'running-message'] as const).map(scene => ({ theme, scene } as const))))('previews $scene Stop in the composer corner in $theme', async ({ theme, scene }) => {
+  const url = window.location.href; window.history.replaceState(null, '', `?theme=${theme}`)
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  try {
+    await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene={scene} /></StoreProvider>))
+    expect(box.querySelector('[data-composer-track="send"] [aria-label="Stop"]')).not.toBeNull()
+    expect(box.querySelector('[data-slot="top-bar"] [aria-label="Stop"]')).toBeNull()
+    expect(box.querySelector('[data-slot="top-bar"]')?.textContent).not.toContain('Stop goal')
+    expect(box.querySelectorAll('[data-composer-track="send"] button')).toHaveLength(scene === 'running-message' ? 2 : 1)
+    if (scene === 'running-message') expect(box.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('Also check keyboard focus')
+  } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
+})

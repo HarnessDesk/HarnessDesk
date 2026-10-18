@@ -1436,3 +1436,75 @@ test('a failed Lead process stop refuses a new goal before resetting its account
   await s.controls.send({ idempotencyKey: 'after-process-stop', text: 'Another goal' })
   await s.controls.idle(); assert.equal(s.sends.length, 1)
 })
+
+
+test('a new goal after stopping an in-flight reply plans without resuming the old goal', async t => {
+  let release!: () => void, calls = 0
+  const held = new Promise<void>(resolve => { release = resolve })
+  const s = await rig({ configured: true, controls: { stopEffects: async () => {}, stopRequest: async () => release() }, service: {
+    async send() {
+      if (++calls === 1) await held
+      else if (s.journal.state.phase === 'draft') await s.journal.setManagementPhase('planning')
+      return { status: 'completed', text: calls === 1 ? 'Old reply' : 'Planning the new goal' }
+    },
+  } })
+  t.after(() => s.controls.close())
+  await s.controls.send({ idempotencyKey: 'old-goal', text: 'Old goal' })
+  while (!calls) await new Promise(resolve => setTimeout(resolve, 1))
+  await s.call('lead/stop', { expectedRevision: s.journal.state.seq })
+  assert.equal(s.journal.state.messages.at(-1)!.role, 'user')
+  const start = s.records.length
+  await s.controls.send({ idempotencyKey: 'fresh-goal', text: 'New goal' }); await s.controls.idle()
+  assert.ok(['planning', 'awaiting-plan'].includes(s.journal.state.phase), s.journal.state.phase)
+  assert.equal(s.records.slice(start).some(record => record.type === 'management' && record.reason === 'lead-request-failed'), false)
+  assert.equal(s.journal.state.messages.some(message => message.text === 'Old reply'), false)
+})
+
+for (const phase of ['accepted', 'declined', 'stopped'] as const) test(`Stop goal refuses a ${phase} thread before effects`, async t => {
+  let effects = 0
+  const s = await rig({ controls: { stopEffects: async () => { effects++ }, stopRequest: async () => { effects++ } } })
+  t.after(() => s.controls.close())
+  await s.journal.offerCard(plan)
+  await s.journal.decideCard({ ...planClick, choice: phase === 'declined' ? 'decline' : 'approve' }, 1000)
+  if (phase === 'stopped') await s.journal.stop(async () => {})
+  if (phase === 'accepted') {
+    await s.journal.offerCard({ version: 1, id: 'result', revision: 1, type: 'result', outcome: 'reviewed', summary: 'Ready', assertions: [],
+      budget: leadBudgetProjection(s.journal.state.budget!, 100), contractDigest: contract.digest })
+    await s.journal.decideCard({ version: 1, cardId: 'result', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' }, 1000)
+  }
+  assert.equal(s.journal.state.phase, phase)
+  const before = s.journal.state
+  await assert.rejects(s.call('lead/stop', { expectedRevision: before.seq }), code('lead-thread-closed'))
+  assert.deepEqual(s.journal.state, before); assert.equal(effects, 0)
+})
+
+test('a recovery-blocked new goal refuses before process halt or journal write', async () => {
+  const s = await rig({ configured: true })
+  await s.journal.stop(async () => {})
+  s.records.push({ version: 1, seq: s.journal.state.seq + 1, type: 'recovery-block' })
+  s.controls.close()
+  const journal = await createLeadJournal(s.storage), { LeadControls } = await controlsModule()
+  let effects = 0
+  const controls = new LeadControls({ journal, service: s.service, project, model: 'fixture-model', now: () => 100,
+    nextId: () => 'unused', push() {}, decidePerson: async () => {}, decideResult: async () => {}, stopRequest: async () => { effects++ } })
+  try {
+    const before = journal.state, records = s.records.length
+    await assert.rejects(controls.send({ idempotencyKey: 'blocked-goal', text: 'Another goal' }), code('lead-thread-closed'))
+    assert.equal(effects, 0); assert.equal(s.records.length, records); assert.deepEqual(journal.state, before)
+  } finally { controls.close() }
+})
+
+
+test('a retried caps save re-derives concurrent widening and still needs approval', async t => {
+  const s = await rig(); t.after(() => s.controls.close())
+  const seen = await s.controls.readSettings(), desired = { usdMicros: 80000, rounds: 4 }
+  await s.journal.changeBudgetCaps({ usdMicros: 50000, rounds: 3 }, { id: 'concurrent', revision: 1 }, 100)
+  await assert.rejects(s.controls.updateSettings({ caps: desired, expectedRevision: seen.revision }), code('lead-revision-stale'))
+  const fresh = await s.controls.readSettings()
+  const result = await s.controls.updateSettings({ caps: desired, expectedRevision: fresh.revision })
+  assert.deepEqual(s.journal.state.budget!.caps, { usdMicros: 50000, rounds: 3 })
+  const card = s.journal.state.cards.at(-1)!
+  assert.equal(card.type, 'budget-change')
+  if (card.type === 'budget-change') { assert.deepEqual(card.previous.caps, { usdMicros: 50000, rounds: 3 }); assert.deepEqual(card.proposed, desired) }
+  assert.ok('thread' in result && result.thread.cards.some((card: LeadCard) => card.type === 'budget-change'))
+})

@@ -55,12 +55,13 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     async decide(decision: LeadCardDecision) { check(); const before = state, result = await transport.request('lead/card/decide', decision); apply(result, before); return result },
     async updateSettings(update: Omit<LeadSettingsUpdate, 'expectedRevision'>) {
       checkRead()
-      const nameOnly = update.name !== undefined && Object.keys(update).length === 1
+      const retryable = update.credential === undefined && (update.name !== undefined
+        ? Object.keys(update).length === 1 : update.caps !== undefined || update.policy !== undefined)
       let result: HostResult<'lead/settings/update'>, before = state
       try { result = await transport.request('lead/settings/update', { ...update, expectedRevision: state.revision }) }
       catch (error) {
         const code = (error as { wireCode?: string; code?: string })?.wireCode ?? (error as { code?: string })?.code
-        if (!nameOnly || code !== 'lead-revision-stale') throw error
+        if (!retryable || code !== 'lead-revision-stale') throw error
         before = state
         const fresh = await transport.request('lead/settings/read', {}); apply(fresh, before); checkRead()
         before = state
