@@ -76,6 +76,19 @@ const seat = (role: string, reviews: boolean): FlowPreviewSeat => ({
     candidates: [candidate({ seat: { runtime: 'gamma' }, label: 'Gamma', runtimeName: 'Gamma', state: 'taken', reason: null, fix: null })] } as SeatPlan,
 })
 
+const ATTACHMENT = (name: string, problem: string | null, kind: 'skill' | 'mcp' | 'notes' = 'skill') => ({ kind, name, identity: null, problem })
+
+const attachments = (over: Partial<NonNullable<FlowPreviewSeat['attachments']>> = {}): NonNullable<FlowPreviewSeat['attachments']> => ({
+  skillsMode: 'allowlist', mcpMode: 'allowlist',
+  declarations: [ATTACHMENT('checkout-retries', null), ATTACHMENT('review-checklist', null), ATTACHMENT('browser', null, 'mcp')],
+  refusal: null,
+  ...over,
+})
+
+/** The line under a seat that says what its Agent would carry in. */
+const seatLines = (): readonly HTMLElement[] => [...container.querySelectorAll('[data-slot="row"]')]
+  .filter((one): one is HTMLElement => one.querySelector('[data-role="meta"]')?.textContent?.startsWith('Skills:') ?? false)
+
 const renderTeam = async (flow: FlowPolicy, seats: readonly FlowPreviewSeat[], runtimes: ReturnType<typeof emptySnapshot>['runtimes'] = []) => {
   const theStore = store({ entries: [], source: () => '', preview: emptyPreview, runtimes })
   const preview = { ...emptyPreview(), seats }
@@ -482,6 +495,96 @@ it('a seat with mixed predecessor routes says its worktree is conditional', asyn
 
   const chip = [...container.querySelectorAll('[title="May open in a worktree of its own, at the commit it is handed, depending on which rule opens it"]')]
   expect(chip.map((one) => one.textContent)).toEqual(['Sometimes own worktree'])
+})
+
+// #1582: what a seat's Agent declares beyond its brief sits under that seat, beside the counts of what would load — never only in the problems list above.
+it('a seat the dry run attached nothing to shows nothing new under it', async () => {
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [seat('fixer', false)])
+  expect(container.textContent).not.toContain('Skills:')
+})
+
+it('an Agent that declares nothing says its runtime defaults on the one line', async () => {
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [
+    { ...seat('fixer', false), attachments: attachments({ skillsMode: 'runtime-defaults', mcpMode: 'runtime-defaults', declarations: [] }) },
+  ])
+  expect(seatLines()[0]!.textContent).toContain('Skills: agent defaults · Servers: agent defaults')
+})
+
+it('names that all load are counted, and the line says no name will fail', async () => {
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [{ ...seat('fixer', false), attachments: attachments() }])
+  expect(seatLines()[0]!.textContent).toContain('Skills: 2 will load · Servers: 1 will load')
+  expect(container.textContent).not.toContain('won’t load')
+})
+
+it('a name that would not load joins the counts on the same line', async () => {
+  const wont = ATTACHMENT('frontend-design', 'Review this content before loading it.')
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [{ ...seat('fixer', false), attachments: attachments({
+    declarations: [ATTACHMENT('checkout-retries', null), wont, ATTACHMENT('browser', null, 'mcp')],
+  }) }])
+  expect(seatLines()[0]!.textContent).toContain('Skills: 1 will load · 1 won’t load · Servers: 1 will load')
+})
+
+it('a notes declaration is neither skill nor server and stays out of the line', async () => {
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [{ ...seat('fixer', false), attachments: attachments({
+    skillsMode: 'allowlist', mcpMode: 'runtime-defaults',
+    declarations: [ATTACHMENT('checkout-retries', null), ATTACHMENT('desk-reminders', 'This attachment exceeds the Seat ceiling.', 'notes'), ATTACHMENT('scratch', null, 'notes')],
+  }) }])
+  expect(seatLines()[0]!.textContent).toBe('Skills: 1 will load · Servers: agent defaults')
+  expect(container.textContent).not.toContain('desk-reminders')
+  expect(container.textContent).not.toContain('scratch')
+})
+
+it('the line wears a check when every name loads and an alert when one will not', async () => {
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [
+    { ...seat('fixer', false), attachments: attachments() },
+    { ...seat('reviewer', true), attachments: attachments({ declarations: [ATTACHMENT('review-checklist', null), ATTACHMENT('frontend-design', 'Review this content before loading it.')] }) },
+  ])
+  const lines = seatLines()
+  expect(lines).toHaveLength(2)
+  expect(lines[0]!.querySelector('[data-slot="row-mark"] svg')?.classList.contains('lucide-check')).toBe(true)
+  expect(lines[1]!.querySelector('[data-slot="row-mark"] svg')?.classList.contains('lucide-triangle-alert')).toBe(true)
+})
+
+it('only the names that would not load are listed, verbatim under the seat line', async () => {
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [{ ...seat('fixer', false), attachments: attachments({
+    declarations: [ATTACHMENT('checkout-retries', null), ATTACHMENT('frontend-design', 'Review this content before loading it.'), ATTACHMENT('browser', null, 'mcp')],
+  }) }])
+  // A name that loads is only counted, never written.
+  expect(container.textContent).not.toContain('checkout-retries')
+  const named = [...container.querySelectorAll('[data-slot="row"]')].find(one => one.textContent?.startsWith('frontend-design'))
+  expect(named).toBeDefined()
+  expect(named!.querySelector('code')?.textContent).toBe('frontend-design')
+  expect(named!.querySelector('[data-slot="row-desc"]')?.textContent).toBe('Review this content before loading it.')
+})
+
+it('a refused seat says the host’s refusal in warning ink under its counts', async () => {
+  const refusal = 'This agent cannot be stopped from loading unapproved repository content on its own for this Seat.'
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [{ ...seat('fixer', false), attachments: attachments({
+    refusal, declarations: [ATTACHMENT('checkout-retries', null)],
+  }) }])
+  const line = seatLines()[0]!
+  expect(line.querySelector('[data-slot="row-mark"] svg')?.classList.contains('lucide-triangle-alert')).toBe(true)
+  expect(line.querySelector('[data-slot="row-desc"]')?.querySelector('[data-tone="warning"]')?.textContent).toBe(refusal)
+})
+
+it('the same preview stays startable with its choice, whatever a seat’s attachments say', async () => {
+  const broken = { ...seat('fixer', false), attachments: attachments({
+    mcpMode: 'runtime-defaults',
+    refusal: 'This agent cannot be stopped from loading unapproved repository content on its own for this Seat.',
+    declarations: [ATTACHMENT('frontend-design', 'Review this content before loading it.')],
+  }) }
+  const theStore = store({
+    entries: [ENTRY('fix')], agents: [AGENT('fixer', 'Fixer')], source: () => 'version: 2\n',
+    preview: () => ({ ...emptyPreview(), seats: [broken] }),
+  })
+  const change = vi.fn()
+  render(theStore, change)
+  await act(async () => {})
+  await select('fix')
+  await act(async () => {})
+  // The dry run's own problems decide Start; the seat's attachment line adds none and removes none.
+  expect(change).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'version: 2\n', token: 't' }))
+  expect(container.textContent).toContain('Skills: 0 will load · 1 won’t load · Servers: agent defaults')
 })
 
 it('a review flow discloses its effective budget and the blind-round messaging restriction; a plain flow shows neither', async () => {

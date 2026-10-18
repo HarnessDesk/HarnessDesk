@@ -1350,15 +1350,16 @@ const applyOne = async (
     }
     await withLock(resolve(context.libraryDir, 'manifest.json'), async () => {
       const saveManifest = await LibraryManifest.load(context.libraryDir)
+      const installedAt = Date.now()
       saveManifest.record({
         kind: 'skill',
         name: op.name,
         path: op.targetPath,
         digest: digestOf(content),
         bundle: currentSkillBundleDigest(op.targetPath)!,
-        at: Date.now(),
+        at: installedAt,
         ...(op.sourcePath !== undefined ? { source: op.sourcePath } : {}),
-        ...(op.origin ? { origin: { url: op.origin.url, ref: op.origin.ref, commit: op.origin.commit, path: op.origin.path } } : {}),
+        ...(op.origin ? { origin: { url: op.origin.url, ref: op.origin.ref, commit: op.origin.commit, path: op.origin.path, installedAt } } : {}),
       })
       await saveManifest.save()
     })

@@ -6,6 +6,7 @@ import { PageExplanation, PageControls, PageOptions, MenuItem, MenuNote, Toolbar
 import { AgentHistory } from './History'
 import { RuntimeResources } from './RuntimeResources'
 import { RuntimeFace } from './RuntimeFace'
+import { AccountNameDialog } from './AccountNameDialog'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type {
@@ -475,6 +476,8 @@ const AgentRow = ({
   )
   const waiting = snapshot.logins[info.id]?.outcome.type === 'pending'
   const signIn = state === 'signin' && canSignIn
+  const failure = siblings.map(entry => snapshot.healthByRuntime[entry.id])
+    .find((health): health is Unavailable => health?.state === 'unavailable')
   return (
     <RowButton
       data-slot="agent-row"
@@ -488,7 +491,8 @@ const AgentRow = ({
           {snapshot.activeRuntime === info.id && <Chip tone="neutral" size="sm">Default</Chip>}
         </InlineParts>
       }
-      desc={who ?? (state === 'signin' ? 'Signed out' : undefined)} truncateDesc
+      desc={failure ? <Prose text={splitHealth(failure).lead} /> : who ?? (state === 'signin' ? 'Signed out' : undefined)}
+      truncateDesc={!failure}
       control={state === 'limit' || state === 'broken' ? <Chip state={state} /> : undefined}
       {...(signIn
         ? {
@@ -541,6 +545,7 @@ const AgentAccounts = ({
 
   const store = useStore()
   const snapshot = useSnapshot()
+  const [namingAccount, setNamingAccount] = useState(false)
   const [addingGateway, setAddingGateway] = useState(false)
   const [adding, setAdding] = useState(false)
   // An unanswered extra may be signed in already, and removing it signs it
@@ -585,7 +590,7 @@ const AgentAccounts = ({
    * One that cannot falls back to the old behaviour, which its own tooltip
    * has always described honestly.
    */
-  const addAccount = async (): Promise<void> => {
+  const addAccount = async (name?: string): Promise<void> => {
     const owns=capture()
     if (!info.slot?.canAdd) {
       if (needsField) onSignIn(info.id)
@@ -603,15 +608,16 @@ const AgentAccounts = ({
     if (adding) return
     setAdding(true)
     try {
-      const added = await store.addAccount(info.id)
+      const added = await store.addAccount(info.id, name)
       if (!added) return
+      setNamingAccount(false)
       if (needsField) { if (owns()) onSignIn(added) }
       else await store.signInAgent(added)
     } finally {
       setAdding(false)
     }
   }
-  useEffect(() => { if (!destinationActive) { setAddingGateway(false); setAdding(false); setRemoving(null) } }, [destinationActive])
+  useEffect(() => { if (!destinationActive) { setNamingAccount(false); setAddingGateway(false); setAdding(false); setRemoving(null) } }, [destinationActive])
 
   return (
     <>
@@ -628,13 +634,15 @@ const AgentAccounts = ({
                   variant="outline"
                   title={
                     info.slot?.canAdd
-                      ? `${info.presentation.name} keeps one credential per home, so a new account gets a home of its own. Its sessions stay shared with this one.`
+                      ? info.slot.ownSessions
+                        ? `A new ${info.presentation.name} account gets a folder of its own, with its own conversations.`
+                        : `${info.presentation.name} keeps one credential per home, so a new account gets a home of its own. Its sessions stay shared with this one.`
                       : /* Said out loud rather than discovered: most CLIs keep one
                            credential file, so a second sign-in replaces the first. */
                         `${info.presentation.name} keeps one credential, so signing in again replaces this one.`
                   }
                   disabled={adding}
-                  onClick={() => void addAccount()}
+                  onClick={() => { if (info.slot?.canAdd && info.slot.asksName) setNamingAccount(true); else void addAccount() }}
                 >
                   <PlusIcon size={13} />
                   {adding ? 'Adding…' : 'Add account'}
@@ -642,7 +650,7 @@ const AgentAccounts = ({
               )}
               {/* Offered even with no plan account signed in: paying your own way
                   is a first-class way to run this agent, not a fallback. */}
-              {info.slot?.canAdd && (
+              {info.slot?.gateways && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -844,6 +852,8 @@ const AgentAccounts = ({
         )}
       </Rows>
 
+      {destinationActive && namingAccount && <AccountNameDialog info={info} adding={adding}
+        onAdd={addAccount} onClose={() => setNamingAccount(false)} />}
       {destinationActive && addingGateway && <GatewayDialog info={info} onClose={() => setAddingGateway(false)} />}
       {destinationActive && removing && (
         <ConfirmDialog

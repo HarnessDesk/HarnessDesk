@@ -1606,9 +1606,11 @@ test('fetched origin: plan and apply require matching origin only inside sources
     assert.equal((await applyLibrary(plan.ops, context))[0]?.outcome, 'done')
     const manifest = JSON.parse(await readFile(join(libraryDir, 'manifest.json'), 'utf8'))
     const { bundle: _bundle, ...recorded } = origin
-    assert.deepEqual(manifest.entries[0].origin, recorded)
+    assert.equal(typeof manifest.entries[0].origin.installedAt, 'number')
+    const datedOrigin = { ...recorded, installedAt: manifest.entries[0].at }
+    assert.deepEqual(manifest.entries[0].origin, datedOrigin)
     const { LibraryManifest } = await import('../src/manifest.js')
-    assert.deepEqual((await LibraryManifest.load(libraryDir)).find('skill', plan.ops[0]!.targetPath, 'commit')?.origin, recorded)
+    assert.deepEqual((await LibraryManifest.load(libraryDir)).find('skill', plan.ops[0]!.targetPath, 'commit')?.origin, datedOrigin)
     manifest.entries[0].origin = { url: 1 }
     await writeFile(join(libraryDir, 'manifest.json'), JSON.stringify(manifest))
     const legacy = (await LibraryManifest.load(libraryDir)).find('skill', plan.ops[0]!.targetPath, 'commit')
@@ -1648,4 +1650,22 @@ test('plan file lists fit the 200-entry wire limit including SKILL.md', async ()
     assert.equal(refused.ops[0]?.action, 'refuse')
     assert.match(refused.ops[0]?.reason ?? '', /more than 200 files/)
   })
+})
+
+
+test('manifest drops invalid install dates and retains positive finite dates', async () => {
+  const libraryDir = await mkdtemp(join(tmpdir(), 'hd-manifest-date-'))
+  try {
+    const { LibraryManifest } = await import('../src/manifest.js')
+    const origin = { url: 'https://github.com/acme-dev/skills', ref: 'main', commit: 'a'.repeat(40), path: 'demo' }
+    for (const installedAt of ['1234', NaN, Infinity, 0, -1, undefined, 1234]) {
+      const encoded = JSON.stringify({ version: 1, entries: [{ kind: 'skill', name: 'demo', path: '/work/skills/demo', digest: 'digest', at: 1, origin: { ...origin, installedAt } }] })
+      // JSON cannot spell NaN; overflow is a valid JSON number that parses to Infinity.
+      const raw = installedAt === Infinity ? encoded.replace('"installedAt":null', '"installedAt":1e400') : encoded
+      await writeFile(join(libraryDir, 'manifest.json'), raw)
+      const read = (await LibraryManifest.load(libraryDir)).find('skill', '/work/skills/demo', 'demo')?.origin
+      assert.deepEqual(read, installedAt === 1234 ? { ...origin, installedAt } : origin)
+      if (installedAt !== 1234) assert.equal(Object.hasOwn(read!, 'installedAt'), false)
+    }
+  } finally { await rm(libraryDir, { recursive: true, force: true }) }
 })

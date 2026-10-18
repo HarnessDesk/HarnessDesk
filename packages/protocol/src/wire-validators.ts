@@ -404,7 +404,7 @@ const goalValidators = {
   'flow/executions': goalShape({ team: optional(goalId), project: optional(atMost(4096, isFilled)), active: optional(isBoolean) }),
   'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
   'goal/read': goalShape({ goal: goalId }),
-  'goal/seen': goalShape({ goal: goalId }),
+  'goal/seen': goalShape({ goal: goalId, newsAt: optional(goalInteger(0)) }),
   'goal/create': goalShape({
     root: atMost(4096, isFilled), cwd: optional(atMost(4096, isFilled)), sentence: goalSentence,
     checkout: optional(literalUnion('shared', 'isolated')), dependsOn: optional(goalDependencies),
@@ -1088,6 +1088,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/account/add': shape({
     runtime: isString,
     gateway: optional(shape({ name: isString, endpoint: isString, apiKey: isString })),
+    name: optional(isString),
   }),
   'runtime/account/remove': shape({ runtime: isString }),
 

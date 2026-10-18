@@ -455,8 +455,11 @@ test('pr_create reports how far a no-upstream branch differs from its remote', a
       }
     }
     execFileSync('git', ['add', '--', ...paths], { cwd: forge.repo })
+    // Newer git runs `maintenance run --auto` after a commit regardless of gc.auto, which
+    // repacks these loose objects before `gc --auto` can count them.
     execFileSync('git', [
-      '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', `gc trigger ${name}`,
+      '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', '-c', 'maintenance.auto=false',
+      'commit', '-q', '-m', `gc trigger ${name}`,
     ], { cwd: forge.repo })
     execFileSync('git', ['checkout', '-q', 'feature/diverged'], { cwd: forge.repo })
   }

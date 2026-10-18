@@ -18,6 +18,7 @@ import {
   writeGatewayConfig,
 } from '../src/accounts.js'
 import { Host, Logger, StateStore, type AccountFactory } from '../src/index.js'
+import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
 
 /**
@@ -372,6 +373,12 @@ const hostWithAccounts = async (options: {
   readonly ownName?: string
   /** The agent holds one account and no more. */
   readonly single?: boolean
+  /** Facts declared by an account factory, independent of agent identity. */
+  readonly namedAccounts?: boolean
+  /** Whether this fake agent supports accounts on a custom endpoint. */
+  readonly gateways?: boolean
+  /** Handed to the host, so a test can drive the registry's own verbs. */
+  readonly agents?: AgentDirectory
 } = {}): Promise<{
   host: Host
   stateDir: string
@@ -380,6 +387,8 @@ const hostWithAccounts = async (options: {
   accounts: AccountFactory
   /** Every runtime the factory made, so a test can drive one directly. */
   created: Map<string, FakeRuntime>
+  /** The name each add was asked for, in order. */
+  names: (string | undefined)[]
   own: FakeRuntime
 }> => {
   const stateDir = await mkdtemp(join(tmpdir(), 'harnessdesk-accounts-host-'))
@@ -387,6 +396,7 @@ const hostWithAccounts = async (options: {
   await mkdir(primary, { recursive: true })
   const slots = new AccountSlots(join(stateDir, 'accounts.json'))
   const created = new Map<string, FakeRuntime>()
+  const names: (string | undefined)[] = []
   const accounts: AccountFactory = {
     canAdd: (info: RuntimeInfo) => !options.single && (info.id === FAKE_RUNTIME_ID || slots.find(info.id) !== null),
     slotOf: (info: RuntimeInfo) => {
@@ -397,11 +407,14 @@ const hostWithAccounts = async (options: {
             agent: slot.agent,
             home: slot.home,
             removable: true,
+            ...(options.namedAccounts ? { asksName: true as const, ownSessions: true as const } : {}),
+            ...(options.gateways ? { gateways: true as const } : {}),
             ...(slot.gateway ? { gateway: { ...slot.gateway } } : {}),
           }
-        : { agent: FAKE_RUNTIME_ID, home: primary, removable: false }
+        : { agent: FAKE_RUNTIME_ID, home: primary, removable: false, ...(options.namedAccounts ? { asksName: true as const, ownSessions: true as const } : {}), ...(options.gateways ? { gateways: true as const } : {}) }
     },
-    add: async (info: RuntimeInfo, gateway): Promise<AgentRuntime> => {
+    add: async (info: RuntimeInfo, gateway, name): Promise<AgentRuntime> => {
+      names.push(name)
       const slot = slots.add(slots.find(info.id)?.agent ?? info.id, primary, stateDir, gateway)
       // A label per slot, so a test can tell which row a notice named.
       const runtime = new FakeRuntime({
@@ -436,12 +449,13 @@ const hostWithAccounts = async (options: {
     accounts,
     state: new StateStore(join(stateDir, 'state.json')),
     version: '9.9.9',
+    ...(options.agents ? { agents: options.agents } : {}),
     ...(options.startTimeoutMs === undefined ? {} : { startTimeoutMs: options.startTimeoutMs }),
   })
   const own = new FakeRuntime({ accountLabel: 'olivia@example.com', ...(options.ownName ? { name: options.ownName } : {}) })
   host.register(own)
   await host.start()
-  return { host, stateDir, primary, slots, accounts, created, own }
+  return { host, stateDir, primary, slots, accounts, created, names, own }
 }
 
 test('adding an account registers a second runtime and tells every client', async (t) => {
@@ -468,6 +482,95 @@ test('adding an account registers a second runtime and tells every client', asyn
   // second sign-in replacing the first.
   const after = host.syncPayload().params.runtimes.map((info) => info.id)
   assert.deepEqual([...after].sort(), [FAKE_RUNTIME_ID, added.runtime].sort())
+})
+
+for (const namedAccounts of [true, false]) {
+  test(`account naming and session facts reach clients only when declared (${namedAccounts})`, async (t) => {
+    const { host, stateDir } = await hostWithAccounts({ namedAccounts })
+    t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+    const check = (info: RuntimeInfo) => {
+      assert.equal(info.slot?.asksName, namedAccounts ? true : undefined)
+      assert.equal(info.slot?.ownSessions, namedAccounts ? true : undefined)
+      if (!namedAccounts) {
+        assert.equal(Object.hasOwn(info.slot!, 'asksName'), false)
+        assert.equal(Object.hasOwn(info.slot!, 'ownSessions'), false)
+      }
+    }
+    check(host.syncPayload().params.runtimes[0]!)
+    const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+    check(added.info)
+    for (const info of host.syncPayload().params.runtimes) check(info)
+  })
+}
+
+for (const gateways of [true, false]) {
+  test(`gateway support reaches clients only when the factory declares it (${gateways})`, async (t) => {
+    const { host, stateDir } = await hostWithAccounts({ gateways })
+    t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+    const check = (info: RuntimeInfo) => {
+      assert.equal(info.slot?.gateways, gateways ? true : undefined)
+      assert.equal(Object.hasOwn(info.slot!, 'gateways'), gateways)
+    }
+    check(host.syncPayload().params.runtimes[0]!)
+    const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+    check(added.info)
+    for (const info of host.syncPayload().params.runtimes) check(info)
+  })
+}
+
+test('the name a person gives an account reaches the factory', async (t) => {
+  // Some agents cannot be named from their credential — the desk can read
+  // only that an Antigravity row is signed in to "a Google account" — so the
+  // name the person typed travels with the add and becomes the row's. Codex
+  // ignores it, which is why this only holds that it arrives.
+  const { host, stateDir, names } = await hostWithAccounts()
+  t.after(async () => {
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+
+  await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID, name: 'Work account' })
+
+  assert.deepEqual(names, ['Work account'])
+})
+
+test('removing an agent row that is an extra account signs it out first', async (t) => {
+  // An extra account is an ordinary registry row, so "Remove agent" used to
+  // drop the row and leave the account signed in with its folder still on
+  // disk. It takes the account's own road instead: sign out, unregister,
+  // then forget the home.
+  const registryDir = await mkdtemp(join(tmpdir(), 'harnessdesk-accounts-registry-'))
+  const store = new AgentRegistryStore(join(registryDir, 'agents.json'))
+  const directory = new AgentDirectory({
+    store,
+    build: () => {
+      throw new Error('nothing is built in this test')
+    },
+    usageFor: () => null,
+  })
+  const { host, stateDir, created } = await hostWithAccounts({ agents: directory })
+  t.after(async () => {
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+    await rm(registryDir, { recursive: true, force: true })
+  })
+
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  // The row is in the registry, which is what puts "Remove agent" beside it.
+  store.add({ id: String(added.runtime), name: 'Fake Runtime 2', command: 'fake' })
+
+  await host.call('acp/remove', { runtime: added.runtime })
+
+  assert.equal(created.get(String(added.runtime))?.loggedOut, true)
+  assert.equal(
+    host.syncPayload().params.runtimes.some((info) => info.id === added.runtime),
+    false,
+  )
+  // And the registry row was left to the factory to forget — the wiring's
+  // factory does exactly that (`acp-accounts.ts`); this fake one forgets only
+  // its slot, which is the mark that `acp/remove` did not reach
+  // `agents.remove` and drop the row behind the factory's back.
+  assert.equal(store.has(String(added.runtime)), true)
 })
 
 test('an added account can be signed in the moment the add answers', async (t) => {

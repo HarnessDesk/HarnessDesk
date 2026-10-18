@@ -574,6 +574,12 @@ export interface RuntimeInfo {
     readonly removable: boolean
     /** Whether the host can make one more account of this agent. */
     readonly canAdd: boolean
+    /** The credential cannot name this account, so the person names it when adding it. */
+    readonly asksName?: true
+    /** This account keeps its own folder and conversations, separate from its peers. */
+    readonly ownSessions?: true
+    /** The agent can also run an account against the person’s own endpoint. */
+    readonly gateways?: true
     /**
      * Set when this account reaches the model through an endpoint of the
      * user's own — an API key or a gateway — rather than the vendor plan the
@@ -619,8 +625,13 @@ export type RuntimeHealth =
        * run, or did not answer in time — in a way a later ask may change, so
        * the host asks again: when the PATH changes and, for the first seconds,
        * on a schedule. A copy that is there is never `notInstalled`.
+       * `spawnFailed` says discovery or launch found a program that could
+       * not start; unlike `unknown` (also used for a stop), it is remembered.
+       * It also covers wrapped non-spawn start errors ("Could not start …",
+       * "Restart failed"); the worst case is one background start at the next
+       * desk open, which clears on ready.
        */
-      readonly reason: 'notInstalled' | 'unreadable' | 'versionTooOld' | 'crashed' | 'unknown'
+      readonly reason: 'notInstalled' | 'unreadable' | 'versionTooOld' | 'spawnFailed' | 'crashed' | 'unknown'
       readonly message: string
       readonly remediation?: string
     }
@@ -1127,6 +1138,15 @@ export interface AgentRuntime {
    * schedule as `refreshCatalog`, before it.
    */
   checkInstallation?(): Promise<InstallationCheck>
+  /**
+   * Discover whether the program can run without starting an agent session
+   * or persistent process. A failure is reported through health/onHealthChange
+   * like a failed start; success leaves an idle runtime idle. The host asks
+   * unused runtimes in the background at startup. A result overtaken by a
+   * start or disposal must not replace newer health. An implementation must
+   * settle within its own probe timeout (the native adapter's probes use 10 s).
+   */
+  discoverProgram?(): Promise<void>
   /**
    * A secret this runtime declared was stored, replaced, or removed.
    *

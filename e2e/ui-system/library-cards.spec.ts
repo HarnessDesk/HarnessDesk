@@ -25,6 +25,11 @@ for (const theme of ['light', 'dark'] as const) {
     const ink = await inactive.evaluate(node => ({ color: getComputedStyle(node).color, opacity: getComputedStyle(node).opacity }))
     expect(ink.opacity).toBe('1')
     expect(await active.evaluate(node => getComputedStyle(node).color)).not.toBe(ink.color)
+    // Each mark carries its brand's one-colour twin: the `[data-ink='mono']`
+    // child is what paints it in the app's ink rather than the brand's own
+    // palette. A mark drawn only in its colours has none and must fail here.
+    await expect(active.locator('[data-ink="mono"]')).toHaveCount(1)
+    await expect(inactive.locator('[data-ink="mono"]')).toHaveCount(1)
     const strip = marks.getByRole('img', { name: /Loaded by/ })
     expect((await marks.getAttribute('aria-describedby'))?.split(' ')).toContain(await strip.getAttribute('id'))
     await capture(page, 'all', theme)

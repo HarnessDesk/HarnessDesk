@@ -4792,7 +4792,7 @@ it('opening another Team tab acknowledges its news through the host', async () =
  vi.mocked(store.markTeamSeen).mockClear()
  act(()=>row('Board').click())
  await act(async()=>{})
- expect(store.markTeamSeen).toHaveBeenCalledWith(ROOM)
+ expect(store.markTeamSeen).toHaveBeenCalledWith(ROOM,0)
 })
 
 it('a ready Goal with a stopped Run keeps the stopped header state', async () => {
@@ -4827,7 +4827,9 @@ it('acknowledges ready, ended Run and unread Seat news arriving while the Team i
  await update({inbox:[{id:'older-news',read:false,at:35,tone:'neutral',title:'Earlier output',from:{runtime:'codex',sessionId:'c1',name:'Agent'}},
  {id:'newest-news',read:false,at:40,tone:'neutral',title:'New output',from:{runtime:'codex',sessionId:'c1',name:'Agent'}}]})
  expect(store.markTeamSeen).toHaveBeenCalledOnce()
+ expect(store.markTeamSeen).toHaveBeenCalledWith(ROOM,40)
  vi.mocked(store.markTeamSeen).mockClear()
  await update({inbox:snapshot.inbox.map(one=>one.id==='newest-news'?{...one,at:50}:one)})
  expect(store.markTeamSeen).toHaveBeenCalledOnce()
+ expect(store.markTeamSeen).toHaveBeenCalledWith(ROOM,50)
 })

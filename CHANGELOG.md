@@ -5,6 +5,27 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+Agents that cannot start now say exactly what is missing from the moment a
+desk opens, Antigravity holds a second Google account, the Library keeps your
+place, and toasts move out of the way of the composer.
+
+## 0.5.3 — 2026-10-18
+
+- **Toasts sit at the bottom right, just above the composer when one is showing**, keeping page controls, Send and the model picker clear.
+- **An agent run through a package runner (`npx`, `uvx`) says what is actually missing when the runner is not on PATH** — whether startup discovery finds the absence or a start attempt fails, the failure names the runner and what provides it (Node.js, uv) instead of offering the agent's own install command, and a required CLI that is installed but too old no longer reads as missing.
+- **An agent whose program or required CLI is missing shows Not installed when a fresh desk opens**, instead of Ready until its first conversation.
+- **A runtime is checked again when the shell's PATH arrives during startup discovery**, so a newly findable program no longer stays Not installed until its page is opened or the desk restarts.
+- **Back to Library returns to the section and filters you left.** Leaving Changes always landed on Skills and reset the filter and search; Back now steps back to the Library page it was opened from, and each section keeps its filter, search, chip and list-or-matrix choice while the window is open.
+- **Skill pages show which files can run or contain binary data**, and when a sourced skill was installed or last updated.
+- **A Team's page action now lines up with its tabs.** The action beside View on a Team's Run and Findings tabs (Stop run…, Decide this run) stood two pixels taller than the tabs and View beside it; it now stands on the same control height, so the compact tab row reads one line. New `control` button size, beside `sm`.
+- **Opening a Team reliably clears its blue mark**, including news from an earlier Seat and activity whose inbox save is still arriving.
+- **An agent whose program cannot start appears under Needs attention** — failed spawns stay remembered after a restart, and startup discovery checks unused agents that support it before a session asks them. Settings › Runtimes shows the failure reason on its row.
+- **Antigravity can hold more than one account** — Add another account asks you to name the account, then makes a second row over a folder of its own, with the token kept in that folder so two Google accounts stay signed in side by side. An empty name uses “Antigravity 2”, “Antigravity 3” and so on. Each account keeps its own conversations and can be removed on its own, which asks it to sign out and moves its folder to the Trash.
+- **Starting a Team now says, under each seat, which of its Agent's skills and servers will load and names the ones that won't.**
+- **The Library's counts match what is on screen.** A chip or filter count now follows the Declared by choice, so its number is the number of cards choosing it will show; "Never fired" shows no number at all until the stored conversations have been read, rather than counting every skill as idle.
+
 ## 0.5.2 — 2026-10-17
 
 Skills open as pages in the Library, a Team's sidebar mark now tells waiting
@@ -1960,7 +1981,6 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
   room now says why beside the header's **Needs you**: what refused it, which
   of the round's other cards were held back with it (a round's cards start
   together), and what to do next.
-
 
 - **Wrapping a Goal right after stopping its run now waits for the stopped
   Seat's answer to finish saving.** That answer is written to disk a beat

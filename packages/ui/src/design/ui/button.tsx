@@ -72,6 +72,13 @@ const BOX = [
   'text-(length:--hd-btn-text) leading-none font-(--hd-btn-weight)',
 ]
 
+/* What a small button wears apart from its height: the gap, padding, label
+   size and icon insets both small rungs share. `sm` and `control` are built
+   from this one string, each adding only its height token, so the two cannot
+   drift apart the way they had before the control rung existed. */
+const SMALL_BOX =
+  'gap-1 p-(--hd-btn-padding-sm) text-(length:--hd-btn-text-sm) has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5'
+
 const VARIANTS = {
   /* Disabled, a filled act (this and `danger`) keeps its own hue, dimmed
      toward the footer's ground — `--hd-btn-*-disabled-*` — instead of the
@@ -173,7 +180,16 @@ const boxedVariants = cva(
            the tight `px-1.5`/`text-xs` keep the compact look. */
         wrap: 'h-auto min-h-(--hd-btn-h) p-(--hd-btn-padding) whitespace-normal has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
         xs: "h-(--hd-target-min) gap-1 px-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
-        sm: 'h-(--hd-btn-h-sm) gap-1 p-(--hd-btn-padding-sm) text-(length:--hd-btn-text-sm) has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5',
+        sm: `h-(--hd-btn-h-sm) ${SMALL_BOX}`,
+        /* `sm`'s box at the control rung: a small button that stands on the
+           same edge as the controls beside it, where the surface is packed —
+           the page action in a pane's tab row, whose quiet tabs and View
+           trigger stand on `--hd-control-h`. `sm` is a rung above them
+           (`--hd-btn-h-sm`), so the action's top and bottom edges sat two
+           pixels off their line. The height is the control's, so it follows
+           the tabs through the density scopes too; everything else is
+           `sm`'s — literally one string, `SMALL_BOX` above. */
+        control: `h-(--hd-control-h) ${SMALL_BOX}`,
         /* A labelled destination in the sidebar's three-item rail. The row
            keeps the 13px navigation type and 24px hit target, with no outer
            inset so all three names fit together at the rail's narrow width. */

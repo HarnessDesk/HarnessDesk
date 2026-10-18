@@ -4,6 +4,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SCENES } from '../../site-demo/scenes'
 import { SiteScene } from '../../site-demo/scene'
 import { dashboardData } from '../../site-demo/dashboard'
+import { PAGE_SCENES } from '../../site-demo/pages'
+import { RACE_PAGES } from '../../site-demo/race-pages'
+import { README_RACE_URLS } from './readme-race'
 import { buildYearGrid, busiestDay, busiestWeekday, dayLabelLong, leadingAgent, streaksFor, WEEKDAY_NAMES } from '../lib/heat'
 import { formatTokens } from '../lib/context-usage'
 import { planRows } from '../lib/plans-table'
@@ -40,8 +43,13 @@ afterEach(() => {
   document.body.removeAttribute('data-hd-dark-theme')
 })
 
-it('registers the full Dashboard and three focused 672 × 432 views', () => {
-  expect(Object.keys(SCENES)).toEqual(['dashboard', 'dashboard-spend', 'dashboard-limits', 'dashboard-activity'])
+it('registers the full Dashboard, three focused 672 × 432 views, the 800 × 500 tour pages and the 1200 × 750 hero race', () => {
+  expect(Object.keys(SCENES)).toEqual(['dashboard', 'dashboard-spend', 'dashboard-limits', 'dashboard-activity',
+    'tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats', 'hero-race'])
+  expect(SCENES['hero-race']).toEqual({ width: 1200, height: 750 })
+  for (const name of ['tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats'] as const) {
+    expect(SCENES[name]).toEqual({ width: 800, height: 500 })
+  }
   expect(SCENES.dashboard).toMatchObject({ width: 960, height: 600 })
   for (const name of ['dashboard-spend', 'dashboard-limits', 'dashboard-activity'] as const) {
     expect(SCENES[name]).toEqual({ width: 672, height: 432 })
@@ -107,6 +115,12 @@ it.each(['light', 'dark'] as const)('boots the entire shipping Dashboard in %s a
   expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'dark')
   await act(async () => message({ type: 'theme', value: theme === 'light' ? 'dark' : 'light' }))
   expect(document.body.hasAttribute('data-hd-dark-theme')).toBe(theme === 'light')
+})
+
+it('serves both race lanes from pages beside the demo', () => {
+  expect(Object.keys(RACE_PAGES).sort()).toEqual(Object.values(README_RACE_URLS).sort())
+  const served = Object.keys(import.meta.glob('../../site-demo/public/race/*.html')).map(path => path.replace('../../site-demo/public/', ''))
+  expect(Object.values(RACE_PAGES).sort()).toEqual(served.sort())
 })
 
 it('changes the chart, breakdown, range, account detail and activity through real controls', async () => {
@@ -250,4 +264,20 @@ it('renders Activity facts and its busiest weekday from the fictional year', asy
   expect(facts[3]?.textContent).toBe(`${dayLabelLong(peak.day)}${formatTokens(peak.tokens)}`)
   expect(leadingAgent(cells, 'tokens')).toBe('claude')
   expect(facts[4]?.textContent).toBe('Did the most' + dashboardData(NOW).store.getSnapshot().runtimes[0]!.presentation.name)
+})
+
+it.each([
+  ['tour-teams', 'teams'],
+  ['tour-run', 'work'],
+  ['tour-flows', 'flows'],
+  ['tour-library', 'library'],
+  ['tour-runtimes', 'settings'],
+  ['tour-chats', 'work'],
+] as const)('opens %s on its destination with the agents named', (name, kind) => {
+  vi.useRealTimers()
+  const snapshot = PAGE_SCENES[name]().getSnapshot()
+  expect(snapshot.workbench.navigation.current.kind).toBe(kind)
+  const names = snapshot.runtimes.map(info => info.presentation.name)
+  expect(names.length).toBeGreaterThan(0)
+  for (const one of names) expect(one).not.toMatch(/^(Alpha|Beta|Gamma)$/)
 })

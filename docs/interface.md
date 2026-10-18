@@ -1092,8 +1092,10 @@ holds per-copy Remove, Resolve copies, empty-copy cleanup and Install to.
 Remove shortens home paths in its label and keeps the full path on hover.
 Install availability and refusal cautions stay beside the install actions in More.
 Every write still opens the existing reviewed plan. MCP details keep their
-dialog. Definition reads do not carry install dates or runnable/binary flags;
-file safety chips remain in the install and update plans that provide them.
+dialog. Definition reads carry per-file runnable and binary flags for the Files
+card’s Can run and Binary chips. Source shows the recorded install or update
+date when available; older copies may have no recorded date.
+Symlinked files and folders inside a bundle are not listed in Files, matching the install copy.
 
 Update plans label each file Added, Changed or Removed. Read opens the new
 runnable or binary file; removed files have no Read action. The definition diff
@@ -1107,10 +1109,13 @@ reached from More or the **View changes** action on each write's toast. All,
 Can restore and Failed chips show counts; search matches names and paths.
 Today, Yesterday and Earlier group the entries, with time, runtime and path.
 Only a completed change with a backup offers **Restore…**, which previews what
-it puts back and replaces. Applying a restore refreshes the page. The Library
-has no history list at its foot. Successful writes share one success toast;
-failures share a persistent failure toast with the first reason. Skipped
-operations raise nothing, and the write toasts offer no Undo.
+it puts back and replaces. Applying a restore refreshes the page. **Back to
+Library** returns to the page it was opened from — a skill's own page, or the
+Skills or MCP list — and otherwise opens the section last used; each section
+keeps its filter, search, chip and list-or-matrix choice while the window is
+open. The Library has no history list at its foot. Successful writes share one
+success toast; failures share a persistent failure toast with the first
+reason. Skipped operations raise nothing, and the write toasts offer no Undo.
 
 The Library's skills page opens as a grid of cards sorted by name. Each card
 visits the skill’s page, shows its description in at most two lines,
@@ -1326,9 +1331,10 @@ why. The section appears only once the project has a checks file.
 Only the result of a person's action opens a toast: success leaves on its
 own; failure stays until closed. Conditions needing attention keep their
 existing composer, strip or sidebar card, with their action and Inbox option.
-Toasts appear at the upper-right of the window, above the composer, leaving
-Send and the model picker clear. The shared notice card centres its tile on
-the complete copy block, with title above optional earned detail. Actions sit
+Toasts appear at the bottom right of the window, just above the composer when
+one is showing, so neither a page’s own controls nor Send and the model picker
+are covered. Without a composer, they sit a small gap above the window’s bottom
+edge. The shared notice card centres its tile on the complete copy block, with title above optional earned detail. Actions sit
 beside the copy, dropping below at three or more actions or below about 400px;
 a wrapped card keeps its dismiss at the top-right. Its plate matches the
 composer, and danger adds a left bar and tinted tile. A requested action that
@@ -1597,7 +1603,11 @@ seat a role would open, every candidate this machine tried and why each was
 passed over, the effective ceiling each seat would hold, every check command
 verbatim with its checkout and timeout, and the plain rule list a round
 would move through — an unevidenced rule (answers alone, no observed fact)
-carries a warning chip rather than reading as already satisfied. Editing the
+carries a warning chip rather than reading as already satisfied. Under a seat
+whose Agent declares skills or servers, one line says which would load —
+counted, so a name that loads is never written — and names only the ones that
+would not, each in the Agent page's own words; a seat the host refused says its
+refusal there in warning ink. The problems list still decides Start. Editing the
 source or a variable invalidates Start immediately; a stale reply can never
 re-enable it. Starting a flow opens exactly one new Goal, through one host
 operation — never a bare Goal made first and a flow started into it after.

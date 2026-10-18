@@ -36,9 +36,9 @@ const Toaster = ({ theme = 'light', ...props }: React.ComponentProps<typeof Sonn
   <Sonner
     theme={theme}
     className="toaster group"
-    position="top-right"
-    offset={{ top: 'calc(var(--hd-bar-h) + var(--hd-space-4))' }}
-    mobileOffset={{ top: 'calc(var(--hd-bar-h) + var(--hd-space-4))' }}
+    position="bottom-right"
+    offset={{ bottom: 'var(--hd-toast-bottom)' }}
+    mobileOffset={{ bottom: 'var(--hd-toast-bottom)' }}
     style={
       {
         '--normal-bg': 'var(--hd-popover)',

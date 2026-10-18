@@ -548,6 +548,12 @@ body {
   --hd-fade-edge: 16px;
   --hd-fade: linear-gradient(to right, #000 calc(100% - var(--hd-fade-edge)), transparent);
 
+  /* Floating results clear a visible composer, or keep this gap off the window. */
+  --hd-toast-gap: var(--hd-space-4);
+  /* Where a toast's bottom edge stands: the gap alone, until a visible composer
+     dock publishes its clearance over it (inline on body, design/ui/composer-toast-offset). */
+  --hd-toast-bottom: var(--hd-toast-gap);
+
   /* The text well of the composer: where it rests, where it stops growing, and
      the line it is set on.
 

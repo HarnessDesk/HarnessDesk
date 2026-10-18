@@ -326,6 +326,164 @@ const ask = async (host: Host, runtime: AgentRuntime): Promise<void> => {
   await host.call('runtime/models', { runtime: runtime.info.id }).catch(() => {})
 }
 
+test('a failed spawn is remembered and unavailable as the desk next opens', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-spawn-relaunch-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const id = runtimeId('one')
+  const failure = { state: 'unavailable', reason: 'spawnFailed', message: 'Fake could not spawn.' } satisfies RuntimeHealth
+  const first = new Program({ id })
+  first.failure = failure
+  const before = await relaunch(t, dir, first)
+  await ask(before, first)
+  await before.dispose()
+
+  const second = new Program({ id })
+  second.failure = failure
+  const after = await relaunch(t, dir, second)
+  await pause(100)
+  assert.equal(second.starts, 1, 'the failed spawn must be asked again at launch')
+  const health = after.syncPayload().params.health?.find(entry => entry.runtime === id)?.health
+  assert.deepEqual(health, failure)
+})
+
+test('a fresh desk uses discovery failure before any session asks the agent', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-discovery-first-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  class DiscoveredProgram extends Program {
+    discoveries = 0
+    async discoverProgram(): Promise<void> {
+      this.discoveries += 1
+      this.setHealth(unreadable)
+    }
+  }
+  const program = new DiscoveredProgram({ id: runtimeId('one') })
+  program.setHealth({ state: 'idle' })
+  const host = await relaunch(t, dir, program)
+  await pause(100)
+  assert.equal(program.discoveries, 1, 'startup should use the program discovery')
+  assert.equal(program.starts, 0, 'discovery does not launch the agent')
+  assert.deepEqual(host.syncPayload().params.health?.find(entry => entry.runtime === program.info.id)?.health, unreadable)
+  await host.dispose()
+  const cache = JSON.parse(await readFile(join(dir, 'runtime-cache.json'), 'utf8'))
+  assert.equal(cache.runtimes.one.wouldNotStart, 'unreadable', 'discovery seeds the same remembered program failure')
+})
+
+test('the PATH re-ask waits for a discovery in flight before judging the runtime', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-discovery-path-'))
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  t.after(() => release())
+  let discovered!: () => void
+  const discoveryFinished = new Promise<void>(resolve => { discovered = resolve })
+  class DiscoveredProgram extends Program {
+    discoveries = 0
+    async discoverProgram(): Promise<void> {
+      this.discoveries += 1
+      const sawIt = this.found
+      await gate
+      this.setHealth(sawIt ? { state: 'idle' } : notInstalled)
+      discovered()
+    }
+  }
+  const program = new DiscoveredProgram({ id: runtimeId('one') })
+  program.setHealth({ state: 'idle' })
+  const host = await relaunch(t, dir, program)
+  // Registered after the host's cleanup so its background cache writes finish first.
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  assert.equal(program.discoveries, 1, 'startup discovery is still looking')
+  assert.equal(program.starts, 0, 'startup has not launched the unused agent')
+
+  // Discovery saw the old PATH; the one re-ask must use the new one after it settles.
+  program.found = true
+  const asking = host.retryProgramLookup()
+  release()
+  await discoveryFinished
+  await asking
+
+  assert.equal(program.discoveries, 2, 'the PATH re-ask repeats discovery after the older lookup finishes')
+  assert.equal(program.starts, 0, 'a PATH re-ask must not launch an unused agent')
+  assert.deepEqual(program.health(), { state: 'idle' })
+  assert.deepEqual(host.syncPayload().params.health?.find(entry => entry.runtime === program.info.id)?.health, { state: 'idle' })
+  await host.dispose()
+  const cache = JSON.parse(await readFile(join(dir, 'runtime-cache.json'), 'utf8'))
+  assert.equal(cache.runtimes.one.wouldNotStart, undefined, 'recovered discovery must not start the agent at the next boot')
+})
+
+test('the PATH re-ask re-discovers a settled missing program without starting it', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-discovery-path-settled-'))
+  class DiscoveredProgram extends Program {
+    discoveries = 0
+    async discoverProgram(): Promise<void> {
+      this.discoveries += 1
+      this.setHealth(this.found ? { state: 'idle' } : notInstalled)
+    }
+  }
+  const program = new DiscoveredProgram({ id: runtimeId('one') })
+  program.setHealth({ state: 'idle' })
+  const host = await relaunch(t, dir, program)
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await until(() => program.health().state === 'unavailable', 'startup discovery did not finish')
+
+  program.found = true
+  await host.retryProgramLookup()
+
+  assert.equal(program.discoveries, 2)
+  assert.equal(program.starts, 0)
+  assert.deepEqual(program.health(), { state: 'idle' })
+
+  // Once explicitly started, a later PATH failure belongs to the start path.
+  await ask(host, program)
+  assert.equal(program.starts, 1)
+  program.setHealth(notInstalled)
+  await host.retryProgramLookup()
+  assert.equal(program.starts, 2, 'a runtime that did start keeps the existing re-start behavior')
+  assert.equal(program.discoveries, 2)
+})
+
+test('a stop that says unknown is not remembered as a program failure', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-stop-relaunch-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const id = runtimeId('one')
+  const first = new Program({ id })
+  first.found = true
+  const before = await relaunch(t, dir, first)
+  await ask(before, first)
+  first.setHealth({ state: 'unavailable', reason: 'unknown', message: 'Stopped.' })
+  await before.dispose()
+
+  const again = new Program({ id })
+  await relaunch(t, dir, again)
+  await pause(100)
+  assert.equal(again.starts, 0, 'stopping does not ask the agent again next launch')
+  const cache = JSON.parse(await readFile(join(dir, 'runtime-cache.json'), 'utf8'))
+  assert.equal(cache.runtimes.one.wouldNotStart, undefined)
+})
+
+test('startup discovers a never-started Codex without launching its app-server', { skip: process.platform === 'win32' }, async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-codex-discovery-first-'))
+  // Retried: discovery is fire-and-forget, and the remembered failure it
+  // writes can still be landing in `dir` while the folder is removed.
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const cli = join(dir, 'codex')
+  const invocations = join(dir, 'invocations')
+  const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
+  await writeFile(cli, `#!/bin/sh\nprintf '%s\\n' "$*" >> ${quote(invocations)}\nexit 127\n`)
+  await chmod(cli, 0o755)
+  const runtime = new CodexRuntime({ binaryPath: cli, codexHome: join(dir, 'agent-home'),
+    discovery: { env: { PATH: dir }, locations: [] } })
+  const host = await relaunch(t, dir, runtime)
+  await until(() => runtime.health().state === 'unavailable', 'startup never discovered the broken program')
+  const health = host.syncPayload().params.health?.find(entry => entry.runtime === runtime.info.id)?.health
+  assert.ok(health?.state === 'unavailable')
+  assert.equal(health.reason, 'unreadable')
+  assert.match(health.message, /would not report its version/)
+  // Closed here, before the folder is removed, so nothing is still writing to it.
+  await host.dispose()
+  const args = await readFile(invocations, 'utf8')
+  assert.match(args, /--version/, 'discovery must have probed the fake program')
+  assert.doesNotMatch(args, /app-server/, 'discovery must never launch the app-server')
+})
+
 test('a Codex that would not report its version is asked again as the desk next opens, not drawn idle', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-retry-relaunch-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

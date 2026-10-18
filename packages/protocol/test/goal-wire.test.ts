@@ -76,9 +76,19 @@ test('citation validates full revisions and literal relative paths without host 
 })
 
 
-test('goal/seen accepts only a bounded Goal id and no client timestamp', () => {
+test('goal/seen accepts only a bounded Goal id and no client seen time', () => {
   assert.doesNotThrow(() => request('goal/seen', { goal: 'g1' }))
   for (const params of [null, [], {}, { goal: '' }, { goal: 1 }, { goal: 'x'.repeat(4097) }, { goal: 'g1', lastSeenAt: 100 }]) {
     assert.throws(() => request('goal/seen', params), ValidationError)
+  }
+})
+
+
+test('goal/seen accepts a bounded news hint without accepting a client seen time', () => {
+  assert.doesNotThrow(() => request('goal/seen', { goal: 'g1', newsAt: 15 }))
+  assert.doesNotThrow(() => request('goal/seen', { goal: 'g1', newsAt: 0 }))
+  assert.doesNotThrow(() => request('goal/seen', { goal: 'g1', newsAt: null })) // Optional fields treat null as omitted.
+  for (const newsAt of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, Infinity, NaN, '15']) {
+    assert.throws(() => request('goal/seen', { goal: 'g1', newsAt }), ValidationError)
   }
 })

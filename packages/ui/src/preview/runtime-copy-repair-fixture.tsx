@@ -53,7 +53,7 @@ if (scene?.startsWith('usage')) {
   fixture.ledger = async () => ledger
 }
 const extra = { ...seed.runtimes[0]!, id: runtimeId('additional-runtime'), slot: {
-  agent: seed.runtimes[0]!.id, home: '/workspace/.additional-runtime', removable: true, canAdd: true,
+  agent: seed.runtimes[0]!.id, home: '/workspace/.additional-runtime', removable: true, canAdd: true, gateways: true as const,
 } }
 if (scene === 'sign-in') fixture.patch({ runtimes: [...seed.runtimes, extra], accountsByRuntime: {
   ...seed.accountsByRuntime, [extra.id]: seed.accountsByRuntime[seed.runtimes[0]!.id]!,

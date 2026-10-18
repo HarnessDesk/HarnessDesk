@@ -29,7 +29,9 @@ const require = createRequire(join(app, 'packages/ui/package.json'))
 const { createServer } = await import(pathToFileURL(require.resolve('vite')))
 const playwright = await import(pathToFileURL(createRequire(join(app, 'package.json')).resolve('@playwright/test')))
 const { chromium } = playwright.chromium ? playwright : playwright.default
-const game = readFileSync(join(app, 'script/shots/fixtures/race-runner.html'), 'utf8')
+/* The two attempts, as the agents wrote them; the website's hero serves the same files. */
+const pages = { 30000: 'codex.html', 30020: 'claude.html' }
+const attempt = port => readFileSync(join(app, 'packages/ui/site-demo/public/race', pages[port]), 'utf8')
 
 const server = await createServer({ root: join(app, 'packages/ui'), server: { host: '127.0.0.1', port: 0, strictPort: true }, logLevel: 'error' })
 await server.listen()
@@ -43,7 +45,7 @@ try {
       timezoneId: 'America/Los_Angeles', reducedMotion: 'no-preference' })
     const errors = []
     page.on('pageerror', error => errors.push(error.message))
-    await page.route(/^http:\/\/localhost:300[02]0\//, route => route.fulfill({ status: 200, contentType: 'text/html', body: game }))
+    await page.route(/^http:\/\/localhost:300[02]0\//, route => route.fulfill({ status: 200, contentType: 'text/html', body: attempt(new URL(route.request().url()).port) }))
     await page.clock.install({ time: new Date('2026-09-30T17:00:00Z') })
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`${origin}preview.html?readme-race&theme=${theme}`)

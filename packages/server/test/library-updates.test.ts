@@ -25,13 +25,15 @@ test('library/read exposes only this host lifetime checks for installed origins 
     await writeFile(join(home, '.codex/skills/local/SKILL.md'), 'Local instructions')
     const updates = new LibraryUpdates(libraryDir, source, home)
     const before = (await updates.read(agents, {})).entries.find(one => one.name === 'demo')
-    assert.deepEqual(before?.copies[0], { ...before?.copies[0], origin })
+    const installedOrigin = (await LibraryManifest.load(libraryDir)).find('skill', join(home, '.codex/skills/demo'), 'demo')!.origin!
+    assert.equal(typeof installedOrigin.installedAt, 'number')
+    assert.deepEqual(before?.copies[0], { ...before?.copies[0], origin: installedOrigin })
     assert.equal(before?.update, undefined)
     assert.equal(calls, 0)
     assert.deepEqual(await updates.check(agents, ['local', 'missing']), [])
     assert.equal(calls, 0)
     const result = await updates.check(agents, ['demo'])
-    assert.deepEqual(result, [{ name: 'demo', runtime: agents[0]!.id, origin, latest: 'b'.repeat(40), status: 'behind', reason: null }])
+    assert.deepEqual(result, [{ name: 'demo', runtime: agents[0]!.id, origin: installedOrigin, latest: 'b'.repeat(40), status: 'behind', reason: null }])
     assert.equal(calls, 1)
     const read = await updates.read(agents, {})
     const installed = read.entries.find(one => one.name === 'demo')
@@ -144,4 +146,24 @@ test('library/read leaves local, unknown, malformed, hollow and MCP copies witho
     assert.equal(entry.update, undefined)
     for (const copy of entry.copies) assert.equal('origin' in copy, false, entry.name)
   }
+})
+
+
+test('origin dates reach reads and do not invalidate a current source check; legacy origins stay undated', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-origin-date-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const libraryDir = join(home, 'library'), path = join(home, '.codex/skills/demo')
+  await mkdir(path, { recursive: true })
+  await writeFile(join(path, 'SKILL.md'), 'Demo')
+  const manifest = await LibraryManifest.load(libraryDir)
+  const record = { kind: 'skill' as const, name: 'demo', path, digest: digestOf('Demo'), at: 1, origin }
+  manifest.record(record); await manifest.save()
+  const updates = new LibraryUpdates(libraryDir, { check: async () => ({ latest: origin.commit, status: 'current', reason: null }) }, home)
+  assert.deepEqual((await updates.read(agents, {})).entries[0]?.copies[0]?.origin, origin)
+  await updates.check(agents)
+  const dated = { ...origin, installedAt: 1234 }
+  manifest.record({ ...record, origin: dated }); await manifest.save()
+  const entry = (await updates.read(agents, {})).entries[0]!
+  assert.deepEqual(entry.copies[0]?.origin, dated)
+  assert.equal(entry.update?.[0]?.status, 'current')
 })

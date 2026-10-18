@@ -794,8 +794,8 @@ export interface HostMethods {
   'lane/release': { params: { lane: string }; result: import('./goal.js').Lane }
   'goal/list': { params: { root?: string }; result: readonly GoalView[] }
   'goal/read': { params: { goal: GoalId }; result: GoalView }
-  /** Opening any Team page acknowledges its news on this desk. */
-  'goal/seen': { params: { goal: GoalId }; result: GoalView }
+  /** Opening any Team page acknowledges its news. newsAt only requests a write; the host owns the stored seen time. */
+  'goal/seen': { params: { goal: GoalId; newsAt?: number }; result: GoalView }
   'goal/create': { params: Omit<GoalCreateInput, 'origin'>; result: GoalView }
   'goal/update': {
     params: { goal: GoalId; revision: number; sentence?: string; dependsOn?: readonly GoalId[] }
@@ -1305,6 +1305,16 @@ export interface HostMethods {
         readonly endpoint: string
         readonly apiKey: string
       }
+      /**
+       * What to call the new account on screen.
+       *
+       * Used by an agent whose account cannot be named from its credential:
+       * the desk reads that an Antigravity row is signed in to "a Google
+       * account" and no more, so the person's own name for it is the only
+       * thing that tells two of them apart. Ignored by an agent that can
+       * answer for itself — Codex names its accounts from `auth.json`.
+       */
+      readonly name?: string
     }
     result: { readonly runtime: RuntimeId; readonly info: RuntimeInfo }
   }

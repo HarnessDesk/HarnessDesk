@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { FlowInputFields, FlowPreviewSeats } from '../components/FlowStart'
 import { HandoffSheet } from '../components/ComposerControls'
 import { RunView } from '../components/RunView'
-import { TeamFramePreview } from './TeamFramePreview'
+import { seedTeamFrame, TeamFramePreview } from './TeamFramePreview'
+import { MountProvider } from '../panels/mount'
+import { KeyboardHereContext } from '../state/context'
 import { TeamsWindow } from '../components/TeamsWindow'
 import { type DashboardView } from '../components/Usage'
 import { Bar, Button, Card, CardContent, Dialog, FormStack } from '../design'
 import { runTimeline } from '../lib/run-timeline'
-import { browserView } from '../state/layout'
+import { browserView, type PaneView } from '../state/layout'
 import { mountedViews, replaceView } from '../state/workbench'
 import { previewStore, PREVIEW_AGENTS, PREVIEW_ROOM } from './harness'
 import { sideBySideStore, SIDE_BY_SIDE_KEYS } from './side-by-side-fixture'
@@ -18,6 +20,16 @@ import { SITE_BROWSER_URL, siteLedger, siteRun, siteUsage, siteStartPreview, sit
 
 export const SITE_SCENES = ['teams-table', 'run-short', 'race-run', 'browser-tile', 'handoff-dialog', 'start-preview',
   'dash-plans', 'dash-hour', 'dash-year', 'dash-spend', 'dash-agents']
+
+/** Side by side tiles ask the mount where they are, so the camera supplies the main pane's scope. */
+export const SideBySideStill = ({ view }: { view: Extract<PaneView, { kind: 'room' }> }) => (
+  <MountProvider scope={{ area: 'main', id: 'team-room', view }}>
+    <KeyboardHereContext.Provider value={false}><TeamFramePreview room={view.room} view={view} railOpen={false} /></KeyboardHereContext.Provider>
+  </MountProvider>
+)
+
+const BROWSER_TILE: Extract<PaneView, { kind: 'room' }> = { kind: 'room', framePage: 'room', chatLayout: 'side-by-side', room: PREVIEW_ROOM,
+  sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 1), focused: SIDE_BY_SIDE_KEYS[0], modes: { [SIDE_BY_SIDE_KEYS[0]!]: 'browser' } } }
 
 export const siteStillStore = (scene: string) => {
   if (scene === 'teams-table') {
@@ -37,6 +49,7 @@ export const siteStillStore = (scene: string) => {
       ? replaceView(current, mounted.id, browserView(SITE_BROWSER_URL, 'lane-alpha')) : current, snapshot.workbench)
     const own = previewStore({ ...snapshot, workbench })
     own.teamPeers = base.teamPeers.bind(base)
+    seedTeamFrame(own, PREVIEW_ROOM, BROWSER_TILE, false)
     return own
   }
   const base = previewStore().getSnapshot()
@@ -83,7 +96,6 @@ export const SiteStills = ({ scene }: { scene: string }) => {
   if (scene === 'run-short' || scene === 'race-run') return <CompactRun race={scene === 'race-run'} stage={clip ? stage : null} />
   if (scene === 'handoff-dialog') return <HandoffSheet from="Writer" to="Reviewer" onCancel={() => {}} onConfirm={() => {}} />
   if (scene === 'start-preview') return <div className="w-full max-w-2xl"><StartTop /></div>
-  if (scene === 'browser-tile') return <TeamFramePreview room={PREVIEW_ROOM} view={{ kind: 'room', framePage: 'room', room: PREVIEW_ROOM,
-    sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 1), focused: SIDE_BY_SIDE_KEYS[0], modes: { [SIDE_BY_SIDE_KEYS[0]!]: 'browser' } } }} />
+  if (scene === 'browser-tile') return <SideBySideStill view={BROWSER_TILE} />
   return <CurrentPagePreview page={{kind:'dashboard',view:clip?view:scene==='dash-plans'?'plans':scene==='dash-spend'||scene==='dash-agents'?'spend':'activity',scope:null}} />
 }

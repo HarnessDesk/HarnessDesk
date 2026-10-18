@@ -4,6 +4,7 @@ import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
 import { destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
+import { emptyLibraryView, type LibraryViewSection, type LibraryViewState } from './library-views'
 import { FRAME } from '../design/frame'
 import { terminalCwdForSnapshot } from '../lib/terminal-scope'
 import { type TeamChatLayout, type TeamFramePage } from './layout'
@@ -598,6 +599,11 @@ export class AppStore {
 
   #snapshot: AppSnapshot = emptySnapshot()
   #teamFrameSerial = 0
+  /**
+   * The Library's view choices per section, for as long as this window is
+   * open. See `state/library-views` — never a preference, never persisted.
+   */
+  #libraryViews: Record<LibraryViewSection, LibraryViewState> = { skill: emptyLibraryView(), mcp: emptyLibraryView() }
   readonly #sessionRemovalRevisions = new Map<SessionKey, number>()
   #listeners = new Set<() => void>()
   readonly #storageListeners = new Set<(usage: import('@harnessdesk/protocol').StorageUsage) => void>()
@@ -1427,6 +1433,16 @@ export class AppStore {
   navigateBack(): Promise<void> { return this.#enqueueHistory('back') }
   navigateForward(): Promise<void> { return this.#enqueueHistory('forward') }
 
+  /**
+   * The Library's remembered view choices for one section: its filter,
+   * search, chip and list/matrix choice. Read when a section mounts and
+   * written as the person changes it, so leaving for Changes and coming
+   * back keeps the view they left.
+   */
+  libraryView(section: LibraryViewSection): LibraryViewState { return this.#libraryViews[section] }
+  /** Deliberately silent: the section reads this on mount and on section change, so no listener wake is owed. */
+  setLibraryView(section: LibraryViewSection, view: LibraryViewState): void { this.#libraryViews[section] = view }
+
   /** One click on a workspace group's +: that folder, a fresh draft. */
   async startSessionIn(path: string): Promise<void> {
     if (this.#snapshot.workspace?.path !== path) await this.openWorkspace(path)
@@ -1506,9 +1522,9 @@ export class AppStore {
   }
 
   /** The host owns read time so every window and relaunch reads the same news. */
-  markTeamSeen(id: string): void {
+  markTeamSeen(id: string, newsAt = 0): void {
     if (!this.#snapshot.goals.has(id)) return
-    void this.transport.request('goal/seen', { goal: id }).then(view => {
+    void this.transport.request('goal/seen', { goal: id, newsAt }).then(view => {
       if (view?.goal) this.#keepGoal(view)
     }).catch(error => this.notice('warning', `Team read mark was not saved: ${error instanceof Error ? error.message : String(error)}`))
   }
@@ -1880,9 +1896,9 @@ export class AppStore {
    * empty account to retry — not a first account quietly overwritten, which is
    * what a single "sign in again" used to do.
    */
-  async addAccount(runtime: RuntimeId): Promise<RuntimeId | null> {
+  async addAccount(runtime: RuntimeId, name?: string): Promise<RuntimeId | null> {
     try {
-      const { runtime: added } = await this.transport.request('runtime/account/add', { runtime })
+      const { runtime: added } = await this.transport.request('runtime/account/add', { runtime, ...(name?.trim() ? { name: name.trim() } : {}) })
       await this.loadAccounts()
       return added
     } catch (error) {

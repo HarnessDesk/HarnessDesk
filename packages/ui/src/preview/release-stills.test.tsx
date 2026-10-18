@@ -73,6 +73,26 @@ it('shows a plugin’s held access in the production detail page', async () => {
   }
 })
 
+it.each(['race-tiles', 'browser-tile'])('keeps the %s Team layout when the window is measured', async scene => {
+  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  window.history.replaceState(null, '', `/?release-stills=${scene}`)
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  try {
+    await act(async () => root.render(<ReleaseStills />))
+    await settle()
+    // The camera decorates the snapshot, and a store patch (the window's size) replaces it:
+    // a layout written onto the decorated copy would be gone, leaving the empty "New session" page.
+    expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(scene === 'race-tiles' ? 2 : 1)
+    expect(container.textContent).not.toContain('What should we build?')
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+    window.history.replaceState(null, '', '/')
+  }
+})
+
 let preview: FlowPreview
 let source: string
 vi.mock('../components/FlowStart', () => ({ FlowStart: ({ root, initial }: { root: string; initial: { source: string; vars: Record<string, string> } }) => {

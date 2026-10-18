@@ -776,7 +776,7 @@ export const TeamRoomPane = ({
   const [report, setReport] = useState<InsightReport | null>(null)
   const newestUnreadSeatAt = Math.max(0, ...snapshot.inbox.filter(one => !one.read && one.from && seats.some(seat =>
     seat.record.session.runtime === one.from!.runtime && seat.record.session.sessionId === one.from!.sessionId)).map(one => one.at))
-  useEffect(() => { store.markTeamSeen(room) }, [store, room, Boolean(goal), open, goal?.readyAt, flowExecution?.endedAt, newestUnreadSeatAt])
+  useEffect(() => { store.markTeamSeen(room, newestUnreadSeatAt) }, [store, room, Boolean(goal), open, goal?.readyAt, flowExecution?.endedAt, newestUnreadSeatAt])
   const closedCards = intents.filter(one => one.state === 'done').map(one => one.id).join(',')
   useEffect(() => {
     let active = true

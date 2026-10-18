@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import type { RuntimeId, WireNotification } from '@harnessdesk/protocol'
+import type { AgentRuntime, InstallationCheck, RuntimeId, WireNotification } from '@harnessdesk/protocol'
 
 import { AgentDirectory, AgentRegistryStore, slugOf } from '../src/agent-registry.js'
 import { currentNameOf, knownAgent } from '../src/installs/known-agents.js'
@@ -78,6 +78,18 @@ test('only the Claude template vouches for its bridge\'s tool provenance; a copi
     trustsBridgeProvenance: true,
   })
   assert.equal(store.configs().find((config) => config.id === 'copied')?.trustsBridgeProvenance, undefined)
+})
+
+test('bridge templates carry whether their CLI is required into the runtime config', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new AgentRegistryStore(join(dir, 'agents.json'))
+  store.add({ id: 'cursor', template: 'cursor' })
+  store.add({ id: 'claude-code', template: 'claude-code' })
+
+  const configs = store.configs()
+  assert.equal(configs.find(config => config.id === 'cursor')?.cliRequired, true)
+  assert.equal(configs.find(config => config.id === 'claude-code')?.cliRequired, false)
 })
 
 test('only the Gemini template declares per-tool MCP approval guidance', async (t) => {
@@ -642,4 +654,103 @@ test('duplicate runtime IDs are deduplicated in store configs and replaced clean
 
   const eventNotifications = pushed.filter((n) => n.method === 'event')
   assert.equal(eventNotifications.length, 1, 'only the active runtime should emit events')
+})
+
+const antigravityAccountsHost = async (t: { after(fn: () => unknown): void }) => {
+  const stateDir = await tempDir()
+  const store = new AgentRegistryStore(join(stateDir, 'agents.json'))
+  const id = 'antigravity-acp'
+  const original = {
+    id, name: 'Antigravity', command: `/state/acp-agents/${id}/1.0.0/agy_acp_server.par`,
+    registry: { id, version: '1.0.0' },
+  }
+  const next = {
+    ...original, command: `/state/acp-agents/${id}/1.1.0/agy_acp_server.par`,
+    args: ['--new'], cwd: '/state/new', env: { NEW_ENV: 'new', GEMINI_HOME: '/state/original' },
+    registry: { id, version: '1.1.0' },
+  }
+  store.add(original)
+  store.add({
+    id: 'extra', name: 'Antigravity 2', command: original.command, accountOf: id,
+    args: ['--old'], cwd: '/state/old',
+    env: { GEMINI_HOME: join(stateDir, 'accounts', 'extra'), AGY_ACP_FORCE_FILE_STORAGE: '1', OLD_ENV: 'old' },
+  })
+  const discarded: string[] = []
+  const directory = new AgentDirectory({
+    store,
+    build: (config) => new FakeRuntime({ id: config.id as RuntimeId, name: config.name }),
+    usageFor: () => null,
+    registry: {
+      async catalog() { return { fetchedAt: 1, agents: [] } },
+      async resolve() { return { entry: next, config: next } },
+      uninstallVersion(_id, version) { discarded.push(version) },
+      uninstall() { discarded.push('all') },
+    },
+  })
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), agents: directory, catalogRefreshMs: 0 })
+  t.after(async () => {
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  const originalRuntime: AgentRuntime = new FakeRuntime({ id: id as RuntimeId, name: 'Antigravity' })
+  const extraRuntime: AgentRuntime = new FakeRuntime({ id: 'extra' as RuntimeId, name: 'Antigravity 2' })
+  host.register(originalRuntime)
+  host.register(extraRuntime)
+  return { host, store, directory, stateDir, original, next, discarded, originalRuntime, extraRuntime }
+}
+
+test('a managed update repoints every extra account while preserving only its own home and file storage', async (t) => {
+  const { directory, store, stateDir, original, next } = await antigravityAccountsHost(t)
+  await directory.updateManaged(original.id)
+  const extra = store.entry('extra')!
+  assert.equal(extra['command'], next.command)
+  assert.deepEqual(extra['args'], next.args)
+  assert.equal(extra['cwd'], next.cwd)
+  assert.deepEqual(extra['env'], { ...next.env, GEMINI_HOME: join(stateDir, 'accounts', 'extra'), AGY_ACP_FORCE_FILE_STORAGE: '1' })
+  assert.equal(extra['registry'], undefined)
+  assert.equal(extra['accountOf'], original.id)
+  assert.equal(extra['name'], 'Antigravity 2')
+  // Missing optional launch fields in another release clear the stale ones.
+  const plainStore = new AgentRegistryStore(join(stateDir, 'plain-agents.json'))
+  plainStore.add(original)
+  plainStore.add({ ...extra, id: 'extra' })
+  const plain = new AgentDirectory({
+    store: plainStore, build: () => { throw new Error('not built') }, usageFor: () => null,
+    registry: {
+      async catalog() { return { fetchedAt: 1, agents: [] } },
+      async resolve() { return { entry: original, config: original } },
+      uninstall() {},
+    },
+  })
+  await plain.updateManaged(original.id)
+  assert.equal(plainStore.entry('extra')?.['args'], undefined)
+  assert.equal(plainStore.entry('extra')?.['cwd'], undefined)
+  assert.deepEqual(plainStore.entry('extra')?.['env'], { GEMINI_HOME: join(stateDir, 'accounts', 'extra'), AGY_ACP_FORCE_FILE_STORAGE: '1' })
+})
+
+for (const state of ['busy', 'restarted', 'no check', 'throws'] as const) {
+  test(`an update checks all registered extra runtimes before collecting the old download: ${state}`, async (t) => {
+    const { host, originalRuntime, extraRuntime, discarded, original } = await antigravityAccountsHost(t)
+    const checked: string[] = []
+    originalRuntime.checkInstallation = async (): Promise<InstallationCheck> => {
+      checked.push('original')
+      return { changed: true, from: 'old', to: 'new', restarted: true }
+    }
+    if (state !== 'no check') extraRuntime.checkInstallation = async (): Promise<InstallationCheck> => {
+      checked.push('extra')
+      if (state === 'throws') throw new Error('not ready')
+      return { changed: true, from: 'old', to: 'new', restarted: state === 'restarted' }
+    }
+    await host.call('acp/update', { runtime: original.id as RuntimeId })
+    assert.deepEqual(checked, state === 'no check' ? ['original'] : ['original', 'extra'])
+    assert.deepEqual(discarded, state === 'restarted' || state === 'no check' ? ['1.0.0'] : [])
+  })
+}
+
+test('removing an original with extra accounts refuses before unregistering or deleting its download', async (t) => {
+  const { host, store, discarded, original } = await antigravityAccountsHost(t)
+  await assert.rejects(host.call('acp/remove', { runtime: original.id as RuntimeId }), /Remove its other accounts first\./)
+  assert.ok(store.entry(original.id))
+  assert.ok(host.syncPayload().params.runtimes.some((runtime) => runtime.id === original.id))
+  assert.deepEqual(discarded, [])
 })

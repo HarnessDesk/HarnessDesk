@@ -1,6 +1,21 @@
-import { membersOf, type SeatRecord, type SessionPointer, type TeamState } from '@harnessdesk/protocol'
+import { membersOf, sessionKey, splitSessionKey, type GoalView, type SeatRecord, type SessionPointer, type TeamState } from '@harnessdesk/protocol'
 
 import type { GoalDocument } from './store.js'
+
+/** Mirror the open Team's conversation set in packages/ui/src/lib/team-seats.ts. */
+export function teamNewsSessions(view: GoalView): SessionPointer[] {
+  const sessions = new Map<string, SessionPointer>()
+  for (const seat of [...view.members, ...(view.pastMembers ?? [])]) {
+    if (!seat.session.runtime || !seat.session.sessionId) continue
+    sessions.set(sessionKey(seat.session.runtime, seat.session.sessionId), seat.session)
+  }
+  for (const key of view.board.members) {
+    if (!String(key).includes('\0')) continue
+    const { runtime, id } = splitSessionKey(key)
+    if (runtime && id) sessions.set(key, { runtime, sessionId: id })
+  }
+  return [...sessions.values()]
+}
 
 /** An imported document is history. A staged opening is hidden until its board commit. */
 export function goalMembers(document: GoalDocument, seats: readonly SeatRecord[]): SeatRecord[] {

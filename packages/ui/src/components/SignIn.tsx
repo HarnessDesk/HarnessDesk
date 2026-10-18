@@ -21,6 +21,7 @@ import { readinessOf, type Readiness } from '../lib/readiness'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { SignInMode } from './SignInMode'
+import { AccountNameDialog } from './AccountNameDialog'
 import { RuntimeMark } from './BrandIcons'
 import { Prose } from './Prose'
 import {
@@ -606,6 +607,15 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
   const broken = health?.state === 'unavailable' ? health : null
   const account = status?.accounts[0]
   const [adding, setAdding] = useState(false)
+  const [namingAccount, setNamingAccount] = useState(false)
+  const addAccount = async (name?: string): Promise<void> => {
+    if (adding) return
+    setAdding(true)
+    try {
+      const added = await store.addAccount(info.id, name)
+      if (added) { setNamingAccount(false); onSelect(added) }
+    } finally { setAdding(false) }
+  }
   const driveable = row.methods.filter((method) => method.flow !== 'external')
   const external = row.methods.filter((method) => method.flow === 'external')
   // The ways in that are a press come first, as rows. A key is a field, and
@@ -698,21 +708,8 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
                     variant="default"
                     disabled={adding}
                     onClick={() => {
-                      // A second identity needs a second credential home, or the
-                      // sign-in would land on top of the one shown above. The
-                      // host holds the answer until the new account can be
-                      // signed in, so the button says it is working — and is
-                      // held as well as disabled, because `disabled` only lands
-                      // on the next render and two slots is what a second press
-                      // buys.
-                      if (adding) return
-                      setAdding(true)
-                      void store
-                        .addAccount(info.id)
-                        .then((added) => {
-                          if (added) onSelect(added)
-                        })
-                        .finally(() => setAdding(false))
+                      if (info.slot?.asksName) setNamingAccount(true)
+                      else void addAccount()
                     }}
                   >
                     {adding ? 'Adding…' : 'Add another account'}
@@ -820,6 +817,8 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           sign-in worked.
         </FinePrint>
       ) : null}
+      {namingAccount && <AccountNameDialog info={info} adding={adding}
+        onAdd={addAccount} onClose={() => setNamingAccount(false)} />}
     </>
   )
 }

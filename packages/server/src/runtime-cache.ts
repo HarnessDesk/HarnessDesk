@@ -9,8 +9,8 @@ export interface RuntimeStartCost {
   readonly modelsMs: number | null
 }
 /** What the program on disk did the last time it was asked, when that was a failure the desk can see coming. */
-export type ProgramFailure = 'notInstalled' | 'unreadable' | 'versionTooOld'
-const PROGRAM_FAILURES: readonly string[] = ['notInstalled', 'unreadable', 'versionTooOld'] satisfies readonly ProgramFailure[]
+export type ProgramFailure = 'notInstalled' | 'unreadable' | 'versionTooOld' | 'spawnFailed'
+const PROGRAM_FAILURES: readonly string[] = ['notInstalled', 'unreadable', 'versionTooOld', 'spawnFailed'] satisfies readonly ProgramFailure[]
 export const isProgramFailure = (reason: string): reason is ProgramFailure => PROGRAM_FAILURES.includes(reason)
 export interface CachedRuntime extends RuntimeObservations {
   readonly start?: RuntimeStartCost

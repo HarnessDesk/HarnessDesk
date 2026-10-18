@@ -16,7 +16,7 @@ import type {
 import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { emptySnapshot, AppStore, type AppSnapshot } from '../state/store'
 import { AddAgentsTestPage as AddAgents } from '../test-support/settings-page'
 import { AddAgents as ControlledAddAgents } from './SettingsAgents'
 import { SettingsTestScope } from '../test-support/settings-page'
@@ -500,6 +500,13 @@ it('lists what needs you first, with its Sign in on its own line', async () => {
   expect(line('Gamma').contains(signIn ?? null)).toBe(false)
   await act(async () => (signIn as HTMLButtonElement).click())
   expect(signInAgent).toHaveBeenCalledWith('gamma')
+})
+
+it('a failed spawn is under Needs attention with its reason on the runtime line', async () => {
+  const message = 'Beta could not start its program.'
+  await mountList({ healthByRuntime: { beta: { state: 'unavailable', reason: 'spawnFailed', message } } })
+  expect(grouped()['Needs attention']).toContain('Beta')
+  expect(line('Beta').textContent).toContain(message)
 })
 
 it('gives an agent that has not answered yet its own heading, neither Needs attention nor Ready', async () => {
@@ -1383,4 +1390,76 @@ it('keeps Add a runtime reachable in a populated Settings body with a quiet bar'
   await act(async () => add!.click())
   expect(container.textContent).toContain('Browse more…')
   expect(container.textContent).not.toContain('From the ACP registry')
+})
+
+
+const mountNamingAccount = async (asksName = true, ownSessions = true) => {
+  const info = runtime({ id: 'named-agent', name: 'Agent', presentation: { name: 'Agent' },
+    slot: { agent: 'named-agent', home: '/tmp/synthetic-account', removable: false, canAdd: true,
+      ...(asksName ? { asksName: true } : {}), ...(ownSessions ? { ownSessions: true } : {}) } })
+  const request = vi.fn(async () => ({ runtime: 'new-account' }))
+  const signInAgent = vi.fn(async () => {})
+  await mountList({ runtimes: [info], activeRuntime: info.id,
+    accountsByRuntime: { [info.id]: signedIn([{ label: 'dev@example.com' }], ['browser']) },
+    store: { addAccount: AppStore.prototype.addAccount, signInAgent, transport: { request } } })
+  await act(async () => line('Agent').click())
+  request.mockClear() // Opening the page warms the runtime; only the Add is under test.
+  return { request, signInAgent }
+}
+
+it('asks for an account name before Settings adds anything', async () => {
+  const { request } = await mountNamingAccount()
+  await act(async () => button('Add account')!.click())
+  expect(request).not.toHaveBeenCalled()
+  const dialog = document.body.querySelector('[role="dialog"][aria-label="Name this account"]')
+  expect(dialog).not.toBeNull()
+  expect(dialog?.querySelector('input')?.placeholder).toBe('Agent 2')
+  expect(dialog?.querySelector('input')?.maxLength).toBe(80)
+})
+
+it.each(['Work', ''])('Settings sends name %j only when nonempty, then signs in', async (name) => {
+  const { request, signInAgent } = await mountNamingAccount()
+  await act(async () => button('Add account')!.click())
+  expect(document.body.querySelector('[aria-label="Name this account"]')).not.toBeNull()
+  type(byLabel('Name'), name)
+  const add = [...document.body.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Add')!
+  await act(async () => add.click())
+  expect(request).toHaveBeenCalledWith('runtime/account/add', { runtime: 'named-agent', ...(name ? { name } : {}) })
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(signInAgent).toHaveBeenCalledWith('new-account')
+})
+
+it.each(['Cancel', 'Escape'])('Settings %s adds nothing', async (action) => {
+  const { request } = await mountNamingAccount()
+  await act(async () => button('Add account')!.click())
+  expect(document.body.querySelector('[aria-label="Name this account"]')).not.toBeNull()
+  if (action === 'Cancel') await act(async () => button('Cancel')!.click())
+  else await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+  expect(document.body.querySelector('[aria-label="Name this account"]')).toBeNull()
+  expect(request).not.toHaveBeenCalled()
+})
+
+it('Settings adds straight away without asksName and keeps the shared sessions title', async () => {
+  const { request } = await mountNamingAccount(false, false)
+  expect(button('Add account')!.title).toContain('Its sessions stay shared with this one.')
+  await act(async () => button('Add account')!.click())
+  expect(request).toHaveBeenCalledWith('runtime/account/add', { runtime: 'named-agent' })
+  expect(document.body.querySelector('[aria-label="Name this account"]')).toBeNull()
+})
+
+it('Settings describes an account with ownSessions as owning its folder and conversations', async () => {
+  await mountNamingAccount()
+  expect(button('Add account')!.title).toBe('A new Agent account gets a folder of its own, with its own conversations.')
+})
+
+
+it.each([false, true])('offers a gateway only when its slot declares gateways (%s)', async (gateways) => {
+  const info = runtime({ id: 'gateway-agent', name: 'Agent',
+    slot: { agent: 'gateway-agent', home: null, removable: false, canAdd: true,
+      ...(gateways ? { gateways: true } : {}) } })
+  await mountList({ runtimes: [info], activeRuntime: info.id,
+    accountsByRuntime: { [info.id]: signedIn([{ label: 'dev@example.com' }], ['browser']) } })
+  await act(async () => line('Agent').click())
+  expect(Boolean(button('Add gateway account'))).toBe(gateways)
+  expect(button('Add account')).toBeDefined()
 })

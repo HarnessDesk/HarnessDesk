@@ -594,10 +594,23 @@ export interface AccountFactory {
     agent: RuntimeId
     home: string | null
     removable: boolean
+    /** The person names an account whose credential cannot name it. */
+    asksName?: true
+    /** Each account keeps its own folder and conversations. */
+    ownSessions?: true
+    /** The agent can also run an account against the person’s own endpoint. */
+    gateways?: true
     /** Present when this account pays through an endpoint of the user's own. */
     gateway?: { name: string; endpoint: string; credentialRef: string }
   } | null
-  add(info: RuntimeInfo, gateway?: NewGatewayAccount): Promise<AgentRuntime>
+  /**
+   * One more account of an agent.
+   *
+   * `name` is the person's own name for the account, for an agent whose
+   * account cannot be named from its credential; absent means "the wiring
+   * knows a name, or the row is fine unnamed".
+   */
+  add(info: RuntimeInfo, gateway?: NewGatewayAccount, name?: string): Promise<AgentRuntime>
   remove(runtime: RuntimeId): Promise<void>
   /**
    * Who this account is signed in as, as a string the host only ever compares
@@ -684,6 +697,9 @@ export class Host {
   /** Native metadata before registry rows are added, with the same lifecycle guard. */
   readonly #runtimeHistoryReaders = new WeakMap<AgentRuntime, (query?: ListSessionsQuery, startIfNeeded?: boolean) => Promise<Page<SessionSummary> | null>>()
   readonly #accountReads = new Map<string, AccountReads>()
+  readonly #discoveringRuntimes = new Map<string, Promise<void>>()
+  /** Only discovered, never started: a PATH re-ask must keep them idle. */
+  readonly #discoveryOnlyRuntimes = new Set<string>()
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #directRuntimeStarts = new Map<string, { startedAt: number; promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
@@ -2235,6 +2251,8 @@ export class Host {
       this.#invalidateDelegations(id)
       this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was replaced.'))
       this.#directRuntimeStarts.delete(String(id))
+      this.#discoveringRuntimes.delete(String(id))
+      this.#discoveryOnlyRuntimes.delete(String(id))
       this.#accountReads.get(id)?.dispose()
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
@@ -2367,6 +2385,8 @@ export class Host {
     this.#catalogs.forget(id)
     this.#runtimes.delete(id)
     this.#runtimeSources.delete(String(id))
+    this.#discoveringRuntimes.delete(String(id))
+    this.#discoveryOnlyRuntimes.delete(String(id))
     this.#coldRuntimes.delete(String(id))
     this.#modelsReadyAt.delete(String(id))
     this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was removed.'))
@@ -2686,7 +2706,14 @@ export class Host {
        exception: drawn idle, it read ready until somebody opened its page
        (#1774). Asked now, in the background, it reads as what it is. */
     for (const runtime of this.#runtimes.values()) {
-      if (runtime !== defaultRuntime && this.#runtimeCache.get(String(runtime.info.id)).wouldNotStart) void this.#startOne(runtime)
+      if (runtime === defaultRuntime) continue
+      if (this.#runtimeCache.get(String(runtime.info.id)).wouldNotStart) void this.#startOne(runtime)
+      // A fresh desk has nothing remembered. Discovery can already tell us
+      // the program will not run, without launching an unused agent. Its
+      // health event seeds the same cache as a failed start (#1778).
+      else if (runtime.discoverProgram) {
+        void this.#discoverProgram(runtime)
+      }
     }
     /* Recovery sends enter the same live-operation start barrier as new work. */
     /* Held firings are released through their gates, and only then is any
@@ -2729,14 +2756,31 @@ export class Host {
    * doing.
    *
    * It never holds one runtime up behind another: each is judged after its own
-   * start, if it has one in flight, and not before. That start may have looked
-   * before the PATH landed and fail after it. And the wait ends at the deadline
-   * every start has (`startTimeoutMs`), because a start can neither resolve nor
+   * discovery and start, if either is in flight, and not before. Either may have
+   * looked before the PATH landed and fail after it. The start wait ends at
+   * the deadline every start has (`startTimeoutMs`), because a start can neither resolve nor
    * reject — an agent that speaks a protocol we do not never answers
    * `initialize` — and the look must not turn off with it.
    */
   async retryProgramLookup(): Promise<void> {
     await this.#askAgain(['notInstalled', 'unreadable'], 'the PATH changed after it was first asked')
+  }
+
+  #discoverProgram(runtime: AgentRuntime): Promise<void> {
+    const id = String(runtime.info.id)
+    const existing = this.#discoveringRuntimes.get(id)
+    if (existing) return existing
+    this.#discoveryOnlyRuntimes.add(id)
+    const discovery = Promise.resolve().then(async () => {
+      if (this.#disposed || this.#runtimes.get(id) !== runtime || !this.#discoveryOnlyRuntimes.has(id)) return
+      await runtime.discoverProgram?.()
+    }).catch((error: unknown) => {
+      this.#logger.warn('runtime program discovery failed', { runtime: id, error: String(error) })
+    }).finally(() => {
+      if (this.#discoveringRuntimes.get(id) === discovery) this.#discoveringRuntimes.delete(id)
+    })
+    this.#discoveringRuntimes.set(id, discovery)
+    return discovery
   }
 
   /**
@@ -2766,6 +2810,11 @@ export class Host {
   async #askAgain(reasons: readonly UnavailableReason[], why: string): Promise<void> {
     await Promise.all([...this.#runtimes.values()].map(async (runtime) => {
       const id = String(runtime.info.id)
+      // Discovery can still answer about the PATH before this look, just like a start.
+      const discovery = this.#discoveringRuntimes.get(id)
+      if (discovery) await discovery
+      if (this.#disposed || this.#runtimes.get(id) !== runtime) return
+      // A runtime replaced during the wait is skipped: the replacement starts with the new PATH anyway.
       // A start in flight is judged once it settles, and `#startOne` is the wait: its own start, up to its deadline.
       if (this.#startingRuntimes.has(id)) await this.#startOne(runtime)
       // Still going after the deadline: left alone. Asking joins it, so there is nothing to ask.
@@ -2773,7 +2822,8 @@ export class Host {
       const health = runtime.health()
       if (health.state !== 'unavailable' || !reasons.includes(health.reason)) return
       this.#logger.info('asking an agent again', { runtime: id, why })
-      await this.#startOne(runtime)
+      if (this.#discoveryOnlyRuntimes.has(id) && runtime.discoverProgram) await this.#discoverProgram(runtime)
+      else await this.#startOne(runtime)
     }))
   }
 
@@ -2810,6 +2860,7 @@ export class Host {
 
   #beginRuntimeStart(runtime: AgentRuntime, prepared: boolean): Promise<void> {
     const id = String(runtime.info.id)
+    this.#discoveryOnlyRuntimes.delete(id)
     const existing = this.#startingRuntimes.get(id) ?? this.#directRuntimeStarts.get(id)?.promise
     if (existing) return existing
     const attempt = Promise.resolve().then(async () => {
@@ -3197,6 +3248,7 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#discoveryOnlyRuntimes.clear()
     this.#sessionIndexAbort.abort()
     clearTimeout(this.#removalSweep)
     this.#historyImport.close()
@@ -3292,6 +3344,7 @@ export class Host {
     await Promise.all(this.#runtimeNoticeWrites)
     await this.#transcripts.close()
     this.#runtimes.clear()
+    this.#discoveringRuntimes.clear()
     /* Every seat parked inside `await_work` is a tool call held open, and a
        held tool call across a quit is a turn that never ends. */
     this.#team.stopWaiting('the desk is closing')
@@ -4710,7 +4763,7 @@ export class Host {
         sendNow: (record, input, held) => this.#sendNow(record, input, held),
       },
       accounts: {
-        add: (runtime, gateway) => this.#addAccount(runtime, gateway),
+        add: (runtime, gateway, name) => this.#addAccount(runtime, gateway, name),
         remove: (runtime) => this.#removeAccount(runtime),
         reloadSecrets: (runtime) => this.#reloadSecrets(runtime),
         announce: (runtime) => this.#announceAccount(runtime),
@@ -8194,6 +8247,7 @@ export class Host {
   async #addAccount(
     id: RuntimeId,
     gateway?: { readonly name: string; readonly endpoint: string; readonly apiKey: string },
+    name?: string,
   ): Promise<{ runtime: RuntimeId; info: RuntimeInfo }> {
     const accounts = this.options.accounts
     const of = this.#runtime({ runtime: id })
@@ -8209,7 +8263,7 @@ export class Host {
           credentialRef: await this.#credentials.store(`${gateway.name} key`, gateway.apiKey, { kind: 'gateway' }),
         }
       : undefined
-    const runtime = await accounts.add(of.info, spec)
+    const runtime = await accounts.add(of.info, spec, name)
     // Before `register`, so the row never exists in a state where a turn could
     // reach a Codex that has not been told where to send it.
     await this.#prepareGateway(runtime)
@@ -8625,6 +8679,9 @@ export class Host {
               home: slot.home,
               removable: slot.removable,
               canAdd: accounts?.canAdd(runtime.info) ?? false,
+              ...(slot.asksName ? { asksName: true as const } : {}),
+              ...(slot.ownSessions ? { ownSessions: true as const } : {}),
+              ...(slot.gateways ? { gateways: true as const } : {}),
               ...(slot.gateway
                 ? { gateway: { name: slot.gateway.name, endpoint: slot.gateway.endpoint } }
                 : {}),
@@ -8699,11 +8756,13 @@ export class Host {
 
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
     const id = String(runtime)
+    if (health.state === 'starting' || health.state === 'ready') this.#discoveryOnlyRuntimes.delete(id)
     if (health.state === 'unavailable' && isProgramFailure(health.reason)) this.#runtimeCache.update(id, { wouldNotStart: health.reason })
-    // Cleared when it comes up, and when it gets far enough to crash: from
-    // there on the program on disk is not the reason, and a crash is not
-    // asked again at launch. Not on `unknown`, which a stop can say.
-    else if ((health.state === 'ready' || (health.state === 'unavailable' && health.reason === 'crashed')) &&
+    // Also cleared when discovery recovers to idle: asking again found no
+    // program failure, and next boot must not turn that recovery into a start.
+    // A crash got far enough to run; `unknown` may just mean a stop.
+    else if ((health.state === 'ready' || (health.state === 'idle' && this.#discoveryOnlyRuntimes.has(id)) ||
+      (health.state === 'unavailable' && health.reason === 'crashed')) &&
       this.#runtimeCache.get(id).wouldNotStart) this.#runtimeCache.update(id, { wouldNotStart: undefined })
     const authority = this.#runtimes.get(runtime)
     if (health.state === 'ready' && authority && !authority.info.capabilities.archiveHistory && !this.#indexFolderBackfills.has(runtime)) {

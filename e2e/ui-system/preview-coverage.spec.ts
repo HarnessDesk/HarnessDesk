@@ -567,7 +567,7 @@ test.describe('preview coverage', () => {
       for (const component of teamStartCoverage.covered) covered.add(component)
     })
 
-    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers', '?flows-page=catalogue', '?flows-page=editor', '?frame-wall=library&frame-detail=skill&frame-name=code-review']).entries()) test(`coverage page 1: query ${item}`, async () => {
+    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers', '?flows-page=catalogue', '?flows-page=editor', '?frame-wall=library&frame-detail=skill&frame-name=code-review', '?frame-wall=agents&frame-account-name=dialog']).entries()) test(`coverage page 1: query ${item}`, async () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto(`/preview.html${query}`)
       if (query === '?board-list') {
