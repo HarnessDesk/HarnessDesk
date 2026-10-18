@@ -15,7 +15,9 @@ for (const theme of ['light', 'dark'] as const) {
   test(`batch skill install names all runtime targets in ${theme}`, async ({ page }) => {
     await open(page, 'library', theme)
     await page.locator('[data-slot="skill-card"]').filter({ hasText: 'checkout-review' }).click()
-    await page.getByRole('button', { name: 'Install to all 4 missing…', exact: true }).click()
+    // The skill opens as its own page; the batch install lives in its More menu.
+    await page.getByRole('button', { name: 'More', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Install to all 4 missing…', exact: true }).click()
     await expect(page.getByRole('dialog')).toBeVisible()
     await capture(page, 'library-plan', theme)
     await expect(page.getByRole('dialog')).toContainText('Install checkout-review for 4 runtimes')
