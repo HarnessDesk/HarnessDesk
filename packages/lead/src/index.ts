@@ -14,7 +14,7 @@ export { leadCheckpoint, parseLeadCheckpoint } from './checkpoint.js'
 export type { LeadJournalCheckpoint } from './checkpoint.js'
 export { leadRoundId, reduceLeadBudget, leadBudgetProjection, parseLeadBudgetLedger } from './budget.js'
 export type { LeadBudgetLedger } from './budget.js'
-export { createLeadMessages, LEAD_MESSAGES_DEFAULTS } from './messages.js'
+export { createLeadMessages, parseLeadMessagesBody, LEAD_MESSAGES_DEFAULTS } from './messages.js'
 export type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, LeadMessagesStatus,
   MessagesTransport, MessagesHttpRequest, MessagesHttpResponse, MessagesPrice, MessagesUsage, MessagesToolScope,
   MessagesTurn, MessagesText, MessagesToolUse, MessagesToolResult } from './messages-types.js'

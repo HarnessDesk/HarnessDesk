@@ -99,7 +99,7 @@ test('runtime permission grants refuse spawning and opening an unrelated file', 
   finally { await f.supervisor.stop() }
 })
 
-const dispatchFixture = async () => {
+const dispatchFixture = async (extra: any = {}) => {
   const { fixture: managementFixture, contract } = await import('./fixtures/loop.js')
   const { leadReviewedResultSource } = await import('../src/recipes/reviewed-result.js')
   const management = await managementFixture(); await management.approve()
@@ -118,7 +118,7 @@ const dispatchFixture = async () => {
     if (message.type === 'reply') rpcReply(message)
     if (message.type === 'shutdown') child.kill()
   })
-  const f = await fixture({ journal: management.journal, resolveTool: management.options.resolveTool, spawn: () => child })
+  const f = await fixture({ journal: management.journal, resolveTool: management.options.resolveTool, spawn: () => child, ...extra })
   return { ...f, child, journal: management.journal, records: management.records, dispatch, reply }
 }
 
@@ -590,4 +590,21 @@ test('actual child forwards the durable Messages request id with its reserved bo
     assert.equal((await f.supervisor.send(request)).status, 'completed')
     assert.equal(calls, 1)
   } finally { await f.supervisor.stop(); await runtime.close() }
+})
+
+test('host budget admission refusal kills a live dispatch before journaling and leaves its attempt uncertain', async () => {
+  const admitted: unknown[] = []
+  const f = await dispatchFixture({ admitBudgetEvent: (event: unknown) => { admitted.push(event); throw new Error('synthetic host refusal') } })
+  const sent = f.supervisor.send(request).catch(() => {})
+  try {
+    await f.dispatch
+    const event = { version: 1, type: 'reserve', now: 100, requestId: 'refused', inputTokens: 1, maxOutputTokens: 1,
+      inputUsdMicrosPerMillion: 0, outputUsdMicrosPerMillion: 0, cacheReadUsdMicrosPerMillion: 0, cacheWriteUsdMicrosPerMillion: 0 }
+    f.child.stdout.write(frame({ version: 1, type: 'rpc', id: 2, operation: 'updateBudget', args: [event] }))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.deepEqual(admitted, [event], 'host must verify the parsed event')
+    assert.equal(f.supervisor.live, false)
+    assert.equal(f.journal.state.budget?.requests.some(item => item.reservation.requestId === 'refused'), false)
+    assert.equal(f.journal.state.attempts.get('child-attempt')?.outcome, 'uncertain')
+  } finally { await f.supervisor.stop(); await sent }
 })

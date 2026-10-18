@@ -3,7 +3,7 @@ import { connect, type Socket } from 'node:net'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, parseLeadCard,
-  type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy } from '@harnessdesk/protocol'
+  type LeadBudgetEvent, type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy } from '@harnessdesk/protocol'
 import type { DeskPointer } from '@harnessdesk/client/node'
 import { parseLeadRunIdentity, type LeadJournal, type LeadDispatchResult } from './journal.js'
 import type { LeadPermissionCall } from './permissions.js'
@@ -20,6 +20,7 @@ export interface LeadSupervisorOptions {
   readonly resolveTool: (call: LeadPermissionCall) => Promise<LeadResolvedTool>
   readonly freezePlan: (contract: LeadAcceptanceContract) => Promise<LeadAcceptanceContract>
   readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence>
+  readonly admitBudgetEvent?: (event: LeadBudgetEvent) => void
   readonly providerSend?: (requestId: string, body: string, signal: AbortSignal) => Promise<MessagesHttpResponse>
   /** Test seam for the host-owned, already-connected desk socket. */
   readonly connectDesk?: (descriptor: DeskPointer, signal: AbortSignal) => Promise<Socket | null>
@@ -262,7 +263,11 @@ export class LeadSupervisor {
           (admitted, correlationId) => this.#reverse(running, { type: 'dispatch', rpcId: id, call: admitted, correlationId }) as Promise<LeadDispatchResult>))
           break
         }
-        case 'updateBudget': value = await durable(journal.updateBudget(parseLeadBudgetEvent(args[0]))); break
+        case 'updateBudget': {
+          const event = parseLeadBudgetEvent(args[0])
+          this.options.admitBudgetEvent?.(event)
+          value = await durable(journal.updateBudget(event)); break
+        }
         case 'setManagementPhase':
           if (!['planning', 'waiting-for-user'].includes(args[0] as string) || !(args[1] === null || typeof args[1] === 'string')) throw error('protocol')
           await durable(journal.setManagementPhase(args[0] as 'planning' | 'waiting-for-user', args[1] as string | null)); break

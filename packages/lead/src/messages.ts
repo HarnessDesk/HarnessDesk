@@ -122,6 +122,40 @@ const history = (value: unknown): MessagesTurn[] => {
   if (pending.length || result[0]!.role !== 'user' || result.at(-1)!.role !== 'user') fail()
   return result
 }
+/** Validate the child's complete provider dialect before the host serializes it.
+ * JSON.parse alone loses duplicate keys, including escaped spellings of a key. */
+export const parseLeadMessagesBody = (body: string) => {
+  string(body, LIMIT.bytes)
+  const source = object(JSON.parse(body), ['model', 'max_tokens', 'stream', 'messages', 'tools', 'system'])
+  json(source)
+  const keys: (Set<string> | null)[] = []
+  let previous = ''
+  for (const [token] of body.matchAll(/"(?:\\.|[^"\\])*"|[{}\[\]:]/g)) {
+    if (token === '{') keys.push(new Set())
+    else if (token === '[') keys.push(null)
+    else if (token === '}' || token === ']') keys.pop()
+    else if (token === ':') {
+      const key = JSON.parse(previous) as string, seen = keys.at(-1)
+      if (!seen || seen.has(key)) return fail()
+      seen.add(key)
+    }
+    previous = token
+  }
+  const same = (a: unknown, b: unknown): boolean => {
+    if (a === b) return true
+    if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false
+    const left = Object.keys(a), right = Object.keys(b)
+    return left.length === right.length && left.every(key => Object.hasOwn(b, key) &&
+      same((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
+  }
+  if (!['model', 'max_tokens', 'stream', 'messages', 'tools'].every(key => Object.hasOwn(source, key)) ||
+    source.stream !== false || !same(source.tools, leadToolDefinitions)) fail()
+  const maxTokens = integer(source.max_tokens, Number.MAX_SAFE_INTEGER)
+  if (maxTokens === 0) fail()
+  return { model: string(source.model, 128), max_tokens: maxTokens, stream: false as const,
+    messages: history(source.messages), tools: leadToolDefinitions,
+    ...(Object.hasOwn(source, 'system') ? { system: string(source.system) } : {}) }
+}
 const usage = (value: unknown): MessagesUsage => {
   const source = object(value)
   return { inputTokens: integer(source.input_tokens), outputTokens: integer(source.output_tokens),

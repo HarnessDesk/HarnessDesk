@@ -189,7 +189,7 @@ test('deleteKey removes the stored key after a failed latch killed the child, an
 
 test('host provider-send attaches a transient key and returns only bounded, redacted response fields', async t => {
   const requests: any[] = []
-  let body = 'synthetic response'
+  let body = JSON.stringify({ text: 'synthetic response', usage: { input_tokens: 1, output_tokens: 1 } })
   const s = await rig(t, { messagesTransport: { send: async (request: any) => {
     requests.push(request)
     return { status: 200, body, retryAfter: '1', processing: 'unknown', extra: key }
@@ -215,8 +215,19 @@ test('host provider-send attaches a transient key and returns only bounded, reda
   assert.equal(requests.length, 3)
 })
 
-const providerBody = (patch: object = {}) => JSON.stringify({ model: 'synthetic-model', max_tokens: 32, stream: false, messages: [], ...patch })
 const providerPrice = { inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 1 }
+// Capture the real builder's closed tool catalogue without exporting private tool definitions.
+const providerTemplate = await (async () => {
+  let body = ''
+  const messages = createLeadMessages({ apiKey: key, model: 'synthetic-model', prices: { 'synthetic-model': providerPrice },
+    journal: { updateBudget: async () => {} } as any, now: () => 100, nextId: () => 'template', countInput: async () => 1, wait: async () => {},
+    transport: { send: async request => { body = request.body; throw new Error('synthetic capture only') } },
+    resolveTool: async () => { throw new Error('unused') }, dispatch: async () => { throw new Error('unused') } })
+  await messages.request({ messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect the plan' }] }], maxTokens: 32 }, new AbortController().signal)
+  assert.ok(body)
+  return JSON.parse(body) as object
+})()
+const providerBody = (patch: object = {}) => JSON.stringify({ ...providerTemplate, ...patch })
 const providerReserve = (journal: any, requestId: string, body = providerBody(), maxOutputTokens = 32) => journal.updateBudget({
   version: 1, type: 'reserve', now: 100, requestId, inputTokens: Buffer.byteLength(body) + 1024, maxOutputTokens, ...providerPrice,
 })
@@ -229,7 +240,7 @@ const providerUntil = async (predicate: () => boolean) => {
   assert.ok(predicate(), 'provider boundary did not answer')
 }
 /** Real service, supervisor and journal; only the child pipes, broker and provider are synthetic. */
-const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: { resolveLead?: () => Promise<string>; holdExit?: boolean } = {}) => {
+const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: { resolveLead?: () => Promise<string>; holdExit?: boolean; prices?: Record<string, typeof providerPrice> } = {}) => {
   const home = await mkdtemp('/tmp/hd-provider-')
   t.after(() => rm(home, { recursive: true, force: true }))
   const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
@@ -239,12 +250,13 @@ const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: 
   child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough()
   let killed = false, stopped = 0, rpcId = 0, settings: any, pending = Buffer.alloc(0)
   const replies: any[] = [], waiters = new Map<number, { resolve(value: any): void; reject(error: Error): void }>()
-  const rpc = (requestId: string, body: string) => {
+  const journalRpc = (operation: string, args: unknown[]) => {
     const id = ++rpcId
     const reply = new Promise<any>((resolve, reject) => { waiters.set(id, { resolve, reject }) })
-    child.stdout.write(providerFrame({ version: 1, type: 'rpc', id, operation: 'provider-send', args: [requestId, body] }))
+    child.stdout.write(providerFrame({ version: 1, type: 'rpc', id, operation, args }))
     return reply
   }
+  const rpc = (requestId: string, body: string) => journalRpc('provider-send', [requestId, body])
   child.kill = () => { killed = true; if (!hooks.holdExit) queueMicrotask(() => child.emit('exit', 0, null)); return true }
   child.stdin.on('data', (chunk: Buffer) => {
     pending = Buffer.concat([pending, chunk])
@@ -261,7 +273,7 @@ const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: 
   })
   const { LeadService } = await import('../src/lead/service.js')
   let supervisor!: LeadSupervisor
-  const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, model: 'synthetic-model', prices: { 'synthetic-model': providerPrice },
+  const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, model: 'synthetic-model', prices: hooks.prices ?? { 'synthetic-model': providerPrice },
     messagesTransport: { send }, broker: { leadStatus: async () => ({ configured: true, protection: 'synthetic' }),
       resolveLead: hooks.resolveLead ?? (async () => key), storeLead: async () => {}, deleteLead: async () => {} },
     resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('unused') },
@@ -273,7 +285,7 @@ const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: 
     } })
   t.after(async () => { if (hooks.holdExit) child.emit('exit', 0, null); await service.close() })
   await service.setEnabled(true); await supervisor.ensure()
-  return { service, supervisor, journal, child, rpc, replies, settings, killed: () => killed, stopped: () => stopped }
+  return { service, supervisor, journal, child, rpc, journalRpc, replies, settings, killed: () => killed, stopped: () => stopped }
 }
 
 for (const name of ['unreserved', 'body', 'max_tokens', 'model', 'stream', 'json', 'uncertain', 'settled'] as const) {
@@ -283,7 +295,7 @@ for (const name of ['unreserved', 'body', 'max_tokens', 'model', 'stream', 'json
     if (name !== 'unreserved') await providerReserve(s.journal, 'reserved')
     if (name === 'uncertain') await s.journal.updateBudget({ version: 1, type: 'uncertain', now: 100, requestId: 'reserved' })
     if (name === 'settled') await s.journal.updateBudget({ version: 1, type: 'settle', now: 100, requestId: 'reserved', inputTokens: 0, outputTokens: 0 })
-    const body = name === 'body' ? providerBody({ extra: 'oversized' }) : name === 'max_tokens' ? providerBody({ max_tokens: 33 })
+    const body = name === 'body' ? providerBody({ system: 'oversized' }) : name === 'max_tokens' ? providerBody({ max_tokens: 33 })
       : name === 'model' ? providerBody({ model: 'another-model' }) : name === 'stream' ? providerBody({ stream: true }) : name === 'json' ? '{' : providerBody()
     const before = resolutions
     void s.rpc('reserved', body).catch(() => {})
@@ -321,23 +333,30 @@ for (const mode of ['duplicate', 'third'] as const) test(`provider reservation r
 })
 
 for (const failure of [false, true]) test(`real Messages reservation round-trip ${failure ? 'keeps transport failure uncertain and child live' : 'settles successfully'}`, async t => {
-  let calls = 0
+  let calls = 0, builtBody = ''
   const s = await providerRig(t, async request => {
+    assert.equal(request.body, builtBody, 'host serialization equals the real Messages body')
     calls++; assert.equal(request.headers['x-api-key'], key)
     if (failure) throw new Error('synthetic ETIMEDOUT')
     return { status: 200, body: JSON.stringify({ id: 'synthetic', type: 'message', role: 'assistant', model: 'synthetic-model',
-      content: [{ type: 'text', text: 'Ready' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }) }
+      content: [{ type: 'text', text: 'Ready' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 } }) }
   })
   const messages = createLeadMessages({ apiKey: 'host-owned-provider-key', model: 'synthetic-model', prices: { 'synthetic-model': providerPrice }, // hd-secrets-ok: public child marker, never a credential
-    journal: s.journal, now: () => 100, nextId: () => 'real-messages', countInput: async body => Buffer.byteLength(body) + 1024, wait: async () => {},
-    transport: { send: request => s.rpc((request as any).requestId, request.body) }, resolveTool: async () => { throw new Error('unused') }, dispatch: async () => { throw new Error('unused') } })
+    journal: { ...s.journal, updateBudget: (event: any) => s.journalRpc('updateBudget', [event]) } as any, now: () => 100, nextId: () => 'real-messages', countInput: async body => Buffer.byteLength(body) + 1024, wait: async () => {},
+    transport: { send: request => { builtBody = request.body; return s.rpc((request as any).requestId, request.body) } }, resolveTool: async () => { throw new Error('unused') }, dispatch: async () => { throw new Error('unused') } })
   const result = await Promise.race([messages.request({ messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect the plan' }] }], maxTokens: 32 }, new AbortController().signal), new Promise<null>(resolve => setTimeout(() => resolve(null), 1100))])
   assert.ok(result, 'Messages must receive a reply')
   assert.equal(result.status, failure ? 'uncertain' : 'completed')
   assert.equal(calls, 1); assert.equal(s.supervisor.live, true); assert.equal(s.stopped(), 0)
-  assert.equal(s.replies[0]?.ok, !failure)
-  if (failure) { assert.equal(s.replies[0]?.value, null); assert.equal(s.journal.state.budget?.requests[0]?.uncertain, true) }
-  else assert.equal(s.journal.state.budget?.settled[0]?.id, 'real-messages')
+  assert.equal(s.replies[0]?.ok, true, 'reservation crossed budget IPC')
+  assert.equal(s.replies[1]?.ok, !failure)
+  if (failure) { assert.equal(s.replies[1]?.value, null); assert.equal(s.journal.state.budget?.requests[0]?.uncertain, true) }
+  else {
+    assert.equal(s.journal.state.budget?.settled[0]?.id, 'real-messages')
+    assert.equal(s.journal.state.budget?.leadUsdMicros, 4, 'all four provider usage fields are charged')
+    assert.equal(s.journal.state.budget?.reservedUsdMicros, 0)
+    assert.equal(s.replies[2]?.ok, true, 'settlement crossed budget IPC')
+  }
 })
 
 test('killing a child aborts its held provider send before exit arrives', async t => {
@@ -368,4 +387,135 @@ test('key replacement during resolveLead refuses the old send before transport',
   await assert.rejects(sending, /lead-provider-failed/)
   await replacement
   assert.equal(calls, 0)
+})
+
+for (const field of ['inputUsdMicrosPerMillion', 'outputUsdMicrosPerMillion', 'cacheReadUsdMicrosPerMillion', 'cacheWriteUsdMicrosPerMillion', 'unconfigured'] as const) {
+  test(`host budget refuses untrusted reserve ${field}`, async t => {
+    let calls = 0
+    const s = await providerRig(t, async () => { calls++; return { status: 200, body: '{}' } }, field === 'unconfigured' ? { prices: {} } : {})
+    void s.journalRpc('updateBudget', [{ version: 1, type: 'reserve', now: 100, requestId: 'lying-price',
+      inputTokens: 2000, maxOutputTokens: 1000, ...providerPrice, ...(field === 'unconfigured' ? {} : { [field]: 0 }) }])
+    await providerUntil(() => s.replies.length > 0 || s.killed())
+    assert.equal(s.killed(), true, 'a lying reserve is a protocol failure')
+    assert.equal(s.replies.length, 0)
+    assert.equal(s.journal.state.budget?.requests.length, 0)
+    assert.equal(calls, 0)
+  })
+}
+
+for (const field of ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'zero'] as const) {
+  test(`host budget refuses first lying settle ${field}`, async t => {
+    let calls = 0
+    const reported = { inputTokens: 2000, outputTokens: 1000, cacheReadTokens: 30, cacheWriteTokens: 40 }
+    const s = await providerRig(t, async () => { calls++; return { status: 200, body: JSON.stringify({ usage: {
+      input_tokens: reported.inputTokens, output_tokens: reported.outputTokens,
+      cache_read_input_tokens: reported.cacheReadTokens, cache_creation_input_tokens: reported.cacheWriteTokens } }) } })
+    await s.journalRpc('updateBudget', [{ version: 1, type: 'reserve', now: 100, requestId: 'lying-usage',
+      inputTokens: Buffer.byteLength(providerBody()) + 1024, maxOutputTokens: 1000, ...providerPrice }])
+    await s.rpc('lying-usage', providerBody())
+    const before = s.replies.length
+    void s.journalRpc('updateBudget', [{ version: 1, type: 'settle', now: 100, requestId: 'lying-usage',
+      ...reported, ...(field === 'zero' ? { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } : { [field]: 0 }) }])
+    await providerUntil(() => s.replies.length > before || s.killed())
+    assert.equal(s.killed(), true, 'the first lying settle must stop the child')
+    assert.equal(s.replies.length, before)
+    assert.equal(calls, 1)
+    assert.equal(s.journal.state.budget?.settled.length, 0)
+    assert.ok(s.journal.state.budget!.reservedUsdMicros > 0)
+  })
+}
+
+const refusedBodies: Record<string, string> = {
+  'server tool': providerBody({ tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 50 }] }),
+  'image URL': providerBody({ messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'url', url: 'https://collector.example.com/image' } }] }] }),
+  'document URL': providerBody({ messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'url', url: 'https://collector.example.com/document' } }] }] }),
+  'string stream': providerBody({ stream: 'true' }),
+  'duplicate keys': providerBody().replace('{', '{"model":"other","max_tokens":1000000,"stream":true,'),
+  'unknown key': providerBody({ unknown: true }),
+  'missing max_tokens': providerBody({ max_tokens: undefined }),
+  'string max_tokens': providerBody({ max_tokens: '10' }),
+  'float max_tokens': providerBody({ max_tokens: 10.5 }),
+  'zero max_tokens': providerBody({ max_tokens: 0 }),
+}
+for (const [name, body] of Object.entries(refusedBodies)) test(`provider schema refuses ${name} before key resolution or transport`, async t => {
+  let calls = 0, resolutions = 0
+  const s = await providerRig(t, async () => { calls++; return { status: 200, body: '{}' } }, { resolveLead: async () => { resolutions++; return key } })
+  await providerReserve(s.journal, 'schema', body)
+  const before = resolutions
+  await assert.rejects(s.rpc('schema', body), /synthetic provider refusal/)
+  assert.equal(s.supervisor.live, true)
+  assert.equal(s.replies[0]?.ok, false)
+  assert.equal(s.replies[0]?.value, null)
+  assert.equal(calls, 0); assert.equal(resolutions, before)
+  assert.equal(s.stopped(), 0)
+})
+
+for (const mode of ['no sends', 'all not-started'] as const) test(`host budget permits zero settle with ${mode}`, async t => {
+  let calls = 0
+  const s = await providerRig(t, async () => { calls++; return { status: 429, body: '{}', processing: 'not-started' } })
+  await providerReserve(s.journal, 'zero')
+  if (mode === 'all not-started') for (let i = 0; i < 3; i++) await s.rpc('zero', providerBody())
+  await s.journalRpc('updateBudget', [{ version: 1, type: 'settle', now: 100, requestId: 'zero', inputTokens: 0, outputTokens: 0 }])
+  assert.equal(s.journal.state.budget?.leadUsdMicros, 0)
+  assert.equal(s.journal.state.budget?.reservedUsdMicros, 0)
+  assert.equal(calls, mode === 'no sends' ? 0 : 3)
+  assert.equal(s.supervisor.live, true)
+})
+
+for (const mode of ['unknown', 'throw', 'malformed usage', 'in-flight', 'unknown then success'] as const) test(`host budget refuses unproven zero settle after ${mode}`, async t => {
+  let calls = 0, release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const s = await providerRig(t, async () => {
+    calls++
+    if (mode === 'in-flight') await held
+    if (mode === 'throw') throw new Error('synthetic timeout')
+    if (mode === 'malformed usage') return { status: 200, body: '{"usage":{"input_tokens":-1,"output_tokens":0}}' }
+    if (mode === 'unknown then success' && calls > 1) return { status: 200, body: '{"usage":{"input_tokens":0,"output_tokens":0}}' }
+    return { status: 500, body: '{}', processing: 'unknown' }
+  })
+  try {
+    await providerReserve(s.journal, 'unproven')
+    const sending = s.rpc('unproven', providerBody()).catch(() => {})
+    if (mode === 'in-flight') await providerUntil(() => calls === 1)
+    else await sending
+    if (mode === 'unknown then success') await s.rpc('unproven', providerBody())
+    const before = s.replies.length
+    void s.journalRpc('updateBudget', [{ version: 1, type: 'settle', now: 100, requestId: 'unproven', inputTokens: 0, outputTokens: 0 }])
+    await providerUntil(() => s.killed() || s.replies.length > before)
+    assert.equal(s.killed(), true, 'unproven billing cannot be settled to zero')
+    assert.equal(s.journal.state.budget?.settled.length, 0)
+  } finally { release() }
+})
+
+test('host budget retains an uncertain reservation until full write-off', async t => {
+  const s = await providerRig(t, async () => { throw new Error('synthetic timeout') })
+  await providerReserve(s.journal, 'write-off')
+  const reserved = s.journal.state.budget!.reservedUsdMicros
+  await assert.rejects(s.rpc('write-off', providerBody()))
+  await s.journalRpc('updateBudget', [{ version: 1, type: 'uncertain', now: 100, requestId: 'write-off' }])
+  await s.journalRpc('updateBudget', [{ version: 1, type: 'write-off', now: 100, requestId: 'write-off' }])
+  assert.equal(s.journal.state.budget?.leadUsdMicros, reserved)
+  assert.equal(s.journal.state.budget?.reservedUsdMicros, 0)
+  assert.equal(s.supervisor.live, true)
+})
+
+test('host serializes a valid body before checking its reservation and forwarding', async t => {
+  const canonical = providerBody(), bodies: string[] = []
+  const s = await providerRig(t, async request => { bodies.push(request.body); return { status: 429, body: '{}', processing: 'not-started' } })
+  await providerReserve(s.journal, 'normalized', canonical)
+  await s.rpc('normalized', JSON.stringify(JSON.parse(canonical), null, 2))
+  assert.deepEqual(bodies, [canonical])
+})
+
+test('host budget closes provider admission before a zero settlement becomes durable', async t => {
+  let calls = 0
+  const s = await providerRig(t, async () => { calls++; return { status: 200, body: '{"usage":{"input_tokens":1,"output_tokens":1}}' } })
+  await providerReserve(s.journal, 'settling')
+  const settling = s.journalRpc('updateBudget', [{ version: 1, type: 'settle', now: 100, requestId: 'settling', inputTokens: 0, outputTokens: 0 }])
+  const sending = s.rpc('settling', providerBody())
+  await assert.rejects(sending, /synthetic provider refusal/)
+  await settling
+  assert.equal(calls, 0)
+  assert.equal(s.journal.state.budget?.leadUsdMicros, 0)
+  assert.equal(s.supervisor.live, true)
 })

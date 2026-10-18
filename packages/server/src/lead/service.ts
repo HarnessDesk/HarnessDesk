@@ -1,6 +1,6 @@
 import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject } from '@harnessdesk/protocol'
-import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, MessagesPrice, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
-import { LEAD_MESSAGES_DEFAULTS } from '@harnessdesk/lead'
+import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, parseLeadMessagesBody } from '@harnessdesk/lead'
 import { LeadSupervisor, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
 import type { CredentialBroker } from '../credentials.js'
 import type { ClientDoor } from '../client-door.js'
@@ -42,6 +42,12 @@ export class LeadService {
   #generation = 0
   #changingKeys = 0
   readonly #providerSends = new Set<string>()
+  // Final admission is synchronous; the journal's durable settlement may still
+  // be queued when the next child frame arrives. Request ids cannot be reused.
+  readonly #providerFinalized = new Set<string>()
+  // Absent means no send; null means some send has unproven billing. Never erase
+  // ambiguity with a later retry's usage or an unprocessed response.
+  readonly #providerUsage = new Map<string, MessagesUsage | null>()
   #cleanupFailed = false
   #tail: Promise<unknown> = Promise.resolve()
   #registration: ReturnType<LeadServiceOptions['register']> | null = null
@@ -75,21 +81,38 @@ export class LeadService {
             project: options.project, prices: options.prices, ...(options.model === undefined ? {} : { model: options.model }), projectPolicy: this.#policy }
         } catch (error) { await this.#release(); throw error }
       },
+      admitBudgetEvent: event => {
+        if (event.type === 'reserve') {
+          const model = options.model ?? LEAD_MESSAGES_DEFAULTS.model, price = options.prices[model]
+          if (!Object.hasOwn(options.prices, model) || !price ||
+            event.inputUsdMicrosPerMillion !== price.inputUsdMicrosPerMillion || event.outputUsdMicrosPerMillion !== price.outputUsdMicrosPerMillion ||
+            event.cacheReadUsdMicrosPerMillion !== price.cacheReadUsdMicrosPerMillion || event.cacheWriteUsdMicrosPerMillion !== price.cacheWriteUsdMicrosPerMillion) throw new Error('lead-budget-price')
+        } else if (event.type === 'settle') {
+          const recorded = this.#providerUsage.get(event.requestId)
+          if (this.#providerSends.has(event.requestId) || recorded === null ||
+            event.inputTokens !== (recorded?.inputTokens ?? 0) || event.outputTokens !== (recorded?.outputTokens ?? 0) ||
+            (event.cacheReadTokens ?? 0) !== (recorded?.cacheReadTokens ?? 0) || (event.cacheWriteTokens ?? 0) !== (recorded?.cacheWriteTokens ?? 0)) throw new Error('lead-budget-usage')
+          this.#providerFinalized.add(event.requestId)
+          this.#providerUsage.delete(event.requestId)
+        } else if (event.type === 'write-off') {
+          this.#providerFinalized.add(event.requestId)
+          this.#providerUsage.delete(event.requestId)
+        }
+      },
       providerSend: async (requestId, body, signal) => {
         let admitted = false
         try {
           this.#assertOpen()
           if (this.#changingKeys) throw new Error('lead-lifecycle-changed')
           const generation = this.#generation
+          const payload = parseLeadMessagesBody(body)
+          body = JSON.stringify(payload)
           if (Buffer.byteLength(body) > 1_048_576) throw new Error('lead-provider-failed')
           const budget = options.journal.state.budget
           const request = budget?.requests.find(item => item.reservation.requestId === requestId)
-          const parsed: unknown = JSON.parse(body)
-          if (!request || request.uncertain || budget?.settled.some(item => item.id === requestId) ||
-            parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('lead-provider-failed')
-          const payload = parsed as Record<string, unknown>, reservation = request.reservation
-          if (payload.model !== (options.model ?? LEAD_MESSAGES_DEFAULTS.model) || payload.stream === true ||
-            typeof payload.max_tokens !== 'number' || !Number.isSafeInteger(payload.max_tokens) || payload.max_tokens < 1 ||
+          if (!request || request.uncertain || this.#providerFinalized.has(requestId) || budget?.settled.some(item => item.id === requestId)) throw new Error('lead-provider-failed')
+          const reservation = request.reservation
+          if (payload.model !== (options.model ?? LEAD_MESSAGES_DEFAULTS.model) ||
             payload.max_tokens > reservation.maxOutputTokens || Buffer.byteLength(body) + 1024 > reservation.inputTokens ||
             this.#providerSends.has(requestId) || this.#providerSends.size >= 2) throw new Error('lead-provider-failed')
           // Hold the slot across key resolution and transport; retries may reuse it only after settlement of this send.
@@ -97,6 +120,8 @@ export class LeadService {
           const key = await options.broker.resolveLead('anthropic')
           this.#assertOpen()
           if (generation !== this.#generation || this.#changingKeys) throw new Error('lead-lifecycle-changed')
+          const previousUsage = this.#providerUsage.get(requestId)
+          this.#providerUsage.set(requestId, null)
           const response = await (options.messagesTransport ?? leadProviderTransport).send({
             requestId, origin: 'https://api.anthropic.com', path: '/v1/messages', method: 'POST', body,
             headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': key },
@@ -117,6 +142,26 @@ export class LeadService {
           let decoded: unknown
           try { decoded = JSON.parse(response.body) } catch { /* Non-JSON errors still pass the literal scan. */ }
           scan(decoded)
+          if (this.#providerFinalized.has(requestId)) return result
+          if (response.status >= 200 && response.status < 300) {
+            const rawUsage = decoded !== null && typeof decoded === 'object' && !Array.isArray(decoded)
+              ? (decoded as Record<string, unknown>).usage : null
+            const usage = rawUsage !== null && typeof rawUsage === 'object' && !Array.isArray(rawUsage) ? rawUsage as Record<string, unknown> : null
+            const count = (name: string, optional = false): number => {
+              const value = usage?.[name] ?? (optional && usage?.[name] === undefined ? 0 : NaN)
+              if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > 100_000_000) throw new Error('lead-provider-failed')
+              return value
+            }
+            const used: MessagesUsage = { inputTokens: count('input_tokens'), outputTokens: count('output_tokens'),
+              cacheReadTokens: count('cache_read_input_tokens', true), cacheWriteTokens: count('cache_creation_input_tokens', true) }
+            if (previousUsage !== null) this.#providerUsage.set(requestId, {
+              inputTokens: (previousUsage?.inputTokens ?? 0) + used.inputTokens, outputTokens: (previousUsage?.outputTokens ?? 0) + used.outputTokens,
+              cacheReadTokens: (previousUsage?.cacheReadTokens ?? 0) + used.cacheReadTokens, cacheWriteTokens: (previousUsage?.cacheWriteTokens ?? 0) + used.cacheWriteTokens,
+            })
+          } else if (response.processing === 'not-started') {
+            if (previousUsage === undefined) this.#providerUsage.delete(requestId)
+            else this.#providerUsage.set(requestId, previousUsage)
+          }
           return result
         } catch { throw new Error('lead-provider-failed') }
         finally { if (admitted) this.#providerSends.delete(requestId) }
