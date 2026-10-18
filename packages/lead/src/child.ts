@@ -148,7 +148,8 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         const entry = pending.get(message.id as number)
         if (!entry) throw denied()
         pending.delete(message.id as number); sync(message.state)
-        if (message.ok) entry.resolve(message.value); else entry.reject(denied())
+        if (message.ok) entry.resolve(message.value)
+        else entry.reject(message.value === 'lead-card-too-large' ? Object.assign(new Error('lead-card-too-large'), { wireCode: 'lead-card-too-large' }) : denied())
         return
       }
       case 'dispatch': {

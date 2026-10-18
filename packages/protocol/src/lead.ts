@@ -180,7 +180,7 @@ export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running'
 export const LEAD_MANAGEMENT_REASONS = [
   'lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-child-exited', 'lead-ownership-withdrawn',
   'lead-result-awaiting-person', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
-  'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
+  'lead-card-too-large', 'lead-send-deadline', 'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
 ] as const
 export interface LeadThread {
   readonly version: 1
@@ -210,10 +210,18 @@ export interface LeadHostProjection {
 }
 export type LeadPersonAction = 'resume' | 'decide-plan' | null
 /** Window projection adds the host's guarded way out; child observations grant no control. */
-export interface LeadWindowProjection extends LeadHostProjection { readonly wayOut: LeadPersonAction }
+export interface LeadWindowProjection extends LeadHostProjection {
+  readonly wayOut: LeadPersonAction
+  readonly waitReason: typeof LEAD_MANAGEMENT_REASONS[number] | null
+  readonly planConsentExpiresAt: number | null
+}
+export interface LeadProjectionFailure { readonly version: 1; readonly revision: LeadRevision; readonly error: 'lead-projection-failed' }
+export type LeadChanged = LeadWindowProjection | LeadProjectionFailure
 export const LEAD_CONTROL_REFUSALS = ['lead-unavailable', 'lead-operation-refused', 'lead-secret-refused', 'lead-revision-stale',
   'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
-  'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-one-change', 'lead-evidence-read-refused'] as const
+  'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-one-change', 'lead-evidence-read-refused',
+  'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
+  'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
@@ -530,10 +538,11 @@ export const parseLeadThreadSend: Validator<LeadThreadSend> = object({ idempoten
 export const parseLeadResume: Validator<{ readonly expectedRevision: number }> = object({ expectedRevision: revision })
 export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
   expectedRevision: revision, policy: optional(parseLeadPermissionPolicy), caps: optional(parseLeadCaps),
-  credential: optional(object({ provider: literalUnion('anthropic'), key: nullable(text(4096)) })),
+  credential: optional(object({ provider: (value, path = '') => value === 'anthropic' ? 'anthropic' : fail(path, 'expected Lead credential provider'), key: nullable(text(4096)) })),
 })
 export const parseLeadEmpty: Validator<Record<string, never>> = object({})
 
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, wayOut: nullable(literalUnion('resume', 'decide-plan')),
+  waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)),
 }))

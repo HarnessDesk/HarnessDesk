@@ -1,5 +1,5 @@
 import type {
-  HostMethodName, HostParams, HostResult, LeadCardDecision, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  HostMethodName, HostParams, HostResult, LeadCardDecision, LeadChanged, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
@@ -10,20 +10,26 @@ export interface LeadState {
   readonly thread: LeadThread | null
   readonly settings: LeadSettingsProjection | null
   readonly wayOut: 'resume' | 'decide-plan' | null
+  readonly waitReason: LeadWindowProjection['waitReason']
+  readonly planConsentExpiresAt: number | null
+  readonly error: 'lead-projection-failed' | null
 }
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
 export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
-  let state: LeadState = { revision: -1, thread: null, settings: null, wayOut: null }
+  let state: LeadState = { revision: -1, thread: null, settings: null, wayOut: null, waitReason: null, planConsentExpiresAt: null, error: null }
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
-  const keep = (thread: LeadThread, settings: LeadSettingsProjection, wayOut: LeadState['wayOut']) => {
-    if (thread.revision < state.revision) return
-    state = { revision: thread.revision, thread, settings, wayOut }
+  const checkRead = () => { check(); if (state.revision < 0 || state.error) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
+  const apply = (projection: LeadChanged) => {
+    if (projection.revision <= state.revision) return
+    state = 'error' in projection
+      ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
+      : structuredClone({ revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
+        waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, error: null })
     for (const listener of listeners) listener()
   }
-  const apply = (projection: LeadWindowProjection) => keep(projection.thread, projection.settings, projection.wayOut)
   return {
-    get state(): LeadState { return structuredClone(state) },
+    get state(): LeadState { return state },
     subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } },
     changed(notification: WireNotification): void { if (available() && notification.method === 'lead/changed') apply(notification.params) },
     async readThread() { check(); const result = await transport.request('lead/thread/read', {}); apply(result); return result.thread },
@@ -34,8 +40,8 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     },
     async decide(decision: LeadCardDecision) { check(); const result = await transport.request('lead/card/decide', decision); apply(result); return result },
     async updateSettings(update: Omit<LeadSettingsUpdate, 'expectedRevision'>) {
-      check(); const result = await transport.request('lead/settings/update', { ...update, expectedRevision: state.revision }); apply(result); return result
+      checkRead(); const result = await transport.request('lead/settings/update', { ...update, expectedRevision: state.revision }); apply(result); return result
     },
-    async resume() { check(); const result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result); return result },
+    async resume() { checkRead(); const result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result); return result },
   }
 }

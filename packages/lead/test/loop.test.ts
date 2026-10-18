@@ -825,3 +825,17 @@ test('a permanent refusal counts as no progress even beside a successful tool', 
   assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 0)
   await loop.close()
 })
+
+
+test('an oversized plan refusal parks with its typed reason rather than hanging', async () => {
+  const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', plan: contract }) }])])
+  s.journal.offerCard = async () => { throw Object.assign(new Error('lead-card-too-large'), { wireCode: 'lead-card-too-large' }) }
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.equal(loop.state.phase, 'waiting-for-user')
+    assert.equal(loop.state.reason, 'lead-card-too-large')
+    assert.equal(s.journal.state.managementReason, 'lead-card-too-large')
+    assert.equal(s.journal.state.cards.length, 0)
+  } finally { await loop.close() }
+})

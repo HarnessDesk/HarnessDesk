@@ -45,7 +45,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { resolve
       return process
     } })
   t.after(() => service.close())
-  return { service, home, journal, budgets, timers, records, events, bootstrap, options: () => supervisorOptions, process: () => process, spawns: () => spawns, closes: () => closes, stopped: () => stopped }
+  return { service, home, journal, budgets, timers, records, events, bootstrap, options: () => supervisorOptions, process: () => process, spawns: () => spawns, closes: () => closes, stopped: () => stopped, broker }
 }
 
 test('two simultaneous sends start one child only after explicit enable', async t => {
@@ -697,4 +697,46 @@ test('public Lead state scans resolve the synthetic key transiently and refuse l
   await s.service.assertPublic({ summary: 'Ready for a person', key: { configured: true, protection: 'encrypted' } })
   assert.equal(s.spawns(), 0, 'projection reads never start a child')
   assert.equal(JSON.stringify([s.records, s.events]).includes(key), false)
+})
+
+
+test('public scans resolve once per revision and invalidate after key lifecycle changes', async t => {
+  const s = await rig(t)
+  let resolutions = 0
+  const resolve = s.broker.resolveLead
+  s.broker.resolveLead = async () => { resolutions++; return resolve() }
+  await Promise.all([s.service.assertPublic('first'), s.service.assertPublic('second')])
+  await s.service.assertPublic('third')
+  assert.equal(resolutions, 1)
+  await s.journal.settingsChanged(); await s.service.assertPublic('next revision')
+  assert.equal(resolutions, 2)
+  await s.service.deleteKey('anthropic'); await s.service.assertPublic(key)
+  assert.equal(resolutions, 2)
+})
+test('public scan broker failure is protection-unavailable with no echoed secret', async t => {
+  const s = await rig(t)
+  s.broker.resolveLead = async () => { throw new Error(key) }
+  await assert.rejects(s.service.assertPublic('Ready'), (error: any) =>
+    error.wireCode === 'lead-protection-unavailable' && error.message === 'lead-protection-unavailable')
+})
+
+
+test('host card admission refuses the second large plan before journal append and leaves a readable window', async t => {
+  const s = await rig(t)
+  const { parseLeadAcceptanceContract } = await import('@harnessdesk/protocol')
+  const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Review', project: { id: 'demo', path: '/workspace/demo' }, policyRevision: 1, caps: { usdMicros: 1000, rounds: 4 }, assertions: [{ id: 'check', kind: 'check', description: 'Tests pass' }], steps: [{ id: 'work', title: 'Review', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture', model: 'fixture' }, ceiling: 'edit' }] }] })
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const big = 'x'.repeat(16000)
+  const c = parseLeadAcceptanceContract({ ...contract, steps: Array.from({ length: 6 }, (_, i) => ({ ...contract.steps[0]!, id: `s${i}`, title: 'Large plan',
+    variables: Object.fromEntries(Array.from({ length: 8 }, (_, k) => [`v${k}`, big])) })) })
+  const one = { version: 1 as const, id: 'one', revision: 1, type: 'plan' as const, contractDigest: c.digest, contract: c }, two = { ...one, id: 'two' }
+  assert.equal(typeof s.options().admitCardOffer, 'function')
+  const offers = await Promise.allSettled([one, two].map(card => (s.journal.offerCard as any)(card, s.options().admitCardOffer)))
+  assert.equal(offers[0]!.status, 'fulfilled')
+  assert.equal(offers[1]!.status, 'rejected')
+  assert.equal((offers[1] as PromiseRejectedResult).reason.wireCode, 'lead-card-too-large')
+  const controls = new LeadControls({ journal: s.journal, service: s.service, project: c.project, model: 'synthetic-model', now: () => 100,
+    nextId: () => 'card', push() {}, decidePerson: async () => {}, decideResult: async () => {} })
+  t.after(() => controls.close())
+  assert.equal((await controls.readThread()).thread.cards.length, 1)
 })

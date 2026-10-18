@@ -1,4 +1,4 @@
-import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject } from '@harnessdesk/protocol'
+import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject, LeadControlRefusal } from '@harnessdesk/protocol'
 import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
 import { LEAD_MESSAGES_DEFAULTS, parseLeadMessagesBody } from '@harnessdesk/lead'
 import { LeadSupervisor, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
@@ -7,6 +7,10 @@ import type { ClientDoor } from '../client-door.js'
 import type { LeadAdmission } from './admission.js'
 import { leadProviderTransport } from './provider-transport.js'
 import { loadLeadProjectPolicy } from './project-policy.js'
+import { leadWindowThread } from './projection.js'
+import { leadContainsSecret } from './secrets.js'
+
+const publicRefusal = (wireCode: LeadControlRefusal) => Object.assign(new Error(wireCode), { wireCode })
 
 export interface LeadProcess {
   readonly live: boolean
@@ -37,6 +41,7 @@ export interface LeadServiceOptions {
  * Lifecycle operations serialize; a long model send does not hold that queue. */
 export class LeadService {
   readonly #supervisor: LeadProcess
+  #publicKey: { revision: number; generation: number; value: Promise<string | null> } | null = null
   #enabled = false
   #closed = false
   #generation = 0
@@ -81,6 +86,16 @@ export class LeadService {
           return { key, descriptor: this.#door.descriptor,
             project: options.project, prices: options.prices, ...(options.model === undefined ? {} : { model: options.model }), projectPolicy: this.#policy }
         } catch (error) { await this.#release(); throw error }
+      },
+      admitCardOffer: card => {
+        const state = options.journal.state
+        if (!state.policy || !state.budget) throw publicRefusal('lead-unavailable')
+        try {
+          leadWindowThread({ ...state, cards: [...state.cards.filter(old => old.id !== card.id), card] }, options.project, {
+            version: 1, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
+            policy: state.policy, caps: state.budget.caps, key: { configured: true, protection: 'unavailable' },
+          })
+        } catch { throw publicRefusal('lead-card-too-large') }
       },
       admitBudgetEvent: event => {
         if (event.type === 'reserve') {
@@ -218,7 +233,7 @@ export class LeadService {
     // have rejected. Recovery never races a live dispatch from that child.
     const task = (async () => {
       try {
-        try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown'].includes(reason) ? reason : 'lead-child-exited') }
+        try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-send-deadline'].includes(reason) ? reason : 'lead-child-exited') }
         finally { await this.options.stopOwned(reason) }
         this.#endLive?.(); this.#endLive = null
         await this.options.recover()
@@ -239,22 +254,21 @@ export class LeadService {
       finally { await this.#release() }
     }
   }
-  /** Resolve only for this check; retain neither the key nor caller data. Errors are static. */
+  /** One in-memory resolution per journal/key generation; never part of persisted state. */
   async assertPublic(value: unknown): Promise<void> {
-    try {
-      if (!(await this.options.broker.leadStatus('anthropic')).configured) return
-      const key = await this.options.broker.resolveLead('anthropic')
-      const scan = (item: unknown): void => {
-        if (typeof item === 'string') {
-          if (item.includes(key)) throw new Error('lead-secret-refused')
-          // Structured prose can contain JSON-escaped copies of a credential.
-          try { const decoded: unknown = JSON.parse(item); if (decoded !== item) scan(decoded) } catch (error) {
-            if (error instanceof Error && error.message === 'lead-secret-refused') throw error
-          }
-        } else if (item && typeof item === 'object') for (const [name, child] of Object.entries(item)) { scan(name); scan(child) }
-      }
-      scan(value)
-    } catch { throw new Error('lead-secret-refused') }
+    const revision = this.options.journal.state.seq, generation = this.#generation
+    if (!this.#publicKey || this.#publicKey.revision !== revision || this.#publicKey.generation !== generation) {
+      const resolved = (async () => {
+        try {
+          if (!(await this.options.broker.leadStatus('anthropic')).configured) return null
+          return await this.options.broker.resolveLead('anthropic')
+        } catch { throw publicRefusal('lead-protection-unavailable') }
+      })()
+      this.#publicKey = { revision, generation, value: resolved }
+    }
+    const key = await this.#publicKey.value
+    if (generation !== this.#generation) return this.assertPublic(value)
+    if (key && leadContainsSecret(value, key)) throw publicRefusal('lead-secret-refused')
   }
   status(provider: 'anthropic') { return this.options.broker.leadStatus(provider) }
   setEnabled(enabled: boolean): Promise<void> {
@@ -290,6 +304,7 @@ export class LeadService {
   #changeKey(provider: 'anthropic', write: () => Promise<unknown>, deleting = false): Promise<void> {
     if (provider !== 'anthropic') return Promise.reject(new Error('lead-provider-unsupported'))
     if (this.#closed) return Promise.reject(new Error('lead-closed'))
+    this.#publicKey = null
     ++this.#generation; ++this.#changingKeys
     return this.#queue(async () => {
       try {
@@ -303,7 +318,15 @@ export class LeadService {
       finally { --this.#changingKeys }
     })
   }
-  setKey(provider: 'anthropic', key: string): Promise<void> { return this.#changeKey(provider, () => this.options.broker.storeLead(provider, key)) }
+  setKey(provider: 'anthropic', key: string): Promise<void> {
+    const check = () => {
+      const state = this.options.journal.state
+      if (leadContainsSecret([state.messages, state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))], key))
+        throw publicRefusal('lead-secret-in-thread')
+    }
+    try { check() } catch (error) { return Promise.reject(error) }
+    return this.#changeKey(provider, async () => { check(); await this.options.broker.storeLead(provider, key) })
+  }
   deleteKey(provider: 'anthropic'): Promise<void> { return this.#changeKey(provider, () => this.options.broker.deleteLead(provider), true) }
   async recover(): Promise<void> {
     if (this.#supervisor.live) throw new Error('lead-child-live')
@@ -325,7 +348,7 @@ export class LeadService {
   }
   close(): Promise<void> {
     if (this.#closed) return this.#tail.then(() => {})
-    this.#closed = true; this.#enabled = false; ++this.#generation
+    this.#publicKey = null; this.#closed = true; this.#enabled = false; ++this.#generation
     return this.#queue(async () => {
       await this.#halt('lead-host-shutdown')
     })

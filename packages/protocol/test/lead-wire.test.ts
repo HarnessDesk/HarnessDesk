@@ -28,3 +28,10 @@ test('Lead controls reject open shapes, invalid fences and unbounded secret/text
   ]
   for (const [method, params] of bad) assert.throws(() => request(method, params), { name: 'ValidationError' }, method)
 })
+
+
+test('credential provider validation never echoes a key-shaped value', () => {
+  const secret = 'sk-ant-test-not-real-0000' // hd-secrets-ok: synthetic provider credential
+  assert.throws(() => request('lead/settings/update', { expectedRevision: 0, credential: { provider: secret, key: null } }), (error: any) =>
+    error.name === 'ValidationError' && !String(error).includes(secret))
+})

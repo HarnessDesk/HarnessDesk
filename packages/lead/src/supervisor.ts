@@ -3,7 +3,7 @@ import { connect, type Socket } from 'node:net'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, parseLeadCard,
-  type LeadBudgetEvent, type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy } from '@harnessdesk/protocol'
+  type LeadBudgetEvent, type LeadCard, type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy } from '@harnessdesk/protocol'
 import type { DeskPointer } from '@harnessdesk/client/node'
 import { parseLeadRunIdentity, type LeadJournal, type LeadDispatchResult } from './journal.js'
 import type { LeadPermissionCall } from './permissions.js'
@@ -14,12 +14,16 @@ import { LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMess
 
 export type { LeadChildBootstrap } from './child-ipc.js'
 import type { LeadChildBootstrap } from './child-ipc.js'
+/** Three 30-second transport attempts plus two bounded retry waits fit below this watchdog. */
+export const LEAD_SEND_DEADLINE_MS = 180_000
+
 export interface LeadSupervisorOptions {
   readonly bootstrap: (signal: AbortSignal) => Promise<LeadChildBootstrap>
   readonly journal: LeadJournal
   readonly resolveTool: (call: LeadPermissionCall) => Promise<LeadResolvedTool>
   readonly freezePlan: (contract: LeadAcceptanceContract) => Promise<LeadAcceptanceContract>
   readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence>
+  readonly admitCardOffer?: (card: LeadCard) => void
   readonly admitBudgetEvent?: (event: LeadBudgetEvent) => void
   readonly providerSend?: (requestId: string, body: string, signal: AbortSignal) => Promise<MessagesHttpResponse>
   /** Test seam for the host-owned, already-connected desk socket. */
@@ -276,7 +280,7 @@ export class LeadSupervisor {
           const card = parseLeadCard(args[0])
           // Only the loop's proposal/result cards, never a human permission or budget decision.
           if (!['plan', 'result', 'waiting'].includes(card.type)) throw error('protocol')
-          value = await durable(journal.offerCard(card)); break
+          value = await durable(journal.offerCard(card, this.options.admitCardOffer)); break
         }
         case 'restoreResult': {
           if (typeof args[1] !== 'number' || !Number.isSafeInteger(args[1]) || args[1] < 1) throw error('protocol')
@@ -289,7 +293,11 @@ export class LeadSupervisor {
           this.#reverse(running, { type: 'read', call })); break
       }
       if (!running.exited) write(running, { type: 'reply', id, ok: true, value: value ?? null, state: journal.state })
-    } catch {
+    } catch (failure) {
+      if (operation === 'offerCard' && (failure as { wireCode?: unknown })?.wireCode === 'lead-card-too-large') {
+        if (!running.exited) write(running, { type: 'reply', id, ok: false, value: 'lead-card-too-large', state: journal.state })
+        return
+      }
       // Treat malformed journal commands as a broken protocol, without returning
       // raw journal/provider errors or allowing a later message to overtake it.
       this.#protocolFailure(running)
@@ -320,12 +328,22 @@ export class LeadSupervisor {
     const running = this.#running
     if (!running || running.exited || this.#stopping) throw error('stopping')
     const id = ++running.id
-    return new Promise<LeadMessagesResult>((resolve, reject) => {
-      running.pending.set(id, { resolve: value => resolve(value as LeadMessagesResult), reject })
-      try { write(running, { type: 'request', id, input }) }
-      catch { running.pending.delete(id); reject(error('request-invalid')) }
-    })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await new Promise<LeadMessagesResult>((resolve, reject) => {
+        running.pending.set(id, { resolve: value => resolve(value as LeadMessagesResult), reject })
+        timer = setTimeout(() => {
+          running.reason = 'lead-send-deadline'
+          // Use the same kill/exit path as a wedged or invalid child. Reverse
+          // dispatches finish their uncertain records before recovery observes them.
+          this.#kill(running)
+        }, LEAD_SEND_DEADLINE_MS)
+        try { write(running, { type: 'request', id, input }) }
+        catch { running.pending.delete(id); reject(error('request-invalid')) }
+      })
+    } finally { if (timer) clearTimeout(timer) }
   }
+
   ownershipWithdrawn(runId: string): void {
     const running = this.#running
     if (running && !running.exited && running.ready) { try { write(running, { type: 'ownership-withdrawn', runId: ipcText(runId, 256) }) } catch { this.#protocolFailure(running) } }

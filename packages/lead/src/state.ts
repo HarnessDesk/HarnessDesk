@@ -3,6 +3,8 @@ import { applyLeadPolicyDecision, compareLeadPolicyAuthority } from './permissio
 import { parseLeadJournalRecord, parseLeadRunEvidence, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity } from './journal.js'
 import { reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
 
+export const LEAD_SEND_RECEIPTS = 4096
+
 export interface LeadAttemptState {
   readonly id: string; readonly correlationId: string; readonly method: string; readonly action: string | null
   readonly kind: 'read' | 'mutation' | 'invalid'; readonly stepId: string | null; readonly arguments: LeadArgumentSummary
@@ -84,12 +86,12 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'message': {
       ensure(event.message.revision === event.seq && event.message.id === `message-${event.seq}`)
       ensure(event.idempotencyKey === null ? event.message.role === 'assistant' : event.message.role === 'user' &&
-        !state.sends.some(send => send.key === event.idempotencyKey) && state.sends.length < 4096)
+        !state.sends.some(send => send.key === event.idempotencyKey))
       const all = [...state.messages, event.message], excess = Math.max(0, all.length - 256)
       const thread = windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project: null,
         messages: all.slice(excess), olderMessages: state.olderMessages + excess, cards: [] }, 131072)
       state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages,
-        sends: event.idempotencyKey === null ? state.sends : [...state.sends, { key: event.idempotencyKey, messageId: event.message.id, revision: event.seq }] }
+        sends: event.idempotencyKey === null ? state.sends : [...state.sends, { key: event.idempotencyKey, messageId: event.message.id, revision: event.seq }].slice(-LEAD_SEND_RECEIPTS) }
       break
     }
     case 'management':
@@ -177,7 +179,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         ensure(card!.contractDigest === state.contract?.digest)
         state = { ...state, phase: decision.choice === 'decline' ? 'declined' : card!.type === 'result' ? 'accepted' : 'running' }
       }
-      state = { ...state, decidedCards: [...state.decidedCards, cardKey(card!)] }
+      state = { ...state, decidedCards: [...state.decidedCards, cardKey(card!)],
+        cards: card!.type === 'permission-change' || card!.type === 'budget-change' ? state.cards.filter(other => other.id !== card!.id) : state.cards }
       break
     }
     case 'team-approved':

@@ -3705,3 +3705,30 @@ diagnostics for cleanup and still lists an entry with a usable copy elsewhere.
 Empty and whitespace-only definitions count as hollow. Descriptions in both
 list and matrix, and in the reading sheet, use sanitized markdown so backticks
 produce inline code.
+
+
+## Lead window controls have bounded consent, requests and retries — 2026-10-18
+
+Plan approval grants 24 hours of consent from the host clock. This bounds how long
+one person click can authorize paid work within the held policy and budget. The
+window projection carries the expiry and stops offering Resume after it lapses.
+Step 11 must provide a fresh plan decision to renew expired consent; renewal is
+an open UI item, and Resume cannot extend consent.
+
+Each window continuation requests at most 4,096 output tokens. This keeps the
+up-front reservation and one response bounded, including when a provider could
+accept a larger request. Budget admission still decides whether it fits.
+
+The journal retains the newest 4,096 send receipts in admission order. Recent
+retries return the first receipt without appending; an evicted key is a new send.
+Eviction is part of the reducer, so recovery preserves exactly the same window.
+
+A settings update changes exactly one category: credential, policy or budget
+caps. Each category has a separate revision fence and reviewable result; combining
+them would allow a credential write to succeed before another category refused.
+
+The supervisor gives a send a 180-second deadline. Three transport attempts of
+30 seconds and two retry waits of at most 30 seconds fit below it. On expiry the
+host kills the child through the existing exit path, records in-flight dispatches
+as uncertain and parks for a person instead of leaving controls behind a paid
+request. The short control journal queue never awaits that request.

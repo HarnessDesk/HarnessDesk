@@ -9,7 +9,7 @@ const settings = { version: 1, model: 'fixture-model', key: { configured: false,
   policy: { version: 1, revision: 1, mode: 'default', rules: [] }, caps: { usdMicros: 100, rounds: 3 } }
 const thread = (revision = 1, state = 'draft', cards: unknown[] = []) => ({ version: 1, id: 'lead', revision, state,
   project: null, olderMessages: 0, messages: [], cards })
-const projection = (revision: number, state = 'running', cards: unknown[] = []) => ({ version: 1, revision, thread: thread(revision, state, cards), settings, wayOut: state === 'stopped' ? null : cards.length ? 'decide-plan' : state === 'waiting-for-user' ? 'resume' : null })
+const projection = (revision: number, state = 'running', cards: unknown[] = []) => ({ version: 1, revision, thread: thread(revision, state, cards), settings, waitReason: state === 'waiting-for-user' ? 'lead-request-failed' : null, planConsentExpiresAt: null, wayOut: state === 'stopped' ? null : cards.length ? 'decide-plan' : state === 'waiting-for-user' ? 'resume' : null })
 
 describe('Lead state facade', () => {
   it('gates every operation on capability and has a typed caller for all six controls', async () => {
@@ -42,4 +42,36 @@ describe('Lead state facade', () => {
     facade.changed({ method: 'lead/changed', params: projection(5, 'stopped') })
     expect(facade.state.wayOut).toBe(null)
   })
+})
+
+
+it('returns one stable snapshot object per revision', async () => {
+  const { createLeadState } = await load()
+  const facade = createLeadState({ request: vi.fn() }, () => true)
+  expect(facade.state).toBe(facade.state)
+  facade.changed({ method: 'lead/changed', params: projection(2) })
+  const snapshot = facade.state
+  facade.changed({ method: 'lead/changed', params: projection(2) })
+  expect(facade.state).toBe(snapshot)
+  facade.changed({ method: 'lead/changed', params: projection(3) })
+  expect(facade.state).not.toBe(snapshot)
+})
+it('refuses settings update and resume locally before the first read', async () => {
+  const { createLeadState } = await load(), request = vi.fn()
+  const facade = createLeadState({ request }, () => true)
+  await expect(facade.updateSettings({ credential: { provider: 'anthropic', key: null } })).rejects.toMatchObject({ code: 'lead-unavailable' })
+  await expect(facade.resume()).rejects.toMatchObject({ code: 'lead-unavailable' })
+  expect(request).not.toHaveBeenCalled()
+})
+it('keeps a typed projection failure from changed notifications', async () => {
+  const { createLeadState } = await load()
+  const facade = createLeadState({ request: vi.fn() }, () => true)
+  facade.changed({ method: 'lead/changed', params: projection(2) })
+  facade.changed({ method: 'lead/changed', params: { version: 1, revision: 3, error: 'lead-projection-failed' } })
+  expect(facade.state.error).toBe('lead-projection-failed')
+  expect(facade.state.wayOut).toBe(null)
+  facade.changed({ method: 'lead/changed', params: projection(2) })
+  expect(facade.state.error).toBe('lead-projection-failed')
+  facade.changed({ method: 'lead/changed', params: projection(4) })
+  expect(facade.state.error).toBe(null)
 })

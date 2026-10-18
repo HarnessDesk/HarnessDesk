@@ -1,4 +1,4 @@
-import type { LeadCardDecision, LeadWindowProjection, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt } from './lead.js'
+import type { LeadCardDecision, LeadWindowProjection, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
@@ -2808,7 +2808,7 @@ export interface SeatActivity {
 }
 
 export type WireNotification =
-  | { readonly method: 'lead/changed'; readonly params: LeadWindowProjection }
+  | { readonly method: 'lead/changed'; readonly params: LeadChanged }
   | { method: 'storage/usageChanged'; params: StorageUsage }
   | { readonly method: 'seat/activity'; readonly params: SeatActivity }
   | { method: 'goal/changed'; params: { view: GoalView } }

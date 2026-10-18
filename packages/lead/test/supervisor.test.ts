@@ -631,3 +631,42 @@ test('a framed child click terminates its synthetic pid without invoking a journ
     assert.equal(f.records.some(record => record.type === 'card-decision'), false)
   }
 })
+
+
+test('send deadline is 180 seconds above the 30-second transport total and kills uncertain attempts', async t => {
+  const moduleValue: any = await module()
+  assert.equal(moduleValue.LEAD_SEND_DEADLINE_MS, 180000)
+  const f = await dispatchFixture({ onExit: async (reason: string) => {
+    assert.equal(reason, 'lead-send-deadline')
+    await f.journal.setManagementPhase('waiting-for-user', 'lead-send-deadline')
+  } })
+  await f.supervisor.ensure()
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const sent = f.supervisor.send(request)
+  const rejected = assert.rejects(sent, /send-deadline/)
+  await f.dispatch
+  t.mock.timers.tick(180000)
+  await rejected
+  await f.supervisor.stop()
+  assert.equal(f.journal.state.attempts.get('child-attempt')?.outcome, 'uncertain')
+  assert.equal(f.supervisor.live, false)
+  assert.equal(f.journal.state.phase, 'waiting-for-user')
+})
+test('card admission refusal is an RPC refusal without killing the child or appending the card', async () => {
+  const { contract } = await import('./fixtures/loop.js')
+  let reply!: (value: any) => void
+  const replied = new Promise<any>(resolve => { reply = resolve })
+  const child = fake((message, child) => {
+    if (message.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+    if (message.type === 'request') child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'offerCard', args: [{ version: 1, id: 'large', revision: 1, type: 'plan', contractDigest: contract.digest, contract }] }))
+    if (message.type === 'reply') reply(message)
+    if (message.type === 'shutdown') child.kill()
+  })
+  const f = await fixture({ spawn: () => child, admitCardOffer: () => { throw Object.assign(new Error('lead-card-too-large'), { wireCode: 'lead-card-too-large' }) } })
+  const sent = f.supervisor.send(request).catch(() => {})
+  try {
+    const response = await replied
+    assert.equal(response.ok, false); assert.equal(response.value, 'lead-card-too-large')
+    assert.equal(f.supervisor.live, true); assert.equal(f.journal.state.cards.length, 0)
+  } finally { await f.supervisor.stop(); await sent }
+})
