@@ -273,6 +273,72 @@ for (const present of [false, true]) {
   })
 }
 
+test("a bridge whose required CLI the host rejected is not reported as simply missing", async (t) => {
+  const dir = await folder(t)
+  const cli = join(dir, 'hd-required-cli')
+  await writeFile(cli, '#!/bin/sh\nexit 91\n', { mode: 0o755 })
+  const runtime = new AcpRuntime({
+    id: 'fake-acp', name: 'Fake Agent', command: process.execPath, args: [FAKE],
+    cliRequired: true,
+    executable: { command: 'hd-required-cli', env: 'HD_REQUIRED_CLI' },
+    // The host's resolver answers null for a copy below the version floor
+    // exactly as for an absent one; discovery must not claim which it was.
+    resolveExecutable: async () => null,
+  })
+  t.after(() => runtime.dispose())
+
+  await discover(runtime)
+
+  const health = runtime.health()
+  assert.equal(health.state === 'unavailable' && health.reason, 'notInstalled')
+  const message = health.state === 'unavailable' ? health.message : ''
+  assert.match(message, /hd-required-cli/)
+  assert.match(message, /missing or not a usable version/)
+  assert.doesNotMatch(message, /could not be found/)
+})
+
+test("a package-runner row whose runner is missing names the runner, not the agent's install command", async (t) => {
+  const dir = await folder(t)
+  const runtime = new AcpRuntime({
+    id: 'fake-acp', name: 'Fake Agent', command: 'npx', args: ['-y', 'fake-agent'],
+    env: { PATH: dir },
+    installCommand: 'npm install -g fake-agent',
+  })
+  t.after(() => runtime.dispose())
+
+  await discover(runtime)
+
+  const health = runtime.health()
+  assert.equal(health.state, 'unavailable')
+  assert.equal(health.state === 'unavailable' && health.reason, 'notInstalled')
+  const message = health.state === 'unavailable' ? health.message : ''
+  assert.match(message, /npx/)
+  assert.match(message, /Node\.js/)
+  const remediation = health.state === 'unavailable' && health.remediation ? health.remediation : ''
+  assert.match(remediation, /Node\.js/, 'the way forward is the runner, not the agent')
+  assert.doesNotMatch(remediation, /fake-agent/)
+})
+
+test("a uvx row whose runner is missing names uv", async (t) => {
+  const dir = await folder(t)
+  const runtime = new AcpRuntime({
+    id: 'fake-acp', name: 'Fake Agent', command: 'uvx', args: ['fake-agent'],
+    env: { PATH: dir },
+    installCommand: 'pip install fake-agent',
+  })
+  t.after(() => runtime.dispose())
+
+  await discover(runtime)
+
+  const health = runtime.health()
+  const message = health.state === 'unavailable' ? health.message : ''
+  assert.match(message, /uvx/)
+  assert.match(message, /(?<!\w)uv(?!\w)/)
+  const remediation = health.state === 'unavailable' && health.remediation ? health.remediation : ''
+  assert.match(remediation, /(?<!\w)uv(?!\w)/)
+  assert.doesNotMatch(remediation, /fake-agent/)
+})
+
 test('a bridge with an embedded CLI stays idle without resolving an optional executable', async (t) => {
   const runtime = new AcpRuntime({
     id: 'fake-acp', name: 'Fake Agent', command: process.execPath,

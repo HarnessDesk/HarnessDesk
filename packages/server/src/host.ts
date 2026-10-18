@@ -2814,6 +2814,7 @@ export class Host {
       const discovery = this.#discoveringRuntimes.get(id)
       if (discovery) await discovery
       if (this.#disposed || this.#runtimes.get(id) !== runtime) return
+      // A runtime replaced during the wait is skipped: the replacement starts with the new PATH anyway.
       // A start in flight is judged once it settles, and `#startOne` is the wait: its own start, up to its deadline.
       if (this.#startingRuntimes.has(id)) await this.#startOne(runtime)
       // Still going after the deadline: left alone. Asking joins it, so there is nothing to ask.

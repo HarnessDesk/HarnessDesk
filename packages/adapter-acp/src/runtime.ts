@@ -1790,11 +1790,31 @@ export class AcpRuntime implements AgentRuntime {
         // ACP has no general version command. The shared PATH walk checks
         // file type and executability without launching an ACP session.
         if (!whichOnPath(command, { env })) {
+          // A package-runner row runs the agent's package through a runner
+          // that fetches the package itself on first start, so when the
+          // runner is what is missing, the agent's install command would
+          // install something nothing can run. Name the runner and what
+          // provides it instead. The names live in a table, not in the
+          // message string, so a runner joins by data rather than by
+          // editing a sentence (rule 8 — adapter text may name programs).
+          const runner = cliName(command)
+          const provider = Object.hasOwn(PACKAGE_RUNNERS, runner) ? PACKAGE_RUNNERS[runner] : undefined
+          if (provider) {
+            return {
+              state: 'unavailable',
+              reason: 'notInstalled',
+              message: `${this.#config.name} needs ${command} (${provider}), which could not be found or executed.`,
+              remediation: `Install ${provider}, which provides ${command}.`,
+            }
+          }
           return this.#programFailure(`${this.#config.name}'s program could not be found or executed: ${command}.`)
         }
         const spec = this.#config.executable
         if (this.#config.cliRequired && spec && !(await this.#resolveExecutable(spec))) {
-          return this.#programFailure(`${this.#config.name}'s required CLI could not be found or executed: ${spec.command}.`)
+          // The resolver answers null for a copy below the version floor as
+          // well as for an absent one, so the message may not claim which:
+          // "missing" alone reads an installed-but-too-old CLI as absent.
+          return this.#programFailure(`${this.#config.name}'s required CLI is missing or not a usable version: ${spec.command}.`)
         }
         return null
       }
@@ -3843,6 +3863,17 @@ const ACP_METHOD = 'acp:'
 /** A command's name without its folder or a Windows launcher's extension, as the host's `commandName` reads it: `/opt/bin/claude` and `claude.cmd` are both `claude`. */
 const cliName = (command: string): string =>
   basename(command.replaceAll('\\', '/')).replace(/\.(?:exe|cmd|bat|com)$/i, '').toLowerCase()
+
+/**
+ * The package runners a registry-written row may name, and the install that
+ * provides each. A runner fetches the agent's package on first start, so
+ * when the runner itself is not found, the way forward is the provider's
+ * install, not the agent's.
+ */
+const PACKAGE_RUNNERS: Readonly<Record<string, string>> = {
+  npx: 'Node.js',
+  uvx: 'uv',
+}
 /** Said when the key an agent was told to use is taken away (`#authenticateWithStoredKey`). */
 const KEY_REMOVED = 'Its key was removed. Sign in again, or store a key.'
 
