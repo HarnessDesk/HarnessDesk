@@ -321,16 +321,20 @@ export const createDefaultHost = (
   const accounts: AccountFactory = {
     canAdd: (info) => isCodex(info) || acpAccounts.canAdd(info.id),
     slotOf: (info) => {
-      if (!isCodex(info)) return acpAccounts.slotOf(info.id)
+      if (!isCodex(info)) {
+        const slot = acpAccounts.slotOf(info.id)
+        return slot ? { ...slot, asksName: true, ownSessions: true } : null
+      }
       const slot = slots.find(info.id)
       return slot
         ? {
             agent: slot.agent,
             home: slot.home,
             removable: true,
+            gateways: true,
             ...(slot.gateway ? { gateway: { ...slot.gateway } } : {}),
           }
-        : { agent: CODEX_RUNTIME_ID, home: codexHome, removable: false }
+        : { agent: CODEX_RUNTIME_ID, home: codexHome, removable: false, gateways: true }
     },
     add: async (info, gateway, name) => {
       // An ACP agent has no gateway story: an account of one is a signed-in

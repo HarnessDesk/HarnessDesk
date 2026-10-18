@@ -6,7 +6,7 @@ import { EditorModeSelection, editorModeFixture, installEditorModeFixture, type 
 import { installExplorerFixture } from './editor-explorer-fixture'
 import { PREVIEW_FINDINGS } from './findings-fixture'
 import { dashboardDestinationStore } from './dashboard-destination-fixture'
-import { agentsDestinationStore } from './agents-destination-fixture'
+import { AccountNamingFrame, agentsDestinationStore } from './agents-destination-fixture'
 import { pluginsDestinationStore } from './plugins-destination-fixture'
 import { reviewPageStore, type ReviewScene } from './review-page-fixture'
 import { signInSeed } from './signin-fixture'
@@ -904,6 +904,6 @@ export const FrameWall = () => {
   }, [store,destination])
   if (requested === 'topbar') return <TopBarProbe />
   return <StoreProvider store={store}>
-    <div data-frame-id="frame-wall" data-destination={destination} className="h-screen min-h-0 overflow-hidden bg-background"><App/><LibraryWriteToastFixture shape={new URLSearchParams(location.search).get('frame-write-toast')} /><PopupWall/><EditorModeSelection/></div>
+    <div data-frame-id="frame-wall" data-destination={destination} className="h-screen min-h-0 overflow-hidden bg-background"><App/><AccountNamingFrame/><LibraryWriteToastFixture shape={new URLSearchParams(location.search).get('frame-write-toast')} /><PopupWall/><EditorModeSelection/></div>
   </StoreProvider>
 }

@@ -594,6 +594,12 @@ export interface AccountFactory {
     agent: RuntimeId
     home: string | null
     removable: boolean
+    /** The person names an account whose credential cannot name it. */
+    asksName?: true
+    /** Each account keeps its own folder and conversations. */
+    ownSessions?: true
+    /** The agent can also run an account against the person’s own endpoint. */
+    gateways?: true
     /** Present when this account pays through an endpoint of the user's own. */
     gateway?: { name: string; endpoint: string; credentialRef: string }
   } | null
@@ -8633,6 +8639,9 @@ export class Host {
               home: slot.home,
               removable: slot.removable,
               canAdd: accounts?.canAdd(runtime.info) ?? false,
+              ...(slot.asksName ? { asksName: true as const } : {}),
+              ...(slot.ownSessions ? { ownSessions: true as const } : {}),
+              ...(slot.gateways ? { gateways: true as const } : {}),
               ...(slot.gateway
                 ? { gateway: { name: slot.gateway.name, endpoint: slot.gateway.endpoint } }
                 : {}),
