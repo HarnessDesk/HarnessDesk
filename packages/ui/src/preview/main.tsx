@@ -22,6 +22,7 @@ import { TeamStartFrames } from './frames-team-start'
 import { RaceEntryFrames } from './frames-race-entry'
 import { OptionalJudgeFrame } from './frames-optional-judge'
 import { ReleaseStills } from './release-stills'
+import { ReadmeRace } from './readme-race'
 import { TeamFrame } from './frames-team-frame'
 import { FrameWall } from './frames-frame-wall'
 import { RunDockFrame } from './frames-run-dock'
@@ -1317,6 +1318,8 @@ createRoot(container).render(
           ? <FlowCanvasFrames />
           : new URLSearchParams(window.location.search).has('release-stills')
           ? <ReleaseStills />
+          : new URLSearchParams(window.location.search).has('readme-race')
+          ? <ReadmeRace />
           : new URLSearchParams(window.location.search).has('site-run')
           ? <SiteRunPreview />
           : new URLSearchParams(window.location.search).has('finished-board')
