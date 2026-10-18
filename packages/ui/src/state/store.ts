@@ -1880,9 +1880,9 @@ export class AppStore {
    * empty account to retry — not a first account quietly overwritten, which is
    * what a single "sign in again" used to do.
    */
-  async addAccount(runtime: RuntimeId): Promise<RuntimeId | null> {
+  async addAccount(runtime: RuntimeId, name?: string): Promise<RuntimeId | null> {
     try {
-      const { runtime: added } = await this.transport.request('runtime/account/add', { runtime })
+      const { runtime: added } = await this.transport.request('runtime/account/add', { runtime, ...(name?.trim() ? { name: name.trim() } : {}) })
       await this.loadAccounts()
       return added
     } catch (error) {

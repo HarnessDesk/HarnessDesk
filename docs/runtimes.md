@@ -667,10 +667,12 @@ keychain and into a file, and `GEMINI_HOME=<stateDir>/accounts/<row id>`, a
 folder only that row uses (measured with two Google accounts on 2026-10-17).
 Its conversations are its own, in `conversations/` under that folder, rather
 than shared the way a Codex account's are — the trade the keychain forces.
-The row is called **Antigravity 2**, **Antigravity 3** and so on; the desk
-cannot read which Google account it is signed in to. The add method also
-takes a name, for a UI that asks for one; the current UI uses the numbered
-default. A supplied name is trimmed and capped at 80 characters; a blank
+The desk cannot read which Google account the row is signed in to, so
+Settings and Sign in ask you to name it when you add it, for example “Work”.
+An empty field uses **Antigravity 2**, **Antigravity 3** and so on. The account
+factory declares `slot.asksName` and `slot.ownSessions`; the UI follows those
+facts for naming and folder copy. A supplied name is trimmed and capped at
+80 characters; a blank
 name uses the next number. The agent's original row is untouched: it keeps
 the keychain and the default home. Removing an extra account asks it to sign
 out, unregisters the row, and then moves its folder to the **Trash** — never

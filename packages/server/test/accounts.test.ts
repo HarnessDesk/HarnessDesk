@@ -373,6 +373,8 @@ const hostWithAccounts = async (options: {
   readonly ownName?: string
   /** The agent holds one account and no more. */
   readonly single?: boolean
+  /** Facts declared by an account factory, independent of agent identity. */
+  readonly namedAccounts?: boolean
   /** Handed to the host, so a test can drive the registry's own verbs. */
   readonly agents?: AgentDirectory
 } = {}): Promise<{
@@ -403,9 +405,10 @@ const hostWithAccounts = async (options: {
             agent: slot.agent,
             home: slot.home,
             removable: true,
+            ...(options.namedAccounts ? { asksName: true as const, ownSessions: true as const } : {}),
             ...(slot.gateway ? { gateway: { ...slot.gateway } } : {}),
           }
-        : { agent: FAKE_RUNTIME_ID, home: primary, removable: false }
+        : { agent: FAKE_RUNTIME_ID, home: primary, removable: false, ...(options.namedAccounts ? { asksName: true as const, ownSessions: true as const } : {}) }
     },
     add: async (info: RuntimeInfo, gateway, name): Promise<AgentRuntime> => {
       names.push(name)
@@ -477,6 +480,25 @@ test('adding an account registers a second runtime and tells every client', asyn
   const after = host.syncPayload().params.runtimes.map((info) => info.id)
   assert.deepEqual([...after].sort(), [FAKE_RUNTIME_ID, added.runtime].sort())
 })
+
+for (const namedAccounts of [true, false]) {
+  test(`account naming and session facts reach clients only when declared (${namedAccounts})`, async (t) => {
+    const { host, stateDir } = await hostWithAccounts({ namedAccounts })
+    t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+    const check = (info: RuntimeInfo) => {
+      assert.equal(info.slot?.asksName, namedAccounts ? true : undefined)
+      assert.equal(info.slot?.ownSessions, namedAccounts ? true : undefined)
+      if (!namedAccounts) {
+        assert.equal(Object.hasOwn(info.slot!, 'asksName'), false)
+        assert.equal(Object.hasOwn(info.slot!, 'ownSessions'), false)
+      }
+    }
+    check(host.syncPayload().params.runtimes[0]!)
+    const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+    check(added.info)
+    for (const info of host.syncPayload().params.runtimes) check(info)
+  })
+}
 
 test('the name a person gives an account reaches the factory', async (t) => {
   // Some agents cannot be named from their credential — the desk can read

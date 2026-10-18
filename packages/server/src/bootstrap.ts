@@ -321,7 +321,10 @@ export const createDefaultHost = (
   const accounts: AccountFactory = {
     canAdd: (info) => isCodex(info) || acpAccounts.canAdd(info.id),
     slotOf: (info) => {
-      if (!isCodex(info)) return acpAccounts.slotOf(info.id)
+      if (!isCodex(info)) {
+        const slot = acpAccounts.slotOf(info.id)
+        return slot ? { ...slot, asksName: true, ownSessions: true } : null
+      }
       const slot = slots.find(info.id)
       return slot
         ? {

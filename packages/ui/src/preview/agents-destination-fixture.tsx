@@ -1,6 +1,8 @@
-import { DEFAULT_TRIGGER_BUDGET, type HostMethodName, type HostParams, type TriggerDefinition } from '@harnessdesk/protocol'
+import { useState } from 'react'
+import { AccountNameDialog } from '../components/AccountNameDialog'
+import { DEFAULT_TRIGGER_BUDGET, runtimeId, type HostMethodName, type HostParams, type TriggerDefinition } from '@harnessdesk/protocol'
 import { App } from '../app/App'
-import { StoreProvider } from '../state/context'
+import { StoreProvider, useSnapshot } from '../state/context'
 import { emptyWorkbench } from '../state/workbench'
 import { AppStore } from '../state/store'
 import { frameDestinationStore } from './frame-destination-store'
@@ -14,6 +16,23 @@ export const agentsDestinationStore = (query: URLSearchParams): AppStore => {
   const fixture = previewStore()
   const snapshot = fixture.getSnapshot()
   const storefront = '/work/storefront'
+  // Public account frames use only this synthetic row and placeholder identity.
+  const accountFrame = query.get('frame-account-name')
+  const primary = snapshot.runtimes[0]!
+  if (accountFrame === 'dialog' || accountFrame === 'named') {
+    const info = { ...primary, capabilities: { ...primary.capabilities, account: true }, name: 'Antigravity', presentation: { name: 'Antigravity', brand: 'antigravity' },
+      slot: { agent: primary.id, home: null, removable: false, canAdd: true, asksName: true as const, ownSessions: true as const } }
+    const extra = { ...info, id: runtimeId('fixture-account-work'), name: 'Work', presentation: { ...info.presentation, name: 'Work' },
+      slot: { ...info.slot, home: '/work/fixture/accounts/work', removable: true } }
+    const connected = { accounts: [{ kind: 'agent', label: 'Google account', anonymous: true }],
+      signInMethods: [{ id: 'google', label: 'Sign in with Google', flow: 'browser' as const }] }
+    Object.assign(snapshot, {
+      runtimes: [info, ...(accountFrame === 'named' ? [extra] : []), ...snapshot.runtimes.slice(1)],
+      accountsByRuntime: { ...snapshot.accountsByRuntime, [info.id]: connected,
+        ...(accountFrame === 'named' ? { [extra.id]: connected } : {}) },
+      usage: snapshot.usage.filter(report => report.runtime !== info.id),
+    })
+  }
   Object.assign(snapshot, {
     workspace: snapshot.workspace ? { ...snapshot.workspace, path: storefront, checkoutRoot: storefront, name: 'storefront' } : null,
     agentsProject: storefront,
@@ -130,7 +149,9 @@ export const agentsDestinationStore = (query: URLSearchParams): AppStore => {
     return request(method, params as never)
   }) as typeof store.transport.request
   const selected = query.get('frame-agent-case')
-  const route = selected === 'missing' ? { kind: 'agents' as const, id: 'missing-agent' }
+  const route = accountFrame === 'dialog' || accountFrame === 'named'
+    ? { kind: 'settings' as const, route: { kind: 'runtime' as const, runtime: primary.id } }
+    : selected === 'missing' ? { kind: 'agents' as const, id: 'missing-agent' }
     : selected === 'parse' ? { kind: 'agents' as const, id: 'draft' }
     : selected === 'refused' ? { kind: 'agents' as const, id: 'code-reviewer' }
     : selected === 'release-checker' ? { kind: 'agents' as const, id: 'release-checker' }
@@ -142,3 +163,12 @@ export const agentsDestinationStore = (query: URLSearchParams): AppStore => {
 
 export const AgentsDestinationFixture = ({ store }: { readonly store: AppStore }) =>
   <StoreProvider store={store}><App /></StoreProvider>
+
+/** A recorded dialog state, using the same question the two Add buttons open. */
+export const AccountNamingFrame = () => {
+  const snapshot = useSnapshot()
+  const [open, setOpen] = useState(true)
+  if (!open || new URLSearchParams(location.search).get('frame-account-name') !== 'dialog') return null
+  return <AccountNameDialog info={snapshot.runtimes[0]!} adding={false}
+    onAdd={async () => setOpen(false)} onClose={() => setOpen(false)} />
+}

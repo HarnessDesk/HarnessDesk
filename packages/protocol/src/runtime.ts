@@ -574,6 +574,10 @@ export interface RuntimeInfo {
     readonly removable: boolean
     /** Whether the host can make one more account of this agent. */
     readonly canAdd: boolean
+    /** The credential cannot name this account, so the person names it when adding it. */
+    readonly asksName?: true
+    /** This account keeps its own folder and conversations, separate from its peers. */
+    readonly ownSessions?: true
     /**
      * Set when this account reaches the model through an endpoint of the
      * user's own — an API key or a gateway — rather than the vendor plan the
