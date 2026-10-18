@@ -1729,13 +1729,13 @@ filter uses the Teams' existing project data.
 
 ### A Team's Overview
 
-Every Team destination shares one 48px bar: the title, state, segmented page
-tabs, then the participants and tools. Counts stay beside their tab names.
-When the measured space cannot keep the labels and roughly twelve title
-characters, the tabs become icons with count badges; their tooltips and
-accessible names keep the full name and count. Growing the pane restores the
-labels. The title gives up its remaining width before the icons and tools do.
-Arrow keys move focus through the tabs, including Side by side.
+Every Team destination shares one top bar for its title, state, participants
+and tools. The page tabs sit just below it, with the reading column's inline
+gutter and one small spacing step above and below. Counts stay beside their
+tab names. View and any current action share the tabs' line on the right;
+in a narrow pane the tabs scroll horizontally while those controls stay on
+the line. Arrow keys move focus through the page tabs. Chat's View menu
+chooses Thread or Side by side.
 
 Overview is the Team's first page tab and opens by default when the
 Team has a Run or is ready to wrap; a Team with neither opens on Chat. Its Run strip keeps the live line: who is working, what

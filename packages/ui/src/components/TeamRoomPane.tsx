@@ -126,7 +126,7 @@ import {
   MenuItem,
   MenuToggle,
   Note,
-  PaneColumn,
+  PaneColumn, PaneTabsRow,
   PaneSurface,
   Popover,
   ProgressRing,
@@ -160,11 +160,11 @@ const AT_THE_FLOOR = { rows: 0, onlyMessages: true } as const
 
 /**
  * A Team has one content column. Section tabs choose the page; the bar's
- * layout toggle shows Seat conversations side by side. Membership controls
+ * Chat View shows Seat conversations side by side. Membership controls
  * live in persistent Details, alongside the unchanged sidebar's Seats.
  */
 
-/** Every Team destination shares one measured title, tabs and tools row. */
+/** Team destinations share the compact body strip below the title and tools. */
 const TeamViewTab = ({tab}:{tab:TopBarTab}) => {
   const reason=useId()
   const trigger=<TabsTrigger value={tab.value} data-team-page={tab.value} count={tab.count} disabled={Boolean(tab.disabled)}
@@ -1194,12 +1194,11 @@ export const TeamRoomPane = ({
         <Button disabled={!rename.trim()} onClick={() => void renameSubject()}>Rename</Button><Button variant="quiet" onClick={() => setRenaming(false)}>Cancel</Button>
       </>}><FormStack><Field label="Brief">{control => <Input {...control} value={rename} onChange={event => setRename(event.target.value)} autoFocus
         onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void renameSubject() } }} />}</Field></FormStack>{renameError && <ActionError>{renameError}</ActionError>}</Dialog>}
-      <PaneColumn inset="reading" page>
+      <PaneTabsRow controls={<WorkViewControlsOutlet owner={mainOwner} />}>
         <Tabs value={open === 'side-by-side' || singleMember ? 'room' : open}>
           <TabsList aria-label="Team views" data-look="quiet" className="max-w-full justify-start overflow-x-auto">{teamTabs.map(tab => <TeamViewTab key={tab.value} tab={tab}/>)}</TabsList>
         </Tabs>
-        <WorkViewControlsOutlet owner={mainOwner} />
-      </PaneColumn>
+      </PaneTabsRow>
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
       {stoppingRun && stoppingExecution?.goal === room ? <StopRunDialog key={stoppingRun} seats={stopSeats}

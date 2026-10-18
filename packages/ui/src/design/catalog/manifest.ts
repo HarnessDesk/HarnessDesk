@@ -734,7 +734,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'PageRecords': ['PageRecordViews', 'PageRecords'],
   'TeamsBoard': ['TeamsBoard','TeamsBoardColumn','TeamsBoardCard','TeamsBoardToolbar','TeamsBoardWrapped'],
   'BoardCard': ['BoardCard', 'BoardCardGrid'],
-  'PaneColumn': ['PaneColumn', 'ReadingMeasure', 'useComposerHeightVar'],
+  'PaneColumn': ['PaneColumn', 'PaneTabsRow', 'ReadingMeasure', 'useComposerHeightVar'],
   'PlanCard': ['PlanCard'],
   'Popover': ['Popover', 'PopoverGroupLabel', 'PopoverSurface', 'dismissOverlays', 'useDismissOverlays', 'useEscapeSurface'],
   'PublicationCard': ['KindGlyph', 'StatePill', 'publicationVerb', 'stateTone'],

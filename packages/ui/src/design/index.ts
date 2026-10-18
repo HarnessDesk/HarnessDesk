@@ -156,7 +156,7 @@ export {
   TurnWorkLive,
   type TurnWorkState,
 } from './patterns/TurnWork'
-export { PaneColumn, ReadingMeasure, useComposerHeightVar, type PaneColumnProps, type PaneColumnInset } from './patterns/PaneColumn'
+export { PaneColumn, PaneTabsRow, ReadingMeasure, useComposerHeightVar, type PaneColumnProps, type PaneColumnInset } from './patterns/PaneColumn'
 export { ComposerTrack, type ComposerTrackName } from './patterns/ComposerTrack'
 export {
   ApprovalChoiceHint,

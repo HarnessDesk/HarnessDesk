@@ -198,8 +198,10 @@ for (const theme of ['light', 'dark'] as const) {
       await selectTeamPage(team, name)
       const header = teamBar(team)
       const bar = (await header.locator('..').boundingBox())!
-      const box = (await team.locator('[data-team-page="overview"]:visible').boundingBox())!
-      expect(box.y - bar.y - bar.height, name).toBe(FRAME.page.gutter)
+      const tab = team.locator('[data-team-page="overview"]:visible')
+      const box = (await tab.boundingBox())!
+      const step = await tab.evaluate(node => parseFloat(getComputedStyle(node).getPropertyValue('--hd-space-2')))
+      expect(box.y - bar.y - bar.height, name).toBe(step)
       await expect(header.getByRole('tab')).toHaveCount(0)
 
 

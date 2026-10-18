@@ -24,6 +24,7 @@ sign-ins elsewhere report it quietly and correctly.
 - **Agents nobody has asked yet say "Not checked yet"** instead of "needs no account here", and are listed as Ready. Antigravity's Gemini API key is a key field the agent switches to, and its Agent Platform method shows the setup step it needs instead of a button that could only fail.
 - **Skills are cards under filter chips.** The Library's skills page is now a grid of cards with filter chips (All, Needs you, One runtime, Nobody) and an Add skill menu; the problems stay on the card, and the list view is replaced by cards and the matrix.
 - **Side by side browser tiles reach the bottom** behind the floating shared composer and comparison decision card, like conversation tiles, with no surrounding fade; gaps between and beside the cards pass clicks through.
+- **Team tabs sit close under the top bar**, with View on the same line and less space before the tiles; narrow panes scroll the tabs while keeping View in place.
 
 ## 0.5.1 — 2026-10-17
 

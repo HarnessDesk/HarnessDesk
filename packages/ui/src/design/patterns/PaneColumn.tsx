@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, type ComponentProps, type RefObject } from 'react'
+import { forwardRef, useEffect, useRef, type ComponentProps, type RefObject, type ReactNode } from 'react'
 
 /**
  * The inline and bottom inset a scrolling pane's own reading column keeps —
@@ -102,6 +102,15 @@ export const PaneColumn = forwardRef<HTMLDivElement, PaneColumnProps>(
   ),
 )
 PaneColumn.displayName = 'PaneColumn'
+
+/** Tabs under a pane's top bar keep the reading gutter and a small vertical
+ * step. Tabs yield and scroll; trailing view controls stay on the tabs' row. */
+export const PaneTabsRow = ({ children, controls }: { readonly children: ReactNode; readonly controls?: ReactNode }) => (
+  <PaneColumn inset="reading" className="flex shrink-0 items-start gap-2" data-pane-tabs-row="">
+    <div className="min-w-0 flex-1">{children}</div>
+    {controls != null && <div className="shrink-0">{controls}</div>}
+  </PaneColumn>
+)
 
 /**
  * The transcript's composer floats over its own scrolling column, so the
