@@ -21,16 +21,16 @@ export const STILL_LIBRARY: Library = {
 export const STILL_PLUGINS: PluginInstance[] = [
   { id: 'project-docs', name: 'Project docs', description: 'Find reference material for the open project.',
     permissions: { ...NO_PERMISSIONS, workspace: { read: true, write: false }, network: { hosts: ['docs.acme.dev'] } },
-    tools: ['Read project reference files.', 'Find documentation on docs.acme.dev.'] },
+    tools: [['read_reference', 'Read project reference files.'], ['find_docs', 'Find documentation on docs.acme.dev.']] },
   { id: 'project-checks', name: 'Project checks', description: 'Run the project’s checks and report their results.',
-    permissions: { ...NO_PERMISSIONS, workspace: { read: true, write: false }, shell: true }, tools: ['Run the project checks.'] },
+    permissions: { ...NO_PERMISSIONS, workspace: { read: true, write: false }, shell: true }, tools: [['run_checks', 'Run the project checks.']] },
   { id: 'release-notes', name: 'Release notes', description: 'Gather changes for the next release.',
-    permissions: { ...NO_PERMISSIONS, workspace: { read: true, write: false } }, tools: ['Read the release summary.'] },
+    permissions: { ...NO_PERMISSIONS, workspace: { read: true, write: false } }, tools: [['read_summary', 'Read the release summary.']] },
 ].map(({ id, name, description, permissions, tools }) => ({
   instanceId: pluginInstanceId(id), identity: { id, name, description, version: '1.0.0', source: { kind: 'npm', specifier: `@acme/${id}` } },
   state: { type: 'active' }, revision: 1, permissions, injects: [], provides: [], enabled: true,
-  contributions: tools.map((description, index) => ({ id: contributionId(`${id}/${index}`), owner: pluginInstanceId(id), revision: 1,
-    scope: { kind: 'global' }, kind: 'tool', namespace: id, name: `read_${index}`, description, inputSchema: {} })),
+  contributions: tools.map(([tool, description]) => ({ id: contributionId(`${id}/${tool}`), owner: pluginInstanceId(id), revision: 1,
+    scope: { kind: 'global' }, kind: 'tool', namespace: id, name: tool!, description: description!, inputSchema: {} })),
 }))
 
 /** Runtime-authored presentation stand-ins for the public race's two providers. */
