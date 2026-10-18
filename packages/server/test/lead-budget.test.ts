@@ -202,6 +202,37 @@ test('host retries failed cleanup on its scheduler without child tools or manual
   assert.equal(s.rig.events.filter(event => event.startsWith('open:') || event.startsWith('order:')).length, before)
 })
 
+test('unregister cancels a pending cleanup retry', async t => {
+  const s = await leadRig(t)
+  await s.start()
+  const scheduled = new Map<number, () => void>()
+  let next = 0, stops = 0
+  Object.assign(s.budgets.port, { schedule: (callback: () => void) => {
+    const id = ++next; scheduled.set(id, callback)
+    return () => { scheduled.delete(id) }
+  } })
+  const stop = s.budgets.port.stop
+  t.mock.method(s.budgets.port, 'stop', async (run: string, reason: string) => {
+    if (++stops === 1) throw new Error('synthetic cleanup failure')
+    return stop(run, reason)
+  })
+  const cleanup = t.mock.method(s.budgets, 'cleanup')
+  await s.journal.updateBudget({ version: 1, type: 'stop', now: 100, reason: 'budget' })
+  await s.budgets.idle()
+  assert.equal(cleanup.mock.callCount(), 1)
+  assert.equal(stops, 1)
+  assert.ok(s.journal.state.stopEffectsPending)
+  assert.equal(scheduled.size, 1)
+  s.unregister()
+  assert.equal(scheduled.size, 0)
+  for (const [id, retry] of [...scheduled]) {
+    scheduled.delete(id); retry()
+  }
+  await s.budgets.idle()
+  assert.equal(cleanup.mock.callCount(), 1)
+  assert.equal(stops, 1)
+})
+
 for (const cause of ['rounds', 'budget', 'unknown-spend', 'reservation', 'terminal']) {
   test(`round refusal reports ${cause} and does not mislabel a rounds cap`, async t => {
     const s = await leadRig(t), run = await s.start()

@@ -1516,3 +1516,17 @@ test('host bind during dispatch retains the admitted step and refuses conflictin
   assert.equal(journal.state.budget.rounds.length, 1)
   assert.deepEqual((await open(storage)).state, journal.state)
 })
+
+test('host bind during dispatch refuses a different run in the start result and reopens unchanged', { timeout: 1000 }, async () => {
+  const storage = memory(), journal = await prepare(storage)
+  const owned = { correlationId: 'host-bound', runId: 'run-1', teamId: 'team-1' }
+  await assert.rejects(journal.execute({ id: 'host-bound', request, context, stepId: 'implement' }, async () => {
+    await journal.updateBudget({ version: 1, type: 'bind', now: 100, startId: 'host-bound', goalId: 'team-1',
+      executionId: 'run-1', firstRoundId: 'run-1:round:1' })
+    return { value: null, identity: { ...owned, runId: 'run-2' } }
+  }), /lead-journal-transition/)
+  assert.deepEqual(journal.state.runs, [owned])
+  const reopened = await open(storage)
+  assert.deepEqual(reopened.state, journal.state)
+  assert.deepEqual(reopened.state.runs, [owned])
+})
