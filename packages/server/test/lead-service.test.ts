@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
+import { LeadSupervisor } from '@harnessdesk/lead/supervisor'
+import { createLeadMessages } from '@harnessdesk/lead'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createLeadJournal, type LeadJournalRecord } from '@harnessdesk/lead'
 import { LeadBudgets } from '../src/lead/budgets.js'
@@ -192,17 +196,176 @@ test('host provider-send attaches a transient key and returns only bounded, reda
   } } })
   await s.service.setEnabled(true); await s.service.send(input)
   const signal = new AbortController().signal
+  const requestId = 'provider-redaction', requestBody = providerBody()
+  await providerReserve(s.journal, requestId, requestBody)
   assert.equal(typeof s.options().providerSend, 'function')
-  assert.deepEqual(await s.options().providerSend('{}', signal), { status: 200, body, retryAfter: '1', processing: 'unknown' })
+  assert.deepEqual(await s.options().providerSend(requestId, requestBody, signal), { status: 200, body, retryAfter: '1', processing: 'unknown' })
+  assert.equal(requests[0].requestId, requestId)
+  assert.equal(requests[0].body, requestBody)
   assert.equal(requests[0].headers['x-api-key'], key)
   assert.equal(requests[0].origin, 'https://api.anthropic.com')
   assert.equal(requests[0].path, '/v1/messages')
   assert.equal(requests[0].method, 'POST')
   body = JSON.stringify({ error: key }).replace('test', '\\u0074est')
-  await assert.rejects(s.options().providerSend('{}', signal), /lead-provider-failed/)
+  await assert.rejects(s.options().providerSend(requestId, requestBody, signal), /lead-provider-failed/)
   body = 'x'.repeat(1_048_577)
-  await assert.rejects(s.options().providerSend('{}', signal), /lead-provider-failed/)
+  await assert.rejects(s.options().providerSend(requestId, requestBody, signal), /lead-provider-failed/)
   await s.service.deleteKey('anthropic')
-  await assert.rejects(s.options().providerSend('{}', signal))
+  await assert.rejects(s.options().providerSend(requestId, requestBody, signal))
   assert.equal(requests.length, 3)
+})
+
+const providerBody = (patch: object = {}) => JSON.stringify({ model: 'synthetic-model', max_tokens: 32, stream: false, messages: [], ...patch })
+const providerPrice = { inputUsdMicrosPerMillion: 1, outputUsdMicrosPerMillion: 1, cacheReadUsdMicrosPerMillion: 1, cacheWriteUsdMicrosPerMillion: 1 }
+const providerReserve = (journal: any, requestId: string, body = providerBody(), maxOutputTokens = 32) => journal.updateBudget({
+  version: 1, type: 'reserve', now: 100, requestId, inputTokens: Buffer.byteLength(body) + 1024, maxOutputTokens, ...providerPrice,
+})
+const providerFrame = (message: unknown) => {
+  const body = Buffer.from(JSON.stringify(message)), head = Buffer.alloc(4)
+  head.writeUInt32BE(body.length); return Buffer.concat([head, body])
+}
+const providerUntil = async (predicate: () => boolean) => {
+  for (let i = 0; i < 200 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 5))
+  assert.ok(predicate(), 'provider boundary did not answer')
+}
+/** Real service, supervisor and journal; only the child pipes, broker and provider are synthetic. */
+const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: { resolveLead?: () => Promise<string>; holdExit?: boolean } = {}) => {
+  const home = await mkdtemp('/tmp/hd-provider-')
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'provider-boundary', caps: { usdMicros: 100_000, rounds: 4 }, freshnessMs: 1000 })
+  const child: any = new EventEmitter()
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough()
+  let killed = false, stopped = 0, rpcId = 0, settings: any, pending = Buffer.alloc(0)
+  const replies: any[] = [], waiters = new Map<number, { resolve(value: any): void; reject(error: Error): void }>()
+  const rpc = (requestId: string, body: string) => {
+    const id = ++rpcId
+    const reply = new Promise<any>((resolve, reject) => { waiters.set(id, { resolve, reject }) })
+    child.stdout.write(providerFrame({ version: 1, type: 'rpc', id, operation: 'provider-send', args: [requestId, body] }))
+    return reply
+  }
+  child.kill = () => { killed = true; if (!hooks.holdExit) queueMicrotask(() => child.emit('exit', 0, null)); return true }
+  child.stdin.on('data', (chunk: Buffer) => {
+    pending = Buffer.concat([pending, chunk])
+    while (pending.length >= 4 && pending.length >= pending.readUInt32BE() + 4) {
+      const size = pending.readUInt32BE(), message = JSON.parse(pending.subarray(4, size + 4).toString()); pending = pending.subarray(size + 4)
+      if (message.type === 'initialize') child.stdout.write(providerFrame({ version: 1, type: 'ready' }))
+      if (message.type === 'reply') {
+        replies.push(message)
+        const waiter = waiters.get(message.id); waiters.delete(message.id)
+        if (message.ok) waiter?.resolve(message.value); else waiter?.reject(new Error('synthetic provider refusal'))
+      }
+      if (message.type === 'shutdown' && !hooks.holdExit) child.kill()
+    }
+  })
+  const { LeadService } = await import('../src/lead/service.js')
+  let supervisor!: LeadSupervisor
+  const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, model: 'synthetic-model', prices: { 'synthetic-model': providerPrice },
+    messagesTransport: { send }, broker: { leadStatus: async () => ({ configured: true, protection: 'synthetic' }),
+      resolveLead: hooks.resolveLead ?? (async () => key), storeLead: async () => {}, deleteLead: async () => {} },
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('unused') },
+    register: () => ({ admission: {} as any, close() {} }), childStarted: () => () => {}, recover: async () => {},
+    openDoor: async () => ({ descriptor: { home, pid: 1, startedAt: 1, hostVersion: 'test', protocolVersion: 1, socketPath: home + '/desk.sock' }, close: async () => {} }) as any,
+    stopOwned: async () => { stopped++ }, createSupervisor: options => {
+      settings = options
+      return supervisor = new LeadSupervisor({ ...options, spawn: () => child, connectDesk: async () => null, startupMs: 1000, shutdownMs: 20 })
+    } })
+  t.after(async () => { if (hooks.holdExit) child.emit('exit', 0, null); await service.close() })
+  await service.setEnabled(true); await supervisor.ensure()
+  return { service, supervisor, journal, child, rpc, replies, settings, killed: () => killed, stopped: () => stopped }
+}
+
+for (const name of ['unreserved', 'body', 'max_tokens', 'model', 'stream', 'json', 'uncertain', 'settled'] as const) {
+  test(`provider reservation refuses ${name} before key resolution or transport`, async t => {
+    let calls = 0, resolutions = 0
+    const s = await providerRig(t, async () => { calls++; return { status: 200, body: '{}' } }, { resolveLead: async () => { resolutions++; return key } })
+    if (name !== 'unreserved') await providerReserve(s.journal, 'reserved')
+    if (name === 'uncertain') await s.journal.updateBudget({ version: 1, type: 'uncertain', now: 100, requestId: 'reserved' })
+    if (name === 'settled') await s.journal.updateBudget({ version: 1, type: 'settle', now: 100, requestId: 'reserved', inputTokens: 0, outputTokens: 0 })
+    const body = name === 'body' ? providerBody({ extra: 'oversized' }) : name === 'max_tokens' ? providerBody({ max_tokens: 33 })
+      : name === 'model' ? providerBody({ model: 'another-model' }) : name === 'stream' ? providerBody({ stream: true }) : name === 'json' ? '{' : providerBody()
+    const before = resolutions
+    void s.rpc('reserved', body).catch(() => {})
+    await providerUntil(() => s.replies.length > 0 || s.killed())
+    assert.equal(s.supervisor.live, true, 'policy refusal must keep child live')
+    assert.equal(s.replies[0]?.ok, false)
+    assert.equal(s.replies[0]?.value, null)
+    assert.equal(calls, 0); assert.equal(resolutions, before)
+    assert.equal(s.stopped(), 0)
+  })
+}
+
+for (const mode of ['duplicate', 'third'] as const) test(`provider reservation refuses ${mode} concurrent send`, async t => {
+  let calls = 0, release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const s = await providerRig(t, async () => { calls++; await held; return { status: 429, body: '{}', processing: 'not-started' } })
+  t.after(release)
+  try {
+    for (const id of ['one', 'two', 'three']) await providerReserve(s.journal, id)
+    const first = s.rpc('one', providerBody()); void first.catch(() => {})
+    await providerUntil(() => calls === 1)
+    const second = mode === 'third' ? s.rpc('two', providerBody()) : null; void second?.catch(() => {})
+    if (second) await providerUntil(() => calls === 2)
+    void s.rpc(mode === 'duplicate' ? 'one' : 'three', providerBody()).catch(() => {})
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(calls, mode === 'third' ? 2 : 1, 'refused send must never reach transport')
+    await providerUntil(() => s.replies.length > 0 || s.killed())
+    assert.equal(s.supervisor.live, true)
+    assert.equal(s.replies[0]?.ok, false)
+    assert.equal(calls, mode === 'third' ? 2 : 1)
+    release(); await first; await second
+    // A sequential retry on the same reservation remains admitted after 429.
+    assert.equal((await s.rpc('one', providerBody())).status, 429)
+  } finally { release() }
+})
+
+for (const failure of [false, true]) test(`real Messages reservation round-trip ${failure ? 'keeps transport failure uncertain and child live' : 'settles successfully'}`, async t => {
+  let calls = 0
+  const s = await providerRig(t, async request => {
+    calls++; assert.equal(request.headers['x-api-key'], key)
+    if (failure) throw new Error('synthetic ETIMEDOUT')
+    return { status: 200, body: JSON.stringify({ id: 'synthetic', type: 'message', role: 'assistant', model: 'synthetic-model',
+      content: [{ type: 'text', text: 'Ready' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }) }
+  })
+  const messages = createLeadMessages({ apiKey: 'host-owned-provider-key', model: 'synthetic-model', prices: { 'synthetic-model': providerPrice }, // hd-secrets-ok: public child marker, never a credential
+    journal: s.journal, now: () => 100, nextId: () => 'real-messages', countInput: async body => Buffer.byteLength(body) + 1024, wait: async () => {},
+    transport: { send: request => s.rpc((request as any).requestId, request.body) }, resolveTool: async () => { throw new Error('unused') }, dispatch: async () => { throw new Error('unused') } })
+  const result = await Promise.race([messages.request({ messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect the plan' }] }], maxTokens: 32 }, new AbortController().signal), new Promise<null>(resolve => setTimeout(() => resolve(null), 1100))])
+  assert.ok(result, 'Messages must receive a reply')
+  assert.equal(result.status, failure ? 'uncertain' : 'completed')
+  assert.equal(calls, 1); assert.equal(s.supervisor.live, true); assert.equal(s.stopped(), 0)
+  assert.equal(s.replies[0]?.ok, !failure)
+  if (failure) { assert.equal(s.replies[0]?.value, null); assert.equal(s.journal.state.budget?.requests[0]?.uncertain, true) }
+  else assert.equal(s.journal.state.budget?.settled[0]?.id, 'real-messages')
+})
+
+test('killing a child aborts its held provider send before exit arrives', async t => {
+  let signal: AbortSignal | undefined
+  const s = await providerRig(t, async request => { signal = request.signal; return new Promise(() => {}) }, { holdExit: true })
+  await providerReserve(s.journal, 'held')
+  void s.rpc('held', providerBody()).catch(() => {})
+  await providerUntil(() => signal !== undefined || s.killed())
+  assert.ok(signal)
+  const stopping = s.supervisor.stop('synthetic-stop')
+  await providerUntil(s.killed)
+  try { assert.equal(signal.aborted, true) }
+  finally { s.child.emit('exit', 0, null); await stopping }
+})
+
+test('key replacement during resolveLead refuses the old send before transport', async t => {
+  let hold = false, entered = false, release!: () => void, calls = 0
+  const held = new Promise<void>(resolve => { release = resolve })
+  const s = await providerRig(t, async () => { calls++; return { status: 200, body: '{}' } }, { resolveLead: async () => {
+    if (hold) { entered = true; await held }; return key
+  } })
+  await providerReserve(s.journal, 'old')
+  hold = true
+  const sending = s.settings.providerSend('old', providerBody(), new AbortController().signal)
+  await providerUntil(() => entered)
+  const replacement = s.service.setKey('anthropic', 'sk-test-not-real-0001')
+  release()
+  await assert.rejects(sending, /lead-provider-failed/)
+  await replacement
+  assert.equal(calls, 0)
 })

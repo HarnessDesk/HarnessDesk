@@ -26,6 +26,7 @@ export interface MessagesUsage {
   readonly cacheWriteTokens: number
 }
 export interface MessagesHttpRequest {
+  readonly requestId: string
   readonly origin: 'https://api.anthropic.com'
   readonly path: '/v1/messages'
   readonly method: 'POST'

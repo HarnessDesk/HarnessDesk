@@ -310,7 +310,7 @@ test('the actual child survives a healthy subscription-changed gap', async () =>
   finally { await f.supervisor.stop(); await runtime.close() }
 })
 
-test('permission model grants network for the desk socket and fixed provider HTTPS transport', async () => {
+test('the child is granted no network; the desk arrives only as fd 3', async () => {
   const f = await fixture(); await f.supervisor.ensure()
   const [binary, args, options] = f.args()
   const child = spawn(binary, [...args.slice(0, -1), '--eval', "process.stdout.write(String(process.permission.has('net')))"], options)
@@ -404,12 +404,13 @@ test('provider-send round-trips only the bounded body through the host operation
   const received = new Promise<any>(resolve => { reply = resolve })
   const child = fake((message, child) => {
     if (message.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
-    if (message.type === 'request') child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'provider-send', args: ['{"model":"fixture"}'] }))
+    if (message.type === 'request') child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'provider-send', args: ['fixture-request', '{"model":"fixture"}'] }))
     if (message.type === 'reply') reply(message)
     if (message.type === 'shutdown') child.kill()
   })
   const calls: unknown[] = []
-  const f = await fixture({ spawn: () => child, providerSend: async (body: string) => {
+  const f = await fixture({ spawn: () => child, providerSend: async (requestId: string, body: string) => {
+    assert.equal(requestId, 'fixture-request')
     calls.push(body); return { status: 200, body: 'synthetic reply' }
   } })
   const sent = f.supervisor.send(request).catch(() => {})
@@ -492,7 +493,10 @@ test('permission-restricted actual child round-trips the desk on fd 3 and Messag
   const supervisor = new LeadSupervisor({ journal, bootstrap: async () => ({ key: secret, descriptor: { ...descriptor, socketPath }, project,
     model: 'fixture-model', prices: management.options.messages.prices }),
     resolveTool: management.options.resolveTool, freezePlan: async (value: unknown) => value, readEvidence: async () => { throw new Error('unused') },
-    providerSend: async (body: string) => { providerCalls.push(body); return message() }, startupMs: 2000, shutdownMs: 100 })
+    providerSend: async (requestId: string, body: string) => {
+      assert.ok(journal.state.budget?.requests.some(item => item.reservation.requestId === requestId))
+      providerCalls.push(body); return message()
+    }, startupMs: 2000, shutdownMs: 100 })
   t.after(() => supervisor.stop())
   const result = await supervisor.send(request)
   assert.equal(result.status, 'completed')
@@ -524,7 +528,10 @@ test('actual child sends Messages through the host port with a key-free memory-v
   child.kill = () => { void runtime.close().then(() => child.emit('exit', 0, null)); return true }
   const f = await fixture({ journal, spawn: () => child, bootstrap: async () => ({ key: secret, descriptor, project,
     model: 'fixture-model', prices: management.options.messages.prices }), resolveTool: management.options.resolveTool,
-    providerSend: async (body: string) => { calls++; assert.equal(body.includes(secret), false); return message() } })
+    providerSend: async (requestId: string, body: string) => {
+      assert.ok(journal.state.budget?.requests.some(item => item.reservation.requestId === requestId))
+      calls++; assert.equal(body.includes(secret), false); return message()
+    } })
   try {
     const result = await f.supervisor.send(request)
     assert.equal(result.status, 'completed')
@@ -532,5 +539,55 @@ test('actual child sends Messages through the host port with a key-free memory-v
     assert.equal(JSON.stringify(config).includes(secret), false)
     assert.equal(Object.hasOwn(config as object, 'key'), false)
     assert.equal(Object.hasOwn(config as object, 'descriptor'), false)
+  } finally { await f.supervisor.stop(); await runtime.close() }
+})
+
+
+for (const [name, args] of [
+  ['arity', ['body-only']], ['request id', [1, '{}']], ['body', ['reserved', 1]],
+  ['byte bound', ['reserved', '界'.repeat(350_000)]],
+] as const) test(`malformed provider-send ${name} terminates the child without a provider call`, async () => {
+  let calls = 0
+  const f = await fixture({ providerSend: async () => { calls++; return { status: 200, body: '{}' } } })
+  try {
+    await f.supervisor.ensure()
+    f.child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'provider-send', args }))
+    for (let i = 0; i < 100 && f.supervisor.live; i++) await new Promise(resolve => setTimeout(resolve, 5))
+    assert.equal(f.supervisor.live, false)
+    assert.equal(calls, 0)
+  } finally { await f.supervisor.stop() }
+})
+
+
+test('actual child forwards the durable Messages request id with its reserved body', async () => {
+  const { runLeadChild } = await import('../src/' + 'child.js')
+  const { fixture: managementFixture, project } = await import('./fixtures/loop.js')
+  const { message } = await import('./fixtures/fake-messages.js')
+  const management = await managementFixture()
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'reserved-child',
+    caps: { usdMicros: 100_000, rounds: 10 }, freshnessMs: 60_000 })
+  const child: any = new EventEmitter()
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough()
+  const runtime = runLeadChild({ input: child.stdin, output: child.stdout, connectDesk: async () => ({ ...management.options.desk,
+    close: () => { void management.options.desk.events()[Symbol.asyncIterator]().return() } }), onExit: () => child.emit('exit', 0, null) })
+  child.kill = () => { void runtime.close().then(() => child.emit('exit', 0, null)); return true }
+  let calls = 0
+  const f = await fixture({ journal, spawn: () => child, bootstrap: async () => ({ key: secret, descriptor, project,
+    model: 'fixture-model', prices: management.options.messages.prices }), resolveTool: management.options.resolveTool,
+    providerSend: async (requestId: string, body: string) => {
+      calls++
+      const reservation = journal.state.budget?.requests.find(item => item.reservation.requestId === requestId)
+      assert.ok(reservation, 'the forwarded request id must already be durable')
+      assert.equal(reservation.uncertain, false)
+      assert.equal(Buffer.byteLength(body) + 1024, reservation.reservation.inputTokens)
+      assert.equal(JSON.parse(body).max_tokens, reservation.reservation.maxOutputTokens)
+      assert.equal(body.includes(secret), false)
+      return message()
+    } })
+  try {
+    assert.equal((await f.supervisor.send(request)).status, 'completed')
+    assert.equal(calls, 1)
   } finally { await f.supervisor.stop(); await runtime.close() }
 })

@@ -21,7 +21,7 @@ const comparisonPath = path => resolve(path).toLowerCase()
 
 /** The designated wiring point where runtimes are chosen. */
 const EXEMPT = new Set([join('packages', 'server', 'src', 'bootstrap.ts')])
-const LEAD_TRANSPORT_MODULES = ['https', 'net', 'process', 'readline', 'stream', 'events', 'timers/promises', 'crypto', 'url'].map(name => `node:${name}`)
+const LEAD_TRANSPORT_MODULES = ['net', 'process', 'readline', 'stream', 'events', 'timers/promises', 'crypto', 'url'].map(name => `node:${name}`)
 const LEAD_ENTRIES = new Map([
   [comparisonPath(join(root, 'packages/lead/src/child.ts')), new Set([...LEAD_TRANSPORT_MODULES, 'ws'])],
   [comparisonPath(join(root, 'packages/lead/src/supervisor.ts')), new Set([...LEAD_TRANSPORT_MODULES, 'node:child_process', 'node:path'])],

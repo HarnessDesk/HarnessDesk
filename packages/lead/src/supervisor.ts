@@ -20,7 +20,7 @@ export interface LeadSupervisorOptions {
   readonly resolveTool: (call: LeadPermissionCall) => Promise<LeadResolvedTool>
   readonly freezePlan: (contract: LeadAcceptanceContract) => Promise<LeadAcceptanceContract>
   readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence>
-  readonly providerSend?: (body: string, signal: AbortSignal) => Promise<MessagesHttpResponse>
+  readonly providerSend?: (requestId: string, body: string, signal: AbortSignal) => Promise<MessagesHttpResponse>
   /** Test seam for the host-owned, already-connected desk socket. */
   readonly connectDesk?: (descriptor: DeskPointer, signal: AbortSignal) => Promise<Socket | null>
   readonly onStarted?: () => Promise<void> | void
@@ -233,13 +233,19 @@ export class LeadSupervisor {
     }
     try {
       const arity = { execute: 1, updateBudget: 1, setManagementPhase: 2, invalidateResults: 0, offerCard: 1,
-        restoreResult: 2, recoverUnsettledRequests: 0, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 1 }[operation]
+        restoreResult: 2, recoverUnsettledRequests: 0, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 2 }[operation]
       if (args.length !== arity) throw error('protocol')
       let value: unknown = null
       switch (operation) {
         case 'provider-send': {
-          if (!this.options.providerSend) throw error('provider-unavailable')
-          value = await this.options.providerSend(ipcText(args[0], 1_048_576), running.providerAbort.signal)
+          if (typeof args[0] !== 'string' || typeof args[1] !== 'string' || new TextEncoder().encode(args[1]).length > 1_048_576) throw error('protocol')
+          try {
+            if (!this.options.providerSend) throw error('provider-unavailable')
+            value = await this.options.providerSend(args[0], args[1], running.providerAbort.signal)
+          } catch {
+            if (!running.exited) write(running, { type: 'reply', id, ok: false, value: null, state: journal.state })
+            return
+          }
           break
         }
         case 'execute': {

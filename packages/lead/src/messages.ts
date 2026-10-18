@@ -223,7 +223,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
         return { status: 'cancelled' }
       }
       try {
-        const reply = object(await cancellable(() => transport.send({ origin: 'https://api.anthropic.com', path: '/v1/messages', method: 'POST',
+        const reply = object(await cancellable(() => transport.send({ requestId, origin: 'https://api.anthropic.com', path: '/v1/messages', method: 'POST',
           headers: Object.freeze({ 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': apiKey }),
           body, maxResponseBytes: LIMIT.bytes, signal }), signal))
         // A reply of the wrong shape proves nothing about billing either.

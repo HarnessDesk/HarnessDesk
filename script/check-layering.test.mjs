@@ -36,7 +36,7 @@ test('Lead entries retain loader and evaluator restrictions and constrain builti
   for (const entry of ['child', 'supervisor']) {
     const file = `packages/lead/src/${entry}.ts`
     for (const source of [
-      "process.getBuiltinModule('node:fs')", "process.getBuiltinModule('node:vm')",
+      "process.getBuiltinModule('node:fs')", "process.getBuiltinModule('node:vm')", "process.getBuiltinModule('node:https')",
       'process.getBuiltinModule(name)', "process.getBuiltinModule('node:' + name)",
       'process.getBuiltinModule(`node:https`)', 'const get = process.getBuiltinModule',
       "process.binding('fs')", "process['binding']('fs')", 'process.dlopen(handle, path)',
@@ -48,7 +48,7 @@ test('Lead entries retain loader and evaluator restrictions and constrain builti
       'const { getBuiltinModule: get } = process',
       "import { getBuiltinModule as get } from 'node:process'",
     ]) assert.ok(rule.offenders(source, file).length > 0, `${entry}: ${source}`)
-    for (const source of ["process.getBuiltinModule('node:https')", "process['getBuiltinModule']('node:crypto')",
+    for (const source of ["process.getBuiltinModule('node:net')", "process['getBuiltinModule']('node:crypto')",
       "process.stdin.on('data', receive)", "process.stdout.write('ready')", "fetch('https://example.com')",
       "Buffer.from('text')", "new WebSocket('wss://example.com')", 'import.meta.url'])
       assert.deepEqual(rule.offenders(source, file), [], `${entry}: ${source}`)
@@ -81,12 +81,14 @@ test('Lead loop refuses machine, host, adapter, computed and escaping dependenci
 
 test('only exact Lead child and supervisor entries may import Node and client transport', () => {
   const rule = boundaryRule('lead')
-  for (const source of ["import 'node:process'", "import 'node:https'", "import '@harnessdesk/client/node'"]) {
+  for (const source of ["import 'node:process'", "import 'node:net'", "import '@harnessdesk/client/node'"]) {
     for (const entry of ['child', 'supervisor']) {
       assert.deepEqual(rule.offenders(source, `packages/lead/src/${entry}.ts`), [], source)
       assert.equal(rule.offenders(source, `packages/lead/src/nested/${entry}.ts`).length, 1, source)
     }
   }
+  for (const entry of ['child', 'supervisor'])
+    assert.equal(rule.offenders("import 'node:https'", `packages/lead/src/${entry}.ts`).length, 1)
   assert.deepEqual(rule.offenders("import './child.js'", 'packages/lead/src/supervisor.ts'), [])
   for (const source of ["import 'electron'", "import '@harnessdesk/server'", "await import(dependency)", "import 'keytar'"])
     assert.equal(rule.offenders(source, 'packages/lead/src/child.ts').length, 1, source)
@@ -94,14 +96,14 @@ test('only exact Lead child and supervisor entries may import Node and client tr
 
 test('Lead entries have explicit Node module allowlists', () => {
   const rule = boundaryRule('lead')
-  for (const module of ['https', 'process', 'readline', 'stream', 'events', 'timers/promises', 'crypto', 'url'])
+  for (const module of ['net', 'process', 'readline', 'stream', 'events', 'timers/promises', 'crypto', 'url'])
     for (const entry of ['child', 'supervisor'])
       assert.deepEqual(rule.offenders(`import 'node:${module}'`, `packages/lead/src/${entry}.ts`), [])
   for (const module of ['child_process', 'path']) {
     assert.deepEqual(rule.offenders(`import 'node:${module}'`, 'packages/lead/src/supervisor.ts'), [])
     assert.equal(rule.offenders(`import 'node:${module}'`, 'packages/lead/src/child.ts').length, 1)
   }
-  for (const module of ['fs', 'fs/promises', 'vm', 'module', 'worker_threads'])
+  for (const module of ['https', 'fs', 'fs/promises', 'vm', 'module', 'worker_threads'])
     for (const entry of ['child', 'supervisor'])
       for (const source of [`import 'node:${module}'`, `export * from 'node:${module}'`, `await import('node:${module}')`])
         assert.equal(rule.offenders(source, `packages/lead/src/${entry}.ts`).length, 1, source)
@@ -114,7 +116,8 @@ test('Lead containment and entry barriers reject backslashes and fold path case'
       assert.ok(rule.offenders(source, 'packages/lead/src/loop.ts').length > 0, source)
   assert.ok(rule.offenders("import '../Child.js'", 'packages/lead/src/nested/helper.ts').length > 0)
   assert.ok(rule.offenders("import 'node:child_process'", 'packages/lead/src/Child.ts').length > 0)
-  assert.deepEqual(rule.offenders("import 'node:https'", 'packages/lead/src/Child.ts'), [])
+  assert.equal(rule.offenders("import 'node:https'", 'packages/lead/src/Child.ts').length, 1)
+  assert.deepEqual(rule.offenders("import 'node:net'", 'packages/lead/src/Child.ts'), [])
   assert.deepEqual(rule.offenders("import './Helper.js'", 'packages/lead/src/loop.ts'), [])
   assert.ok(boundaryRule('ui lead').offenders("import '../../../Lead/src/index.js'", 'packages/ui/src/state/lead.ts').length > 0)
   for (const specifier of ['../../../Lead\\src\\index.js', '../../../Lead%5csrc%5cindex.js', '@harnessdesk/Lead/supervisor'])
@@ -162,9 +165,9 @@ test('Lead entries reject computed process handles except safe literal members',
     for (const source of ["process['getBuiltin' + 'Module']('node:fs')", 'process[member]',
       'process[`stdin`]', "process['__proto__']", "const { ['getBuiltinModule']: get } = process",
       'const { [member]: get } = process', "const { ['binding']: get } = process",
-      "({ ['getBuiltinModule']: get } = process)", '({ [member]: get } = process)'])
+      "({ ['getBuiltinModule']: get } = process)", '({ [member]: get } = process)', "process['getBuiltinModule']('node:https')"])
       assert.ok(rule.offenders(source, file).length > 0, source)
-    for (const source of ["process['stdin']", "process['getBuiltinModule']('node:https')", "const { ['stdin']: input } = process"])
+    for (const source of ["process['stdin']", "process['getBuiltinModule']('node:net')", "const { ['stdin']: input } = process"])
       assert.deepEqual(rule.offenders(source, file), [], source)
   }
 })
@@ -208,7 +211,9 @@ test('Lead entries reject process loader assignments and internal loader members
   }
   assert.deepEqual(missed, [])
   for (const entry of ['child', 'supervisor'])
-    for (const source of ["process[('stdin')]", "process[('getBuiltinModule')]('node:https')",
+    assert.ok(rule.offenders("process[('getBuiltinModule')]('node:https')", `packages/lead/src/${entry}.ts`).length > 0)
+  for (const entry of ['child', 'supervisor'])
+    for (const source of ["process[('stdin')]", "process[('getBuiltinModule')]('node:net')",
       "const { [('stdin')]: input } = process", 'let input; ({ stdin: input } = process)'])
       assert.deepEqual(rule.offenders(source, `packages/lead/src/${entry}.ts`), [], `${entry}: ${source}`)
 })
@@ -439,4 +444,16 @@ test('client views import only protocol and their own files', () => {
     assert.deepEqual(rule.offenders(source, 'packages/client/src/views/nested/index.ts'), [], source)
   for (const source of ["import '@harnessdesk/client'", "export * from '@harnessdesk/client/node'", "import '../index.js'", "export * from '../node.js'", "await import('ws')", "type Stats = import('node:fs').Stats", "import '@harnessdesk/server'", "require('../../test/fixture.js')", "import './helper.js?fresh'", "await import(dependency)"])
     assert.equal(rule.offenders(source, 'packages/client/src/views/index.ts').length, 1, source)
+})
+
+
+test('Lead transport entries refuse HTTPS imports while retaining desk socket modules', () => {
+  const rule = boundaryRule('lead')
+  for (const entry of ['child', 'supervisor']) {
+    const file = `packages/lead/src/${entry}.ts`
+    for (const source of ["import 'node:https'", "await import('node:https')", "export * from 'node:https'"])
+      assert.equal(rule.offenders(source, file).length, 1, `${entry}: ${source}`)
+    assert.deepEqual(rule.offenders("import 'node:net'", file), [])
+  }
+  assert.deepEqual(rule.offenders("import 'ws'", 'packages/lead/src/child.ts'), [])
 })

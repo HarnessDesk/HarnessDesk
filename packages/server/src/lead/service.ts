@@ -1,5 +1,6 @@
 import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject } from '@harnessdesk/protocol'
 import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, MessagesPrice, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS } from '@harnessdesk/lead'
 import { LeadSupervisor, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
 import type { CredentialBroker } from '../credentials.js'
 import type { ClientDoor } from '../client-door.js'
@@ -40,6 +41,7 @@ export class LeadService {
   #closed = false
   #generation = 0
   #changingKeys = 0
+  readonly #providerSends = new Set<string>()
   #cleanupFailed = false
   #tail: Promise<unknown> = Promise.resolve()
   #registration: ReturnType<LeadServiceOptions['register']> | null = null
@@ -73,17 +75,30 @@ export class LeadService {
             project: options.project, prices: options.prices, ...(options.model === undefined ? {} : { model: options.model }), projectPolicy: this.#policy }
         } catch (error) { await this.#release(); throw error }
       },
-      providerSend: async (body, signal) => {
+      providerSend: async (requestId, body, signal) => {
+        let admitted = false
         try {
           this.#assertOpen()
           if (this.#changingKeys) throw new Error('lead-lifecycle-changed')
           const generation = this.#generation
           if (Buffer.byteLength(body) > 1_048_576) throw new Error('lead-provider-failed')
+          const budget = options.journal.state.budget
+          const request = budget?.requests.find(item => item.reservation.requestId === requestId)
+          const parsed: unknown = JSON.parse(body)
+          if (!request || request.uncertain || budget?.settled.some(item => item.id === requestId) ||
+            parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('lead-provider-failed')
+          const payload = parsed as Record<string, unknown>, reservation = request.reservation
+          if (payload.model !== (options.model ?? LEAD_MESSAGES_DEFAULTS.model) || payload.stream === true ||
+            typeof payload.max_tokens !== 'number' || !Number.isSafeInteger(payload.max_tokens) || payload.max_tokens < 1 ||
+            payload.max_tokens > reservation.maxOutputTokens || Buffer.byteLength(body) + 1024 > reservation.inputTokens ||
+            this.#providerSends.has(requestId) || this.#providerSends.size >= 2) throw new Error('lead-provider-failed')
+          // Hold the slot across key resolution and transport; retries may reuse it only after settlement of this send.
+          this.#providerSends.add(requestId); admitted = true
           const key = await options.broker.resolveLead('anthropic')
           this.#assertOpen()
           if (generation !== this.#generation || this.#changingKeys) throw new Error('lead-lifecycle-changed')
           const response = await (options.messagesTransport ?? leadProviderTransport).send({
-            origin: 'https://api.anthropic.com', path: '/v1/messages', method: 'POST', body,
+            requestId, origin: 'https://api.anthropic.com', path: '/v1/messages', method: 'POST', body,
             headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': key },
             maxResponseBytes: 1_048_576, signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
           })
@@ -104,6 +119,7 @@ export class LeadService {
           scan(decoded)
           return result
         } catch { throw new Error('lead-provider-failed') }
+        finally { if (admitted) this.#providerSends.delete(requestId) }
       },
       resolveTool: async call => {
         this.#assertOpen()
