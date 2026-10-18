@@ -1,4 +1,4 @@
-import { clientTierFor, parseLeadCardDecisionFor, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy } from '@harnessdesk/protocol'
+import { clientTierFor, parseLeadCardDecisionFor, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
 import { applyLeadPolicyDecision, compareLeadPolicyAuthority } from './permissions.js'
 import { parseLeadJournalRecord, parseLeadRunEvidence, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity } from './journal.js'
 import { reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
@@ -17,6 +17,9 @@ export interface LeadState {
   readonly budget: LeadBudgetLedger | null
   /** Journal sequence of the latched stop whose idempotent cancellation effects need acknowledgement. */
   readonly stopEffectsPending: number | null
+  readonly messages: readonly LeadMessage[]
+  readonly olderMessages: number
+  readonly sends: readonly (LeadSendReceipt & { readonly key: string })[]
   readonly seq: number
   readonly managementReason: string | null
   readonly phase: 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'accepted' | 'declined' | 'stopped'
@@ -32,7 +35,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
+export const initialLeadState = (): LeadState => ({ messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
   cards: [], decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardRevisions: {}, runs: [], teams: [] })
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-transition') }
 const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.revision}`
@@ -77,6 +80,18 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     state = { ...state, steps: state.steps.map(step => step.attemptId === id ? { ...step, state: 'pending' as const, attemptId: null } : step) }
   }
   switch (event.type) {
+    case 'settings-changed': break
+    case 'message': {
+      ensure(event.message.revision === event.seq && event.message.id === `message-${event.seq}`)
+      ensure(event.idempotencyKey === null ? event.message.role === 'assistant' : event.message.role === 'user' &&
+        !state.sends.some(send => send.key === event.idempotencyKey) && state.sends.length < 4096)
+      const all = [...state.messages, event.message], excess = Math.max(0, all.length - 256)
+      const thread = windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project: null,
+        messages: all.slice(excess), olderMessages: state.olderMessages + excess, cards: [] }, 131072)
+      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages,
+        sends: event.idempotencyKey === null ? state.sends : [...state.sends, { key: event.idempotencyKey, messageId: event.message.id, revision: event.seq }] }
+      break
+    }
     case 'management':
       ensure(!['stopped', 'accepted', 'declined'].includes(state.phase))
       if (event.phase === 'planning') ensure(state.contract === null && ['draft', 'planning'].includes(state.phase))

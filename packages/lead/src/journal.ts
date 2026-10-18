@@ -1,8 +1,9 @@
 import {
+  parseLeadMessage, parseLeadThreadSend, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_MANAGEMENT_REASONS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy, type LeadBudgetEvent, type LeadBudgetState, type LeadCaps,
 } from '@harnessdesk/protocol'
-import { decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
+import { compareLeadPolicyAuthority, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
 import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, assertPlanApprovable, type LeadState } from './state.js'
@@ -20,7 +21,8 @@ interface Base { readonly version: 1; readonly seq: number }
 export type LeadAttemptOutcome = 'succeeded' | 'failed' | 'denied' | 'asked' | 'malformed' | 'uncertain' | 'interrupted'
 export type LeadJournalEvent =
   | { readonly type: 'management'; readonly phase: 'planning' | 'waiting-for-user'; readonly reason?: string | null }
-  | { readonly type: 'invalidate-results' | 'resume' }
+  | { readonly type: 'invalidate-results' | 'resume' | 'settings-changed' }
+  | { readonly type: 'message'; readonly idempotencyKey: string | null; readonly message: LeadMessage }
   | { readonly type: 'restore-result'; readonly id: string; readonly revision: number }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
@@ -116,7 +118,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
+    management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': [], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
@@ -126,7 +128,8 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   let event: LeadJournalEvent
   switch (type) {
     case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']), ...(Object.hasOwn(source, 'reason') ? { reason: source.reason === null ? null : choice(source.reason, LEAD_MANAGEMENT_REASONS) } : {}) }; break
-    case 'invalidate-results': case 'resume': event = { type }; break
+    case 'message': event = { type, idempotencyKey: nullable(source.idempotencyKey, identifier), message: parseLeadMessage(source.message) }; break
+    case 'settings-changed': case 'invalidate-results': case 'resume': event = { type }; break
     case 'restore-result': event = { type, id: identifier(source.id), revision: integer(source.revision, 1) }; break
     case 'start-resolution': {
       const identity = nullable(source.identity, parseLeadRunIdentity), goalId = nullable(source.goalId, identifier)
@@ -252,7 +255,43 @@ export class LeadJournal {
     if (this.#state.phase === phase && this.#state.managementReason === reason) return
     await this.#append({ type: 'management', phase, reason })
   }) }
-  resume(): Promise<void> { return this.#queue(() => this.#append({ type: 'resume' })) }
+  resume(expectedRevision?: number): Promise<void> { return this.#queue(() => {
+    this.#expectRevision(expectedRevision)
+    if (this.#state.cards.some(card => card.type === 'plan' && !this.#state.decidedCards.includes(`${card.id}:${card.revision}`)))
+      throw Object.assign(new Error('lead-plan-pending'), { wireCode: 'lead-plan-pending' })
+    if (this.#state.phase !== 'waiting-for-user' || this.#state.budget?.stop || this.#state.recoveryBlocked)
+      throw Object.assign(new Error('lead-no-person-wait'), { wireCode: 'lead-no-person-wait' })
+    return this.#append({ type: 'resume' })
+  }) }
+  #expectRevision(expected?: number): void {
+    if (expected !== undefined && expected !== this.#state.seq) throw Object.assign(new Error('lead-revision-stale'), { wireCode: 'lead-revision-stale' })
+  }
+  settingsChanged(): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed' })) }
+  appendMessage(idempotencyKey: string, text: string): Promise<LeadSendReceipt> {
+    const input = parseLeadThreadSend({ idempotencyKey, text })
+    return this.#queue(async () => {
+      const previous = this.#state.sends.find(send => send.key === input.idempotencyKey)
+      if (previous) return { messageId: previous.messageId, revision: previous.revision }
+      if (this.#state.sends.length >= 4096) throw new Error('lead-thread-receipts-full')
+      const revision = this.#state.seq + 1, messageId = `message-${revision}`
+      await this.#append({ type: 'message', idempotencyKey: input.idempotencyKey,
+        message: { version: 1, id: messageId, revision, role: 'user', text: input.text } })
+      return { messageId, revision }
+    })
+  }
+  appendReply(text: string): Promise<void> { return this.#queue(() => {
+    const revision = this.#state.seq + 1
+    return this.#append({ type: 'message', idempotencyKey: null,
+      message: { version: 1, id: `message-${revision}`, revision, role: 'assistant', text } })
+  }) }
+  changePolicy(policy: LeadPermissionPolicy, expectedRevision: number, id: string): Promise<void> { return this.#queue(async () => {
+    this.#expectRevision(expectedRevision)
+    if (!this.#state.policy) throw new Error('lead-policy-unavailable')
+    const comparison = compareLeadPolicyAuthority(this.#state.policy, policy)
+    if (comparison === 'narrowing' || comparison === 'unchanged') await this.#append({ type: 'policy', policy })
+    else await this.#append({ type: 'card', card: { version: 1, id, revision: 1, type: 'permission-change',
+      contractDigest: this.#state.contract?.digest ?? null, previous: this.#state.policy, proposed: policy } })
+  }) }
   restoreResult(id: string, revision: number): Promise<void> { return this.#queue(() => this.#append({ type: 'restore-result', id, revision })) }
   /** Call only after acquiring exclusive ownership, before sending any requests. */
   recoverUnsettledRequests(): Promise<void> { return this.#queue(async () => {
@@ -262,8 +301,19 @@ export class LeadJournal {
   invalidateResults(): Promise<void> { return this.#queue(() => this.#append({ type: 'invalidate-results' })) }
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
   offerCard(card: LeadCard): Promise<LeadCard> { return this.#queue(async () => { await this.#append({ type: 'card', card }); return structuredClone(this.#state.cards.at(-1)!) }) }
-  decideCard(decision: LeadCardDecision, expiresAt: number | null = null, stopEffects?: () => Promise<void>): Promise<void> {
-    return this.#budgetWrite(() => this.#append({ type: 'card-decision', decision, expiresAt }), stopEffects)
+  async decideCard(input: LeadCardDecision, expiresAt: number | null = null, stopEffects?: () => Promise<void>, beforeDecision?: () => Promise<void>): Promise<void> {
+    const decision = parseLeadCardDecision(input)
+    return this.#budgetWrite(async () => {
+      const card = this.#state.cards.find(card => card.id === decision.cardId)
+      if (!card || card.revision !== decision.expectedRevision || card.type !== decision.cardType || card.contractDigest !== decision.contractDigest)
+        throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
+      if (this.#state.decidedCards.includes(`${card.id}:${card.revision}`))
+        throw Object.assign(new Error('lead-card-decided'), { wireCode: 'lead-card-decided' })
+      // Validate the immutable card and reducer transition before any human side effect.
+      reduceLeadRecord(this.#state, { version: 1, seq: this.#state.seq + 1, type: 'card-decision', decision, expiresAt })
+      await beforeDecision?.()
+      await this.#append({ type: 'card-decision', decision, expiresAt })
+    }, stopEffects)
   }
   /** Caller must await durable admission before sending a paid request or opening a round. */
   updateBudget(event: LeadBudgetEvent, stopEffects?: () => Promise<void>): Promise<LeadBudgetLedger> {
@@ -272,8 +322,9 @@ export class LeadJournal {
       return structuredClone(this.#state.budget!)
     }, stopEffects)
   }
-  changeBudgetCaps(value: LeadCaps, card: { id: string; revision: number }, now: number, stopEffects?: () => Promise<void>): Promise<LeadCard | null> {
+  changeBudgetCaps(value: LeadCaps, card: { id: string; revision: number }, now: number, stopEffects?: () => Promise<void>, expectedRevision?: number): Promise<LeadCard | null> {
     return this.#budgetWrite(async () => {
+      this.#expectRevision(expectedRevision)
       const caps = parseLeadCaps(value), budget = this.#state.budget
       if (!budget || !Number.isSafeInteger(now) || now < budget.now) throw new Error('lead-budget-refused')
       if (caps.usdMicros <= budget.caps.usdMicros && caps.rounds <= budget.caps.rounds) {

@@ -684,3 +684,17 @@ for (const sum of [true, false]) test(`two successful sends ${sum ? 'settle the 
   } else await refusedSettle(s, 'two-sends', 5, 6, 7, 8)
   assert.equal(calls, 2)
 })
+
+test('public Lead state scans resolve the synthetic key transiently and refuse literal or JSON-escaped echoes', async t => {
+  const s = await rig(t)
+  for (const value of [key, { summary: key }, { [key]: 'hidden in a field name' }, JSON.stringify(key).replaceAll('s', '\\u0073')]) {
+    await assert.rejects(s.service.assertPublic(value), error => {
+      assert.equal((error as Error).message, 'lead-secret-refused')
+      assert.equal(String(error).includes(key), false)
+      return true
+    })
+  }
+  await s.service.assertPublic({ summary: 'Ready for a person', key: { configured: true, protection: 'encrypted' } })
+  assert.equal(s.spawns(), 0, 'projection reads never start a child')
+  assert.equal(JSON.stringify([s.records, s.events]).includes(key), false)
+})

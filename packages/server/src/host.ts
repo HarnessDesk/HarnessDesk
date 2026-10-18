@@ -1,3 +1,5 @@
+import { LeadControls, leadRefusal } from './lead/controls.js'
+import { answerLeadPersonGate, answerLeadResult } from './lead/person-decision.js'
 import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
 import { readKeptTranscriptFile } from './kept-transcript.js'
 import { Storage } from './storage.js'
@@ -124,7 +126,7 @@ import { LeadAdmission } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import type { LeadJournal } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, type LeadJournal } from '@harnessdesk/lead'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
@@ -719,6 +721,7 @@ export class Host {
   readonly #laneStore: LaneStore
   readonly #lanes: LaneAllocator
   #leadService: LeadService | null = null
+  #leadControls: LeadControls | null = null
   #leadListenersAvailable = true
   #leadReady = false
   readonly #credentials: CredentialBroker
@@ -3373,6 +3376,23 @@ export class Host {
         if (results.some(result => result.status === 'rejected')) throw new Error('lead-owned-work-stop-pending')
       },
     })
+    this.#leadControls = new LeadControls({ journal, service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
+      now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
+      decidePerson: (card, decision, contract) => answerLeadPersonGate({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team,
+        readEvidence: runId => options.readEvidence(runId, call => {
+          if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
+          return this.call(call.method, call.params)
+        }) }, card, decision, contract),
+      decideResult: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team,
+        readEvidence: runId => options.readEvidence(runId, call => {
+          if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
+          return this.call(call.method, call.params)
+        }) }, card, decision, contract),
+      stopEffects: async () => {
+        for (const run of journal.state.runs) { this.#flows.interruptChecks(run.teamId); await this.#flows.stopRun(run.runId, 'lead-budget-stopped', 'desk') }
+      },
+    })
+    this.onDispose(() => this.#leadControls?.close())
     return this.#leadService
   }
 
@@ -4543,6 +4563,12 @@ export class Host {
       team: this.#team,
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
+      leadThreadRead: () => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.readThread() },
+      leadThreadSend: params => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.send(params) },
+      leadCardDecide: params => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.decide(params) },
+      leadSettingsRead: () => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.readSettings() },
+      leadSettingsUpdate: params => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.updateSettings(params) },
+      leadResume: params => { if (!this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.resume(params) },
       leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,
       authoring: this.#authoring,

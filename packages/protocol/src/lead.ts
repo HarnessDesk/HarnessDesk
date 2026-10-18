@@ -208,6 +208,23 @@ export interface LeadHostProjection {
   readonly thread: LeadThread
   readonly settings: LeadSettingsProjection
 }
+export type LeadPersonAction = 'resume' | 'decide-plan' | null
+/** Window projection adds the host's guarded way out; child observations grant no control. */
+export interface LeadWindowProjection extends LeadHostProjection { readonly wayOut: LeadPersonAction }
+export const LEAD_CONTROL_REFUSALS = ['lead-unavailable', 'lead-operation-refused', 'lead-secret-refused', 'lead-revision-stale',
+  'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
+  'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-one-change', 'lead-evidence-read-refused'] as const
+export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
+/** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
+export interface LeadSettingsUpdate {
+  readonly expectedRevision: LeadRevision
+  readonly policy?: LeadPermissionPolicy
+  readonly caps?: LeadCaps
+  readonly credential?: { readonly provider: 'anthropic'; readonly key: string | null }
+}
+export interface LeadThreadSend { readonly idempotencyKey: string; readonly text: string }
+/** Stable first result, retained across retries and journal recovery. */
+export interface LeadSendReceipt { readonly messageId: string; readonly revision: LeadRevision }
 /** Public control vocabulary carries no secrets and grants no human decision authority. */
 export type LeadChildControl = { readonly version: 1 } & (
   | { readonly type: 'initialize'; readonly thread: LeadThread; readonly model: string;
@@ -444,13 +461,13 @@ export const parseLeadCardDecisionFor = (value: unknown, current: unknown): Lead
     return fail('', 'card has no pending person decision')
   return parsed
 }
-const message: Validator<LeadMessage> = object({ version, id, revision, role: literalUnion('user', 'assistant', 'system'), text: content })
+export const parseLeadMessage: Validator<LeadMessage> = object({ version, id, revision, role: literalUnion('user', 'assistant', 'system'), text: content })
 export const parseLeadThread: Validator<LeadThread> = object({
   version, id, revision, state: literalUnion('draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'),
   // One current snapshot per card. Revisions belong to each card, so different cards may
   // share revision 1; the state machine must compare old/new revisions when replacing a card.
   project: nullable(project), olderMessages: integer(),
-  messages: list(message, LEAD_LIMITS.messages, 0, message => message.id), cards: list(parseLeadCard, LEAD_LIMITS.cards, 0, card => card.id),
+  messages: list(parseLeadMessage, LEAD_LIMITS.messages, 0, message => message.id), cards: list(parseLeadCard, LEAD_LIMITS.cards, 0, card => card.id),
 })
 /** Keep the largest newest suffix within the thread's UTF-8 JSON budget, without mutating
  * the source or dropping cards. Journal readers first hydrate at most LEAD_LIMITS.messages
@@ -508,3 +525,15 @@ export const nextLeadRevision = (current: LeadRevision): LeadRevision => {
   const parsed = revision(current)
   return revision(parsed + 1)
 }
+
+export const parseLeadThreadSend: Validator<LeadThreadSend> = object({ idempotencyKey: id, text: prose })
+export const parseLeadResume: Validator<{ readonly expectedRevision: number }> = object({ expectedRevision: revision })
+export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
+  expectedRevision: revision, policy: optional(parseLeadPermissionPolicy), caps: optional(parseLeadCaps),
+  credential: optional(object({ provider: literalUnion('anthropic'), key: nullable(text(4096)) })),
+})
+export const parseLeadEmpty: Validator<Record<string, never>> = object({})
+
+export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
+  version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, wayOut: nullable(literalUnion('resume', 'decide-plan')),
+}))

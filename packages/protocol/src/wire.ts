@@ -1,3 +1,4 @@
+import type { LeadCardDecision, LeadWindowProjection, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
@@ -748,6 +749,12 @@ export interface AgentRegisterRequest {
  * runtime 'unknown method'.
  */
 export interface HostMethods {
+  'lead/thread/read': { params: Record<string, never>; result: LeadWindowProjection }
+  'lead/thread/send': { params: LeadThreadSend; result: LeadSendReceipt }
+  'lead/card/decide': { params: LeadCardDecision; result: LeadWindowProjection }
+  'lead/settings/read': { params: Record<string, never>; result: LeadWindowProjection }
+  'lead/settings/update': { params: LeadSettingsUpdate; result: LeadWindowProjection }
+  'lead/resume': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }
   'client/hello': {
     params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }
     result: {
@@ -2801,6 +2808,7 @@ export interface SeatActivity {
 }
 
 export type WireNotification =
+  | { readonly method: 'lead/changed'; readonly params: LeadWindowProjection }
   | { method: 'storage/usageChanged'; params: StorageUsage }
   | { readonly method: 'seat/activity'; readonly params: SeatActivity }
   | { method: 'goal/changed'; params: { view: GoalView } }

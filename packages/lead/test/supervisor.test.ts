@@ -608,3 +608,26 @@ test('host budget admission refusal kills a live dispatch before journaling and 
     assert.equal(f.journal.state.attempts.get('child-attempt')?.outcome, 'uncertain')
   } finally { await f.supervisor.stop(); await sent }
 })
+
+test('child RPC and window-shaped click frames cannot invoke human decisions', async () => {
+  const { parseLeadIpc } = await import('../src/child-ipc.js')
+  for (const operation of ['decideCard', 'resume', 'setPolicy', 'appendMessage', 'lead/card/decide'])
+    assert.throws(() => parseLeadIpc({ version: 1, type: 'rpc', id: 1, operation, args: [] }), /lead-ipc-invalid/)
+  assert.throws(() => parseLeadIpc({ version: 1, type: 'lead/card/decide', params: {} }), /lead-ipc-invalid/)
+})
+
+test('a framed child click terminates its synthetic pid without invoking a journal decision', async () => {
+  for (const payload of [
+    { version: 1, type: 'rpc', id: 1, operation: 'decideCard', args: [] },
+    { version: 1, type: 'lead/card/decide', params: { choice: 'accept' } },
+  ]) {
+    const f = await fixture(); await f.supervisor.ensure()
+    const before = f.journal.state
+    f.child.stdout.write(frame(payload))
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(f.supervisor.live, false)
+    assert.equal(f.counts().exits, 1)
+    assert.deepEqual(f.journal.state, before)
+    assert.equal(f.records.some(record => record.type === 'card-decision'), false)
+  }
+})

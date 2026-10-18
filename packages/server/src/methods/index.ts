@@ -1,3 +1,4 @@
+import { leadMethods } from './lead.js'
 import type { HostMethodName, HostParams, HostResult } from '@harnessdesk/protocol'
 
 import { clientMethods } from './client.js'
@@ -57,6 +58,7 @@ export { TERMINAL_CHIP } from './plugins.js'
  */
 export const hostMethods: HostMethodTable = {
   ...clientMethods,
+  ...leadMethods,
   ...appMethods,
   ...runtimeMethods,
   ...runtimeExtensionMethods,
@@ -95,6 +97,7 @@ export const hostMethods: HostMethodTable = {
  */
 export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   clientMethods,
+  leadMethods,
   appMethods,
   runtimeMethods,
   runtimeExtensionMethods,

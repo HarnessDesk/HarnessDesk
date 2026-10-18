@@ -1502,6 +1502,8 @@ export class Team {
     client?: string,
     /** Automatic work carries the Flow's origin, never a person supplied field. */
     origin?: Extract<TeamActor, { kind: 'flow' | 'trigger' }>,
+    /** Window Lead decisions recheck their live gate after pending answer saves. */
+    verifyPersonDecision?: () => void,
   ): Promise<void> {
     /* An answer is first only once it is saved. While one is still being
        saved the board already reads as answered — the next change is built on
@@ -1511,6 +1513,7 @@ export class Team {
     if (action === 'done' || action === 'abandon') {
       for (let saving = this.#answerSaves.get(answerKey(room, id)); saving; saving = this.#answerSaves.get(answerKey(room, id))) await saving
     }
+    verifyPersonDecision?.()
     const board = this.#mutableBoardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
     if (!intent) throw Object.assign(new Error(`There is no card #${id} on this board.`), { wireCode: 'cardMissing' })

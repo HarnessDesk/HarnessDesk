@@ -239,6 +239,23 @@ export class LeadService {
       finally { await this.#release() }
     }
   }
+  /** Resolve only for this check; retain neither the key nor caller data. Errors are static. */
+  async assertPublic(value: unknown): Promise<void> {
+    try {
+      if (!(await this.options.broker.leadStatus('anthropic')).configured) return
+      const key = await this.options.broker.resolveLead('anthropic')
+      const scan = (item: unknown): void => {
+        if (typeof item === 'string') {
+          if (item.includes(key)) throw new Error('lead-secret-refused')
+          // Structured prose can contain JSON-escaped copies of a credential.
+          try { const decoded: unknown = JSON.parse(item); if (decoded !== item) scan(decoded) } catch (error) {
+            if (error instanceof Error && error.message === 'lead-secret-refused') throw error
+          }
+        } else if (item && typeof item === 'object') for (const [name, child] of Object.entries(item)) { scan(name); scan(child) }
+      }
+      scan(value)
+    } catch { throw new Error('lead-secret-refused') }
+  }
   status(provider: 'anthropic') { return this.options.broker.leadStatus(provider) }
   setEnabled(enabled: boolean): Promise<void> {
     if (this.#closed) return Promise.reject(new Error('lead-closed'))

@@ -141,6 +141,12 @@ export interface HostContext {
   readonly sessionWorktrees: import('../session-worktrees.js').SessionWorktrees
   readonly worktrees: Worktrees
   readonly team: Team
+  leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
+  leadThreadSend(params: HostParams<'lead/thread/send'>): Promise<HostResult<'lead/thread/send'>>
+  leadCardDecide(params: HostParams<'lead/card/decide'>): Promise<HostResult<'lead/card/decide'>>
+  leadSettingsRead(): Promise<HostResult<'lead/settings/read'>>
+  leadSettingsUpdate(params: HostParams<'lead/settings/update'>): Promise<HostResult<'lead/settings/update'>>
+  leadResume(params: HostParams<'lead/resume'>): Promise<HostResult<'lead/resume'>>
   readonly leadStarts?: Pick<import('../lead/budgets.js').LeadBudgets, 'validateStart'>
   readonly flows: Flows
   /** Previews a flow, non-executing, and mints the one token `flow/start-goal` redeems. */

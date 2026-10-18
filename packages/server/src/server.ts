@@ -185,13 +185,15 @@ const handleMessage = async (
   try {
     parsed = parseClientMessage(JSON.parse(raw))
   } catch (error) {
+    // JSON errors can quote the raw frame, including a write-only credential.
+    const failure = error instanceof SyntaxError ? new Error('Invalid JSON message.') : error
     // Without a valid id there is nobody to answer, so log and drop.
     logger.warn('rejected malformed client message', {
-      error: error instanceof ValidationError ? error.message : String(error),
+      error: failure instanceof ValidationError ? failure.message : String(failure),
     })
     const id = idOf(raw)
     if (id !== null) {
-      send({ id, ok: false, error: wireError('badRequest', describeError(error)) } as WireResponse)
+      send({ id, ok: false, error: wireError('badRequest', describeError(failure)) } as WireResponse)
     }
     return
   }

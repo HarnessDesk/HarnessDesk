@@ -1,3 +1,4 @@
+import { parseLeadCardDecision, parseLeadEmpty, parseLeadResume, parseLeadSettingsUpdate, parseLeadThreadSend } from './lead.js'
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import { AUTHORING_AGENT_LIMIT, SHAPE_LAYOUT_SIZE_LIMIT, type AgentFieldEdit, type AuthoringTarget, type StartContext, type WritableAuthoringTarget } from './authoring.js'
 import type { ApprovalDecision } from './approval.js'
@@ -971,6 +972,12 @@ const planBudgetInputValidator = shape({
 })
 
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
+  'lead/thread/read': parseLeadEmpty,
+  'lead/thread/send': parseLeadThreadSend,
+  'lead/card/decide': parseLeadCardDecision,
+  'lead/settings/read': parseLeadEmpty,
+  'lead/settings/update': parseLeadSettingsUpdate,
+  'lead/resume': parseLeadResume,
   'provenance/commits': shape({ root: provenanceRoot, shas: provenanceShas }),
   'provenance/status': shape({ root: provenanceOptionalRoot }),
   'provenance/capture': shape({ root: provenanceRoot, enabled: isBoolean }),

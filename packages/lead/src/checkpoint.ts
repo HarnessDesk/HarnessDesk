@@ -1,4 +1,4 @@
-import { parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
+import { parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
 import { parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
 import { initialLeadState, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
@@ -16,11 +16,24 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const checkpoint = value as LeadJournalCheckpoint
   assert(checkpoint && checkpoint.type === 'checkpoint' && checkpoint.version === 1 && /^[a-f0-9]{64}$/.test(checkpoint.head))
   assert(Object.keys(checkpoint).sort().join() === ['type', 'version', 'seq', 'head', 'state'].sort().join())
-  const source = checkpoint.state
+  const stored = checkpoint.state
+  // Step 9 had no thread records. Add only the complete, absent thread suffix;
+  // retain the original checkpoint object for its authenticated-byte checksum.
+  const legacy = stored && !['messages', 'olderMessages', 'sends'].some(key => Object.hasOwn(stored, key))
+  const source = legacy ? { ...stored, messages: [], olderMessages: 0, sends: [] } : stored
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
   assert(Number.isSafeInteger(source.seq) && source.seq > 0 && source.seq === checkpoint.seq)
   assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'].includes(source.phase))
   parseLeadJournalRecord({ version: 1, seq: 1, type: 'management', phase: 'waiting-for-user', reason: source.managementReason })
+  assert(Array.isArray(source.messages) && source.messages.length <= 256 && Number.isSafeInteger(source.olderMessages) && source.olderMessages >= 0)
+  const messages = source.messages.map(message => parseLeadMessage(message))
+  assert(new Set(messages.map(message => message.id)).size === messages.length && messages.every(message => message.revision <= source.seq))
+  assert(Array.isArray(source.sends) && source.sends.length <= 4096 && new Set(source.sends.map(send => send.key)).size === source.sends.length)
+  for (const send of source.sends) {
+    assert(Object.keys(send).sort().join() === ['key', 'messageId', 'revision'].sort().join())
+    parseLeadThreadSend({ idempotencyKey: send.key, text: 'receipt' })
+    assert(Number.isSafeInteger(send.revision) && send.revision > 0 && send.revision <= source.seq && send.messageId === `message-${send.revision}`)
+  }
   const policy = source.policy === null ? null : parseLeadPermissionPolicy(source.policy)
   const contract = source.contract === null ? null : parseLeadAcceptanceContract(source.contract)
   const budget = source.budget === null ? null : parseLeadBudgetLedger(source.budget)
@@ -66,6 +79,6 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     assert(contract && consent.contractDigest === contract.digest && consent.contractRevision === contract.revision && consent.policyRevision === contract.policyRevision)
     assert(Number.isSafeInteger(consent.expiresAt) && consent.expiresAt > 0)
   }
-  const state = structuredClone({ ...source, policy, contract, budget, cards, runs, attempts })
+  const state = structuredClone({ ...source, policy, contract, budget, cards, runs, attempts, messages })
   return { checkpoint: structuredClone(checkpoint), state }
 }

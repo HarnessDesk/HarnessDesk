@@ -1078,3 +1078,15 @@ test('a host-only connection maximum is immutable and intersects live grants aft
   h.host.clientTiers = () => []
   assert.equal((await peer.call('goal/list', {})).error.code, 'tierNotGranted')
 })
+
+test('a connected outside client cannot call any Lead window control even with answer tier', async t => {
+  const { door } = await rig(t)
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  for (const method of ['lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume']) {
+    const result = await peer.call(method, {})
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'notOnClientSurface')
+  }
+})
