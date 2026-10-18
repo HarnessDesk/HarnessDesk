@@ -1503,9 +1503,12 @@ chooses one. `@A` and `@B`, or member names, update that same audience. The quie
 **Waits for their turns** hint appears while either Seat is working. Chat keeps
 the message once, and the room's words and audience wait across Chat and the
 grid. A lone, expanded or narrow single tile uses its own composer. Panels
-extend to the bottom behind the floating box; transcript padding, approval
-viewports and Browser surfaces clear the dock's measured height, including
-padding and borders as it resizes. Settings keep
+extend to the bottom behind the floating box; transcript padding and approval
+viewports clear the dock's measured height, including
+padding and borders as it resizes. Every tile, a browser included, reaches the
+bottom, with the opaque composer and comparison decision card floating over it;
+the spaces around and between them stay transparent and pass clicks through.
+Settings keep
 the ordinary four slots; differing choices read **Mixed** and their menus name
 each recipient. Unavailable recipients show their reason, delivery outcomes
 name each copy, queued copies mark their recipient tile, and **Stop** stops the

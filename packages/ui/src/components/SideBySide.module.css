@@ -95,12 +95,6 @@
   --shared-composer-h: var(--composer-h, 0px);
 }
 
-/* A live browser cannot scroll its controls out from under the dock, so
-   reserve the same clearance around its whole surface. */
-.body[data-clear-composer][data-mode='browser'] {
-  margin-bottom: var(--shared-composer-h);
-}
-
 .dock {
   position: absolute;
   left: 0;
@@ -113,7 +107,12 @@
   pointer-events: none;
 }
 
-.dock > * {
+/* Wrappers and notice-stack spacing stay transparent to input; only painted
+   surfaces receive it. */
+.composer [data-slot='comparison-decision'],
+.composer [data-slot='composer'],
+.composer [data-slot='composer-tail'] > *,
+.composer [data-surface] {
   pointer-events: auto;
 }
 

@@ -2,12 +2,20 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { ComposerChip, ComposerDropHint } from './composer'
+import { ComposerChip, ComposerDock, ComposerDropHint } from './composer'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
 let root: Root
+
+it('offers a bare floating dock while preserving the ordinary floating gradient', () => {
+  act(() => root.render(<><ComposerDock floating="bare" /><ComposerDock floating /></>))
+  const docks = container.querySelectorAll('[data-slot="composer-dock"]')
+  expect(docks[0]!.className).not.toContain('linear-gradient')
+  expect(docks[0]!.className).toContain('pt-(--hd-space-4)')
+  expect(docks[1]!.className).toContain('linear-gradient')
+})
 
 beforeEach(() => {
   container = document.createElement('div')

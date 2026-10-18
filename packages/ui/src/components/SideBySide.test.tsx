@@ -588,6 +588,18 @@ it('keeps full-height panels and reserves content clearance under the ordinary-w
   expect(sheet).toMatch(/\.dock\s*\{[^}]*position:\s*absolute/)
 })
 
+it('keeps browser bodies full-height behind the shared composer', () => {
+  expect(sheet).not.toMatch(/margin-bottom:\s*var\(--shared-composer-h/)
+})
+
+it('uses a bare shared dock and leaves pointer handling to its cards', () => {
+  mount(baseState(), { composer: () => <textarea aria-label="Shared message" /> })
+  expect(container.querySelector('[data-shared-composer]')!.className).not.toContain('linear-gradient')
+  expect(sheet).not.toMatch(/\.dock\s*>\s*\*\s*\{[^}]*pointer-events:\s*auto/)
+  expect(sheet).not.toMatch(/\.composer\s*>\s*\*\s*\{[^}]*pointer-events:\s*auto/)
+  expect(sheet).toMatch(/\.composer\s+\[data-slot='composer'\][^{]*\{[^}]*pointer-events:\s*auto/)
+})
+
 const tileAction = (label: string) => {
   const nickname = label.split(' ').slice(1).join(' ')
   click(container.querySelector(`button[aria-label="${nickname} actions"]`)!)

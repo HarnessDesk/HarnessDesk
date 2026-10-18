@@ -426,7 +426,7 @@ export const SideBySide = ({
         {seams.map((seam) => (
           <Separator key={seam.key} orientation={seam.orientation} painted={false} style={seam.style} />
         ))}
-        <ComposerDock floating ref={composerRef} data-shared-composer="" data-decision={decision ? '' : undefined} hidden={!sharedComposer} className={styles.dock} onFocusCapture={() => setComposing(true)}>
+        <ComposerDock floating="bare" ref={composerRef} data-shared-composer="" data-decision={decision ? '' : undefined} hidden={!sharedComposer} className={styles.dock} onFocusCapture={() => setComposing(true)}>
           {sharedComposer && composer && (
             <ComposerDock>
               <div className={styles.composer}>{decision}{composer(shown.shown)}</div>

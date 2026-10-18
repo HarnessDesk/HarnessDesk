@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils'
  * transcript — or, `floating`, the fade and top clearance the one pane whose
  * composer sits over scrolling content (rather than in flow below it) needs
  * above the whole dock, bars strip included.
+ * `floating="bare"` keeps that top clearance without a fade, for cards that
+ * float over content which must remain visible around and between them.
  *
  * The two are mutually exclusive rather than additive: `floating` wraps the
  * outer dock (`Conversation.tsx`, around its bars strip and its composer
@@ -16,7 +18,7 @@ import { cn } from '@/lib/utils'
  * wrapper the inner's own `px`/`pb` too, or the inner wrapper a second fade,
  * would double an inset the other side already pays.
  */
-const ComposerDock = forwardRef<HTMLDivElement, ComponentProps<'div'> & { floating?: boolean }>(
+const ComposerDock = forwardRef<HTMLDivElement, ComponentProps<'div'> & { floating?: boolean | 'bare' }>(
   ({ className, floating = false, ...props }, ref) => (
     <div
       ref={ref}
@@ -24,8 +26,9 @@ const ComposerDock = forwardRef<HTMLDivElement, ComponentProps<'div'> & { floati
       className={cn(
         'shrink-0',
         floating
-          ? 'pt-(--hd-space-4) bg-[linear-gradient(to_bottom,transparent,var(--hd-background,var(--hd-card))_26%)]'
+          ? 'pt-(--hd-space-4)'
           : 'px-[calc(var(--hd-space-6)+var(--hd-scrollbar-width,8px))] pb-(--hd-space-5)',
+        floating === true && 'bg-[linear-gradient(to_bottom,transparent,var(--hd-background,var(--hd-card))_26%)]',
         className,
       )}
       {...props}
