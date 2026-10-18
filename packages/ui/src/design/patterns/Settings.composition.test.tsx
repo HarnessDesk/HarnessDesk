@@ -7,12 +7,6 @@ import sheet from './Settings.module.css?raw'
 const render = (node: React.ReactNode) => {
   const box = document.createElement('div'); box.innerHTML = renderToStaticMarkup(node); return box
 }
-it('keeps overflow-hidden row groups at their content minimum', () => {
-  const rowsRule = sheet.match(/(?:^|\n)\.rows\s*\{([^}]*)\}/)?.[1]
-  expect(rowsRule).toBeDefined()
-  expect(rowsRule).toMatch(/overflow:\s*hidden/)
-  expect(rowsRule).toMatch(/min-height:\s*min-content/)
-})
 it('opts into inset row groups while preserving ordinary row cards', () => {
   const normal = render(<Rows><Row title="Setting" /></Rows>).firstElementChild!
   const inset = render(<Rows variant="inset"><Row title="Setting" /></Rows>).firstElementChild!

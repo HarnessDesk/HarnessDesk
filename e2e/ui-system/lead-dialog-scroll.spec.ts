@@ -1,0 +1,60 @@
+import { expect, test } from '@playwright/test'
+
+// Synthetic preview scenes only; the orchestrator owns browser verification.
+test.use({ screenshot: 'off', trace: 'off', video: 'off' })
+
+for (const theme of ['light', 'dark'] as const) for (const height of [1000, 480]) {
+  test(`Lead settings groups stay whole at 1280x${height} in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?lead-synthetic=settings-configured&theme=${theme}`)
+    const dialog = page.getByRole('dialog', { name: 'Lead settings', exact: true })
+    await expect(dialog).toBeVisible()
+    await page.evaluate(async () => { await document.fonts.ready })
+    const groups = dialog.locator('[data-slot="rows"]')
+    await expect(groups).toHaveCount(3)
+    for (const group of await groups.all()) {
+      const metrics = await group.evaluate(node => ({ scroll: node.scrollHeight, client: node.clientHeight }))
+      expect(metrics.client).toBeGreaterThan(0)
+      expect(metrics.scroll).toBeLessThanOrEqual(metrics.client + 1)
+    }
+    const body = dialog.locator('[data-slot="modal-dialog-body"]')
+    const metrics = await body.evaluate(node => ({ scroll: node.scrollHeight, client: node.clientHeight, overflow: getComputedStyle(node).overflowY }))
+    expect(metrics.client).toBeGreaterThan(0)
+    expect(metrics.overflow).toBe('auto')
+    if (height === 480) expect(metrics.scroll).toBeGreaterThan(metrics.client + 1)
+    if (metrics.scroll > metrics.client + 1) {
+      expect(await body.evaluate(node => { node.scrollTop = node.scrollHeight; return node.scrollTop })).toBeGreaterThan(0)
+    }
+  })
+
+  test(`New worktree branches keep their scrolling cap at 1280x${height} in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?theme=${theme}`)
+    await page.getByLabel('git sheet').selectOption('new worktree')
+    const dialog = page.getByRole('dialog', { name: 'New worktree', exact: true })
+    await expect(dialog).toBeVisible()
+    await page.evaluate(async () => { await document.fonts.ready })
+    const branches = dialog.getByRole('radiogroup', { name: 'Start the worktree from' })
+    await expect(branches.getByRole('radio').first()).toBeVisible()
+    // Extend the rendered synthetic list without changing its CSS. The cap
+    // must work for a long list, rather than passing on three short branches.
+    await branches.evaluate(node => {
+      const sample = node.querySelector('[role="radio"]')
+      if (!sample) throw new Error('The synthetic branch list is empty')
+      while (node.querySelectorAll('[role="radio"]').length < 15) {
+        const row = sample.cloneNode(true) as HTMLElement
+        row.setAttribute('aria-label', `Synthetic branch ${node.children.length + 1}`)
+        node.append(row)
+      }
+    })
+    expect(await branches.getByRole('radio').count()).toBeGreaterThanOrEqual(15)
+    const metrics = await branches.evaluate(node => ({ height: node.getBoundingClientRect().height, client: node.clientHeight, scroll: node.scrollHeight, overflow: getComputedStyle(node).overflowY }))
+    expect(metrics.client).toBeGreaterThan(0)
+    expect(metrics.height).toBeLessThanOrEqual(Math.min(168, height * 0.4) + 1)
+    expect(metrics.overflow).toBe('auto')
+    expect(metrics.scroll).toBeGreaterThan(metrics.client + 1)
+    expect(await branches.evaluate(node => { node.scrollTop = node.scrollHeight; return node.scrollTop })).toBeGreaterThan(0)
+  })
+}

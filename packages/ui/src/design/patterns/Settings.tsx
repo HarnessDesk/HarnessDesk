@@ -906,8 +906,7 @@ const RowsCardContext = createContext(false)
  * row a compact radio row. A radio group of anything else (a branch picker of
  * row buttons) keeps its card, its edge and its ground. `variant="inset"`
  * groups rows inside an existing card: it inherits that surface and has no
- * bottom margin; adjacent inset groups keep one divider. Overflow-hidden
- * groups keep their content minimum; the enclosing dialog body scrolls.
+ * bottom margin; adjacent inset groups keep one divider.
  */
 export const Rows = ({
   children,

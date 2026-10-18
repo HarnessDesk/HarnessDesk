@@ -3772,3 +3772,5 @@ interleave saved cards with new messages.
 Policy saves compare mode and rules structurally, ignoring revision alone. An edit
 that leaves effective authority unchanged is still stored as a tightening; only
 equal values are a no-op. Widening and mixed edits still require a decision card.
+An authority-neutral edit intentionally bumps the policy revision, making a
+pending plan card stale and requiring replanning.

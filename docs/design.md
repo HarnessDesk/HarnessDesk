@@ -2354,8 +2354,8 @@ recipe, source, digest and evidence ids never appear. Steps show their title and
 assertion kinds use Check, Review and Findings chips. Permission methods share
 one closed human label table with settings; their wire ids are hover facts only.
 
-A worker command approval is a short card naming only the waiting worker (or
-“A worker” when its identity is unavailable), with one Open approvals button. Person gates alone have Accept and Decline. Evidence
+A worker command approval is a short card saying a worker is waiting, with one
+Open approvals button. Person gates alone have Accept and Decline. Evidence
 requires the current contract revision and a non-empty evidence list; everything
 else reads Unknown. Lead spend and reported worker spend remain separate facts.
 One decision is in flight across the page. A refusal keeps focus on its card.
@@ -2369,6 +2369,6 @@ uses ConfirmDialog. The key is trimmed and the uncontrolled input emptied before
 its exclusive request. Permissions and Allowances each have one Save at their
 group's end, right-aligned at normal width and enabled only for changed values.
 The key row is Key; its editor closes after a successful save. The dollar row
-carries the reported-spend hint. Shared `Rows` keep a min-content minimum so
-height pressure cannot clip them inside the bounded dialog; hints wrap,
+carries the reported-spend hint. A plain `FormStack` groups the settings inside
+the bounded dialog; hints wrap,
 only the body scrolls, and Done stays in the footer. Refusals appear in the active dialog and clear on close.

@@ -1,4 +1,5 @@
 import type { RateLimits, UsageWindow } from '@harnessdesk/protocol'
+import { commitDate } from './git-refs'
 
 /**
  * What a metered runtime's limits mean for the person using it.
@@ -87,7 +88,7 @@ export const formatReset = (at: number | null, now = Date.now()): string | null 
   const sameDay = new Date(now).toDateString() === date.toDateString()
   const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
   if (sameDay) return time
-  return `${date.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`
+  return `${commitDate(at, now)} ${time}`
 }
 
 const toneFor = (remaining: number): Tone => (remaining <= 0 ? 'bad' : remaining < 20 ? 'warn' : 'good')

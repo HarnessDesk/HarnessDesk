@@ -902,10 +902,6 @@
   border-radius: var(--hd-card-radius, var(--hd-radius-lg));
   background: var(--hd-card-fill, var(--hd-card));
   overflow: hidden;
-  /* Overflow-hidden groups never scroll. Their automatic minimum is zero in
-     a bounded grid or flex stack, so shrinking only clips rows. Keep their
-     content minimum and let the enclosing dialog body scroll instead. */
-  min-height: min-content;
   margin-bottom: var(--hd-space-1-5);
 }
 
