@@ -357,12 +357,16 @@
     },
     "team-run": {
       "offLine": {
+        "button[button] \"Stop run…\" Δ2.5": 1,
+        "button[button] \"Stop run…\" Δ3": 2,
         "button[button] Δ1": 2,
         "button[button] Δ2": 2,
         "button[button] Δ3": 1,
         "button[popover-trigger] \"Inbox\" Δ2": 1,
         "button[popover-trigger] Δ3": 1,
         "button[tabs-trigger] \"Run 1\" Δ2.5": 1,
+        "div[page-options] \"Stop run… View\" Δ2.5": 1,
+        "div[page-options] \"Stop run… View\" Δ3": 1,
         "section[tool-section] \"Run Run Run 1 State running…\" Δ1": 1,
         "section[tool-section] \"Seats Alpha Alpha · #1 Retr…\" Δ1": 1,
         "span[text] \"HarnessDesk\" Δ2": 1
@@ -396,12 +400,16 @@
     },
     "team-run-not-reached": {
       "offLine": {
+        "button[button] \"Stop run…\" Δ2.5": 1,
+        "button[button] \"Stop run…\" Δ3": 2,
         "button[button] Δ1": 2,
         "button[button] Δ2": 2,
         "button[button] Δ3": 2,
         "button[popover-trigger] \"Inbox\" Δ2": 1,
         "button[popover-trigger] Δ3": 1,
         "button[tabs-trigger] \"Run 1\" Δ2.5": 1,
+        "div[page-options] \"Stop run… View\" Δ2.5": 1,
+        "div[page-options] \"Stop run… View\" Δ3": 1,
         "section[tool-section] \"Run Run Run 1 State running…\" Δ1": 1,
         "section[tool-section] \"Seats Alpha Alpha · #4 Answ…\" Δ1": 1,
         "span[text] \"HarnessDesk\" Δ2": 1
@@ -413,6 +421,8 @@
     },
     "team-run-repeated": {
       "offLine": {
+        "button[button] \"Stop run…\" Δ2.5": 1,
+        "button[button] \"Stop run…\" Δ3": 2,
         "button[button] \"Writer Agent\" Δ1": 1,
         "button[button] Δ1": 2,
         "button[button] Δ2": 2,
@@ -420,6 +430,8 @@
         "button[popover-trigger] \"Inbox\" Δ2": 1,
         "button[popover-trigger] Δ3": 1,
         "button[tabs-trigger] \"Run 1\" Δ2.5": 1,
+        "div[page-options] \"Stop run… View\" Δ2.5": 1,
+        "div[page-options] \"Stop run… View\" Δ3": 1,
         "section[tool-section] \"Run Run Run 1 State running…\" Δ1": 1,
         "section[tool-section] \"Seats Alpha Alpha · #20 Ans…\" Δ1": 1,
         "span[chip-words] \"Check\" Δ2.5": 1,
@@ -437,6 +449,8 @@
     },
     "team-run-equivalent": {
       "offLine": {
+        "button[button] \"Stop run…\" Δ2.5": 1,
+        "button[button] \"Stop run…\" Δ3": 2,
         "button[button] \"Writer Agent\" Δ2.5": 1,
         "button[button] Δ1": 2,
         "button[button] Δ2": 2,
@@ -444,6 +458,8 @@
         "button[popover-trigger] \"Inbox\" Δ2": 1,
         "button[popover-trigger] Δ3": 1,
         "button[tabs-trigger] \"Run 1\" Δ2.5": 1,
+        "div[page-options] \"Stop run… View\" Δ2.5": 1,
+        "div[page-options] \"Stop run… View\" Δ3": 1,
         "section[tool-section] \"Run Run Run 1 State settled…\" Δ1": 1,
         "section[tool-section] \"Seats Alpha Alpha · Writer…\" Δ1": 1,
         "span[text] \"HarnessDesk\" Δ2": 1
@@ -524,6 +540,7 @@
     },
     "team-findings": {
       "offLine": {
+        "button[button] \"Decide this run\" Δ3": 1,
         "button[button] Δ1": 2,
         "button[button] Δ2": 2,
         "button[button] Δ3": 1,
@@ -1683,12 +1700,16 @@
     "team-run": {
       "offLine": {
         "button[button] \"Stop run…\" Δ1": 1,
+        "button[button] \"Stop run…\" Δ2": 1,
+        "button[button] \"Stop run…\" Δ3": 1,
         "button[button] Δ1": 2,
         "button[button] Δ2": 2,
         "button[button] Δ3": 1,
         "button[popover-trigger] \"Inbox\" Δ2": 1,
         "button[popover-trigger] Δ3": 1,
+        "button[tabs-trigger] \"Overview 1\" Δ3": 1,
         "button[tabs-trigger] \"Run 1\" Δ1": 1,
+        "div[page-options] \"Stop run… View\" Δ3": 1,
         "section[tool-section] \"Run Run Run 1 State running…\" Δ1": 1,
         "section[tool-section] \"Seats Alpha Alpha · #1 Retr…\" Δ1": 1,
         "span[text] \"HarnessDesk\" Δ2": 1
@@ -1723,14 +1744,18 @@
     "team-run-not-reached": {
       "offLine": {
         "button[button] \"Stop run…\" Δ1": 1,
+        "button[button] \"Stop run…\" Δ2": 1,
+        "button[button] \"Stop run…\" Δ3": 1,
         "button[button] Δ1": 2,
         "button[button] Δ2": 3,
         "button[button] Δ3": 1,
         "button[popover-trigger] \"Inbox\" Δ2": 1,
         "button[popover-trigger] \"View\" Δ3": 1,
         "button[popover-trigger] Δ3": 1,
+        "button[tabs-trigger] \"Overview 1\" Δ3": 1,
         "button[tabs-trigger] \"Overview\" Δ3": 1,
         "button[tabs-trigger] \"Run 1\" Δ1": 1,
+        "div[page-options] \"Stop run… View\" Δ3": 1,
         "section[tool-section] \"Run Run Run 1 State running…\" Δ1": 1,
         "section[tool-section] \"Seats Alpha Alpha · #4 Answ…\" Δ1": 1,
         "span[text] \"HarnessDesk\" Δ2": 1,
@@ -1744,6 +1769,8 @@
     "team-run-repeated": {
       "offLine": {
         "button[button] \"Stop run…\" Δ1": 1,
+        "button[button] \"Stop run…\" Δ2": 1,
+        "button[button] \"Stop run…\" Δ3": 1,
         "button[button] \"Writer Agent\" Δ1": 1,
         "button[button] Δ1": 2,
         "button[button] Δ2": 3,
@@ -1751,8 +1778,10 @@
         "button[popover-trigger] \"Inbox\" Δ2": 1,
         "button[popover-trigger] \"View\" Δ3": 2,
         "button[popover-trigger] Δ3": 1,
+        "button[tabs-trigger] \"Overview 1\" Δ3": 1,
         "button[tabs-trigger] \"Overview\" Δ3": 1,
         "button[tabs-trigger] \"Run 1\" Δ1": 1,
+        "div[page-options] \"Stop run… View\" Δ3": 1,
         "section[tool-section] \"Run Run Run 1 State running…\" Δ1": 1,
         "section[tool-section] \"Seats Alpha Alpha · #20 Ans…\" Δ1": 1,
         "span[chip-words] \"Check\" Δ3": 1,
@@ -1772,14 +1801,18 @@
     "team-run-equivalent": {
       "offLine": {
         "button[button] \"Stop run…\" Δ1": 1,
+        "button[button] \"Stop run…\" Δ2": 1,
+        "button[button] \"Stop run…\" Δ3": 1,
         "button[button] Δ1": 2,
         "button[button] Δ2": 3,
         "button[button] Δ3": 1,
         "button[popover-trigger] \"Inbox\" Δ2": 1,
         "button[popover-trigger] \"View\" Δ3": 1,
         "button[popover-trigger] Δ3": 1,
+        "button[tabs-trigger] \"Overview 1\" Δ3": 1,
         "button[tabs-trigger] \"Overview\" Δ3": 1,
         "button[tabs-trigger] \"Run 1\" Δ1": 1,
+        "div[page-options] \"Stop run… View\" Δ3": 1,
         "section[tool-section] \"Run Run Run 1 State settled…\" Δ1": 1,
         "section[tool-section] \"Seats Alpha Alpha · Writer…\" Δ1": 1,
         "span[text] \"HarnessDesk\" Δ2": 1,
@@ -1863,6 +1896,7 @@
     },
     "team-findings": {
       "offLine": {
+        "button[button] \"Decide this run\" Δ2": 1,
         "button[button] Δ1": 2,
         "button[button] Δ2": 2,
         "button[button] Δ3": 1,
