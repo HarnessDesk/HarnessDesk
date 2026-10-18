@@ -2,26 +2,26 @@
   {
     "scene": "teams-table",
     "theme": "light",
-    "width": 652,
-    "height": 307,
+    "width": 936,
+    "height": 396,
     "scale": 2,
     "filename": "teams-table-light.png",
-    "caption": "Active Teams, grouped by project."
+    "caption": "Active Teams in columns: the ones that need you, the ones working and the ones ready to wrap."
   },
   {
     "scene": "teams-table",
     "theme": "dark",
-    "width": 652,
-    "height": 307,
+    "width": 936,
+    "height": 396,
     "scale": 2,
     "filename": "teams-table-dark.png",
-    "caption": "Active Teams, grouped by project."
+    "caption": "Active Teams in columns: the ones that need you, the ones working and the ones ready to wrap."
   },
   {
     "scene": "run-short",
     "theme": "light",
     "width": 736,
-    "height": 782,
+    "height": 784,
     "scale": 2,
     "filename": "run-short-light.png",
     "caption": "Write, review, repair, approve, and a decision for the person."
@@ -30,7 +30,7 @@
     "scene": "run-short",
     "theme": "dark",
     "width": 736,
-    "height": 782,
+    "height": 784,
     "scale": 2,
     "filename": "run-short-dark.png",
     "caption": "Write, review, repair, approve, and a decision for the person."
@@ -57,7 +57,7 @@
     "scene": "browser-tile",
     "theme": "light",
     "width": 672,
-    "height": 502,
+    "height": 500,
     "scale": 2,
     "filename": "browser-tile-light.png",
     "caption": "A Seat’s Browser visits an isolated Storefront fixture at acme.dev."
@@ -66,7 +66,7 @@
     "scene": "browser-tile",
     "theme": "dark",
     "width": 672,
-    "height": 502,
+    "height": 500,
     "scale": 2,
     "filename": "browser-tile-dark.png",
     "caption": "A Seat’s Browser visits an isolated Storefront fixture at acme.dev."
@@ -75,7 +75,7 @@
     "scene": "handoff-dialog",
     "theme": "light",
     "width": 460,
-    "height": 468,
+    "height": 470,
     "scale": 2,
     "filename": "handoff-dialog-light.png",
     "caption": "Choose how much of a conversation travels to the next agent."
@@ -84,7 +84,7 @@
     "scene": "handoff-dialog",
     "theme": "dark",
     "width": 460,
-    "height": 468,
+    "height": 470,
     "scale": 2,
     "filename": "handoff-dialog-dark.png",
     "caption": "Choose how much of a conversation travels to the next agent."
@@ -93,7 +93,7 @@
     "scene": "start-preview",
     "theme": "light",
     "width": 672,
-    "height": 779,
+    "height": 781,
     "scale": 2,
     "filename": "start-preview-light.png",
     "caption": "The start preview’s brief, task, Agent identities, Seat candidates and Start."
@@ -102,7 +102,7 @@
     "scene": "start-preview",
     "theme": "dark",
     "width": 672,
-    "height": 779,
+    "height": 781,
     "scale": 2,
     "filename": "start-preview-dark.png",
     "caption": "The start preview’s brief, task, Agent identities, Seat candidates and Start."
@@ -110,8 +110,8 @@
   {
     "scene": "dash-plans",
     "theme": "light",
-    "width": 652,
-    "height": 718,
+    "width": 912,
+    "height": 714,
     "scale": 2,
     "filename": "dash-plans-light.png",
     "caption": "Five placeholder accounts, with one plan near its limit and its reset time."
@@ -119,8 +119,8 @@
   {
     "scene": "dash-plans",
     "theme": "dark",
-    "width": 652,
-    "height": 718,
+    "width": 912,
+    "height": 714,
     "scale": 2,
     "filename": "dash-plans-dark.png",
     "caption": "Five placeholder accounts, with one plan near its limit and its reset time."
@@ -128,8 +128,8 @@
   {
     "scene": "dash-hour",
     "theme": "light",
-    "width": 652,
-    "height": 324,
+    "width": 912,
+    "height": 411,
     "scale": 2,
     "filename": "dash-hour-light.png",
     "caption": "A year of work by local weekday and hour, including quiet mornings and weekends."
@@ -137,8 +137,8 @@
   {
     "scene": "dash-hour",
     "theme": "dark",
-    "width": 652,
-    "height": 324,
+    "width": 912,
+    "height": 411,
     "scale": 2,
     "filename": "dash-hour-dark.png",
     "caption": "A year of work by local weekday and hour, including quiet mornings and weekends."
@@ -146,8 +146,8 @@
   {
     "scene": "dash-year",
     "theme": "light",
-    "width": 812,
-    "height": 280,
+    "width": 816,
+    "height": 378,
     "scale": 2,
     "filename": "dash-year-light.png",
     "caption": "A whole synthetic year, with weekends, days off and a holiday week."
@@ -155,8 +155,8 @@
   {
     "scene": "dash-year",
     "theme": "dark",
-    "width": 812,
-    "height": 280,
+    "width": 816,
+    "height": 378,
     "scale": 2,
     "filename": "dash-year-dark.png",
     "caption": "A whole synthetic year, with weekends, days off and a holiday week."
@@ -164,8 +164,8 @@
   {
     "scene": "dash-spend",
     "theme": "light",
-    "width": 652,
-    "height": 388,
+    "width": 912,
+    "height": 347,
     "scale": 2,
     "filename": "dash-spend-light.png",
     "caption": "Estimated spend across agents over 90 days."
@@ -173,8 +173,8 @@
   {
     "scene": "dash-spend",
     "theme": "dark",
-    "width": 652,
-    "height": 388,
+    "width": 912,
+    "height": 347,
     "scale": 2,
     "filename": "dash-spend-dark.png",
     "caption": "Estimated spend across agents over 90 days."
@@ -182,8 +182,8 @@
   {
     "scene": "dash-agents",
     "theme": "light",
-    "width": 652,
-    "height": 324,
+    "width": 936,
+    "height": 326,
     "scale": 2,
     "filename": "dash-agents-light.png",
     "caption": "The same total split by agent."
@@ -191,8 +191,8 @@
   {
     "scene": "dash-agents",
     "theme": "dark",
-    "width": 652,
-    "height": 324,
+    "width": 936,
+    "height": 326,
     "scale": 2,
     "filename": "dash-agents-dark.png",
     "caption": "The same total split by agent."
