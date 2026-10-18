@@ -428,21 +428,30 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
   // State counts match the chip and search; chip counts cover the whole inventory.
   const chipEntries = useMemo(() => searched.filter(entry =>
     kind !== 'skill' || chip === 'all' || chipFor(entry, columns) === chip), [searched, kind, chip, columns])
+
+  /**
+   * The Declared by filter, once.
+   *
+   * Declarations, not measured reach: a name this Agent declared stays in the
+   * set even when no runtime has resolved it yet (decision: "retain unresolved
+   * rows"). Reach is a separate column, read from `entry.reach` exactly as it
+   * always was. Every count on the page is read through this, so a chip or a
+   * filter row shows the number of cards choosing it will leave.
+   */
+  const declared = useCallback((entry: LibraryEntry) => {
+    if (!agentFilter) return true
+    const refs = declaredBy?.get(`${entry.kind}:${entry.name}`) ?? []
+    return refs.some((ref) => `${ref.origin}:${ref.id}` === agentFilter)
+  }, [agentFilter, declaredBy])
+
+  const scopedEntries = useMemo(() => chipEntries.filter(declared), [chipEntries, declared])
   const counts = useMemo(
-    () => (library ? summarise({ ...library, entries: chipEntries }) : null),
-    [library, chipEntries],
+    () => (library ? summarise({ ...library, entries: scopedEntries }) : null),
+    [library, scopedEntries],
   )
 
   const rows = useMemo(() => {
-    return chipEntries.filter((entry) => {
-      if (agentFilter) {
-        // Declarations, not measured reach: a name this Agent declared stays
-        // in the filtered set even when no runtime has resolved it yet
-        // (decision: "retain unresolved rows"). Reach is a separate column,
-        // read from `entry.reach` exactly as it always was.
-        const refs = declaredBy?.get(`${entry.kind}:${entry.name}`) ?? []
-        if (!refs.some((ref) => `${ref.origin}:${ref.id}` === agentFilter)) return false
-      }
+    return scopedEntries.filter((entry) => {
       if (filter === 'problems') return entryHasProblem(entry)
       if (filter === 'partial') {
         const reaching = entry.reach.filter((one) => one.state === 'reaches').length
@@ -464,7 +473,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
       }
       return true
     })
-  }, [chipEntries, filter, usage, agentFilter, declaredBy, kind, chip, columns])
+  }, [scopedEntries, filter, usage])
 
   // Cards always sort by name. Matrix retains the existing cost order for
   // Never fired, and MCP retains its own list/matrix ordering.
@@ -485,14 +494,17 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
    * desk's own record can see, which is what the tile's label says.
    */
   const unusedCount = useMemo(() => {
-    // Until usage arrives these are candidates; the menu row remains disabled.
-    return chipEntries.filter(
+    // While usage is still loading, every reaching skill is a candidate rather
+    // than a count: `undefined` leaves the chip without a number while its row
+    // waits, disabled, for the answer.
+    if (usage === null) return undefined
+    return scopedEntries.filter(
       (entry) =>
         entry.kind === 'skill' &&
         entry.reach.some((one) => one.state === 'reaches') &&
-        usage?.skills[entry.name] === undefined,
+        usage.skills[entry.name] === undefined,
     ).length
-  }, [chipEntries, usage])
+  }, [scopedEntries, usage])
 
   const kindCounts = useMemo(
     () => ({
@@ -504,13 +516,13 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
 
   const chipCounts = useMemo(() => {
     const result: Record<SkillChip, number> = { all: 0, 'needs-you': 0, 'one-runtime': 0, nobody: 0 }
-    for (const entry of listedEntries.filter(one => one.kind === 'skill')) {
+    for (const entry of listedEntries.filter(one => one.kind === 'skill' && declared(one))) {
       result.all++
       const group = chipFor(entry, columns)
       if (group !== 'all') result[group]++
     }
     return result
-  }, [listedEntries, columns])
+  }, [listedEntries, declared, columns])
 
   /**
    * Each agent's scanned skill directories in the order a name conflict is
@@ -611,8 +623,8 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
   /** Only the gaps that apply to what is on screen; the rest are noise here. */
   const gaps = (library?.gaps ?? []).filter((gap) => gap.kind === kind)
 
-  /** Over `searched`, like every count in the menu: the rows choosing it will leave. */
-  const problemCount = useMemo(() => searched.filter(entryHasProblem).length, [searched])
+  /** Over `searched` within the Declared by scope, like every count in the menu. */
+  const problemCount = useMemo(() => searched.filter(entry => declared(entry) && entryHasProblem(entry)).length, [searched, declared])
   const agentName = agentFilter
     ? (snapshot.agents?.find((entry) => `${entry.origin}:${entry.id}` === agentFilter)?.definition?.name ?? null)
     : null
@@ -665,7 +677,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
         choices={kind === 'mcp' ? libraryChoices : []} search={kind === 'mcp' ? { label: 'Search library', value: query, change: setQuery } : undefined} />
       {/* MCP retains its PageOptions, list, matrix and filters; only skills use cards and chips. */}
       {kind === 'skill' ? <LibrarySkillsControls chip={chip} counts={chipCounts} onChip={setChip} view={skillView} onView={next => { setSkillView(next); setOpen(null) }}
-        filters={{ ...libraryChoices[1]!, items: filterData.filter(one => one.value !== 'problems' && (one.value === 'all' || one.value === filter || (one.count ?? 0) > 0)).map(one => ({ ...one, disabled: counts === null ? 'Reading skills…' : one.disabled })) }}
+        filters={{ ...libraryChoices[1]!, items: filterData.filter(one => one.value !== 'problems' && (one.value === 'all' || one.value === filter || Boolean(one.disabled) || (one.count ?? 0) > 0)).map(one => ({ ...one, disabled: counts === null ? 'Reading skills…' : one.disabled })) }}
         agent={libraryChoices[2]!} search={{ label: 'Search library', value: query, change: setQuery }} /> : <PageExplanation>Every skill and MCP server your runtimes can load, wherever each one keeps them.</PageExplanation>}
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
       {checkFailed !== null && <ActionError>{checkFailed}</ActionError>}

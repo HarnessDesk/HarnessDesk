@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { runtimeId } from '@harnessdesk/protocol'
-import type { AgentAttachmentsView, AgentEntry, Library, LibraryEntry, LibrarySkillUpdate, LibraryUsage, ReachState, RuntimeInfo } from '@harnessdesk/protocol'
+import type { AgentAttachmentsView, AgentEntry, AgentOrigin, Library, LibraryEntry, LibrarySkillUpdate, LibraryUsage, ReachState, RuntimeInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -148,6 +148,10 @@ const mount = async (
     setSkillEnabled?: (...args: unknown[]) => Promise<void>
     /** Stands in for the store verb that leaves the page for the conversation. */
     returnToWork?: () => void
+    /** The Agent roster the Declared by picker lists. */
+    agents?: readonly AgentEntry[]
+    /** What each Agent declares — the Declared by read, keyed by Agent id. */
+    readAgentAttachments?: (id: string) => Promise<AgentAttachmentsView | undefined>
   } = {},
 ): Promise<ReturnType<typeof vi.fn<(method: string, params?: unknown) => Promise<unknown>>>> => {
   // Method-aware: the page asks for the library, then usage, then its own
@@ -172,6 +176,7 @@ const mount = async (
     ...emptySnapshot(),
     status: 'open',
     runtimes: options.runtimes ?? [runtime('one', 'First Agent'), runtime('two', 'Second Agent')],
+    ...(options.agents ? { agents: options.agents } : {}),
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -181,9 +186,10 @@ const mount = async (
     returnToWork: () => { options.returnToWork?.(); visit({ kind: 'work' }) },
     notice: vi.fn(),
     openDestination: visit,
-    // The Agent filter's own roster read — these fixtures never populate
-    // `snapshot.agents`, so this stays a no-op and the filter offers nothing.
+    // The Agent filter's own roster read: a fixture that supplies no agents
+    // leaves `snapshot.agents` null and the picker offers nothing.
     loadAgents: vi.fn(async () => {}),
+    readAgentAttachments: options.readAgentAttachments ?? (async () => undefined),
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -2167,7 +2173,6 @@ it.each([
   { label: 'Reach some', expected: ['empty', 'one', 'paused'] },
   { label: 'Reach none', expected: ['nobody', 'split'] },
   { label: 'Switched off', expected: ['paused'] },
-  { label: 'Never fired', expected: ['empty', 'one', 'paused'] },
 ])('Filter $label retains its state semantics and count', async ({ label, expected }) => {
   const split = entry('split', ['differs', 'differs'])
   await mount(library([partialEntry('empty', ['hollow', 'reaches']), entry('one', ['reaches', 'absent']),
@@ -2177,6 +2182,34 @@ it.each([
   expect(filterRow(label)?.textContent).toBe(`${label}${expected.length}`)
   await act(async () => filterRow(label)!.click())
   expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(expected)
+})
+it('Never fired drops the skill that has fired and keeps the one that has not', async () => {
+  // The fixture needs one of each. A library where every reaching skill is idle
+  // would show the same cards with the filter removed entirely, which is how
+  // this test passed while proving nothing.
+  await mount(
+    library([entry('fired', ['reaches', 'absent']), entry('idle', ['reaches', 'absent'])]),
+    usageOf({ fired: { sessions: 1, activations: 1, lastAt: 5, byRuntime: { one: { sessions: 1, activations: 1 } } } }),
+  )
+  await openFilter()
+  expect(filterRow('Never fired')?.textContent).toBe('Never fired1')
+  await act(async () => filterRow('Never fired')!.click())
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['idle'])
+})
+it('Never fired shows no number while usage is still loading', async () => {
+  let answer!: (usage: LibraryUsage) => void
+  const usage = new Promise<LibraryUsage>((resolve) => { answer = resolve })
+  await mount(library([entry('fired', ['reaches', 'reaches']), entry('idle', ['reaches', 'absent'])]), usage)
+  await openFilter()
+  // No number to trust yet: the count is unknown, not the whole library. The
+  // row keeps its disabled reason — the only thing on it that could be a digit.
+  expect(filterRow('Never fired')?.getAttribute('aria-disabled')).toBe('true')
+  expect(filterRow('Never fired')?.textContent).toMatch(/^Never fired\D*$/)
+  await closeFilter()
+  await act(async () => {
+    answer(usageOf({ fired: { sessions: 1, activations: 1, lastAt: 5, byRuntime: { one: { sessions: 1, activations: 1 } } } }))
+  })
+  expect(await countOf('Never fired')).toBe('Never fired1')
 })
 it('Never fired stays disabled with its counting reason until usage arrives', async () => {
   await mount(library([entry('one', ['reaches', 'absent'])]), new Promise(() => {}))
@@ -2291,4 +2324,37 @@ it('chip counts include behind and gone updates but not current or unreachable u
   expect(container.querySelector('[aria-label="Needs you"]')?.textContent).toBe('Needs you2')
   await chooseChip('Needs you')
   expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['behind', 'gone'])
+})
+it('a state chip counts the cards the Declared by filter leaves', async () => {
+  const agent = (id: string, origin: AgentOrigin, name: string): AgentEntry => ({
+    id, origin, path: `/home/u/.harnessdesk/agents/${id}/AGENT.md`, digest: id, shadows: [], problems: [],
+    definition: { id, name, ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } as unknown as AgentEntry['definition'],
+  })
+  const declares = (names: readonly string[]): AgentAttachmentsView => ({
+    agent: '', origin: 'user', agentDigest: '', skillsMode: 'allowlist', mcpMode: 'runtime-defaults', support: [],
+    declarations: names.map(name => ({ kind: 'skill', name, identity: { kind: 'skill', name, digest: 'a'.repeat(64), source: 'agent', pathLabel: name }, problem: null })),
+  })
+  await mount(
+    library([
+      entry('alpha', ['reaches', 'reaches']), // reaches both: no state chip counts it
+      entry('beta', ['stale', 'absent']), // reaches nobody
+      entry('gamma', ['stale', 'absent']), // reaches nobody
+    ]),
+    undefined,
+    {
+      agents: [agent('agent-a', 'user', 'Agent A'), agent('agent-b', 'project', 'Agent B')],
+      readAgentAttachments: async (id) => id === 'agent-a' ? declares(['alpha', 'beta']) : declares(['gamma']),
+    },
+  )
+  // Settle the roster's own declaration read — a microtask past mount.
+  await act(async () => {})
+  expect(container.querySelector('[aria-label="Nobody"]')?.textContent).toBe('Nobody2')
+  // Declared by Agent A leaves only beta unreachable, so the chip and the cards
+  // agree: two is the number for the whole library, one is the number shown.
+  await chooseAgent('Agent A')
+  expect(container.querySelector('[aria-label="Nobody"]')?.textContent).toBe('Nobody1')
+  // The state filter rows read the same scoped set, not the whole library.
+  expect(await countOf('Reach none')).toBe('Reach none1')
+  await chooseChip('Nobody')
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['beta'])
 })

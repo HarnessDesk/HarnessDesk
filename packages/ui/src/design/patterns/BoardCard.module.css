@@ -18,7 +18,6 @@
 .summary[data-detail-lines='2'] { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .marks { display: flex; align-items: center; gap: var(--hd-space-1); flex-shrink: 0; }
 .mark { display: inline-flex; align-items: center; justify-content: center; width: var(--hd-space-5); height: var(--hd-space-5); border-radius: var(--hd-radius-full); color: var(--hd-muted-foreground); }
-.mark[data-mark-active='false'] { color: var(--hd-muted-foreground); }
 .mark[data-mark-active='true'] { color: var(--hd-foreground); }
 .mark[data-mark-attention] { outline: var(--hd-border-width) dashed var(--hd-warning-ink); }
 .finding { display: flex; align-items: start; gap: var(--hd-space-1-5); overflow-wrap: anywhere; }
