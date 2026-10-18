@@ -117,7 +117,8 @@ export const frameDestinationStore = (fixture: AppStore, { workspaceOutsideGit =
       const { goal } = params as HostParams<'goal/seen'>
       const view = store.getSnapshot().goals.get(goal)
       if (!view) throw new Error('Synthetic Team is unavailable')
-      const next = { ...view, lastSeenAt: Date.now() }
+      // Like the host, compose the Goal read with the current board facts.
+      const next = { ...view, board: store.getSnapshot().teams.get(goal) ?? view.board, lastSeenAt: Date.now() }
       ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onNotification({ method: 'goal/changed', params: { view: next } })
       return next
     }

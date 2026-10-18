@@ -927,6 +927,14 @@
     "pad": "0 0 0 0",
     "radius": 10
   },
+  "section/section/variant/document": {
+    "h": 107,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 10
+  },
   "section/section/variant/page": {
     "h": 201,
     "text": 14,

@@ -9,11 +9,12 @@ for (const theme of ['light','dark'] as const) {
    const anchor='return new Proxy(base, {'
    expect(source).toContain(anchor)
    await route.fulfill({response,body:source.replace(anchor,`
+    const state=base.getSnapshot();
     const wrapping=state.goals.get('team-2');
     state.goals.set('team-2',{...wrapping,goal:{...wrapping.goal,state:'wrapping'}});
     const stopped=state.flowExecutions.get('team-2-run');
     state.flowExecutions.set(stopped.id,{...stopped,state:'stopped'});
-    state.inbox=wrapping.members.map((member,index)=>({id:'unread-'+index,read:false,at:Date.now(),from:member.session}));
+    base.patch({inbox:wrapping.members.map((member,index)=>({id:'unread-'+index,read:false,at:Date.now(),from:member.session}))});
     const quiet=state.teams.get('team-4');
     state.teams.set(quiet.id,{...quiet,intents:quiet.intents.map((card,index)=>index===0?{...card,state:'open',claim:null}:card)});
     const ended=state.flowExecutions.get('team-4-run');
