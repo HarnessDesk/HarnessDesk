@@ -72,7 +72,7 @@ test('replacement and repair executions never reset logical-goal rounds', () => 
   assert.throws(() => reduce(state, { ...bind('run-other'), goalId: 'different-goal' }))
 })
 
-test('money equality refuses dispatch and round equality refuses only the next round', () => {
+test('money equality refuses dispatch and round equality refuses another request or round', () => {
   let state = reduce(reduce(null, init), reserve('request-1', 90))
   assert.equal(projection(state).reservedUsdMicros, 100)
   assert.throws(() => reduce(state, reserve('request-2', 0)))
@@ -83,7 +83,7 @@ test('money equality refuses dispatch and round equality refuses only the next r
   rounds = reduce(rounds, bind('run-1'))
   rounds = reduce(rounds, observe({ usdMicros: 0 }))
   rounds = reduce(rounds, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'round-1' })
-  assert.doesNotThrow(() => reduce(rounds, reserve('request-1', 0)))
+  assert.throws(() => reduce(rounds, reserve('request-1', 0)))
   assert.throws(() => reduce(rounds, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'round-2' }))
 })
 
@@ -273,7 +273,7 @@ for (const duplicate of ['observation', 'bind', 'round', 'settlement', 'uncertai
   assert.throws(() => reduce(state, { ...reserve('paid-2', 1), now: 120 }))
 })
 
-test('round cap one admits its round and still reserves review without cancellation', async () => {
+test('round cap one finishes its admitted work and refuses another paid request without cancellation', async () => {
   const journal: any = await open(memory())
   await journal.updateBudget({ ...init, caps: { usdMicros: 100, rounds: 1 } })
   await journal.updateBudget(bind('run-1'))
@@ -282,7 +282,8 @@ test('round cap one admits its round and still reserves review without cancellat
   await journal.updateBudget({ version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'one' }, async () => { stops++ })
   assert.equal(journal.state.budget.stop, null)
   assert.equal(stops, 0)
-  await journal.updateBudget(reserve('review-1', 1))
+  await assert.rejects(journal.updateBudget(reserve('review-1', 1)))
+  assert.equal(stops, 0, 'refusing another request does not cancel already admitted work')
   await assert.rejects(journal.updateBudget({ version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'two' }))
 })
 
@@ -550,4 +551,12 @@ test('write-off charges only uncertain requests once and survives checkpoint', a
   await restored.updateBudget(event)
   assert.equal(restored.state.budget.leadUsdMicros, 70)
   await assert.rejects(restored.updateBudget({ ...event, requestId: 'missing' }))
+})
+
+test('Messages reservation refuses exact round-cap equality before a provider request', () => {
+  let state = reduce(null, { ...init, caps: { usdMicros: 100, rounds: 1 } })
+  state = reduce(state, bind('run-1'))
+  state = reduce(state, observe())
+  state = reduce(state, { version: 1, type: 'round', now: 100, executionId: 'run-1', roundId: 'round-1' })
+  assert.throws(() => reduce(state, reserve('past-round-cap')))
 })

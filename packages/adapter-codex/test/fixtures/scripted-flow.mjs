@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -26,6 +26,7 @@ export function scriptedFlow(raw, { send, notify }) {
     }
   }
   const pending = new Map()
+  const approvalRequests = new Set()
   const active = new Set()
   const turns = new Map()
   let sequence = 0
@@ -41,12 +42,40 @@ export function scriptedFlow(raw, { send, notify }) {
       } })
     })
   }
+  const requestApproval = async (threadId, turnId, cwd, signal) => {
+    signal.throwIfAborted()
+    const id = `rig-approval-${++sequence}`, itemId = `rig-command-${sequence}`, startedAtMs = Date.now()
+    const command = 'node -e process.exit(0)'
+    const commandActions = [{ type: 'unknown', command }]
+    const item = { type: 'commandExecution', id: itemId, command, cwd, processId: null, source: 'agent', status: 'inProgress',
+      commandActions, aggregatedOutput: null, exitCode: null, durationMs: null }
+    notify('item/started', { threadId, turnId, item, startedAtMs })
+    await new Promise((resolve, reject) => {
+      const abort = () => { pending.delete(id); reject(signal.reason) }
+      signal.addEventListener('abort', abort, { once: true })
+      pending.set(id, { kind: 'approval', resolve, reject, cleanup: () => signal.removeEventListener('abort', abort) })
+      approvalRequests.add(id)
+      send({ id, method: 'item/commandExecution/requestApproval', params: { threadId, turnId, itemId, startedAtMs,
+        reason: 'The worker needs permission before continuing the approved work.', command, cwd, commandActions,
+        availableDecisions: ['accept', 'acceptForSession', 'decline'] } })
+    })
+    signal.throwIfAborted()
+    notify('item/completed', { threadId, turnId, item: { ...item, status: 'completed', aggregatedOutput: '', exitCode: 0, durationMs: Date.now() - startedAtMs }, completedAtMs: Date.now() })
+  }
   return {
     interrupt(threadId) { turns.get(threadId)?.abort() },
     answer(message) {
+      const approval = approvalRequests.has(message.id)
+      if (approval && script.approvalLog) appendFileSync(script.approvalLog, `${JSON.stringify({ method: 'worker-approval-answer', ...message })}\n`)
       const waiter = pending.get(message.id)
-      if (!waiter) return false
+      if (!waiter) return approval
       pending.delete(message.id)
+      if (waiter.kind === 'approval') {
+        waiter.cleanup()
+        if (message.error || !['accept', 'acceptForSession'].includes(message.result?.decision)) waiter.reject(new Error('The worker command approval was declined'))
+        else waiter.resolve()
+        return true
+      }
       clearTimeout(waiter.timer)
       const text = (message.result?.contentItems ?? []).filter((one) => one.type === 'inputText').map((one) => one.text).join('\n')
       if (message.error || !message.result?.success || /^(Refused:|Nothing to commit|There is nothing to review)/.test(text)) {
@@ -81,10 +110,13 @@ export function scriptedFlow(raw, { send, notify }) {
           if (!stored.done.includes(key)) {
             active.add(key)
             try {
-              const pass = stored.passes[marker] ?? 0
+              const passKey = script.passPerRun === true ? JSON.stringify([run, marker]) : marker
+              const pass = stored.passes[passKey] ?? 0
               const outcome = step.outcomes[Math.min(pass, step.outcomes.length - 1)]
               const file = step.file?.replaceAll('{{intent}}', String(intent))
               await call(tools, threadId, turnId, 'claim_work', { intent, files: step.kind === 'write' ? [file] : [] })
+              check()
+              if (script.approvalBeforeWork === true) await requestApproval(threadId, turnId, cwd, controller.signal)
               check()
               if (script.delayMs) await delay(script.delayMs, undefined, { signal: controller.signal })
               if (script.gates) {
@@ -124,7 +156,7 @@ export function scriptedFlow(raw, { send, notify }) {
               // Read again: sibling threads can finish while this one awaited
               // its tools. Never overwrite another card's completion or pass.
               const latest = existsSync(script.state) ? JSON.parse(readFileSync(script.state, 'utf8')) : { passes: {}, done: [] }
-              latest.passes[marker] = pass + 1
+              latest.passes[passKey] = pass + 1
               latest.done.push(key)
               // Other fake processes read this file while completing sibling
               // attempts. Publish the whole snapshot, never a truncated JSON.

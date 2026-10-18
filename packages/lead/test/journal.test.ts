@@ -810,8 +810,9 @@ for (const moneyStop of [false, true]) test(`cap-one reviewed result accepts aft
   const refused = await journal.execute({ id: 'second-before-result', request: { ...request, start: approved.steps[1]! }, context, stepId: 'second' },
     async () => { throw new Error('round two must not dispatch') })
   assert.equal(refused.decision.floor, 'budget')
-  await journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'review', inputTokens: 1, maxOutputTokens: 1,
-    inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 1_000_000, cacheWriteUsdMicrosPerMillion: 1_000_000 })
+  await assert.rejects(journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'review', inputTokens: 1, maxOutputTokens: 1,
+    inputUsdMicrosPerMillion: 1_000_000, outputUsdMicrosPerMillion: 1_000_000, cacheReadUsdMicrosPerMillion: 1_000_000, cacheWriteUsdMicrosPerMillion: 1_000_000 }))
+  assert.equal(journal.state.budget!.requests.length, 0, 'human acceptance needs no paid request at the round cap')
   if (moneyStop) await journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 0, rounds: 1 } })
   await journal.offerCard({ version: 1, id: 'result-1', revision: 1, type: 'result', contractDigest: approved.digest,
     outcome: 'reviewed', summary: 'Reviewed result', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget, 100) })
@@ -1717,4 +1718,24 @@ test('legacy checkpoint cards precede every new message after reopen', async () 
   const state = lead.parseLeadCheckpoint(checkpoint).state
   const next = lead.reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'message', idempotencyKey: null, message: { version: 1, id: `message-${state.seq + 1}`, revision: state.seq + 1, role: 'assistant', text: 'New message' } })
   assert.ok(next.cards.every(card => next.cardPositions[card.id]! < next.messages.at(-1)!.revision))
+})
+
+test('two approved steps bind distinct host Goals and recover each without resetting shared accounting', async () => {
+  const { journal, storage, next } = await runningTwoStepPlan()
+  await observeStarted(journal, 'run-1')
+  const result = await journal.execute({ id: 'second', request: next, context, stepId: 'second' }, async () => {
+    await journal.updateBudget({ version: 1, type: 'bind', now: 100, startId: 'second', goalId: 'team-2', executionId: 'run-2', firstRoundId: 'run-2:round:1' })
+    return { value: null, identity: { correlationId: 'second', runId: 'run-2', teamId: 'team-2' } }
+  })
+  assert.equal(result.outcome, 'succeeded')
+  assert.equal(journal.state.budget.goalId, 'team-1', 'the first Goal stays the accounting anchor')
+  assert.deepEqual(journal.state.budget.executionIds, ['run-1', 'run-2'])
+  assert.deepEqual(journal.state.runs.map((run: any) => run.teamId), ['team-1', 'team-2'])
+  await assert.rejects(journal.updateBudget({ version: 1, type: 'bind', now: 100, startId: 'second', goalId: 'wrong-team', executionId: 'run-2', firstRoundId: 'run-2:round:1' }))
+  const reopened: any = await open(storage)
+  await reopened.recover(async (attempt: any) => [{ correlationId: attempt.correlationId, runId: attempt.id === 'first' ? 'run-1' : 'run-2',
+    teamId: attempt.id === 'first' ? 'team-1' : 'team-2', firstRoundId: attempt.id === 'first' ? '1' : 'run-2:round:1', terminal: false }])
+  assert.equal(reopened.state.budget.accountingIncomplete, false)
+  assert.equal(reopened.state.budget.rounds.length, 2)
+  assert.deepEqual(reopened.state.runs, journal.state.runs)
 })

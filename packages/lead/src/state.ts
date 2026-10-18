@@ -137,7 +137,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const binding = state.runs.find(run => run.runId === executionId)
       if (event.event.type === 'bind') {
         const bind = event.event
-        ensure(!binding || !bind.startId || binding.correlationId === bind.startId)
+        ensure(!binding || binding.teamId === bind.goalId && (!bind.startId || binding.correlationId === bind.startId))
         const attempt = bind.startId ? state.attempts.get(bind.startId) : null
         if (attempt?.phase === 'started') {
           const step = state.steps.find(step => step.id === attempt.stepId)
@@ -281,7 +281,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         // A conflicting lookup leaves the attempt uncertain; the window may confirm the retained run.
         ensure(['succeeded', 'uncertain'].includes(attempt!.outcome!) && identities.length === 1 &&
           identities[0]!.correlationId === event.identity.correlationId && identities[0]!.runId === event.identity.runId && identities[0]!.teamId === event.identity.teamId)
-        ensure(event.goalId === event.identity.teamId && (state.budget!.goalId === null || state.budget!.goalId === event.goalId))
+        ensure(event.goalId === event.identity.teamId && (state.budget!.goalId === null || state.budget!.goalId === event.goalId || state.contract!.steps.length > 1))
         ensure(state.teams.includes(event.identity.teamId) && state.runs.some(run => JSON.stringify(run) === JSON.stringify(event.identity)))
         state = { ...state, budget: reduceLeadBudget(state.budget, { version: 1, type: 'bind', now: state.budget!.now,
           startId: event.id, firstRoundId: identities[0]!.firstRoundId, goalId: event.goalId, executionId: event.identity.runId }) }

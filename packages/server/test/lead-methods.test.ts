@@ -1194,3 +1194,20 @@ for (const mode of ['plan', 'default'] as const) test(`Add rule Save is retained
     assert.deepEqual((await createLeadJournal(s.storage)).state.policy, proposed)
   } finally { s.controls.close() }
 })
+
+
+test('live host worker relays are visible without entering the journal decision table', async () => {
+  let waiting: LeadCard[] = [{ version: 1, id: 'worker-live', revision: 1, type: 'waiting', kind: 'worker-approval',
+    runId: 'run-1', personCardId: null, summary: 'A worker is waiting for a command approval.', assertions: [], contractDigest: contract.digest }]
+  const s = await rig({ controls: { readWorkerApprovals: () => waiting } })
+  await s.journal.offerCard(plan); await s.call('lead/card/decide', planClick); await s.controls.idle()
+  const projected = await s.call('lead/thread/read')
+  assert.ok(projected.thread.cards.some((card: LeadCard) => card.id === 'worker-live'))
+  assert.equal(s.journal.state.cards.some(card => card.id === 'worker-live'), false)
+  await assert.rejects(s.call('lead/card/decide', { version: 1, cardId: 'worker-live', cardType: 'waiting', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' }), code('lead-worker-approval'))
+  assert.equal(s.answers.length, 0)
+  waiting = []
+  await s.controls.workerApprovalsChanged(); await s.controls.idle()
+  assert.equal((await s.call('lead/thread/read')).thread.cards.some((card: LeadCard) => card.id === 'worker-live'), false)
+  assert.ok(s.notifications.at(-1)?.method === 'lead/changed')
+})

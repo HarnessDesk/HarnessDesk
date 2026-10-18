@@ -600,8 +600,11 @@ export class LeadJournal {
           ...[...this.#state.attempts.values()].filter(other => other.id !== pending.id && other.evidence !== null)
             .flatMap(other => parseLeadRunEvidence(other.evidence!).map(run => run.runId))])
         // One record binds one Goal: before any is bound, the first Team in record order is it.
-        const goalId = this.#state.budget ? this.#state.budget.goalId
-          ?? sortEvidence([...retained.values(), ...observed.filter(run => !foreign.has(run.runId))])[0]?.teamId ?? null : null
+        const ownGoal = this.#state.runs.find(run => run.correlationId === pending.correlationId)?.teamId
+        const firstGoal = sortEvidence([...retained.values(), ...observed.filter(run => !foreign.has(run.runId))])[0]?.teamId ?? null
+        // Distinct approved steps may own distinct Goals. A lookup must still
+        // agree within one attempt and with every identity already retained.
+        const goalId = ownGoal ?? ((this.#state.contract?.steps.length ?? 0) > 1 ? firstGoal : this.#state.budget?.goalId ?? firstGoal)
         // A row that contradicts retained evidence keeps the retained identity; one
         // that comes back to life stays live so it can be cancelled. Every other row
         // of the same lookup is still recorded.

@@ -6,7 +6,7 @@ import { dirname, extname, join, relative } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { IMPORT, SOURCE, suiteGraph, unobservedSpecs, walk } from './ci-imports.mjs'
+import { IMPORT, SOURCE, specsReaching, suiteGraph, unobservedSpecs, walk } from './ci-imports.mjs'
 import { MAP_VERSION, environmentAt, expectedCounts, exportsData, impactedSpecs, mergeRecords, readMap, repoPath, uiExternalImports, uiFiles, uiGlobbers, uiImporters } from './ui-impact.mjs'
 
 const real = fileURLToPath(new URL('../', import.meta.url))
@@ -545,4 +545,10 @@ test('the scan of the suite does not need the build: an import of build output t
     rmSync(root, { recursive: true, force: true })
     rmSync(unresolved, { recursive: true, force: true })
   }
+})
+
+test('the shared Lead host helper reaches both feature-on and flag-off browser contracts', () => {
+  const graph = suiteGraph(real)
+  const reached = specsReaching(graph, [join(real, 'e2e/ui-system/lead-host.ts')])
+  assert.deepEqual(reached.map(file => relative(join(real, 'e2e/ui-system'), file)).sort(), ['lead-hidden.spec.ts', 'lead.spec.ts'])
 })

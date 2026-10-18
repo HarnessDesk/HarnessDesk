@@ -3341,7 +3341,7 @@ export class Host {
 
   /** One host-owned supervisor, enabled explicitly by the authenticated Lead
    * service owner in the next slice step. Construction itself never spawns. */
-  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor'>): LeadService {
+  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'>): LeadService {
     if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
     if (this.#disposed) throw new Error('lead-host-closed')
     if (!this.#leadListenersAvailable) throw new Error('lead-listener-unavailable')
@@ -3381,6 +3381,20 @@ export class Host {
     })
     this.#leadControls = new LeadControls({ journal, service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
+      readWorkerApprovals: () => {
+        const contract = journal.state.contract
+        if (!contract) return []
+        return this.registry.all().flatMap(record => {
+          const seat = this.#evidence.seats.all().find(seat => seat.session.runtime === record.runtime && seat.session.sessionId === record.session.id && !seat.closed)
+          const owned = seat && journal.state.runs.find(run => run.teamId === seat.board)
+          if (!owned) return []
+          return [...record.approvals.values()].map(approval => ({ version: 1 as const,
+            id: `worker-${createHash('sha256').update(`${record.runtime}:${record.session.id}:${approval.id}`).digest('hex')}`,
+            revision: 1, type: 'waiting' as const, kind: 'worker-approval' as const, runId: owned.runId, personCardId: null,
+            summary: 'A worker is waiting for a command approval.', assertions: [], contractDigest: contract.digest,
+          }))
+        })
+      },
       decidePerson: (card, decision, contract) => answerLeadPersonGate({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team,
         readEvidence: runId => options.readEvidence(runId, call => {
           if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
@@ -8868,6 +8882,10 @@ export class Host {
     }
     // What a trigger Goal's waits are made of: named again once the current pass ends.
     if (!this.#disposed) this.#intake?.noticed(notification)
+    if (!this.#disposed && notification.method === 'event' &&
+      (notification.params.event.type === 'approval/requested' || notification.params.event.type === 'approval/resolved')) {
+      void this.#leadControls?.workerApprovalsChanged().catch(() => { this.#logger.warn('Lead worker approval projection is unavailable') })
+    }
     if (!this.#disposed && notification.method === 'evidence/changed' && this.#team.hasRoom(notification.params.room)) {
       this.#provenance.evidenceChanged(this.#team.stateFor(notification.params.room).root)
     }

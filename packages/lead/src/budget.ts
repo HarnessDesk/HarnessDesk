@@ -10,6 +10,7 @@ interface Settled { readonly id: string; readonly digest: string; readonly usdMi
 /** Active requests retain reservations; settled requests retain only compact identity,
  * charge and collision-free usage digests. Neither index is evicted during checkpointing. */
 export interface LeadBudgetLedger extends LeadBudgetState {
+  /** goalId anchors aggregate observations; each run's actual Goal stays in the journal. */
   readonly logicalGoalId: string; readonly goalId: string | null; readonly executionIds: readonly string[]
   readonly now: number; readonly freshnessMs: number
   readonly capsRevision: number
@@ -106,7 +107,9 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
   let next = { ...state, revision: nextLeadRevision(state.revision), now }
   switch (event.type) {
     case 'bind': {
-      ensure(state.goalId === null || state.goalId === event.goalId)
+      // Each approved step starts a fresh host Goal. Only a recorded start may
+      // add one; legacy observations retain their single-Goal binding.
+      ensure(state.goalId === null || state.goalId === event.goalId || event.startId !== undefined)
       const recordedStart = state.rounds.find(round => round.executionId === event.executionId && round.startId !== null)
       ensure(!recordedStart || event.startId === recordedStart.startId)
       const exhausted = () => finish({ ...next, accountingIncomplete: true,
@@ -130,10 +133,10 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
       }
       if (state.executionIds.includes(event.executionId) && same(rounds, state.rounds)) return duplicate()
       ensure(state.executionIds.includes(event.executionId) || state.executionIds.length < LEAD_LIMITS.rounds)
-      next = { ...next, rounds, goalId: event.goalId, executionIds: [...new Set([...state.executionIds, event.executionId])] }; break
+      next = { ...next, rounds, goalId: state.goalId ?? event.goalId, executionIds: [...new Set([...state.executionIds, event.executionId])] }; break
     }
     case 'reserve': {
-      admit(state, now)
+      admit(state, now, true)
       ensure(state.requests.length < 4096 && !state.requests.some(request => request.reservation.requestId === event.requestId) && !state.settled.some(item => item.id === event.requestId))
       const request = { reservation: event, uncertain: false }
       ensure(state.leadUsdMicros + state.workerUsdMicros + state.reservedUsdMicros + charge(event, null) <= state.caps.usdMicros)

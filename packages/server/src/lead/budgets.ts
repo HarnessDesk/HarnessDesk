@@ -63,7 +63,10 @@ export class LeadBudgets implements FlowLeadGuard {
     const uncertain = state.budget?.requests.some(request => request.uncertain)
     if ((!uncertain && state.stopEffectsPending === null) || this.#observing.has(id)) return
     const task = Promise.resolve().then(async () => {
-      if (uncertain && !journal.state.budget?.stop) await journal.updateBudget({ version: 1, type: 'stop', now: this.port.now(), reason: 'unknown-spend' })
+      // A Messages reservation already bounds its unknown bill. Charge that
+      // bound in full; worker usage with no bound still stops at the dispatch gate.
+      for (const request of journal.state.budget?.requests ?? []) if (request.uncertain)
+        await journal.updateBudget({ version: 1, type: 'write-off', now: this.port.now(), requestId: request.reservation.requestId })
       if (journal.state.stopEffectsPending !== null) await this.cleanup(id)
     })
     this.#observing.set(id, task)

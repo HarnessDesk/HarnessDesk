@@ -21,6 +21,8 @@ interface LeadControlsOptions {
   readonly now: () => number
   readonly nextId: () => string
   readonly push: (notification: WireNotification) => void
+  /** Live host registry relays, never child proposals or person decisions. */
+  readonly readWorkerApprovals?: () => readonly Extract<LeadCard, { type: 'waiting' }>[]
   /** Host revalidates the live Flow, card and evidence on the journal's decision queue. */
   readonly decidePerson: (card: Extract<LeadCard, { type: 'waiting' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly decideResult: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
@@ -93,7 +95,7 @@ export class LeadControls {
     if (settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps)) return this.#projection()
     if (this.#failedRevision === state.seq) throw leadRefusal('lead-projection-failed')
     let thread: ReturnType<typeof leadWindowThread>
-    try { thread = leadWindowThread(state, this.options.project, settings, this.options.now()) }
+    try { thread = leadWindowThread(state, this.options.project, settings, this.options.now(), this.options.readWorkerApprovals?.() ?? []) }
     catch { this.#failedRevision = state.seq; throw leadRefusal('lead-projection-failed') }
     const wayOut = this.#wayOut(state)
     const waitReason = state.phase === 'waiting-for-user' && (LEAD_MANAGEMENT_REASONS as readonly (string | null)[]).includes(state.managementReason)
@@ -120,6 +122,9 @@ export class LeadControls {
   #unanswered(): boolean {
     const state = this.options.journal.state
     return !this.#continuation && state.messages.at(-1)?.role === 'user'
+  }
+  workerApprovalsChanged(): Promise<void> {
+    return this.#queue(async () => { if (!this.#closed) await this.options.journal.settingsChanged() })
   }
   readThread(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }
   readSettings(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }
@@ -201,6 +206,7 @@ export class LeadControls {
   }
   decide(decision: LeadCardDecision): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const { journal } = this.options, state = journal.state
+    if (this.options.readWorkerApprovals?.().some(card => card.id === decision.cardId)) throw leadRefusal('lead-worker-approval')
     const card = state.cards.find(card => card.id === decision.cardId)
     if (state.decidedCards.includes(`${decision.cardId}:${decision.expectedRevision}`)) throw leadRefusal('lead-card-decided')
     if (!card) throw leadRefusal('lead-card-stale')

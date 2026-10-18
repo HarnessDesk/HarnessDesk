@@ -2,13 +2,13 @@ import { LEAD_LIMITS, windowLeadThread, type LeadCard, type LeadProject, type Le
 import { leadBudgetProjection, type LeadState } from '@harnessdesk/lead'
 
 /** Reserve the entire envelope; messages may be windowed, actionable cards may not. */
-export const leadWindowThread = (state: LeadState, project: LeadProject, settings: LeadSettingsProjection, now = state.budget?.now ?? 0) => {
+export const leadWindowThread = (state: LeadState, project: LeadProject, settings: LeadSettingsProjection, now = state.budget?.now ?? 0, workers: readonly LeadCard[] = []) => {
   const overhead = new TextEncoder().encode(JSON.stringify({ version: 1, revision: state.seq, settings, thread: null })).byteLength + 512
   return windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project,
     contract: state.contract, budget: state.budget ? leadBudgetProjection(state.budget, now) : null,
-    cardPositions: Object.fromEntries(state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`)).map(card => [card.id, state.cardPositions[card.id]!])),
+    cardPositions: Object.fromEntries(state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`)).map(card => [card.id, state.cardPositions[card.id]!]).concat(workers.map(card => [card.id, state.seq] as [string, number]))),
     olderMessages: state.olderMessages, messages: state.messages,
-    cards: state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`)) }, LEAD_LIMITS.ipcBytes - overhead)
+    cards: [...state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`)), ...workers] }, LEAD_LIMITS.ipcBytes - overhead)
 }
 
 /** Shared by child offers and settings writers, inside the journal mutation queue. */

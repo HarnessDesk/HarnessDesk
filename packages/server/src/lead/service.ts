@@ -76,6 +76,7 @@ export class LeadService {
         checkStartup()
         this.#registration = options.register()
         try {
+          await this.#recoverRequests()
           await options.recover()
           checkStartup()
           this.#door = await options.openDoor(this.#registration.admission)
@@ -213,6 +214,20 @@ export class LeadService {
     const { journal } = this.options
     if (!['stopped', 'accepted', 'declined'].includes(journal.state.phase)) await journal.setManagementPhase('waiting-for-user', reason)
   }
+  /** No child remains to settle these requests. Provider-observed usage wins;
+   * interrupted or inherited requests consume their entire durable reservation. */
+  async #recoverRequests(): Promise<void> {
+    for (const request of this.options.journal.state.budget?.requests ?? []) {
+      const requestId = request.reservation.requestId, usage = this.#providerUsage.get(requestId)
+      this.#providerFinalized.add(requestId)
+      if (usage) await this.options.journal.updateBudget({ version: 1, type: 'settle', now: this.options.journal.state.budget!.now, requestId, ...usage })
+      else {
+        if (!request.uncertain) await this.options.journal.updateBudget({ version: 1, type: 'uncertain', now: this.options.journal.state.budget!.now, requestId })
+        await this.options.journal.updateBudget({ version: 1, type: 'write-off', now: this.options.journal.state.budget!.now, requestId })
+      }
+      this.#providerUsage.delete(requestId)
+    }
+  }
   async #release(): Promise<void> {
     this.#endLive?.(); this.#endLive = null
     const door = this.#door; this.#door = null
@@ -228,6 +243,7 @@ export class LeadService {
         try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-send-deadline'].includes(reason) ? reason : 'lead-child-exited') }
         finally { await this.options.stopOwned(reason) }
         this.#endLive?.(); this.#endLive = null
+        await this.#recoverRequests()
         await this.options.recover()
       } catch (error) { this.#cleanupFailed = true; throw error }
       finally { await this.#release() }
@@ -327,9 +343,11 @@ export class LeadService {
     if (this.#supervisor.live) throw new Error('lead-child-live')
     await this.#queue(async () => {
       if (this.#supervisor.live) throw new Error('lead-child-live')
+      if (this.#exiting) await this.#exiting.catch(() => {})
       const temporary = this.#registration === null ? this.options.register() : null
       try {
         if (this.#cleanupFailed) { await this.#latch('lead-child-exited'); await this.options.stopOwned('lead-child-exited') }
+        await this.#recoverRequests()
         await this.options.recover()
         this.#cleanupFailed = false
       } finally { temporary?.close() }

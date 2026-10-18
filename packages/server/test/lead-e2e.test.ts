@@ -1,0 +1,128 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { readFile, readdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import { createLeadRig } from './fixtures/lead-rig.js'
+
+// Every case owns the actual host, child, restricted door, journal and Flow engine.
+// These assertions must also hold when guards are deliberately removed locally.
+test('plan approval is required before the full fixture starts a worker or Flow', async t => {
+  const rig = await createLeadRig(); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => rig.pending('plan') !== undefined, 'plan')
+  assert.equal(rig.journal.state.runs.length, 0)
+  assert.equal((await rig.workerCalls()).filter(one => one.method === 'turn/start').length, 0)
+  assert.equal(rig.journal.state.cards.some(one => one.type === 'result'), false)
+  await rig.decide(rig.pending('plan')!, 'decline')
+  assert.equal((await rig.host.call('flow/executions', { project: rig.project.path })).length, 0)
+  assert.equal((await rig.workerCalls()).length, 0, 'declining the plan starts no worker process')
+  await rig.assertNoForbiddenEffects()
+})
+
+test('two-run reviewed result follows failed review and repair and retries a failed second gate save', async t => {
+  const rig = await createLeadRig(); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve')
+  await rig.waitFor(() => !!rig.pending('result'), 'reviewed two-run result')
+  assert.equal(rig.journal.state.runs.length, 2)
+  for (const run of rig.journal.state.runs) {
+    const flow = await rig.host.call('flow/execution', { run: run.runId })
+    assert.deepEqual(flow.rounds.map(one => one.role), ['implement', 'review', 'implement', 'review', 'accept'])
+  }
+  const card = rig.pending('result')!
+  rig.failSecondGateSave()
+  await assert.rejects(rig.decide(card, 'accept'))
+  assert.notEqual(rig.journal.state.phase, 'accepted')
+  assert.equal(rig.personGates().filter(one => one.state === 'done').length, 1)
+  await rig.decide(card, 'accept')
+  assert.equal(rig.journal.state.phase, 'accepted')
+  assert.equal(rig.personGates().filter(one => one.outcome === 'accepted').length, 2)
+  await rig.assertAccounting(); await rig.assertNoForbiddenEffects()
+})
+
+test('gate decline preserves both worktrees and committed changes without forbidden effects', async t => {
+  const rig = await createLeadRig(); t.after(() => rig.dispose())
+  await rig.reviewed()
+  const paths = rig.worktrees()
+  assert.ok(paths.length >= 2)
+  const contents = await Promise.all(paths.map(path => readFile(join(path, 'retry.txt'), 'utf8')))
+  await rig.decide(rig.pending('result')!, 'decline')
+  assert.equal(rig.journal.state.phase, 'declined')
+  assert.deepEqual(await Promise.all(paths.map(path => readFile(join(path, 'retry.txt'), 'utf8'))), contents)
+  await rig.assertNoForbiddenEffects()
+})
+
+for (const cap of ['dollars', 'rounds', 'unknown'] as const) test(`full fixture stops dispatch at ${cap} equality or unknown spend`, async t => {
+  const rig = await createLeadRig({ holdWorkers: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve')
+  await rig.waitFor(() => rig.journal.state.runs.length > 0, 'first run')
+  await rig.workerWaiting()
+  await rig.reachCap(cap)
+  const before = await rig.dispatchCounts()
+  await rig.releaseWorkers(); await rig.waitFor(() => !!rig.journal.state.budget!.stop, 'host stops the next round'); await rig.settle()
+  assert.deepEqual(await rig.dispatchCounts(), before, 'no extra worker round or provider request past the cap')
+  assert.ok(rig.journal.state.budget!.stop)
+  await rig.assertAccounting(); await rig.assertNoForbiddenEffects()
+})
+
+for (const interruption of ['child-crash', 'host-restart', 'connection-gap'] as const) test(`full fixture ${interruption} during a running paid request preserves approval, caps and accounting`, async t => {
+  const rig = await createLeadRig({ holdWorkers: true, holdRunning: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  const plan = rig.pending('plan')!
+  await rig.decide(plan, 'approve')
+  await rig.waitFor(() => rig.journal.state.runs.length > 0 && rig.provider.pending, 'running Flow with a reserved paid request')
+  await rig.workerWaiting()
+  await rig.reachCap('rounds')
+  const before = await rig.dispatchCounts()
+  await rig.interruptAt(interruption)
+  rig.provider.release(); await rig.releaseWorkers(); await rig.settle()
+  await assert.rejects(rig.decide(plan, 'approve'), 'old plan clicks cannot grant another start')
+  await rig.host.call('lead/resume', { expectedRevision: rig.journal.state.seq }).catch(() => {})
+  await rig.settle()
+  assert.deepEqual(await rig.dispatchCounts(), before, 'recovery cannot pay or dispatch another round at the cap')
+  assert.equal(rig.journal.state.runs.length, 1)
+  await rig.assertAccounting(); await rig.assertNoForbiddenEffects()
+})
+
+test('worker approval reaches the window and no Lead answer frame reaches the worker', async t => {
+  const rig = await createLeadRig({ scenario: 'worker-approval' }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve')
+  await rig.waitFor(() => rig.windowNotifications.some((one: any) => one.method === 'lead/changed' && one.params.thread?.cards.some((card: any) => card.kind === 'worker-approval')), 'worker approval card')
+  const card = (await rig.host.call('lead/thread/read', {})).thread.cards.find(one => one.type === 'waiting')!
+  assert.equal(card.type === 'waiting' && card.kind, 'worker-approval')
+  await assert.rejects(rig.decide(card, 'accept'))
+  assert.equal((await rig.workerCalls()).filter(one => one.method === 'worker-approval-answer').length, 0)
+  await rig.assertNoForbiddenEffects()
+})
+
+test('disabled full fixture creates no Lead capability, method, file or child', async t => {
+  const rig = await createLeadRig({ enabled: false }); t.after(() => rig.dispose())
+  const hello = await rig.host.call('host/hello', { clientVersion: 'test' })
+  assert.equal(hello.capabilities?.lead, undefined)
+  await assert.rejects(rig.host.call('lead/thread/read', {}))
+  assert.deepEqual((await readdir(rig.home)).filter(name => /lead/i.test(name)), [])
+  assert.equal(rig.provider.requests.length, 0)
+  assert.equal(rig.children.length, 0)
+  assert.equal((await rig.host.call('flow/catalog', { root: rig.project.path })).some(one => one.id === 'lead-reviewed-result'), false)
+  await rig.assertNoForbiddenEffects()
+})
+
+
+test('full fixture refuses merge, publication, deletion, forge and push proposals without effects', async t => {
+  const rig = await createLeadRig({ scenario: 'forbidden' }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve')
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await rig.waitFor(() => rig.journal.state.phase === 'waiting-for-user', 'forbidden proposal refused')
+    assert.equal(rig.journal.state.runs.length, 0)
+    await rig.assertNoForbiddenEffects()
+    if (attempt < 4) {
+      const before = rig.provider.requests.length
+      await rig.sendGoal()
+      await rig.waitFor(() => rig.provider.requests.length > before, 'next forbidden proposal')
+    }
+  }
+  assert.equal((await rig.workerCalls()).length, 0)
+  await rig.assertAccounting()
+})
