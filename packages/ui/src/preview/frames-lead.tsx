@@ -43,7 +43,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
         else settings = { ...settings, caps: params.caps }
       }
       emit({ ...current, revision, settings, thread: { ...current.thread, cards } })
-      return current
+      return params.name ? { version: 1, revision, settings: { name: settings.name } } : current
     }
     if (method === 'lead/card/decide') {
       const card = current.thread.cards.find(card => card.id === params.cardId)
@@ -56,12 +56,12 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     }
     if (method === 'lead/thread/send') { const revision = current.revision + 1; emit({ ...current, revision, thread: { ...current.thread, messages: [...current.thread.messages, { version: 1, id: `message-${revision}`, revision, role: 'user', text: params.text }] } }); return { messageId: `message-${revision}`, revision } }
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
-    if (method === 'lead/thread/read' || method === 'lead/settings/read') return current
+    if (method === 'lead/thread/read' || method === 'lead/settings/read') return scene === 'loading' ? new Promise<never>(() => {}) : current
     return shellRequest(method, input as never)
   }) as typeof store.transport.request
   // A real facade, so frames exercise subscription, revision fencing and actions.
   Object.assign(store, { lead: createLeadState(store.transport, () => true) })
-  emit(current)
+  if (scene !== 'loading') emit(current)
   {
     const workbench = { ...emptyWorkbench(), navigation: { current: scene.startsWith('settings-') ? { kind: 'settings' as const, route: { kind: 'section' as const, section: 'lead' as const, focus: null } } : { kind: 'lead' as const }, back: [], forward: [] } }
     Object.assign(store.getSnapshot(), { workbench, layout: workbench.main, activeSessionKey: null, sessions: new Map(), sidebarCollapsed: false, sidebarFloating: false })

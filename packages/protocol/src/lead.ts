@@ -228,6 +228,12 @@ export interface LeadWindowProjection extends LeadHostProjection {
 }
 export interface LeadProjectionFailure { readonly version: 1; readonly revision: LeadRevision; readonly error: 'lead-projection-failed' }
 export type LeadChanged = LeadWindowProjection | LeadProjectionFailure
+/** A closed name write acknowledges only its name; it is not a scanned window projection. */
+export interface LeadNameReceipt {
+  readonly version: 1
+  readonly revision: LeadRevision
+  readonly settings: { readonly name: LeadName }
+}
 export const LEAD_CONTROL_REFUSALS = ['lead-unavailable', 'lead-operation-refused', 'lead-secret-refused', 'lead-revision-stale',
   'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
@@ -565,6 +571,7 @@ export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
   credential: optional(object({ provider: (value, path = '') => value === 'anthropic' ? 'anthropic' : fail(path, 'expected Lead credential provider'), key: nullable(text(4096)) })),
 })
 export const parseLeadEmpty: Validator<Record<string, never>> = object({})
+export const parseLeadNameReceipt: Validator<LeadNameReceipt> = object({ version, revision, settings: object({ name: literalUnion('dex', 'lex') }) })
 
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),

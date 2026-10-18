@@ -20,11 +20,11 @@ const modules = import.meta.glob('./LeadPage.tsx', { eager: true }) as Record<st
 const LeadPage = modules['./LeadPage.tsx']?.LeadPage ?? (() => null)
 const clean: (() => void)[] = []
 afterEach(() => { clean.splice(0).forEach(fn => fn()); vi.restoreAllMocks(); decisionHandlers.length = 0 })
-const mount = async (projection = leadProjection()) => {
+const mount = async (projection = leadProjection(), loading = false) => {
   const store = new AppStore('ws://localhost:0/'), box = document.createElement('div'); document.body.append(box)
   Object.assign(store.getSnapshot(), previewStore({ leadAvailable: true }).getSnapshot())
-  store.lead.changed({ method: 'lead/changed', params: projection })
-  const request = vi.spyOn(store.transport, 'request').mockImplementation(async () => projection as never)
+  if (!loading) store.lead.changed({ method: 'lead/changed', params: projection })
+  const request = vi.spyOn(store.transport, 'request').mockImplementation(async () => loading ? new Promise<never>(() => {}) : projection as never)
   const root = createRoot(box)
   let navigate: (settings: boolean) => void = () => {}
   vi.spyOn(store, 'openDestination').mockImplementation(destination => navigate(destination.kind === 'settings'))
@@ -42,6 +42,24 @@ const input = async (node: HTMLInputElement | HTMLTextAreaElement, value: string
   expect(node, 'the composer or credential input must exist').not.toBeNull()
   Object.getOwnPropertyDescriptor(node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value')!.set!.call(node, value)
   node.dispatchEvent(new Event('input', { bubbles: true })); node.dispatchEvent(new Event('change', { bubbles: true }))
+})
+it('keeps banners and decision controls in the shared composer notice stack', async () => {
+  const base = leadProjection(), { box } = await mount({ ...base, wayOut: 'decide-plan', thread: { ...base.thread, cards: [leadPlan] } })
+  const notices = box.querySelector('[data-slot="composer-notices"]')
+  expect(notices).not.toBeNull()
+  expect(button('Review plan').closest('[data-slot="composer-notices"]')).toBe(notices)
+  expect(box.querySelector('[data-lead-decision]')?.closest('[data-slot="composer-notices"]')).toBe(notices)
+  expect(box.querySelector('[data-slot="reading-measure"] > [data-slot="form-stack"]')).toBeNull()
+})
+it('has no empty reading measure and form stack above an idle composer', async () => {
+  const { box } = await mount()
+  expect(box.querySelector('[data-slot="reading-measure"] > [data-slot="form-stack"]')).toBeNull()
+})
+it('greets without a name until settings have loaded', async () => {
+  const { box } = await mount(leadProjection(), true)
+  expect(box.textContent).toContain('Hi, tell me what you want done.')
+  expect(box.textContent).not.toContain("I'm Lead")
+  expect(box.querySelector('textarea')?.placeholder).toBe('Message Lead…')
 })
 it.each([null, 'resume', 'decide-plan'] as const)('shows Resume only for wayOut=%s', async wayOut => {
   const base = leadProjection(), { box } = await mount({ ...base, wayOut, waitReason: 'lead-request-failed', thread: { ...base.thread, cards: wayOut === 'decide-plan' ? [leadPlan] : [] } })

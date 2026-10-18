@@ -111,6 +111,8 @@ refresh that value. A content-box observer missed an 84px padding increase
 without updating the transcript reserve. The Side by side browser contract
 waits for the measured reserve, then checks both scroll position and the final
 answer's visible bounds as the dock grows and shrinks.
+Conditional docks use a callback ref held in state: detaching releases the old
+observer, and mounting a replacement measures and observes its border box.
 
 ## Round is someone, square is a thing
 
@@ -3789,13 +3791,17 @@ its system prompt names it without changing its tools or allowances. Name,
 Provider key, Allowances and Permissions live in capability-gated Settings › Lead.
 A widening save links back to the conversation for the person's decision.
 Bounded decision messages retain the chosen state after the dock is dismissed.
-
+Name-only writes return a closed name receipt without resolving a provider key
+or applying a stale-revision refusal. They grant no fresh thread or authority
+facts; every full read and notification projection still runs the public scan.
 
 The shared floating dock uses the sticky elevation token (10), replacing the
 session's former literal elevation (5). Both conversations now follow that same
 stacking contract. The composer frame is shared, and only the active conversation
 mounts its decision dock. Programmatic decision focus keeps the session's
-half-second typed-through guard; a deliberate pointer press clears it.
+half-second typed-through guard; a deliberate pointer press clears it through
+the next focus event or half a second, whichever comes first. Lead's banners
+and decisions share the session's ComposerNoticeStack and composer gap.
 
 Lead is a conversation root for design accounting too. Its component-owned
 message renderer and session Items stay in the same measured screen family.

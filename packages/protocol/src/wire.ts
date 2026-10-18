@@ -1,4 +1,4 @@
-import type { LeadCardDecision, LeadWindowProjection, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged } from './lead.js'
+import type { LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
@@ -753,7 +753,7 @@ export interface HostMethods {
   'lead/thread/send': { params: LeadThreadSend; result: LeadSendReceipt }
   'lead/card/decide': { params: LeadCardDecision; result: LeadWindowProjection }
   'lead/settings/read': { params: Record<string, never>; result: LeadWindowProjection }
-  'lead/settings/update': { params: LeadSettingsUpdate; result: LeadWindowProjection }
+  'lead/settings/update': { params: LeadSettingsUpdate; result: LeadWindowProjection | LeadNameReceipt }
   'lead/resume': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }
   'client/hello': {
     params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }

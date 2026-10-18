@@ -8,6 +8,13 @@ const validator = (name: string): ((value: unknown) => unknown) => {
   assert.equal(typeof parse, 'function', `${name} must be exported`)
   return parse as (value: unknown) => unknown
 }
+test('name-only settings receipts carry only the closed name and journal revision', () => {
+  const parse = validator('parseLeadNameReceipt')
+  const receipt = { version: 1, revision: 3, settings: { name: 'lex' } }
+  assert.deepEqual(parse(receipt), receipt)
+  for (const value of [{ ...receipt, settings: { name: 'other' } }, { ...receipt, settings: { name: 'lex', key: 'untrusted' } }, { ...receipt, revision: -1 }, { ...receipt, thread: {} }])
+    assert.throws(() => parse(value), protocol.ValidationError)
+})
 const digest = 'a'.repeat(64)
 const caps = { usdMicros: 5_000_000, rounds: 3 }
 const policy = { version: 1, revision: 0, mode: 'default', rules: [] }

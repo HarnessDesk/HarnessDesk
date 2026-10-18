@@ -56,7 +56,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     async updateSettings(update: Omit<LeadSettingsUpdate, 'expectedRevision'>) {
       checkRead()
       const nameOnly = update.name !== undefined && Object.keys(update).length === 1
-      let result: LeadWindowProjection, before = state
+      let result: HostResult<'lead/settings/update'>, before = state
       try { result = await transport.request('lead/settings/update', { ...update, expectedRevision: state.revision }) }
       catch (error) {
         const code = (error as { wireCode?: string; code?: string })?.wireCode ?? (error as { code?: string })?.code
@@ -66,7 +66,14 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
         before = state
         result = await transport.request('lead/settings/update', { ...update, expectedRevision: state.revision })
       }
-      apply(result, before); return result
+      if ('thread' in result) apply(result, before)
+      else if (available() && state.settings && result.revision >= state.revision) {
+        // A name receipt grants no fresh thread or authority facts. Keep the
+        // scanned revision until a full projection arrives through read/change.
+        state = { ...state, settings: { ...state.settings, name: result.settings.name } }
+        for (const listener of listeners) listener()
+      }
+      return result
     },
     async resume() { checkRead(); const before = state, result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result, before); return result },
   }

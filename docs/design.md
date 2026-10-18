@@ -182,6 +182,8 @@ bottom hairline is additional to its content inset.
 
 Floating composer clearance follows the dock's full border-box height,
 including padding and borders, so a spacing change keeps the last message clear.
+The observer follows the mounted dock, releasing a detached element and measuring
+its replacement when returning to a conversation.
 
 An approval's outer edge uses the dialog tier in an overlay and the card
 tier when docked beside a composer. Its warning mark hangs before the text
@@ -2338,7 +2340,8 @@ Lead and a session share ConversationShell, ConversationThread, ConversationDock
 ConversationComposerFrame and the same top-bar registration. LeadMessage uses Items;
 assistant decision prose uses the same TranscriptAssistantMessage frame as Items.
 The empty state is ConversationEmptyState with a single LeadAvatar slot and one
-short greeting. The chosen name occupies the title slot and composer placeholder.
+short greeting. Until settings load, the greeting is "Hi, tell me what you want
+done." The chosen name occupies the title slot and composer placeholder.
 The tools slot holds one settings glyph opening Settings › Lead.
 
 LeadContract is borderless assistant prose. Its plan is a numbered list, acceptance
@@ -2349,7 +2352,9 @@ ApprovalDialog and its keyboard policy, pending states, one filled action and
 focusable surface. The thread retains a one-word decided state. Window revision
 and digest fences, the page-wide decision lock and explicit focus return remain.
 Automatic plan arrivals never move composer focus; Review plan explicitly focuses
-the dock. Refusal, Resume and renewal banners remain beside it.
+the dock. Refusal, Resume and renewal banners share ComposerNoticeStack with the
+decision controls, using the session's gap above the composer. An idle dock has
+no empty reading-measure or form-stack wrapper.
 
 Settings › Lead uses canonical Section, Rows, Row, Input and Button patterns,
 ordered Name, Provider key, Allowances, Permissions. LeadNameChoice composes the

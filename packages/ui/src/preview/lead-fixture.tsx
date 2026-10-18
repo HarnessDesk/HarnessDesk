@@ -18,14 +18,15 @@ export const leadProjection = (over: Partial<LeadWindowProjection> = {}): LeadWi
   thread: { version: 1, id: 'lead', revision: 10, state: 'draft', project: leadContract.project, olderMessages: 0, messages: [], cards: [] },
   requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, ...over })
 
-export const LEAD_SCENES = ['empty', 'goal-composer', 'pending-plan', 'running', 'waiting', 'result-person-gate', 'worker-approval', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
+export const LEAD_SCENES = ['loading', 'empty', 'goal-composer', 'pending-plan', 'running', 'waiting', 'result-person-gate', 'worker-approval', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
   let projection = base
-  if (scene !== 'empty' && scene !== 'goal-composer' && !scene.startsWith('settings-')) thread.messages = [{ version: 1, id: 'goal', revision: 1, role: 'user', text: leadContract.goal }]
+  if (!['loading', 'empty', 'goal-composer'].includes(scene) && !scene.startsWith('settings-')) thread.messages = [{ version: 1, id: 'goal', revision: 1, role: 'user', text: leadContract.goal }]
   if (['pending-plan', 'consent-expired', 'stale-card-replacement', 'narrow', 'app-shell'].includes(scene)) { thread.cards = [{ ...leadPlan, revision: scene === 'consent-expired' || scene === 'stale-card-replacement' ? 2 : 1 }]; thread.state = 'awaiting-plan'; thread.cardPositions = { plan: 2 } }
   if (scene === 'stale-card-replacement') thread.cards = [{ ...leadPlan, revision: 2, contractDigest: 'b'.repeat(64), contract: { ...leadContract, revision: 2, digest: 'b'.repeat(64), goal: 'Keep focus after the empty state action completes' } }]
+  if (thread.cards.some(card => card.type === 'plan')) projection = { ...projection, wayOut: 'decide-plan' }
   if (scene === 'waiting') { thread.cards = [leadWaiting]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { waiting: 3 } }
   if (scene === 'result-person-gate') { thread.cards = [leadResult]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.cardPositions = { result: 3 } }
   if (scene === 'worker-approval') { thread.cards = [{ ...leadWaiting, kind: 'worker-approval', personCardId: null }]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = { ...leadBudget, spend: 'unknown' }; thread.cardPositions = { waiting: 3 } }

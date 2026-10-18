@@ -1,6 +1,6 @@
 import { act, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { PaneColumn, ReadingMeasure, useComposerHeightVar } from './PaneColumn'
 
@@ -26,6 +26,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.unstubAllGlobals()
 })
 
 it('gives each inset its own inline gutter, and no vertical padding by default', () => {
@@ -103,4 +104,48 @@ it('caps and centers a transcript or composer notice on the reading measure', ()
   const measure = container.firstElementChild as HTMLElement
   expect(measure.style.maxWidth).toBe('var(--hd-column)')
   expect(measure.style.marginInline).toBe('auto')
+})
+
+const conditionalDock = () => {
+  const observers: { callback: () => void; observe: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    observe = vi.fn()
+    disconnect = vi.fn()
+    constructor(readonly callback: () => void) { observers.push(this) }
+  })
+  const Harness = ({ visible }: { visible: boolean }) => {
+    const rootRef = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(rootRef)
+    return <div ref={rootRef} data-testid="root">{visible && <div ref={dock} data-testid="dock" />}</div>
+  }
+  const render = (visible: boolean) => act(() => root.render(<Harness visible={visible} />))
+  const resize = (height: number) => {
+    const dock = container.querySelector<HTMLElement>('[data-testid="dock"]')!
+    Object.defineProperty(dock, 'offsetHeight', { configurable: true, value: height })
+    act(() => observers.at(-1)?.callback())
+  }
+  return { observers, render, resize, height: () => container.querySelector<HTMLElement>('[data-testid="root"]')!.style.getPropertyValue('--composer-h') }
+}
+
+it('observes a dock mounted after the initial render without one', () => {
+  const { observers, render, resize, height } = conditionalDock()
+  render(false); render(true); resize(120)
+  expect(height()).toBe('120px')
+  expect(observers.at(-1)?.observe).toHaveBeenCalledWith(container.querySelector('[data-testid="dock"]'), { box: 'border-box' })
+})
+
+it('releases the old dock and observes a remounted dock through unmount', () => {
+  const { observers, render, resize, height } = conditionalDock()
+  render(true); resize(84)
+  const oldDock = container.querySelector('[data-testid="dock"]'), oldObserver = observers.at(-1)!
+  render(false)
+  expect(oldObserver.disconnect).toHaveBeenCalledOnce()
+  render(true); resize(160)
+  const newDock = container.querySelector('[data-testid="dock"]'), newObserver = observers.at(-1)!
+  expect(newDock).not.toBe(oldDock)
+  expect(newObserver).not.toBe(oldObserver)
+  expect(newObserver.observe).toHaveBeenCalledWith(newDock, { box: 'border-box' })
+  expect(height()).toBe('160px')
+  act(() => root.unmount())
+  expect(newObserver.disconnect).toHaveBeenCalledOnce()
+  root = createRoot(container)
 })

@@ -298,7 +298,10 @@ const ComposerNoticeRow = ({ message, onDismiss, onMute }: { message: NoticeMess
   )
 }
 
-/** The composer notices, stacked over the composer they are about. */
+/**
+ * The composer notices and decision controls, stacked over the composer they
+ * are about. Sessions and Lead share this gap; an empty stack takes no space.
+ */
 export const ComposerNoticeStack = ({ children }: { children: ReactNode }) => (
   <NoticeHost size="compact"><div className={styles.composerStack} data-slot="composer-notices">
     {children}

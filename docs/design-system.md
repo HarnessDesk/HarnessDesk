@@ -2021,7 +2021,8 @@ narrow container.
 
 `packages/ui/src/design/patterns/Notices.tsx`
 
-The composer notices, stacked over the composer they are about.
+The composer notices and decision controls, stacked over the composer they
+are about. Sessions and Lead share this gap; an empty stack takes no space.
 
 ### `ComposerTail`
 
@@ -2177,7 +2178,9 @@ carries it, not to a sibling), and `dock` is the element to measure —
 typically the strip holding the bars and the composer together. A screen
 wires the two refs to its own markup; the observing and the `setProperty`
 call are this hook's alone. Observe the border box so padding and border
-changes update the same full height that offsetHeight measures.
+changes update the same full height that offsetHeight measures. The callback
+ref follows conditional docks: release the previous observer when the dock
+leaves, then measure and observe the new element when it mounts.
 
 ### `ReadingMeasure`
 

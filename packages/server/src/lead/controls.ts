@@ -1,8 +1,8 @@
 import {
-  LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate,
+  LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadThreadSend, parseLeadResume,
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
-  type LeadSettingsProjection, type LeadSettingsUpdate, type LeadThreadSend, type WireNotification,
+  type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification,
 } from '@harnessdesk/protocol'
 import type { LeadJournal, LeadState } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
@@ -38,12 +38,6 @@ export class LeadControls {
   #requestInFlight = false
   #closed = false
   #lastRevision = -1
-  #safeNameRevision: number | null = null
-  #verified: { state: string; projection: LeadWindowProjection } | null = null
-  #projectionState(state: LeadState): string {
-    const { seq: _seq, name: _name, ...content } = state
-    return JSON.stringify({ ...content, attempts: [...content.attempts], requestInFlight: this.#inFlight(), workerApprovals: this.options.readWorkerApprovals?.() ?? [] })
-  }
   readonly #detach: () => void
   constructor(private readonly options: LeadControlsOptions) {
     this.#detach = options.journal.onChange(() => { void this.#notify() })
@@ -95,16 +89,6 @@ export class LeadControls {
       key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
   }
   async #projection(): Promise<LeadWindowProjection> {
-    const current = this.options.journal.state, verified = this.#verified
-    // A closed name choice adds no untrusted bytes. Reuse only an already
-    // checked projection whose entire non-name state is still identical.
-    if (verified && (verified.projection.revision + 1 === current.seq && verified.projection.settings.name !== current.name || this.#safeNameRevision === current.seq) && verified.state === this.#projectionState(current) &&
-      (verified.projection.planConsentExpiresAt === null || verified.projection.planConsentExpiresAt > this.options.now())) {
-      const result = { ...verified.projection, revision: current.seq, settings: { ...verified.projection.settings, name: current.name }, thread: { ...verified.projection.thread, revision: current.seq } }
-      this.#safeNameRevision = current.seq
-      this.#verified = { state: verified.state, projection: structuredClone(result) }
-      return result
-    }
     // Renewal is opportunistic. A refusal must leave reads and key removal usable.
     try { await this.options.journal.renewPlan(this.options.now(), card =>
       admitLeadCard(this.options.journal.state, card, this.options.project, this.options.model)) } catch { /* Keep the last durable projection readable. */ }
@@ -121,7 +105,6 @@ export class LeadControls {
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
       planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight() })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
-    this.#verified = { state: this.#projectionState(state), projection: structuredClone(result) }
     return result
   }
   #inFlight(): boolean {
@@ -244,12 +227,18 @@ export class LeadControls {
     else await commit()
     return this.#projection()
   }) }
-  updateSettings(value: LeadSettingsUpdate): Promise<LeadWindowProjection> { return this.#queue(async () => {
+  updateSettings(value: LeadSettingsUpdate): Promise<LeadWindowProjection | LeadNameReceipt> { return this.#queue(async () => {
     const input = parseLeadSettingsUpdate(value), { journal, service } = this.options
-    this.#expectRevision(input.expectedRevision)
     // Credentials stay exclusive; combined authority changes are preflighted together.
     if (input.name !== undefined && (input.policy !== undefined || input.caps !== undefined)) throw leadRefusal('lead-settings-combination')
     if (input.credential ? input.name !== undefined || input.policy !== undefined || input.caps !== undefined : input.name === undefined && !input.policy && !input.caps) throw leadRefusal('lead-settings-combination')
+    if (input.name !== undefined) {
+      // This closed choice has no authority or untrusted prose. Acknowledge the
+      // write without resolving a key; every later full projection still scans.
+      await journal.settingsChanged(input.name)
+      return parseLeadNameReceipt({ version: 1, revision: journal.state.seq, settings: { name: journal.state.name } })
+    }
+    this.#expectRevision(input.expectedRevision)
     if (input.credential) {
       const { provider, key } = input.credential
       if (key === null) await service.deleteKey(provider)
@@ -261,7 +250,7 @@ export class LeadControls {
       }
       await journal.settingsChanged()
     } else {
-      if (input.name === undefined) { try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) } }
+      try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
       if (input.policy && input.caps) await journal.changePolicyAndBudgetCaps(input.policy, input.caps, input.expectedRevision,
         { policy: this.options.nextId(), caps: this.options.nextId() }, this.options.now(), this.options.stopEffects,
         (state, card) => admitLeadCard(state, card, this.options.project, this.options.model))
@@ -270,7 +259,6 @@ export class LeadControls {
       else if (input.caps) await journal.changeBudgetCaps(input.caps, { id: this.options.nextId(), revision: 1 }, this.options.now(), this.options.stopEffects, input.expectedRevision, card =>
         admitLeadCard(journal.state, card, this.options.project, this.options.model))
     }
-    if (input.name !== undefined) await journal.settingsChanged(input.name)
     return this.#projection()
   }) }
   resume(input: { readonly expectedRevision: number }): Promise<LeadWindowProjection> { return this.#queue(async () => {

@@ -39,7 +39,7 @@ it('never enables a worker approval and links to the existing approval surface',
 })
 it('keeps missing checks, review, findings and worker spend explicitly unknown', () => {
   const { box } = mount([{ ...leadResult, assertions: [], budget: { ...leadResult.budget, spend: 'unknown' } } as LeadCard])
-  expect(box.textContent).toContain('Checks'); expect(box.textContent).toContain('Review'); expect(box.textContent).toMatch(/Findings|No blocking findings/)
+  expect(box.textContent).toContain('Checks'); expect(box.textContent).toContain('Review'); expect(box.textContent).toContain('Findings unknown')
   expect(box.textContent?.match(/unknown/g)?.length).toBeGreaterThanOrEqual(4)
   expect(box.textContent).not.toContain('passed')
 })
@@ -91,7 +91,7 @@ it('renders a worker as a short presentation-labelled card', () => {
 it('keeps internal identifiers out of cards and uses compact assertion statuses', () => {
   const { box } = mount([leadPlan, leadResult])
   for (const text of ['lead-reviewed-result', 'recipe-1', 'attended', 'Ceiling:', 'task:', 'head-demo', leadContract.digest, 'Assertion revision', 'Contract revision']) expect(box.textContent).not.toContain(text)
-  expect(box.textContent).toContain('Demo runtime · demo-model'); expect(box.textContent).toMatch(/Findings|No blocking findings/)
+  expect(box.textContent).toContain('Demo runtime · demo-model'); expect(box.textContent).toContain('No blocking findings')
 })
 
 it.each(['permission-change', 'budget-change'] as const)('gives %s a summary inside its one surface', type => {

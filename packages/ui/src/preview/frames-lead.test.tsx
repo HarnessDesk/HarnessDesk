@@ -47,3 +47,16 @@ it('retains an added permission rule when the synthetic settings specimen reopen
     expect(document.querySelector<HTMLSelectElement>('[aria-label="Rule 1 method"]')?.value).toBe('flow/start-goal')
   } finally { act(() => root.unmount()); box.remove() }
 })
+
+it.each(['light', 'dark'])('previews loading without a name and pending-plan notice spacing in %s', async theme => {
+  const url = window.location.href; window.history.replaceState(null, '', `?theme=${theme}`)
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  try {
+    await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="loading" /></StoreProvider>))
+    expect(box.textContent).toContain('Hi, tell me what you want done.')
+    await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="pending-plan" /></StoreProvider>))
+    const notices = box.querySelector('[data-slot="composer-notices"]')!
+    expect(notices.textContent).toContain('Review plan')
+    expect(notices.querySelector('[data-lead-decision]')).not.toBeNull()
+  } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
+})

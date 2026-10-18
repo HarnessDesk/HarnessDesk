@@ -1290,3 +1290,35 @@ test('name combined with authority is refused atomically', async () => {
     assert.deepEqual(s.journal.state, before)
   }
 })
+
+test('every read projection after a name save runs assertPublic', async () => {
+  const s = await rig()
+  await s.controls.readSettings()
+  await s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, name: 'lex' })
+  await s.controls.idle()
+  const scan = test.mock.method(s.service, 'assertPublic')
+  await s.controls.readThread()
+  await s.controls.readSettings()
+  assert.equal(scan.mock.callCount(), 2)
+})
+test('a message appended after a name change is scanned on projection', async () => {
+  const s = await rig()
+  await s.controls.readSettings()
+  await s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, name: 'lex' })
+  await s.controls.idle()
+  await s.journal.appendMessage('after-name', 'Inspect the newly appended message')
+  await s.controls.idle()
+  const scan = test.mock.method(s.service, 'assertPublic')
+  const projection = await s.controls.readThread()
+  assert.equal(scan.mock.callCount(), 1)
+  assert.deepEqual(scan.mock.calls[0]!.arguments, [projection, s.journal.state.seq])
+  assert.equal(projection.thread.messages.at(-1)?.text, 'Inspect the newly appended message')
+})
+test('a name-only settings save ignores a stale revision without scanning', async () => {
+  const s = await rig()
+  const before = s.journal.state
+  const result = await s.call('lead/settings/update', { expectedRevision: 0, name: 'lex' })
+  assert.deepEqual(result, { version: 1, revision: s.journal.state.seq, settings: { name: 'lex' } })
+  assert.deepEqual(s.journal.state.policy, before.policy)
+  assert.deepEqual(s.journal.state.budget, before.budget)
+})
