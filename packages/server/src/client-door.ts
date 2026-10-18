@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import {
   CLIENT_METHODS, CLIENT_PROTOCOL, clientTierFor, parseClientEnvelope, parseClientMessage,
   wireCodeOf, wireDataOf, wireError,
-  type ClientTier, type ClientTopic, type FlowExecutionSummary, type GoalView, type HostParams,
+  type ClientTier, type ClientTopic, type ClientMethodName, type FlowExecutionSummary, type GoalView, type HostParams,
   type HostToClient, type WireNotification,
 } from '@harnessdesk/protocol'
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -15,15 +15,38 @@ import type { Host } from './host.js'
 import type { Logger } from './log.js'
 import { sameCanonicalPath, withCanonicalPaths } from './path-identity.js'
 
+export type ClientConnectionRequest = {
+  [M in ClientMethodName]: { readonly id: number; readonly method: M; readonly params: HostParams<M> }
+}[ClientMethodName]
+
+/** Trusted host input only. No hello field can install or modify a policy. */
+export interface ClientConnectionPolicy {
+  readonly identity: string
+  readonly maximumTiers: readonly ClientTier[]
+  /** Called after wire validation and before host dispatch; null admits the call. */
+  readonly authorize: (request: ClientConnectionRequest) => Promise<string | null>
+}
+
 export interface ClientDoorOptions {
   readonly host: Host
   readonly logger: Logger
   readonly home: string
   readonly directory?: string
   readonly hostVersion: string
+  readonly policy?: ClientConnectionPolicy
+  /** Private listeners return their descriptor to the host without publishing it. */
+  readonly discovery?: false
 }
 export interface ClientDoor {
   readonly socketPath: string
+  readonly descriptor: {
+    readonly home: string
+    readonly pid: number
+    readonly startedAt: number
+    readonly hostVersion: string
+    readonly protocolVersion: number
+    readonly socketPath: string
+  }
   close(): Promise<void>
 }
 
@@ -134,6 +157,13 @@ const inScope = (notification: WireNotification, views: readonly GoalView[], sco
 /** A separate listener over the same envelopes and an explicitly tiered client surface. */
 export const openClientDoor = async (options: ClientDoorOptions, filesystem: ClientDoorFilesystem = fs): Promise<ClientDoor | null> => {
   const logger = options.logger.child('client')
+  const policy = options.policy === undefined ? undefined : Object.freeze({
+    identity: options.policy.identity,
+    maximumTiers: Object.freeze([...options.policy.maximumTiers]),
+    authorize: options.policy.authorize,
+  })
+  const effectiveTiers = () => options.host.clientTiers().filter(tier => policy === undefined || policy.maximumTiers.includes(tier))
+  const publishDiscovery = options.discovery !== false
   if (process.platform === 'win32') {
     logger.info('client door is not available on this platform')
     return null
@@ -186,7 +216,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
     sockets.handleUpgrade(request, socket, head, ws => {
       sockets.emit('connection', ws, request)
       let hello = false
-      let identity = 'unknown'
+      let identity = policy?.identity ?? 'unknown'
       let statedPid: number | null = null
       let subscription: Subscription = { topics: [] }
       let proposal: { snapshots: WireNotification[] } | null = null
@@ -242,11 +272,20 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
         const { id, method } = envelope
         const params = typeof value === 'object' && value !== null && 'params' in value ? value.params : undefined
         tier = clientTierFor(method, params)
-        const refused = clientRefusal(method, hello, options.host.clientTiers(), params)
+        const refused = clientRefusal(method, hello, effectiveTiers(), params)
         if (refused) { refuse(id, method, refused, `Client request refused: ${refused}.`); return }
         let parsed
         try { parsed = parseClientMessage(value) }
         catch (error) { refuse(id, method, 'badRequest', String(error)); return }
+        if (policy) {
+          let denied: string | null
+          try { denied = await policy.authorize(parsed as ClientConnectionRequest) }
+          catch { denied = 'connectionPolicy' }
+          if (denied !== null) { refuse(id, method, denied, `Client request refused: ${denied}.`); return }
+          // Authorization can await host facts; a live desk revocation still wins.
+          const revoked = clientRefusal(method, hello, effectiveTiers(), params)
+          if (revoked) { refuse(id, method, revoked, `Client request refused: ${revoked}.`); return }
+        }
         if (parsed.method === 'client/hello') {
           const params = parsed.params as HostParams<'client/hello'>
           if (params.protocol !== CLIENT_PROTOCOL) {
@@ -259,12 +298,12 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
               id: runtime.id, name: runtime.presentation.name, metered: runtime.capabilities.metered,
               health: await options.host.call('runtime/health', { runtime: runtime.id }),
             })))
-            identity = `${params.client.name}@${params.client.version}`
-            statedPid = params.pid ?? null
+            identity = policy?.identity ?? `${params.client.name}@${params.client.version}`
+            statedPid = policy ? null : params.pid ?? null
             hello = true
             greeted.add(ws)
             send({ id, ok: true, result: { protocolVersion: CLIENT_PROTOCOL, hostVersion: options.hostVersion,
-              desk: { home, pid: process.pid, startedAt }, tiers: options.host.clientTiers(),
+              desk: { home, pid: process.pid, startedAt }, tiers: effectiveTiers(),
               methods: Object.keys(CLIENT_METHODS), runtimes } })
             audit({ kind: 'client/connected', client: identity, statedPid, method, tier: 'read', outcome: 'ok' })
           } catch (error) {
@@ -364,9 +403,11 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
   try {
     await new Promise<void>((resolve, reject) => { http.once('error', reject); http.listen(paths.socketPath, resolve) })
     await filesystem.chmod(paths.socketPath, 0o600)
-    writingPointer = true
-    await filesystem.writeFile(temporaryPointer, JSON.stringify({ home, pid: process.pid, hostVersion: options.hostVersion, protocolVersion: CLIENT_PROTOCOL, startedAt }), { mode: 0o600, flag: 'wx' })
-    await filesystem.rename(temporaryPointer, paths.pointerPath)
+    if (publishDiscovery) {
+      writingPointer = true
+      await filesystem.writeFile(temporaryPointer, JSON.stringify({ home, pid: process.pid, hostVersion: options.hostVersion, protocolVersion: CLIENT_PROTOCOL, startedAt }), { mode: 0o600, flag: 'wx' })
+      await filesystem.rename(temporaryPointer, paths.pointerPath)
+    }
   } catch (error) {
     await closeListener()
     try { if (writingPointer && (error as NodeJS.ErrnoException).code !== 'EEXIST') await filesystem.rm(temporaryPointer, { force: true }) }
@@ -377,8 +418,14 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
   let cleanup: Promise<void> | null = null
   return {
     socketPath: paths.socketPath,
+    descriptor: Object.freeze({ home, pid: process.pid, startedAt, hostVersion: options.hostVersion,
+      protocolVersion: CLIENT_PROTOCOL, socketPath: paths.socketPath }),
     close: () => cleanup ??= (async () => {
       await closeListener()
+      if (!publishDiscovery) {
+        await filesystem.rm(paths.socketPath, { force: true })
+        return
+      }
       try {
         const pointer = JSON.parse(await filesystem.readFile(paths.pointerPath, 'utf8')) as { pid: number }
         if (pointer.pid === process.pid) {
