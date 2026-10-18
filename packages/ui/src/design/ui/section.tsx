@@ -57,6 +57,8 @@ const sectionVariants = cva('flex flex-col', {
       /* A section of a page, with its label outside and over its card. Drawn
          only through `title` (below), which is what gives it its head. */
       page: 'mt-(--hd-space-8) min-w-0 gap-(--hd-card-gap) first:mt-0 *:my-0! [&>[data-section-head]]:mt-(--hd-space-3)! [&>button]:self-start',
+      /* A file or definition, with its tools in a compact ruled header. */
+      document: 'min-w-0 rounded-(--hd-panel-card-radius) border border-(--hd-border-strong) bg-(--hd-background)',
     },
   },
   defaultVariants: { variant: 'card' },
@@ -114,6 +116,8 @@ type PageSectionProps = Omit<React.ComponentProps<'section'>, 'title'> & {
 
 /** The boxed region: a surface with its own ground or edge, headed from inside by `SectionHeader`. */
 type RegionProps = React.ComponentProps<'section'> & {
+  /** Tools inside a boxed region; the document variant uses a compact ruled bar. */
+  header?: React.ReactNode
   variant?: Exclude<VariantProps<typeof sectionVariants>['variant'], 'page'>
   title?: never
   level?: never
@@ -174,14 +178,17 @@ const Section = (props: SectionProps) => {
       </section>
     )
   }
-  const { className, variant, ...rest } = props
+  const { className, variant, header, children, ...rest } = props
   return (
     <section
       data-slot="section"
       data-variant={variant ?? 'card'}
       className={cn(sectionVariants({ variant }), className)}
       {...rest}
-    />
+    >
+      {header != null && <SectionHeader variant={variant === 'document' ? 'bar' : 'default'}>{header}</SectionHeader>}
+      {children}
+    </section>
   )
 }
 
@@ -193,11 +200,12 @@ const Section = (props: SectionProps) => {
  * idiom and means a conditionally-rendered action cannot leave a dead column
  * behind.
  */
-const SectionHeader = ({ className, ...props }: React.ComponentProps<'div'>) => (
+const SectionHeader = ({ className, variant = 'default', ...props }: React.ComponentProps<'div'> & { variant?: 'default' | 'bar' }) => (
   <div
     data-slot="section-header"
     className={cn(
-      'grid auto-rows-min items-start gap-x-3 gap-y-0.5 px-4 pt-4 has-data-[slot=section-action]:grid-cols-[1fr_auto]',
+      variant === 'bar' ? 'flex flex-wrap items-center gap-(--hd-space-2) border-b border-(--hd-border) p-(--hd-space-3)'
+        : 'grid auto-rows-min items-start gap-x-3 gap-y-0.5 px-4 pt-4 has-data-[slot=section-action]:grid-cols-[1fr_auto]',
       className,
     )}
     {...props}
@@ -244,7 +252,7 @@ const SectionBody = ({
   ...props
 }: React.ComponentProps<'div'> & {
   inset?: boolean
-  spacing?: 'default' | 'compact' | 'inline' | 'tool-prose'
+  spacing?: 'default' | 'compact' | 'inline' | 'tool-prose' | 'document'
 }) => (
   <div
     data-slot="section-body"
@@ -252,6 +260,7 @@ const SectionBody = ({
     className={cn(
       spacing === 'default' && 'py-4 first:pt-4 [&:not(:first-child)]:pt-3',
       spacing === 'compact' && 'py-3',
+      spacing === 'document' && 'min-w-0 py-(--hd-space-4)',
       /* desk: tool prose 16 → 12, a card's prose stands on its rows' edge (owner, 2026-10-14) */
       inset && (spacing === 'tool-prose' || spacing === 'inline' ? 'px-(--hd-inset-row)' : spacing === 'compact' ? 'px-3' : 'px-4'),
       className,

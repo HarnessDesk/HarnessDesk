@@ -25,7 +25,7 @@ afterEach(() => {
 })
 
 const RUNTIME = runtimeId('codex')
-const FOLDER = '/worktrees/deleted-tree'
+const FOLDER = '/home/jane/project/.worktrees/agent-long-worktree-name-for-archive-1771'
 const KEY = sessionKey(RUNTIME, sessionId('s-1'))
 
 const mount = ({
@@ -38,6 +38,7 @@ const mount = ({
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
+    activeSessionKey: sessionKey(RUNTIME, sessionId('elsewhere')),
     sessions: new Map(sessions.map((s) => [sessionKey(s.runtime, s.id), s])),
     history,
   }
@@ -45,13 +46,14 @@ const mount = ({
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     openCopyElsewhere: vi.fn(),
+    archiveSession: vi.fn(),
   } as unknown as AppStore
 
   act(() => {
     root.render(
       <StoreProvider store={store}>
         <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: KEY as never }, sessionKey: KEY as never }}>
-          <FolderGone folder={FOLDER} said="Folder deleted." />
+          <FolderGone folder={FOLDER} said={`The folder ${FOLDER} no longer exists.`} />
         </PaneProvider>
       </StoreProvider>,
     )
@@ -128,5 +130,33 @@ describe('FolderGone (#387)', () => {
     mount({ sessions: [activeSession], history })
 
     expect(container.textContent).not.toContain('other conversation')
+  })
+})
+
+describe('FolderGone (#1771)', () => {
+  it('archives the pane conversation with the existing archive action, after the copy action', () => {
+    const { store } = mount({})
+    const buttons = [...container.querySelectorAll('button')]
+    expect(buttons.map(button => button.textContent)).toEqual(['Open a copy in another folder', 'Archive'])
+    act(() => buttons[1]!.click())
+    expect(store.archiveSession).toHaveBeenCalledWith(sessionId('s-1'), RUNTIME)
+  })
+
+  it('names only the last folder segment and keeps the full path on hover', () => {
+    mount({})
+    expect(container.textContent).toContain('The folder ')
+    expect(container.textContent).toContain(' no longer exists.')
+    expect(container.textContent).not.toContain(FOLDER)
+    const path = container.querySelector(`[title="${FOLDER}"]`)
+    expect(path?.querySelector('.sr-only')?.textContent).toBe('agent-long-worktree-name-for-archive-1771')
+    expect(path?.getAttribute('data-slot')).toBe('middle-truncate')
+  })
+
+  it('explains the copy and opens it from the pane conversation', () => {
+    const { store } = mount({})
+    const button = container.querySelector('button')!
+    expect(button.title).toBe("Starts a new conversation with this one's summary; you choose the folder.")
+    act(() => button.click())
+    expect(store.openCopyElsewhere).toHaveBeenCalledWith(KEY)
   })
 })

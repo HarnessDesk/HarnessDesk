@@ -2,8 +2,9 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it } from 'vitest'
 
-import { Page } from './Page'
+import { Page, PageColumns, PageStack } from './Page'
 import css from './Page.module.css?raw'
+import tokens from '../foundation/tokens.css?raw'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -97,4 +98,18 @@ it('lets a canvas page use the shared page top inset without changing its frame'
     act(() => root.unmount())
     container.remove()
   }
+})
+
+
+it('keeps a detail body beside a facts rail of the --hd-page-aside measure and stacks below the large breakpoint', () => {
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  try {
+    act(() => root.render(<PageStack><PageColumns aside={<PageStack spacing="compact">Facts</PageStack>}>Definition</PageColumns></PageStack>))
+    expect(host.querySelector('[data-slot="page-columns"]')?.textContent).toBe('DefinitionFacts')
+    expect(host.querySelector('[data-slot="page-columns"]')?.className).toContain('lg:grid-cols-[minmax(0,1fr)_var(--hd-page-aside)]')
+    expect(tokens).toMatch(/--hd-page-aside:\s*320px;/)
+    expect(host.querySelector('[data-slot="page-columns"]')?.className).toContain('grid-cols-1')
+    expect(host.querySelector('[data-spacing="compact"]')).not.toBeNull()
+  } finally { act(() => root.unmount()) }
 })

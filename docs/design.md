@@ -1279,7 +1279,7 @@ wrong keeps its own:
 - `components/ProjectTriggers.tsx`'s former "Armed" chip read in the
   success tone; the switch now carries Off and Armed, while Changed, Refused
   and Paused retain their exceptional-state chips.
-- `components/SkillSheet.tsx`'s runtime-reach row: a skill a runtime reaches
+- `components/SkillPage.tsx`'s runtime-reach row: a skill a runtime reaches
   read "On" in the success tone; "Off" already had none.
 - `components/SeatAttachments.tsx`: a loaded attachment read "Loaded" in the
   success tone; "Not loaded" keeps its warning, which is a verdict rather
@@ -1779,7 +1779,7 @@ simply unable to see:
   (`ApprovalDialog.module.css [room]`, 48 findings). And composition within
   one file was never followed at all: `Dialog` composes `DialogBody` and
   `DialogSubhead` in the same `ModalDialog.tsx`, with no import needed, so
-  their reach read as SkillSheet.tsx's alone instead of the ~46 screens
+  their reach read as SkillPage.tsx's alone instead of the ~46 screens
   `Dialog` itself reaches (`ModalDialog.module.css [settings]`, 9 findings).
   A registry or `app/` mount now counts as its own host area, but only
   alongside a real screen import, and a same-module composer's own reach is

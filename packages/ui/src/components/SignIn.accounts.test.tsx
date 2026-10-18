@@ -126,6 +126,49 @@ it('still says an agent needs no account when it has answered and offers none', 
   expect(container.textContent).not.toContain('Starting Codex')
 })
 
+/* #1759. An ACP agent says whether it is signed in only when a session
+   opens, so before one it answers with nobody and no verdict. The pane read
+   that as "needs no account here" — with nothing to press — about an agent
+   that declared four ways to sign in. */
+const AGENT = runtime({
+  id: 'agent',
+  name: 'Agent',
+  capabilities: { account: false },
+  presentation: { name: 'Agent', configLocation: '~/.agent' },
+})
+
+it('says an agent nobody has asked yet is not checked, and keeps its own ways in', async () => {
+  await mount({
+    runtimes: [PRIMARY, AGENT],
+    accountsByRuntime: {
+      agent: {
+        accounts: [],
+        signInMethods: [{ id: 'acp:google', label: 'Log in with Google', flow: 'browser' }],
+        unchecked: true,
+      },
+    },
+  } as never, 'agent')
+
+  const card = detail()
+  expect(card.textContent).toContain('Not checked yet')
+  expect(card.textContent).not.toContain('needs no account here')
+  expect(card.querySelector('[aria-label="Ways to connect"]')?.textContent).toContain('Log in with Google')
+  const rail = container.querySelector('nav')
+  expect(rail?.textContent).toContain('Not checked yet')
+  expect(rail?.textContent).not.toContain('Runs without one')
+})
+
+it('says an unchecked agent is not checked even before it has declared a way in', async () => {
+  await mount({
+    runtimes: [PRIMARY, AGENT],
+    accountsByRuntime: { agent: { accounts: [], signInMethods: [], unchecked: true } },
+  } as never, 'agent')
+
+  expect(detail().textContent).toContain('Not checked yet')
+  expect(container.textContent).not.toContain('needs no account here')
+  expect(container.textContent).not.toContain('Runs without one')
+})
+
 it('names the account already held before sending you to the browser', async () => {
   await mount(
     {

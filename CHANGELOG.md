@@ -5,6 +5,27 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## 0.5.2 — 2026-10-17
+
+Skills open as pages in the Library, a Team's sidebar mark now tells waiting
+from news, and agents that could not start, are signed out or keep their
+sign-ins elsewhere report it quietly and correctly.
+
+- **A skill opens as its own page.** Choosing a skill in the Library shows its definition beside Update, Loaded by, Source, Files and Cost, with one banner per problem above both; Remove, Resolve copies and Install to… are in the page's More menu, each previewed first. The skill sheet is gone.
+- **An OpenCode row reads its own sign-ins** — OpenCode 2's sign-ins, kept in its own database rather than `auth.json`, now name the providers on the row, and a row with its own data folder reads only that folder. Its page no longer offers `opencode auth login` for such a row, since OpenCode 2 signs that command into its default folder; it says so instead.
+- **Team marks distinguish waiting from news.** Orange means someone needs your answer; blue means unseen activity, an ended Run or work ready to wrap. Opening the Team clears blue across windows. After this update, finished Teams show the blue mark once. Unchecked finished cards keep their Board reason and get a quiet Overview count without raising attention.
+- **A background task whose command shows nothing is still named** — a command made only of blanks or display breaks shows as "Shell" instead of an empty label or a bare "…", and no title keeps an invisible blank at either end.
+- **Drafts explain why Send is disabled** while the runtime starts or is unavailable, with a short readiness chip and the reason on Send’s hover title; an unavailable runtime’s chip opens its Settings page.
+- **Conversations whose folder is gone can be archived from their banner.** The folder name stays short with its full path on hover, and the copy action explains that it starts a conversation with a summary.
+- **A signed-out agent no longer raises its raw sign-in refusal** — the agent's "Authentication required" answer, with its method names and settings path, is no longer shown as a toast, or as a warning under New conversations on its page or in General, while the desk already shows it signed out; its banner and Accounts card say it. A refusal from an agent shown as signed in is still reported.
+- **An agent that could not start no longer reads Ready after a restart** — one whose program was missing, would not report its version or was too old is checked again in the background as the desk opens, so Settings › Runtimes lists it under Needs attention with its reason instead of Ready until its page is opened.
+- **An agent's account commands answer for its own row** — status, sign-in and sign-out run with the environment the row starts the agent with and the copy of the CLI its start chose, so a row that moves the agent's home shows and signs out its own account, not the default one.
+- **What the Library changed now has its own page**, reached from the Library's menu or from the toast that follows each change, instead of a list at the foot of the page.
+- **Agents nobody has asked yet say "Not checked yet"** instead of "needs no account here", and are listed as Ready. Antigravity's Gemini API key is a key field the agent switches to, and its Agent Platform method shows the setup step it needs instead of a button that could only fail.
+- **Skills are cards under filter chips.** The Library's skills page is now a grid of cards with filter chips (All, Needs you, One runtime, Nobody) and an Add skill menu; the problems stay on the card, and the list view is replaced by cards and the matrix.
+- **Side by side browser tiles reach the bottom** behind the floating shared composer and comparison decision card, like conversation tiles, with no surrounding fade; gaps between and beside the cards pass clicks through.
+- **Team tabs sit close under the top bar**, with View on the same line and less space before the tiles; narrow panes scroll the tabs while keeping View in place.
+
 ## 0.5.1 — 2026-10-17
 
 Conversations now start without a project, with a managed Chats folder behind
@@ -330,7 +351,7 @@ reviewed skill bundles, faster history and verified Team outcomes.
   refuse before replacement, and local edits keep their backup protection.
 
 - **Skill updates are checked when you ask.** Check for updates reads recorded
-  repository origins; rows show the result and the skill sheet names pinned
+  repository origins; rows show the result and the skill detail names pinned
   and newer commits. Review fetches the current source and lists added,
   changed and removed files before Apply, with the same acknowledgement for
   incoming runnable or binary files. Origins remain visible before a check;

@@ -144,3 +144,30 @@ for (const surface of ['preview', 'catalogue'] as const) {
     expect(gap).toBeLessThanOrEqual(1)
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`folder-gone banner keeps a long worktree name on one line and offers Archive in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html')
+    const frame = layout(page, 'transcript-missing-folder')
+    await frame.evaluate(element => { (element as HTMLElement).style.width = '400px' })
+    const banner = frame.getByRole('status')
+    await expect(banner).toBeVisible()
+    await expect(banner.getByRole('button')).toHaveText(['Open a copy in another folder', 'Archive'])
+    await expect(banner.getByRole('button').first()).toHaveAttribute('title', "Starts a new conversation with this one's summary; you choose the folder.")
+    const name = banner.locator('[data-slot="middle-truncate"]')
+    await expect(name).toHaveAttribute('title', '/home/jane/storefront/.worktrees/agent-inventory-retry-long-worktree-name-1771')
+    const geometry = await name.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      const body = element.closest('[data-slot="alert-description"]')!
+      const bodyBox = body.getBoundingClientRect()
+      return {
+        fits: box.right <= bodyBox.right + 1,
+        truncates: [...element.querySelectorAll('[data-part]')].some(part => part.scrollWidth > part.clientWidth),
+        sentenceWraps: bodyBox.height > box.height,
+      }
+    })
+    expect(geometry).toEqual({ fits: true, truncates: true, sentenceWraps: true })
+    if (process.env.FOLDER_GONE_FRAMES) await frame.screenshot({ path: `${process.env.FOLDER_GONE_FRAMES}/folder-gone-${theme}.png` })
+  })
+}

@@ -9,6 +9,7 @@ export { goalViewForWire }
 export const goalMethods = {
   'goal/list': (ctx, params) => withCanonicalPaths(async () => (await ctx.goals.list(params.root)).map(goalViewForWire)),
   'goal/read': async (ctx, params) => goalViewForWire(await ctx.goals.view(params.goal)),
+  'goal/seen': async (ctx, params) => goalViewForWire(await ctx.goals.seen(params.goal)),
   'goal/create': async (ctx, params) => goalViewForWire(await ctx.goals.create(params)),
   'goal/update': async (ctx, params) => goalViewForWire(await ctx.goals.update(params.goal, params.revision, {
     ...(params.sentence === undefined ? {} : { sentence: params.sentence }),

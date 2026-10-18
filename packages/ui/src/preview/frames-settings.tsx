@@ -15,7 +15,7 @@ import { PluginsSection } from '../components/PluginsSection'
 import { SchemaForm } from '../components/SchemaForm'
 import { SetupDesk } from '../components/SetupDesk'
 import { UsageSection } from '../components/SettingsAgents'
-import { SkillSheet } from '../components/SkillSheet'
+import { McpSheet } from '../components/McpSheet'
 import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
 import { libraryColumnsFor, LIBRARY } from './harness'
@@ -56,14 +56,14 @@ const SCHEMA_FIXTURE = {
   required: ['level'],
 } as const
 
-const DIALOG_OPTIONS = ['off', 'new agent', 'update ceiling', 'install plugin', 'skill sheet', 'plugins'] as const
+const DIALOG_OPTIONS = ['off', 'new agent', 'update ceiling', 'install plugin', 'MCP detail', 'plugins'] as const
 type DialogOption = (typeof DIALOG_OPTIONS)[number]
 
 /**
  * The settings-and-agents batch: sections that read the store on their own
  * (Archive, Extensions, Ceilings) sit as plain frames; the sheets and dialogs
- * among them (a new Agent, a ceiling update, installing a plugin, a skill's
- * own sheet) are off by default and chosen from one dial, the same pattern
+ * among them (a new Agent, a ceiling update, installing a plugin, a server's
+ * own detail) are off by default and chosen from one dial, the same pattern
  * the worktree dialogs above already use — a dialog covers the page, so two
  * of them can never both be open here. Plugins joins the dial for a
  * different reason: its own two tabs always read "Installed · N" and
@@ -86,12 +86,11 @@ export const SettingsFrames = () => {
         {dialog === 'new agent' && <AgentNew root={PREVIEW_ROOT} onCreated={() => setDialog('off')} onClose={() => setDialog('off')} />}
         {dialog === 'update ceiling' && <CeilingUpdate entry={LEGACY_PERMISSION_AGENT} onClose={() => setDialog('off')} />}
         {dialog === 'install plugin' && <InstallPlugin onClose={() => setDialog('off')} />}
-        {dialog === 'skill sheet' && (
-          <SkillSheet
-            entry={LIBRARY.entries[0] as never}
+        {dialog === 'MCP detail' && (
+          <McpSheet
+            entry={LIBRARY.entries.find(entry => entry.kind === 'mcp') as never}
             columns={LIBRARY_COLUMNS}
-            usage={null}
-            hosts={{ skill: new Set(['claude' as never]), mcp: new Set() }}
+            hosts={{ mcp: new Set(LIBRARY.runtimes) }}
             cwd={PREVIEW_ROOT}
             home="/home/u"
             onFlow={() => {}}

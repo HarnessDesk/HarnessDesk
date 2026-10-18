@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConfigOption, OptionValue, RuntimeId } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
+import { explainedBySignIn } from './sign-in-refusal'
 
 /** Settings keeps recovery declarations separate from validated start values. */
 export const useNewSessionDefaults = (runtime: RuntimeId, active: boolean) => {
   const store = useStore()
-  const health = useSnapshot().healthByRuntime[runtime]?.state
+  const snapshot = useSnapshot()
+  const health = snapshot.healthByRuntime[runtime]?.state
+  const account = snapshot.accountsByRuntime[runtime]
   const [options, setOptions] = useState<readonly ConfigOption[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const generation = useRef(0)
@@ -32,7 +35,10 @@ export const useNewSessionDefaults = (runtime: RuntimeId, active: boolean) => {
     return () => { generation.current++ }
   }, [active, store, runtime, health])
 
-  return { options, error,
+  // A signed-out agent's refusal is what its page already says (#1775). Judged
+  // as it is drawn, not when it arrived: the account often turns signed out
+  // just after the refusal that made it so.
+  return { options, error: error !== null && explainedBySignIn(error, account) ? null : error,
     pick: (id: string, value: OptionValue) => { void read(() => store.setNewSessionDefault(runtime, id, value), error !== null) },
     clear: (id: string) => { void read(() => store.clearNewSessionDefault(runtime, id)) },
   }

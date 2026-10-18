@@ -1,3 +1,6 @@
+import { installSkillPageFixture } from './skill-page-fixture'
+import { README_RUNTIME_NAMES } from './readme-names'
+import { installLibraryChangesFixture, LibraryWriteToastFixture } from './library-changes-fixture'
 import { installEditorMainFixture } from './editor-main-fixture'
 import { EditorModeSelection, editorModeFixture, installEditorModeFixture, type EditorModeScene } from './frames-editor-mode'
 import { installExplorerFixture } from './editor-explorer-fixture'
@@ -231,6 +234,15 @@ export const FrameWall = () => {
       : destination === 'library' && (query.get('frame-library-state') === 'autopilot' || query.get('frame-library-state') === 'import')
         ? frameDestinationStore(showing(libraryAuditFixtureStore(query.get('frame-library-state') as 'autopilot' | 'import'), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
       : frameDestinationStore(storeFor(destination), { workspaceOutsideGit: true })
+    if (destination === 'library') installSkillPageFixture(next, query.get('frame-skill-state'))
+    if (destination === 'library' && (query.get('frame-kind') === 'changes' || query.has('frame-write-toast'))) installLibraryChangesFixture(next, query.get('frame-changes-empty') === '1')
+    if (destination === 'library' && query.get('frame-empty') === '1') {
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = async (method, params) => {
+        const result = await request(method, params)
+        return method === 'library/read' ? { ...result as import('@harnessdesk/protocol').Library, entries: [] } : result
+      }
+    }
     if (initial && !['dashboard','agents','agent','plugins'].includes(destination)) next.openDestination(initial)
     if (destination==='changes-review') next.openReview()
     if (query.get('layout-registry') === '1') {
@@ -250,6 +262,10 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (query.has('readme-names')) Object.assign(snapshot, { runtimes: snapshot.runtimes.map(info => {
+      const name = README_RUNTIME_NAMES[info.presentation.name] ?? info.presentation.name
+      return { ...info, name, presentation: { ...info.presentation, name } }
+    }) })
     if (destination === 'conversation' && query.has('frame-editor')) installEditorMainFixture(next, query.get('frame-editor') === 'entry')
     if (destination === 'conversation' && query.has('frame-editor-mode')) installEditorModeFixture(next, query.get('frame-editor-mode') as EditorModeScene)
     if (destination === 'conversation' && query.has('frame-explorer')) installExplorerFixture(next, query.get('frame-explorer')!)
@@ -888,6 +904,6 @@ export const FrameWall = () => {
   }, [store,destination])
   if (requested === 'topbar') return <TopBarProbe />
   return <StoreProvider store={store}>
-    <div data-frame-id="frame-wall" data-destination={destination} className="h-screen min-h-0 overflow-hidden bg-background"><App/><PopupWall/><EditorModeSelection/></div>
+    <div data-frame-id="frame-wall" data-destination={destination} className="h-screen min-h-0 overflow-hidden bg-background"><App/><LibraryWriteToastFixture shape={new URLSearchParams(location.search).get('frame-write-toast')} /><PopupWall/><EditorModeSelection/></div>
   </StoreProvider>
 }

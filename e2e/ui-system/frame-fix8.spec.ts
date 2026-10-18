@@ -34,12 +34,30 @@ const openFrame = async (page: Page, query: string, width = 1280, theme: 'light'
 
 {
 
-  for (const [item0, state] of (['failed', 'starting']).entries()) test(`draft composer keeps its text box and disables Send while the runtime is failed or starting [item ${[item0].join('-')}]`, async ({ page }) => {
+  for (const [item0, state] of (['failed', 'starting']).entries()) for (const theme of ['light', 'dark'] as const) test(`draft composer keeps its text box and disables Send while the runtime is failed or starting [item ${[item0].join('-')}] ${theme}`, async ({ page }) => {
 
-    await openFrame(page, `frame-wall=draft&frame-fix8-readiness=${state}`)
+    await openFrame(page, `frame-wall=draft&frame-fix8-readiness=${state}`, 1280, theme)
     const textarea = page.locator('textarea:visible')
     await expect(textarea).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+    const send = page.getByRole('button', { name: 'Send', exact: true })
+    await expect(send).toBeDisabled()
+    await expect(textarea).toBeEnabled()
+    await expect(textarea).toHaveAttribute('placeholder', 'Describe a task to start a session — / for commands, @ for files')
+    const tools = page.locator('[data-slot="composer-tools"]')
+    const readiness = tools.locator(`[data-slot="chip"][data-state="${state === 'failed' ? 'broken' : 'unknown'}"]`)
+    await expect(readiness).toBeVisible()
+    expect((await tools.locator('[data-composer-track="work-in"]').boundingBox())!.width).toBeGreaterThanOrEqual(24)
+    await expect(readiness).toHaveText(state === 'failed' ? 'Unavailable' : 'Not answered yet')
+    await textarea.fill('Review the checkout changes.')
+    await expect(send).toBeDisabled()
+    await expect(send).toHaveAttribute('title', state === 'failed'
+      ? 'The agent failed its version check. Choose a working installation in Settings.'
+      : 'Waiting for the runtime to start')
+    if (process.env.HD_1737_FRAMES) await page.screenshot({ path: `${process.env.HD_1737_FRAMES}/draft-${state}-${theme}.png` })
+    if (state === 'failed') {
+      await tools.getByRole('button', { name: 'Unavailable', exact: true }).click()
+      await expect(page.getByRole('heading', { name: 'Runtimes', exact: true })).toBeVisible()
+    }
 
 
   })

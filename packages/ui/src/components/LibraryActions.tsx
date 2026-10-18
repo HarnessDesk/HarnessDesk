@@ -11,6 +11,7 @@ import type {
   RuntimeId,
 } from '@harnessdesk/protocol'
 
+import { libraryWriteToasts } from './LibraryWriteToast'
 import { LibraryGithub } from './LibraryGithub'
 import { LibraryFiles, needsLibraryAcknowledgement } from './LibraryFiles'
 import { useStore } from '../state/context'
@@ -229,13 +230,15 @@ export const PlanDialog = ({
         ...(cwd ? { cwd } : {}),
       })
       setResults(answer)
-      if (answer.some((one) => one.outcome === 'done')) onApplied()
+      libraryWriteToasts(plan.ops, answer, () => { onClose(); store.openDestination({ kind: 'library', section: 'changes' }) })
+      // Failed attempts are audit entries too; an open changes page must read them.
+      if (answer.some((one) => one.outcome === 'done' || one.outcome === 'failed')) onApplied()
     } catch (error) {
       setFailed(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(false)
     }
-  }, [plan, store, cwd, onApplied, acknowledged])
+  }, [plan, store, cwd, onApplied, onClose, acknowledged])
 
   const resultOf = (id: string) => results?.find((one) => one.id === id)
   const done = results?.filter((one) => one.outcome === 'done').length ?? 0
@@ -787,157 +790,6 @@ export const AuthorDialog = ({
         </Fieldset>
       </FormStack>
     </Dialog>
-  )
-}
-
-/** One audit entry as the history shows it. */
-interface HistoryRow {
-  readonly at: number
-  readonly op: string
-  readonly name: string
-  readonly path: string
-  readonly status: string
-  readonly backupPath?: string
-  readonly detail?: string
-  readonly runtime: string
-}
-
-const HISTORY_VERB: Readonly<Record<string, string>> = {
-  'skill/create': 'Installed',
-  'skill/update': 'Updated',
-  'skill/replace': 'Replaced a copy of',
-  'skill/remove': 'Removed a copy of',
-  'mcp/create': 'Added',
-  'mcp/update': 'Updated',
-  'mcp/replace': 'Replaced',
-  'mcp/remove': 'Removed',
-}
-
-/** The same verbs in the infinitive, because a failure is "failed to do". */
-const HISTORY_TRY: Readonly<Record<string, string>> = {
-  'skill/create': 'install',
-  'skill/update': 'update',
-  'skill/replace': 'replace a copy of',
-  'skill/remove': 'remove a copy of',
-  'mcp/create': 'add',
-  'mcp/update': 'update',
-  'mcp/replace': 'replace',
-  'mcp/remove': 'remove',
-}
-
-/**
- * What changed from here — the audit log's library entries, on the page that
- * made them.
- *
- * The point is not nostalgia: every replace and remove filed a backup, and a
- * record nobody can act on makes the backups decoration. Each row that kept
- * one offers Restore, which is just another previewed plan — the backup
- * becomes the copy again, and whatever it displaces is filed in turn.
- */
-export const LibraryHistory = ({
-  refreshedAt,
-  home,
-  onFlow,
-}: {
-  /** Changes when the page rescans, so the history refetches with it. */
-  refreshedAt: number
-  /** The host's home, so every path here prints the way it is written. */
-  home?: string | undefined
-  onFlow: (flow: LibraryFlow) => void
-}) => {
-  const store = useStore()
-  const active = useDestinationActive()
-  const [rows, setRows] = useState<readonly HistoryRow[] | null>(null)
-  const [all, setAll] = useState(false)
-
-  useEffect(() => {
-    if (!active) return
-    let cancelled = false
-    store.transport
-      .request('audit/query', { sinceDays: 90 })
-      .then((entries) => {
-        if (cancelled) return
-        // The log appends, so it arrives oldest-first; a history is read the
-        // other way round — what just happened on top, the past behind
-        // "Show all".
-        setRows(
-          entries
-            .filter((entry) => entry.kind === 'library/write')
-            .sort((a, b) => b.at - a.at)
-            .map((entry) => ({
-              at: entry.at,
-              op: entry.op ?? '',
-              name: entry.name ?? '',
-              path: entry.path ?? '',
-              status: entry.status ?? '',
-              runtime: String(entry.runtime),
-              ...(entry.backupPath !== undefined ? { backupPath: entry.backupPath } : {}),
-              ...(entry.detail !== undefined ? { detail: entry.detail } : {}),
-            })),
-        )
-      })
-      .catch(() => { if (!cancelled) setRows([]) })
-    return () => {
-      cancelled = true
-    }
-  }, [active, store, refreshedAt])
-
-  if (rows === null || rows.length === 0) return null
-  const shown = all ? rows : rows.slice(0, 6)
-
-  return (
-    <Section level="heading" title="Changes made from here" inset="row">
-      <Rows role="list">
-        {shown.map((row, index) => (
-          <div key={`${row.at}-${index}`} role="listitem">
-            <Row layout="record" kind="record" title={<Text
-                  role="navigation"
-                  {...(row.status === 'failed' ? { tone: 'warning' as const } : {})}
-               >
-                  {row.status === 'failed'
-                    ? `Failed to ${HISTORY_TRY[row.op] ?? row.op} ${row.name}${row.detail ? ` — ${row.detail}` : ''}`
-                    : `${HISTORY_VERB[row.op] ?? row.op} ${row.name}`}
-                </Text>} desc={<>
-              <Text role="meta" numeric>
-                {new Date(row.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
-                {' · '}
-              </Text>
-                <Text role="meta" title={row.path} truncate dir="rtl">
-                  <bdi dir="ltr">
-                    <CodeText as="code" size="inherit">{shortPath(row.path, home)}</CodeText>
-                  </bdi>
-                </Text>
-              </>} control={row.backupPath !== undefined && row.status === 'done' ? (
-                <Button variant="outline"
-                  size="sm"
-                  title={`Restore what this change filed at ${row.backupPath}`}
-                  onClick={() =>
-                    onFlow({
-                      type: 'plan',
-                      title: `Restore ${row.name}`,
-                      intents: [
-                        {
-                          kind: 'restoreCopy',
-                          name: row.name,
-                          backupPath: row.backupPath ?? '',
-                          targetPath: row.path,
-                        },
-                      ],
-                    })
-                  }
-               >
-                  Restore…
-                </Button>
-              ) : undefined} />
-          </div>
-        ))}
-      </Rows>
-      {rows.length> shown.length && (
-        <Button variant="secondary" size="sm" onClick={() => setAll(true)}>
-          Show all {rows.length}
-        </Button>
-      )}
-    </Section>
   )
 }
 

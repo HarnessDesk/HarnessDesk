@@ -105,8 +105,8 @@ test('S18 every dialog preview uses the same title, inset, close, and footer ana
   }
 
   await openFrame(page, 'frame-wall=library', 'light')
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', {name:'More',exact:true}).click()
-  await page.getByRole('menuitem', {name:'Import',exact:true}).click()
+  await page.getByRole('button', {name:'Add skill',exact:true}).click()
+  await page.getByRole('menuitem', {name:'Copy from another runtime…',exact:true}).click()
   opened = await inspect('dialog')
   await expect(opened.surface.locator('[data-slot="search"] svg')).toHaveCount(1)
   await opened.surface.getByRole('button', {name:'Cancel',exact:true}).click()

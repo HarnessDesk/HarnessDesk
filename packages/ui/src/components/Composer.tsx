@@ -18,6 +18,7 @@ import {
   Attachment as AttachmentTile,
   AttachmentMedia,
   Button,
+  Chip,
   ComposerNotice,
   ComposerChip,
   ComposerChips,
@@ -48,6 +49,7 @@ import { contributionsHere, scopeHere } from '../lib/contributions'
 import { deskContextContent, opensEnvelope, splitContext, wrapContext } from '../lib/context-envelope'
 import { CARRY_LABEL } from '../lib/handoff'
 import { brandOf } from '../lib/identity'
+import { READINESS_LABEL } from '../lib/readiness'
 import { attachmentName, dragHasFiles, imageFilesOf, vetImageFiles } from '../lib/images'
 import { PLAN_EDIT_SOURCE, planEditNote } from '../lib/plan-edits'
 import { sessionPlan } from '../lib/todos'
@@ -1077,10 +1079,16 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
   // A running turn is the usual reason; a queue held behind a stopped turn
   // is the other, and both put this message behind something.
   const deferred = busy || waiting > 0
-  // What the button says on hover. Only when there is something it would not
-  // be obvious about — a disabled button explains itself in the placeholder
-  // above it, and "Send" on a send button is noise.
-  const sendTitle = awaitingConversation
+  // Drafts keep their typing prompt. Runtime readiness earns a short fact
+  // on the toolbar, with the full reason and remediation on Send.
+  const draftReadiness = !session && !awaitingConversation
+    ? snapshot.health?.state === 'unavailable' ? 'broken'
+      : snapshot.health?.state === 'starting' ? 'unknown' : null
+    : null
+  const readinessTitle = draftReadiness === 'broken' && snapshot.health?.state === 'unavailable'
+    ? [snapshot.health.message, snapshot.health.remediation].filter(Boolean).join(' ')
+    : draftReadiness === 'unknown' ? 'Waiting for the runtime to start' : undefined
+  const sendTitle = readinessTitle ?? (awaitingConversation
     ? 'Waiting for the conversation to open'
     : !canSend
       ? undefined
@@ -1090,7 +1098,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
           : 'Sends when this turn ends'
         : waiting > 0
           ? `Goes after the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
-          : undefined
+          : undefined)
 
   const menuTitle =
     trigger.kind === 'choose' && trigger.command.kind.type === 'choose'
@@ -1305,8 +1313,14 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
           <AgentControl />
           <PermissionControl />
           <ModeControl />
-          <ComposerTrack name="extension">
+          <ComposerTrack name="extension" contentSized={Boolean(draftReadiness)}>
             <Slot name="composer.action" />
+            {draftReadiness && (draftReadiness === 'broken' ? (
+              <Button type="button" variant="ghost" size="content" title={readinessTitle}
+                onClick={() => store.askSettings('runtimes', String(runtime.id))}>
+                <Chip state={draftReadiness}>{READINESS_LABEL[draftReadiness]}</Chip>
+              </Button>
+            ) : <Chip state={draftReadiness}>{READINESS_LABEL[draftReadiness]}</Chip>)}
           </ComposerTrack>
           <ComposerGap />
           <MoreControl />

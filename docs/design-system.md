@@ -267,6 +267,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
 | `--hd-page-wide` | `1320px` |
+| `--hd-page-aside` | `320px` |
 | `--hd-page-gutter` | `24px` |
 | `--hd-page-stack` | `16px` |
 | `--hd-menu-min` | `200px` |
@@ -1235,7 +1236,15 @@ footer in the app; every other answer is quiet, and its number still works.
 A compact opening card, exported publicly as CompactBoardCard: identity,
 optional attention detail, middle and footer.
 Title and detail props preserve a caller's hover text, slots and description ids.
+Optional marks retain presence and attention independently and describe the card; a finding owns its flag.
+detailLines bounds a catalogue description without truncating the finding.
 Supply aria-describedby for the detail and any facts inside the footer slot.
+
+### `BoardCardGrid`
+
+`packages/ui/src/design/patterns/BoardCard.tsx`
+
+Opening cards share a responsive grid that becomes one column within a narrow pane.
 
 ### `ChannelSignal`
 
@@ -1918,7 +1927,7 @@ A switch stays open; Base UI supplies checkbox-menu keyboard semantics.
 The head every dialog wears: its name, context, short description, and way out.
 
 `Dialog` draws it, and so does a sheet that lays out its own body — the
-skill sheet — so a dialog's name is one step, one inset and one rule under
+MCP detail — so a dialog's name is one step, one inset and one rule under
 it whichever of them is open. The name is the title step (16/24, semibold).
 
 `aside` sits after the name on its line (a context chip); `children` are one
@@ -2058,6 +2067,18 @@ its own larger step. A Team's Findings drew its
 facts against the sidebar, a button across the window and a switch in the
 middle of it because nothing told the page what width it was.
 
+### `PageStack`
+
+`packages/ui/src/design/patterns/Page.tsx`
+
+Content blocks share a page's stack; fact cards and captions use the smaller named steps.
+
+### `PageColumns`
+
+`packages/ui/src/design/patterns/Page.tsx`
+
+A detail's reading body and its fact column (`--hd-page-aside`) become one column below the large breakpoint.
+
 ### `PageControls`
 
 `packages/ui/src/design/patterns/PageControls.tsx`
@@ -2124,6 +2145,13 @@ Row actions and portalled menus never activate the record; the title is its keyb
  same convention the rest of `design/patterns` stamps. A prose `page`
  keeps the full reading inset above and below its content; `Page` may set
  `--page-top` to start a page that opens with its title at the top.
+
+### `PaneTabsRow`
+
+`packages/ui/src/design/patterns/PaneColumn.tsx`
+
+Tabs under a pane's top bar keep the reading gutter and a small vertical
+step. Tabs yield and scroll; trailing view controls stay on the tabs' row.
 
 ### `useComposerHeightVar`
 
@@ -2427,6 +2455,8 @@ row buttons) keeps its card, its edge and its ground.
 
 A named row with optional text below it. Keep the title scannable and put
 its full sentence in `desc`, where it wraps as an earned second line.
+`density="compact"` is a card row at panel-row height with a 16px face, no
+divider, one trailing value and one action.
 
 ### `RowButton`
 
@@ -2597,6 +2627,7 @@ A Settings record's actions: its name and distinguishing location, with destruct
 
 `packages/ui/src/design/patterns/SidebarMenuState.tsx`
 
+Orange limit means a person waits; blue new means unseen news.
 A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions.
 
 ### `SignInRail`
@@ -2651,12 +2682,6 @@ The header is the card's label, a disclosure when it folds, and its `value`
 — the summary a folded card still shows, so a glance down the panel reads
 every card's state without opening one. A card's rows keep their own 12px
 edge, which is the card's side padding; the card adds the top and bottom.
-
-### `ToolRow`
-
-`packages/ui/src/design/patterns/ToolBody.tsx`
-
-One line of a card: a 16px icon, a label, one trailing fact and at most one action.
 
 ### `ToolFold`
 
@@ -2721,9 +2746,9 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawDuration` | 0 | Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
-| `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
-| `pageMeasureInScreen` | 19 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2064 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `retiredComponent` | 4 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
+| `pageMeasureInScreen` | 18 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
+| `screenLayout` | 2045 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
 ## Screens against the standard
 
@@ -2765,16 +2790,16 @@ before anyone edits the source.
 | `width-1100` | 9 | 3 | 0 |
 | `width-720` | 11 | 2 | 0 |
 | `team-overview` | 15 | 1 | 0 |
-| `team-run` | 12 | 1 | 0 |
+| `team-run` | 16 | 1 | 0 |
 | `team-run-flow` | 11 | 7 | 0 |
-| `team-run-not-reached` | 16 | 1 | 0 |
-| `team-run-repeated` | 24 | 1 | 0 |
-| `team-run-equivalent` | 16 | 1 | 0 |
+| `team-run-not-reached` | 20 | 1 | 0 |
+| `team-run-repeated` | 28 | 1 | 0 |
+| `team-run-equivalent` | 20 | 1 | 0 |
 | `team-board` | 10 | 1 | 0 |
 | `team-board-list` | 11 | 1 | 0 |
 | `team-chat` | 12 | 1 | 0 |
 | `team-chat-side` | 14 | 1 | 0 |
-| `team-findings` | 11 | 1 | 0 |
+| `team-findings` | 12 | 1 | 0 |
 | `team-runs` | 10 | 1 | 0 |
 | `team-receipt` | 12 | 1 | 0 |
 | `team-details` | 15 | 1 | 0 |
@@ -2784,7 +2809,7 @@ before anyone edits the source.
 | `agent-parse` | 5 | 3 | 0 |
 | `agent-refused` | 8 | 3 | 0 |
 | `agent-missing` | 6 | 3 | 0 |
-| `library` | 12 | 1 | 0 |
+| `library` | 12 | 4 | 0 |
 | `plugins-installed` | 4 | 1 | 0 |
 | `plugins-capabilities` | 13 | 1 | 0 |
 | `plugins-detail` | 5 | 1 | 0 |
@@ -2830,4 +2855,4 @@ before anyone edits the source.
 | `menu-suggestions` | 8 | 3 | 0 |
 | `menu-inbox` | 8 | 3 | 0 |
 | `menu-palette` | 8 | 3 | 0 |
-| **total** | 679 | 158 | 10 |
+| **total** | 696 | 161 | 10 |

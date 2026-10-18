@@ -49,22 +49,6 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
     {children !== undefined && children !== null && <div id={bodyId} data-slot="tool-section-body" hidden={!shown} className="mt-(--hd-space-1) min-w-0">{children}</div>}
   </section>
 }
-/** One line of a card: a 16px icon, a label, one trailing fact and at most one action. */
-export const ToolRow = ({ icon, label, value, action, title }: {
-  icon?: ReactNode
-  label: ReactNode
-  value?: ReactNode
-  action?: ReactNode
-  /** The whole label on hover, for a label that truncates. */
-  title?: string
-}) => <div data-slot="tool-row" title={title}
-  className="flex min-h-(--hd-panel-row-h) min-w-0 items-center gap-(--hd-space-2) px-(--hd-inset-row) text-(--hd-foreground)">
-  {icon && <span aria-hidden="true" className="flex shrink-0 text-(--hd-secondary-foreground) [&_svg]:size-4">{icon}</span>}
-  <Text role="muted" ink="primary" truncate>{label}</Text>
-  {value !== undefined && value !== null && <Text role="muted" ink="secondary" className="ms-auto shrink-0 tabular-nums">{value}</Text>}
-  {action && <span className={value === undefined || value === null ? 'ms-auto flex shrink-0 items-center' : 'flex shrink-0 items-center'}>{action}</span>}
-</div>
-
 /** The rest of a card behind one quiet line: "All facts", "Show all". */
 export const ToolFold = ({ label, children }: { label: string; children: ReactNode }) => {
   const [open, setOpen] = useState(false)

@@ -1,5 +1,5 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end' | 'bare'
+export type CatalogVariant = 'chips' | 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'document' | 'summary' | 'start' | 'end' | 'bare'
 export type CatalogSize = 'stack' | 'default' | 'wrap' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-label' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
@@ -90,7 +90,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   field: 'packages/ui/src/components/Settings.tsx',
   'group-label': 'packages/ui/src/components/Settings.tsx',
   'hover-card': 'packages/ui/src/components/AgentCards.tsx',
-  'icon-tile': 'packages/ui/src/components/SkillSheet.tsx',
+  'icon-tile': 'packages/ui/src/components/McpSheet.tsx',
   input: 'packages/ui/src/components/SignIn.tsx',
   label: 'packages/ui/src/components/Settings.tsx',
   'list-row': 'packages/ui/src/components/TeamRoomPane.tsx',
@@ -246,7 +246,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   rail: ['default'],
   'resize-handle': ['default', 'line'],
   'scroll-area': ['default'],
-  section: ['card', 'plain', 'quiet', 'panel', 'page'],
+  section: ['card', 'plain', 'quiet', 'panel', 'page', 'document'],
   select: ['default'],
   sidebar: ['default'],
   separator: ['horizontal', 'vertical'],
@@ -260,7 +260,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   tabs: ['default', 'line', 'section'],
   textarea: ['default', 'editor', 'code', 'inline', 'composer'],
   toast: ['default'],
-  'toggle-group': ['default', 'outline'],
+  'toggle-group': ['default', 'outline', 'chips'],
   'tool-pane': ['default', 'integrated'],
   tone: ['default'],
   turn: ['default'],
@@ -728,13 +728,13 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'Menu': ['ContextMenu', 'Menu', 'MenuAccountGroup', 'MenuAccountRow', 'MenuItem', 'MenuLabel', 'MenuNote', 'MenuSeparator', 'MenuToggle', 'Submenu', 'useContextMenu', 'useMenuClose'],
   'ModalDialog': ['Dialog', 'DialogBody', 'DialogFooter', 'DialogHead'],
   'Notices': ['ComposerNotice', 'ComposerNoticeStack', 'ComposerTail', 'InboxPanel', 'NoticeCard', 'NoticeStrip', 'showToast'],
-  'Page': ['Page'],
+  'Page': ['Page', 'PageColumns', 'PageStack'],
   'PageControls': ['PageControls', 'PageExplanation', 'PreservedText', 'ShortcutKeys'],
   'PageOptions': ['PageOptions'],
   'PageRecords': ['PageRecordViews', 'PageRecords'],
   'TeamsBoard': ['TeamsBoard','TeamsBoardColumn','TeamsBoardCard','TeamsBoardToolbar','TeamsBoardWrapped'],
-  'BoardCard': ['BoardCard'],
-  'PaneColumn': ['PaneColumn', 'ReadingMeasure', 'useComposerHeightVar'],
+  'BoardCard': ['BoardCard', 'BoardCardGrid'],
+  'PaneColumn': ['PaneColumn', 'PaneTabsRow', 'ReadingMeasure', 'useComposerHeightVar'],
   'PlanCard': ['PlanCard'],
   'Popover': ['Popover', 'PopoverGroupLabel', 'PopoverSurface', 'dismissOverlays', 'useDismissOverlays', 'useEscapeSurface'],
   'PublicationCard': ['KindGlyph', 'StatePill', 'publicationVerb', 'stateTone'],
@@ -748,7 +748,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'SignInRail': ['SignInRail'],
   'SubjectActionsMenu': ['SubjectActionsMenu'],
   'TerminalShellTabs': ['TerminalShellTabs'],
-  'ToolBody': ['ToolBody', 'ToolBodyControls', 'ToolBodySections', 'ToolFold', 'ToolProse', 'ToolRow', 'ToolSection'],
+  'ToolBody': ['ToolBody', 'ToolBodyControls', 'ToolBodySections', 'ToolFold', 'ToolProse', 'ToolSection'],
   'ToolFooter': ['ToolFooterOutlet', 'ToolFooterProvider', 'ToolFooterPublisher', 'ToolFooterScope', 'ToolFooterSuppressed'],
   'TopBar': ['TopBar', 'TopBarToolButton'],
   'TurnWork': ['TurnItem', 'TurnWorkBody', 'TurnWorkHeader', 'TurnWorkHeaderLabel', 'TurnWorkLive'],

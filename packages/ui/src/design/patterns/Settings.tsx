@@ -50,7 +50,7 @@ export const Dot = ({
   ...props
 }: HTMLAttributes<HTMLSpanElement> & {
   /** Absent: the neutral light — a state that is neither good nor bad news. */
-  state?: Readiness
+  state?: Readiness | 'new'
   /**
    * A judged tone in place of a readiness state — for a dot that must keep
    * its own colour apart from whatever ground it sits on, such as a chip
@@ -964,8 +964,12 @@ const RowTitle = ({ kind, title, chip }: { kind: 'setting' | 'record'; title: Re
 /**
  * A named row with optional text below it. Keep the title scannable and put
  * its full sentence in `desc`, where it wraps as an earned second line.
+ * `density="compact"` is a card row at panel-row height with a 16px face, no
+ * divider, one trailing value and one action.
  */
 export const Row = ({
+  density = 'default',
+  tooltip,
   unavailable = false,
   layout = 'default',
   reserveChevronSlot = false,
@@ -980,6 +984,10 @@ export const Row = ({
   className,
   ...props
 }: {
+  /** See Row's compact-density contract above. */
+  density?: 'default' | 'compact'
+  /** The complete row fact on hover. */
+  tooltip?: string
   /** Unavailable record identity is quiet; its reason, state and editing controls remain readable. */
   unavailable?: boolean
   /** Record titles stay whole; narrow rows put metadata and state below. */
@@ -1000,7 +1008,7 @@ export const Row = ({
   control?: ReactNode
   className?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
-  <div className={cx(styles.row, layout === 'record' && styles.rowRecord, className)} data-slot="row" data-kind={kind} data-unavailable={unavailable || undefined} {...props}>
+  <div className={cx(styles.row, layout === 'record' && styles.rowRecord, className)} data-slot="row" data-density={density === 'compact' ? density : undefined} title={tooltip} data-kind={kind} data-unavailable={unavailable || undefined} {...props}>
     {face ? <span className={styles.rowFace} data-slot="row-face">{face}</span> : mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
     <span className={styles.rowText}>
       <RowTitle kind={kind} title={title} chip={titleChip} />
@@ -1425,7 +1433,7 @@ export const CodeText = ({
   block?: boolean
   /** A block's own plate; only a `block` takes one. */
   ground?: 'none' | 'muted'
-  /** Fold a block's long lines; only a `block` takes it. */
+  /** Fold long lines; a bare pre keeps its enclosing body's inset. */
   wrap?: boolean
   /** Space the characters, for a code read aloud and typed elsewhere — a one-time code. */
   spaced?: boolean
@@ -1436,7 +1444,7 @@ export const CodeText = ({
   'data-size': size,
   ...(block ? { 'data-block': '' } : {}),
   ...(block && ground !== 'none' ? { 'data-ground': ground } : {}),
-  ...(block && wrap ? { 'data-wrap': '' } : {}),
+  ...((block || as === 'pre') && wrap ? { 'data-wrap': '' } : {}),
   ...(spaced ? { 'data-spaced': '' } : {}),
   className: cx(styles.mono, size === 'inherit' && styles.monoInherit, block && styles.monoBlock, className),
 }, children)

@@ -8,7 +8,19 @@ export interface RuntimeStartCost {
   /** null until the first models answer is known. */
   readonly modelsMs: number | null
 }
-export interface CachedRuntime extends RuntimeObservations { readonly start?: RuntimeStartCost }
+/** What the program on disk did the last time it was asked, when that was a failure the desk can see coming. */
+export type ProgramFailure = 'notInstalled' | 'unreadable' | 'versionTooOld'
+const PROGRAM_FAILURES: readonly string[] = ['notInstalled', 'unreadable', 'versionTooOld'] satisfies readonly ProgramFailure[]
+export const isProgramFailure = (reason: string): reason is ProgramFailure => PROGRAM_FAILURES.includes(reason)
+export interface CachedRuntime extends RuntimeObservations {
+  readonly start?: RuntimeStartCost
+  /**
+   * Set when its last start found the program missing, silent or too old, and
+   * cleared when one comes up. The desk asks such an agent again as it opens
+   * rather than drawing it idle (#1774).
+   */
+  readonly wouldNotStart?: ProgramFailure
+}
 
 /** Copy display vocabulary explicitly: arbitrary adapter fields never reach disk. */
 const accountDisplay = (account: NonNullable<RuntimeObservations['account']>): NonNullable<RuntimeObservations['account']> => ({
@@ -22,6 +34,7 @@ const accountDisplay = (account: NonNullable<RuntimeObservations['account']>): N
   signInMethods: [],
   signInFlows: [...new Set(account.signInFlows ?? account.signInMethods.map(method => method.flow))]
     .filter(flow => ['browser', 'deviceCode', 'external', 'apiKey'].includes(flow)),
+  ...(account.unchecked === true ? { unchecked: true } : {}),
 })
 const modelsDisplay = (models: readonly ModelInfo[]): readonly ModelInfo[] => models.map(entry => ({
   id: entry.id, displayName: entry.displayName, supportsImages: entry.supportsImages,
@@ -68,6 +81,7 @@ const display = (entry: CachedRuntime): CachedRuntime => ({
   ...(typeof entry.launchedVersion === 'string' ? { launchedVersion: entry.launchedVersion } : {}),
   ...(entry.info ? { info: { version: entry.info.version, capabilities: Object.fromEntries(Object.entries(entry.info.capabilities).filter(([, value]) => typeof value === 'boolean')) as typeof entry.info.capabilities } } : {}),
   ...(entry.start ? { start: { readyMs: entry.start.readyMs, modelsMs: entry.start.modelsMs } } : {}),
+  ...(typeof entry.wouldNotStart === 'string' && isProgramFailure(entry.wouldNotStart) ? { wouldNotStart: entry.wouldNotStart } : {}),
 })
 
 /** Advisory observations, separate from conversation storage, with one atomic write queue. */

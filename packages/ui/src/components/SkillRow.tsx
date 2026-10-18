@@ -101,6 +101,16 @@ export const findingFor = (
   return null
 }
 
+export type SkillChip = 'all' | 'needs-you' | 'one-runtime' | 'nobody'
+
+/** A skill belongs to one attention/reach group; All always includes it. */
+export const chipFor = (entry: LibraryEntry, columns: readonly LibraryColumn[]): SkillChip => {
+  const update = libraryUpdateFor(entry)
+  if (findingFor(entry, columns)?.tone === 'warn' || update?.status === 'behind' || update?.status === 'gone') return 'needs-you'
+  const reaching = entry.reach.filter(one => one.state === 'reaches').length
+  return reaching === 0 ? 'nobody' : reaching === 1 ? 'one-runtime' : 'all'
+}
+
 /** Three labelled facts, with the whole row opening the definition. */
 export const SkillRow = ({ entry, columns, onOpen }: {
   entry: LibraryEntry

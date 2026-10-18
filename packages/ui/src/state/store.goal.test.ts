@@ -119,3 +119,11 @@ it('uses exact Goal and lane requests and refreshes host-owned membership', asyn
   expect(store.getSnapshot().lanePreferences).toEqual({ start: 31000, width: 10, browserProfile: false })
   expect(store.getSnapshot().lanes[0]?.state).toBe('released')
 })
+
+
+it('leaves the Team page to acknowledge an opening once', () => {
+ changed(store, view('opening'))
+ const mark=vi.spyOn(store,'markTeamSeen')
+ store.openTeamRoom('opening')
+ expect(mark).not.toHaveBeenCalled()
+})

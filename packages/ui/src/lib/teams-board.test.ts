@@ -55,7 +55,7 @@ it('keeps follow-up work Working after its Run settles and never hides ready wor
  const followup = {...done, team:{...done.team,intents:[{...done.team.intents[0]!,state:'open' as const}]}}
  expect(teamBoardColumn(teamListRow(followup))).toBe('working')
  const row = teamListRow(done)
- expect(teamBoardColumn(teamListRow(done,{hidden:{[row.id]:row.change},seen:{}}))).toBe('ready')
+ expect(teamBoardColumn(teamListRow(done,{hidden:{[row.id]:row.change}}))).toBe('ready')
 })
 
 it('uses the first sentence as title, retains the whole brief and uses Team age', () => {

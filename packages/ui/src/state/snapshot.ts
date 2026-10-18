@@ -883,7 +883,7 @@ const EMPTY: AppSnapshot = {
   draftOptions: null,
   draftValues: {},
   staleDraftDefaults: {},
-  teamsPrefs: { hidden: {}, seen: {} },
+  teamsPrefs: { hidden: {} },
   hiddenModels: {},
   routes: [],
   draftRouteId: null,

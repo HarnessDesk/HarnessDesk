@@ -60,7 +60,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1100, 1800]
   test(`long page title keeps its verb ${width} ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=library', theme, width)
     const title = page.locator('[data-page-destination]:visible h1')
-    const action = page.getByRole('button', { name: 'New skill', exact: true })
+    const action = page.getByRole('button', { name: 'Add skill', exact: true })
     const before = (await action.boundingBox())!
     await title.evaluate(node => { node.textContent = 'Library of shared skills and server configurations with a deliberately long page name' })
     const after = (await action.boundingBox())!, heading = (await title.boundingBox())!

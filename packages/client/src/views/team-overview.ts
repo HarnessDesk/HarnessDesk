@@ -97,6 +97,8 @@ export interface TeamOverviewSeat {
   readonly session: Session | null
   readonly activity?: SeatActivity | null
   readonly unreadSince: number | null
+  /** A paused delivery queue needs the person in this Seat’s conversation. */
+  readonly paused?: boolean
   readonly approvals: readonly Approval[]
 }
 
@@ -246,7 +248,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
     const waiting = waits[0]
     const blocked = card?.state === 'blocked' && card.blockedBy === 'hand' && card.blockedReason?.trim() ? card : null
     const busy = session ? isBusy(session) : activity?.state === 'working'
-    const state: SeatState = waiting || blocked ? 'needs-you'
+    const state: SeatState = waiting || blocked || seat.paused ? 'needs-you'
       : seat.unreadSince !== null ? 'unread'
         : busy || card?.state === 'claimed' ? 'working' : 'idle'
     const round = [...rounds].reverse().find((one) => card ? one.cards.includes(card.id) : one.seats.includes(seat.record.id))
@@ -271,7 +273,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
       done, durationMs,
       seat: seat.record.id, name: seat.name, role: card?.role ?? round?.role ?? seat.record.role,
       card: card ? { id: card.id, title: card.title + (dependencies.length ? ` · after ${dependencies.map((id) => `#${id}`).join(', ')}` : '') } : null,
-      round: round?.n ?? null, state, reason: blocked?.blockedReason ?? waiting?.summary ?? null,
+      round: round?.n ?? null, state, reason: blocked?.blockedReason ?? waiting?.summary ?? (seat.paused ? 'Queued work is paused' : null),
       doing: latest ? toolLine(latest, sentences) : activity?.doing?.kind === 'tool' ? doingSentence(activity.doing, sentences) : null,
       since: state === 'needs-you' ? waiting?.since ?? blocked?.updatedAt ?? null
         : state === 'unread' ? seat.unreadSince

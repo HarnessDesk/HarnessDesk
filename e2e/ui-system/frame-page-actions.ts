@@ -5,6 +5,8 @@ export interface PageFrameActions extends FrameActions, WallActions {
   readonly more?: 'present' | 'absent'
   readonly bodyChoice?: { readonly label: string; readonly value: string; readonly item?: string }
   readonly moreChoice?: string
+  readonly addSkillMenu?: boolean
+  readonly addSkillChoice?: string
   readonly bodySearch?: { readonly label: string; readonly value: string }
   readonly expandWrapped?: boolean
   readonly expandLibraryEntry?: boolean
@@ -14,9 +16,11 @@ export const applyPageFrameActions = async (page: Page, actions: PageFrameAction
   await applyFrameActions(page, actions)
   if (actions.bodyChoice) {
     const choice = actions.bodyChoice
-    const options = page.locator('[data-slot="page-options"]:visible')
+    const options = page.locator('[data-slot="page-options"]:visible, [data-slot="library-skills-controls"]:visible, [data-slot="library-changes-controls"]:visible')
     const select = options.getByRole('combobox', { name: choice.label, exact: true })
-    if (await select.count()) await select.selectOption(choice.value)
+    const radio = options.getByRole('radio', { name: choice.item ?? choice.value, exact: true })
+    if (await radio.count()) await radio.click()
+    else if (await select.count()) await select.selectOption(choice.value)
     else {
       if (!choice.item) throw new Error(`Missing menu item for ${choice.label}`)
       await options.getByTitle(choice.label, { exact: true }).click()
@@ -24,6 +28,11 @@ export const applyPageFrameActions = async (page: Page, actions: PageFrameAction
       await expect(item).toHaveCount(1)
       await item.click()
     }
+  }
+  if (actions.addSkillMenu || actions.addSkillChoice) {
+    await page.getByRole('button', { name: 'Add skill', exact: true }).click()
+    if (actions.addSkillChoice) await page.getByRole('menuitem', { name: actions.addSkillChoice, exact: true }).click()
+    else await expect(page.getByRole('menuitem', { name: 'Write a skill', exact: true })).toBeVisible()
   }
   if (actions.moreChoice) {
     await page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button').click()

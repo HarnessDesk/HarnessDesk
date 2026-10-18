@@ -348,14 +348,16 @@ hover instead.
 
 **One row per Team.** Each active Team, and each finished Team until it is
 wrapped, sits inside its project, one indent step beside the project's loose
-conversations. A running Team names its activity on hover; **Needs you** and
-**Ready to wrap** use the existing attention dot. Its Seats fold underneath,
+conversations. A running Team names its activity on hover. Orange **Needs you** means someone
+is waiting on you. Blue **New** means news since you last opened the Team:
+it became **Ready to wrap**, a Seat has unread activity, or its Run ended.
+Opening any Team tab clears blue; the host stores when you looked, so windows,
+restarts and the phone agree. Orange takes priority over blue. Its Seats fold underneath,
 collapsed initially and one further indent step in; the chevron reveals them without opening the Team.
 A Seat conversation stays under its Team, including when pinned or waiting.
 Opening a Seat conversation elsewhere reveals its project and Team, including
 when the Seat works in another checkout. A later deliberate fold stays folded
-until another conversation activation. Unread output and running activity stay
-on hover; Needs you draws the attention dot.
+until another conversation activation. Running activity stays on hover; unread output can raise the blue mark.
 Wrapped Teams and their conversations leave the sidebar and remain on **Teams**.
 Teams whose project folder is gone stay hidden from the ordinary list.
 
@@ -806,6 +808,12 @@ Agent’s role name and Seat; its runtime name comes from `RuntimeInfo.presentat
 Library’s **Declared by** filter selects Agent roles, while **Loaded by**,
 **Install for**, and **Which runtimes load it** describe runtimes.
 
+While a draft’s runtime starts, its composer row shows **Not answered yet**;
+an unavailable runtime shows an **Unavailable** chip that opens its page in
+Settings › Runtimes. Send stays disabled and its hover title explains why,
+including **Choose a working installation in Settings** after a failed version
+check. Ready drafts omit the readiness chip and keep the same typing prompt.
+
 A fresh draft focuses its enabled text box and asks **What should we build?**,
 with one line: **Describe a task.** The
 folder control shares the toolbar's centre line and spacing. It shows
@@ -829,6 +837,13 @@ A signed-out runtime’s empty conversation offers one normal Sign in button.
 Its composer does not repeat the sign-in notice while the page already explains
 it; an existing transcript keeps that notice and its action. In Editor mode,
 the notice returns to the strip while the conversation panel is hidden.
+A runtime that has not been asked yet — an ACP agent before its first session,
+or an idle one whose status command has not run — is **Not checked yet**, not
+signed out and not accountless: its conversation opens normally, its seat stays
+offered and it is listed as Ready, and Sign in keeps the ways in it declared
+below that line. An agent the desk told to use a stored key is not unchecked
+once that key is removed: it reads as needing a sign-in again, and the desk
+presses none of its other ways in for it.
 
 *The textarea carries intent; chips carry context and capability.* Full design
 in [extending.md](extending.md).
@@ -892,7 +907,11 @@ in [extending.md](extending.md).
   stays available when reopening fails.
 - **A conversation whose folder has been deleted has no composer**, because
   there is nowhere for a message to go. In its place the pane states the fact
-  in the runtime's own words and offers *Open a copy in another folder*, which
+  in the runtime's own words, naming the folder by its last path segment with
+  the full path on hover. The name truncates while the sentence wraps. It offers
+  *Open a copy in another folder*, whose hover text explains the summary and
+  folder choice, followed by *Archive*. Archive uses the sidebar's action,
+  closes the conversation pane and offers Undo without a confirmation. The copy
   carries the conversation across as a hand-off packet and starts the copy in
   the open folder — the one the composer's *Work in* control names, and which
   you can point elsewhere before sending. The transcript above it
@@ -1022,9 +1041,10 @@ where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.
 
-Library's More menu offers **Import**, **Add from GitHub…**, **Check for updates**,
-and **Rescan**.
-Import, Add from GitHub and Check for updates wait until the Library has been read.
+Library's skills page offers **Add skill**: **Write a skill**, **From GitHub…**,
+and **Copy from another runtime…**. Its More menu keeps **Check for updates**,
+**Rescan**, and **Changes made here…**; MCP servers retain their existing menus.
+Add skill and Check for updates wait until the Library has been read.
 A check stays disabled while it runs. Add from GitHub accepts a
 public repository or folder URL and an optional branch, tag or commit. Found
 skills show their folder, file count and counts of files that can run or are
@@ -1052,12 +1072,28 @@ on focus or on a timer. An update is a quiet row finding, after existing warning
 it does not change problem counts. A missing source branch is a warning and an
 unreachable source keeps its reason on hover.
 
-The skill sheet always shows each distinct recorded origin — repository, path,
+The skill page’s Source card always shows each distinct recorded origin — repository, path,
 ref and pinned commit — even before a check. A newer commit adds an Update
-available banner with shortened revisions and Review update. A missing branch
+card with shortened revisions and Review update, and an Update available chip. A missing branch
 has no review action; an unreachable source is quiet text. Review fetches each
 behind source once and plans its runtime copies at the freshly fetched commit.
-A refused or missing folder keeps its reason in the banner and opens no plan.
+A refused or missing folder keeps its reason in the card and opens no plan.
+
+A skill opens as a wide page with Back to Library and Use in composer. Its
+sanitized description sits above a definition card with Rendered and Source
+views and Copy of the exact file. Each distinct Why reason has one warning
+banner titled with the affected runtimes, spanning both columns. The right column holds Update (only after a check),
+Loaded by, Source, Files and Cost. Loaded by retains runtime switches,
+Install and Have it look again. Source keeps every copy’s path, readers,
+empty-directory and shipped status; a copy without recorded provenance says
+This Mac. Files lists sizes and folds long bundles. Cost shows the catalogue
+estimate, measured activations, Last used, coverage and the copy count. More
+holds per-copy Remove, Resolve copies, empty-copy cleanup and Install to.
+Remove shortens home paths in its label and keeps the full path on hover.
+Install availability and refusal cautions stay beside the install actions in More.
+Every write still opens the existing reviewed plan. MCP details keep their
+dialog. Definition reads do not carry install dates or runnable/binary flags;
+file safety chips remain in the install and update plans that provide them.
 
 Update plans label each file Added, Changed or Removed. Read opens the new
 runnable or binary file; removed files have no Read action. The definition diff
@@ -1066,10 +1102,38 @@ an operation that plans a backup says it will make one. Added or changed runnabl
 or binary files use the existing acknowledgement; removed files need none.
 After Apply the ordinary Library read supplies the new state.
 
-The Library’s List view compares Skill (or Server), State and Loaded by in
-three labelled columns. Descriptions wrap, a warning names a needed fix, and
-only runtimes that load the entry appear as faces; Matrix and the entry’s sheet
-keep the per-runtime detail. Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
+**Changes made here** reads the last 90 days of Library writes on its own page,
+reached from More or the **View changes** action on each write's toast. All,
+Can restore and Failed chips show counts; search matches names and paths.
+Today, Yesterday and Earlier group the entries, with time, runtime and path.
+Only a completed change with a backup offers **Restore…**, which previews what
+it puts back and replaces. Applying a restore refreshes the page. The Library
+has no history list at its foot. Successful writes share one success toast;
+failures share a persistent failure toast with the first reason. Skipped
+operations raise nothing, and the write toasts offer no Undo.
+
+The Library's skills page opens as a grid of cards sorted by name. Each card
+visits the skill’s page, shows its description in at most two lines,
+and carries one mark per runtime with its measured reach state on hover. A
+card carries at most one finding: a warning, or a quiet Update available.
+There are no source, command, token or loaded-count lines on the card.
+
+All, Needs you, One runtime and Nobody are single-choice filter chips. Their
+counts cover all listed skills, ignoring search and Filter. Needs you includes
+warning findings and behind or gone repository updates; otherwise zero or one
+reaching runtimes selects Nobody or One runtime. Chips, the state and Declared
+by choices in Filter, and search narrow together. Cards and Matrix use the same
+filtered rows; these choices are local to the viewer and are not persisted.
+Empty-directory cleanup and runtime catalogue banners appear only under Needs
+you. Empty regions have a short title and no
+description: No skills yet offers Write a skill and From GitHub; Nothing
+matches offers Clear the filters; Nothing needs you has no action. Loading
+says Reading skills… and failures retain their ActionError.
+
+MCP servers retain List and Matrix, their PageOptions and their existing
+filters. An empty MCP region says No MCP servers yet with no description.
+The List compares Server, State and Loaded by in three labelled columns.
+Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
 the generic plugin glyph is omitted only when the list has no mapped glyphs.
 Plugin tools use their short titles in Capabilities, on their own page and in
 the transcript. Capabilities keeps the owning plugin below each title and the
@@ -1439,9 +1503,12 @@ chooses one. `@A` and `@B`, or member names, update that same audience. The quie
 **Waits for their turns** hint appears while either Seat is working. Chat keeps
 the message once, and the room's words and audience wait across Chat and the
 grid. A lone, expanded or narrow single tile uses its own composer. Panels
-extend to the bottom behind the floating box; transcript padding, approval
-viewports and Browser surfaces clear the dock's measured height, including
-padding and borders as it resizes. Settings keep
+extend to the bottom behind the floating box; transcript padding and approval
+viewports clear the dock's measured height, including
+padding and borders as it resizes. Every tile, a browser included, reaches the
+bottom, with the opaque composer and comparison decision card floating over it;
+the spaces around and between them stay transparent and pass clicks through.
+Settings keep
 the ordinary four slots; differing choices read **Mixed** and their menus name
 each recipient. Unavailable recipients show their reason, delivery outcomes
 name each copy, queued copies mark their recipient tile, and **Stop** stops the
@@ -1662,13 +1729,13 @@ filter uses the Teams' existing project data.
 
 ### A Team's Overview
 
-Every Team destination shares one 48px bar: the title, state, segmented page
-tabs, then the participants and tools. Counts stay beside their tab names.
-When the measured space cannot keep the labels and roughly twelve title
-characters, the tabs become icons with count badges; their tooltips and
-accessible names keep the full name and count. Growing the pane restores the
-labels. The title gives up its remaining width before the icons and tools do.
-Arrow keys move focus through the tabs, including Side by side.
+Every Team destination shares one top bar for its title, state, participants
+and tools. The page tabs sit just below it, with the reading column's inline
+gutter and one small spacing step above and below. Counts stay beside their
+tab names. View and any current action share the tabs' line on the right;
+in a narrow pane the tabs scroll horizontally while those controls stay on
+the line. Arrow keys move focus through the page tabs. Chat's View menu
+chooses Thread or Side by side.
 
 Overview is the Team's first page tab and opens by default when the
 Team has a Run or is ready to wrap; a Team with neither opens on Chat. Its Run strip keeps the live line: who is working, what
@@ -1702,6 +1769,11 @@ work stays readable without adding a separate third line.
 Empty Board and Chat content keeps one quiet sentence in the reading column.
 The Board toolbar keeps **New job**; an empty Goal also offers **Start with a team** there.
 Board-only Chat keeps the consequence of its messaging mode on screen: agents cannot message each other, while claims and signals continue. Chat’s Send to menu changes the mode; refused messages are never queued for release.
+
+The Overview tab count is the number of Needs-you rows its body renders;
+unchecked cards do not add to it. When done cards have no observed check,
+one quiet line says **N cards finished without a check** and offers **Open Board**;
+those cards keep their board column and the Team still offers **Wrap** when ready.
 
 What needs you can be answered from its row. A tool's request for approval
 offers the runtime's own choices. The command and its working folder, files a

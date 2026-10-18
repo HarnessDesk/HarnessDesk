@@ -41,10 +41,8 @@ if (!ICONS) throw new Error('@lobehub/icons-static-svg is not installed — run 
 /**
  * Who appears, and what to call them.
  *
- * Not the whole roster — the sentence is *you probably already have several of
- * these*, so it wants the ones a developer plausibly has installed, not a
- * completeness claim. The full list of what HarnessDesk drives is a document,
- * not a logo wall.
+ * Only runtimes measured in docs/runtimes.md, and only those with a mark in
+ * the icon package; the README names the rest in words beneath the strip.
  */
 const AGENTS = [
   ['codex', 'Codex'],
@@ -52,10 +50,12 @@ const AGENTS = [
   ['cursor', 'Cursor'],
   ['geminicli', 'Gemini CLI'],
   ['githubcopilot', 'Copilot'],
-  ['amp', 'Amp'],
   ['opencode', 'OpenCode'],
+  ['antigravity', 'Antigravity'],
+  ['grok', 'Grok Build'],
   ['cline', 'Cline'],
-  ['windsurf', 'Windsurf'],
+  ['kimi', 'Kimi'],
+  ['codebuddy', 'CodeBuddy'],
   ['deepseek', 'DeepSeek'],
 ]
 

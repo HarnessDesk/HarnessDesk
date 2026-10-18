@@ -179,6 +179,7 @@ import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
+import { explainedBySignIn } from '../lib/sign-in-refusal'
 import { BrowserTileRegistry, browserProfileKey, type BrowserTileMount } from '../lib/browser-tiles'
 import { focusTile, fromStored, toStored, type SideBySideState } from '../lib/side-by-side'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
@@ -1249,7 +1250,7 @@ export class AppStore {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     const options = await this.newSessionDefaultsFor(runtime).catch(error => {
-      if (this.#snapshot.activeRuntime === runtime) this.resultNotice('warning', describe(error))
+      if (this.#snapshot.activeRuntime === runtime && !explainedBySignIn(error, this.#snapshot.accountsByRuntime[runtime])) this.resultNotice('warning', describe(error))
       return []
     })
     if (this.#snapshot.activeRuntime !== runtime) return
@@ -1504,13 +1505,12 @@ export class AppStore {
     void this.#writePreference({ teamsPrefs }, 'Hidden Teams')
   }
 
-  /** Mark what was actually shown, so a racing change remains unread. */
-  markTeamSeen(id: string, change: string): void {
-    const teamsPrefs = this.#snapshot.teamsPrefs
-    if (teamsPrefs.seen[id] === change) return
-    const next = { ...teamsPrefs, seen: { ...teamsPrefs.seen, [id]: change } }
-    this.#patch({ teamsPrefs: next })
-    void this.#writePreference({ teamsPrefs: next }, 'Team read marks')
+  /** The host owns read time so every window and relaunch reads the same news. */
+  markTeamSeen(id: string): void {
+    if (!this.#snapshot.goals.has(id)) return
+    void this.transport.request('goal/seen', { goal: id }).then(view => {
+      if (view?.goal) this.#keepGoal(view)
+    }).catch(error => this.notice('warning', `Team read mark was not saved: ${error instanceof Error ? error.message : String(error)}`))
   }
 
   /** Whether the "Other projects" fold is open. */
@@ -3649,11 +3649,9 @@ export class AppStore {
    * The team room, as a pane. Same keying and the same absence of a round
    * trip as `openTeamBoard` — the channel is already in the snapshot.
    */
-  openTeamRoom(room?: string, observedChange?: string): void {
+  openTeamRoom(room?: string): void {
     const base = this.#roomToShow(room)
     if (!base) return
-    const input = teamsInput(this.#snapshot).find(one => one.team.id === base)
-    if (input) this.markTeamSeen(base, observedChange ?? teamListRow(input).change)
     // Like a conversation: a room is a place to go, the one on screen included.
     this.closeFloatingSidebar()
     // Before the conversation, not after it: sessions on the left, the room in
@@ -4952,7 +4950,10 @@ export class AppStore {
     if (current && current.goal.revision > view.goal.revision) return
     const goals = new Map(this.#snapshot.goals)
     const teams = new Map(this.#snapshot.teams)
-    goals.set(view.goal.id, view)
+    goals.set(view.goal.id, { ...view,
+      lastSeenAt: Math.max(current?.lastSeenAt ?? 0, view.lastSeenAt ?? 0),
+      readyAt: Math.max(current?.readyAt ?? 0, view.readyAt ?? 0),
+    })
     teams.set(view.goal.id, view.board)
     this.#patch({ goals, teams, goalProblem: null })
   }

@@ -28,6 +28,7 @@ import { teamsPageStore } from './teams-page-fixture'
 import { usagePreviewStore } from './usage-fixture'
 import { STILL_HOURS, STILL_LIBRARY, STILL_PLUGINS, STILL_RUNTIMES } from './release-stills-data'
 import { SITE_SCENES, SiteStills, siteStillStore } from './site-stills'
+import { README_RUNTIME_NAMES } from './readme-names'
 
 const CatalogueTeamRunView = (props: ComponentProps<typeof TeamRunView>) => <TopBarProvider>
   <TopBarOutlet owner="" fallback={{ place: 'Recorded Run', more: () => null }} />
@@ -170,12 +171,17 @@ export const ReleaseStills = () => {
     // Some preview proxies retain their own snapshot, so patching their base
     // cannot change the theme the mounted screen reads. Decorate that read.
     const theme = knobs.get('theme') === 'dark' ? 'dark' as const : 'light' as const
+    const names: Readonly<Record<string, string>> = knobs.has('readme-names') ? README_RUNTIME_NAMES : {}
+    const decorate = (next: ReturnType<typeof own.getSnapshot>) => ({ ...next, theme, runtimes: next.runtimes.map(info => {
+      const name = names[info.presentation.name]
+      return name ? { ...info, name, presentation: { ...info.presentation, name } } : info
+    }) })
     let observed = own.getSnapshot()
-    let themed = { ...observed, theme }
+    let themed = decorate(observed)
     return new Proxy(own, { get(target, key) {
       if (key === 'getSnapshot') return () => {
         const next = target.getSnapshot()
-        if (next !== observed) { observed = next; themed = { ...next, theme } }
+        if (next !== observed) { observed = next; themed = decorate(next) }
         return themed
       }
       return Reflect.get(target, key)

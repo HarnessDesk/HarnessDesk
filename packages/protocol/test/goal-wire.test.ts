@@ -74,3 +74,11 @@ test('citation validates full revisions and literal relative paths without host 
   }
   assert.throws(() => request('goal/cite', { goal: 'target', citation, text: 'forged contents' }), ValidationError)
 })
+
+
+test('goal/seen accepts only a bounded Goal id and no client timestamp', () => {
+  assert.doesNotThrow(() => request('goal/seen', { goal: 'g1' }))
+  for (const params of [null, [], {}, { goal: '' }, { goal: 1 }, { goal: 'x'.repeat(4097) }, { goal: 'g1', lastSeenAt: 100 }]) {
+    assert.throws(() => request('goal/seen', params), ValidationError)
+  }
+})

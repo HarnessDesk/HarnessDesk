@@ -23,7 +23,8 @@ export type PageDestination =
   | { readonly kind: 'agents'; readonly id: string | null }
   | { readonly kind: 'teams'; readonly filter: 'active' | 'needs-you' | 'settled' }
   | { readonly kind: 'flows'; readonly root: string | null; readonly id: string | null; readonly origin: FlowOrigin | null; readonly start?: FlowPageStart }
-  | { readonly kind: 'library'; readonly section: 'skill' | 'mcp' }
+  | { readonly kind: 'library'; readonly section: 'skill'; readonly id?: string }
+  | { readonly kind: 'library'; readonly section: 'mcp' | 'changes'; readonly id?: never }
   | { readonly kind: 'plugins'; readonly section: 'installed' | 'capabilities'; readonly id: string | null }
   | { readonly kind: 'changes-review'; readonly root: string | null; readonly returnTo: WorkView }
 export type Destination = PageDestination | { readonly kind: 'work'; readonly view: WorkView }
@@ -124,7 +125,11 @@ export const readDestination = (raw: unknown): Destination | null => {
       if (start === null) return null
       return { kind: 'flows', root: data.root, id: data.id, origin: data.origin, ...(start ? { start } : {}) }
     }
-    case 'library': return oneOf(data.section, ['skill', 'mcp']) ? { kind: 'library', section: data.section } : null
+    case 'library': {
+      if (data.section === 'skill') return data.id === undefined ? { kind: 'library', section: 'skill' }
+        : string(data.id) ? { kind: 'library', section: 'skill', id: data.id } : null
+      return oneOf(data.section, ['mcp', 'changes']) && data.id === undefined ? { kind: 'library', section: data.section } : null
+    }
     case 'plugins': return oneOf(data.section, ['installed', 'capabilities']) && nullable(data.id)
       ? { kind: 'plugins', section: data.section, id: data.id } : null
     case 'changes-review': { const view = workView(data.returnTo); return nullable(data.root) && view

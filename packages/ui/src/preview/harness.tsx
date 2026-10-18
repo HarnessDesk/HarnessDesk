@@ -421,6 +421,8 @@ export const LIBRARY = {
     {
       kind: 'skill',
       name: 'code-review',
+      update: [{ name: 'code-review', runtime: runtimeId('claude'), status: 'behind' as const, latest: 'abcdef1234567890', reason: null,
+        origin: { url: 'https://github.com/acme-dev/skills', ref: 'main', commit: '1234567890abcdef', path: 'review/code-review' } }],
       title: null,
       description: 'Review the current diff for correctness bugs.',
       catalogTokens: 96,
@@ -465,6 +467,8 @@ export const LIBRARY = {
     {
       kind: 'skill',
       name: 'benchmark',
+      update: [{ name: 'benchmark', runtime: runtimeId('claude'), status: 'gone' as const, latest: null, reason: 'The branch no longer exists.',
+        origin: { url: 'https://github.com/acme-dev/skills', ref: 'retired', commit: '1234567890abcdef', path: 'benchmark' } }],
       title: null,
       description: 'Performance regression detection for the site.',
       catalogTokens: 120,
@@ -1473,7 +1477,11 @@ class PreviewStore {
     const base = room ?? (pane?.view.kind === 'room' ? pane.view.room : undefined)
     if (base) this.requestTeamFrame(base, 'board')
   }
-  openTeamRoom(room: string): void { this.showViewIn('main', { kind: 'room', room }) }
+  markTeamSeen(room: string): void {
+    const view = this.#snapshot.goals.get(room)
+    if (view) this.patch({ goals: new Map(this.#snapshot.goals).set(room, { ...view, lastSeenAt: Date.now() }) })
+  }
+  openTeamRoom(room: string): void { this.markTeamSeen(room); this.showViewIn('main', { kind: 'room', room }) }
 
   togglePanel(area: DockId): void {
     this.#workbench(toggleDock(this.#snapshot.workbench, area))

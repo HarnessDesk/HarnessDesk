@@ -114,14 +114,69 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 /** What a person counts as characters, so a joined emoji at the edge is never split. */
 const characters = (text: string) => Array.from(graphemes.segment(text), part => part.segment)
 
-/** Shell line breaks show as ⏎; other display breaks become spaces after tokenization. */
-const oneLine = (text: string) => text.replace(/[ \t]*\r?\n[ \t]*/g, ' ⏎ ').replace(/[\r\v\f\u0085\u2028\u2029]/g, ' ')
+/**
+ * A character a title can show, which is to say one the screen gives a width
+ * to. `\s` is every ordinary blank — spaces, tabs, the no-break space, the
+ * Unicode separators — and the small set it misses is named here: NEL
+ * (U+0085), one of the display breaks `oneLine` flattens, which JavaScript's
+ * whitespace classes leave in place, so a run of it reads as text unless it is
+ * named; and the zero-width marks and the soft hyphen, which draw nothing at
+ * all. `⏎` is this app's mark for a break, and stands for text only when
+ * something else in the line is text.
+ */
+const VISIBLE = /[^\s\u0085\u00ad\u200b-\u200d\u2060⏎]/
+const hasVisible = (text: string) => VISIBLE.test(text)
 
-/** The line as it came, on one line and cut to fit a title. */
-const cut = (line: string) => {
+/**
+ * The same characters as `VISIBLE` refuses, at the ends of a title. A title is
+ * text and nothing else, so it does not begin or end with a blank, a break or
+ * a mark that draws nothing.
+ */
+const INVISIBLE_EDGE = /^[\s\u0085\u00ad\u200b-\u200d\u2060⏎]+|[\s\u0085\u00ad\u200b-\u200d\u2060⏎]+$/g
+const trimEdges = (text: string) => text.replace(INVISIBLE_EDGE, '')
+
+/** Shell line breaks show as ⏎; other display breaks become spaces after tokenization. */
+const oneLine = (text: string) =>
+  text
+    .replace(/[ \t]*\r?\n[ \t]*/g, ' ⏎ ')
+    .replace(/[\r\v\f\u0085\u2028\u2029]/g, ' ')
+    // A `\r` the shell keeps inside a word ends that word just before a break,
+    // and the space that makes of it would sit beside the one the break is
+    // shown with, leaving two; the mark has one either side.
+    .replace(/[ \t]*⏎[ \t]*/g, ' ⏎ ')
+
+/**
+ * What a task is called when its command shows nothing at all — blank, a run
+ * of display breaks, a wrapper whose whole script is one of those. The panel's
+ * noun for a `command` task is "Shell", so an unnamed one reads as a shell
+ * rather than as an empty row or a bare ellipsis.
+ */
+const UNNAMED = 'Shell'
+
+/**
+ * The line as it came, on one line, its invisible edges taken off, and cut to
+ * fit a title.
+ *
+ * A title is text and nothing else: the blanks at its edges are dropped,
+ * because a blank or a mark that draws nothing at the edge of a word is not
+ * something a person can see. And a line with nothing visible anywhere in it
+ * has no title to give, so it gives `fallback`. Every exit that shows the raw
+ * line comes through here — a line the tokenizer gave up on, a program word
+ * with nothing in it, a tokenizer that returned nothing — which is what keeps
+ * any input, however odd, from leaving a blank or bare-ellipsis title.
+ */
+const cut = (line: string, fallback = UNNAMED): string => {
   const flat = oneLine(line)
   const chars = characters(flat)
-  return chars.length <= LABEL_MAX ? flat : `${chars.slice(0, LABEL_MAX - 1).join('').trimEnd()}…`
+  // A short line is shown whole; a long one is cut to its first characters and
+  // the "…" is added after the blankness is judged, so the mark itself is
+  // never the only thing a title carries.
+  if (chars.length <= LABEL_MAX) {
+    const title = trimEdges(flat)
+    return hasVisible(title) ? title : fallback
+  }
+  const shown = trimEdges(chars.slice(0, LABEL_MAX - 1).join(''))
+  return hasVisible(shown) ? `${shown}…` : fallback
 }
 
 /** The flags that run the script they are given: `-c`, `-lc`, `-ic` and the like. `-n` only checks it. */
@@ -141,7 +196,7 @@ const RUNS_SCRIPT = /^-[eilux]*c$/
  */
 export const taskLabel = (command: string): string => {
   let line = command.trim()
-  if (!line) return oneLine(command)
+  if (!line) return cut(command)
   let tokens = shellTokens(line)
   if (!tokens) return cut(line)
   const [shell, flag, script] = tokens
@@ -170,20 +225,24 @@ export const taskLabel = (command: string): string => {
   const whole = oneLine(line.includes('\n')
     ? tokens.slice(from).map(token => token.kind === 'word' ? token.raw : token.op === '\n' ? '⏎' : token.op).join(' ')
     : line)
-  // A line with no word in it (only comments and breaks) is shown as it came, cut.
-  if (/[^\s⏎]/.test(whole) && characters(whole).length <= LABEL_MAX) return whole
+  // A line with nothing visible in it (only comments and breaks) is shown as
+  // it came, cut; a short one is shown whole, with no blank at its edges.
+  if (hasVisible(whole) && characters(whole).length <= LABEL_MAX) return trimEdges(whole)
   const end = tokens.findIndex((token, i) => i >= from && token.kind === 'op')
   const segment = tokens.slice(from, end < 0 ? undefined : end)
   let at = 0
   while (segment[at]?.kind === 'word' && /^[A-Za-z_][A-Za-z0-9_]*=/.test((segment[at] as Word).raw)) at++
   const program = segment[at]
-  if (!isWord(program) || !program.value.trim()) return cut(line)
+  // A program word that is only blank, or only a display break, names nothing.
+  if (!isWord(program) || !hasVisible(program.value)) return cut(line)
   const name = program.value.split('/').at(-1) || program.value
   const argument = segment.slice(at + 1).find((token): token is Word => token.kind === 'word' && !token.value.startsWith('-'))
   const short = oneLine(argument ? `${name} ${argument.raw}` : name)
-  const label = characters(short).length > LABEL_MAX ? cut(short) : `${short}…`
-  // Trimming a whitespace-only prefix must not leave the ellipsis as the whole title, a display break included.
-  return label.slice(0, -1).trim() ? label : cut(oneLine(command).trim())
+  // A program whose name is blank, or only a display break, must not come back
+  // as a bare "…": the whole command, titled by `cut`, is what is left to show.
+  const fallback = cut(oneLine(command).trim())
+  if (!hasVisible(short)) return fallback
+  return characters(short).length > LABEL_MAX ? cut(short, fallback) : `${trimEdges(short)}…`
 }
 
 /** How often the live list is re-read while something is running. */

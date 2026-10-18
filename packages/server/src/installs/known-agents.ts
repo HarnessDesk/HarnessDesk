@@ -108,8 +108,24 @@ export interface KnownAgent {
     readonly logout?: CommandSpec
     /** A sign-in that needs a terminal — the desk opens one on this. */
     readonly terminal?: string
-    /** An API key the desk can hold and inject, for agents that take one. */
+    /**
+     * Said in place of `terminal` for a row that moves the home, where it is
+     * measured that the command signs in the default home whatever the row
+     * sets. Without it, such a row is offered the command with its home in
+     * front (`InstallService.describe`).
+     */
+    readonly terminalIgnoresHome?: string
+    /**
+     * An API key the desk can hold and inject, for agents that take one.
+     * `installs/overlay.ts` carries a key onto the agent's row only once it
+     * names the ACP method it answers (`acpMethod`) — that is, once how the
+     * agent takes it has been measured; the rest describe the agent until
+     * then. `optional` marks a key beside another way in, so a missing one is
+     * not "signed out".
+     */
     readonly secrets?: readonly AcpSecretSpec[]
+    /** ACP methods the agent declares that need a step no button here can take; see `AcpAgentConfig.authMethodNotes`. */
+    readonly acpMethodNotes?: Readonly<Record<string, string>>
     readonly note: string
   }
   /** A service that must already be running for the agent to answer. */
@@ -196,6 +212,7 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
           env: 'GEMINI_API_KEY',
           label: 'Gemini API key',
           helpUrl: 'https://aistudio.google.com/apikey',
+          optional: true,
           description: 'Optional: an API key instead of the Google account sign-in Gemini CLI runs in its own window.',
         },
       ],
@@ -282,6 +299,13 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
          The record it draws that box from is read directly instead; see
          `openCodeIdentity` in `identity.ts`. */
       terminal: 'opencode auth login',
+      /* Measured on opencode 2.0.32 on 2026-10-17 (#1776): with
+         XDG_DATA_HOME set, a Console sign-in from `opencode auth login`
+         wrote nothing under it. A new active row appeared in the default
+         home's `opencode.db` instead, because 2.x hands the sign-in to its
+         launchd service (`opencode serve --service`), which keeps the
+         default home. */
+      terminalIgnoresHome: 'This row keeps its own XDG_DATA_HOME, and `opencode auth login` cannot sign it in: OpenCode 2 hands a terminal sign-in to its background service, which signs in the default home. Remove XDG_DATA_HOME from the row to use the default sign-in.',
       note: 'Providers are added one at a time with `opencode auth login`, which asks in the terminal; Claude Pro/Max, ChatGPT and Copilot sign in through a browser from there, the rest take an API key.',
     },
   },
@@ -312,6 +336,7 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
           env: 'CLINE_API_KEY',
           label: 'Cline API key',
           helpUrl: 'https://app.cline.bot',
+          optional: true,
           description: 'Optional: a Cline account key instead of the terminal sign-in.',
         },
       ],
@@ -375,6 +400,7 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
           env: 'CODEBUDDY_API_KEY',
           label: 'CodeBuddy API key',
           helpUrl: 'https://www.codebuddy.cn/cli/',
+          optional: true,
           description: 'Optional: an API key instead of the in-app `/login`.',
         },
       ],
@@ -411,6 +437,7 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
           env: 'KIMI_API_KEY',
           label: 'Moonshot API key',
           helpUrl: 'https://platform.moonshot.ai/console/api-keys',
+          optional: true,
           description: 'Optional: a platform key instead of the in-app `/login`.',
         },
       ],
@@ -486,6 +513,7 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
           env: 'XAI_API_KEY',
           label: 'xAI API key',
           helpUrl: 'https://console.x.ai',
+          optional: true,
           description: 'Optional: an API key instead of the Grok sign-in.',
         },
       ],
@@ -537,6 +565,7 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
           env: 'COPILOT_GITHUB_TOKEN',
           label: 'GitHub token',
           helpUrl: 'https://github.com/settings/personal-access-tokens',
+          optional: true,
           description: 'Optional: a fine-grained token with the Copilot Requests permission, instead of the terminal sign-in. Classic ghp_ tokens are refused.',
         },
       ],
@@ -590,7 +619,28 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
          on agy 1.2.4.
          The server answers for itself instead: it opens the Google flow on
          first use, and it declares ACP's own `logout` in its capabilities,
-         which is what `runtime/logout` drives. See `AcpRuntime.logout`. */
+         which is what `runtime/logout` drives. See `AcpRuntime.logout`.
+         Of the four methods it declares, two cannot be pressed (#1760):
+         `gemini-api-key` reads GEMINI_API_KEY from the server's environment
+         (refused with -32602 without it; with it, `authenticate` succeeds and
+         is remembered as `auth.type`), so it is the key field below; and
+         `agent-platform` needs a key or a project and location, which is a
+         step in the agent's own setup. Measured on agy_acp_server 1.1.1,
+         2026-10-17, in an empty scratch home. */
+      secrets: [
+        {
+          env: 'GEMINI_API_KEY',
+          label: 'Gemini API key',
+          helpUrl: 'https://aistudio.google.com/apikey',
+          optional: true,
+          acpMethod: 'gemini-api-key',
+          description: 'Optional: a Gemini Developer API key instead of the Google sign-in.',
+        },
+      ],
+      acpMethodNotes: {
+        'agent-platform':
+          'Set GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION (or GOOGLE_API_KEY) in the agent’s environment, or gcp.project and gcp.location in its settings.json, then start it again.',
+      },
       note: 'The server opens a Google sign-in in the browser on first use; signing out goes through ACP’s own logout, which the server answers. The `agy` CLI is a different program and cannot do either.',
     },
   },

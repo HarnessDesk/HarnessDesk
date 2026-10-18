@@ -126,7 +126,7 @@ const TeamsList = ({onNew}: TeamsPageProps) => {
  },[store])
  useReadOnce(reviewScope,readReviews)
  const open=(row:TeamListRow)=>{
-  store.markTeamSeen(row.id,row.change); void store.openTeamRoom(row.id,row.change)
+  void store.openTeamRoom(row.id)
  }
  const say=(row:TeamListRow):RowWords=>text.get(row.id) ?? rowWords(row)
  const faces=(row:TeamListRow)=>row.seats.length ? <AvatarStack size="stack" aria-label={`${row.seats.length} ${row.seats.length === 1 ? 'seat' : 'seats'}`} members={row.seats.map((seat,index)=>{

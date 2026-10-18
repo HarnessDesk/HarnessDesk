@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import css from './Settings.module.css?raw'
-import { NoteList, Row, RowChoice, Text } from './Settings'
+import { CodeText, NoteList, Row, RowChoice, Text } from './Settings'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -125,4 +125,12 @@ it('a description that is a name or a path gives way on one line; a sentence wra
   expect(sentence?.getAttribute('data-wrap')).toBe('true')
   expect(sentence?.className).not.toMatch(/rowDescTruncate/)
   expect(css).toMatch(/\.rowDescTruncate\s*{[^}]*white-space:\s*nowrap/s)
+})
+
+
+it('wraps bare source text without adding a block inset', () => {
+  act(() => root.render(<CodeText as="pre" wrap>long definition line</CodeText>))
+  expect(container.querySelector('pre')?.hasAttribute('data-wrap')).toBe(true)
+  expect(container.querySelector('pre')?.hasAttribute('data-block')).toBe(false)
+  expect(css).toMatch(/pre\.mono:not\(\[data-block\]\)\[data-wrap\]\s*\{[^}]*overflow-wrap:\s*anywhere/s)
 })

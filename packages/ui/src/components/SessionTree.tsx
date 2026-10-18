@@ -514,9 +514,10 @@ const roomMembers = (
     )
 }
 
-const RoomRow = ({ room, state, suppressSelection = false, virtualKey, virtualIndex, virtualCount }: {
+const RoomRow = ({ room, state, news, suppressSelection = false, virtualKey, virtualIndex, virtualCount }: {
   readonly room: TeamState
   readonly state: TeamListState
+  readonly news: boolean
   readonly suppressSelection?: boolean
   readonly virtualKey?: string
   readonly virtualIndex?: number
@@ -528,9 +529,9 @@ const RoomRow = ({ room, state, suppressSelection = false, virtualKey, virtualIn
   const execution = goalRunOf(room.id, goal, snapshot.flowExecutions)
   const seats = teamSeats(goal, room, execution)
   const ended = execution?.state === 'stopped'
-  const waiting = !ended && (state === 'needs-you' || seats.some(({ key }) => key &&
+  const waiting = state === 'needs-you' || seats.some(({ key }) => key &&
     (snapshot.approvals.some(one => one.key === key) || snapshot.queues.get(key)?.status === 'paused'
-      || (snapshot.sessions.get(key) && traceOf(snapshot.sessions.get(key)!, false) === 'waiting'))))
+      || (snapshot.sessions.get(key) && traceOf(snapshot.sessions.get(key)!, false) === 'waiting')))
   const running = !ended && !waiting && (state === 'working' || goal?.activity === 'working' || seats.some(({ key }) => {
     const live = key ? snapshot.sessions.get(key) : undefined
     return live !== undefined && isBusy(live)
@@ -540,13 +541,13 @@ const RoomRow = ({ room, state, suppressSelection = false, virtualKey, virtualIn
   const held = room.channel.filter(entry => entry.kind === 'message' && entry.state === 'held').length
   const selected = panes(snapshot.layout.root).some(pane => pane.view.kind === 'room' && pane.view.room === room.id)
   const ready = state === 'settled'
-  const attention = waiting ? 'Needs you' : ready ? 'Ready to wrap' : null
+  const attention = waiting ? 'Needs you' : news && !selected ? 'New' : null
   const trailing: LeftColumnTrail | undefined = attention
-    ? { kind: 'mark', icon: <SidebarMenuState label={attention} tone="warning" state="limit" compact />, label: attention }
+    ? { kind: 'mark', icon: <SidebarMenuState label={attention} tone={waiting ? 'warning' : 'info'} state={waiting ? 'limit' : 'new'} compact />, label: attention }
     : undefined
   return <div data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
     <LeftColumnRow label={name} icon={<TeamIcon size={16} />} selected={selected && !suppressSelection}
-      title={`${name}${state === 'stopping' ? ' · Stopping' : state === 'stopped' ? ' · Stopped' : ''}${attention ? ` · ${attention}` : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
+      title={`${name}${state === 'stopping' ? ' · Stopping' : state === 'stopped' ? ' · Stopped' : ''}${attention ? ` · ${attention}` : ''}${ready ? ' · Ready to wrap' : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
       buttonProps={{ 'aria-label': `Room ${name}` }} trailing={trailing}
       onClick={() => store.openTeamRoom(room.id)} />
   </div>
@@ -1444,6 +1445,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
                   key={row.room.id}
                   room={row.room}
                   state={teamRows.get(row.room.id)!.state}
+                  news={teamRows.get(row.room.id)!.unread}
                   suppressSelection={suppressSelection}
                   virtualKey={`room:${row.room.id}`}
                   virtualIndex={index}

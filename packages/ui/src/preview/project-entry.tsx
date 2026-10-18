@@ -18,7 +18,7 @@ const scene = params.get('scene') ?? 'empty'
 const seed = store.getSnapshot()
 const baseGoal = PREVIEW_GOALS[0]!
 const team = { ...baseGoal.board, id: 'project-entry-team', root: '/work/storefront', name: 'Finish checkout retry', members: [], intents: [], channel: [], updatedAt: 1, messaging: true }
-const goal = { ...baseGoal, board: team, activity: 'ready-to-wrap' as const, members: [], waitingOn: [],
+const goal = { ...baseGoal, readyAt: Date.now() - 1000, lastSeenAt: 0, board: team, activity: 'ready-to-wrap' as const, members: [], waitingOn: [],
   goal: { ...baseGoal.goal, id: team.id, root: team.root, cwd: team.root, sentence: team.name, state: 'open' as const } }
 const workspace = { path: goal.goal.root, name: 'storefront', lastOpenedAt: 1 }
 const target = previewStore({ ...seed, history: [], sessions: new Map(), approvals: [], inbox: [], usage: [],

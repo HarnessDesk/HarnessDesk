@@ -4,10 +4,11 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { test } from 'node:test'
 
+import { placeCard } from '@harnessdesk/protocol'
 import type { BoardEvidence, FlowExecution, GoalCitation, RuntimeId, SeatRecord } from '@harnessdesk/protocol'
 
 import { GoalPlane, type GoalMemorySupport, type GoalPlanePort } from '../src/goals/plane.js'
-import { goalViewForWire } from '../src/methods/goals.js'
+import { goalMethods, goalViewForWire } from '../src/methods/goals.js'
 import { UNOBSERVED_LOADING_REFUSAL } from '../src/goals/assignments.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { MemoryPlane } from '../src/memory/plane.js'
@@ -98,9 +99,13 @@ const rig = async (
   }
 }
 
-test('a done card without observed evidence needs a person; a current passing check makes it ready', async () => {
+test('unchecked done cards stay on the board without raising Team attention', async () => {
   const proof = await rig()
-  assert.equal((await proof.plane.view('g1')).activity, 'needs-you')
+  const document = proof.store.read('g1')
+  await proof.store.save({...document,goal:{...document.goal,revision:1},board:{...document.board,nextIntent:142,intents:Array.from({length:141},(_,n)=>intent(n+1,{state:'done'}))}},0)
+  assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap')
+  assert.equal((await proof.plane.view('g1')).uncheckedDone, 141)
+  assert.deepEqual(placeCard({intent:proof.store.read('g1').board.intents[0]!,evidence:undefined,stranded:false,holderWaits:false,forPerson:false,live:false,runStopped:false}), {column:'needs',why:'nothing checked'})
   await proof.plane.refresh('g1')
   assert.deepEqual(proof.transitions, [])
   proof.facts({
@@ -114,7 +119,7 @@ test('a done card without observed evidence needs a person; a current passing ch
   })
   await proof.plane.refresh('g1')
   assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap')
-  assert.deepEqual(proof.transitions, ['needs-you:ready-to-wrap'])
+  assert.deepEqual(proof.transitions, [])
 })
 
 test('an evidence read failure is visible and never makes settled work ready', async () => {
@@ -663,7 +668,8 @@ test('a Run completed by its person does not keep its finished attempts in Team 
   proof.port.held = () => false
   const settled = proof.store.read('g1')
   await proof.store.save({ ...settled, board: { ...settled.board, nextIntent: 5, intents: [...settled.board.intents, intent(4, { state: 'done' })] }, goal: { ...settled.goal, revision: 5 } }, 4)
-  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'unchecked follow-up work remains attention')
+  assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap', 'unchecked follow-up work does not raise Team attention')
+  assert.equal((await proof.plane.view('g1')).uncheckedDone, 1, 'unchecked follow-up work keeps its Board placement')
 
   const followUp = proof.store.read('g1')
   await proof.store.save({ ...followUp,
@@ -702,4 +708,118 @@ test('past members belong only to the selected current Run, while earlier stoppe
   await proof.store.save({ ...document, goal: { ...document.goal, revision: document.goal.revision + 1 },
     flowReservation: { run: 'old', operation: 'start' } }, document.goal.revision)
   assert.deepEqual((await proof.plane.view('g1')).pastMembers, [earlier], 'a reserved Run owns the roster selection')
+})
+
+
+test('opening a Team persists its seen time across a Goal store restart without changing the Goal revision', async () => {
+  const proof = await rig()
+  const stale = proof.store.read('g1')
+  const before = stale.goal
+  const seen = (goalMethods as unknown as Record<string, (ctx: unknown, params: unknown) => Promise<{ lastSeenAt?: number }>>)['goal/seen']
+  assert.equal(typeof seen, 'function')
+  const result = await seen!({ goals: proof.plane }, { goal: 'g1' })
+  assert.ok(result.lastSeenAt! > 0)
+  const restarted = new GoalStore(proof.store.directory.slice(0, -'/goals'.length))
+  await restarted.load()
+  const plane = new GoalPlane(restarted, proof.port)
+  assert.equal((await plane.view('g1') as unknown as { lastSeenAt?: number }).lastSeenAt, result.lastSeenAt)
+  assert.deepEqual(restarted.read('g1').goal, before)
+  await proof.store.save({...stale,goal:{...stale.goal,revision:stale.goal.revision+1}},stale.goal.revision)
+  assert.equal((await proof.plane.view('g1')).lastSeenAt,result.lastSeenAt,'a board save captured before opening cannot erase seen time')
+  await plane.hydrateActivity()
+  assert.equal((await plane.view('g1')).lastSeenAt,result.lastSeenAt)
+})
+
+
+test('an approval still raises Team attention when all work is unchecked and done', async () => {
+  const proof = await rig()
+  proof.seats.push(seat('waiting'))
+  proof.port.waits = () => true
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you')
+  proof.port.waits = () => false
+  assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap')
+})
+
+test('ready news advances after a later transition and survives restart without becoming new again', async () => {
+  const proof = await rig()
+  let at = 10
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  await plane.refresh('g1')
+  await plane.seen('g1')
+  proof.port.held = () => true
+  await plane.refresh('g1')
+  at = 20
+  proof.port.held = () => false
+  await plane.refresh('g1')
+  assert.equal((await plane.view('g1')).readyAt, 20)
+  assert.equal((await plane.view('g1')).lastSeenAt, 10)
+  const store = new GoalStore(proof.store.directory.slice(0, -'/goals'.length))
+  await store.load()
+  at = 30
+  const restarted = new GoalPlane(store, proof.port, undefined, () => at)
+  await restarted.hydrateActivity()
+  assert.equal((await restarted.view('g1')).readyAt, 20)
+  assert.equal((await restarted.view('g1')).lastSeenAt, 10)
+})
+
+
+test('seen skips writes and broadcasts until newer Team news arrives', async (t) => {
+  const proof = await rig()
+  let at = 10
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  const mark = t.mock.method(proof.store, 'mark')
+  const changed = t.mock.method(proof.port, 'changed')
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 1)
+  assert.equal(changed.mock.callCount(), 1)
+  at = 20
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 1, 'opening the same news again writes nothing')
+  assert.equal(changed.mock.callCount(), 1)
+  proof.port.executions = () => [{ id: 'ended', goal: 'g1', state: 'settled', endedAt: 15, rounds: [] } as unknown as FlowExecution]
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 2, 'an ended Run is new news')
+  at = 30
+  Object.assign(proof.port, { unreadAt: () => 25 })
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 3, 'unread Seat output is new news')
+  at = 40
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 3)
+  await proof.store.mark('g1', { readyAt: 35 })
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 5, 'ready news is new even without a Goal revision')
+  assert.equal(changed.mock.callCount(), 4)
+})
+
+for (const history of ['wrapped', 'restored'] as const) test(`seen leaves ${history} history untouched`, async (t) => {
+  const proof = await rig()
+  if (history === 'wrapped') {
+    const choices = { summary: 'Finished.', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+    const preview = await proof.plane.preview('g1', choices)
+    const document = proof.store.read('g1')
+    const receipt = { ...preview.receipt, id: 'receipt-g1', wrappedAt: 10 }
+    await proof.store.save({ ...document, goal: { ...document.goal, state: 'wrapped', receipt: receipt.id, revision: document.goal.revision + 1 }, receipt }, document.goal.revision)
+  } else {
+    const doc = proof.store.read('g1')
+    await proof.store.restore({ ...doc, goal: { ...doc.goal, id: 'restored' } }, 10)
+  }
+  const id = history === 'wrapped' ? 'g1' : 'restored'
+  const before = proof.store.read(id)
+  const mark = t.mock.method(proof.store, 'mark')
+  const changed = t.mock.method(proof.port, 'changed')
+  const result = await proof.plane.seen(id)
+  assert.equal(result.goal.id, id)
+  assert.deepEqual(proof.store.read(id), before)
+  assert.equal(mark.mock.callCount(), 0)
+  assert.equal(changed.mock.callCount(), 0)
+})
+
+test('goal/seen refuses an unknown Goal without writing or broadcasting', async (t) => {
+  const proof = await rig()
+  const mark = t.mock.method(proof.store, 'mark')
+  const changed = t.mock.method(proof.port, 'changed')
+  await assert.rejects(goalMethods['goal/seen']({ goals: proof.plane } as never, { goal: 'missing' }), /That Goal is not on this desk/)
+  assert.equal(mark.mock.callCount(), 0)
+  assert.equal(changed.mock.callCount(), 0)
 })

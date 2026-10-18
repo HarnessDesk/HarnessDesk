@@ -231,6 +231,7 @@ const rig = (
   let snapshot = snapshotOf()
   const store = {
     subscribe: () => () => {},
+    markTeamSeen: vi.fn(),
     setTeamFramePage: vi.fn((_id: string, framePage: TeamFramePage, chatLayout?: 'thread' | 'side-by-side') => { savedView = { ...savedView, framePage, ...(chatLayout ? {chatLayout} : {}) } }),
     openTeamMemberChat: vi.fn((_id: string, chatMember: SessionKey) => { savedView = { ...savedView, framePage: 'room', chatLayout: 'thread', chatMember } }),
     modelsFor: vi.fn().mockResolvedValue([]),
@@ -4776,4 +4777,57 @@ it.each([1, 2])('keeps %s removed comparison tiles off the grid after remount', 
   await mount(saved)
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2 - count)
   expect(store.lastView().sideBySide?.tiles ?? []).toEqual(saved.sideBySide?.tiles ?? [])
+})
+
+it('a ready Team without a Run says Done in its header and keeps Overview uncounted', async () => {
+ const {store}=rig([],undefined,{intents:[]},{...GOAL,activity:'ready-to-wrap'})
+ await render(store)
+ expect(container.querySelector('header [data-slot="dot"]')?.getAttribute('aria-label')).toBe('Done')
+ expect(container.querySelector('[data-team-page="overview"]')?.textContent).toBe('Overview')
+})
+
+it('opening another Team tab acknowledges its news through the host', async () => {
+ const {store}=rig([],undefined,{intents:[]},{...GOAL,activity:'ready-to-wrap'})
+ await render(store)
+ vi.mocked(store.markTeamSeen).mockClear()
+ act(()=>row('Board').click())
+ await act(async()=>{})
+ expect(store.markTeamSeen).toHaveBeenCalledWith(ROOM)
+})
+
+it('a ready Goal with a stopped Run keeps the stopped header state', async () => {
+ const execution={version:2,id:'stopped',goal:ROOM,state:'stopped',reason:null,operations:[],rounds:[],legacyRun:null,document:FLOW_DOCUMENT} as FlowExecution
+ const {store}=rig([],undefined,{intents:[]},{...GOAL,activity:'ready-to-wrap'},new Map([[execution.id,execution]]))
+ await render(store)
+ expect(container.querySelector('header [data-slot="dot"]')?.getAttribute('aria-label')).toBe('Stopped')
+})
+
+
+it('acknowledges ready, ended Run and unread Seat news arriving while the Team is open', async () => {
+ const execution={version:2,id:'watched-run',goal:ROOM,state:'running',reason:null,endedAt:null,operations:[],rounds:[],legacyRun:null,document:FLOW_DOCUMENT} as FlowExecution
+ const {store}=rig([],undefined,{intents:[]},{...GOAL,activity:'working',readyAt:1,lastSeenAt:1},new Map([[execution.id,execution]]))
+ let snapshot=store.getSnapshot()
+ const listeners=new Set<()=>void>()
+ Object.assign(store,{getSnapshot:()=>snapshot,subscribe:(fn:()=>void)=>{listeners.add(fn);return ()=>listeners.delete(fn)}})
+ const update=async (patch:Partial<AppSnapshot>)=>{
+  await act(async()=>{snapshot={...snapshot,...patch};listeners.forEach(fn=>fn())})
+ }
+ await render(store)
+ expect(store.markTeamSeen).toHaveBeenCalledTimes(1)
+ vi.mocked(store.markTeamSeen).mockClear()
+ await update({goals:new Map([[ROOM,{...GOAL,activity:'ready-to-wrap',readyAt:20,lastSeenAt:1}]])})
+ expect(store.markTeamSeen).toHaveBeenCalledOnce()
+ vi.mocked(store.markTeamSeen).mockClear()
+ await update({flowExecutions:new Map([[execution.id,{...execution,state:'settled',endedAt:30}]])})
+ expect(store.markTeamSeen).toHaveBeenCalledOnce()
+ vi.mocked(store.markTeamSeen).mockClear()
+ const member={id:'news-seat',session:{runtime:'codex',sessionId:'c1'},role:null,openedAt:1,closed:null,agent:null} as GoalView['members'][number]
+ await update({goals:new Map([[ROOM,{...GOAL,members:[member],readyAt:20,lastSeenAt:30}]])})
+ vi.mocked(store.markTeamSeen).mockClear()
+ await update({inbox:[{id:'older-news',read:false,at:35,tone:'neutral',title:'Earlier output',from:{runtime:'codex',sessionId:'c1',name:'Agent'}},
+ {id:'newest-news',read:false,at:40,tone:'neutral',title:'New output',from:{runtime:'codex',sessionId:'c1',name:'Agent'}}]})
+ expect(store.markTeamSeen).toHaveBeenCalledOnce()
+ vi.mocked(store.markTeamSeen).mockClear()
+ await update({inbox:snapshot.inbox.map(one=>one.id==='newest-news'?{...one,at:50}:one)})
+ expect(store.markTeamSeen).toHaveBeenCalledOnce()
 })

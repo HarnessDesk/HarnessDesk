@@ -7,6 +7,23 @@ the rule is the last line of its section.
 
 ---
 
+## A skill opens as a page, not a sheet — 2026-10-17
+
+A skill has enough definition and evidence to read as a destination: the definition is a card on the left, while loaded runtimes, recorded source and copies, files and cost stay in cards on the right. Back returns to the Library and history retains the route. Findings sit above the columns, and More keeps the less frequent copy actions; writes still open reviewed plans. This keeps the skill consistent with other details and gives long definitions the page’s scroll owner rather than two constrained dialog lanes. MCP retains its existing dialog. **Rule:** a detail is a page with a way back; dialogs are for confirming.
+
+## What the Library changed has its own page, and every write says so in a toast with no Undo — 2026-10-17
+
+The Library keeps its cards for finding skills. Changes made here is a separate
+view of the same destination, reached from More and from a write's View changes
+toast. The audit read covers 90 days, with local-day groups, search and filters.
+Restore remains a previewed plan and is offered only for completed backed-up writes.
+
+The page and toasts share the operation verbs. Each apply summarizes completed
+writes once, keeps failures until dismissed, and ignores skipped operations.
+Restoring refreshes the audit read; no persisted last-seen state or Undo is added.
+
+**Rule:** every Library write ends in one toast with a View changes button.
+
 ## Page band headings are 16/600 and field-group labels stay small — 2026-10-16
 
 Heads naming the cards or rows in a page’s body use the existing section text
@@ -3821,3 +3838,17 @@ other than the first carry unread facts, so refreshing them preserves the open
 repository's known state. Suggested tasks from a source with an unknown folder
 keep the open project's folder; a recorded managed chat explicitly requests a
 fresh allocation.
+
+
+## The Library's skills page is cards under filter chips — 2026-10-16
+
+Skills open as compact cards with All, Needs you, One runtime and Nobody chips. Chips count all listed skills, while search, state filters and Agent declarations narrow together. Cards carry the runtime reach strip and at most one problem line; Matrix and the skill page retain the detailed comparison. Add skill groups the three existing ways to bring in a skill. MCP keeps its current page. Catalogue banners appear under Needs you even when that chip reads 0: banners describe the catalogue, while chips count skills.
+
+ToggleGroup gained a `chips` variant, and BoardCard gained `marks`, `finding`, `detailLines` and a grid. Keeping this shape costs maintaining those shared contracts and both views over the same filtered rows, using the existing finding and update selectors. Toolbar owns the controls row. Choices remain local to the viewer, history stays at the foot, and empty regions carry a short title without a description.
+
+**Rule:** a card carries at most one problem line, and banners live under Needs you.
+
+
+## Orange waits on a person; blue is unseen Team news — 2026-10-17
+
+A Team’s orange mark means someone waits on the person: an answer, an approval, a held queue, a Flow decision or another actionable board reason. Done cards whose only reason is “nothing checked” keep that column on the Board but raise no Team attention, with or without a Run. Ready to wrap is news, so it joins unread Seat activity and ended Runs under a blue mark, cleared by opening any Team tab. The existing Goal store owns last-seen and ready times so another window, a restart and the phone agree. Overview counts the same attention list it renders and gives unchecked finished cards a quiet count and Board action; no badge can ask for an answer its body does not show.

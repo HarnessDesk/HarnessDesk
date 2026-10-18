@@ -313,7 +313,7 @@ const INPUT_GROUP_CATALOG_ALIGN = ['inline-start', 'inline-end', 'block-start', 
 const MARKER_CATALOG_VARIANTS = ['default', 'border', 'separator'] as const
 const MARKER_CATALOG_SIZES = ['default'] as const
 const MARKER_CATALOG_STATES = ['default', 'success', 'warning', 'error'] as const
-const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel', 'page'] as const
+const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel', 'page', 'document'] as const
 const SECTION_CATALOG_SIZES = ['default'] as const
 const SECTION_CATALOG_STATES = ['expanded', 'collapsed'] as const
 const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel', 'summary'] as const
@@ -589,9 +589,10 @@ const SectionBoard = () => (
             </Section>
           </div>
         ) : (
-          <Section key={variant} variant={variant} data-catalog-variant={variant}>
-            <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>
-            <SectionBody>Canonical section variant.</SectionBody>
+          <Section key={variant} variant={variant} data-catalog-variant={variant}
+            header={variant === 'document' ? <><Text role="row">SKILL.md</Text><ToolbarGap /><Button variant="ghost" size="sm">Copy</Button></> : undefined}>
+            {variant !== 'document' && <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>}
+            <SectionBody spacing={variant === 'document' ? 'document' : 'default'}>Canonical section variant.</SectionBody>
           </Section>
         ),
       )}
@@ -673,7 +674,7 @@ const SectionBoard = () => (
  * Badge and Tabs — the two primitives that had no board.
  *
  * Both are shipped: `Badge` in the conversation, the composer controls, the
- * skill sheet and a channel; `Tabs` in the changes review, extensions and the
+ * MCP detail and a channel; `Tabs` in the changes review, extensions and the
  * plugins section. Their only appearance in this catalogue used to be inside
  * `showcase/ToolsPage`, a drawing of the tool panes — so the one place a
  * reader could see a badge was a place where no badge the app ships had ever
@@ -2926,7 +2927,10 @@ const PlansTableBoard = () => {
 
 const LibraryBoard = () => {
   const [store] = useState(previewStore)
-  return <div className="h-screen"><PagePreview fixture={store} page={{kind:'library',section:'skill'}} /></div>
+  return <div className="flex flex-col gap-6">{(['skill', 'mcp'] as const).map(section =>
+    <Case key={section} label={section === 'skill' ? 'Skills — cards and chips' : 'MCP servers — list and matrix'}>
+      <div className="h-screen w-full"><PagePreview fixture={store} page={{kind:'library',section}} /></div>
+    </Case>)}</div>
 }
 
 const HeaderStatusBoard = () => (
@@ -3229,7 +3233,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'comparison-summary', title:'Comparison summary', about:'The merged receipt in the same Side by side body.', render:ComparisonSummaryBoard },
   { id: 'comparison-notice', title: 'Comparison notice', about: 'The real comparison shelf, with a recorded pick, a waiting person and text that scrolls without moving the tiles.', render: ComparisonNoticeBoard },
   { id: 'header-status', title: 'Header status group', about: 'One chip ground, neutral at rest. Hover or focus names every reading; only a condition needing attention takes a tone.', render: HeaderStatusBoard },
-  { id: 'library', title: 'Library', about: 'The real skill and server lists: state, loaded-by faces, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
+  { id: 'library', title: 'Library', about: 'Skills cards and the MCP server list: state, runtime reach, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
   {
     id: 'tables',
     title: 'Tables',

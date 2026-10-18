@@ -521,8 +521,11 @@ body {
   --hd-column: 736px;
   /* A page's two other measures (`Page` in design/patterns). Wide is for
      tables and card grids that read better than a reading column allows;
-     every page keeps one gutter on both sides of whichever measure it takes. */
+     every page keeps one gutter on both sides of whichever measure it takes.
+     The aside is the fact column beside a detail's reading body
+     (`PageColumns`). */
   --hd-page-wide: 1320px;
+  --hd-page-aside: 320px;
   --hd-page-gutter: var(--hd-space-6);
   /* The step between a page's blocks (#1646). A section head subtracts it to
      stand 32 under the card above and 12 over its own. */

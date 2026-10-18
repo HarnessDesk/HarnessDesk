@@ -1,33 +1,27 @@
 import { expect, test } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`Library quiet state sentences stay inside their column in ${theme}`, async ({ page }) => {
+  test(`Library state details stay on runtime marks and findings stay within cards in ${theme}`, async ({ page }) => {
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
     const sheet = page.locator('[data-frame-id="settings-sheet"] [data-page-destination]:visible')
-    await expect(sheet.getByText('Not read yet by Gamma', { exact: true })).toBeVisible()
-    await expect(sheet.getByText('Off in Alpha', { exact: true })).toBeVisible()
+    await expect(sheet.locator('[data-runtime-state="stale"][title="Gamma: Not loaded yet"]')).toBeVisible()
+    await expect(sheet.locator('[data-runtime-state="off"][title="Alpha: Switched off"]')).toBeVisible()
+    await expect(sheet.getByText('Not read yet by Gamma', { exact: true })).toHaveCount(0)
+    await expect(sheet.getByText('Off in Alpha', { exact: true })).toHaveCount(0)
     for (const width of [1440, 1024]) {
       await page.setViewportSize({ width, height: 900 })
-      for (const state of ['Ready', 'Off in Alpha', 'Not read yet by Gamma']) {
-        const reading = sheet.getByText(state, { exact: true }).first()
-        const bounds = await reading.evaluate(node => {
-          const cell = node.closest('td') ?? node.closest('[data-slot="list-row"]')!
-          const rect = cell.getBoundingClientRect()
-          const style = getComputedStyle(cell)
-          const range = document.createRange()
-          range.selectNodeContents(node)
-          return {
-            left: rect.left + parseFloat(style.paddingLeft),
-            right: rect.right - parseFloat(style.paddingRight),
-            text: [...range.getClientRects()].map(line => ({ left: line.left, right: line.right })),
-          }
-        })
-        for (const line of bounds.text) {
-          expect(line.left, state).toBeGreaterThanOrEqual(bounds.left - 1)
-          expect(line.right, state).toBeLessThanOrEqual(bounds.right + 1)
-        }
+      const readings = await sheet.locator('[data-card-finding]').evaluateAll(nodes => nodes.map(node => {
+        const card = node.closest('[data-slot="skill-card"]')!, rect = card.getBoundingClientRect(), style = getComputedStyle(card)
+        const range = document.createRange(); range.selectNodeContents(node)
+        return {left:rect.left+parseFloat(style.paddingLeft),right:rect.right-parseFloat(style.paddingRight),
+          lines:[...range.getClientRects()].map(line=>({left:line.left,right:line.right}))}
+      }))
+      expect(readings.length).toBeGreaterThan(0)
+      for (const reading of readings) for (const line of reading.lines) {
+        expect(line.left).toBeGreaterThanOrEqual(reading.left - 1)
+        expect(line.right).toBeLessThanOrEqual(reading.right + 1)
       }
     }
   })
@@ -36,16 +30,16 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const library = page.locator('[data-frame-id="settings-library"]')
-    await expect(library.locator('thead th')).toHaveText(['Skill', 'State', 'Loaded by'])
-    const first = library.locator('tbody tr').first()
-    await expect(first.locator('[data-shape="face"]')).toHaveCount(1)
-    const copy = await first.evaluate(row => {
-      const name = row.querySelector('[data-role="subject"]')!
-      const description = row.querySelector('[data-skill-description]')!
-      const face = row.querySelector('[data-shape="face"]')!
-      return { face: face.getBoundingClientRect().width, separateLines: description.getBoundingClientRect().top >= name.getBoundingClientRect().bottom }
+    const cards = library.locator('[data-slot="skill-card"]')
+    await expect(cards).toHaveCount(6)
+    const first = cards.first()
+    await expect(first.locator('[data-runtime-state]')).toHaveCount(3)
+    const copy = await first.evaluate(card => {
+      const name = card.querySelector('[data-role="member"]')!, description = card.querySelector('[data-skill-description]')!
+      const mark = card.querySelector('[data-runtime-state]')!
+      return { mark: mark.getBoundingClientRect().width, separateLines: description.getBoundingClientRect().top >= name.getBoundingClientRect().bottom }
     })
-    expect(copy.face).toBe(20)
+    expect(copy.mark).toBe(20)
     expect(copy.separateLines).toBe(true)
     await expect(library.locator('[data-slot="row-mark"]')).toHaveCount(0)
 
@@ -123,114 +117,48 @@ for (const theme of ['light', 'dark'] as const) {
 
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`Library warnings and four loading faces stay whole at narrow widths in ${theme}`, async ({ page }) => {
+  test(`Library cards keep descriptions and every runtime mark within narrow panes in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
     const sheet = page.locator('[data-frame-id="settings-sheet"] [data-page-destination]:visible')
     for (const width of [1024, 900, 720, 560]) {
       await page.setViewportSize({ width, height: 900 })
-      await expect(sheet.getByText('Shared review', { exact: true })).toBeVisible()
-      const narrow = (await sheet.locator('[data-slot="skill-list"]').boundingBox())!.width < 600
-      await expect(sheet.locator('[data-slot="skill-list"]')).toHaveAttribute('data-layout', narrow ? 'list' : 'table')
-      const rows = sheet.locator('[data-slot="skill-row"]')
-      const readability = await rows.evaluateAll(rows => rows.map(row => {
-        const name = row.querySelector('[data-slot="text"][data-role="subject"]')!
-        const description = row.querySelector('[data-skill-description]')!
-        const nameText = document.createTreeWalker(name, NodeFilter.SHOW_TEXT).nextNode()!
-        const prefix = document.createRange()
-        prefix.setStart(nameText, 0)
-        prefix.setEnd(nameText, Math.min(8, nameText.textContent!.length))
-        const nameBox = name.getBoundingClientRect()
-        const lines = new Map<number, string[]>()
-        const textNodes = document.createTreeWalker(description, NodeFilter.SHOW_TEXT)
-        const box = description.getBoundingClientRect()
-        for (let text = textNodes.nextNode(); text; text = textNodes.nextNode()) {
-          for (const match of text.textContent!.matchAll(/\S+/g)) {
-            const word = document.createRange()
-            word.setStart(text, match.index!)
-            word.setEnd(text, match.index! + match[0].length)
-            const rect = word.getBoundingClientRect()
-            if (rect.top >= box.bottom) continue // the full sentence lives in detail
-            const line = lines.get(rect.top) ?? []
-            line.push(match[0]); lines.set(rect.top, line)
-          }
-        }
-        const font = getComputedStyle(name)
-        const canvas = document.createElement('canvas').getContext('2d')!
+      const grid = sheet.locator('[data-slot="skill-cards"]')
+      const cards = grid.locator('[data-slot="skill-card"]')
+      await expect(cards).toHaveCount(9)
+      const loaded = cards.filter({ hasText: 'Shared review' })
+      await expect(loaded).toHaveAccessibleName('Shared review')
+      await expect(loaded.locator('[aria-label="Loaded by 4 of 4 runtimes"]')).toBeVisible()
+      await expect(loaded.locator('[data-runtime-state]')).toHaveCount(4)
+      const readings = await cards.evaluateAll(nodes => nodes.map(node => {
+        const box = node.getBoundingClientRect()
+        const name = node.querySelector('[data-role="member"]')!
+        const description = node.querySelector('[data-detail-lines]')!
+        const css = getComputedStyle(description), rect = description.getBoundingClientRect()
+        const text = document.createTreeWalker(name, NodeFilter.SHOW_TEXT).nextNode()!
+        const prefix = document.createRange(); prefix.setStart(text, 0); prefix.setEnd(text, Math.min(8, text.textContent!.length))
+        const font = getComputedStyle(name), canvas = document.createElement('canvas').getContext('2d')!
         canvas.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
         const ellipsis = name.scrollWidth > name.clientWidth ? canvas.measureText('…').width : 0
-        return { name: name.textContent, prefixRight: prefix.getBoundingClientRect().right, nameRight: nameBox.right - ellipsis, lines: [...lines.values()], clamp: getComputedStyle(description).webkitLineClamp, unbroken: description.textContent!.includes('x'.repeat(120)) }
+        return { name: name.getBoundingClientRect().width, prefix: prefix.getBoundingClientRect().right, nameRight: name.getBoundingClientRect().right - ellipsis, height: rect.height, line: parseFloat(css.lineHeight), clamp: css.webkitLineClamp,
+          marks: [...node.querySelectorAll('[data-runtime-state]')].map(mark => ({ left: mark.getBoundingClientRect().left, right: mark.getBoundingClientRect().right })), left: box.left, right: box.right }
       }))
-      for (const reading of readability) {
-        expect(reading.prefixRight, reading.name ?? '').toBeLessThanOrEqual(reading.nameRight)
+      for (const reading of readings) {
+        expect(reading.name).toBeGreaterThan(40)
+        expect(reading.prefix).toBeLessThanOrEqual(reading.nameRight)
         expect(reading.clamp).toBe('2')
-        expect(reading.lines.length).toBeGreaterThan(0)
-        if (narrow && !reading.unbroken) {
-          expect(reading.lines.length).toBeLessThanOrEqual(2)
-          for (const line of reading.lines) expect(line.length, line.join(' ')).toBeGreaterThanOrEqual(3)
-        }
+        expect(reading.height).toBeLessThanOrEqual(reading.line * 2 + 1)
+        for (const mark of reading.marks) { expect(mark.left).toBeGreaterThanOrEqual(reading.left); expect(mark.right).toBeLessThanOrEqual(reading.right) }
       }
-      const readings = await rows.evaluateAll(rows => rows.map(row => {
-        const cells = row.matches('tr') ? [...row.querySelectorAll('td')].slice(1) : [row]
-        return cells.map(cell => {
-          const css = getComputedStyle(cell), rect = cell.getBoundingClientRect()
-          const content = [...cell.querySelectorAll('[data-slot="chip"], [data-slot="chip"] span, [data-shape="face"], svg')].map(node => {
-            const box = node.getBoundingClientRect()
-            return { left: box.left, right: box.right, clipped: node.scrollWidth > node.clientWidth }
-          })
-          return { label: cell.textContent, left: rect.left + parseFloat(css.paddingLeft), right: rect.right - parseFloat(css.paddingRight), content }
-        })
-      }))
-      for (const cells of readings) for (const cell of cells) for (const box of cell.content) {
-        expect(box.clipped, cell.label ?? '').toBe(false)
-        expect(box.left).toBeGreaterThanOrEqual(cell.left - 1)
-        expect(box.right).toBeLessThanOrEqual(cell.right + 1)
-      }
-      expect(await rows.evaluateAll(rows => rows.some(row => row.hasAttribute('data-problem')))).toBe(false)
-      const loaded = rows.filter({ hasText: 'Shared review' })
-      await expect(loaded.locator('[data-shape="face"]')).toHaveCount(4)
-      if (narrow) {
-        await expect(loaded).toHaveAccessibleName(/Ready.*Loaded by Alpha/)
-        await expect(loaded.locator('[data-slot="chip"]')).toHaveCount(0)
-        await expect(
-          sheet.getByRole('button', { name: /Loaded by Alpha/ }).filter({ hasText: 'Shared review' }),
-        ).toHaveCount(1)
-        await expect(sheet.getByRole('button', { name: /Loaded by None/ }).first()).toBeVisible()
-      }
-      if (!narrow) {
-        const descriptionBounds = await loaded.locator('[data-skill-description]').evaluate(node => {
-          const cell = node.closest('td')!
-          const rect = cell.getBoundingClientRect()
-          const style = getComputedStyle(cell)
-          const range = document.createRange()
-          range.selectNodeContents(node)
-          return {
-            left: rect.left + parseFloat(style.paddingLeft),
-            right: rect.right - parseFloat(style.paddingRight),
-            lines: [...range.getClientRects()].map(line => ({ left: line.left, right: line.right })),
-          }
-        })
-        expect(descriptionBounds.lines.length).toBeGreaterThan(1)
-        for (const line of descriptionBounds.lines) {
-          expect(line.left).toBeGreaterThanOrEqual(descriptionBounds.left - 1)
-          expect(line.right).toBeLessThanOrEqual(descriptionBounds.right + 1)
-        }
-      }
-      const list = sheet.locator('[data-slot="skill-list"]')
-      const measured = narrow ? list : list.locator('[data-slot="table-container"]')
-      expect(await measured.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
-      if (!narrow) expect(await loaded.locator('td').first().evaluate(node => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(192)
-      const opener = narrow ? loaded : loaded.locator('button').first()
-      await opener.hover()
-      expect(await opener.evaluate(node => getComputedStyle(node).textDecorationLine)).toBe('none')
-      if (!narrow) expect(await opener.evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
-      expect(await opener.evaluate(node => node.closest('[data-slot="skill-row"]')!.hasAttribute('data-problem'))).toBe(false)
-      await sheet.getByRole('button', { name: /brainstorming/ }).click()
-      const detail = page.getByRole('dialog').getByText('Use before any creative work — creating features, building components, adding functionality. Explores intent and requirements before implementation.', { exact: true })
+      expect(await grid.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+      await loaded.hover()
+      expect(await loaded.evaluate(node => getComputedStyle(node).textDecorationLine)).toBe('none')
+      await sheet.getByRole('button', { name: 'brainstorming', exact: true }).click()
+      const detail = page.locator('[data-slot="skill-page"]').getByText('Use before any creative work — creating features, building components, adding functionality. Explores intent and requirements before implementation.', { exact: true })
       await expect(detail).toBeVisible()
       expect(await detail.evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe('none')
-      await page.keyboard.press('Escape')
+      await page.locator('[data-slot="skill-page"]').getByRole('button', { name: 'Back to Library', exact: true }).click()
     }
   })
 
@@ -275,7 +203,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`Library actions stay in the shared bar and copy keeps its body at 720px and 560px in ${theme}`, async ({ page }) => {
+  test(`Library keeps Add skill in its page head and attention under Needs you at 720px and 560px in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
@@ -283,13 +211,14 @@ for (const theme of ['light', 'dark'] as const) {
     for (const width of [720, 560]) {
       await page.setViewportSize({ width, height: 1100 })
       const head = sheet.locator('[data-slot="top-bar"]:visible')
-      const blurb = sheet.locator('[data-page-destination="library"]:visible p[data-role="prose"]')
+      const pageBody = sheet.locator('[data-page-destination="library"]:visible')
       const actions = head.getByRole('button')
-      const copy = (await blurb.boundingBox())!
       const bounds = (await head.locator('..').boundingBox())!
       const body = (await sheet.locator('[data-page-destination="library"]:visible [data-slot="page"]').boundingBox())!
-      expect(copy.width).toBeGreaterThanOrEqual(body.width - 2 * 24 - 1)
-      expect(copy.y).toBeGreaterThanOrEqual(bounds.y + bounds.height)
+      await expect(pageBody.locator('p[data-role="prose"]')).toHaveCount(0)
+      const add = (await pageBody.getByRole('button', { name: 'Add skill', exact: true }).boundingBox())!
+      expect(add.x).toBeGreaterThanOrEqual(body.x)
+      expect(add.x + add.width).toBeLessThanOrEqual(body.x + body.width)
       expect(bounds.height).toBe(40)
       expect(await actions.count()).toBeGreaterThan(0)
       for (const action of await actions.all()) {
@@ -298,6 +227,9 @@ for (const theme of ['light', 'dark'] as const) {
         expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1)
       }
       expect(await head.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+      await pageBody.getByRole('radio', { name: 'All', exact: true }).click()
+      await expect(sheet.locator('[data-slot="library-attention"]')).toHaveCount(0)
+      await pageBody.getByRole('radio', { name: 'Needs you', exact: true }).click()
       await expect(sheet.locator('[data-slot="library-attention"] [data-part="banner-icon"]').first()).toBeVisible()
     }
   })

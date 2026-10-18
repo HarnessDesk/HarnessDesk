@@ -12,10 +12,11 @@ import type {
   ReachState,
 } from '@harnessdesk/protocol'
 
+import { libraryWriteToasts } from './LibraryWriteToast'
+vi.mock('./LibraryWriteToast', () => ({ libraryWriteToasts: vi.fn() }))
 import { StoreProvider } from '../state/context'
 import type { AppStore } from '../state/store'
 import {
-  LibraryHistory,
   AuthorDialog,
   ImportDialog,
   PlanDialog,
@@ -65,6 +66,7 @@ const storeWith = (
     subscribe: () => () => {},
     getSnapshot: () => ({}),
     transport: { request },
+    openDestination: vi.fn(),
   }) as unknown as AppStore
 
 const render = async (store: AppStore, node: React.ReactNode): Promise<void> => {
@@ -149,6 +151,9 @@ it('previews before it applies, and applies exactly what was previewed', async (
   expect(calls.map((one) => one.method)).toEqual(['library/plan', 'library/apply'])
   expect((calls[1]?.params as { ops: unknown }).ops).toEqual(ops)
   expect(applied).toHaveBeenCalledOnce()
+  expect(libraryWriteToasts).toHaveBeenLastCalledWith(ops, results, expect.any(Function))
+  vi.mocked(libraryWriteToasts).mock.calls.at(-1)![2]()
+  expect(store.openDestination).toHaveBeenCalledWith({ kind: 'library', section: 'changes' })
   expect(document.body.querySelector('[data-testid="apply-summary"]')?.textContent).toContain(
     '1 change made, 1 skipped.',
   )
@@ -551,15 +556,6 @@ it('the import direction can be reversed on a machine with exactly two agents', 
 })
 
 
-it('renders the change log with centred rows, tabular dates and outline restore controls', async () => {
-  const store = storeWith(async () => [1, 2].map(at => ({ kind: 'library/write', at, op: 'skill/update', name: 'Review', path: `${HOME}/skills/review/SKILL.md`, status: 'done', backupPath: `${HOME}/backups/review`, runtime: 'one' })))
-  await render(store, <LibraryHistory refreshedAt={0} home={HOME} onFlow={() => {}} />)
-  expect(container.querySelectorAll('[role="listitem"]')).toHaveLength(2)
-  expect(container.querySelector('[data-slot="separator"]')).toBeNull()
-  expect(container.querySelector('[data-role="meta"]')?.className).toContain('tabular-nums')
-  expect(container.querySelector('button')?.className).toContain('border-(--hd-btn-border)')
-})
-
 
 it('E6 import composes dialog slots without a title icon and gives search a glyph', async () => {
   await render(storeWith(async () => ({})), <ImportDialog library={libraryWith([])} columns={columns} onClose={() => {}} onPlan={() => {}} />)
@@ -577,16 +573,6 @@ it('E6 import composes dialog slots without a title icon and gives search a glyp
   expect([...dialog.querySelectorAll('[data-slot="dialog-footer"] button')].map(button => button.textContent)).toEqual(['Preview', 'Cancel'])
 })
 
-it('separates a change time from its path so both facts remain readable', async () => {
-  const at = Date.UTC(2026, 8, 30, 9)
-  const path = `${HOME}/skills/review/SKILL.md`
-  const store = storeWith(async () => [{ kind: 'library/write', at, op: 'skill/update', name: 'Review', path, status: 'done', runtime: 'one' }])
-  await render(store, <LibraryHistory refreshedAt={0} home={HOME} onFlow={() => {}} />)
-  const desc = container.querySelector('[data-slot="row-desc"]')!
-  const date = new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-  expect(desc.textContent).toBe(`${date} · ~/skills/review/SKILL.md`)
-  expect(desc.querySelector('[title]')?.getAttribute('title')).toBe(path)
-})
 
 const updateOp = (over: Partial<LibraryPlan['ops'][number]> = {}): LibraryPlan['ops'][number] => ({
   id: 'update', kind: 'skill', name: 'code-review', action: 'update', targetPath: '/home/jane/.alpha/skills/code-review', targetRuntime: runtimeId('one'),

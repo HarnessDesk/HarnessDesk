@@ -18,6 +18,7 @@ export const teamsInput = (snapshot: AppSnapshot, reports: ReadonlyMap<string,In
   seats:teamSeats(goal,team,execution).filter(hasConversation).map(seat=>({record:seat.record,name:seat.name,
    runtime:snapshot.runtimes.find(one=>one.id===seat.record.session.runtime) ?? null,
    session:snapshot.sessions.get(seat.key) ?? null,
+   paused:snapshot.queues.get(seat.key)?.status === 'paused',
    unreadSince:snapshot.inbox.find(one=>!one.read && one.from?.runtime===seat.record.session.runtime && one.from?.sessionId===seat.record.session.sessionId)?.at ?? null,
    approvals:snapshot.approvals.filter(one=>one.key===seat.key).map(one=>one.approval)})),
   run:execution?{execution,startedAt:execution.startedAt ?? null}:null,

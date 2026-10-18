@@ -367,7 +367,7 @@ test('development push diff fetches before beyond checkout depth and computes th
   const directory = mkdtempSync(join(tmpdir(), 'ci-push-range-'))
   const root = fileURLToPath(new URL('../', import.meta.url))
   const git = (args, cwd = root) => {
-    const run = spawnSync('git', args, { cwd, encoding: 'utf8' })
+    const run = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
     assert.equal(run.status, 0, run.stderr)
     return run.stdout
   }

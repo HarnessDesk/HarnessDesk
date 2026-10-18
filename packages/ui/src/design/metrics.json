@@ -743,6 +743,14 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
+  "control/toggle-group/variant/chips": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
   "control/toggle-group/variant/default": {
     "h": 26,
     "text": 14,
@@ -913,6 +921,14 @@
   },
   "section/section/variant/card": {
     "h": 86,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 10
+  },
+  "section/section/variant/document": {
+    "h": 107,
     "text": 14,
     "weight": "400",
     "line": 20,

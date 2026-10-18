@@ -114,7 +114,7 @@ The rail's ground is white like main (`--hd-background`, owner 2026-10-14), padd
 **The rest of the card:**
 
 - A folded card is its header alone, 42 tall.
-- A row (`ToolRow`) is 28 tall: a 16px icon in secondary ink, 8, the label, one trailing fact, and at most one small
+- A row (`Row density="compact"`) is 28 tall: a 16px icon in secondary ink, 8, the label, one trailing fact, and at most one small
   action. Stop uses danger ink.
 - More rows sit behind one quiet line (`ToolFold`): "All facts", "Show all".
 
@@ -240,7 +240,7 @@ A door only pre-fills it: Start a Team on a Flow picks that Flow.
 ## Built so far (foundation)
 
 - the spacing tokens (bar pad 12, rail 8, left rows 32, page stack 16, the panel-card tokens);
-- `ToolSection` as a card, with `ToolRow` and `ToolFold`;
+- `ToolSection` as a card, with `Row density="compact"` and `ToolFold`;
 - the panel ground;
 - the quiet switcher look;
 - the TopBar's state dot, title menu and title width.

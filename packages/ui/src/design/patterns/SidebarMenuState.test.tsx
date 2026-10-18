@@ -18,7 +18,7 @@ afterEach(() => {
   container.remove()
 })
 
-it.each(['Working', 'Needs you', 'Approval', 'Queued message', 'Question', 'Wrapping', 'Ready to wrap', 'Wrapped'])('names %s once while the chip and compact dot remain decorative', (label) => {
+it.each(['Working', 'Needs you', 'Approval', 'Queued message', 'Question', 'Wrapping', 'Wrapped'])('names %s once while the chip and compact dot remain decorative', (label) => {
   act(() => root.render(
     <SidebarMenu><SidebarMenuItem trailingMarks={2}>
       <SidebarMenuButton label={<span>Checkout <SidebarMenuState label={label} tone="warning" state="limit" /></span>} />
@@ -48,4 +48,13 @@ it('compact priority state has one named dot and no hidden chip', () => {
   expect(state.querySelector('[data-slot="dot"]')?.getAttribute('data-variant')).toBe('navigation')
   expect(state.querySelector('[data-slot="chip"]')).toBeNull()
   expect(state.querySelector('[data-sidebar-menu-state-full]')).toBeNull()
+})
+
+
+it('unseen news has a named compact blue state', () => {
+  act(() => root.render(<SidebarMenuState label="New" tone="info" state="new" compact />))
+  const state = container.querySelector('[data-slot="sidebar-menu-state"]')!
+  expect(state.getAttribute('aria-label')).toBe('New')
+  expect(state.querySelector('[data-slot="dot"]')?.getAttribute('data-state')).toBe('new')
+  expect(state.querySelector('[data-slot="chip"]')).toBeNull()
 })

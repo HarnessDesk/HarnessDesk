@@ -32,6 +32,7 @@
   background: var(--hd-success);
 }
 
+.dot[data-state='new'],
 .dot[data-state='signin'] {
   background: var(--hd-accent);
 }
@@ -1229,6 +1230,12 @@
   white-space: pre-wrap;
 }
 
+pre.mono:not([data-block])[data-wrap] {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Spaced code sets the spacing on the words it holds too, so a text role
    inside it (a one-time code at the page step) does not take its own
    tracking back. */
@@ -1547,3 +1554,24 @@
 /* A record can be unavailable to an agent while remaining editable here. */
 .row[data-unavailable] > .rowMark,
 .row[data-unavailable] [data-slot="row-title-name"] { opacity: 0.55; }
+
+
+/* A fact inside an already framed card keeps its compact, unruled pitch. */
+.row[data-density='compact'] {
+  min-height: var(--hd-panel-row-h);
+  padding: 0 var(--hd-inset-row);
+  gap: var(--hd-space-2);
+  flex-wrap: nowrap;
+}
+.row[data-density='compact']::after { display: none; }
+.row[data-density='compact'] .rowText { flex: 1; min-width: 0; }
+.row[data-density='compact'] .rowTitle { font-size: var(--hd-text-sm); font-weight: var(--hd-weight-normal); }
+.row[data-density='compact'] .rowFace { width: var(--hd-space-4); height: var(--hd-space-4); margin: 0; }
+.row[data-density='compact'] .rowFace > * { width: var(--hd-space-4); height: var(--hd-space-4); }
+.row[data-density='compact'] .rowCtl { flex: none; gap: var(--hd-space-2); }
+.row[data-density='compact'] .rowFixed { white-space: nowrap; }
+
+.row[data-density='compact'] .rowCtl:has(> .rowFixed:only-child:not([data-numeric])) {
+  flex-grow: 0;
+  margin-inline-start: auto;
+}

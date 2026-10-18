@@ -188,7 +188,7 @@ const SWITCH_CATALOG_VARIANTS = ['default'] as const
 const SWITCH_CATALOG_SIZES = ['default', 'sm'] as const
 const SWITCH_CATALOG_STATES = ['unchecked', 'checked', 'focus-visible', 'disabled'] as const
 const SWITCH_CATALOG_ON = ['true', 'false'] as const
-const TOGGLE_GROUP_CATALOG_VARIANTS = ['default', 'outline'] as const
+const TOGGLE_GROUP_CATALOG_VARIANTS = ['default', 'outline', 'chips'] as const
 const TOGGLE_GROUP_CATALOG_SIZES = ['default', 'sm', 'lg'] as const
 const TOGGLE_GROUP_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 const BUBBLE_CATALOG_VARIANTS = ['secondary', 'ghost'] as const
@@ -384,6 +384,7 @@ const StateBoard = () => (
         <Dot state="available" />
         <Dot state="signin" />
         <Dot state="limit" />
+        <Dot state="new" aria-label="New" />
         <Dot state="broken" />
         <Dot state="unknown" />
         <Dot state="signin" pulse />
@@ -562,7 +563,8 @@ const ControlBoard = () => {
             ]}
           />
           <div className="mt-2 flex flex-wrap gap-2">
-            {TOGGLE_GROUP_CATALOG_VARIANTS.map((variant) => (
+            {/* Chips render on their own row below, so this row skips them. */}
+            {TOGGLE_GROUP_CATALOG_VARIANTS.map((variant) => variant === 'chips' ? null : (
               <ToggleGroup key={variant} type="single" variant={variant} defaultValue="one" data-catalog-variant={variant}>
                 <ToggleGroupItem value="one">One</ToggleGroupItem>
                 <ToggleGroupItem value="two">Two</ToggleGroupItem>
@@ -574,6 +576,13 @@ const ControlBoard = () => {
                 <ToggleGroupItem value="two">Two</ToggleGroupItem>
               </ToggleGroup>
             ))}
+          </div>
+          {/* Chips get their own row so they cannot rewrap the existing size specimens. */}
+          <div className="mt-2">
+            <ToggleGroup type="single" variant="chips" defaultValue="one" data-catalog-variant="chips">
+              <ToggleGroupItem value="one">One</ToggleGroupItem>
+              <ToggleGroupItem value="two">Two</ToggleGroupItem>
+            </ToggleGroup>
           </div>
           </div>
         </Case>

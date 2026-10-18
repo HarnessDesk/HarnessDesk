@@ -182,8 +182,6 @@ test('a task is titled by its command, without the shell that wraps it', () => {
   assert.equal(taskLabel('NODE_ENV=test /usr/local/bin/node --inspect scripts/very-long-script-name.mjs --flag-one --flag-two'), 'node scripts/very-long-script-name.mjs…')
   // A semicolon inside quotes is part of the word, not a second command.
   assert.equal(taskLabel('sh -c "echo \\"a; b\\""'), 'echo "a; b"')
-  // Nothing to shorten to: the command as it came.
-  assert.equal(taskLabel('   '), '   ')
 })
 
 test('a task title never names a command that is not the one running', () => {
@@ -327,4 +325,68 @@ test('a command of only comments and breaks is never titled empty', () => {
     assert.ok(label.trim() && !/^[\s⏎…]*$/.test(label), JSON.stringify([line, label]))
     assert.ok(!label.includes('\n'), JSON.stringify(label))
   }
+})
+
+test('a line with nothing visible in it is titled by its kind, never blank or a bare ellipsis', () => {
+  // `String.prototype.trim` removes neither NEL (U+0085) nor a line that has
+  // already been flattened, so a command of nothing but display breaks walks
+  // through the whole of the title logic looking as if it had text in it. It
+  // has not: what a title has to carry is something a person can see, and a
+  // `command` task's noun is "Shell".
+  const nothing = [
+    '', '   ', '\t\t', '\n\n', '\r\n', '\u00a0\u00a0',
+    '\u0085'.repeat(3), '\u0085'.repeat(60),
+    // Characters that draw nothing at all, which no trim and no shell blank covers.
+    '\u00ad', '\u200b\u200b', '\u200d', '\u2060',
+    // A run of NEL and then an unterminated quote: the tokenizer gives up.
+    `${'\u0085'.repeat(50)}'abc`,
+    // A shell wrapper whose whole script is NEL.
+    `zsh -lc "${'\u0085'.repeat(60)}"`,
+    // A program word that is only NEL, with arguments after it.
+    `${'\u0085'.repeat(60)} --flag value-long-enough-to-need-a-cut`,
+  ]
+  for (const command of nothing) {
+    const context = JSON.stringify(command)
+    const label = taskLabel(command)
+    assert.equal(label, 'Shell', context)
+    assert.ok(!label.includes('\n'), context)
+  }
+})
+
+test('a title drops the blank a display break leaves at its edge', () => {
+  // A break the shell kept inside a word is blank on screen, so a word that
+  // ends or begins with one leaves nothing at that edge of the title.
+  assert.equal(taskLabel('echo\u0085'), 'echo')
+  assert.equal(taskLabel('\u0085echo'), 'echo')
+  // The same where the line could not be read for sure and is shown as it came.
+  assert.equal(taskLabel('\u0085echo $(node build.mjs)'), 'echo $(node build.mjs)')
+  // …and where the title was cut to the program and its first argument.
+  assert.equal(
+    taskLabel('\u0085echo --flag value-long-enough-to-need-a-cut-here'),
+    'echo value-long-enough-to-need-a-cut-here…',
+  )
+  // A mark that draws nothing at all is not text either, at either end.
+  assert.equal(taskLabel('\u200becho'), 'echo')
+  assert.equal(taskLabel('echo\u200b'), 'echo')
+  // A break with nothing on one side of it goes with the blanks at the edge.
+  assert.equal(taskLabel('echo a\n\u200b'), 'echo a')
+})
+
+test('a carriage return inside a word does not double the space around a break', () => {
+  // The shell keeps the `\r` in the word and ends the line at the `\n`; on
+  // screen the two are one break, with one space either side of the mark.
+  assert.equal(taskLabel('printf a\r\nb'), 'printf a ⏎ b')
+  assert.equal(taskLabel('printf a\r\nprintf b'), 'printf a ⏎ printf b')
+  // Inside quotes the pair is already one break, and stays one.
+  assert.equal(taskLabel('echo "a\r\nb"'), 'echo "a ⏎ b"')
+})
+
+test('a cut lands on a character boundary of the line after normalization', () => {
+  // The break becomes " ⏎ " before characters are counted, which moves the
+  // 48-character edge onto the emoji; the emoji is kept whole.
+  const command = `${'x'.repeat(43)}\n🚀🚀 $(node build.mjs)`
+  const label = taskLabel(command)
+  assert.equal(label, `${'x'.repeat(43)} ⏎ 🚀…`)
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(label), JSON.stringify(label))
+  assert.ok(!/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(label), JSON.stringify(label))
 })

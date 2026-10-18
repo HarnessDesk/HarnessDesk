@@ -765,7 +765,8 @@ const identityOf = (snapshot: AppSnapshot, info: RuntimeInfo | null, fallback: s
   }
   /* `?.` although the type says it is always there: this reads a runtime the
      card was handed, and a card must not be the thing that throws. */
-  return info.capabilities?.account ? `${name} · not signed in` : name
+  // Not until it has been asked (#1759): one nobody has checked yet may well be.
+  return info.capabilities?.account && !snapshot.accountsByRuntime[info.id]?.unchecked ? `${name} · not signed in` : name
 }
 
 /** The version that decides what models exist — the driven CLI's, not the bridge's. */

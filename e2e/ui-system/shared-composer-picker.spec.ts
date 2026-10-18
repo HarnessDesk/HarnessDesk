@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`${theme}: Browser and Conversation tiles clear the shared dock together`, async ({ page }) => {
+  test(`${theme}: Browser reaches the bottom while Conversation clears the floating shared dock`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 })
     // Independent preview stores default to the system theme too.
     await page.emulateMedia({ colorScheme: theme })
@@ -27,15 +27,16 @@ for (const theme of ['light', 'dark'] as const) {
     const box = dock.locator('[data-slot="composer-text"]')
     for (const draft of ['Compare the retry budget.', 'Compare the retry budget.\n'.repeat(24)]) {
       await box.fill(draft)
-      // The whole browser surface, including any footer controls, must end
-      // above the dock. Both bodies inherit the same measured clearance.
+      // The browser extends behind the dock; conversation content still
+      // inherits the measured clearance as the draft grows and shrinks.
       await expect.poll(() => grid.evaluate(node => {
         const dock = node.querySelector('[data-shared-composer]')!
         const tiles = [...node.querySelectorAll('[data-slot="side-by-side-tile"]')]
         const browser = tiles[0]!.querySelector('iframe')!.closest('[data-slot="tool-pane"]')!
         const bodies = tiles.map(tile => tile.querySelector('[data-clear-composer]')!)
         const height = dock.getBoundingClientRect().height
-        return browser.getBoundingClientRect().bottom <= dock.getBoundingClientRect().top + 1
+        return Math.abs(browser.getBoundingClientRect().bottom - tiles[0]!.getBoundingClientRect().bottom) <= 1
+          && browser.getBoundingClientRect().bottom > dock.getBoundingClientRect().top
           && bodies.every(body => Math.abs(parseFloat(getComputedStyle(body).getPropertyValue('--shared-composer-h')) - height) <= 1)
       })).toBe(true)
       if (process.env.HD_MERGED_FRAMES && !draft.includes('\n')) {

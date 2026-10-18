@@ -230,6 +230,7 @@
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
 --hd-notice-bar = 3px
+--hd-page-aside = 320px
 --hd-page-gutter = 24px
 --hd-page-stack = 16px
 --hd-page-wide = 1320px
@@ -812,6 +813,7 @@
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
 --hd-notice-bar = 3px
+--hd-page-aside = 320px
 --hd-page-gutter = 24px
 --hd-page-stack = 16px
 --hd-page-wide = 1320px
@@ -1400,6 +1402,7 @@
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
 --hd-notice-bar = 3px
+--hd-page-aside = 320px
 --hd-page-group-gap = 0px
 --hd-page-gutter = 24px
 --hd-page-stack = 16px
@@ -1991,6 +1994,7 @@
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
 --hd-notice-bar = 3px
+--hd-page-aside = 320px
 --hd-page-group-gap = 0px
 --hd-page-gutter = 24px
 --hd-page-stack = 16px
