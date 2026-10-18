@@ -864,7 +864,7 @@ test('history and cached reads do not restart a finished Seat quiet interval', a
 })
 
 for (const recoverRecord of [false, true]) {
-  test(`a manually assigned completed Seat rests after restart ${recoverRecord ? 'with' : 'without'} a registry record`, async (t) => {
+  test(`a manually assigned completed Seat rests after restart ${recoverRecord ? 'with' : 'without'} a registry record`, { timeout: 10_000 }, async (t) => {
     const d = await seated(t, new IdleRuntime(), 60_000)
     await d.finish()
     await d.host.dispose()
@@ -879,7 +879,15 @@ for (const recoverRecord of [false, true]) {
     if (recoverRecord) {
       await host.call('session/resume', { runtime: runtime.info.id, sessionId: d.record.session.id })
     } else assert.equal(host.registry.get(runtime.info.id, d.record.session.id), undefined)
-    await pause(150)
+    // The reaper releases the handle asynchronously before stopping the runtime.
+    // Observe its completed transition instead of assuming a poll finished in time.
+    await new Promise<void>((resolve) => {
+      const unsubscribe = runtime.onHealthChange((health) => {
+        if (health.state === 'idle') resolve()
+      })
+      t.after(unsubscribe)
+      if (runtime.health().state === 'idle') resolve()
+    })
     assert.equal(runtime.health().state, 'idle', 'durable held-card history does not need a live registry record')
     const view = await host.call('goal/read', { goal: d.goal.id }) as GoalView
     assert.equal(view.members[0]?.closed, null)
