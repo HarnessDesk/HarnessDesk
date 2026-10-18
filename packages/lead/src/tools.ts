@@ -4,6 +4,7 @@ import type { LeadJournal, LeadDispatchResult } from './journal.js'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadDeskPort } from './ports.js'
 import type { MessagesToolUse, MessagesToolScope } from './messages-types.js'
+import { leadRoundId } from './budget.js'
 import { leadReviewedResultSource } from './recipes/reviewed-result.js'
 
 export class LeadToolRefusedError extends Error { constructor() { super('lead-tool-refused') } }
@@ -102,7 +103,7 @@ export const createLeadTools = (options: LeadToolsOptions) => {
     if (call.method !== 'flow/start-goal') return { value, identity: null }
     const run = value as { id: string; goal: string; rounds: readonly { n: number }[] }
     if (!run || typeof run.id !== 'string' || typeof run.goal !== 'string' || !Number.isSafeInteger(run.rounds?.[0]?.n)) fail()
-    pending.set(correlationId, { goalId: run.goal, executionId: run.id, firstRoundId: String(run.rounds[0]!.n) })
+    pending.set(correlationId, { goalId: run.goal, executionId: run.id, firstRoundId: leadRoundId(run.id, run.rounds[0]!.n) })
     return { value, identity: { correlationId, runId: run.id, teamId: run.goal } }
   }
   const settleStarts = async (): Promise<void> => {

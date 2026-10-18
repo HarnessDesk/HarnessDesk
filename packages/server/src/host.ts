@@ -9,7 +9,7 @@ import { AccountReads } from './account-reads.js'
 import { resumeSeatSession } from './session-resume.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -120,6 +120,10 @@ import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
+import { LeadAdmission } from './lead/admission.js'
+import { LeadBudgets } from './lead/budgets.js'
+import type { LeadJournal } from '@harnessdesk/lead'
+import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
@@ -814,6 +818,17 @@ export class Host {
   readonly #goals: GoalPlane
   /** The findings ledger's one writer: every finding event is appended through it, one project at a time. */
   readonly #findings: FindingsPlane
+  /** Host enforcement outlives the child; a missing journal refuses recovered dispatch. */
+  readonly #leadBudgets = new LeadBudgets({
+    now: () => Date.now(),
+    usage: (project, from, to) => this.#usageOf(project, from, to),
+    seats: () => this.#evidence.seats.all(),
+    delegation: seat => this.#delegationUncertainRuntimes.has(seat.session.runtime) ? 'unknown' : 'none',
+    runs: () => this.#flows.leadRuns(),
+    member: async project => { try { await this.#confineRoom(project.path); return true } catch { return false } },
+    interruptChecks: goal => this.#flows.interruptChecks(goal),
+    stop: (run, reason) => this.#flows.stopRun(run, reason, 'desk'),
+  })
   /** The closed-round publisher: one operation at a time, journaled in each run's own file. */
   readonly #publications: Publications
   /** Deadlines on questions unattended flow Seats ask. */
@@ -1450,6 +1465,7 @@ export class Host {
             this.#runtime({ runtime: seat.session.runtime }).info.capabilities.interrupt) await record.live.interrupt()
       },
       laneOf: (seat) => this.#lanes.forSeat(seat.id),
+      holdLeadSeat: async (seat, level) => (await this.#holdSeat(seat.session.runtime, seat.session.sessionId, level)).ceiling.hold === 'held',
       reseat: async (seat) => {
         const live = await this.#teamLive(seat.session.runtime as RuntimeId, seat.session.sessionId)
         await this.#applySeatPicks(live, seat.seat)
@@ -1486,6 +1502,7 @@ export class Host {
        * order, each judged against git now, never the board's folded display
        * projection. The engine builds the subjects and judges them itself.
        */
+      lead: this.#leadBudgets,
       facts: async (goal) => {
         const state = this.#goalState(goal)
         return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
@@ -1635,6 +1652,7 @@ export class Host {
     })
     this.#team.attachFindings(this.#findings)
     this.#publications = new Publications({
+      localOnly: run => this.#flows.isLeadManaged(run),
       journal: (run, step) => this.#flows.withPublicationJournal(run, step),
       runs: () => this.#flows.publicationRuns(),
       run: (run) => {
@@ -2602,6 +2620,9 @@ export class Host {
         error: error instanceof Error ? error.message : String(error),
       })
     })
+    await this.#leadBudgets.recover().catch((error: unknown) => {
+      this.#logger.warn('Lead recovery cleanup remains pending', { error: error instanceof Error ? error.message : String(error) })
+    })
     // After the runs: a finding command a stop left part-way is settled from
     // its run's own journal, before any Seat can ask for another.
     await this.#findings.recover()
@@ -3298,6 +3319,14 @@ export class Host {
        approval of a session was still appending to `audit.ndjson` after
        `dispose()` had resolved. */
     await this.#audit.flush()
+  }
+
+  /** The supervisor registers the host journal before recovery, and keeps this
+   * registration across child crashes. No wire field can create one. */
+  registerLead(journal: LeadJournal, project: LeadProject): { admission: LeadAdmission; close: () => void } {
+    const close = this.#leadBudgets.register(journal)
+    return { admission: new LeadAdmission({ journal, project, budgets: this.#leadBudgets, previews: this.#flowPreviews,
+      now: () => Date.now(), nextId: () => `lead-start-${randomUUID()}` }), close }
   }
 
   /** Answers are a live per-desk choice, never a connection's cached grant.
@@ -4459,6 +4488,7 @@ export class Host {
       team: this.#team,
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
+      leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,
       authoring: this.#authoring,
       frontDoor: {
@@ -7746,7 +7776,10 @@ export class Host {
     if ((event.type === 'turn/started' || event.type === 'turn/completed') && record) {
       const seated = this.#evidence.seats.all().find((candidate) => candidate.session.runtime === runtime &&
         candidate.session.sessionId === record.session.id && !candidate.closed && !candidate.restored)
-      if (seated?.board) this.#intake.turn(seated, event.type === 'turn/started' ? 'started' : 'ended')
+      if (seated?.board) {
+        this.#intake.turn(seated, event.type === 'turn/started' ? 'started' : 'ended')
+        this.#leadBudgets.turn(seated, event.type === 'turn/started' ? 'started' : 'ended')
+      }
     }
     if (event.type === 'turn/started' && record) {
       // The opened row already owns its Team facts. Promotion publishes it immediately;

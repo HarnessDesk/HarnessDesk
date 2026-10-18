@@ -21,6 +21,7 @@ export type ClientConnectionRequest = {
 
 /** Trusted host input only. No hello field can install or modify a policy. */
 export interface ClientConnectionPolicy {
+  readonly preview?: (params: HostParams<'flow/preview'>) => Promise<import('@harnessdesk/protocol').FlowPreview>
   readonly identity: string
   readonly maximumTiers: readonly ClientTier[]
   /** Called after wire validation and before host dispatch; null admits the call. */
@@ -159,6 +160,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
   const logger = options.logger.child('client')
   const policy = options.policy === undefined ? undefined : Object.freeze({
     identity: options.policy.identity,
+    preview: options.policy.preview,
     maximumTiers: Object.freeze([...options.policy.maximumTiers]),
     authorize: options.policy.authorize,
   })
@@ -415,6 +417,8 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
               ? await filterAllowed(await options.host.call('flow/executions', parsed.params as HostParams<'flow/executions'>), runRequest)
               : parsed.method === 'team/intent'
               ? await options.host.clientIntent(parsed.params as HostParams<'team/intent'>, identity)
+              : parsed.method === 'flow/preview' && policy?.preview
+              ? await policy.preview(parsed.params as HostParams<'flow/preview'>)
               : await options.host.call(parsed.method, parsed.params as never)
             send({ id, ok: true, result })
           }

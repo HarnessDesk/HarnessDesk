@@ -7,6 +7,7 @@ import type { Host } from '../host.js'
 /** All inputs come from the host's approved contract and journal, never hello or
  * model arguments. Step 8 supplies the start hook; absence refuses every start. */
 export interface LeadClientAuthorityOptions {
+  readonly admission?: import('./admission.js').LeadAdmission
   readonly host: Pick<Host, 'call'>
   readonly project: string
   readonly owned: readonly { readonly goal: string; readonly run: string }[]
@@ -19,9 +20,9 @@ export interface LeadClientAuthorityOptions {
 export const createLeadClientAuthority = async (options: LeadClientAuthorityOptions): Promise<ClientConnectionPolicy> => {
   const project = await fs.realpath(options.project)
   const host = options.host
-  const authorizeStart = options.authorizeStart
+  const authorizeStart = options.admission?.authorizeStart ?? options.authorizeStart
   const initialOwned = options.owned.map(({ goal, run }) => Object.freeze({ goal, run }))
-  const readOwned = options.readOwned ?? (() => initialOwned)
+  const readOwned = options.admission?.readOwned ?? options.readOwned ?? (() => initialOwned)
   const runs = () => new Map(readOwned().map(({ goal, run }) => [run, goal]))
   const maximumTiers = Object.freeze((options.maximumTiers ?? ['read', 'run']).filter(tier => tier === 'read' || tier === 'run'))
   const inProject = async (path: string) => await fs.realpath(path) === project
@@ -37,12 +38,15 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
   }
   return Object.freeze({
     identity: 'lead', maximumTiers,
+    preview: options.admission?.preview,
     authorize: async request => {
       try {
         if (clientTierFor(request.method, request.params) === 'answer') return 'tierNotGranted'
         // Re-resolve the pinned location, including on reads, rather than allowing
         // a renamed/deleted project to be replaced by a new alias at dispatch.
         if (!await inProject(project)) return 'leadScope'
+        // Goal-level reads cover every execution on an owned Goal, including
+        // one a person continued. Run-level reads stay ownership-scoped.
         // Lead reads cover only this contract's owned Goals and runs, inside
         // its canonical project. The door filters collections and subscriptions
         // with the same single-read checks; project scope never grants ownership.

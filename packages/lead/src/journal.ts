@@ -195,6 +195,9 @@ export { LEAD_MANAGEMENT_REASONS } from '@harnessdesk/protocol'
 /** One serialized management writer. All effects use injected ports; this module owns
  * no files, processes, network, clock or ID generator. IDs come from its trusted owner. */
 export class LeadJournal {
+  readonly #listeners = new Set<() => void>()
+  /** Durable changes only. Observers schedule host work outside the journal queue. */
+  onChange(listener: () => void): () => void { this.#listeners.add(listener); return () => { this.#listeners.delete(listener) } }
   #state: LeadState
   #tail: Promise<unknown> = Promise.resolve()
   #failed = false
@@ -236,6 +239,7 @@ export class LeadJournal {
     try { await this.storage.append(record) }
     catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
     this.#state = next
+    for (const listener of this.#listeners) { try { listener() } catch { /* Observers cannot undo a durable write. */ } }
   }
   setManagementPhase(phase: 'planning' | 'waiting-for-user', reason: string | null = null): Promise<void> { return this.#queue(async () => {
     if (this.#state.phase === phase && this.#state.managementReason === reason) return

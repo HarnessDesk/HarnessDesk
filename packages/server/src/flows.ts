@@ -410,6 +410,12 @@ export class Flows implements TeamFlows {
     return this.#executions.previewCheck(run, card)
   }
 
+  /** Host-only ownership facts; never returned by a wire method. */
+  leadRuns(): readonly StoredFlowExecution[] {
+    return (this.#executions?.runs() ?? []).flatMap(run => { const stored = this.#executions!.stored(run.id); return stored?.lead ? [stored] : [] })
+  }
+  isLeadManaged(run: string): boolean { return this.#executions?.stored(run)?.lead !== undefined }
+
   storedRun(run: string): { readonly source: string; readonly vars: Readonly<Record<string, string>>; readonly compiled: CompiledFlow } | null {
     const stored = this.#executions?.stored(run)
     return stored ? { source: stored.source, vars: stored.vars, compiled: stored.compiled } : null

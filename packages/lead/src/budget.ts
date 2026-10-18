@@ -1,6 +1,9 @@
 import { LEAD_LIMITS, nextLeadRevision, parseLeadBudgetEvent, parseLeadBudgetState, parseLeadCardDecisionFor,
   type LeadBudgetEvent, type LeadBudgetState, type LeadCard, type LeadCardDecision } from '@harnessdesk/protocol'
 
+/** The host and child use the same identity at start settlement and recovery. */
+export const leadRoundId = (run: string, round: number): string => `${run}:round:${round}`
+
 type Event<T extends LeadBudgetEvent['type']> = Extract<LeadBudgetEvent, { type: T }>
 interface Request { readonly reservation: Event<'reserve'>; readonly uncertain: boolean }
 interface Settled { readonly id: string; readonly digest: string; readonly usdMicros: number }

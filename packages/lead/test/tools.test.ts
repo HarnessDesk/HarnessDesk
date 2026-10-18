@@ -78,3 +78,12 @@ test('tool resolution itself refuses expired consent', async () => {
     (error: unknown) => error instanceof LeadToolRefusedError)
   assert.equal(s.journal.state.attempts.size, 0)
 })
+
+test('start settlement uses the same stable host round identity as recovery', async () => {
+  const s = await fixture(); await s.approve()
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  const source = (await import('../src/index.js')).leadReviewedResultSource
+  await tools.execute({ method: 'flow/start-goal', params: { root: project.path, source, token: 'preview-1', sentence: contract.goal,
+    vars: {}, attended: true, seats: { implement: [contract.steps[0]!.assignments[0]!.seat], review: [contract.steps[0]!.assignments[1]!.seat] } } })
+  assert.equal(s.journal.state.budget!.rounds[0]!.roundId, 'run-1:round:1')
+})
