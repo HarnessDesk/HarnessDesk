@@ -4,6 +4,8 @@ import { useTheme } from '../src/state/theme'
 import { dashboardData, DashboardScene } from './dashboard'
 import { isDashboardScene, SCENES, type SceneName } from './scenes'
 import { PageSceneBody, usePageStore, type PageSceneName } from './pages'
+import { RaceScene } from './race'
+import { raceStore } from '../src/preview/readme-race'
 import type { AppStore } from '../src/state/store'
 import './scene.css'
 
@@ -52,5 +54,11 @@ const Page = ({ name, theme, motion }: { name: PageSceneName; theme: 'light' | '
   return <StoreProvider store={store}><SceneBody name={name} motion={motion} store={store}><PageSceneBody store={store} width={width} height={height} /></SceneBody></StoreProvider>
 }
 
+const Race = ({ theme, motion }: { theme: 'light' | 'dark'; motion?: 'reduce' }) => {
+  const store = useMemo(() => raceStore(theme), [])
+  return <StoreProvider store={store}><SceneBody name="hero-race" motion={motion} store={store}><RaceScene store={store} motion={motion} /></SceneBody></StoreProvider>
+}
+
 export const SiteScene = ({ name, theme = 'light', motion }: { name: SceneName; theme?: 'light' | 'dark'; motion?: 'reduce' }) =>
-  isDashboardScene(name) ? <Dashboard name={name} theme={theme} motion={motion} /> : <Page name={name} theme={theme} motion={motion} />
+  name === 'hero-race' ? <Race theme={theme} motion={motion} />
+    : isDashboardScene(name) ? <Dashboard name={name} theme={theme} motion={motion} /> : <Page name={name} theme={theme} motion={motion} />

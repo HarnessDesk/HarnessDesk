@@ -11,6 +11,8 @@ export const SCENES = {
   'tour-library': { width: 800, height: 500 },
   'tour-runtimes': { width: 800, height: 500 },
   'tour-chats': { width: 800, height: 500 },
+  // The hero: the README's race, Side by side on two Browsers.
+  'hero-race': { width: 1200, height: 750 },
 } as const
 
 export type SceneName = keyof typeof SCENES
