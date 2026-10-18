@@ -3723,9 +3723,11 @@ The journal retains the newest 4,096 send receipts in admission order. Recent
 retries return the first receipt without appending; an evicted key is a new send.
 Eviction is part of the reducer, so recovery preserves exactly the same window.
 
-A settings update changes exactly one category: credential, policy or budget
-caps. Each category has a separate revision fence and reviewable result; combining
-them would allow a credential write to succeed before another category refused.
+A credential update is exclusive, so a key write cannot succeed before another
+category refuses. Policy and budget caps may change together under one revision
+fence. Both changes are validated and their cards checked for combined projection
+fit on the journal queue before either is appended; each widening still has its
+own reviewable card. This supersedes the earlier one-category authority rule.
 
 The supervisor gives a send a 180-second deadline. Three transport attempts of
 30 seconds and two retry waits of at most 30 seconds fit below it. On expiry the

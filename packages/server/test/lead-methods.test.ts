@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createLeadLoop, createLeadJournal, leadCheckpoint, parseLeadCheckpoint, type LeadJournalRecord } from '@harnessdesk/lead'
-import { parseLeadAcceptanceContract, type WireNotification } from '@harnessdesk/protocol'
+import { parseLeadAcceptanceContract, type LeadCard, type WireNotification } from '@harnessdesk/protocol'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 
 const key = 'sk-test-not-real-0000'
@@ -32,7 +32,8 @@ const rig = async (over: { configured?: boolean; service?: Record<string, any>; 
     async assertPublic(value: unknown) { if (JSON.stringify(value).includes(key)) throw new Error('lead-secret-refused') },
     async send(value: unknown) { sends.push(value); return { status: 'completed', text: 'Ready to inspect' } }, ...over.service }
   const { LeadControls } = await controlsModule()
-  const controls = new LeadControls({ journal, service, project, model: 'fixture-model', now: () => 100, nextId: () => `card-${journal.state.seq + 1}`,
+  let nextCard = 0
+  const controls = new LeadControls({ journal, service, project, model: 'fixture-model', now: () => 100, nextId: () => `card-${++nextCard}`,
     push: (value: WireNotification) => notifications.push(value), decidePerson: async (...args: unknown[]) => { answers.push(args) }, decideResult: async (...args: unknown[]) => { answers.push(args) }, ...over.controls })
   const ctx = { leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p),
     leadCardDecide: (p: unknown) => controls.decide(p), leadSettingsRead: () => controls.readSettings(),
@@ -423,9 +424,10 @@ test('control revision fence rejects before journal policy or cap writers', asyn
   for (const update of [{ policy: { ...policy, revision: 2, mode: 'plan' } }, { caps: { usdMicros: 5, rounds: 1 } }])
     await assert.rejects(s.controls.updateSettings({ expectedRevision: 0, ...update }), code('lead-revision-stale'))
 })
-test('settings updates contain exactly one category', async () => {
+test('settings updates require authority changes or an exclusive credential change', async () => {
   const s = await rig(), before = s.journal.state
-  for (const update of [{}, { caps: { usdMicros: 5, rounds: 1 }, policy: { ...policy, revision: 2, mode: 'plan' } }])
+  for (const update of [{}, { credential: { provider: 'anthropic', key }, caps: { usdMicros: 5, rounds: 1 } },
+    { credential: { provider: 'anthropic', key }, policy: { ...policy, revision: 2, mode: 'plan' } }])
     await assert.rejects(s.controls.updateSettings({ expectedRevision: before.seq, ...update }), code('lead-settings-one-change'))
   assert.deepEqual(s.journal.state, before)
 })
@@ -611,12 +613,83 @@ test('server wayOut is resume for a person wait without an actionable card', asy
   assert.equal(projection.wayOut, 'resume'); assert.equal(projection.waitReason, 'lead-request-failed')
 })
 
-test('an unanswered message with a paid request in flight does not advertise crash recovery', async () => {
-  const s = await rig()
-  await s.journal.appendMessage('inflight', 'Inspect')
-  await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'held-request', inputTokens: 1, maxOutputTokens: 1,
-    inputUsdMicrosPerMillion: 1000000, outputUsdMicrosPerMillion: 1000000, cacheReadUsdMicrosPerMillion: 1000000, cacheWriteUsdMicrosPerMillion: 1000000 })
-  assert.equal((await s.controls.readThread()).wayOut, null)
+test('an unanswered message with a held local request does not advertise crash recovery', async () => {
+  let release!: () => void, began!: () => void
+  const started = new Promise<void>(resolve => { began = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const s = await rig({ configured: true, service: { async send() { began(); await held; return { status: 'completed' } } } })
+  try {
+    await s.controls.send({ idempotencyKey: 'inflight', text: 'Inspect' }); await started
+    await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'held-request', inputTokens: 1, maxOutputTokens: 1,
+      inputUsdMicrosPerMillion: 1000000, outputUsdMicrosPerMillion: 1000000, cacheReadUsdMicrosPerMillion: 1000000, cacheWriteUsdMicrosPerMillion: 1000000 })
+    assert.equal((await s.controls.readThread()).wayOut, null)
+    assert.equal((await s.controls.readThread()).requestInFlight, true)
+  } finally { release(); await s.controls.idle(); s.controls.close() }
+})
+
+for (const reopen of [false, true]) for (const action of ['send', 'resume'] as const)
+  test(`a stale reservation permits ${action} ${reopen ? 'after reopen' : 'after a failed child'}`, async () => {
+    const s = await rig({ configured: true })
+    s.service.send = async () => {
+      await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'dead-child', inputTokens: 1, maxOutputTokens: 1,
+        inputUsdMicrosPerMillion: 1000000, outputUsdMicrosPerMillion: 1000000, cacheReadUsdMicrosPerMillion: 1000000, cacheWriteUsdMicrosPerMillion: 1000000 })
+      throw new Error('lead-send-deadline')
+    }
+    await s.controls.send({ idempotencyKey: 'interrupted', text: 'Inspect' }); await s.controls.idle()
+    if (reopen) s.controls.close()
+    const journal = reopen ? await createLeadJournal(s.storage) : s.journal
+    const requests: unknown[] = []
+    const { LeadControls } = await controlsModule()
+    s.service.send = async (request: unknown) => {
+      requests.push(request)
+      await journal.recoverUnsettledRequests()
+      return { status: 'completed', text: 'Recovered' }
+    }
+    const controls = reopen ? new LeadControls({ journal, service: s.service, project, model: 'fixture-model', now: () => 100, nextId: () => 'recovered', push() {}, decidePerson: async () => {}, decideResult: async () => {} }) : s.controls
+    try {
+      assert.equal(journal.state.budget!.requests.filter(request => !request.uncertain).length, 1)
+      const projection = await controls.readThread()
+      assert.equal(projection.requestInFlight, false)
+      assert.equal(projection.wayOut, 'resume')
+      assert.equal(projection.waitReason, 'lead-request-failed')
+      await (action === 'send' ? controls.send({ idempotencyKey: 'recover', text: 'Try again' }) : controls.resume({ expectedRevision: projection.revision }))
+      await controls.idle()
+      assert.equal(requests.length, 1)
+      assert.equal(journal.state.budget!.requests[0]!.uncertain, true)
+    } finally { controls.close() }
+  })
+
+for (const check of ['wake', 'projection'] as const) test(`approve during a held request preserves the ${check}`, async () => {
+  let releaseFirst!: () => void, releaseSecond!: () => void, began!: () => void, second!: () => void
+  const firstStarted = new Promise<void>(resolve => { began = resolve }), secondStarted = new Promise<void>(resolve => { second = resolve })
+  const firstHeld = new Promise<void>(resolve => { releaseFirst = resolve }), secondHeld = new Promise<void>(resolve => { releaseSecond = resolve })
+  const requests: any[] = [], published: WireNotification[] = [], duringSecond: WireNotification[] = []
+  let secondRunning = false
+  const s = await rig({ configured: true, service: { async send(request: any) {
+    requests.push(request)
+    if (requests.length === 1) { began(); await firstHeld } else { secondRunning = true; second(); await secondHeld; secondRunning = false }
+    return { status: 'completed', text: 'Reply' }
+  } }, controls: { push(notification: WireNotification) { published.push(notification); if (secondRunning) duringSecond.push(notification) } } })
+  try {
+    await s.journal.offerCard(plan)
+    await s.controls.send({ idempotencyKey: 'held', text: 'Inspect' }); await firstStarted
+    await s.controls.decide(planClick)
+    releaseFirst()
+    // idle detects a lost wake without hanging on a second request that never starts.
+    if (check === 'wake') { releaseSecond(); await s.controls.idle() }
+    else {
+      await within(secondStarted, 1000)
+      await new Promise(resolve => setTimeout(resolve, 0))
+      assert.ok(duringSecond.length > 0)
+      assert.ok(duringSecond.every((notification: any) => notification.params.requestInFlight === true))
+      const latest = (published.at(-1) as any).params
+      assert.equal(latest.requestInFlight, true, 'latest published projection while the second request runs')
+      assert.ok(latest.revision > s.journal.state.messages.find(message => message.role === 'assistant')!.revision)
+      assert.equal((await s.controls.readThread()).requestInFlight, true)
+    }
+  } finally { releaseFirst(); releaseSecond(); await s.controls.idle(); s.controls.close() }
+  assert.equal(requests.length, 2)
+  assert.equal(s.journal.state.messages.map(message => message.role[0]).join(''), 'uaa')
+  assert.ok(requests.every(request => request.messages.at(-1).role === 'user'))
 })
 
 for (const action of ['approve', 'resume'] as const) test(`${action} commits and continues despite a failed response projection`, async () => {
@@ -676,6 +749,36 @@ for (const kind of ['policy', 'caps'] as const) test(`a ${kind} settings card mu
     { policy: { ...policy, revision: 2, mode: 'manage' } } : { caps: { ...contract.caps, rounds: 6 } }) }), code('lead-card-too-large'))
   assert.deepEqual(s.journal.state, before)
   await s.controls.readThread(); s.controls.close()
+})
+
+test('combined policy and caps cards are both admitted or neither is made', async () => {
+  const s = await rig({ configured: true })
+  const proposed = { ...policy, revision: 2, mode: 'manage' as const }
+  const update = { policy: proposed, caps: { ...contract.caps, rounds: 6 } }
+  const { admitLeadCard } = await import('../src/lead/projection.js')
+  const permission = { version: 1 as const, id: 'card-1', revision: 1, type: 'permission-change' as const, contractDigest: null, previous: policy, proposed }
+  const fill = (i: number, length: number) => ({ ...plan, id: `fill-${i}`, contract: { ...contract, goal: 'g'.repeat(length) } })
+  // Fill to the exact boundary at which the policy card fits but adding caps cannot.
+  const admitWithPolicy = (card: LeadCard) => admitLeadCard({ ...s.journal.state, cards: [...s.journal.state.cards, card] }, permission, project, 'fixture-model')
+  let i = 0
+  while (i < 64) { try { await s.journal.offerCard(fill(i, 16000), admitWithPolicy); i++ } catch { break } }
+  let lo = 1, hi = 16000
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; try { admitWithPolicy(fill(i, mid)); lo = mid } catch { hi = mid - 1 } }
+  await s.journal.offerCard(fill(i, lo), admitWithPolicy)
+  const before = s.journal.state
+  admitLeadCard(before, permission, project, 'fixture-model')
+  try {
+    await assert.rejects(s.controls.updateSettings({ expectedRevision: before.seq, ...update }), code('lead-card-too-large'))
+    assert.deepEqual(s.journal.state, before)
+  } finally { s.controls.close() }
+  // With room for both cards, the same combination creates both reviewable proposals.
+  const fresh = await rig({ configured: true })
+  try {
+    await fresh.controls.updateSettings({ expectedRevision: fresh.journal.state.seq, ...update })
+    assert.deepEqual(fresh.journal.state.cards.map(card => card.type), ['permission-change', 'budget-change'])
+    assert.deepEqual(fresh.journal.state.policy, policy)
+    assert.deepEqual(fresh.journal.state.budget!.caps, contract.caps)
+  } finally { fresh.controls.close() }
 })
 
 for (const stop of ['decline', 'budget'] as const) test(`a ${stop} before detached start prevents paid work and replies`, async () => {

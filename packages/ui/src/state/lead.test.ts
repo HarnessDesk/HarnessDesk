@@ -87,3 +87,12 @@ it('a successful projection at the error revision clears the error and allows cr
   await facade.updateSettings({ credential: { provider: 'anthropic', key: null } })
   expect(request).toHaveBeenLastCalledWith('lead/settings/update', { expectedRevision: 7, credential: { provider: 'anthropic', key: null } })
 })
+
+it('copies requestInFlight into state and clears it on the next idle projection', async () => {
+  const { createLeadState } = await load()
+  const facade = createLeadState({ request: vi.fn() }, () => true)
+  facade.changed({ method: 'lead/changed', params: { ...projection(1), requestInFlight: true } })
+  expect(facade.state.requestInFlight).toBe(true)
+  facade.changed({ method: 'lead/changed', params: projection(2) })
+  expect(facade.state.requestInFlight).toBe(false)
+})

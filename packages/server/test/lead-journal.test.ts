@@ -769,6 +769,9 @@ for (const cycles of [1, 2100]) test(`pruned settings cards survive file rotatio
   assert.deepEqual(reopened.state, live)
   assert.equal(Object.keys(live.cardRevisions).length, 0)
   assert.ok(live.decidedCards.length <= 256)
+  assert.equal(live.decidedCards.length, Math.min(cycles, 256))
+  if (cycles >= 256) await assert.rejects(reopened.decideCard({ version: 1, cardId: `caps-${cycles - 256}`, cardType: 'budget-change', expectedRevision: 1, contractDigest: null, choice: 'decline' }),
+    (error: any) => error.wireCode === 'lead-card-decided')
   await assert.rejects(reopened.decideCard({ version: 1, cardId: 'caps-0', cardType: 'budget-change', expectedRevision: 1, contractDigest: null, choice: 'decline' }),
     (error: any) => error.wireCode === (cycles > 256 ? 'lead-card-stale' : 'lead-card-decided'))
 })

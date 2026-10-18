@@ -751,9 +751,10 @@ test('a failed public scan recovers at the same revision and arbitrary values ar
   let broken = true
   s.broker.resolveLead = async () => { if (broken) throw new Error('locked'); return resolve() }
   const revision = s.journal.state.seq
-  await assert.rejects(s.service.assertPublic('Ready'), (error: any) => error.wireCode === 'lead-protection-unavailable')
+  await assert.rejects(s.service.assertPublic('Ready', revision), (error: any) => error.wireCode === 'lead-protection-unavailable')
   broken = false
-  await s.service.assertPublic('Ready')
+  await assert.rejects(s.service.assertPublic({ text: key }, revision), (error: any) => error.wireCode === 'lead-secret-refused')
+  await s.service.assertPublic('Ready', revision)
   await assert.rejects(s.service.assertPublic(key), (error: any) => error.wireCode === 'lead-secret-refused')
   assert.equal(s.journal.state.seq, revision)
 })

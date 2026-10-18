@@ -101,7 +101,7 @@ export class LeadControls {
     return result
   }
   #inFlight(): boolean {
-    return this.#requestInFlight || !!this.options.journal.state.budget?.requests.some(request => !request.uncertain)
+    return this.#requestInFlight
   }
   #wayOut(state: LeadState): LeadWindowProjection['wayOut'] {
     if (['stopped', 'accepted', 'declined'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked) return null
@@ -116,7 +116,7 @@ export class LeadControls {
   }
   #unanswered(): boolean {
     const state = this.options.journal.state
-    return !this.#continuation && !state.budget?.requests.some(request => !request.uncertain) && state.messages.at(-1)?.role === 'user'
+    return !this.#continuation && state.messages.at(-1)?.role === 'user'
   }
   readThread(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }
   readSettings(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }
@@ -142,12 +142,16 @@ export class LeadControls {
   }
   #detachContinue(): void {
     if (this.#closed) return
+    const publishFlight = !this.#requestInFlight
     this.#requestInFlight = true
     if (this.#continuation) { this.#continueAgain = true; return }
     // A timer yields the durable receipt/projection to the caller before any paid work.
     const work = new Promise<void>(resolve => setTimeout(resolve, 0)).then(async () => {
       this.#continueAgain = false
-      if (!this.#closed) await this.#continue()
+      if (!this.#closed) {
+        if (publishFlight) await this.options.journal.settingsChanged()
+        await this.#continue()
+      }
     }).catch(() => {
       // Even a failed journal write must not become an unhandled detached rejection.
       const revision = this.options.journal.state.seq
@@ -210,8 +214,8 @@ export class LeadControls {
   updateSettings(value: LeadSettingsUpdate): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const input = parseLeadSettingsUpdate(value), { journal, service } = this.options
     this.#expectRevision(input.expectedRevision)
-    // Each update is one independently reviewable change; no partial key+policy transaction.
-    if ([input.policy, input.caps, input.credential].filter(item => item !== undefined).length !== 1) throw leadRefusal('lead-settings-one-change')
+    // Credentials stay exclusive; combined authority changes are preflighted together.
+    if (input.credential ? input.policy !== undefined || input.caps !== undefined : !input.policy && !input.caps) throw leadRefusal('lead-settings-one-change')
     if (input.credential) {
       const { provider, key } = input.credential
       if (key === null) await service.deleteKey(provider)
@@ -224,9 +228,12 @@ export class LeadControls {
       await journal.settingsChanged()
     } else {
       try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
-      if (input.policy) await journal.changePolicy(input.policy, input.expectedRevision, this.options.nextId(), card =>
+      if (input.policy && input.caps) await journal.changePolicyAndBudgetCaps(input.policy, input.caps, input.expectedRevision,
+        { policy: this.options.nextId(), caps: this.options.nextId() }, this.options.now(), this.options.stopEffects,
+        (state, card) => admitLeadCard(state, card, this.options.project, this.options.model))
+      else if (input.policy) await journal.changePolicy(input.policy, input.expectedRevision, this.options.nextId(), card =>
         admitLeadCard(journal.state, card, this.options.project, this.options.model))
-      if (input.caps) await journal.changeBudgetCaps(input.caps, { id: this.options.nextId(), revision: 1 }, this.options.now(), this.options.stopEffects, input.expectedRevision, card =>
+      else if (input.caps) await journal.changeBudgetCaps(input.caps, { id: this.options.nextId(), revision: 1 }, this.options.now(), this.options.stopEffects, input.expectedRevision, card =>
         admitLeadCard(journal.state, card, this.options.project, this.options.model))
     }
     return this.#projection()
