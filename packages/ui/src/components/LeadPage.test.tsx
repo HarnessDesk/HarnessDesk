@@ -9,6 +9,7 @@ import { leadPlan, leadProjection } from '../preview/lead-fixture'
 import { DestinationPageScope } from '../panels/destination-page'
 import { TopBarProvider } from '../panels/top-bar'
 import { formatReset } from '../lib/limits'
+import leadSettingsSource from './LeadSettings.tsx?raw'
 const decisionHandlers = vi.hoisted(() => [] as { onApprove?: () => void }[])
 vi.mock('../design', async importOriginal => {
   const actual = await importOriginal<typeof import('../design')>()
@@ -246,13 +247,16 @@ it('names the key row once and puts the allowance note on its dollar row', async
   expect(rows.find(row => row.textContent?.startsWith('Dollar allowance'))?.textContent).toContain('Stops when reported spend reaches the cap.')
 })
 
-it('keeps Lead settings rows intrinsically sized and saves in trailing action rows', async () => {
+it('uses unconstrained Lead settings groups and trailing Save rows', async () => {
   await mount(); await act(async () => button('Settings').click())
   const groups = [...document.querySelectorAll('[role="dialog"] [data-slot="rows"]')]
   expect(groups).toHaveLength(3)
   for (const group of groups) {
     expect(group.parentElement?.getAttribute('data-slot')).toBe('form-stack')
-    expect(group.parentElement?.getAttribute('data-sizing')).toBe('content')
+    expect(group.parentElement?.hasAttribute('data-sizing')).toBe(false)
+    expect(group.parentElement?.hasAttribute('style')).toBe(false)
+    expect(group.hasAttribute('style')).toBe(false)
   }
+  expect(leadSettingsSource).not.toMatch(/\b(?:sizing|height|minHeight|maxHeight)\s*[:=]/)
   for (const name of ['Save permissions', 'Save allowances']) expect(button(name).closest('[data-slot="row"]')).not.toBeNull()
 })

@@ -1926,8 +1926,7 @@ named Key. Add… or Replace… reveals the password input with Save and Cancel;
 A key change is submitted alone, its password input cleared immediately. Remove
 asks for confirmation. Each authority group has one Save, enabled only for edits;
 equal policy values preserve revisions; authority-neutral rule edits are stored.
-The key editor closes after a successful save. The shared form stack keeps groups
-at their natural height;
-only the body scrolls, with Done in its footer. Group Saves have normal width,
+The key editor closes after a successful save. Shared row groups keep their
+content minimum; only the body scrolls, with Done in its footer. Group Saves have normal width,
 aligned right, and the reported-spend note belongs to the dollar row. Tightening
 applies at once; widening creates a card for approval in the journal. Existing consent shows its expiry time.

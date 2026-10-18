@@ -50,7 +50,7 @@ export const LeadSettings = ({ settings, expiry, update, onClose, onError, error
   }
   return <>
     <Dialog title="Lead settings" onClose={() => { if (key.current) key.current.value = ''; onClose() }} footer={<Button onClick={onClose}>Done</Button>}>
-      <FormStack sizing="content">
+      <FormStack>
       {error && <Banner role="alert" tone="warning">{error}</Banner>}
       <SectionHead name="Provider key" />
       <Rows>

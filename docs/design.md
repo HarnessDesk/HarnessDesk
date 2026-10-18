@@ -2369,6 +2369,6 @@ uses ConfirmDialog. The key is trimmed and the uncontrolled input emptied before
 its exclusive request. Permissions and Allowances each have one Save at their
 group's end, right-aligned at normal width and enabled only for changed values.
 The key row is Key; its editor closes after a successful save. The dollar row
-carries the reported-spend hint. `FormStack sizing="content"` keeps groups at
-their natural height inside the bounded dialog; hints wrap,
+carries the reported-spend hint. Shared `Rows` keep a min-content minimum so
+height pressure cannot clip them inside the bounded dialog; hints wrap,
 only the body scrolls, and Done stays in the footer. Refusals appear in the active dialog and clear on close.

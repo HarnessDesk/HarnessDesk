@@ -477,15 +477,14 @@ export const Field = ({
  * Fields, stacked — the body of a dialog that asks for more than one thing.
  * Inside a dialog it keeps the dialog's form rhythm (`DialogForm`): 16px
  * between fields by default, a named 24px section gap when requested, and a
- * legend 6px over its group. `sizing="content"` keeps the stack's intrinsic
- * height inside a bounded scrolling body, so its row groups cannot shrink.
+ * legend 6px over its group.
  */
-export const FormStack = ({ children, spacing = 'form', sizing }: { children: ReactNode; spacing?: 'form' | 'section'; sizing?: 'content' }) => {
+export const FormStack = ({ children, spacing = 'form' }: { children: ReactNode; spacing?: 'form' | 'section' }) => {
   const inDialog = useDialogForm()
   const className = inDialog
     ? cx(dialogStackClass, spacing === 'section' && dialogSectionStackClass)
     : styles.formStack
-  return <div className={className} data-slot="form-stack" data-spacing={spacing} {...(sizing ? { 'data-sizing': sizing } : {})}>{children}</div>
+  return <div className={className} data-slot="form-stack" data-spacing={spacing}>{children}</div>
 }
 
 /**
@@ -907,7 +906,8 @@ const RowsCardContext = createContext(false)
  * row a compact radio row. A radio group of anything else (a branch picker of
  * row buttons) keeps its card, its edge and its ground. `variant="inset"`
  * groups rows inside an existing card: it inherits that surface and has no
- * bottom margin; adjacent inset groups keep one divider.
+ * bottom margin; adjacent inset groups keep one divider. Overflow-hidden
+ * groups keep their content minimum; the enclosing dialog body scrolls.
  */
 export const Rows = ({
   children,
