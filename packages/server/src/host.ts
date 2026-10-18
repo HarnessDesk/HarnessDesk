@@ -3422,6 +3422,14 @@ export class Host {
       now: () => Date.now(), nextId: () => `lead-start-${randomUUID()}` }), close }
   }
 
+  /** Live identity and membership for client scope checks. Evidence belongs to
+   * explicit Goal reads, never the authorization/notification queue itself. */
+  clientScopeViews() {
+    const seats = this.#evidence.seats.all()
+    return this.#goalStore.list().map(document => ({ goal: document.goal,
+      board: { id: document.goal.id }, members: goalMembers(document, seats) }))
+  }
+
   /** Answers are a live per-desk choice, never a connection's cached grant.
    * Only the boolean true, or the explicit scripted-desk switch, enables it.
    * Like run, a tier constrains verbs; socket ownership authenticates the user. */

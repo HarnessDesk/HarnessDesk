@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises'
 import { join } from 'node:path'
-import { clientTierFor, type ClientTier, type GoalId, type HostParams } from '@harnessdesk/protocol'
+import { clientTierFor, type ClientTier, type HostParams } from '@harnessdesk/protocol'
 import { openClientDoor, type ClientConnectionPolicy, type ClientDoor, type ClientDoorOptions } from '../client-door.js'
 import type { Host } from '../host.js'
 
@@ -8,7 +8,7 @@ import type { Host } from '../host.js'
  * model arguments. Step 8 supplies the start hook; absence refuses every start. */
 export interface LeadClientAuthorityOptions {
   readonly admission?: import('./admission.js').LeadAdmission
-  readonly host: Pick<Host, 'call'>
+  readonly host: Pick<Host, 'call' | 'clientScopeViews'>
   readonly project: string
   readonly owned: readonly { readonly goal: string; readonly run: string }[]
   /** Live host journal projection, for starts admitted after this connection opened. */
@@ -26,7 +26,10 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
   const runs = () => new Map(readOwned().map(({ goal, run }) => [run, goal]))
   const maximumTiers = Object.freeze((options.maximumTiers ?? ['read', 'run']).filter(tier => tier === 'read' || tier === 'run'))
   const inProject = async (path: string) => await fs.realpath(path) === project
-  const goalInScope = async (goal: string) => [...runs().values()].includes(goal) && inProject((await host.call('goal/read', { goal: goal as GoalId })).goal.root)
+  const goalInScope = async (goal: string) => {
+    const view = host.clientScopeViews().find(view => view.goal.id === goal)
+    return view !== undefined && [...runs().values()].includes(goal) && inProject(view.goal.root)
+  }
   const runInScope = async (run: string, goal?: string) => {
     const owner = runs().get(run)
     return owner !== undefined && (goal === undefined || owner === goal) &&

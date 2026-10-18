@@ -125,6 +125,15 @@ const viewsInScope = async (host: Host, scope: Subscription['scope']): Promise<r
     (scope?.project === undefined || sameCanonicalPath(view.goal.root, scope.project))))
 }
 
+type ScopeView = Pick<GoalView, 'goal' | 'members'> & { readonly board: Pick<GoalView['board'], 'id'> }
+const scopeViews = async (host: Host, scope: Subscription['scope']): Promise<readonly ScopeView[]> => {
+  const runGoal = scope?.run ? (await host.call('flow/execution', { run: scope.run })).goal : null
+  return withCanonicalPaths(() => host.clientScopeViews().filter(view =>
+    (scope?.team === undefined || view.goal.id === scope.team) &&
+    (runGoal === null || view.goal.id === runGoal) &&
+    (scope?.project === undefined || sameCanonicalPath(view.goal.root, scope.project))))
+}
+
 /** Every active Run and the newest one, whatever its state: a Team's starting state, read before its broadcasts. */
 const activeAndNewest = (runs: readonly FlowExecutionSummary[]): FlowExecutionSummary[] => {
   const newest = runs.reduce<FlowExecutionSummary | null>((found, run) => found === null || run.startedAt > found.startedAt ? run : found, null)
@@ -139,7 +148,7 @@ const approvalKey = (notification: WireNotification): string | null => {
   return null
 }
 
-const inScope = (notification: WireNotification, views: readonly GoalView[], scope: Subscription['scope']): boolean => {
+const inScope = (notification: WireNotification, views: readonly ScopeView[], scope: Subscription['scope']): boolean => {
   switch (notification.method) {
     case 'flow/execution-changed': return views.some(v => v.goal.id === notification.params.execution.goal) &&
       (scope?.run === undefined || notification.params.execution.id === scope.run)
@@ -175,7 +184,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
     const admitted = await Promise.all(items.map(item => allowed(request(item))))
     return items.filter((_item, index) => admitted[index])
   }
-  const goalRequest = (view: GoalView): ClientConnectionRequest => ({ id: 0, method: 'goal/read', params: { goal: view.goal.id } })
+  const goalRequest = (view: ScopeView): ClientConnectionRequest => ({ id: 0, method: 'goal/read', params: { goal: view.goal.id } })
   const runRequest = (run: Pick<FlowExecutionSummary, 'id'>): ClientConnectionRequest => ({ id: 0, method: 'flow/execution', params: { run: run.id } })
   const connectionViews = async (scope: Subscription['scope']) => filterAllowed(await viewsInScope(options.host, scope), goalRequest)
   const observedRuns = new WeakMap<Subscription, { covered: Set<string>; withdrawn: Set<string> }>()
@@ -197,7 +206,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
       if (observed.covered.has(runId)) withdrawn(runId)
       return false
     }
-    if (!inScope(notification, await connectionViews(selection.scope), selection.scope)) return false
+    if (!inScope(notification, await filterAllowed(await scopeViews(options.host, selection.scope), goalRequest), selection.scope)) return false
     if (notification.method === 'flow/execution-changed') observed.covered.add(notification.params.execution.id)
     return true
   }
@@ -295,7 +304,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
           const resolved = notification.method === 'event' && notification.params.event.type === 'approval/resolved'
           const key = approvalKey(notification)
           if ((resolved && key !== null && shownApprovals.has(key)) ||
-              inScope(notification, await viewsInScope(options.host, subscription.scope), subscription.scope)) send(notification)
+              inScope(notification, await scopeViews(options.host, subscription.scope), subscription.scope)) send(notification)
         })
       })
       ws.on('message', raw => enqueue(async () => {

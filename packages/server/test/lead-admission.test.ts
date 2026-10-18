@@ -135,3 +135,17 @@ test('two concurrent tokens for one in-flight attempt create exactly one owned r
   assert.equal(s.rig.flows.leadRuns().length, 1)
   assert.equal(s.journal.state.runs.length, 1)
 })
+
+test('separate reviewed-result runs keep implementation changes in distinct lanes', async t => {
+  const { agent, goalRig } = await import('./fixtures/flow-goal-rig.js')
+  const rig = await goalRig(t)
+  rig.providers.set('alpha', 'synthetic-writer'); rig.providers.set('beta', 'synthetic-reviewer')
+  const agents = [agent('implementer', ['committed']), agent('code-reviewer', ['approve', 'request-changes'], 'beta')]
+  const first = await rig.start(leadReviewedResultSource, agents)
+  const second = await rig.start(leadReviewedResultSource, agents)
+  const firstSeat = rig.seats.get(first.rounds[0]!.seats[0]!)!
+  const secondSeat = rig.seats.get(second.rounds[0]!.seats[0]!)!
+  assert.notEqual(firstSeat.checkout.cwd, secondSeat.checkout.cwd, 'later approved work must not move the earlier reviewed checkout')
+  assert.equal(rig.lanes.size, 2)
+  assert.ok([...rig.lanes.values()].every(lane => lane.cwd !== '/repo'))
+})

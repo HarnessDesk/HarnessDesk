@@ -466,3 +466,24 @@ test('a Lead connection refuses all six window controls before parsing their par
     assert.equal(await authority.authorize({ id: 1, method, params: {} } as never), 'leadScope')
   }
 })
+
+test('Lead run reads and live notifications do not wait for evidence-bearing Goal views', async t => {
+  const { host, home, peer, owned } = await rig(t)
+  await peer.hello()
+  assert.equal((await peer.call('client/subscribe', { topics: ['runs'], scope: { project: home } })).ok, true)
+  const before = peer.messages.length
+  const call = host.call.bind(host)
+  const richReads: string[] = []
+  t.mock.method(host, 'call', (method: any, params: any) => {
+    if (method === 'goal/read' || method === 'goal/list') {
+      richReads.push(method)
+      throw new Error('Evidence reads are unavailable while work is running')
+    }
+    return call(method, params)
+  })
+  await host.call('flow/execution/stop', { run: owned.id, reason: 'Synthetic stop' })
+  const response = await peer.call('flow/execution', { run: owned.id })
+  assert.equal(response.ok, true, 'scope authorization must use live ownership and project identity without reading evidence')
+  assert.ok(peer.messages.slice(before).some(message => message.method === 'flow/execution-changed' && message.params.execution.id === owned.id && message.params.execution.state === 'stopped'))
+  assert.deepEqual(richReads, [])
+})

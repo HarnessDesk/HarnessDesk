@@ -48,7 +48,8 @@ export const leadRig = async (t: { after(fn: () => Promise<void>): void }) => {
   const unregister = budgets.register(journal)
   t.after(async () => { await budgets.idle(); unregister() })
   const admission = new LeadAdmission({ journal, budgets, previews, project, now: () => now, nextId: () => `host-start-${++next}` })
-  const authority = await createLeadClientAuthority({ host: { call: async () => ({ goal: { root: project.path } }) } as any,
+  const authority = await createLeadClientAuthority({ host: { call: async () => ({ goal: { root: project.path } }),
+    clientScopeViews: () => journal.state.runs.map(run => ({ goal: { id: run.teamId, root: project.path } })) } as any,
     project: project.path, owned: [], admission })
   const ctx: any = { flowPreviews: previews, flows: rig.flows, leadStarts: budgets, workspaces: { admitTeamProject: async () => { admitted++ } } }
   const params = async () => {

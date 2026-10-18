@@ -80,7 +80,12 @@ for (const interruption of ['child-crash', 'host-restart', 'connection-gap'] as 
   await rig.host.call('lead/resume', { expectedRevision: rig.journal.state.seq }).catch(() => {})
   await rig.settle()
   assert.deepEqual(await rig.dispatchCounts(), before, 'recovery cannot pay or dispatch another round at the cap')
-  assert.equal(rig.journal.state.runs.length, 1)
+  // Recovery removes terminal runs from live ownership; history still proves
+  // exactly one real execution and one charged start, with no replacement.
+  const executions = await rig.host.call('flow/executions', { project: rig.project.path, active: false })
+  assert.equal(executions.length, 1)
+  assert.deepEqual(rig.journal.state.budget!.executionIds, [executions[0]!.id])
+  assert.equal(rig.journal.state.steps.filter(step => step.state === 'started').length, 1)
   await rig.assertAccounting(); await rig.assertNoForbiddenEffects()
 })
 

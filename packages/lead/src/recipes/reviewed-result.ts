@@ -8,6 +8,7 @@ roles:
   implement:
     kind: agent
     uses: [implementer]
+    isolate: true
     grant: edit
     independentOf: []
   review:

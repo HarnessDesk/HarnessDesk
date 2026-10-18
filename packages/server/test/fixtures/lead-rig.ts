@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { connect as connectSocket, createServer as createSocketServer, type Server as SocketServer, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -53,7 +53,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
   const bridgeServers: SocketServer[] = [], bridgeSockets = new Set<Socket>()
   const windowNotifications: any[] = []
   const calls: { method: string; params: unknown }[] = [], forbidden: string[] = []
-  const workerLog = join(home, 'worker-calls.ndjson'), gitLog = join(home, 'git-calls.ndjson')
+  const workerLog = join(home, 'worker-calls.ndjson'), gitLog = join(home, 'git-calls')
   const gates = join(home, 'worker-gates'), passes = join(home, 'worker-passes.json')
   let extensions: ExtensionKernel | undefined
   let journal!: LeadJournal, storage: LeadFileJournal | undefined, service!: LeadService, host!: Host
@@ -107,7 +107,11 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     const bin = join(home, 'bin'); await mkdir(bin)
     // Observe actual Git effects, including those the host invokes internally.
     const wrapper = join(bin, 'git')
-    await writeFile(wrapper, `#!${process.execPath}\nimport {appendFileSync} from 'node:fs'; import {spawnSync} from 'node:child_process'; const args=process.argv.slice(2);appendFileSync(${JSON.stringify(gitLog)},JSON.stringify(args)+'\\n');const result=spawnSync(${JSON.stringify(gitBinary)},args,{stdio:'inherit'});process.exit(result.status??1)\n`)
+    await mkdir(gitLog)
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
+    // A shell builtin records the exact argv without launching a Node process
+    // for every Git read. Each invocation owns a file, including concurrent reads.
+    await writeFile(wrapper, `#!/bin/sh\nprintf '%s\\0' "$@" > ${quote(gitLog)}/$$\nexec ${quote(gitBinary)} "$@"\n`)
     await chmod(wrapper, 0o755); process.env['PATH'] = `${bin}:${previousPath ?? ''}`
     const assignments = [
       { role: 'implement', agent: 'implementer', seat: { runtime: 'rig-writer', model: 'gpt-5.5' }, ceiling: 'edit' },
@@ -215,7 +219,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         const findings = await host.call('finding/run', { goal: owned.teamId, run: runId })
         return { project, runId, contractDigest: journal.state.contract!.digest, revision, observedAt: Date.now(), complete: true,
           spendComplete: leadBudgetProjection(journal.state.budget!, Date.now()).spend === 'known',
-          checks: facts.flatMap(record => record.fact.kind === 'check' ? [{ assertionId: 'unit', id: record.id, revision: record.fact.at, observedAt: record.observedAt,
+          checks: facts.flatMap(record => record.fact.kind === 'check' && record.fact.at === revision ? [{ assertionId: 'unit', id: record.id, revision: record.fact.at, observedAt: record.observedAt,
             exit: record.fact.exit, timedOut: record.fact.timedOut, dirty: record.fact.dirty, counted: record.fact.counted === true }] : []),
           reviews: facts.flatMap(record => record.fact.kind === 'review' && record.fact.at === revision ? [{ assertionId: 'review', id: record.id,
             revision: record.fact.at, observedAt: record.observedAt, verdict: record.fact.verdict, complete: true }] : []),
@@ -287,7 +291,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       assert.equal(JSON.stringify([journal.state, windowNotifications]).includes(LEAD_RIG_KEY), false)
     }
     const assertNoForbiddenEffects = async () => {
-      const logged: string[][] = (await readFile(gitLog, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+      const logged = await Promise.all((await readdir(gitLog)).map(async name => (await readFile(join(gitLog, name), 'utf8')).split('\0').slice(0, -1)))
       const effects = logged.filter(args => args.includes('push') || args.includes('merge') || args.includes('worktree') && args.includes('remove') || args.includes('branch') && args.some(one => ['-d', '-D', '--delete'].includes(one)))
       assert.deepEqual([...forbidden, ...effects.map(one => one.join(' '))], [], 'zero merges, publishes, deletions, forge writes and pushes')
     }
