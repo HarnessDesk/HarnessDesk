@@ -341,7 +341,7 @@ try {
   }
   assert.deepEqual(polishFailures, [], 'Focused Dashboard polish regressions')
   // The tour's pages: the whole App window on one destination, at 1:1.
-  const TOUR_TEXT = { 'tour-teams': 'Needs you', 'tour-run': 'Writer', 'tour-flows': 'matching Runs', 'tour-library': 'code-review', 'tour-runtimes': 'Ready', 'tour-chats': 'Chats' }
+  const TOUR_TEXT = { 'tour-teams': 'Needs you', 'tour-run': 'Writer', 'tour-flows': 'matching Runs', 'tour-library': 'code-review', 'tour-runtimes': 'Ready', 'tour-chats': 'Chats', 'hero-race': 'To: Both' }
   for (const [name, scene] of Object.entries(SCENES).filter(([name]) => !isDashboardScene(name))) for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width: scene.width, height: scene.height }, colorScheme: theme })
     const errors = [], external = []

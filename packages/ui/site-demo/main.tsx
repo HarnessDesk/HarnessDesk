@@ -54,7 +54,7 @@ HTMLElement.prototype.focus = function (options?: FocusOptions) {
 // two addresses only.
 const setIframeAttribute = Element.prototype.setAttribute
 HTMLIFrameElement.prototype.setAttribute = function (name: string, value: string) {
-  setIframeAttribute.call(this, name, name === 'src' ? RACE_PAGES[value] ?? value : value)
+  setIframeAttribute.call(this, name, name === 'src' && Object.hasOwn(RACE_PAGES, value) ? RACE_PAGES[value]! : value)
 }
 
 // The transport constructs `new WebSocket(url)`; hand it the recording.
