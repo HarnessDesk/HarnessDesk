@@ -22,11 +22,10 @@ import {
   ComposerChip,
   ComposerChips,
   ComposerDropHint,
-  ComposerDock,
+  ConversationComposerFrame,
   ComposerGap,
   ComposerTrack,
   ComposerSend,
-  ComposerShell,
   ComposerText,
   ComposerTools,
   Dialog,
@@ -1104,7 +1103,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
         : undefined
 
   return (
-    <ComposerDock>
+    <ConversationComposerFrame before={<>
       <Slot name="composer.row" />
       {/* What stops a turn here, and what an Agent in this conversation is
           waiting on you to decide — on the composer it is about, never over
@@ -1135,13 +1134,31 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
           />
         )}
       </ComposerNoticeStack>
-      <ComposerShell reading
-        {...(dragging ? { 'data-dropping': '' } : {})}
-        onDragEnter={onDragEnter}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-      >
+      </>} shell={{
+        ...(dragging ? { 'data-dropping': '' } : {}),
+        onDragEnter, onDragOver, onDragLeave, onDrop,
+      }} after={<>
+      {preview != null && images[preview] && (
+        <Lightbox
+          images={images.map((image) => ({ url: image.path, name: image.name }))}
+          index={preview}
+          onClose={() => setPreview(null)}
+        />
+      )}
+      {refPrompt && (
+        <RefPrompt
+          label={refPrompt.label}
+          placeholder={refPrompt.chip?.prompt ?? ''}
+          hint={refPrompt.chip?.description}
+          onCancel={() => setRefPrompt(null)}
+          onConfirm={(ref) => {
+            addContext(refPrompt, ref)
+            setRefPrompt(null)
+            textarea.current?.focus()
+          }}
+        />
+      )}
+      </>}>
         {dragging && (
           <ComposerDropHint>
             <ImageIcon size={18} />
@@ -1361,28 +1378,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
           )}
           </ComposerTrack>
         </ComposerTools>
-      </ComposerShell>
-      {preview != null && images[preview] && (
-        <Lightbox
-          images={images.map((image) => ({ url: image.path, name: image.name }))}
-          index={preview}
-          onClose={() => setPreview(null)}
-        />
-      )}
-      {refPrompt && (
-        <RefPrompt
-          label={refPrompt.label}
-          placeholder={refPrompt.chip?.prompt ?? ''}
-          hint={refPrompt.chip?.description}
-          onCancel={() => setRefPrompt(null)}
-          onConfirm={(ref) => {
-            addContext(refPrompt, ref)
-            setRefPrompt(null)
-            textarea.current?.focus()
-          }}
-        />
-      )}
-    </ComposerDock>
+    </ConversationComposerFrame>
   )
 }
 

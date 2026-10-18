@@ -93,7 +93,7 @@ it('gates the Lead settings entry and its restored route with the host capabilit
   expect(settingsGroups(snapshot, snapshot.runtimes[0]!).flatMap(group => group.entries).some(entry => entry.id === 'lead')).toBe(false)
   expect(readDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } }, false)).toMatchObject({ kind: 'settings', route: { section: 'runtimes' } })
   const { box, request } = await mount('settings', false)
-  expect(box.querySelector('[aria-label="Name"]')).toBeNull()
+  expect(box.querySelector('[aria-label="Lead identity"]')).toBeNull()
   expect(request.mock.calls.some(([method]) => method.startsWith('lead/'))).toBe(false)
 })
 it('a widening save shows the waiting line and Open lands on its decision message', async () => {
@@ -115,4 +115,23 @@ it('empties the uncontrolled credential input before a refused request', async (
   expect(key.value).toBe('')
   expect(box.innerHTML).not.toContain('sk-synthetic-only-1234')
   expect(box.querySelector('[role="alert"]')).not.toBeNull()
+})
+
+it('shows Name once with a distinct accessible choice label', async () => {
+  const { box } = await mount('settings')
+  expect(box.querySelector('[aria-label="Lead identity"]')).not.toBeNull()
+  expect([...box.querySelectorAll('[data-slot="section"]')].filter(node => node.textContent?.startsWith('Name'))).toHaveLength(1)
+  expect([...box.querySelectorAll('[data-slot="row"]')].some(node => node.textContent?.startsWith('Call me'))).toBe(true)
+})
+it('uses a neutral Lead label until the stored Lex preference loads', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), previewStore({ leadAvailable: true }).getSnapshot())
+  let resolve!: (value: any) => void
+  vi.spyOn(store.transport, 'request').mockImplementation(() => new Promise(done => { resolve = done }))
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  cleanup.push(() => { act(() => root.unmount()); box.remove() })
+  await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><DestinationPageScope owner="test" active><LeadPage /></DestinationPageScope></TopBarProvider></StoreProvider>))
+  expect(box.textContent).not.toContain('Dex'); expect(box.querySelector('textarea')?.placeholder).toBe('Message Lead…')
+  await act(async () => resolve({ ...leadProjection(), settings: { ...leadProjection().settings, name: 'lex' } }))
+  expect(box.textContent).toContain("Hi, I'm Lex."); expect(box.querySelector('textarea')?.placeholder).toBe('Message Lex…')
 })

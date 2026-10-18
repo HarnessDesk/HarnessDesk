@@ -25,8 +25,6 @@
   overflow-wrap: anywhere;
 }
 
-/* The gradient overlay passes clicks through; each interactive strip
-   beneath it opts itself back in. */
 .turnDivider {
   max-width: var(--hd-column);
   margin: var(--hd-space-4) auto 6px; /* desk: canonical One UI System scale */

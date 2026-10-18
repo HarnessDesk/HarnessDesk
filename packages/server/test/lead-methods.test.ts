@@ -1261,3 +1261,20 @@ test('renewed decisions replace earlier prose for the same card at its original 
   assert.equal(s.journal.state.decisionMessages[0]!.card.revision, 2)
   assert.equal(s.journal.state.decisionMessages[0]!.position, position)
 })
+
+test('name-only settings save survives unavailable key resolution without scanning', async () => {
+  const calls: unknown[] = []; let locked = false
+  const s = await rig({ service: { async status() { if (locked) throw new Error('keychain unavailable'); return { configured: false, protection: 'unavailable' } }, async assertPublic(value: unknown) { if (locked) { calls.push(value); throw Object.assign(new Error('locked'), { wireCode: 'lead-protection-unavailable' }) } } } })
+  await s.controls.readSettings(); locked = true
+  const before = s.journal.state
+  const result = await s.call('lead/settings/update', { expectedRevision: before.seq, name: 'lex' })
+  assert.equal(result.settings.name, 'lex'); assert.equal(calls.length, 0)
+  assert.deepEqual(s.journal.state.policy, before.policy); assert.deepEqual(s.journal.state.budget, before.budget)
+})
+test('name combined with authority is refused atomically', async () => {
+  const s = await rig(), before = s.journal.state
+  for (const update of [{ name: 'lex', policy: { ...policy, revision: 2, mode: 'plan' } }, { name: 'lex', caps: { usdMicros: 1, rounds: 1 } }]) {
+    await assert.rejects(s.call('lead/settings/update', { expectedRevision: before.seq, ...update }), code('lead-settings-combination'))
+    assert.deepEqual(s.journal.state, before)
+  }
+})

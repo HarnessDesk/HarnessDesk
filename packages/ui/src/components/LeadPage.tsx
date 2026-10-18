@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { type LeadWindowProjection } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, ComposerDock, ComposerShell, FormStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, LeadMessage, Page, ReadingMeasure, Spinner, Text, useComposerHeightVar } from '../design'
+import { Banner, Button, Chip, ConversationComposerFrame, FormStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, Page, ReadingMeasure, Spinner, Text, useComposerHeightVar } from '../design'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
+import { LeadMessage } from './LeadMessage'
 import { LeadCards, leadDollars } from './LeadCards'
 import { REFUSALS, leadRefusalText } from './lead-refusals'
 import { useConversationTopBar } from './use-conversation-top-bar'
@@ -12,7 +13,7 @@ import { sidebarPlacement } from '../state/workbench'
 import { formatLeadConsentTime } from './lead-consent-time'
 
 const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
-  'lead-renewal-blocked': 'The plan could not be renewed because the decision card limit was reached.',
+  'lead-renewal-blocked': 'The plan could not be renewed because the pending request limit was reached.',
   'lead-disabled': 'The Lead was disabled.',
   'lead-key-changed': 'The provider key changed. Continue with the current key.',
   'lead-host-shutdown': 'The desk stopped while the Lead was working.',
@@ -24,7 +25,7 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-activity-failed': 'The Lead could not read the latest run activity.',
   'lead-subscription-failed': 'The Lead lost its run activity updates.',
   'lead-tools-refused': 'The requested desk operation was refused.',
-  'lead-card-too-large': 'The decision card is too large to display safely.',
+  'lead-card-too-large': 'The request is too large to display safely.',
   'lead-request-failed': 'The request was interrupted. Sending a message also continues.',
   'lead-request-uncertain': 'The request was interrupted. Sending a message also continues.',
   'lead-send-deadline': 'The request timed out. Sending a message also continues.',
@@ -50,7 +51,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     if (element) { element.focus({ preventScroll: true }); requestedDecisionFocus.current = null }
   }
   const refusal = (error: unknown) => setError(leadRefusalText(error))
-  const { owner } = useDestinationPage(), name = useLeadName(), label = name === 'lex' ? 'Lex' : 'Dex'
+  const { owner } = useDestinationPage(), name = useLeadName(), label = name === 'lex' ? 'Lex' : name === 'dex' ? 'Dex' : 'Lead'
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
   useConversationTopBar(owner, { place: label, tools: <Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={() => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } })}><SettingsIcon /></Button>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
   useEffect(() => { if (active) void store.lead.readThread().catch(refusal) }, [active, store])
@@ -122,9 +123,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           : <LeadCards key={`card:${entry.card.id}`} {...cardProps} cards={[entry.card]} placement="thread" />)}
       </Page> : <ConversationEmptyState><LeadAvatar name={name} size="lg" /><Text as="p" role="prose" align="center">Hi, I'm {label}. Tell me what you want done, and I'll plan it for your approval.</Text></ConversationEmptyState>}
     </ConversationThread>
-    <ConversationDock ref={dock}>
-      <ComposerDock>
-        <ReadingMeasure>
+    {active && <ConversationDock ref={dock}>
+      <ConversationComposerFrame before={<ReadingMeasure>
           <FormStack>
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
           {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
@@ -133,18 +133,14 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           </Banner>}
           {state.wayOut === 'decide-plan' && <Banner actions={<Button onClick={() => reviewPlan()}>Review plan</Button>}>{renewal ? `The earlier approval expired at ${formatLeadConsentTime(state.planConsentExpiresAt!)}. Review the plan to continue.` : 'The plan needs your decision before work continues.'}</Banner>}
           <LeadCards {...cardProps} cards={cards} placement="dock" />
-          <form aria-label="Lead composer" onSubmit={event => { event.preventDefault(); if (!requestPending && goal.trim() && !state.error && state.revision >= 0) void send() }}>
-            <ComposerShell reading>
+          </FormStack>
+        </ReadingMeasure>} form={{ 'aria-label': 'Lead composer', onSubmit: event => { event.preventDefault(); if (!requestPending && goal.trim() && !state.error && state.revision >= 0) void send() } }}>
               <ComposerText rows={1} ref={input} aria-label="Goal or message" placeholder={`Message ${label}…`} value={goal} onChange={event => setGoal(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!state.error && state.revision >= 0) void send() } }} />
               <ComposerTools>
                 {!state.thread?.messages.some(message => message.role === 'user') && state.settings && <><Chip tone="neutral">{leadDollars(state.settings.caps.usdMicros)}</Chip><Chip tone="neutral">{state.settings.caps.rounds} rounds</Chip></>}
                 <ComposerGap /><ComposerSend type="submit" disabled={requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : 'Send'} title={requestPending ? 'Sending…' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>
               </ComposerTools>
-            </ComposerShell>
-          </form>
-          </FormStack>
-        </ReadingMeasure>
-      </ComposerDock>
-    </ConversationDock>
+      </ConversationComposerFrame>
+    </ConversationDock>}
   </ConversationShell>
 }

@@ -11,7 +11,7 @@ import { LeadSettingsSection } from './LeadSettings'
 import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { formatLeadConsentTime } from './lead-consent-time'
 import leadSettingsSource from './LeadSettings.tsx?raw'
-const decisionHandlers = vi.hoisted(() => [] as { onApprove?: () => void }[])
+const decisionHandlers = vi.hoisted(() => [] as { onApprove?: () => void; onDecline?: () => void }[])
 vi.mock('./LeadDecision', async importOriginal => {
   const actual = await importOriginal<typeof import('./LeadDecision')>()
   return { ...actual, LeadDecision: (props: React.ComponentProps<typeof actual.LeadDecision>) => { decisionHandlers.push(props); return <actual.LeadDecision {...props} /> } }
@@ -85,13 +85,13 @@ it.each([false, true])('clears the key before submit and never resends it, refus
   expect(JSON.stringify(request.mock.calls.slice(request.mock.calls.indexOf(writes[0]!) + 1))).not.toContain('sk-synthetic-only-1234')
   expect(box.textContent).not.toContain('sk-synthetic-only-1234')
 })
-it('explains that widening creates an approval card and renders the returned card', async () => {
+it('explains that widening asks for approval and renders the returned request', async () => {
   const { store } = await mount()
   await act(async () => button('Settings').click())
   const select = document.querySelector<HTMLSelectElement>('[aria-label="Permission mode"]')!
   expect(select).not.toBeNull()
   await act(async () => { select.value = 'manage'; select.dispatchEvent(new Event('change', { bubbles: true })) })
-  expect(document.body.textContent).toContain('Creates a card for your approval')
+  expect(document.body.textContent).toContain('Asks for your approval in the conversation')
   const state = store.lead.state, policy = state.settings!.policy
   vi.spyOn(store.lead, 'updateSettings').mockImplementation(async () => {
     const projection = leadProjection({ revision: 11, thread: { ...state.thread!, cards: [{ version: 1, id: 'policy', revision: 1, type: 'permission-change', contractDigest: null, previous: policy, proposed: { ...policy, revision: 2, mode: 'manage' } }] } })
@@ -196,10 +196,11 @@ it('refreshes settings drafts when the projection changes underneath them and cl
   await act(async () => button('Save').click()); expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1)
   await act(async () => button('Back').click()); expect(box.querySelector('[role="alert"]')).toBeNull()
 })
-it.each([100, Date.now() + 3600000])('names expired approval in the banner and renewal card even when the client clock lags: %s', async expiry => {
+it.each([100, Date.now() + 3600000])('names expired approval once in the banner even when the client clock lags: %s', async expiry => {
   const base = leadProjection(); const { box } = await mount({ ...base, planConsentExpiresAt: expiry, wayOut: 'decide-plan', thread: { ...base.thread, contract: leadPlan.contract, cards: [{ ...leadPlan, revision: 2 }] } })
   expect(box.textContent).toContain('Approve again to continue.')
-  expect(box.textContent?.match(/earlier approval expired at/g)).toHaveLength(2)
+  expect(box.textContent?.match(/earlier approval expired at/g)).toHaveLength(1)
+  expect(box.querySelector('[data-lead-prose]')?.textContent).not.toContain('expired at')
 })
 
 it('a decide-plan update scrolls without taking focus or text from the composer', async () => {
@@ -221,7 +222,8 @@ it('locks retained callbacks across a replaced dock before pending state renders
   let done!: () => void
   const decide = vi.spyOn(store.lead, 'decide').mockImplementation(() => new Promise<LeadWindowProjection>(resolve => { done = () => resolve(base) }))
   const first = decisionHandlers.at(-1)!.onApprove!
-  await act(async () => first())
+  const retained = decisionHandlers.at(-1)!.onDecline!
+  await act(async () => { first(); retained() })
   await update({ thread: { ...base.thread, cards: [{ ...leadPlan, id: 'other' }] } })
   const second = decisionHandlers.at(-1)!.onApprove!
   await act(async () => second()); expect(decide).toHaveBeenCalledTimes(1)
@@ -241,12 +243,12 @@ it('caps expiry backoff at 30 seconds, reads once at the cap and waits for chang
 it('formats renewal notices and settings expiry with the Lead date-aware minute formatter', async () => {
   const expiry = 1792328434567, base = leadProjection()
   const { box } = await mount({ ...base, planConsentExpiresAt: expiry, wayOut: 'decide-plan', thread: { ...base.thread, contract: leadPlan.contract, cards: [leadPlan] } })
-  expect(box.textContent?.split(formatLeadConsentTime(expiry)!).length).toBe(3)
+  expect(box.textContent?.split(formatLeadConsentTime(expiry)!).length).toBe(2)
   await act(async () => button('Settings').click()); expect(document.body.textContent).toContain(formatLeadConsentTime(expiry))
 })
 it('explains a blocked renewal even without a Resume way out', async () => {
   const { box } = await mount({ ...leadProjection(), wayOut: null, waitReason: 'lead-renewal-blocked' })
-  expect(box.textContent).toContain('The plan could not be renewed because the decision card limit was reached.')
+  expect(box.textContent).toContain('The plan could not be renewed because the pending request limit was reached.')
   expect(button('Resume')).toBeUndefined()
 })
 it('names the key row once and puts the allowance note on its dollar row', async () => {
@@ -269,4 +271,20 @@ it('uses unconstrained Lead settings groups and trailing Save rows', async () =>
   }
   expect(leadSettingsSource).not.toMatch(/\b(?:sizing|height|minHeight|maxHeight)\s*[:=]/)
   for (const name of ['Save permissions', 'Save allowances']) expect(button(name).closest('[data-slot="row"]')).not.toBeNull()
+})
+
+it.each(['2', 'Escape'])('guards typed-through %s after Review plan takes focus', async key => {
+  vi.useFakeTimers()
+  try {
+    const base = leadProjection(), { store } = await mount({ ...base, wayOut: 'decide-plan', thread: { ...base.thread, cards: [leadPlan] } })
+    const decide = vi.spyOn(store.lead, 'decide').mockResolvedValue(base)
+    await act(async () => button('Review plan').click())
+    const surface = document.activeElement!
+    await act(async () => surface.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
+    expect(decide).not.toHaveBeenCalled()
+    await act(async () => vi.advanceTimersByTimeAsync(501))
+    await act(async () => surface.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
+    expect(decide).toHaveBeenCalledOnce()
+    expect(decide).toHaveBeenCalledWith(expect.objectContaining({ choice: key === '2' ? 'approve' : 'decline' }))
+  } finally { vi.useRealTimers() }
 })

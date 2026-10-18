@@ -32,6 +32,7 @@ import type { AppSnapshot, AppStore } from '../state/store'
 import { sidebarPlacement } from '../state/workbench'
 import {
   AgentIcon,
+  LeadIcon,
   ServerIcon,
   ArchiveIcon,
   FolderIcon,
@@ -67,7 +68,7 @@ import type { Section } from './Settings'
  * (#104).
  */
 const SETTINGS_PAGE: Record<Exclude<Section, 'archive'>, { label: string; icon: React.ReactNode; keywords: string }> = {
-  lead: { label: 'Lead', icon: <SlidersIcon size={14} />, keywords: 'lead dex lex provider key allowances' },
+  lead: { label: 'Lead', icon: <LeadIcon size={14} />, keywords: 'lead dex lex provider key allowances' },
   runtimes: { label: 'Runtimes', icon: <ServerIcon size={14} />, keywords: 'runtimes installed agents accounts sign in' },
   profile: { label: 'Profile', icon: <UserIcon size={14} />, keywords: 'profile you name picture avatar photo face identity' },
   general: { label: 'General', icon: <SlidersIcon size={14} />, keywords: 'general backup restore diagnostics data' },

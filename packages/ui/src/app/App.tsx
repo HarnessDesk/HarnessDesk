@@ -353,7 +353,7 @@ export const App = () => {
   // conversation's label is the user's whole opening message, so it is
   // shortened here rather than left to overrun the menu.
   useEffect(() => {
-    setWindowTitle(snapshot.workbench.navigation.current.kind === 'lead' ? leadName === 'lex' ? 'Lex' : 'Dex' : session ? shortLabel(sessionLabel(session.title, session.preview, 'HarnessDesk')) : 'HarnessDesk')
+    setWindowTitle(snapshot.workbench.navigation.current.kind === 'lead' ? leadName === 'lex' ? 'Lex' : leadName === 'dex' ? 'Dex' : 'Lead' : session ? shortLabel(sessionLabel(session.title, session.preview, 'HarnessDesk')) : 'HarnessDesk')
   }, [session?.title, session?.preview, snapshot.workbench.navigation.current.kind, leadName])
 
   // One table decides which chords exist; this dispatches from it, and the

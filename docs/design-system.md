@@ -1407,6 +1407,12 @@ The same floating composer and approval dock in every conversation.
 
 Assistant prose has one rendering frame, shared with Items.
 
+### `ConversationComposerFrame`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+One composer frame; notices and attachments keep their existing DOM positions.
+
 ### `CopyButton`
 
 `packages/ui/src/design/patterns/CopyButton.tsx`
@@ -2717,12 +2723,6 @@ rather than straight after its name, and the name column stays one width.
 `packages/ui/src/design/patterns/lead-contract.tsx`
 
 A decision's details are ordinary assistant prose; its controls live in the dock.
-
-### `LeadMessage`
-
-`packages/ui/src/design/patterns/lead-contract.tsx`
-
-The same item renderer as a session, without inventing a protocol Session.
 
 ## Known drift
 

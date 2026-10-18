@@ -39,7 +39,7 @@ it('never enables a worker approval and links to the existing approval surface',
 })
 it('keeps missing checks, review, findings and worker spend explicitly unknown', () => {
   const { box } = mount([{ ...leadResult, assertions: [], budget: { ...leadResult.budget, spend: 'unknown' } } as LeadCard])
-  expect(box.textContent).toContain('Checks'); expect(box.textContent).toContain('Review'); expect(box.textContent).toContain('Findings')
+  expect(box.textContent).toContain('Checks'); expect(box.textContent).toContain('Review'); expect(box.textContent).toMatch(/Findings|No blocking findings/)
   expect(box.textContent?.match(/unknown/g)?.length).toBeGreaterThanOrEqual(4)
   expect(box.textContent).not.toContain('passed')
 })
@@ -68,7 +68,7 @@ it.each(['stale contract', 'empty passed evidence', 'empty failed evidence'] as 
 })
 it('renders Passed only for qualified non-empty evidence', () => {
   const assertions = leadContract.assertions.map(assertion => ({ assertionId: assertion.id, revision: 1, contractRevision: leadContract.revision, status: 'passed' as const, evidence: [{ kind: 'check' as const, id: 'synthetic', revision: 'synthetic-head' }], reason: null }))
-  const { box } = mount([{ ...leadResult, assertions }]); expect(box.textContent?.match(/passed/g)).toHaveLength(3)
+  const { box } = mount([{ ...leadResult, assertions }]); expect(box.textContent?.match(/passed/g)).toHaveLength(2); expect(box.textContent).toContain('No blocking findings')
 })
 it('rejects retained stale decision callbacks independently of DOM removal', async () => {
   const { render, decide } = mount([leadPlan]); const old = handlers.at(-1)!.onApprove!
@@ -91,7 +91,7 @@ it('renders a worker as a short presentation-labelled card', () => {
 it('keeps internal identifiers out of cards and uses compact assertion statuses', () => {
   const { box } = mount([leadPlan, leadResult])
   for (const text of ['lead-reviewed-result', 'recipe-1', 'attended', 'Ceiling:', 'task:', 'head-demo', leadContract.digest, 'Assertion revision', 'Contract revision']) expect(box.textContent).not.toContain(text)
-  expect(box.textContent).toContain('Demo runtime · demo-model'); expect(box.textContent).toContain('Findings')
+  expect(box.textContent).toContain('Demo runtime · demo-model'); expect(box.textContent).toMatch(/Findings|No blocking findings/)
 })
 
 it.each(['permission-change', 'budget-change'] as const)('gives %s a summary inside its one surface', type => {
@@ -109,4 +109,24 @@ it('does not attribute a worker approval to every runtime in the plan', () => {
   act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[{ ...leadWaiting, kind: 'worker-approval', personCardId: null }]} contract={{ ...leadContract, steps: [...leadContract.steps, { ...leadContract.steps[0]!, id: 'other', assignments: [{ ...leadContract.steps[0]!.assignments[0]!, seat: { runtime: other.id } }] }] }} runtimes={[leadRuntime, other]} onDecide={vi.fn()} onChanges={vi.fn()} onApprovals={vi.fn()} /></StoreProvider>))
   try { expect(box.textContent).toContain('A worker is waiting for you to approve a command.'); expect(box.textContent).not.toContain('Second worker') }
   finally { act(() => root.unmount()) }
+})
+
+it('shows only contracted result kinds in one compact line with complete fixture evidence', () => {
+  const { box } = mount([leadResult])
+  expect(box.textContent).not.toContain('Changes unknown')
+  expect([...box.querySelectorAll('p')].some(node => /^Changes /.test(node.textContent ?? ''))).toBe(false)
+  expect(box.textContent).not.toContain('unknown')
+  expect([...box.querySelectorAll('p')].some(node => node.textContent === 'Checks passed · Review passed · No blocking findings')).toBe(true)
+  expect(leadResult.assertions).toHaveLength(leadContract.assertions.length)
+  for (const assertion of leadContract.assertions) expect(leadResult.assertions.find(result => result.assertionId === assertion.id)).toMatchObject({ status: 'passed', contractRevision: leadContract.revision, evidence: expect.any(Array) })
+})
+it('names a permission change in the dock that asks for approval', () => {
+  const policy = { version: 1 as const, revision: 1, mode: 'plan' as const, rules: [] }
+  const { box } = mount([{ version: 1, id: 'widen', revision: 1, type: 'permission-change', contractDigest: null, previous: policy, proposed: { ...policy, revision: 2, mode: 'manage' } }])
+  expect(box.querySelector('[data-lead-decision]')?.textContent).toContain('Plan → Manage')
+})
+
+it('does not display reasons for assertions outside the contract', () => {
+  const { box } = mount([{ ...leadResult, assertions: [...leadResult.assertions, { assertionId: 'uncontracted', revision: 1, contractRevision: leadContract.revision, status: 'unknown', evidence: [], reason: 'Uncontracted change reason' }] }])
+  expect(box.textContent).not.toContain('Uncontracted change reason')
 })

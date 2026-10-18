@@ -1,6 +1,6 @@
 import { readdir } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
-import { buildLeadRenderer, openLeadHost } from './lead-host'
+import { bounded, buildLeadRenderer, openLeadHost } from './lead-host'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 let renderer: string
@@ -13,13 +13,13 @@ const structure = (node: Element) => ({
   controls: [...node.querySelectorAll('button,input,select,textarea')].map(element => [element.tagName, element.getAttribute('aria-label'), element.getAttribute('type')]),
 })
 const settleDestination = async (page: Page, destination: string) => {
-  await page.evaluate(async value => {
+  await bounded(`settle ${destination} destination`, () => page.evaluate(async value => {
     const store = (window as any).__hdStore
     if (value === 'agents') await store.loadAgents()
     if (value === 'dashboard') await store.loadUsage()
     await document.fonts.ready
     await new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))
-  }, destination)
+  }, destination))
   if (destination === 'flows') await expect(page.getByText('Reading Flows…', { exact: true })).toHaveCount(0)
 }
 
@@ -64,10 +64,16 @@ for (const theme of ['light', 'dark'] as const) test(`the flag-off host has no L
     await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } }))
     await expect(page.getByRole('button', { name: 'Lead', exact: true })).toHaveCount(0)
     await expect(page.locator('[data-page-destination="lead"]')).toHaveCount(0)
-    const refusal = await page.evaluate(async () => {
+    // Search the real palette as well as the nav and restored route.
+    await page.getByRole('button', { name: 'Search everything', exact: true }).click()
+    const palette = page.getByRole('dialog', { name: 'Command palette', exact: true })
+    await palette.getByRole('textbox').fill('lead')
+    await expect(palette.getByRole('option').filter({ hasText: 'Settings › Lead' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    const refusal = await bounded('disabled Lead wire refusal', () => page.evaluate(async () => {
       try { await (window as any).__hdStore.transport.request('lead/thread/read', {}); return null }
       catch (error) { return (error as { wireCode?: string; code?: string }).wireCode ?? (error as { code?: string }).code }
-    })
+    }))
     expect(refusal).toBeTruthy()
     expect(rig.provider.requests).toHaveLength(0)
     expect(rig.children).toHaveLength(0)

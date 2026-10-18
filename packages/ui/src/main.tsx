@@ -14,7 +14,9 @@ installOverlayScrollbarTracking()
 const store = new AppStore()
 // Development probe surface; harmless in production and priceless in a bug.
 ;(window as unknown as { __hdStore?: AppStore }).__hdStore = store
-void store.connect().catch((error: unknown) => {
+const ready = store.connect()
+;(window as unknown as { __hdReady?: Promise<void> }).__hdReady = ready
+void ready.catch((error: unknown) => {
   store.backgroundFailure(error instanceof Error ? error.message : String(error))
 })
 

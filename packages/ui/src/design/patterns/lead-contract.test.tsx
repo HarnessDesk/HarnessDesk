@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { expect, it } from 'vitest'
 import { StoreProvider } from '../../state/context'
 import { previewStore } from '../../preview/harness'
+import { LeadMessage } from '../../components/LeadMessage'
 import { LeadDecision } from '../../components/LeadDecision'
 const modules = import.meta.glob('./lead-contract.tsx', { eager: true }) as Record<string, { LeadContract: React.ComponentType<any>; LeadMessage: React.ComponentType<any> }>
 const LeadContract = modules['./lead-contract.tsx']?.LeadContract ?? (() => null)
@@ -30,10 +31,9 @@ it('uses assistant prose with a decided meta state and no card surface', () => {
   } finally { act(() => root.unmount()) }
 })
 
-it.each(['user', 'assistant'])('exposes the %s speaker through a nameable message role', role => {
-  const LeadMessage = modules['./lead-contract.tsx']!.LeadMessage
+it.each(['user', 'assistant'] as const)('exposes the %s speaker through a nameable message role', role => {
   const box = document.createElement('div'), root = createRoot(box)
   act(() => root.render(<StoreProvider store={previewStore()}><LeadMessage role={role} text="Synthetic message" /></StoreProvider>))
-  try { expect(box.querySelector('article')?.getAttribute('aria-label')).toBe(role === 'user' ? 'You' : 'Dex') }
+  try { expect(box.querySelector('article')?.getAttribute('aria-label')).toBe(role === 'user' ? 'You' : 'Lead') }
   finally { act(() => root.unmount()) }
 })

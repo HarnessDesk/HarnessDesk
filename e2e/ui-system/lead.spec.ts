@@ -37,7 +37,7 @@ for (const theme of ['light', 'dark'] as const) {
       })
       await expect(result.getByRole('button', { name: 'Accept', exact: true })).toBeEnabled()
       await result.getByRole('button', { name: 'Accept', exact: true }).click()
-      await page.waitForFunction(() => (window as any).__leadDecisionOutcome !== null)
+      await page.waitForFunction(() => (window as any).__leadDecisionOutcome !== null, null, { timeout: 10_000 })
       expect(await page.evaluate(() => (window as any).__leadDecisionOutcome)).toEqual({ accepted: true })
       await rig.waitFor(() => rig.journal.state.phase === 'accepted', 'human result acceptance')
       await expect(result).toHaveCount(0)
@@ -95,7 +95,7 @@ for (const theme of ['light', 'dark'] as const) {
     } finally { await desk.close() }
   })
 
-  test(`Lead settings apply tightening immediately and require a card for widening in ${theme}`, async ({ browser }) => {
+  test(`Lead settings apply tightening immediately and require approval for widening in ${theme}`, async ({ browser }) => {
     test.setTimeout(120_000)
     const desk = await openLeadHost(browser, renderer)
     const { page, rig } = desk
@@ -108,7 +108,7 @@ for (const theme of ['light', 'dark'] as const) {
       await settings.getByRole('button', { name: 'Save permissions', exact: true }).click()
       await expect.poll(() => rig.journal.state.policy?.mode).toBe('plan')
       await settings.getByLabel('Permission mode', { exact: true }).selectOption('manage')
-      await expect(settings).toContainText('Creates a card for your approval.')
+      await expect(settings).toContainText('Asks for your approval in the conversation.')
       await settings.getByRole('button', { name: 'Save permissions', exact: true }).click()
       await expect.poll(() => rig.journal.state.cards.some(card => card.type === 'permission-change')).toBe(true)
       expect(rig.journal.state.policy?.mode).toBe('plan')

@@ -2335,7 +2335,7 @@ change an entry's add, download, blocked or registered behaviour.
 ## Lead is a conversation
 
 Lead and a session share ConversationShell, ConversationThread, ConversationDock,
-ComposerShell reading and the same top-bar registration. LeadMessage uses Items;
+ConversationComposerFrame and the same top-bar registration. LeadMessage uses Items;
 assistant decision prose uses the same TranscriptAssistantMessage frame as Items.
 The empty state is ConversationEmptyState with a single LeadAvatar slot and one
 short greeting. The chosen name occupies the title slot and composer placeholder.
@@ -2353,8 +2353,15 @@ the dock. Refusal, Resume and renewal banners remain beside it.
 
 Settings › Lead uses canonical Section, Rows, Row, Input and Button patterns,
 ordered Name, Provider key, Allowances, Permissions. LeadNameChoice composes the
-existing two-choice control. Name changes save immediately; authority widening
+existing two-choice control, labelled Lead identity under the Name section.
+A neutral Lead placeholder precedes the stored name. Name changes save immediately; authority widening
 shows a waiting sentence and Open to the conversation decision. The uncontrolled
 password input is emptied before its exclusive request, even when refused.
 There is no settings dialog or inset Rows variant. LeadAvatar is the sole slot
 for future Dex/Lex artwork and uses the shared round identity tile and type tokens.
+
+Lead result summaries include only the assertion kinds in the approved contract,
+on one meta line. Acceptance previews carry passed evidence for the full contract.
+The renewal banner owns the expiry time; the message asks for renewed approval.
+Settings preview bodies shrink with a short viewport and scroll while each group
+stays whole. Only the active conversation mounts a dock; retained drafts survive.

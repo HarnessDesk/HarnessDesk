@@ -11,6 +11,12 @@ export const buildLeadRenderer = async (directory: string) => {
   })
 }
 
+export const bounded = async <T>(label: string, operation: () => Promise<T>): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout>
+  try { return await Promise.race([operation(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), 15_000) })]) }
+  finally { clearTimeout(timer!) }
+}
+
 /** Every window talks to the shipping host; only the rig's external services are synthetic. */
 export const openLeadHost = async (browser: Browser, uiRoot: string, options: Parameters<typeof createLeadRig>[0] = {}) => {
   const rig = await createLeadRig(options)
@@ -18,9 +24,16 @@ export const openLeadHost = async (browser: Browser, uiRoot: string, options: Pa
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, reducedMotion: 'reduce' })
   const visit = async (target: Page) => {
     await target.goto(`${server.url}/?token=${server.token}`)
-    await target.waitForFunction(() => (window as any).__hdStore?.getSnapshot().status === 'open')
+    await target.waitForFunction(() => (window as any).__hdReady !== undefined, null, { timeout: 10_000 })
+    // Socket-open precedes preferences and workspace restoration, which can
+    // replace a destination clicked during startup. Wait for the sitting.
+    await bounded('renderer startup restoration', () => target.evaluate(() => (window as any).__hdReady))
   }
-  const close = async () => { await page.close(); await server.close(); await rig.dispose() }
+  const close = async () => {
+    try {
+      if (!page.isClosed()) { await bounded('renderer transport shutdown', () => page.evaluate(() => (window as any).__hdStore.transport.close())); await bounded('renderer page close', () => page.close()) }
+    } finally { try { await bounded('loopback server close', () => server.close()) } finally { await bounded('isolated Lead rig disposal', () => rig.dispose()) } }
+  }
   try { await visit(page); return { rig, server, page, visit, close } }
   catch (error) { await close(); throw error }
 }

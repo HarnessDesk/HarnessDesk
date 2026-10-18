@@ -121,3 +121,18 @@ it('does not read again after an accepted Send loses the capability', async () =
   expect(request).toHaveBeenCalledTimes(1)
   expect(request).toHaveBeenCalledWith('lead/thread/send', { text: 'Inspect', idempotencyKey: 'send-1' })
 })
+
+it.each(['code', 'wireCode'])('retries a stale name-only update once using a fresh read (%s)', async field => {
+  const { createLeadState } = await load()
+  const request = vi.fn().mockRejectedValueOnce({ [field]: 'lead-revision-stale' }).mockResolvedValueOnce(projection(9)).mockResolvedValueOnce({ ...projection(10), settings: { ...settings, name: 'lex' } })
+  const facade = createLeadState({ request }, () => true)
+  facade.changed({ method: 'lead/changed', params: projection(2) })
+  await facade.updateSettings({ name: 'lex' })
+  expect(request.mock.calls).toEqual([['lead/settings/update', { expectedRevision: 2, name: 'lex' }], ['lead/settings/read', {}], ['lead/settings/update', { expectedRevision: 9, name: 'lex' }]])
+  expect(facade.state.settings.name).toBe('lex')
+})
+it.each([{ caps: settings.caps }, { policy: settings.policy }, { credential: { provider: 'anthropic', key: null } }, { name: 'lex', caps: settings.caps }])('never retries an authority or credential update %j', async update => {
+  const { createLeadState } = await load(), request = vi.fn().mockRejectedValue({ code: 'lead-revision-stale' })
+  const facade = createLeadState({ request }, () => true); facade.changed({ method: 'lead/changed', params: projection(2) })
+  await expect(facade.updateSettings(update)).rejects.toMatchObject({ code: 'lead-revision-stale' }); expect(request).toHaveBeenCalledOnce()
+})

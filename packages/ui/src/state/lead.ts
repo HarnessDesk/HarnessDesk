@@ -45,7 +45,17 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     },
     async decide(decision: LeadCardDecision) { check(); const result = await transport.request('lead/card/decide', decision); apply(result); return result },
     async updateSettings(update: Omit<LeadSettingsUpdate, 'expectedRevision'>) {
-      checkRead(); const result = await transport.request('lead/settings/update', { ...update, expectedRevision: state.revision }); apply(result); return result
+      checkRead()
+      const nameOnly = update.name !== undefined && Object.keys(update).length === 1
+      let result: LeadWindowProjection
+      try { result = await transport.request('lead/settings/update', { ...update, expectedRevision: state.revision }) }
+      catch (error) {
+        const code = (error as { wireCode?: string; code?: string })?.wireCode ?? (error as { code?: string })?.code
+        if (!nameOnly || code !== 'lead-revision-stale') throw error
+        const fresh = await transport.request('lead/settings/read', {}); apply(fresh); checkRead()
+        result = await transport.request('lead/settings/update', { ...update, expectedRevision: state.revision })
+      }
+      apply(result); return result
     },
     async resume() { checkRead(); const result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result); return result },
   }

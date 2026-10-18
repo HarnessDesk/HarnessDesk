@@ -168,3 +168,48 @@ test('a checkpoint defaults only absent name state and rejects a null name', () 
   const malformed = JSON.parse(JSON.stringify(checkpoint)); malformed.state.name = null
   assert.throws(() => lead.parseLeadCheckpoint(malformed))
 })
+
+const decidedHistory = (count: number) => {
+  const events: unknown[] = [...prefix()]
+  for (let i = 0; i < count; i++) {
+    const policy = { version: 1, revision: i + 2, mode: 'manage', rules: [] }
+    events.push({ type: 'card', card: { version: 1, id: `settings-${i}`, revision: 1, type: 'permission-change', contractDigest: contract.digest, previous: { ...policy, revision: i + 1 }, proposed: policy } },
+      { type: 'card-decision', decision: { version: 1, cardId: `settings-${i}`, cardType: 'permission-change', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, expiresAt: null })
+  }
+  return records(events)
+}
+test('decided history retains exactly the newest 64 entries on reduction and journal replay', () => {
+  const history = decidedHistory(70), state = replayLeadJournal(history)
+  assert.equal(state.decisionMessages.length, 64)
+  assert.deepEqual(state.decisionMessages.map(message => message.card.id), Array.from({ length: 64 }, (_, i) => `settings-${i + 6}`))
+  const live = history.reduce(reduceLeadRecord, initialLeadState())
+  assert.deepEqual(live.decisionMessages, state.decisionMessages)
+  assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint(state, '0'.repeat(64))).state.decisionMessages, state.decisionMessages)
+})
+test('same-card decision replaces its history once at its original journal position', () => {
+  const history = records([...prefix(), { type: 'card', card: { version: 1, id: 'plan-1', revision: 2, type: 'plan', contractDigest: contract.digest, contract: { ...contract, revision: 2 } } },
+    { type: 'card-decision', decision: { version: 1, cardId: 'plan-1', cardType: 'plan', expectedRevision: 2, contractDigest: contract.digest, choice: 'approve' }, expiresAt: 300 }])
+  const state = replayLeadJournal(history)
+  assert.equal(state.decisionMessages.length, 1); assert.equal(state.decisionMessages[0]!.position, 2); assert.equal(state.decisionMessages[0]!.card.revision, 2)
+})
+test('decided history trims to 128 KiB on journal replay and drops one oversized entry', () => {
+  // Each card fits the journal limit; the retained history as a whole does not.
+  const history = decidedHistory(30).map(record => record.type === 'card' && record.card.type === 'permission-change' ? { ...record, card: { ...record.card,
+    previous: { ...record.card.previous, rules: record.card.previous.revision === 1 ? [] : Array.from({ length: 32 }, (_, n) => ({ id: `rule-${n}`, effect: 'ask', method: 'flow/start-goal', action: null, project: '/workspace/' + 'x'.repeat(240) })) },
+    proposed: { ...record.card.proposed, rules: Array.from({ length: 32 }, (_, n) => ({ id: `rule-${n}`, effect: 'ask', method: 'flow/start-goal', action: null, project: '/workspace/' + 'x'.repeat(240) })) } } } : record)
+  const parsed = history.map(parseLeadJournalRecord), state = replayLeadJournal(parsed)
+  assert.ok(state.decisionMessages.length < 31)
+  assert.ok(new TextEncoder().encode(JSON.stringify(state.decisionMessages)).length <= 131072)
+  const before = replayLeadJournal(records(prefix().slice(0, 2)))
+  const giant = { ...before.cards[0]!, contract: { ...contract, steps: [{ ...contract.steps[0]!, variables: Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`input-${i}`, 'x'.repeat(16384)])) }] } }
+  const previous = { ...before, cards: [giant] } as typeof before
+  const decision = records(prefix())[2]!
+  assert.deepEqual(reduceLeadRecord(previous, decision).decisionMessages, [])
+})
+test('checkpoint rejects over 64 decisions, positions beyond seq, and extra decision keys', () => {
+  const state = replayLeadJournal(decidedHistory(1)), checkpoint = lead.leadCheckpoint(state, '0'.repeat(64))
+  for (const change of [(item: any) => { item.state.decisionMessages = Array.from({ length: 65 }, () => item.state.decisionMessages[0]) },
+    (item: any) => { item.state.decisionMessages[0].position = item.state.seq + 1 }, (item: any) => { item.state.decisionMessages[0].extra = true }]) {
+    const malformed = structuredClone(checkpoint); change(malformed); assert.throws(() => lead.parseLeadCheckpoint(malformed))
+  }
+})

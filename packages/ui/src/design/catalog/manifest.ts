@@ -704,9 +704,9 @@ const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
 }
 
 const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
-  'lead-contract': ['LeadContract', 'LeadMessage'],
+  'lead-contract': ['LeadContract'],
   'LeadAvatar': ['LeadAvatar', 'LeadNameChoice'],
-  'ConversationShell': ['ConversationShell', 'ConversationThread', 'ConversationDock', 'TranscriptAssistantMessage'],
+  'ConversationShell': ['ConversationShell', 'ConversationThread', 'ConversationDock', 'ConversationComposerFrame', 'TranscriptAssistantMessage'],
   'ActionError': ['ActionError'],
   'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],
   'ApprovalDialog': ['ApprovalChoiceHint', 'ApprovalCode', 'ApprovalDialog', 'ApprovalFilePath', 'ApprovalMeta', 'ApprovalPermissionList', 'ApprovalQuestionText', 'ApprovalReason'],

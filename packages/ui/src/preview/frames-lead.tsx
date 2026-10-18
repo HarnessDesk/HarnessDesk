@@ -83,7 +83,7 @@ export const LeadFrame = ({ scene }: { readonly scene: LeadScene }) => {
   const store = useMemo(() => createLeadFixtureStore(scene), [scene])
   return <section data-frame-id={`lead-${scene}`} className="flex min-w-0 flex-col gap-3">
     <h2>{`Lead · ${scene}`}</h2>
-    <div className={scene === 'narrow' ? 'h-[760px] w-[320px] max-w-full overflow-hidden border bg-background' : 'h-[760px] min-w-0 overflow-hidden border bg-background'}>
+    <div className={scene.startsWith('settings-') ? 'h-[760px] max-h-[calc(100dvh-var(--hd-space-6)*3)] min-w-0 overflow-hidden border bg-background' : scene === 'narrow' ? 'h-[760px] w-[320px] max-w-full overflow-hidden border bg-background' : 'h-[760px] min-w-0 overflow-hidden border bg-background'}>
       <StoreProvider store={store}><LeadSurface scene={scene} /></StoreProvider>
     </div>
   </section>

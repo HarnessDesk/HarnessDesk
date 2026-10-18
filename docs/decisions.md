@@ -3775,7 +3775,6 @@ equal values are a no-op. Widening and mixed edits still require a decision card
 An authority-neutral edit intentionally bumps the policy revision, making a
 pending plan card stale and requiring replanning.
 
-
 ## Lead is a named conversation with settings in Settings — 2026-10-18
 
 Lead uses the session window's shared shell, thread, Items messages, composer,
@@ -3790,3 +3789,13 @@ its system prompt names it without changing its tools or allowances. Name,
 Provider key, Allowances and Permissions live in capability-gated Settings › Lead.
 A widening save links back to the conversation for the person's decision.
 Bounded decision messages retain the chosen state after the dock is dismissed.
+
+
+The shared floating dock uses the sticky elevation token (10), replacing the
+session's former literal elevation (5). Both conversations now follow that same
+stacking contract. The composer frame is shared, and only the active conversation
+mounts its decision dock. Programmatic decision focus keeps the session's
+half-second typed-through guard; a deliberate pointer press clears it.
+
+Lead is a conversation root for design accounting too. Its component-owned
+message renderer and session Items stay in the same measured screen family.

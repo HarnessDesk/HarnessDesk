@@ -55,7 +55,7 @@ export const LeadSettings = ({ settings, expiry, update, onError, error, cards =
   const waiting = (type: LeadCard['type']) => { const card = cards.find(card => card.type === type); return card ? <Row title="Waiting for your approval in the conversation" control={<Button variant="outline" onClick={() => onOpen(card.id)}>Open</Button>} /> : null }
   return <>
       {error && <Banner role="alert" tone="warning">{error}</Banner>}
-      <Section title="Name"><Rows><Row title="Name" control={<LeadNameChoice value={settings.name} pending={pending} onChange={name => void submit({ name })} />} /></Rows></Section>
+      <Section title="Name"><Rows><Row title="Call me" control={<LeadNameChoice value={settings.name} pending={pending} onChange={name => void submit({ name })} />} /></Rows></Section>
       <Section title="Provider key">
       <Rows>
         <Row title="Key" titleChip={<Chip tone="neutral">{settings.key.configured ? 'Configured' : 'Not set'}</Chip>} control={<InlineParts>
@@ -69,7 +69,7 @@ export const LeadSettings = ({ settings, expiry, update, onError, error, cards =
       </Section>
       <Section title="Allowances">
       <Rows>
-        <Row title="Dollar allowance" desc={capsWiden ? 'Creates a card for your approval.' : 'Tightening applies at once. Stops when reported spend reaches the cap.'} control={<Input aria-label="Dollar allowance" type="number" min={0} step="0.000001" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} />} />
+        <Row title="Dollar allowance" desc={capsWiden ? 'Asks for your approval in the conversation.' : 'Tightening applies at once. Stops when reported spend reaches the cap.'} control={<Input aria-label="Dollar allowance" type="number" min={0} step="0.000001" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} />} />
         <Row title="Round allowance" control={<Input aria-label="Round allowance" type="number" min={0} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} />} />
         {expiry !== null && <Row title="Plan consent expires" desc={formatLeadConsentTime(expiry)} />}
       </Rows>
@@ -78,7 +78,7 @@ export const LeadSettings = ({ settings, expiry, update, onError, error, cards =
       </Section>
       <Section title="Permissions">
       <Rows>
-        <Row title="Permission mode" desc={widening ? 'Creates a card for your approval.' : 'Tightening applies at once.'} control={<NativeSelect aria-label="Permission mode" value={policy.mode} disabled={pending} onChange={event => setPolicy({ ...policy, mode: event.target.value as LeadPermissionPolicy['mode'] })}><option value="plan">Plan</option><option value="default">Default</option><option value="manage">Manage</option></NativeSelect>} />
+        <Row title="Permission mode" desc={widening ? 'Asks for your approval in the conversation.' : 'Tightening applies at once.'} control={<NativeSelect aria-label="Permission mode" value={policy.mode} disabled={pending} onChange={event => setPolicy({ ...policy, mode: event.target.value as LeadPermissionPolicy['mode'] })}><option value="plan">Plan</option><option value="default">Default</option><option value="manage">Manage</option></NativeSelect>} />
         {policy.rules.map((rule, index) => <Row key={rule.id} title={`Rule ${index + 1}`} desc={<FormStack>
           <NativeSelect aria-label={`Rule ${index + 1} effect`} value={rule.effect} disabled={pending} onChange={event => setPolicy({ ...policy, rules: policy.rules.map(one => one.id === rule.id ? { ...one, effect: event.target.value as typeof rule.effect } : one) })}>{(['allow', 'ask', 'deny'] as const).map(effect => <option key={effect} value={effect}>{effect}</option>)}</NativeSelect>
           <NativeSelect aria-label={`Rule ${index + 1} method`} value={rule.method} disabled={pending} onChange={event => setPolicy({ ...policy, rules: policy.rules.map(one => one.id === rule.id ? { ...one, method: event.target.value as ClientMethodName } : one) })}>{(Object.keys(PERMISSION_LABELS) as ClientMethodName[]).map(method => <option key={method} value={method} title={method}>{PERMISSION_LABELS[method]}</option>)}</NativeSelect>

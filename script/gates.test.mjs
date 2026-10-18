@@ -164,6 +164,8 @@ test('single-screen pattern accounting groups the conversation family, not only 
   const conversationMap = path.join(repoRoot, 'packages/ui/src/components/ConversationMap.tsx')
   const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
   assert.equal(screenAreaOf(items), 'conversation')
+  assert.equal(screenAreaOf(path.join(repoRoot, 'packages/ui/src/components/LeadPage.tsx')), 'conversation')
+  assert.equal(screenAreaOf(path.join(repoRoot, 'packages/ui/src/components/LeadMessage.tsx')), 'conversation')
   assert.equal(screenAreaOf(turnWork), 'conversation')
   assert.equal(screenAreaOf(conversationMap), 'conversation')
   // Before #914 these were four separate areas ('items', 'turnwork',

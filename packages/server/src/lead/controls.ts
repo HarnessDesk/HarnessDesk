@@ -38,6 +38,12 @@ export class LeadControls {
   #requestInFlight = false
   #closed = false
   #lastRevision = -1
+  #safeNameRevision: number | null = null
+  #verified: { state: string; projection: LeadWindowProjection } | null = null
+  #projectionState(state: LeadState): string {
+    const { seq: _seq, name: _name, ...content } = state
+    return JSON.stringify({ ...content, attempts: [...content.attempts], requestInFlight: this.#inFlight(), workerApprovals: this.options.readWorkerApprovals?.() ?? [] })
+  }
   readonly #detach: () => void
   constructor(private readonly options: LeadControlsOptions) {
     this.#detach = options.journal.onChange(() => {
@@ -87,6 +93,16 @@ export class LeadControls {
       key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
   }
   async #projection(): Promise<LeadWindowProjection> {
+    const current = this.options.journal.state, verified = this.#verified
+    // A closed name choice adds no untrusted bytes. Reuse only an already
+    // checked projection whose entire non-name state is still identical.
+    if (verified && (verified.projection.revision + 1 === current.seq && verified.projection.settings.name !== current.name || this.#safeNameRevision === current.seq) && verified.state === this.#projectionState(current) &&
+      (verified.projection.planConsentExpiresAt === null || verified.projection.planConsentExpiresAt > this.options.now())) {
+      const result = { ...verified.projection, revision: current.seq, settings: { ...verified.projection.settings, name: current.name }, thread: { ...verified.projection.thread, revision: current.seq } }
+      this.#safeNameRevision = current.seq
+      this.#verified = { state: verified.state, projection: structuredClone(result) }
+      return result
+    }
     // Renewal is opportunistic. A refusal must leave reads and key removal usable.
     try { await this.options.journal.renewPlan(this.options.now(), card =>
       admitLeadCard(this.options.journal.state, card, this.options.project, this.options.model)) } catch { /* Keep the last durable projection readable. */ }
@@ -103,6 +119,7 @@ export class LeadControls {
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
       planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight() })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
+    this.#verified = { state: this.#projectionState(state), projection: structuredClone(result) }
     return result
   }
   #inFlight(): boolean {
@@ -229,6 +246,7 @@ export class LeadControls {
     const input = parseLeadSettingsUpdate(value), { journal, service } = this.options
     this.#expectRevision(input.expectedRevision)
     // Credentials stay exclusive; combined authority changes are preflighted together.
+    if (input.name !== undefined && (input.policy !== undefined || input.caps !== undefined)) throw leadRefusal('lead-settings-combination')
     if (input.credential ? input.name !== undefined || input.policy !== undefined || input.caps !== undefined : input.name === undefined && !input.policy && !input.caps) throw leadRefusal('lead-settings-combination')
     if (input.credential) {
       const { provider, key } = input.credential
@@ -241,7 +259,7 @@ export class LeadControls {
       }
       await journal.settingsChanged()
     } else {
-      try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
+      if (input.name === undefined) { try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) } }
       if (input.policy && input.caps) await journal.changePolicyAndBudgetCaps(input.policy, input.caps, input.expectedRevision,
         { policy: this.options.nextId(), caps: this.options.nextId() }, this.options.now(), this.options.stopEffects,
         (state, card) => admitLeadCard(state, card, this.options.project, this.options.model))

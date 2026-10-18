@@ -1976,6 +1976,7 @@ for (const importer of [...screenSources, ...appSources]) {
  */
 export const NAMED_ROOTS = new Map([
   [path.join(UI_SRC, 'components', 'Conversation.tsx'), 'conversation'],
+  [path.join(UI_SRC, 'components', 'LeadPage.tsx'), 'conversation'],
   [path.join(UI_SRC, 'components', 'Settings.tsx'), 'settings'],
   [path.join(UI_SRC, 'components', 'TeamRoomPane.tsx'), 'room'],
   [path.join(UI_SRC, 'components', 'TeamBoardPane.tsx'), 'room'],

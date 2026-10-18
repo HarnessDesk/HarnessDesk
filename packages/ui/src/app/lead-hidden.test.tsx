@@ -124,7 +124,7 @@ it('the enabled sidebar click opens the Lead destination', async () => {
   const store = new AppStore('ws://localhost:0/')
   seed(store, true)
   const box = await mount(store, true)
-  const door = [...box.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Dex')!
+  const door = [...box.querySelectorAll('button')].find(button => button.getAttribute('title') === 'Lead')!
   expect(door).toBeDefined()
   await act(async () => { door.click(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
   expect(store.getSnapshot().workbench.navigation.current).toEqual(lead)
@@ -140,4 +140,18 @@ it('rechecks the host capability when a transport reconnects', async () => {
   expect(store.getSnapshot().leadAvailable).toBe(false)
   handlers.onStatus('open')
   await vi.waitFor(() => expect(store.getSnapshot().leadAvailable).toBe(true))
+})
+
+it('only the active conversation mounts its dock', async () => {
+  const { Conversation } = await import('../components/Conversation')
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), previewStore({ leadAvailable: true }).getSnapshot())
+  vi.spyOn(store.transport, 'request').mockResolvedValue({} as never)
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  mounted.push(() => { act(() => root.unmount()); box.remove() })
+  store.openDestination(lead)
+  await act(async () => root.render(<StoreProvider store={store}><Conversation header={false} composer={false} onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /><MainPages onSignIn={() => {}} onNewTeam={() => {}} libraryImportIntent={0} /></StoreProvider>))
+  expect(box.querySelectorAll('[data-slot="conversation-dock"]')).toHaveLength(1)
+  await act(async () => { store.returnToWork(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
+  expect(box.querySelectorAll('[data-slot="conversation-dock"]')).toHaveLength(1)
 })
