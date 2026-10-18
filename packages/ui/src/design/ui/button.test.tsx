@@ -74,6 +74,18 @@ describe('the canonical button', () => {
     }
   })
 
+  it('sizes the control rung from the control height, so a page action stands on the tabs beside it', () => {
+    /* The page action in a tab row (`PageOptions`) shares its line with the
+       pane's quiet tabs and the View trigger, which stand on
+       `--hd-control-h`. `sm` is a rung above them, so it reads the small
+       button's own height token; this rung reads the control's. */
+    expect(buttonVariants({ size: 'control' })).toContain('h-(--hd-control-h)')
+    /* Everything but the height is `sm`'s box, so the two stay one kind of
+       thing to the hand. */
+    expect(buttonVariants({ size: 'control' })).toContain('p-(--hd-btn-padding-sm)')
+    expect(buttonVariants({ size: 'control' })).toContain('text-(length:--hd-btn-text-sm)')
+  })
+
   it('never changes the label weight for a chosen state', () => {
     for (const variant of ['row', 'navigation', 'choice'] as const) {
       const classes = buttonVariants({ variant })

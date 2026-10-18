@@ -29,7 +29,7 @@ export const PageOptions = ({ title, choices = [], search, read, action, childre
   readonly action?: { readonly label: string; readonly icon?: ReactNode; readonly disabled?: boolean | string; readonly run: () => void }
 }) => {
   const controls = (items: readonly PageOption[], primary = true, filters = true) => <div data-slot={title ? undefined : 'page-options'} data-page-controls className={styles.options}>
-  {primary && action && <Button variant="outline" size="sm" aria-label={action.label} disabled={Boolean(action.disabled)} title={typeof action.disabled === 'string' ? action.disabled : undefined} onClick={action.run}>{action.icon}{action.label}</Button>}
+  {primary && action && <Button variant="outline" size="control" aria-label={action.label} disabled={Boolean(action.disabled)} title={typeof action.disabled === 'string' ? action.disabled : undefined} onClick={action.run}>{action.icon}{action.label}</Button>}
   {items.map(choice => {
     const current = choice.items.find(item => item.value === choice.value)
     return choice.mode === 'menu'
