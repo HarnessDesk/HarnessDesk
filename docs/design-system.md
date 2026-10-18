@@ -276,6 +276,8 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-info-card-width` | `288px` |
 | `--hd-fade-edge` | `16px` |
 | `--hd-fade` | `linear-gradient(to right, #000 calc(100% - 16px), transparent)` |
+| `--hd-toast-gap` | `16px` |
+| `--hd-toast-bottom` | `16px` |
 | `--hd-composer-min` | `44px` |
 | `--hd-composer-max` | `320px` |
 | `--hd-composer-line` | `20px` |

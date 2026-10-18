@@ -1,4 +1,6 @@
-import { forwardRef, type ComponentProps } from 'react'
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, type ComponentProps } from 'react'
+
+import { registerComposerDock } from './composer-toast-offset'
 
 import { CrossIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
@@ -11,6 +13,10 @@ import { cn } from '@/lib/utils'
  * `floating="bare"` keeps that top clearance without a fade, for cards that
  * float over content which must remain visible around and between them.
  *
+ * Each mounted dock reports its visible window clearance to the shared toast
+ * registry, including room and side-by-side composers. The app-level toaster
+ * can then clear docks outside its own subtree; hidden panes reserve nothing.
+ *
  * The two are mutually exclusive rather than additive: `floating` wraps the
  * outer dock (`Conversation.tsx`, around its bars strip and its composer
  * together), the default wraps the composer shell alone one level inside it
@@ -19,9 +25,12 @@ import { cn } from '@/lib/utils'
  * would double an inset the other side already pays.
  */
 const ComposerDock = forwardRef<HTMLDivElement, ComponentProps<'div'> & { floating?: boolean | 'bare' }>(
-  ({ className, floating = false, ...props }, ref) => (
-    <div
-      ref={ref}
+  ({ className, floating = false, ...props }, ref) => {
+    const dock = useRef<HTMLDivElement>(null)
+    useImperativeHandle(ref, () => dock.current!, [])
+    useLayoutEffect(() => registerComposerDock(dock.current!), [])
+    return <div
+      ref={dock}
       data-slot="composer-dock"
       className={cn(
         'shrink-0',
@@ -33,7 +42,7 @@ const ComposerDock = forwardRef<HTMLDivElement, ComponentProps<'div'> & { floati
       )}
       {...props}
     />
-  ),
+  },
 )
 ComposerDock.displayName = 'ComposerDock'
 

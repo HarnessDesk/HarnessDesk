@@ -1331,9 +1331,10 @@ why. The section appears only once the project has a checks file.
 Only the result of a person's action opens a toast: success leaves on its
 own; failure stays until closed. Conditions needing attention keep their
 existing composer, strip or sidebar card, with their action and Inbox option.
-Toasts appear at the upper-right of the window, above the composer, leaving
-Send and the model picker clear. The shared notice card centres its tile on
-the complete copy block, with title above optional earned detail. Actions sit
+Toasts appear at the bottom right of the window, just above the composer when
+one is showing, so neither a page’s own controls nor Send and the model picker
+are covered. Without a composer, they sit a small gap above the window’s bottom
+edge. The shared notice card centres its tile on the complete copy block, with title above optional earned detail. Actions sit
 beside the copy, dropping below at three or more actions or below about 400px;
 a wrapped card keeps its dismiss at the top-right. Its plate matches the
 composer, and danger adds a left bar and tinted tile. A requested action that
