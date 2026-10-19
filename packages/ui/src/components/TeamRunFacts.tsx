@@ -27,7 +27,7 @@ export const TeamRunFacts = ({ input, number, chooser, at, flowFile, pullRequest
       <SummaryItem label="State">{sanitizeText(execution.state)}</SummaryItem>
       {execution.brief && <SummaryItem label="Brief">{sanitizeText(execution.brief)}</SummaryItem>}
       {execution.base && <SummaryItem label="Base" kind="path">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</SummaryItem>}
-      <SummaryItem label="Flow" note={facts.revision ? `Revision ${sanitizeText(facts.revision)}` : undefined}>{facts.flow}</SummaryItem>
+      <SummaryItem label="Flow" note={facts.revision ? `Revision ${sanitizeText(facts.revision)}` : undefined} noteKind="path">{facts.flow}</SummaryItem>
       <SummaryItem label="Flow file" action={flowFile}>Current catalogue</SummaryItem>
       {facts.budget !== 'Not recorded' && <SummaryItem label="Budget">{facts.budget}</SummaryItem>}
       {facts.idle !== 'Not recorded' && <SummaryItem label="No progress">{facts.idle}</SummaryItem>}

@@ -257,6 +257,16 @@ it('the list carries waiting, repeat counts and unknown duration; agent words ar
 })
 
 
+it('draws no duration for a step that has not yet spent any time, rather than 0ms', async () => {
+  const model = flowModel(blueprint())
+  await act(async () => root.render(<FlowGraph model={model} overlay={{ rules: new Map(), steps: new Map([
+    ['you', { state: 'waiting', runs: 1, durationMs: 0, since: null, line: 'merged · dropped', seats: [] }],
+    ['write', { state: 'done', runs: 1, durationMs: 660_000, since: null, line: 'published', seats: [] }],
+  ]) }} />))
+  expect(container.querySelector('[data-step="you"] [data-slot="flow-duration"]')).toBeNull()
+  expect(container.querySelector('[data-step="write"] [data-slot="flow-duration"]')?.textContent).toBe('11m')
+})
+
 it('marks command steps with terminals in the blueprint drawing and catalogue list', async () => {
   await draw(blueprint())
   for (const id of ['check', 'land']) {
