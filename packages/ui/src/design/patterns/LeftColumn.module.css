@@ -3,11 +3,12 @@
 .body { flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
 .body::-webkit-scrollbar { display: none; }
 .hidden { display: none; }
-.group { --left-gutter: 0px; min-width: 0; padding: 0; padding-inline-start: var(--left-gutter); }
+.group { min-width: 0; padding: 0; }
 /* The drawing's group rhythm is shared by both interfaces. */
 .group + .group { padding-block-start: var(--hd-space-4); }
-.label { font-weight: var(--hd-weight-medium); display: block; padding-inline-start: var(--hd-space-2); margin-block: var(--hd-space-2); }
-.row { position: relative; height: var(--hd-left-row-h); min-width: 0; display: flex; align-items: center; }
+.label { font-weight: var(--hd-weight-medium); display: block; padding-inline-start: calc(var(--hd-space-2) + var(--hd-icon-target)); margin-block: var(--hd-space-2); }
+/* Every row reserves one disclosure target; separators retain the rail inset. */
+.row { margin-inline-start: var(--hd-icon-target); position: relative; height: var(--hd-left-row-h); min-width: 0; display: flex; align-items: center; }
 .row .button { box-sizing: border-box; border: 0; padding-block: 0; height: var(--hd-sidebar-highlight-h); min-height: var(--hd-sidebar-highlight-h); padding-inline: var(--hd-space-2); gap: var(--hd-left-menu-gap); border-radius: var(--hd-nav-radius); font-size: var(--hd-text-sm); line-height: var(--hd-line-sm); font-weight: var(--hd-weight-normal); }
 /* The Settings menu reads one step larger than the sidebar (14 / 20); its row sizes are the [data-left-settings] tokens. */
 :global([data-left-settings]) .row .button { font-size: var(--hd-text); line-height: var(--hd-line); }
@@ -39,7 +40,7 @@
    without gaps; below that, WindowControls carries history in the main bar. */
 @container left-column-controls (width < 112px) { .history { display: none; } }
 .seat { height: 100%; display: flex; align-items: center; gap: var(--hd-bar-gap); width: 100%; min-width: 0; }
-.seatMenu { flex: 1; min-width: 0; }
+.seatMenu { margin-inline-start: var(--hd-icon-target); flex: 1; min-width: 0; }
 .topButton[aria-pressed='true'] { background: var(--hd-selected); }
 
 .menuAction { pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; width: var(--hd-icon-target); height: var(--hd-icon-target); padding: 0; border: 0; border-radius: var(--hd-radius-sm); background: transparent; color: var(--hd-secondary-foreground); }
@@ -65,8 +66,8 @@
 
 .options { display: inline-flex; align-items: center; position: relative; }
 .options > [data-slot='dot'] { position: absolute; inset-block-start: 0; inset-inline-end: 0; pointer-events: none; }
-.empty { white-space: normal; }
-.inset { --left-head-inset: var(--hd-space-2); padding-inline: var(--hd-space-2); padding-inline-start: calc(var(--hd-space-2) + var(--left-gutter, 0px)); }
+.empty { white-space: normal; margin-inline-start: calc(var(--hd-space-4) + var(--hd-left-menu-gap)); }
+.inset { --left-head-inset: var(--hd-space-2); padding-inline: var(--hd-space-2); padding-inline-start: var(--hd-space-2); }
 
 .headSearch { flex: 1; min-width: 0; }
 .headSearch > [data-slot="search"] { width: 100%; }
@@ -83,7 +84,7 @@
 /* Foldable group names start at the ordinary icon edge. The disclosure follows
    the visible name, inside the label's reserved space beside the end action. */
 .row[data-left-project] { margin-block-start: calc(var(--hd-sidebar-group-space) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2); }
-.button[aria-expanded] { color: var(--hd-secondary-foreground); font-weight: var(--hd-weight-medium); }
+.button[aria-expanded]:where(:has([data-left-fold-name])) { color: var(--hd-secondary-foreground); font-weight: var(--hd-weight-medium); }
 .button[aria-expanded]:has([data-left-fold-name]) [data-slot='sidebar-menu-label-content'] { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: var(--hd-space-1-5); }
 .foldName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .disclosure { flex: none; visibility: hidden; }
@@ -107,16 +108,11 @@
 .explorerFoot .fileSearch { width: 100%; justify-content: flex-start; gap: var(--hd-space-2); background: var(--hd-input); border: var(--hd-border-width) solid var(--hd-border); }
 .fileSearch > span:last-child { margin-inline-start: auto; }
 
-.seatMenu > div > button { background: transparent; }
+.seatMenu [data-slot='popover-trigger'] { background: transparent; border: 0; padding-inline: var(--hd-space-2); gap: var(--hd-left-menu-gap); }
 
 .gutterDisclosure { position: absolute; inset-inline-start: calc(-1 * var(--hd-icon-target)); top: calc((var(--hd-left-row-h) - var(--hd-icon-target)) / 2); width: var(--hd-icon-target); height: var(--hd-icon-target); padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .seats .row .button { padding-inline-start: calc(var(--hd-space-2) + var(--hd-space-4) + var(--hd-left-menu-gap)); }
 .row[data-left-prefix] .button [data-slot='sidebar-menu-label'] { padding-inline-end: 0; }
 .markPrefix { flex: none; margin-inline-end: calc(var(--hd-icon-target) + var(--hd-space-1)); white-space: nowrap; }
 
-.gutter { --left-gutter: var(--hd-icon-target); }
-
-/* The separator spans the whole list, including its leading disclosure gutter. */
-.group.gutter :global([data-slot='separator']) { flex: none; margin-inline-start: calc(-1 * var(--hd-icon-target)); width: calc(100% + var(--hd-icon-target)); }
-
-.head[data-left-head] { padding-inline-start: calc(var(--left-head-inset, 0px) + var(--left-gutter, 0px)); }
+.head[data-left-head] { padding-inline-start: calc(var(--left-head-inset, 0px) + var(--hd-icon-target)); }

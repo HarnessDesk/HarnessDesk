@@ -122,7 +122,7 @@ d7a.describe('D7a heading disclosure', () => {
           await applyLeftColumnActions(page, { leftOpen: true, leftWidth })
           await column.evaluate(node => { if (node.contains(document.activeElement)) (document.activeElement as HTMLElement).blur() })
           await page.mouse.move(width - 1, 899)
-          const gutter = await column.evaluate(node => node.getBoundingClientRect().left) + 16
+          const gutter = await column.evaluate(node => node.querySelector('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect().left)
           const escaped = await column.evaluate((column, gutter) => {
             const visible = (node: Element) => {
               for (let ancestor: Element | null = node; ancestor; ancestor = ancestor.parentElement) {
@@ -134,7 +134,7 @@ d7a.describe('D7a heading disclosure', () => {
             const failures: { text: string; x: number }[] = []
             for (const root of column.querySelectorAll('[data-region="sidebar-content"], nav[aria-label="Workspace actions"], [data-left-head]')) {
               for (const node of root.querySelectorAll('svg, img')) {
-                if (visible(node) && node.getBoundingClientRect().left < gutter) failures.push({ text: node.getAttribute('data-slot') ?? node.tagName, x: node.getBoundingClientRect().left })
+                if (!node.closest('[data-left-disclosure]') && visible(node) && node.getBoundingClientRect().left < gutter) failures.push({ text: node.getAttribute('data-slot') ?? node.tagName, x: node.getBoundingClientRect().left })
               }
               const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
               while (walker.nextNode()) {
@@ -149,7 +149,7 @@ d7a.describe('D7a heading disclosure', () => {
           }, gutter)
           expect(escaped, `${mode}/${leftWidth}: every visible list glyph and text starts at the gutter or later`).toEqual([])
           if (mode === 'settings-navigation') continue
-          const headings = column.locator('[data-slot="sidebar-menu-button"][aria-expanded]')
+          const headings = column.locator('[data-slot="sidebar-menu-button"][aria-expanded]:has([data-left-fold-name])')
           expect(await headings.count()).toBeGreaterThan(2)
           for (const heading of await headings.all()) {
             const arrow = heading.locator('[data-slot="disclosure-chevron"]')

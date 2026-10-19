@@ -511,7 +511,7 @@ test('real session and Team rows preserve full facts and one priority slot', asy
   }
 })
 
-test('nested board and flat Team keep trailing marks on their own label line', async ({ page }) => {
+test('nested board and Team parent keep trailing marks on their own label line', async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
   const example = page.locator('[data-catalog-example="sidebar"]')

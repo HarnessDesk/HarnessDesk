@@ -1115,6 +1115,11 @@ group headers comes from `--hd-sidebar-group-space`, adjusted for the line's
 position inside its row. State stays on its row as a compact attention or
 error mark, followed in priority by a working spinner. Activity words stay on hover.
 
+Every left-column row is inset by one disclosure gutter (`--hd-icon-target`),
+including navigation, list headings, load-more, empty states, footer and Settings.
+Their icons and labels share columns; nested Seats take one further step.
+Separators keep the rail inset and span the disclosure gutter.
+
 Pinned is one plain section for loose conversations, with its heading,
 separator and uncapped rows. Every active Team, and each finished Team until
 it is wrapped, has a row in its project beside the loose conversations.

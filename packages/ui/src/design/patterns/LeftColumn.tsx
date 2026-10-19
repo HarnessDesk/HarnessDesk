@@ -83,9 +83,9 @@ export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((
   </div>)
 LeftColumnRow.displayName = 'LeftColumnRow'
 export const LeftColumnGroup = forwardRef<HTMLElement, ComponentProps<'section'> & {
-  label: string; children: ReactNode; heading?: boolean; disclosureGutter?: boolean
-}>(({ label, children, heading = true, disclosureGutter = false, className, ...props }, ref) =>
-  <SidebarMenu as="section" ref={ref} data-left-group className={[styles.group, disclosureGutter ? styles.gutter : null, className].filter(Boolean).join(' ')} aria-label={label} role="group" {...props}>
+  label: string; children: ReactNode; heading?: boolean
+}>(({ label, children, heading = true, className, ...props }, ref) =>
+  <SidebarMenu as="section" ref={ref} data-left-group className={[styles.group, className].filter(Boolean).join(' ')} aria-label={label} role="group" {...props}>
     {heading && <GroupLabel className={styles.label}><span data-left-group-text>{label}</span></GroupLabel>}{children}
   </SidebarMenu>)
 LeftColumnGroup.displayName = 'LeftColumnGroup'
@@ -155,7 +155,8 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
     </div>}
   </Bar>
 </div>
-/** A quiet account row closes the column beneath a full-width hairline. */
+/** The account icon and label share the list columns; its face uses the 16px icon slot.
+ * A quiet account row closes the column beneath a full-width hairline. */
 export const LeftColumnSeat = ({ menu, notifications, settingsOpen, onSettings }: {
   menu: ReactNode; notifications?: ReactNode; settingsOpen: boolean; onSettings: () => void
 }) => <Bar inset="rail" size="lg" rule="top" paintedRule><div data-left-seat className={styles.seat}>
@@ -188,14 +189,14 @@ LeftColumnList.displayName = 'LeftColumnList'
 export const LeftColumnRename = ({ input }: { readonly input: ReactNode }) =>
   <div data-left-rename className={styles.row}>{input}</div>
 export const LeftColumnNavigation = ({ children }: { readonly children: ReactNode }) =>
-  <nav className={`${styles.navigation} ${styles.inset} ${styles.gutter}`} aria-label="Workspace actions">{children}</nav>
+  <nav className={`${styles.navigation} ${styles.inset}`} aria-label="Workspace actions">{children}</nav>
 export const LeftColumnProjectsHead = ({ value, onChange, focused, onFocusChange, options, onBrowseFolders }: {
   readonly value: string; readonly onChange: (value: string) => void; readonly focused: boolean
   readonly onFocusChange: (focused: boolean) => void; readonly options: ReactNode; readonly onBrowseFolders: () => void
 }) => {
   const filtering = focused || value.length > 0
   return <NavigationGroupHeader data-left-head data-left-projects-head inset="action" filtering={filtering}
-    data-filtered={value ? '' : undefined} className={`${styles.head} ${styles.projectsHead} ${styles.gutter}`}
+    data-filtered={value ? '' : undefined} className={`${styles.head} ${styles.projectsHead}`}
     label={<span className={styles.projectsLabel} data-left-group-text>Projects</span>}>
     {value && <span className={styles.filtered}><Chip tone="neutral" label="Filtered" />
       <Button variant="ghost" size="icon-xs" aria-label="Clear list filter" title="Clear list filter"

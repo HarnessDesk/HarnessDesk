@@ -224,6 +224,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
 
   test(`flat headings, separators and row highlights retain exact outer edges — ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const fixture = page.locator('#sidebar-structure')
@@ -256,6 +257,7 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) test(`nested seats keep their icon, pitch and trailing rails through disclosure and activity — ${theme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
   await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
   const fixture = page.locator('#sidebar-structure')
@@ -374,6 +376,7 @@ for (const theme of ['light', 'dark'] as const) test(`nested seats keep their ic
 
 for (const theme of ['light', 'dark'] as const) {
   test(`narrow Team labels ellipsize before the shared trailing gap — ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
     const fixture = page.locator('#sidebar-structure')
     await fixture.evaluate(node => { (node as HTMLElement).style.width = '200px' })
@@ -390,6 +393,7 @@ for (const theme of ['light', 'dark'] as const) {
     console.log(JSON.stringify({ theme, narrowTeam: value }))
   })
   test(`idle Seats reserve the same end slot as loose conversations — ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
     const fixture = page.locator('#sidebar-structure')
     await fixture.evaluate(node => { (node as HTMLElement).style.width = '200px' })
@@ -404,6 +408,7 @@ for (const theme of ['light', 'dark'] as const) {
     console.log(JSON.stringify({ theme, labelEndGap: { seat, loose } }))
   })
   test(`Team disclosure hit box stays inside the gutter before the highlight — ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
     const fixture = page.locator('#sidebar-structure')
     const team = fixture.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
@@ -471,4 +476,19 @@ test('multi-digit card prefixes reserve their intrinsic width without overlappin
   const prefixBox = (await prefix.boundingBox())!, labelBox = (await label.boundingBox())!
   expect(labelBox.x + labelBox.width).toBeLessThanOrEqual(prefixBox.x - 8 + 1)
   console.log(JSON.stringify({ cardPrefix: { labelRight: labelBox.x + labelBox.width, prefixLeft: prefixBox.x, prefixWidth: prefixBox.width } }))
+})
+
+for (const theme of ['light', 'dark'] as const) test(`unselected Team labels match loose conversations — ${theme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: theme })
+  await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+  const fixture = page.locator('#sidebar-structure')
+  const team = fixture.getByRole('button', { name: 'Room Check release notes', exact: true })
+  const loose = fixture.getByRole('button', { name: 'Release notes', exact: true })
+  const ink = (row: typeof team) => row.locator('[data-slot="sidebar-menu-label-content"]').evaluate(node => {
+    const css = getComputedStyle(node)
+    return { weight: css.fontWeight, buttonWeight: getComputedStyle(node.closest('button')!).fontWeight, color: css.color }
+  })
+  await expect(team).not.toHaveAttribute('aria-current')
+  await expect(loose).not.toHaveAttribute('aria-current')
+  expect(await ink(team)).toEqual(await ink(loose))
 })
