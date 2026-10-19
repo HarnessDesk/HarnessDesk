@@ -28,6 +28,7 @@ type Guest = Window & { build?: (level: number) => void }
  * clicked, so the picture never changes the scene.
  */
 const Pointer = ({ at }: { at: () => number | null }) => {
+  const layer = useRef<HTMLDivElement>(null)
   const pointer = useRef<HTMLDivElement>(null)
   const ring = useRef<HTMLSpanElement>(null)
   useEffect(() => {
@@ -37,33 +38,39 @@ const Pointer = ({ at }: { at: () => number | null }) => {
       [{ opacity: 0.5, transform: 'scale(0.96)' }, { opacity: 0.9, transform: 'scale(1.06)' }, { opacity: 0.5, transform: 'scale(0.96)' }],
       { duration: 2800, iterations: Infinity })
     let phase = ''
+    let release: number | undefined
+    /* Beside the Merge button, in the layer's own coordinates; false while the button is not laid out yet. */
     const place = (offset: number) => {
       const target = [...document.querySelectorAll('button')].find(button => MERGE.test((button.textContent ?? '').trim()))?.getBoundingClientRect()
-      if (!target) return false
-      el.style.transform = `translate(${target.left + target.width * 0.62 + offset}px, ${target.top + target.height * 0.55 + offset * 0.7}px)`
+      const base = layer.current?.getBoundingClientRect()
+      if (!target || !base) return false
+      el.style.transform = `translate(${target.left - base.left + target.width * 0.62 + offset}px, ${target.top - base.top + target.height * 0.55 + offset * 0.7}px)`
       return true
     }
+    let parked = false
     const tick = () => {
       const now = at()
       const next = now === null ? 'hidden' : now < POINTER.arrive ? 'waiting' : now < POINTER.press ? 'moving' : now < POINTER.leave ? 'pressed' : 'hidden'
+      if (next === 'moving' || next === 'pressed') place(0)
+      else if (!parked) parked = place(150)
       if (next === phase) return
       phase = next
-      if (next === 'hidden' || next === 'waiting') { el.style.opacity = '0'; place(150); return }
+      el.dataset.phase = next
+      if (next === 'hidden' || next === 'waiting') { el.style.opacity = '0'; parked = false; return }
       el.style.opacity = '1'
-      if (next === 'moving') place(0)
       if (next === 'pressed') {
         el.style.scale = '0.86'
-        window.setTimeout(() => { el.style.scale = '1' }, 180)
+        release = window.setTimeout(() => { el.style.scale = '1' }, 180)
         ring.current?.animate?.([{ opacity: 0.9, transform: 'scale(0.4)' }, { opacity: 0, transform: 'scale(1.4)' }], { duration: 460, easing: 'linear' })
       }
     }
     tick()
     const timer = window.setInterval(tick, 100)
-    return () => { window.clearInterval(timer); aura?.cancel() }
+    return () => { window.clearInterval(timer); window.clearTimeout(release); aura?.cancel() }
   }, [at])
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 z-50 overflow-hidden">
-      <div ref={pointer} data-race-pointer className="absolute left-0 top-0 opacity-0" style={{ transition: 'transform 1100ms cubic-bezier(0.32, 0.72, 0.24, 1), opacity 300ms, scale 160ms' }}>
+    <div ref={layer} aria-hidden className="pointer-events-none absolute inset-0 z-50 overflow-hidden">
+      <div ref={pointer} data-race-pointer data-phase="waiting" className="absolute left-0 top-0 opacity-0" style={{ transition: 'transform 1100ms cubic-bezier(0.32, 0.72, 0.24, 1), opacity 300ms, scale 160ms' }}>
         <span data-aura className="absolute -left-3 -top-3 size-7 rounded-full bg-foreground/30 blur-[5px]" />
         <span ref={ring} className="absolute -left-[18px] -top-[18px] size-9 rounded-full border border-foreground/50 opacity-0" />
         <svg width="18" height="18" viewBox="0 0 18 18" className="relative -ml-px -mt-px drop-shadow"><path d="M2 1.5 15 8l-5.6 1.6L7.6 15z" className="fill-foreground stroke-background" strokeWidth="1.2" strokeLinejoin="round" /></svg>

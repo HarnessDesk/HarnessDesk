@@ -341,7 +341,8 @@ try {
   }
   assert.deepEqual(polishFailures, [], 'Focused Dashboard polish regressions')
   // The tour's pages: the whole App window on one destination, at 1:1.
-  const TOUR_TEXT = { 'tour-teams': 'Needs you', 'tour-run': 'Writer', 'tour-flows': 'matching Runs', 'tour-library': 'code-review', 'tour-runtimes': 'Ready', 'tour-chats': 'Chats', 'hero-race': 'To: Both' }
+  const TOUR_TEXT = { 'tour-teams': 'Needs you', 'tour-run': 'Writer', 'tour-flows': 'matching Runs', 'tour-library': 'code-review', 'tour-runtimes': 'Ready', 'tour-chats': 'Chats', 'hero-race': 'To: Both',
+    'showcase-run': 'The path this Run took', 'showcase-board': 'Add jitter to the backoff' }
   for (const [name, scene] of Object.entries(SCENES).filter(([name]) => !isDashboardScene(name))) for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width: scene.width, height: scene.height }, colorScheme: theme })
     const errors = [], external = []
@@ -351,6 +352,7 @@ try {
     await page.goto(`${buildOrigin}?view=${name}&theme=${theme}`)
     const box = page.locator('[data-site-scene]')
     await expect(box).toHaveAttribute('data-site-scene', name)
+    assert.ok(TOUR_TEXT[name], `${name} needs a line of text only it renders`)
     await expect(box).toContainText(TOUR_TEXT[name])
     assert.deepEqual(await box.evaluate(node => ({ width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height, pageWidth: document.documentElement.scrollWidth })),
       { width: scene.width, height: scene.height, pageWidth: scene.width })
