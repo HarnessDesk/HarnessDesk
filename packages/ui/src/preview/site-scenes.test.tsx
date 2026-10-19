@@ -43,10 +43,12 @@ afterEach(() => {
   document.body.removeAttribute('data-hd-dark-theme')
 })
 
-it('registers the full Dashboard, three focused 672 × 432 views, the 800 × 500 tour pages and the 1200 × 750 hero race', () => {
+it('registers the full Dashboard, three focused 672 × 432 views, the 800 × 500 tour pages, the 1200 × 750 hero race and the two showcase scenes', () => {
   expect(Object.keys(SCENES)).toEqual(['dashboard', 'dashboard-spend', 'dashboard-limits', 'dashboard-activity',
-    'tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats', 'hero-race'])
+    'tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats', 'hero-race', 'showcase-run', 'showcase-board'])
   expect(SCENES['hero-race']).toEqual({ width: 1200, height: 750 })
+  expect(SCENES['showcase-run']).toEqual({ width: 1260, height: 520 })
+  expect(SCENES['showcase-board']).toEqual({ width: 1480, height: 540 })
   for (const name of ['tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats'] as const) {
     expect(SCENES[name]).toEqual({ width: 800, height: 500 })
   }
@@ -280,4 +282,23 @@ it.each([
   const names = snapshot.runtimes.map(info => info.presentation.name)
   expect(names.length).toBeGreaterThan(0)
   for (const one of names) expect(one).not.toMatch(/^(Alpha|Beta|Gamma)$/)
+})
+
+it('draws the Run\'s path and the board, each settled under reduced motion', async () => {
+  await act(async () => root.render(<SiteScene name="showcase-run" theme="light" motion="reduce" />))
+  /* jsdom has no layout, so the graph draws its narrow list: every step of the settled path is named there. */
+  expect(host.querySelector('[data-showcase="run"] [data-slot="flow-graph"]')).not.toBeNull()
+  for (const step of ['Write', 'Check', 'Review', 'Fix', 'Land', 'You']) expect(host.textContent, step).toContain(step)
+  await act(async () => root.render(<SiteScene name="showcase-board" theme="light" motion="reduce" />))
+  for (const column of ['Needs you', 'Working', 'In review', 'To do', 'Ready']) expect(host.textContent, column).toContain(column)
+  /* The working job finished with its evidence, so it sits in Ready, not Needs you. */
+  const ready = [...host.querySelectorAll('[data-slot="board-column"], section, div')].find(node => node.textContent?.startsWith('Ready') && node.textContent.includes('#4'))
+  expect(ready).toBeDefined()
+})
+
+it('moves a pointer to the verdict only when motion is welcome', async () => {
+  await act(async () => root.render(<SiteScene name="hero-race" theme="light" motion="reduce" />))
+  expect(host.querySelector('[data-race-pointer]')).toBeNull()
+  await act(async () => root.render(<SiteScene name="hero-race" theme="light" />))
+  expect(host.querySelector('[data-race-pointer]')).not.toBeNull()
 })
