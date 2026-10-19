@@ -26,6 +26,13 @@ export const useTeamActions = (room: string, options: {
     if (!options.readRun || !run || snapshot.flowExecutions.has(run)) return
     void store.readFlowExecution(run).catch(() => {})
   }, [options.readRun, run, snapshot.flowExecutions, store])
+  // A trigger or person-created Team may name no Run after its reservation
+  // ends. Discover persisted Runs once per menu opening, independently of
+  // execution-map pushes: an empty or failed read must not start a retry loop.
+  useEffect(() => {
+    if (!options.readRun || !goal?.goal.id || run) return
+    void store.loadTeamRuns(room).catch(() => {})
+  }, [options.readRun, room, goal?.goal.id, goal?.goal.root, run, store])
   const [renaming, setRenaming] = useState(false)
   const [rename, setRename] = useState('')
   const [renameError, setRenameError] = useState<string | null>(null)

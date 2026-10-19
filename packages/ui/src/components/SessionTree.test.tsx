@@ -542,6 +542,7 @@ const treeWith = (
     openSession: vi.fn(),
     triggerGoal: vi.fn(async () => null),
     refreshWorkspaceGit: async () => {},
+    loadTeamRuns: vi.fn(async () => {}),
     ...storeOverrides,
   } as unknown as AppStore
   act(() => {
@@ -3020,4 +3021,47 @@ it('closing a Team row action menu returns focus to the row', async () => {
   await act(async () => vi.waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('menuitem')))
   act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
   await act(async () => vi.waitFor(() => { expect(document.querySelector('[role="menu"]')).toBeNull(); expect(document.activeElement).toBe(row) }))
+})
+
+
+it.each(['person', 'trigger'] as const)('opening a %s Team menu discovers its persisted stopped Run after reconnect', async (origin) => {
+  const board = room({ id: 'reconnected-menu', name: 'Build' })
+  const base = triggerGoalView(board)
+  const goal = origin === 'person' ? { ...base, goal: { ...base.goal, origin: { kind: 'person' as const } } } : base
+  const execution = { id: 'persisted-stopped-run', goal: board.id, state: 'stopped', rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution
+  let finishRead!: () => void
+  const pending = new Promise<void>(resolve => { finishRead = resolve })
+  const loadTeamRuns = vi.fn(async (): Promise<void> => {
+    await pending
+    view.update({ flowExecutions: new Map([[execution.id, execution]]) })
+  })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), { loadTeamRuns })
+  expect(view.store.getSnapshot().flowExecutions.size).toBe(0)
+  expect(loadTeamRuns).not.toHaveBeenCalled()
+  await act(async () => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  expect(loadTeamRuns).toHaveBeenCalledExactlyOnceWith(board.id)
+  expect([...document.querySelectorAll('[data-menu-label]')].map(one => one.textContent)).not.toContain('Run again…')
+  await act(async () => { finishRead(); await pending })
+  const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(items.map(one => one.querySelector('[data-menu-label]')?.textContent)).toContain('Run again…')
+  expect(items.find(one => one.querySelector('[data-menu-label]')?.textContent === 'Stop run…')?.getAttribute('aria-disabled')).toBe('true')
+  expect(loadTeamRuns).toHaveBeenCalledTimes(1)
+  expect(view.store.openTeamRoom).not.toHaveBeenCalled()
+})
+
+it.each(['empty', 'refused'] as const)('an unnamed Team menu retries an %s history read only when reopened', async (result) => {
+  const board = room({ id: 'empty-run-menu', name: 'Build' })
+  const loadTeamRuns = vi.fn(async () => { if (result === 'refused') throw new Error('Run history unavailable') })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]), { loadTeamRuns })
+  const open = () => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+  await act(async () => { open() })
+  expect(loadTeamRuns).toHaveBeenCalledExactlyOnceWith(board.id)
+  view.update({ flowExecutions: new Map() })
+  view.update({ flowExecutions: new Map() })
+  expect(loadTeamRuns).toHaveBeenCalledTimes(1)
+  act(() => document.querySelector('[role="menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  await act(async () => { open() })
+  expect(loadTeamRuns).toHaveBeenCalledTimes(2)
 })
