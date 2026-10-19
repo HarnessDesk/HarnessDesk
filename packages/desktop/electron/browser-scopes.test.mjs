@@ -4,11 +4,15 @@ import { test } from 'node:test'
 
 import { browserPartition, createProfileBrowserEngine } from './browser-scopes.mjs'
 
-function rig(keep = true) {
+function rig(keep = true, storedPartitions = []) {
   const ipc = new EventEmitter()
   const sessions = new Map()
   const sessionForPartition = (key) => {
-    if (!sessions.has(key)) sessions.set(key, {})
+    if (!sessions.has(key)) sessions.set(key, {
+      storageClears: 0, cacheClears: 0,
+      async clearStorageData() { this.storageClears++; delete this.cookies; delete this.localStorage },
+      async clearCache() { this.cacheClears++ },
+    })
     return sessions.get(key)
   }
   const contents = new Map()
@@ -74,18 +78,20 @@ function rig(keep = true) {
     contents.set(wc.id, wc)
     return wc
   }
+  const allowedProfiles = new Set(['lane-a', 'lane-b', 'session-WyJhIiwiMSJd', 'session-WyJhIiwiMiJd'])
   const engine = createProfileBrowserEngine({
     ipc,
     contents: { fromId: (id) => contents.get(id) },
     sessionForPartition,
     window: () => window,
     show: async () => window,
-    allowedProfile: (profile) => ['lane-a', 'lane-b', 'session-WyJhIiwiMSJd', 'session-WyJhIiwiMiJd'].includes(profile),
+    allowedProfile: profile => allowedProfiles.has(profile),
+    storedPartitions: typeof storedPartitions === 'function' ? storedPartitions : async () => storedPartitions,
     resolveProfile: partition => ['session-WyJhIiwiMSJd', 'session-WyJhIiwiMiJd'].find(profile => [browserPartition(profile, true), browserPartition(profile, false)].includes(partition)),
     keep: () => keep,
     readyTimeoutMs: 25,
   })
-  return { engine, ipc, window, makeGuest, fronts, contents }
+  return { engine, ipc, window, makeGuest, fronts, contents, sessionForPartition, allowedProfiles }
 }
 
 const identity = (profile) => ({ invocation: `call-${profile}`, profile })
@@ -206,4 +212,55 @@ test('cold in-memory session partitions require the same known owner and remain 
   const guests = [...contents.values()]
   assert.notEqual(guests[0].session, guests[1].session)
   assert.equal((await first.send('Runtime.evaluate')).result.value, profile)
+})
+
+test('global clear covers live and cold owned browser storage without clearing foreign or released profiles or changing the live mode', async () => {
+  const profile = 'session-WyJhIiwiMSJd'
+  const coldPartition = browserPartition(profile, true)
+  const foreignPartition = `persist:hd-session-${'f'.repeat(64)}`
+  const { engine, sessionForPartition, allowedProfiles } = rig(false, [coldPartition.slice('persist:'.length), 'hd-lane-b', foreignPartition.slice('persist:'.length), 'unrelated-agent'])
+  const sender = await engine.ensure(identity(profile))
+  const livePartition = browserPartition(profile, false)
+  const live = sessionForPartition(livePartition)
+  const cold = sessionForPartition(coldPartition)
+  const released = sessionForPartition('persist:hd-lane-b')
+  const foreign = sessionForPartition(foreignPartition)
+  const other = sessionForPartition('persist:unrelated-agent')
+  for (const target of [live, cold, released, foreign, other]) target.cookies = { login: 'fixture' }
+  allowedProfiles.delete('lane-b')
+  await engine.clearAllData()
+  for (const target of [live, cold]) {
+    assert.equal(target.cookies, undefined)
+    assert.equal(target.storageClears, 1)
+    assert.equal(target.cacheClears, 1)
+  }
+  for (const target of [released, foreign, other]) {
+    assert.deepEqual(target.cookies, { login: 'fixture' })
+    assert.equal(target.storageClears, 0)
+  }
+  assert.equal(engine.partition(profile), livePartition, 'cold discovery never changes the live guest partition')
+  assert.equal((await sender.send('Runtime.evaluate')).result.value, profile)
+})
+
+test('global clear rechecks a lane released while persisted discovery is pending', async () => {
+  let revoke = () => {}
+  const { engine, contents, allowedProfiles } = rig(true, async () => { revoke(); return [] })
+  await engine.ensure(identity('lane-b'))
+  const guest = [...contents.values()][0]
+  guest.session.cookies = { login: 'retained' }
+  revoke = () => allowedProfiles.delete('lane-b')
+  await engine.clearAllData()
+  assert.deepEqual(guest.session.cookies, { login: 'retained' })
+})
+
+test('global clear reaches a known persistent session before any browser guest attaches after restart', async () => {
+  const profile = 'session-WyJhIiwiMiJd'
+  const persisted = browserPartition(profile, true)
+  const { engine, sessionForPartition, contents } = rig(true, [persisted.slice('persist:'.length)])
+  const cold = sessionForPartition(persisted)
+  cold.cookies = { login: 'old' }
+  await engine.clearAllData()
+  assert.equal(cold.cookies, undefined)
+  assert.equal(cold.cacheClears, 1)
+  assert.equal(contents.size, 0)
 })

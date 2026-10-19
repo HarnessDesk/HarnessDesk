@@ -25,6 +25,7 @@ export function createProfileBrowserEngine({
   show,
   allowedProfile,
   resolveProfile = () => undefined,
+  storedPartitions = async () => [],
   keep = () => true,
   readyTimeoutMs = 10_000,
 }) {
@@ -197,29 +198,50 @@ export function createProfileBrowserEngine({
       },
     }
   }
-  return {
-    partition,
-    profileForPartition(value) {
-      if (value === 'persist:harnessdesk-browser' || value === 'harnessdesk-browser-once') {
-        partitionProfiles.set(sessionForPartition(value), null)
-        return null
-      }
-      if (typeof value !== 'string') return undefined
+  // Discovery and clearing authorize a storage name without selecting it as
+  // the live guest's mode. Cold persistent data must not replace a memory guest.
+  const profileAtPartition = (value) => {
+    if (value === 'persist:harnessdesk-browser' || value === 'harnessdesk-browser-once') return null
+    if (typeof value !== 'string') return undefined
+    try {
       const sessionProfile = /^(?:persist:)?hd-session-/.test(value)
       const profile = sessionProfile
         ? (profilesByPartition.get(value) ?? resolveProfile(value))
         : value.startsWith('persist:hd-') ? value.slice('persist:hd-'.length) : undefined
-      if (typeof profile !== 'string') return undefined
-      try {
-        partition(profile) // Recheck ownership even when the requested persistence mode changed.
-        if (![browserPartition(profile, true), browserPartition(profile, false)].includes(value)) return undefined
-        chosenPartitions.set(profile, value)
-        profilesByPartition.set(value, profile)
-        partitionProfiles.set(sessionForPartition(value), profile)
-        return profile
-      } catch {
-        return undefined
+      if (typeof profile !== 'string' || !allowedProfile(profile)) return undefined
+      return [browserPartition(profile, true), browserPartition(profile, false)].includes(value) ? profile : undefined
+    } catch {
+      return undefined
+    }
+  }
+  return {
+    partition,
+    profileForPartition(value) {
+      const profile = profileAtPartition(value)
+      if (profile === undefined) return undefined
+      chosenPartitions.set(profile, value)
+      profilesByPartition.set(value, profile)
+      partitionProfiles.set(sessionForPartition(value), profile)
+      return profile
+    },
+    async clearAllData() {
+      const targets = new Map(['persist:harnessdesk-browser', 'harnessdesk-browser-once'].map(value => [sessionForPartition(value), null]))
+      for (const [guestSession, profile] of partitionProfiles) {
+        if (profile === null || allowedProfile(profile)) targets.set(guestSession, profile)
       }
+      // These are actual Electron Partitions directory names, already lowercased
+      // and escaped by Electron. Only names the current host owns are admitted.
+      for (const name of await storedPartitions()) {
+        const value = `persist:${name}`
+        const profile = profileAtPartition(value)
+        if (profile !== undefined) targets.set(sessionForPartition(value), profile)
+      }
+      await Promise.all([...targets].map(async ([guestSession, profile]) => {
+        if (profile !== null && !allowedProfile(profile)) return
+        await guestSession.clearStorageData()
+        if (profile !== null && !allowedProfile(profile)) return
+        await guestSession.clearCache()
+      }))
     },
     profileOfSession(value) {
       return partitionProfiles.get(value)

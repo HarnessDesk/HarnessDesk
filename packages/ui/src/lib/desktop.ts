@@ -93,6 +93,7 @@ export interface DesktopBridge {
    */
   saveBrowserScreenshot?(webContentsId: number, name: string): Promise<string | null>
   /** Empties the browser pane's persistent partition. */
+  clearAllBrowserData?(): Promise<void>
   clearBrowserData?(profile?: string | null): Promise<void>
   /**
    * Runs the annotation overlay's code in an *isolated world* of one of the
