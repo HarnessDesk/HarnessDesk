@@ -1477,7 +1477,8 @@ same-project conversation through a durable Seat; stale or busy choices are
 refused without moving it.
 
 Workspaces › Lanes controls the machine-wide defaults for new isolated Seats:
-port start, block width and browser-profile isolation. Retained descriptors show
+port start and block width, with the legacy lane-profile preference retained for
+older browser panes. Conversation browsers always isolate by session. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Opening **Wrap** prefills **What finished** from the Run's recorded results.
 Comparison attempts have one line each, identified by card number and title:
@@ -1553,9 +1554,10 @@ show live pages at once. When two rows cannot fit the Browser controls, a
 usable page and the shared dock, member tabs show one tile at a time; making
 the room taller restores the grid without reloading its pages.
 A Seat with no page shows **Nothing open yet** and
-**Pages the runtime opens appear here.** Seats that share the ordinary browser
-profile share one surface; another tile says where that browser is already
-shown.
+**Pages the runtime opens appear here.** Every conversation owns its tabs, cookies
+and storage, including conversations in the same checkout or branch. Its browser
+tools and pane use that same profile. Closing one conversation's browser leaves
+other conversations' pages alone.
 
 A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
 and adding an Agent; Board omits its unclaimed count, and members show name and

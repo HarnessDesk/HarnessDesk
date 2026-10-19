@@ -2781,6 +2781,7 @@ export class AppStore {
       readonly fromDefault?: boolean
       /** Independent tasks started from another conversation still need their own checkout. */
       readonly isolated?: boolean
+      readonly onCheckout?: (checkout: Worktree) => void
       readonly split?: Split['direction']
       /** Start on this runtime instead of the active one. */
       readonly runtime?: RuntimeId
@@ -2831,6 +2832,7 @@ export class AppStore {
           ...(fromDefault ? { fromDefault: true } : {}),
         })
         cwd = created.path
+        options.onCheckout?.(created)
         void this.loadWorktrees()
         // The worktree exists now. When it is the draft's armed place, the
         // draft points at it: an agent that fails to start leaves the draft as
@@ -3132,12 +3134,14 @@ export class AppStore {
     let workspace = this.#snapshot.workspace
     if (workspace && workspace.git == null) {
       const root = workspace.path, navigation = this.#navigationEpoch
-      await this.refreshWorkspaceGit(root)
+      const runtime = this.#snapshot.activeRuntime, handoff = this.#snapshot.draftHandoff
+      const checked = await this.refreshWorkspaceGit(root)
       if (navigation !== this.#navigationEpoch || this.#snapshot.workspace?.path !== root) return null
+      if (runtime !== this.#snapshot.activeRuntime || handoff !== this.#snapshot.draftHandoff) return null
       // An explicit choice made while the read was pending wins.
       if (this.#snapshot.draftPlace !== null) return this.#draftStart()
       workspace = this.#snapshot.workspace
-      if (workspace.git === undefined) {
+      if (!checked || workspace.git === undefined) {
         this.resultNotice('error', 'Could not check this folder’s Git state. Try again, or explicitly choose Local.')
         return null
       }
@@ -7337,12 +7341,12 @@ export class AppStore {
   readonly #workspaceGitReads = new Map<string, object>()
 
   /** Refresh a menu's checkout without opening it or reordering recent folders. */
-  async refreshWorkspaceGit(root: string): Promise<void> {
+  async refreshWorkspaceGit(root: string): Promise<boolean> {
     const read = {}
     this.#workspaceGitReads.set(root, read)
     try {
       const status = await this.transport.request('git/status', { root })
-      if (this.#workspaceGitReads.get(root) !== read) return
+      if (this.#workspaceGitReads.get(root) !== read) return false
       const update = (entry: WorkspaceEntry): WorkspaceEntry => entry.path === root
         ? { ...entry, git: status ? { branch: status.branch, sha: status.headSha } : null }
         : entry
@@ -7351,7 +7355,8 @@ export class AppStore {
         workspaces: this.#snapshot.workspaces.map(update),
         workspaceGitFacts: new Map(this.#snapshot.workspaceGitFacts).set(root, status ? { branch: status.branch, sha: status.headSha } : null),
       })
-    } catch { /* Keep the last known facts when Git cannot be read. */ }
+      return true
+    } catch { return false /* Keep the last known facts when Git cannot be read. */ }
     finally {
       if (this.#workspaceGitReads.get(root) === read) this.#workspaceGitReads.delete(root)
     }
@@ -8160,27 +8165,34 @@ export class AppStore {
     this.markInboxRead(id)
   }
 
-  /**
-   * Starts the task a kept message suggests: a new conversation, in the
-   * sender's project (or a fresh chat folder) and on its runtime, whose first
-   * message is the task. The message is read once it has been acted on.
-   */
+  readonly #suggestedTaskCheckouts = new Map<string, string>()
+  readonly #suggestedTasksStarting = new Set<string>()
+
+  /** Starts an independent task on its sender's runtime, retaining a refused start's checkout for retry. */
   async startSuggestedTask(id: string): Promise<void> {
     const entry = this.#snapshot.inbox.find((message) => message.id === id)
-    if (!entry?.task) return
+    if (!entry?.task || this.#suggestedTasksStarting.has(id)) return
     const from = entry.from
     const sender = from
       ? (this.#snapshot.sessions.get(sessionKey(from.runtime, from.sessionId as SessionId)) ??
         this.#snapshot.history.find((summary) => summary.runtime === from.runtime && summary.id === from.sessionId))
       : undefined
-    const key = await this.newSession({
-      isolated: true,
-      ...(sender?.cwd ? { cwd: isChatFolder(sender.cwd, this.#snapshot.chatsFolderRoots) ? null : sender.cwd } : {}),
-      ...(from ? { runtime: from.runtime as RuntimeId } : {}),
-    })
-    if (!key) return
-    await this.send([{ type: 'text', text: entry.task }], key)
-    this.markInboxRead(id)
+    const source = sender?.cwd ? isChatFolder(sender.cwd, this.#snapshot.chatsFolderRoots) ? null : sender.cwd : this.#snapshot.workspace?.path
+    const allocation = JSON.stringify([id, from?.runtime ?? this.#snapshot.activeRuntime, source, entry.task])
+    const retained = this.#suggestedTaskCheckouts.get(allocation)
+    this.#suggestedTasksStarting.add(id)
+    try {
+      const key = await this.newSession({
+        isolated: !retained,
+        ...(retained ? { cwd: retained } : source !== undefined ? { cwd: source } : {}),
+        onCheckout: checkout => { this.#suggestedTaskCheckouts.set(allocation, checkout.path) },
+        ...(from ? { runtime: from.runtime as RuntimeId } : {}),
+      })
+      if (!key) return
+      this.#suggestedTaskCheckouts.delete(allocation)
+      await this.send([{ type: 'text', text: entry.task }], key)
+      this.markInboxRead(id)
+    } finally { this.#suggestedTasksStarting.delete(id) }
   }
 
   #setInbox(inbox: readonly InboxEntry[]): void {

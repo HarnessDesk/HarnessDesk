@@ -148,6 +148,36 @@ describe.each(['panel toggle', 'lit tool'] as const)('right panel closure throug
 })
 
 describe('where a draft starts', () => {
+  it('retries a suggested task in the checkout already allocated before a runtime refusal', async () => {
+    Object.assign(store.getSnapshot(), { history: [conversation('sender', REPO.path)],
+      inbox: [{ id: 'suggested', task: 'Fix another bug', from: { runtime: AGENT, sessionId: 'sender', name: 'Source' } }] })
+    answers['git/status'] = { branch: 'main', headSha: 'abc', files: [] }
+    answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/suggested-task', head: 'abc', isMain: false, managed: true }
+    refused['session/create'] = 'Runtime unavailable'
+    await store.startSuggestedTask('suggested')
+    delete refused['session/create']
+    answers['session/create'] = conversation('suggested-task', TREE)
+    await store.startSuggestedTask('suggested')
+    expect(calls('worktree/create')).toHaveLength(1)
+    expect(calls('session/create').at(-1)).toMatchObject({ options: { cwd: TREE } })
+  })
+
+  it.each(['handoff', 'runtime'])('does not dispatch submitted input to a changed %s while Git is loading', async (changed) => {
+    Object.assign(store.getSnapshot(), { workspace: { ...REPO, git: undefined } })
+    let finish!: (status: unknown) => void
+    answers['git/status'] = () => new Promise(resolve => { finish = resolve })
+    answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/session-fixture', head: 'abc', isMain: false, managed: true }
+    answers['session/create'] = conversation('late', TREE)
+    store.newDraft()
+    const sending = store.queue([{ type: 'text', text: 'Fix this bug here' }])
+    Object.assign(store.getSnapshot(), changed === 'handoff'
+      ? { draftHandoff: { cwd: '/other-source' } }
+      : { activeRuntime: runtimeId('another-runtime') })
+    finish({ branch: 'main', headSha: 'abc', files: [] })
+    expect(await sending).toBe(false)
+    expect(calls('session/create')).toHaveLength(0)
+  })
+
   it('gives a suggested independent task its own checkout instead of the sender’s', async () => {
     Object.assign(store.getSnapshot(), { history: [conversation('sender', REPO.path)],
       inbox: [{ id: 'suggested', task: 'Fix another bug', from: { runtime: AGENT, sessionId: 'sender', name: 'Source' } }] })
@@ -172,8 +202,8 @@ describe('where a draft starts', () => {
     expect(calls('session/create')[0]).toMatchObject({ options: { cwd: TREE } })
   })
 
-  it('refuses an unread repository instead of silently starting in a shared checkout', async () => {
-    Object.assign(store.getSnapshot(), { workspace: { ...REPO, git: undefined } })
+  it.each([undefined, null])('refuses unread Git state %s instead of silently starting in a shared checkout', async (git) => {
+    Object.assign(store.getSnapshot(), { workspace: { ...REPO, git } })
     refused['git/status'] = 'Repository unavailable'
     store.newDraft()
     expect(await store.queue([{ type: 'text', text: 'Fix a bug' }])).toBe(false)

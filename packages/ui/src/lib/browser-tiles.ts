@@ -11,7 +11,7 @@ export interface BrowserTileMount {
 }
 export const browserProfileKey = (profile: string | null): string => profile ?? 'default'
 
-/** One live guest per profile, even when two tiles share the ordinary browser. */
+/** One live guest per profile, even when two tiles display the same conversation. */
 export class BrowserTileRegistry {
   readonly #claims = new Map<string, BrowserTileMount[]>()
   mount(profile: string | null, mount: BrowserTileMount, publish: (owners: ReadonlyMap<string, BrowserTileMount>) => void): () => void {
