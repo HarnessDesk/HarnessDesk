@@ -1,3 +1,4 @@
+import { isBrowserProfile } from '@harnessdesk/protocol'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 
@@ -129,8 +130,8 @@ export class BrowserScopes<T> {
 
 export function browserPartition(profile: string | null, keep: boolean): string {
   if (profile === null) return keep ? 'persist:harnessdesk-browser' : 'harnessdesk-browser-once'
-  if (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n')) {
-    throw new Error('The host did not name a lane browser profile.')
+  if (!isBrowserProfile(profile)) {
+    throw new Error('The host did not name a browser profile.')
   }
   return `persist:hd-${profile}`
 }

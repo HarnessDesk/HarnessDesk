@@ -7,10 +7,10 @@ export function browserPartition(profile, keep) {
   if (profile === null) return keep ? 'persist:harnessdesk-browser' : 'harnessdesk-browser-once'
   if (
     typeof profile !== 'string' ||
-    !/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) ||
+    !(/^(?:lane-[A-Za-z0-9-]{1,100}|session-[A-Za-z0-9_-]+)$/.test(profile)) ||
     profile.endsWith('\n')
   ) {
-    throw new Error('The host did not name a lane browser profile.')
+    throw new Error('The host did not name a browser profile.')
   }
   return `persist:hd-${profile}`
 }
@@ -44,7 +44,7 @@ export function createProfileBrowserEngine({
   const partition = (profile) => {
     const value = browserPartition(profile, keep())
     if (profile !== null && !allowedProfile(profile)) {
-      throw new Error('This browser profile is not owned by a kept lane.')
+      throw new Error('This browser profile is not owned by a known conversation or kept lane.')
     }
     partitionProfiles.set(sessionForPartition(value), profile)
     return value

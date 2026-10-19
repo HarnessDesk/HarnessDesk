@@ -20,6 +20,8 @@ import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
+  sessionBrowserProfile,
+  browserProfileSession,
   deskContextContent,
   approvalId as makeApprovalId,
   FLOW_BOARD_TOOL_NAMES,
@@ -675,12 +677,27 @@ const findingDecisionRefusal = (store: GoalStore, goal: string): string | null =
 }
 
 export class Host {
-  /** Desktop may restore only a persisted, unreleased lane's opaque profile. */
+  /** Desktop restores only a known conversation or a retained legacy lane profile. */
   browserProfileAllowed(profile: string): boolean {
-    return this.#lanes
-      .list()
-      // Profile names are opaque identifiers, not filesystem paths.
-      .some((lane) => Object.is(lane.browserProfile, profile) && lane.state !== 'released')
+    const owner = browserProfileSession(profile)
+    if (owner) {
+      try { return Object.is(this.#sessionBrowserProfile(owner.runtime, owner.sessionId), profile) }
+      catch { return false }
+    }
+    return this.#lanes.list().some(lane => Object.is(lane.browserProfile, profile) && lane.state !== 'released')
+  }
+
+  #sessionBrowserProfile(runtime: RuntimeId, id: SessionId): string | undefined {
+    const session = this.registry.get(runtime, id)?.session ??
+      (this.#sessionIndex.isRemoved(runtime, id) ? null : this.#sessionIndex.get(runtime, id))
+    if (!session) return undefined
+    return withCanonicalPaths(() => {
+      const cwd = canonicalPath(session.cwd)
+      const matches = this.#lanes.list().filter(lane => lane.cwd !== '' && samePath(canonicalPath(lane.cwd), cwd))
+      if (matches.length > 1) throw new Error('This checkout has conflicting browser lanes.')
+      if (matches[0]?.state === 'released') throw new Error('This lane was released. Open a new isolated Seat.')
+      return sessionBrowserProfile(runtime, id)
+    })
   }
 
   readonly registry = new SessionRegistry()
@@ -2072,21 +2089,12 @@ export class Host {
     })
     this.#extensions = options.extensions ?? null
     this.#extensions?.setShellWorkspaceResolver((scope) => this.#shellWorkspace(scope))
-    this.#extensions?.setBrowserResolver?.((scope) => withCanonicalPaths(() => {
+    this.#extensions?.setBrowserResolver?.((scope) => {
       if (!scope.runtime || !scope.sessionId) return undefined
-      const record = this.registry.get(scope.runtime, scope.sessionId)
-      if (!record) return undefined
-      const cwd = canonicalPath(record.session.cwd)
-      const matches = this.#lanes
-        .list()
-        .filter((lane) => lane.cwd !== '' && samePath(canonicalPath(lane.cwd), cwd))
-      if (matches.length > 1) throw new Error('This checkout has conflicting browser lanes.')
-      const lane = matches[0]
-      if (lane?.state === 'released') {
-        throw new Error('This lane was released. Open a new isolated Seat.')
-      }
-      return lane?.browserProfile ?? 'default'
-    }))
+      const profile = this.#sessionBrowserProfile(scope.runtime, scope.sessionId)
+      if (!profile) throw new Error('Browser tools need a known conversation.')
+      return profile
+    })
     if (this.#extensions) {
       this.#subscriptions.push(
         this.#extensions.subscribe((event) => this.#onExtensionEvent(event)),

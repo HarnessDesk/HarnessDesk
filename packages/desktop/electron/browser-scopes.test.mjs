@@ -80,7 +80,7 @@ function rig() {
     sessionForPartition,
     window: () => window,
     show: async () => window,
-    allowedProfile: (profile) => ['lane-a', 'lane-b'].includes(profile),
+    allowedProfile: (profile) => ['lane-a', 'lane-b', 'session-WyJhIiwiMSJd', 'session-WyJhIiwiMiJd'].includes(profile),
     readyTimeoutMs: 25,
   })
   return { engine, ipc, window, makeGuest, fronts, contents }
@@ -146,4 +146,25 @@ test('default browser remains available and unknown partition strings refuse', a
   const ordinary = await engine.ensure()
   assert.equal((await ordinary.send('Runtime.evaluate')).result.value, null)
   assert.throws(() => engine.partition('../personal'), /host did not name/)
+})
+
+
+test('session profiles isolate persistent storage, restore admission and close independently', async () => {
+  const { engine, contents } = rig()
+  const aProfile = 'session-WyJhIiwiMSJd'
+  const bProfile = 'session-WyJhIiwiMiJd'
+  const a = await engine.ensure(identity(aProfile))
+  const b = await engine.ensure(identity(bProfile))
+  const [aGuest, bGuest] = [...contents.values()]
+  aGuest.session.cookies = { login: 'alpha' }
+  aGuest.session.localStorage = { login: 'alpha' }
+  assert.notEqual(aGuest.session, bGuest.session)
+  assert.equal(bGuest.session.cookies, undefined)
+  assert.equal(bGuest.session.localStorage, undefined)
+  assert.equal(engine.profileForPartition(browserPartition(aProfile, true)), aProfile)
+  assert.equal(engine.profileForPartition('persist:hd-session-forged'), undefined)
+  await engine.close(identity(bProfile))
+  assert.equal((await a.send('Runtime.evaluate')).result.value, aProfile)
+  assert.equal(aGuest.session.cookies.login, 'alpha')
+  await assert.rejects(engine.ensure(identity('session-forged')), /not owned/)
 })

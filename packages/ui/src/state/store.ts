@@ -1,6 +1,6 @@
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
 import { canIsolateDraft } from '../lib/draft-isolation'
-import { recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
+import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
@@ -3745,7 +3745,14 @@ export class AppStore {
       })
   }
 
-  /** The browser pane, if one is open. There is at most one per layout. */
+  #activeBrowserProfile(): string | null {
+    const key = this.#snapshot.activeSessionKey
+    if (!key) return null
+    const { runtime, id } = splitSessionKey(key)
+    return sessionBrowserProfile(runtime, id)
+  }
+
+  /** The browser pane, if one is open for the requested profile. */
   /**
    * The browser, wherever it is docked.
    *
@@ -3854,8 +3861,8 @@ export class AppStore {
     url?: string,
     options: { readonly split?: Split['direction'] | null; readonly profile?: string | null; readonly driven?: boolean } = {},
   ): void {
-    const profile = options.profile ?? null
-    if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) {
+    const profile = options.profile !== undefined ? options.profile : this.#activeBrowserProfile()
+    if (profile !== null && !isBrowserProfile(profile)) {
       throw new Error('Invalid browser profile.')
     }
     const existing = this.#browserPane(profile)
@@ -3876,8 +3883,28 @@ export class AppStore {
     const restored = this.#closedBrowsers.get(profile ?? 'default')
     this.#closedBrowsers.delete(profile ?? 'default')
     const view = sendDriven(restored ?? browserView(BLANK, profile))
-    // Legacy split arguments normalize to the fixed right panel.
-    this.openDefaultView(view)
+    // A first tool open can arrive for a background conversation. Its browser
+    // belongs to that conversation, even while the person keeps reading another.
+    const owner = profile && browserProfileSession(profile)
+    const ownerKey = owner ? sessionKey(owner.runtime, owner.sessionId) : null
+    const subject = ownerKey ? `session:${ownerKey}` : null
+    const before = this.#snapshot.workbench
+    if (options.driven && subject && subject !== fixedSubject(before.main)) {
+      const scope = before.frameSubjects[subject] ?? {
+        paneId: before.main.focused, view: { kind: 'conversation' as const, session: ownerKey },
+      }
+      const main = { root: { kind: 'pane' as const, id: scope.paneId, view: scope.view }, focused: scope.paneId, expanded: null }
+      let admitted = admitFixedTool({ ...before, main }, view)
+      if (admitted) {
+        const active = activeView(before.right)
+        if (active) admitted = activateIn(admitted, 'right', active.id)
+        this.#setWorkbench({ ...admitted, main: before.main, navigation: before.navigation, focus: before.focus,
+          right: { ...admitted.right, collapsed: before.right.collapsed } })
+      }
+    } else {
+      // Legacy split arguments normalize to the fixed right panel.
+      this.openDefaultView(view)
+    }
     this.#frontBrowserTile(profile)
   }
 
@@ -3973,7 +4000,7 @@ export class AppStore {
   }
 
   get hasClosedBrowserTabs(): boolean {
-    return (this.#closedTabs.get('default')?.length ?? 0) > 0
+    return (this.#closedTabs.get(this.#activeBrowserProfile() ?? 'default')?.length ?? 0) > 0
   }
 
   /** Closing the last tab closes the pane, the way closing a window's last tab does. */
@@ -4026,7 +4053,7 @@ export class AppStore {
     this.#patchBrowser(paneId, (view) => patchBrowserTab(view, tabId, { device }))
   }
 
-  closeBrowser(profile: string | null = null): void {
+  closeBrowser(profile: string | null = this.#activeBrowserProfile()): void {
     const existing = this.#browserPane(profile)
     if (!existing) return
     // A pane in the middle or a view in a dock: `closePane` knows only the
