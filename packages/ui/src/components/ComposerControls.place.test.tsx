@@ -106,6 +106,12 @@ it('shows the selected project folder beside the folder icon', () => {
   expect(glyphs.every(glyph => Number(glyph.getAttribute('width')) >= 12)).toBe(true)
 })
 
+it('names the carried source folder when a handoff intentionally continues there', () => {
+  rig({ draftHandoff: { cwd: MAIN.path } as AppSnapshot['draftHandoff'] })
+  expect(trigger()?.textContent).not.toContain('New worktree')
+  expect(trigger()?.title).toBe(`Starts in ${MAIN.path}`)
+})
+
 it('keeps the full path on hover while the long folder label can truncate', () => {
   const path = '/work/this-is-a-very-long-storefront-folder-name'
   rig({ workspace: { ...MAIN, path, name: path.split('/').at(-1)! }, draftPlace: { kind: 'existing', path, branch: 'main' } })

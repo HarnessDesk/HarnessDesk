@@ -148,6 +148,38 @@ describe.each(['panel toggle', 'lit tool'] as const)('right panel closure throug
 })
 
 describe('where a draft starts', () => {
+  it('gives a suggested independent task its own checkout instead of the sender’s', async () => {
+    Object.assign(store.getSnapshot(), { history: [conversation('sender', REPO.path)],
+      inbox: [{ id: 'suggested', task: 'Fix another bug', from: { runtime: AGENT, sessionId: 'sender', name: 'Source' } }] })
+    answers['git/status'] = { branch: 'main', headSha: 'abc', files: [] }
+    answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/suggested-task', head: 'abc', isMain: false, managed: true }
+    answers['session/create'] = conversation('suggested-task', TREE)
+    await store.startSuggestedTask('suggested')
+    expect(calls('worktree/create')).toHaveLength(1)
+    expect(calls('session/create')[0]).toMatchObject({ options: { cwd: TREE } })
+    expect(store.getSnapshot().inbox[0]?.read).toBe(true)
+  })
+
+  it('reads missing Git facts before deciding whether the first message needs isolation', async () => {
+    Object.assign(store.getSnapshot(), { workspace: { ...REPO, git: undefined } })
+    answers['git/status'] = { branch: 'main', headSha: 'abc', files: [] }
+    answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/session-fixture', head: 'abc', isMain: false, managed: true }
+    answers['session/create'] = conversation('read-facts', TREE)
+    store.newDraft()
+    await store.queue([{ type: 'text', text: 'Fix a bug' }])
+    expect(calls('git/status')).toHaveLength(1)
+    expect(calls('worktree/create')).toHaveLength(1)
+    expect(calls('session/create')[0]).toMatchObject({ options: { cwd: TREE } })
+  })
+
+  it('refuses an unread repository instead of silently starting in a shared checkout', async () => {
+    Object.assign(store.getSnapshot(), { workspace: { ...REPO, git: undefined } })
+    refused['git/status'] = 'Repository unavailable'
+    store.newDraft()
+    expect(await store.queue([{ type: 'text', text: 'Fix a bug' }])).toBe(false)
+    expect(calls('session/create')).toHaveLength(0)
+  })
+
   it('gives successive project drafts distinct managed checkouts by default', async () => {
     answers['worktree/create'] = ({ name }: { name: string }) => ({ path: `/state/${name}`, branch: `harnessdesk/${name}`, head: 'abc', isMain: false, managed: true })
     answers['session/create'] = ({ options }: { options: { cwd: string } }) => conversation(options.cwd, options.cwd)

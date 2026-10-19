@@ -2779,6 +2779,8 @@ export class AppStore {
       /** The branch the worktree starts from. HEAD when absent. */
       readonly base?: string
       readonly fromDefault?: boolean
+      /** Independent tasks started from another conversation still need their own checkout. */
+      readonly isolated?: boolean
       readonly split?: Split['direction']
       /** Start on this runtime instead of the active one. */
       readonly runtime?: RuntimeId
@@ -2813,12 +2815,20 @@ export class AppStore {
     }
     try {
       let cwd = workspace
-      if (options.worktree !== undefined && workspace) {
+      let worktree = options.worktree, fromDefault = options.fromDefault
+      if (options.isolated && worktree === undefined && workspace) {
+        const status = await this.transport.request('git/status', { root: workspace })
+        if (status?.headSha) {
+          worktree = `session-${crypto.randomUUID()}`
+          fromDefault = true
+        }
+      }
+      if (worktree !== undefined && workspace) {
         const created = await this.transport.request('worktree/create', {
           root: workspace,
-          name: options.worktree,
+          name: worktree,
           ...(options.base ? { base: options.base } : {}),
-          ...(options.fromDefault ? { fromDefault: true } : {}),
+          ...(fromDefault ? { fromDefault: true } : {}),
         })
         cwd = created.path
         void this.loadWorktrees()
@@ -2827,7 +2837,7 @@ export class AppStore {
         // it was, and a retry must start in this worktree, not cut a second
         // one beside it. A race cuts its own worktrees and touches no draft.
         const place = this.#snapshot.draftPlace
-        if (place?.kind === 'worktree' && place.root === workspace && place.name === options.worktree) {
+        if (place?.kind === 'worktree' && place.root === workspace && place.name === worktree) {
           this.#patch({ draftPlace: { kind: 'existing', path: created.path, branch: created.branch } })
         }
       }
@@ -3108,7 +3118,7 @@ export class AppStore {
    * either wastes a trip finding it or, worse, answers about the folder it
    * is actually in.
    */
-  #draftStart(): { readonly cwd?: string; readonly worktree?: string; readonly base?: string; readonly fromDefault?: boolean } {
+  async #draftStart(): Promise<{ readonly cwd?: string; readonly worktree?: string; readonly base?: string; readonly fromDefault?: boolean } | null> {
     // A place the person chose outranks the one the packet names: the
     // packet says where the work *was*, the choice says where it goes next.
     const place = this.#snapshot.draftPlace
@@ -3119,7 +3129,19 @@ export class AppStore {
     }
     const carried = this.#snapshot.draftHandoff?.cwd
     if (carried) return { cwd: carried }
-    const workspace = this.#snapshot.workspace
+    let workspace = this.#snapshot.workspace
+    if (workspace && workspace.git == null) {
+      const root = workspace.path, navigation = this.#navigationEpoch
+      await this.refreshWorkspaceGit(root)
+      if (navigation !== this.#navigationEpoch || this.#snapshot.workspace?.path !== root) return null
+      // An explicit choice made while the read was pending wins.
+      if (this.#snapshot.draftPlace !== null) return this.#draftStart()
+      workspace = this.#snapshot.workspace
+      if (workspace.git === undefined) {
+        this.resultNotice('error', 'Could not check this folder’s Git state. Try again, or explicitly choose Local.')
+        return null
+      }
+    }
     if (workspace && canIsolateDraft(workspace)) {
       const name = `session-${crypto.randomUUID()}`
       // Keep the choice before allocation so a failed runtime start retries
@@ -3143,7 +3165,11 @@ export class AppStore {
   async send(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<void> {
     // Typing into an empty workspace is how a session starts: create it, then
     // send, so the first message is one gesture rather than two.
-    key ??= await this.newSession(this.#draftStart())
+    if (!key) {
+      const place = await this.#draftStart()
+      if (!place) return
+      key = await this.newSession(place)
+    }
     if (!key) return
     try {
       await this.transport.request('turn/send', { ...address(key), input })
@@ -6877,7 +6903,11 @@ export class AppStore {
    * the queue exists.
    */
   async queue(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<boolean> {
-    key ??= await this.newSession(this.#draftStart())
+    if (!key) {
+      const place = await this.#draftStart()
+      if (!place) return false
+      key = await this.newSession(place)
+    }
     if (!key) return false
     try {
       await this.transport.request('turn/queue', { ...address(key), input })
@@ -8117,6 +8147,7 @@ export class AppStore {
         this.#snapshot.history.find((summary) => summary.runtime === from.runtime && summary.id === from.sessionId))
       : undefined
     const key = await this.newSession({
+      isolated: true,
       ...(sender?.cwd ? { cwd: isChatFolder(sender.cwd, this.#snapshot.chatsFolderRoots) ? null : sender.cwd } : {}),
       ...(from ? { runtime: from.runtime as RuntimeId } : {}),
     })

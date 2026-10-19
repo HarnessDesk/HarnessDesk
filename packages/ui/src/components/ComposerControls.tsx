@@ -1250,7 +1250,8 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   }
 
   const place = snapshot.draftPlace
-  const automatic = place === null && canIsolateDraft(workspace)
+  const carried = place === null ? snapshot.draftHandoff?.cwd : undefined
+  const automatic = place === null && !carried && canIsolateDraft(workspace)
   const folder = workspace.path.split('/').filter(Boolean).at(-1) ?? workspace.path
   const branch = workspace.git?.branch ?? null
   const linked = workspace.repo?.worktree === true
@@ -1297,7 +1298,9 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   const chosenMain = chosen !== null && main !== null && chosen.path === main.path
   const chosenHere = chosen?.path === workspace.path
 
-  const title = automatic
+  const title = carried
+    ? `Starts in ${carried}`
+    : automatic
     ? 'Starts in a new worktree on its own branch, made when you send'
     : armed
     ? `Starts in a new worktree on ${armedBranch}, made when you send`
@@ -1325,7 +1328,9 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   // never be caught disagreeing (#301).
   const leaf = (name: string | null, fallback: string): string =>
     name?.split('/').filter(Boolean).at(-1) ?? fallback
-  const word = armed || automatic
+  const word = carried
+    ? carried.split('/').filter(Boolean).at(-1) ?? carried
+    : armed || automatic
     ? 'New worktree'
     : chosenHere && !linked
       ? folder
@@ -1334,7 +1339,7 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
       : linked
         ? leaf(branch, 'Worktree')
         : folder
-  const tagged = !automatic && !armed && !chosenMain && (chosenHere ? linked : chosen !== null || linked)
+  const tagged = !automatic && !armed && !chosenMain && (!carried || carried === workspace.path) && (chosenHere ? linked : chosen !== null || linked)
 
   return (
     <ComposerTrack name="work-in" contentSized shrinkable>
@@ -1343,7 +1348,7 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
         {/* Missing repository facts are unread; only an explicit null with no Git facts hides this control. */}
         {(workspace.repo !== null || workspace.git) && <Popover
           fullWidth={!onChooseProject}
-          triggerVariant={onChooseProject && !automatic && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
+          triggerVariant={onChooseProject && !carried && !automatic && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
           title={title}
           drop="up"
           align="left"
@@ -1357,11 +1362,11 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
             ) : (
               <LocalIcon size={13} />
             )}
-            {onChooseProject && !automatic && !armed && !chosen ? null : armed || automatic
+            {onChooseProject && !carried && !automatic && !armed && !chosen ? null : armed || automatic
               ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
               : <Text role="row" truncate title={workspace.path} className={sheet.word}>{word}</Text>}
             {tagged && <Badge variant="secondary">worktree</Badge>}
-            {(!onChooseProject || automatic || armed || chosen) && <Chevron size={12} />}
+            {(!onChooseProject || carried || automatic || armed || chosen) && <Chevron size={12} />}
           </>
         }
          panelWidth="wide" icons="none">
@@ -1374,7 +1379,7 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
                 label={linked ? 'This worktree' : 'Local'}
                 value={branch ?? undefined}
                 title={branch ? `${branch} — ${workspace.path}` : workspace.path}
-                selected={!automatic && place === null || chosen?.path === workspace.path}
+                selected={!automatic && place === null && (!carried || carried === workspace.path) || chosen?.path === workspace.path}
                 onSelect={() => store.startDraftIn(null)}
               />
               {main && (
