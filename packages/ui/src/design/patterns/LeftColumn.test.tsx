@@ -119,7 +119,7 @@ test('keeps the trailing values out of the label’s space', () => {
   expect(trail.textContent).toBe('25')
   expect(trail.parentElement).toBe(row)
   expect(text.contains(trail)).toBe(false)
-  expect(sheet).toMatch(/\.button \[data-slot='sidebar-menu-label'\]\s*\{\s*padding-inline-end: calc\(var\(--hd-icon-target\) \+ var\(--hd-space-2\)\);/)
+  expect(sheet).toMatch(/\.button \[data-slot='sidebar-menu-label'\]\s*\{\s*padding-inline-end: var\(--hd-icon-target\);/)
   expect(sheet).toMatch(/\.trailing\s*\{[^}]*position: absolute;[^}]*width: var\(--hd-icon-target\);/)
   expect(sheet).toMatch(/\.row\s*\{[^}]*height: var\(--hd-left-row-h\);/)
 })

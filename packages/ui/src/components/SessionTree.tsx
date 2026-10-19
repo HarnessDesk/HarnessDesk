@@ -1507,13 +1507,20 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
                   .filter(one => !searching || historyByKey.has(String(sessionKey(one.runtime, one.id)))) : []
               const needle = filter.trim().toLocaleLowerCase()
               const goal = snapshot.goals.get(row.room.id)
-              const matching = searching || snapshot.listPrefs.agent !== null
+              let matching = searching || snapshot.listPrefs.agent !== null
                 ? teamSeats(goal, row.room, goalRunOf(row.room.id, goal, snapshot.flowExecutions)).filter(seat => {
                   if (!seat.key || liftedKeys.has(String(seat.key))) return false
                   if (snapshot.listPrefs.agent !== null && agentKeyOf(runtimeId(seat.record.session.runtime), snapshot.runtimes) !== snapshot.listPrefs.agent) return false
                   return matchingMembers.some(one => sessionKey(one.runtime, one.id) === seat.key)
                     || searching && needle.length > 0 && seat.name.toLocaleLowerCase().includes(needle)
                 }).map(seat => seat.record.id) : null
+              if (searching && needle.length > 0 && row.room.name.toLocaleLowerCase().includes(needle) && matching?.length === 0) {
+                matching = snapshot.listPrefs.agent === null ? null
+                  : teamSeats(goal, row.room, goalRunOf(row.room.id, goal, snapshot.flowExecutions))
+                    .filter(seat => seat.key && !liftedKeys.has(String(seat.key))
+                      && agentKeyOf(runtimeId(seat.record.session.runtime), snapshot.runtimes) === snapshot.listPrefs.agent)
+                    .map(seat => seat.record.id)
+              }
               const revealing = Boolean(matching?.length)
               const storedOpen = expandedTeams.get(row.room.id) ?? selected
               const open = revealing ? (filterExpansion.key === filterKey ? filterExpansion.teams.get(row.room.id) : undefined) ?? true : storedOpen

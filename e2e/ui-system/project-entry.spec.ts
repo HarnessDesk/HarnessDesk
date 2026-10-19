@@ -39,7 +39,7 @@ test('a finished Team stays under its project with blue news until opened or wra
   await expect(attention.locator('[data-slot="dot"]')).toHaveAttribute('data-state','new')
   await expect(attention).toBeVisible()
   await expect(team.locator('xpath=ancestor::*[@data-project-root]')).toHaveAttribute('data-project-root', '/work/storefront')
-  await team.click({ position: { x: 8, y: 16 } })
+  await team.locator('[data-left-fold-name]').click()
   await expect(attention).toHaveCount(0)
   await page.getByRole('button', { name: 'Wrap Team', exact: true }).click()
   await expect(team).toHaveCount(0)

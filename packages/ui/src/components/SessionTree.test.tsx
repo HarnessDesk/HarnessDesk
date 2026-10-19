@@ -2805,6 +2805,17 @@ it('a title filter reveals an unopened Seat by its visible name and keeps its Ov
 })
 
 
+it('a Team-name-only filter keeps every Seat in a stored-open Team visible', () => {
+  const members = ['First worker', 'Second worker'].map(id => summary({ id }))
+  const team = room({ id: 'name-filter', name: 'Build', members: members.map(one => sessionKey(one.runtime, one.id)) })
+  const view = treeWith([team], members)
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  view.update({ history: [] })
+  act(() => root.render(<StoreProvider store={view.store}><SessionTree now={3} searching filter="Build" /></StoreProvider>))
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+  expect(container.querySelectorAll('[data-region="seat-row"]')).toHaveLength(2)
+})
+
 it('seats stay in roster order when their activity changes', () => {
   const members = ['First', 'Second', 'Third'].map(id => summary({ id }))
   const keys = members.map(one => sessionKey(one.runtime, one.id))
