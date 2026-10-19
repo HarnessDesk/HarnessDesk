@@ -231,12 +231,15 @@ export const describeAdapterConformance = (name: string, harness: ConformanceHar
         assert.equal(after?.type === 'select' && after.currentValue, target)
         assertWellFormedOptions(session.options(), 'after setOption')
 
+        // Some agents send an intermediate options snapshot while the call is
+        // pending; the last announcement is the settled value of the change.
         const announced = tape.events
           .slice(before)
-          .find(
+          .filter(
             (event): event is Extract<AgentEvent, { type: 'session/options' }> =>
               event.type === 'session/options' && event.sessionId === session.id,
           )
+          .at(-1)
         assert.ok(announced, 'a change must be announced as a session/options event')
         assert.equal(findOption(announced.options, option.id)?.currentValue, target)
       })
