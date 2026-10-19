@@ -4424,7 +4424,11 @@ class AcpSession implements AgentSession {
     }
     const refusal = refuseOptionValue(option, value)
     if (refusal) throw new OptionRefusedError(refusal, id, value, false)
-    if (id === 'mode' && this.#modes) {
+    // A config option takes precedence over ACP's v1 modes when both expose
+    // the same id. `options()` already follows that rule; route the write
+    // through the same source the composer displayed.
+    const declared = this.#configOptions.find((entry) => entry.id === id)
+    if (id === 'mode' && this.#modes && !declared) {
       await this.#host.connectionFor(this.id).request('session/set_mode', {
         sessionId: this.id,
         modeId: value,
@@ -4472,7 +4476,6 @@ class AcpSession implements AgentSession {
       if (!listSaid && this.#models) this.#models = { ...this.#models, currentModelId: settled }
       this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
     } else {
-      const declared = this.#configOptions.find((entry) => entry.id === id)
       const before = this.#announced.options
       const response = await this.#host.connectionFor(this.id).request<{
         configOptions?: readonly AcpConfigOption[] | null
