@@ -1264,6 +1264,22 @@ re-ask on a PATH change.
 A copy that exists is never called missing, and the window never waits on the
 asking again.
 
+## Independent development sessions own their checkout and browser — 2026-10-19
+
+The owner's independent bug-fix conversations shared the open folder and its
+branch, so all three published to the same PR. A project draft now defaults to
+a new managed worktree on its own branch, allocated only on first send. It starts
+from the known remote default, then local main or master, with HEAD as the local
+repository fallback. An explicit Local or existing-worktree choice still uses
+that checkout. A failed runtime start keeps its allocated checkout for retry.
+Existing conversations are never relocated automatically: already mixed changes
+cannot be safely attributed by moving folders.
+
+PR updates must match the calling checkout's branch. Browser isolation follows
+the runtime/session identity even when the person explicitly shares a checkout;
+tabs, cookies and storage belong to that conversation. Team sidebar actions use
+the same eligibility rules and dialogs as the Team header.
+
 ## A pull request is published through the desk, and the desk signs it
 
 A vendor's own client signs the pull requests its agent opens — "Generated
@@ -1490,11 +1506,11 @@ non-restored Seat establishes membership. Assignment and Release are serialized
 host transactions; the renderer refreshes the resulting Goal instead of
 splicing a member into local state.
 
-Isolated Goal work receives a durable lane: retained checkout, disjoint port
-block and, by default, its own persistent browser partition. The host injects
+Isolated Goal work receives a durable lane: retained checkout and disjoint port
+block. Each conversation has its own persistent browser partition. The host injects
 the lane environment into each agent invocation that can take it per session.
 A lane depends on its checkout, never on a variable in the agent's process: the
-cwd is the confinement and the browser partition is found by it, while the
+cwd is the confinement; browser identity follows the conversation, while the
 ports are a reservation the standing order states either way. So a runtime that
 cannot take the variables is seated in its lane all the same, and told the
 values; refusing it refused every isolated Seat on any ACP agent but the desk's own bridges. A round's

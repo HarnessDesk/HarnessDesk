@@ -593,6 +593,15 @@ export const FrameWall = () => {
       Object.assign(snapshot, { workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1,
         git: { branch: 'main' }, repo: { root: '/work/storefront', worktree: false } } })
     }
+    if (destination === 'draft' && query.get('frame-session-isolation') === '1') {
+      Object.assign(snapshot, { workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1,
+        git: { branch: 'main', sha: '1234567' }, repo: { root: '/work/storefront', worktree: false } } })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method === 'git/status') return { branch: 'main', headSha: '1234567', staged: [], unstaged: [], untracked: [] }
+        return request(method, params as never)
+      }) as typeof next.transport.request
+    }
     if (destination === 'draft' && query.get('frame-fix8-permission-profile') === '1') {
       Object.assign(snapshot, { draftOptions: [{ id: 'permissions', type: 'select', category: '_permissions', label: 'Permissions', currentValue: ':workspace', choices: [
         { value: ':read-only', label: 'Read only' }, { value: ':workspace', label: 'Workspace write' },

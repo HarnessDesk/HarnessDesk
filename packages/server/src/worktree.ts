@@ -290,7 +290,7 @@ export class Worktrees {
     }
   }
 
-  create(repoRoot: string, options: { readonly name: string; readonly base?: string }): Promise<Worktree> {
+  create(repoRoot: string, options: { readonly name: string; readonly base?: string; readonly fromDefault?: boolean }): Promise<Worktree> {
     return create(repoRoot, { ...options, stateDir: this.stateDir })
   }
 
@@ -409,7 +409,7 @@ export const mainEntryFolder = async (listed: string, asked: string): Promise<st
  */
 export const create = async (
   repoRoot: string,
-  options: { readonly name: string; readonly base?: string; readonly stateDir: string },
+  options: { readonly name: string; readonly base?: string; readonly fromDefault?: boolean; readonly stateDir: string },
 ): Promise<Worktree> => {
   const main = await repositoryRoot(repoRoot)
   if (!main) throw new Error(`${repoRoot} is not inside a git repository.`)
@@ -435,7 +435,20 @@ export const create = async (
   }
   const path = join(home, slug)
   const branch = `harnessdesk/${slug}`
-  await git(main, ['worktree', 'add', '-b', branch, path, options.base ?? 'HEAD'])
+  let base = options.base
+  if (!base && options.fromDefault) {
+    const remote = await git(main, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']).then(out => out.trim(), () => '')
+    const candidates = [remote, 'refs/heads/main', 'refs/heads/master'].filter(Boolean)
+    for (const candidate of candidates) {
+      if (await git(main, ['rev-parse', '--verify', '--quiet', `${candidate}^{commit}`]).then(() => true, () => false)) {
+        base = candidate
+        break
+      }
+    }
+    // A local repository can use any name for its only branch.
+    base ??= 'HEAD'
+  }
+  await git(main, ['worktree', 'add', '-b', branch, path, base ?? 'HEAD'])
   return { path, branch, head: (await git(path, ['rev-parse', 'HEAD'])).trim(), isMain: false, managed: true }
 }
 

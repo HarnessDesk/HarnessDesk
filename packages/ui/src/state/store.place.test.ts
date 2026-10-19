@@ -148,6 +148,44 @@ describe.each(['panel toggle', 'lit tool'] as const)('right panel closure throug
 })
 
 describe('where a draft starts', () => {
+  it('gives successive project drafts distinct managed checkouts by default', async () => {
+    answers['worktree/create'] = ({ name }: { name: string }) => ({ path: `/state/${name}`, branch: `harnessdesk/${name}`, head: 'abc', isMain: false, managed: true })
+    answers['session/create'] = ({ options }: { options: { cwd: string } }) => conversation(options.cwd, options.cwd)
+    store.newDraft()
+    await store.send([{ type: 'text', text: 'Fix the first bug' }])
+    store.newDraft()
+    await store.send([{ type: 'text', text: 'Fix the second bug' }])
+    const created = calls('worktree/create') as { root: string; name: string; fromDefault?: boolean }[]
+    expect(created).toHaveLength(2)
+    expect(created[0]).toMatchObject({ root: REPO.path, fromDefault: true })
+    expect(created[1]).toMatchObject({ root: REPO.path, fromDefault: true })
+    expect(created[0]!.name).not.toBe(created[1]!.name)
+    const sessions = calls('session/create') as { options: { cwd: string } }[]
+    expect(sessions[0]!.options.cwd).not.toBe(sessions[1]!.options.cwd)
+    expect(sessions.every(one => one.options.cwd !== REPO.path)).toBe(true)
+  })
+
+  it('retains an explicit Local choice without allocating a checkout', async () => {
+    answers['session/create'] = conversation('local', REPO.path)
+    store.newDraft()
+    store.startDraftIn(null)
+    await store.send([{ type: 'text', text: 'Work in the shared checkout' }])
+    expect(calls('worktree/create')).toHaveLength(0)
+    expect(calls('session/create')[0]).toMatchObject({ options: { cwd: REPO.path } })
+  })
+
+  it('reuses an automatically created checkout after the runtime fails to start', async () => {
+    answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/session-fixture', head: 'abc', isMain: false, managed: true }
+    refused['session/create'] = 'Runtime unavailable'
+    store.newDraft()
+    await store.send([{ type: 'text', text: 'Fix a bug' }])
+    delete refused['session/create']
+    answers['session/create'] = conversation('retry', TREE)
+    await store.send([{ type: 'text', text: 'Try again' }])
+    expect(calls('worktree/create')).toHaveLength(1)
+    expect(calls('session/create').at(-1)).toMatchObject({ options: { cwd: TREE } })
+  })
+
   it('cuts the worktree when the first message goes, and starts the conversation in it', async () => {
     answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/parser-fix', head: 'abc', isMain: false, managed: true }
     answers['session/create'] = conversation('s-2', TREE)
@@ -168,8 +206,10 @@ describe('where a draft starts', () => {
     await store.armWorktree(REPO.path, 'parser fix')
     store.newDraft()
     expect(store.getSnapshot().draftPlace).toBeNull()
+    expect(calls('worktree/create')).toHaveLength(0)
 
     answers['session/create'] = conversation('s-2', REPO.path)
+    store.startDraftIn(null)
     await store.send([{ type: 'text', text: 'Something else entirely' }])
 
     expect(calls('worktree/create')).toHaveLength(0)

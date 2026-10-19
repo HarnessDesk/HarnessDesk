@@ -80,23 +80,24 @@ const row = (text: string): HTMLButtonElement | undefined =>
     entry.textContent?.startsWith(text),
   )
 
-it('names the project folder on a draft in the main checkout, and names the branch on hover', () => {
+it('defaults a project draft to its own worktree and makes Local an explicit choice', () => {
   rig()
 
-  expect(trigger()?.textContent).toContain('harness-desk')
-  expect(trigger()?.title).toBe('Starts in harness-desk, on main')
+  expect(trigger()?.textContent).toContain('New worktree')
+  expect(trigger()?.title).toBe('Starts in a new worktree on its own branch, made when you send')
 
   open()
   const popup = document.querySelector('[data-popup-kind="wide-menu"]')!
   expect(popup.getAttribute('data-menu-icons')).toBe('none')
   expect(popup.querySelector('[data-menu-icon]')).toBeNull()
-  expect(row('Local')?.getAttribute('aria-checked')).toBe('true')
-  expect(row('New worktree')?.getAttribute('aria-checked')).toBe('false')
+  expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
+  expect(row('New worktree')?.getAttribute('aria-checked')).toBe('true')
 })
 
 it('shows the selected project folder beside the folder icon', () => {
   rig({
     workspace: { ...MAIN, path: '/work/storefront', name: 'storefront' },
+    draftPlace: { kind: 'existing', path: '/work/storefront', branch: 'main' },
   })
 
   expect(trigger()?.textContent).toContain('storefront')
@@ -107,7 +108,7 @@ it('shows the selected project folder beside the folder icon', () => {
 
 it('keeps the full path on hover while the long folder label can truncate', () => {
   const path = '/work/this-is-a-very-long-storefront-folder-name'
-  rig({ workspace: { ...MAIN, path, name: path.split('/').at(-1)! } })
+  rig({ workspace: { ...MAIN, path, name: path.split('/').at(-1)! }, draftPlace: { kind: 'existing', path, branch: 'main' } })
 
   const label = trigger()?.querySelector<HTMLElement>('[data-slot="text"]')
   expect(label?.textContent).toBe(path.split('/').at(-1))
@@ -124,6 +125,7 @@ it('is gone once the conversation exists — the header says where a session run
 
 it('never calls a folder that is itself a worktree Local', () => {
   rig({
+    draftPlace: { kind: 'existing', path: '/code/harness-desk-parser', branch: 'feat/parser' },
     workspace: {
       ...MAIN,
       path: '/code/harness-desk-parser',
@@ -135,7 +137,7 @@ it('never calls a folder that is itself a worktree Local', () => {
   expect(trigger()?.textContent).not.toContain('Local')
   expect(trigger()?.textContent).toContain('parser')
   expect(trigger()?.textContent).toContain('worktree')
-  expect(trigger()?.title).toBe('Starts in this worktree, on feat/parser')
+  expect(trigger()?.title).toBe('Starts in the worktree on feat/parser')
 
   open()
   expect(row('This worktree')?.getAttribute('aria-checked')).toBe('true')
@@ -262,7 +264,7 @@ it('gives the main checkout no row pointing at itself', () => {
 
   open()
   expect(row('Main checkout')).toBeUndefined()
-  expect(row('Local')?.getAttribute('aria-checked')).toBe('true')
+  expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
 })
 
 it('draws a draft pointed at the main checkout as a place, not as a worktree', () => {

@@ -1,4 +1,5 @@
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
+import { canIsolateDraft } from '../lib/draft-isolation'
 import { recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
@@ -2777,6 +2778,7 @@ export class AppStore {
       readonly worktree?: string
       /** The branch the worktree starts from. HEAD when absent. */
       readonly base?: string
+      readonly fromDefault?: boolean
       readonly split?: Split['direction']
       /** Start on this runtime instead of the active one. */
       readonly runtime?: RuntimeId
@@ -2816,6 +2818,7 @@ export class AppStore {
           root: workspace,
           name: options.worktree,
           ...(options.base ? { base: options.base } : {}),
+          ...(options.fromDefault ? { fromDefault: true } : {}),
         })
         cwd = created.path
         void this.loadWorktrees()
@@ -3105,17 +3108,26 @@ export class AppStore {
    * either wastes a trip finding it or, worse, answers about the folder it
    * is actually in.
    */
-  #draftStart(): { readonly cwd?: string; readonly worktree?: string; readonly base?: string } {
+  #draftStart(): { readonly cwd?: string; readonly worktree?: string; readonly base?: string; readonly fromDefault?: boolean } {
     // A place the person chose outranks the one the packet names: the
     // packet says where the work *was*, the choice says where it goes next.
     const place = this.#snapshot.draftPlace
     if (place?.kind === 'chats') return {}
     if (place?.kind === 'existing') return { cwd: place.path }
     if (place?.kind === 'worktree') {
-      return { cwd: place.root, worktree: place.name, ...(place.base ? { base: place.base } : {}) }
+      return { cwd: place.root, worktree: place.name, ...(place.base ? { base: place.base } : {}), ...(place.fromDefault ? { fromDefault: true } : {}) }
     }
     const carried = this.#snapshot.draftHandoff?.cwd
-    return carried ? { cwd: carried } : {}
+    if (carried) return { cwd: carried }
+    const workspace = this.#snapshot.workspace
+    if (workspace && canIsolateDraft(workspace)) {
+      const name = `session-${crypto.randomUUID()}`
+      // Keep the choice before allocation so a failed runtime start retries
+      // in the checkout already made for this draft.
+      this.#patch({ draftPlace: { kind: 'worktree', root: workspace.path, name, fromDefault: true } })
+      return { cwd: workspace.path, worktree: name, fromDefault: true }
+    }
+    return {}
   }
 
   /**
@@ -4753,7 +4765,8 @@ export class AppStore {
       (pane) => pane.view.kind === 'conversation' && !sessionOf(pane),
     )
     if (!onDraft) this.newDraft()
-    this.#patch({ draftPlace: place })
+    const workspace = this.#snapshot.workspace
+    this.#patch({ draftPlace: place ?? (workspace ? { kind: 'existing', path: workspace.path, branch: workspace.git?.branch ?? null } : null) })
   }
 
   /**

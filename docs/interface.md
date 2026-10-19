@@ -295,7 +295,11 @@ everything-search, then New session and three navigation rows; one scrolling
 docked panels, notices and the seat.
 
 **New session** starts a draft in the current project with the default runtime,
-in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
+in one click, just like ⌘N. In a repository with a commit, the draft defaults to
+**New worktree**: the first message makes a checkout and branch of its own from
+the known default branch. **Local** and an existing worktree are explicit choices;
+non-Git folders and repositories before their first commit keep their folder.
+The always-visible ⌄ beside it opens **More ways to
 start**: Open folder…, New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
 until its first message. The project’s right-click menu also offers **New worktree…**,
@@ -864,7 +868,7 @@ presses none of its other ways in for it.
 in [extending.md](extending.md).
 
 - **Work in** says where a new conversation will run, while that is still a
-  choice: **Local** (the folder as it is), a worktree the project already has,
+  choice: **New worktree** by default in a committed repository, **Local** (the folder as it is), a worktree the project already has,
   or **New worktree** — named and based in a dialog, and made when the first
   message goes, so an abandoned draft leaves no branch behind. A folder that
   is itself a worktree wears its branch and a worktree badge, never Local —

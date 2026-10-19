@@ -254,7 +254,7 @@ export interface DraftHandoff {
 export type DraftPlace =
   /** An explicit No folder choice also overrides a carried hand-off's cwd. */
   | { readonly kind: 'chats' }
-  | { readonly kind: 'worktree'; readonly root: string; readonly name: string; readonly base?: string }
+  | { readonly kind: 'worktree'; readonly root: string; readonly name: string; readonly base?: string; readonly fromDefault?: boolean }
   | { readonly kind: 'existing'; readonly path: string; readonly branch: string | null }
 
 export interface TeamFrameRequest {
