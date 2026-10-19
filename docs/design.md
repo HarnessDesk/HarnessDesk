@@ -1136,12 +1136,14 @@ and is preserved when selection changes.
 
 Project headers have no folder icon: their names use 14px secondary ink.
 The fold chevron follows the name, visible when folded or on hover or keyboard
-focus; the end actions appear on hover or focus. Folding leaves only the
+focus; Team rows use the same fold chevron after their name, with no leading
+gutter, and its own control folds Seats without opening the Team. The end
+actions appear on hover or focus. Folding leaves only the
 header. The footer is a transparent 48px row with a full-width hairline and
 no identity pill; readiness and usage are read in the account menu.
 The sidebar catalogue and `preview.html?sidebar-structure` mount the same
-production tree. Nested Seat rows, guide lines and full state-label folding
-belong to the generic sidebar specimens, not this tree.
+production tree, including nested Seat rows. Guide lines and full state-label
+folding belong to the generic sidebar specimens.
 
 ### Destination rows
 

@@ -1548,7 +1548,7 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
   const farContent = othersOpen ? far.map(group => renderGroup(group)) : null
 
   const tree = (
-    <LeftColumnGroup label="Conversations" heading={false} disclosureGutter ref={treeRef} onKeyDown={onTreeKeyDown} onFocusCapture={(event) => {
+    <LeftColumnGroup label="Conversations" heading={false} ref={treeRef} onKeyDown={onTreeKeyDown} onFocusCapture={(event) => {
       const target = event.target as HTMLElement
       if (!target.matches('[data-slot="sidebar-menu-button"]') || target.closest('[data-nested="true"]')) return
       const row = target.closest<HTMLElement>('[data-virtual-index]')

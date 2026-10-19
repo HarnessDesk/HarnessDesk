@@ -239,13 +239,12 @@ for (const theme of ['light', 'dark'] as const) {
       const origin = (await fixture.boundingBox())!.x
       const bounds = async (node: typeof team) => { const b = (await node.boundingBox())!; return [b.x - origin, b.x + b.width - origin] }
       const iconX = (await team.locator('[data-slot="sidebar-menu-icon"]').boundingBox())!.x
-      const gutter = await fixture.evaluate(node => parseFloat(getComputedStyle(node).getPropertyValue('--hd-icon-target')))
-      expect(await textX(pinned.locator('[data-left-group-text]')) - origin).toBe(FRAME.rail.inset * 2 + gutter)
+      expect(await textX(pinned.locator('[data-left-group-text]')) - origin).toBe(FRAME.rail.inset * 2)
       expect(await textX(project.locator('button[data-draggable] [data-slot="sidebar-menu-label-content"]'))).toBe(iconX)
       const reference = iconX + FRAME.rail.icon + FRAME.rail.gap
       for (const row of [team, loose, pinned.locator('[data-slot="sidebar-menu-button"]')]) {
         expect(Math.abs(await textX(row.locator('[data-slot="sidebar-menu-label-content"]')) - reference)).toBeLessThanOrEqual(1)
-        expect(await bounds(row)).toEqual([FRAME.rail.inset + gutter, width - FRAME.rail.inset])
+        expect(await bounds(row)).toEqual([FRAME.rail.inset, width - FRAME.rail.inset])
         expect((await row.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
       }
       expect(await bounds(pinned.locator('[data-slot="separator"]'))).toEqual([8, width - 8])
@@ -268,6 +267,7 @@ for (const theme of ['light', 'dark'] as const) test(`nested seats keep their ic
   const toggleDisclosure = async () => {
     const control = team.locator('..').locator('[data-left-disclosure]')
     await control.scrollIntoViewIfNeeded()
+    await team.hover({ position: { x: 8, y: 16 } })
     await control.click()
   }
   const near = (actual: number, expected: number, why: string) => expect(Math.abs(actual - expected), `${why}: ${actual} vs ${expected}`).toBeLessThanOrEqual(1)
@@ -293,6 +293,8 @@ for (const theme of ['light', 'dark'] as const) test(`nested seats keep their ic
     await expect(collapsed.locator('..').locator('[data-slot="spinner"]')).toHaveCount(1)
     if (await team.getAttribute('aria-expanded') === 'true') await toggleDisclosure()
     await expect(team).toHaveAttribute('aria-expanded', 'false')
+    await page.mouse.move(1000, 0)
+    await expect(team.locator('..').locator('[data-left-disclosure]')).toHaveCSS('visibility', 'visible')
     const folded = await measure()
     const foldedParent = folded.find(row => row.name === 'Room Ship checkout retry')!
     await toggleDisclosure()
@@ -312,7 +314,18 @@ for (const theme of ['light', 'dark'] as const) test(`nested seats keep their ic
     }
     near(loose.icon!.x, parent.icon!.x, 'Team and session icon')
     const disclosure = await team.locator('..').locator('[data-left-disclosure] [data-slot="disclosure-chevron"]').boundingBox()
-    expect(disclosure!.x + disclosure!.width).toBeLessThanOrEqual(parent.icon!.x + 1)
+    const name = (await team.locator('[data-left-fold-name]').boundingBox())!
+    const projectGap = await fixture.locator('button[data-draggable] [data-slot="sidebar-menu-label-content"]').first().evaluate(node => parseFloat(getComputedStyle(node).gap))
+    near(disclosure!.x - name.x - name.width, projectGap, 'name then chevron gap')
+    await page.mouse.move(1000, 0)
+    await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
+    await expect(team.locator('..').locator('[data-left-disclosure]')).toHaveCSS('visibility', 'hidden')
+    await team.hover({ position: { x: 8, y: 16 } })
+    await expect(team.locator('..').locator('[data-left-disclosure]')).toHaveCSS('visibility', 'visible')
+    const hovered = (await measure()).find(row => row.name === parent.name)!
+    near(hovered.label.x, parent.label.x, 'no label shift on hover')
+    near(hovered.row.h, parent.row.h, 'no height shift on hover')
+    await page.mouse.move(1000, 0)
     for (const row of folded.filter(row => row.icon)) {
       const after = before.find(one => one.name === row.name)!
       near(after.icon!.x, row.icon!.x, 'no icon shift collapsed → expanded')
@@ -379,7 +392,7 @@ for (const theme of ['light', 'dark'] as const) {
     await fixture.evaluate(node => { (node as HTMLElement).style.width = '200px' })
     const team = fixture.getByRole('button', { name: 'Room Check release notes', exact: true }).locator('..')
     const value = await team.evaluate(row => {
-      const label = row.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')!
+      const label = row.querySelector<HTMLElement>('[data-left-fold-name]')!
       const rail = row.querySelector('[data-left-trailing]')!.getBoundingClientRect()
       const box = label.getBoundingClientRect()
       return { right: box.right, rail: rail.left, gap: parseFloat(getComputedStyle(row).getPropertyValue('--hd-space-2')), overflow: label.scrollWidth > label.clientWidth, ellipsis: getComputedStyle(label).textOverflow }
@@ -403,16 +416,19 @@ for (const theme of ['light', 'dark'] as const) {
     expect(Math.abs(seat - loose)).toBeLessThanOrEqual(1)
     console.log(JSON.stringify({ theme, labelEndGap: { seat, loose } }))
   })
-  test(`Team disclosure hit box stays inside the gutter before the highlight — ${theme}`, async ({ page }) => {
+  test(`Team disclosure hit box follows the name inside the highlight — ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
     const fixture = page.locator('#sidebar-structure')
     const team = fixture.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
     const disclosure = team.locator('..').locator('[data-left-disclosure]')
     // The row carries the expanded state; an open Team's chevron stays unfilled until it is hovered.
     await expect(disclosure).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await team.hover({ position: { x: 8, y: 16 } })
     await disclosure.hover()
     const arrow = (await disclosure.boundingBox())!, highlight = (await team.boundingBox())!, sidebar = (await fixture.boundingBox())!
-    expect(arrow.x + arrow.width).toBeLessThanOrEqual(highlight.x + 1)
+    const name = (await team.locator('[data-left-fold-name]').boundingBox())!
+    expect(arrow.x).toBeGreaterThanOrEqual(name.x + name.width - 1)
+    expect(arrow.x + arrow.width).toBeLessThanOrEqual(highlight.x + highlight.width)
     expect(arrow.x).toBeGreaterThanOrEqual(sidebar.x - 1)
     console.log(JSON.stringify({ theme, chevron: { left: arrow.x, right: arrow.x + arrow.width, highlight: highlight.x, sidebar: sidebar.x } }))
     await page.mouse.move(1000, 0)
@@ -431,6 +447,7 @@ test('a matching agent filter can fold its Team and captures the public filter a
   })
   const team = fixture.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
   await expect(team).toHaveAttribute('aria-expanded', 'true')
+  await team.hover({ position: { x: 8, y: 16 } })
   await team.locator('..').locator('[data-left-disclosure]').click()
   await expect(team).toHaveAttribute('aria-expanded', 'false')
   await expect(team.locator('xpath=ancestor::*[@data-region="team-row"]').locator('[data-region="seat-row"]')).toHaveCount(0)

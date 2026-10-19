@@ -74,6 +74,7 @@ for (const theme of ['light', 'dark'] as const) {
     const fold = tree.getByRole('button', { name: 'Hide the agents in Retry the checkout call', exact: true })
     await expect(fold).toHaveCount(1)
     expect(await tree.locator('[data-left-nested]').count()).toBeGreaterThan(0)
+    await tree.getByRole('button', { name: 'Room Retry the checkout call', exact: true }).hover({ position: { x: 8, y: 16 } })
     await fold.click()
     await expect(tree.locator('[data-left-nested]')).toHaveCount(0)
     const team = tree.getByRole('button', { name: 'Room Retry the checkout call', exact: true })

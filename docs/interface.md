@@ -355,8 +355,10 @@ it became **Ready to wrap**, a Seat has unread activity, or its Run ended.
 Opening any Team tab clears blue; the host stores when you looked, so windows,
 restarts and the phone agree. Orange takes priority over blue. Its Seats fold underneath,
 one further indent step in; the selected Team and the Team owning the open
-Seat start expanded, and other Teams start collapsed. A leading-gutter chevron
-reveals them without opening the Team. ArrowRight expands and ArrowLeft folds.
+Seat start expanded, and other Teams start collapsed. The chevron follows the
+Team name like a project header's fold chevron, visible while folded or on row
+hover or keyboard focus; it reveals Seats without opening the Team. Rows keep
+their original edge, with no leading gutter. ArrowRight expands and ArrowLeft folds.
 Team and loose-conversation icons align; a Seat icon starts under the Team label.
 Seat rows keep the same 34px pitch and trailing rail as their parent, in the
 Team's roster order; activity does not reorder them. A filter temporarily reveals

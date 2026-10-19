@@ -40,7 +40,7 @@ export interface LeftColumnRowProps {
   readonly selected?: boolean
   readonly disabled?: boolean
   readonly expanded?: boolean
-  /** Separate leading-gutter disclosure preserves the icon and label columns. */
+  /** A separate control follows the name, sharing the project fold geometry. */
   readonly disclosure?: { readonly open: boolean; readonly onToggle: () => void }
   readonly nested?: boolean
   readonly trailing?: LeftColumnTrail
@@ -52,16 +52,16 @@ export interface LeftColumnRowProps {
   readonly buttonProps?: Pick<ComponentProps<'button'>, 'aria-label' | 'aria-describedby' | 'onKeyDown' | 'onDragOver' | 'onDrop'>
 }
 export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((props, ref) =>
-  <div data-left-row data-left-prefix={props.trailing?.kind === 'mark' && props.trailing.prefix ? '' : undefined} data-left-nested={props.nested ? '' : undefined} data-left-tree={props.tree ? '' : undefined} data-letter={props.tree?.letter ?? undefined} data-left-project={props.project ? '' : undefined} data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
+  <div data-left-row data-left-disclosable={props.disclosure ? '' : undefined} data-left-prefix={props.trailing?.kind === 'mark' && props.trailing.prefix ? '' : undefined} data-left-nested={props.nested ? '' : undefined} data-left-tree={props.tree ? '' : undefined} data-letter={props.tree?.letter ?? undefined} data-left-project={props.project ? '' : undefined} data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
     <SidebarMenuButton data-draggable={props.project ? '' : undefined} ref={ref} className={styles.button}
       style={props.tree ? { paddingInlineStart: `calc(var(--hd-space-2) + ${props.tree.depth} * var(--hd-space-4))` } : undefined}
-      label={props.tree ? <span className={styles.treeLabel}><span className={styles.treeIcon}>{props.icon}</span><span className={styles.treeName}>{props.label}</span></span> : props.expanded === undefined ? props.label : <><span data-left-fold-name className={styles.foldName}>{props.label}</span><DisclosureChevron open={props.expanded} size="xs" className={styles.disclosure} /></>}
+      label={props.tree ? <span className={styles.treeLabel}><span className={styles.treeIcon}>{props.icon}</span><span className={styles.treeName}>{props.label}</span></span> : props.disclosure ? <span data-left-fold-name className={styles.foldName}>{props.label}</span> : props.expanded === undefined ? props.label : <><span data-left-fold-name className={styles.foldName}>{props.label}</span><DisclosureChevron open={props.expanded} size="xs" className={styles.disclosure} /></>}
       labelEnd={props.trailing?.kind === 'mark' && props.trailing.prefix ? <Text role="meta" numeric data-left-mark-prefix className={styles.markPrefix}>{props.trailing.prefix}</Text> : undefined}
       icon={props.tree ? props.tree.expanded === undefined ? <span aria-hidden="true" /> : <DisclosureChevron open={props.tree.expanded} size="xs" /> : props.expanded === undefined ? props.icon ?? <span aria-hidden="true" /> : undefined} isActive={props.selected}
       title={props.title ?? props.label} disabled={props.disabled}
       aria-current={props.selected ? 'page' : undefined} aria-expanded={props.disclosure?.open ?? (props.tree ? props.tree.expanded : props.expanded)}
       aria-label={props.label} onClick={props.onClick} onDoubleClick={props.onDoubleClick} {...props.buttonProps} />
-    {props.disclosure && <Button variant="ghost" size="pattern" className={styles.gutterDisclosure} data-left-disclosure
+    {props.disclosure && <Button variant="ghost" size="pattern" className={styles.nameDisclosure} data-left-disclosure
       tabIndex={-1} aria-label={`${props.disclosure.open ? 'Hide' : 'Show'} the agents in ${props.label}`}
       onClick={event => {
         event.stopPropagation()
@@ -83,9 +83,9 @@ export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((
   </div>)
 LeftColumnRow.displayName = 'LeftColumnRow'
 export const LeftColumnGroup = forwardRef<HTMLElement, ComponentProps<'section'> & {
-  label: string; children: ReactNode; heading?: boolean; disclosureGutter?: boolean
-}>(({ label, children, heading = true, disclosureGutter = false, className, ...props }, ref) =>
-  <SidebarMenu as="section" ref={ref} data-left-group className={[styles.group, disclosureGutter ? styles.gutter : null, className].filter(Boolean).join(' ')} aria-label={label} role="group" {...props}>
+  label: string; children: ReactNode; heading?: boolean
+}>(({ label, children, heading = true, className, ...props }, ref) =>
+  <SidebarMenu as="section" ref={ref} data-left-group className={[styles.group, className].filter(Boolean).join(' ')} aria-label={label} role="group" {...props}>
     {heading && <GroupLabel className={styles.label}><span data-left-group-text>{label}</span></GroupLabel>}{children}
   </SidebarMenu>)
 LeftColumnGroup.displayName = 'LeftColumnGroup'
@@ -188,14 +188,14 @@ LeftColumnList.displayName = 'LeftColumnList'
 export const LeftColumnRename = ({ input }: { readonly input: ReactNode }) =>
   <div data-left-rename className={styles.row}>{input}</div>
 export const LeftColumnNavigation = ({ children }: { readonly children: ReactNode }) =>
-  <nav className={`${styles.navigation} ${styles.inset} ${styles.gutter}`} aria-label="Workspace actions">{children}</nav>
+  <nav className={`${styles.navigation} ${styles.inset}`} aria-label="Workspace actions">{children}</nav>
 export const LeftColumnProjectsHead = ({ value, onChange, focused, onFocusChange, options, onBrowseFolders }: {
   readonly value: string; readonly onChange: (value: string) => void; readonly focused: boolean
   readonly onFocusChange: (focused: boolean) => void; readonly options: ReactNode; readonly onBrowseFolders: () => void
 }) => {
   const filtering = focused || value.length > 0
   return <NavigationGroupHeader data-left-head data-left-projects-head inset="action" filtering={filtering}
-    data-filtered={value ? '' : undefined} className={`${styles.head} ${styles.projectsHead} ${styles.gutter}`}
+    data-filtered={value ? '' : undefined} className={`${styles.head} ${styles.projectsHead}`}
     label={<span className={styles.projectsLabel} data-left-group-text>Projects</span>}>
     {value && <span className={styles.filtered}><Chip tone="neutral" label="Filtered" />
       <Button variant="ghost" size="icon-xs" aria-label="Clear list filter" title="Clear list filter"

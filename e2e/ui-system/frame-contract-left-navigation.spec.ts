@@ -76,15 +76,24 @@ for (const theme of WALL_THEMES) {
 }
 
 for (const theme of WALL_THEMES) {
-  test(`D3 Teams are single rows in ${theme}`, async ({ page }) => {
+  test(`D3 Teams keep one parent row and fold Seats after their name in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=left-work', theme)
     const team = page.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
     await expect(team).toBeVisible()
     expect((await team.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
     await expect(team.locator('..').locator('[data-left-trailing]')).toHaveCount(1)
-    await expect(page.locator('[data-left-column] [data-nested="true"]')).toHaveCount(0)
-    await expect(page.locator('[data-left-column] [aria-label*="agents in"]')).toHaveCount(0)
-    await team.click()
+    await expect(page.locator('[data-left-column] [data-nested="true"]')).toHaveCount(1)
+    const fold = team.locator('..').locator('[data-left-disclosure]')
+    await expect(fold).toHaveCount(1)
+    const name = (await team.locator('[data-left-fold-name]').boundingBox())!
+    await team.hover({ position: { x: 8, y: 16 } })
+    const arrow = (await fold.locator('[data-slot="disclosure-chevron"]').boundingBox())!
+    expect(Math.abs(arrow.x - name.x - name.width - 6)).toBeLessThanOrEqual(1)
+    await expect(team).toHaveAttribute('aria-expanded', 'true')
+    await fold.click()
+    await expect(team).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.locator('[data-left-column] [data-left-nested]')).toHaveCount(0)
+    await team.click({ position: { x: 8, y: 16 } })
     await expect(team).toHaveAttribute('aria-current', 'page')
   })
 }

@@ -97,7 +97,9 @@ The owner chose seats nested under their Team again, with a spinner on working
 conversations and careful alignment. This supersedes the 2026-10-15 bullet
 “running rows have no spinner” and the app-frame spec's “a Team is one row”.
 
-Every Team has a leading-gutter disclosure, separate from opening its label.
+The chevron follows the Team name like a project header's fold chevron (owner,
+2026-10-18), with no leading gutter. It folds the Seats separately from opening
+the Team's label.
 The selected Team and the Team owning an open Seat start expanded; other Teams
 start collapsed. Deliberate folds last for the UI session, until another Seat
 activation. A matching seat filter temporarily reveals its Team and matching Seats.

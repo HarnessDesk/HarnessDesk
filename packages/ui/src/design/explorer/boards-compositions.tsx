@@ -3548,7 +3548,7 @@ export function LeftColumnBoard() {
     modeSwitch={{ value: mode, onChange: setMode, disabled: false, disabledTitle: "Editor mode opens a conversation's files" }} />}
   head={mode === 'editor' ? <LeftColumnExplorerHead name="storefront" path="/work/storefront" filter="changed" changes={4} onFilter={() => {}} /> : null} body={<LeftColumnBody>
   {mode === 'editor' && <><LeftColumnRow label="src" icon={<FolderIcon size={16} />} tree={{ depth: 0, expanded: true }} onClick={() => {}} /><LeftColumnRow label="checkout.ts" icon={<FileIcon size={16} />} tree={{ depth: 1, letter: 'M' }} trailing={{ kind: 'mark', icon: 'M', label: 'Modified' }} selected onClick={() => {}} /></>}
-  {mode === 'conversation' && <LeftColumnGroup label="Conversations" heading={false} disclosureGutter><LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
+  {mode === 'conversation' && <LeftColumnGroup label="Conversations" heading={false}><LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
   <LeftColumnGroup label="Projects">
     <LeftColumnRow label="Release notes for checkout retry · 長い会話名" icon={<FolderIcon size={16} />}
       title={'Release notes for checkout retry\nThe folder is gone; the transcript remains readable.'}
@@ -3575,7 +3575,7 @@ export function LeftColumnWorkBoard() {
   return <LeftColumn head={<LeftColumnNavigation><LeftColumnRow label="New session" icon={<PlusIcon size={16} />} onClick={() => {}} /></LeftColumnNavigation>} body={<LeftColumnBody>
     <LeftColumnProjectsHead value={filter} onChange={setFilter} focused={focused} onFocusChange={setFocused}
       onBrowseFolders={() => {}} options={<LeftColumnListOptions filtered={false}><Button variant="muted" size="icon-xs" aria-label="List options"><MoreIcon size={16} /></Button></LeftColumnListOptions>} />
-    <LeftColumnGroup label="Conversations" heading={false} disclosureGutter><LeftColumnList before={30} after={30} labels="Release plan|Rename">
+    <LeftColumnGroup label="Conversations" heading={false}><LeftColumnList before={30} after={30} labels="Release plan|Rename">
       <LeftColumnRow label="Release plan" icon={<FolderIcon size={16} />} project current expanded
         action={{ kind: 'new', label: 'New session in Release plan', onClick: () => {} }} />
       <LeftColumnRename input={<Input aria-label="Rename example" defaultValue="Release plan" />} />
