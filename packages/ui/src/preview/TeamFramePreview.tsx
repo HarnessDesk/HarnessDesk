@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { TopBarProvider } from '../panels/top-bar'
@@ -28,7 +28,8 @@ export const seedTeamFrame = (store: AppStore, room: string, view?: TeamFrameVie
 
 /** A synthetic Team uses the production shell, including its independent rail
  * and tool pane. Only its store and embedded viewport belong to the preview. */
-export const TeamFramePreview = ({ room, view, railOpen = true }: { railOpen?: boolean; room: string; view?: TeamFrameView }) => {
+/** `sidebar` fills the left column when the frame opens it; without one the column stays empty, as a frame that never opens it needs. */
+export const TeamFramePreview = ({ room, view, railOpen = true, sidebar = null }: { railOpen?: boolean; room: string; view?: TeamFrameView; sidebar?: ReactNode }) => {
   const store = useStore()
   useState(() => {
     Object.assign(store.getSnapshot(), teamFrameSeed(store.getSnapshot(), room, view, railOpen))
@@ -48,6 +49,6 @@ export const TeamFramePreview = ({ room, view, railOpen = true }: { railOpen?: b
     return () => observer.disconnect()
   }, [store])
   return <div ref={viewport} className="h-full min-h-0 overflow-hidden"><ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
-    <TopBarProvider><ShellHostsProvider><Workbench sidebar={null} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
+    <TopBarProvider><ShellHostsProvider><Workbench sidebar={sidebar} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
   </ShellProvider></div>
 }

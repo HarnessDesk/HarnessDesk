@@ -52,12 +52,23 @@ export const FlowMiniGraph = ({ policy, empty = false }: { readonly policy?: Flo
     </span>
   }
 
-  // Fit geometry into a constant thumbnail, never fitting the SVG viewport to
-  // the graph: that made a two-step Flow's labels twice the size of four steps.
-  // Labels sit outside the geometry transform so every topology uses 12px ink.
-  const width = 320, height = 72, inset = 4
-  const scaleX = (width - inset * 2) / layout.width
-  const scaleY = (height - inset * 2) / layout.height
+  // The thumbnail is one centred grid, not the full canvas scaled down: the
+  // canvas widens a step to fit its label, which made one card's steps wide and
+  // the next one's narrow, and its margins moved every diagram off the centre.
+  // Here a step's column and row come from the canvas layout, and every step in
+  // a card is the same width, every gap the same, the whole drawn about one
+  // centre line. Labels sit outside any transform so each uses 12px ink.
+  const { width, height } = MINI
+  const xs = distinct(layout.nodes.map(node => node.box.x)), ys = distinct(layout.nodes.map(node => node.box.y))
+  const stepW = Math.min(MINI.stepW, Math.floor((width - MINI.inset * 2 - (xs.length - 1) * MINI.gap) / xs.length))
+  const startX = (width - (xs.length * stepW + (xs.length - 1) * MINI.gap)) / 2
+  const bandH = ys.length * MINI.stepH + (ys.length - 1) * MINI.rowGap
+  const startY = (height - bandH) / 2
+  const cells = new Map(layout.nodes.map(node => {
+    const col = xs.findIndex(x => Math.abs(x - node.box.x) < 1), row = ys.findIndex(y => Math.abs(y - node.box.y) < 1)
+    const x = startX + col * (stepW + MINI.gap), y = startY + row * (MINI.stepH + MINI.rowGap)
+    return [node.id, { col, row, x, y, w: stepW, h: MINI.stepH, cx: x + stepW / 2, cy: y + MINI.stepH / 2 }] as const
+  }))
   const names = new Map(model.steps.map(step => [step.id, step.name]))
   const rules = new Map(model.rules.map(rule => [rule.id, rule]))
   const edgeWords = (edge: (typeof layout.edges)[number]): string =>
@@ -65,21 +76,66 @@ export const FlowMiniGraph = ({ policy, empty = false }: { readonly policy?: Flo
   const description = `Flow graph: ${model.steps.map(step => step.name).join(', ')}. ${layout.edges.map(edgeWords).join('. ')}`
   return <svg data-slot="flow-mini-graph" role="img" aria-label={description}
     viewBox={`0 0 ${width} ${height}`} className={styles.graph}>
-    {layout.edges.map(edge => <g key={edge.id} data-edge={edge.id} data-kind={edge.kind} className={styles.edge}>
-      <title>{edgeWords(edge)}</title>
-      <g transform={`translate(${inset} ${inset}) scale(${scaleX} ${scaleY})`}>
-        <path d={edge.path} vectorEffect="non-scaling-stroke" />
-        <polygon points={edge.head.map(point => `${point.x},${point.y}`).join(' ')} />
+    {layout.edges.map(edge => {
+      const from = cells.get(edge.from), to = cells.get(edge.to)
+      const route = from && to ? miniRoute(from, to) : null
+      return <g key={edge.id} data-edge={edge.id} data-kind={edge.kind} className={styles.edge}>
+        <title>{edgeWords(edge)}</title>
+        {route && <><path d={route.path} /><polygon points={route.head} /></>}
       </g>
-    </g>)}
-    {layout.nodes.map(node => <g key={node.id} data-step={node.id} className={styles.node}>
-      <title>{names.get(node.id)}</title>
-      <rect x={inset + node.box.x * scaleX} y={inset + node.box.y * scaleY} width={node.box.w * scaleX} height={node.box.h * scaleY} />
-      <foreignObject x={inset + node.box.x * scaleX} y={inset + node.box.y * scaleY} width={node.box.w * scaleX} height={node.box.h * scaleY}>
-        <div className={styles.nodeLabel} data-slot="flow-mini-label"><span>{names.get(node.id)}</span></div>
-      </foreignObject>
-    </g>)}
+    })}
+    {layout.nodes.map(node => {
+      const cell = cells.get(node.id)!
+      return <g key={node.id} data-step={node.id} className={styles.node}>
+        <title>{names.get(node.id)}</title>
+        <rect x={cell.x} y={cell.y} width={cell.w} height={cell.h} />
+        <foreignObject x={cell.x} y={cell.y} width={cell.w} height={cell.h}>
+          <div className={styles.nodeLabel} data-slot="flow-mini-label"><span>{names.get(node.id)}</span></div>
+        </foreignObject>
+      </g>
+    })}
   </svg>
+}
+
+/** The thumbnail's fixed geometry, in its own 320 × 72 viewport. */
+const MINI = { width: 320, height: 72, inset: 4, stepW: 84, stepH: 24, gap: 24, rowGap: 16, lift: 12, head: 4 } as const
+
+interface MiniCell { readonly col: number; readonly row: number; readonly x: number; readonly y: number; readonly w: number; readonly h: number; readonly cx: number; readonly cy: number }
+
+const distinct = (values: readonly number[]): number[] => {
+  const sorted = [...values].sort((a, b) => a - b)
+  return sorted.filter((value, index) => index === 0 || value - sorted[index - 1]! >= 1)
+}
+
+const arrow = (tipX: number, tipY: number, dx: number, dy: number): string => {
+  const length = MINI.head, half = MINI.head * 0.6
+  const base = { x: tipX - dx * length, y: tipY - dy * length }
+  return `${tipX},${tipY} ${base.x - dy * half},${base.y + dx * half} ${base.x + dy * half},${base.y - dx * half}`
+}
+
+/** One line between two steps of the grid: straight along a row or a column, round the end of a row for a loop, and square-cornered between rows. */
+const miniRoute = (from: MiniCell, to: MiniCell): { readonly path: string; readonly head: string } => {
+  if (from.row === to.row) {
+    const forward = to.col > from.col
+    if (forward && to.col - from.col === 1) {
+      const y = from.cy, x1 = from.x + from.w, x2 = to.x
+      return { path: `M${x1} ${y}H${x2 - MINI.head}`, head: arrow(x2, y, 1, 0) }
+    }
+    // Over or under the steps in between, so the line never runs through one.
+    const sign = forward ? -1 : 1
+    const y1 = sign < 0 ? from.y : from.y + from.h, y2 = sign < 0 ? to.y : to.y + to.h
+    const lift = sign * MINI.lift
+    return { path: `M${from.cx} ${y1}C${from.cx} ${y1 + lift} ${to.cx} ${y2 + lift} ${to.cx} ${y2 + sign * MINI.head}`, head: arrow(to.cx, y2, 0, -sign) }
+  }
+  const down = to.row > from.row
+  const y1 = down ? from.y + from.h : from.y
+  if (from.col === to.col) {
+    const y2 = down ? to.y : to.y + to.h
+    return { path: `M${from.cx} ${y1}V${y2 - (down ? MINI.head : -MINI.head)}`, head: arrow(from.cx, y2, 0, down ? 1 : -1) }
+  }
+  const right = to.col > from.col
+  const x2 = right ? to.x : to.x + to.w
+  return { path: `M${from.cx} ${y1}V${to.cy}H${x2 - (right ? MINI.head : -MINI.head)}`, head: arrow(x2, to.cy, right ? 1 : -1, 0) }
 }
 
 /** Flow destinations and New Team pickers share one content-sized, responsive card grid. */

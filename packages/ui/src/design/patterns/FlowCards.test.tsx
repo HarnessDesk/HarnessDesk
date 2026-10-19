@@ -126,6 +126,32 @@ it('keeps one thumbnail viewport across topologies and gives long names an uncli
   expect(viewports[0]).toBe(viewports[1])
 })
 
+it('draws every step the same width and gap on one centre line, whatever the labels or the topology', () => {
+  const long = 'competitor_accessibility_review'
+  const wide: FlowPolicy = {
+    ...policy, roles: [{ ...policy.roles[0]!, id: long }, policy.roles[1]!],
+    seed: { role: long, title: 'Compare' },
+    rules: [{ id: 'compare', on: long, then: { role: 'fix', title: 'Decide' } }],
+  }
+  const read = (topology: FlowPolicy) => {
+    act(() => root.render(<design.FlowMiniGraph policy={topology} />))
+    const boxes = [...host.querySelectorAll('[data-step] rect')].map(rect => ({
+      x: Number(rect.getAttribute('x')), y: Number(rect.getAttribute('y')), w: Number(rect.getAttribute('width')), h: Number(rect.getAttribute('height')) }))
+    const left = Math.min(...boxes.map(box => box.x)), right = Math.max(...boxes.map(box => box.x + box.w))
+    return { boxes, centre: (left + right) / 2 }
+  }
+  for (const topology of [wide, policy]) {
+    const { boxes, centre } = read(topology)
+    expect(new Set(boxes.map(box => box.w)).size).toBe(1)
+    expect(new Set(boxes.map(box => box.h)).size).toBe(1)
+    expect(centre).toBeCloseTo(160, 5)
+  }
+  // Steps on one row sit a single gap apart.
+  const { boxes } = read(policy)
+  const row = boxes.filter(box => box.y === boxes[0]!.y).sort((a, b) => a.x - b.x)
+  expect(new Set(row.slice(1).map((box, index) => box.x - (row[index]!.x + row[index]!.w))).size).toBe(1)
+})
+
 it('keeps every card in the responsive card grid without imposing grid keyboard semantics', () => {
   expect(design.FlowCardGrid).toBeTypeOf('function')
   act(() => root.render(<design.FlowCardGrid><span>First</span><span>Second</span></design.FlowCardGrid>))

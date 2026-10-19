@@ -9,8 +9,10 @@ import { useTheme } from '../state/theme'
 import type { AppSnapshot, AppStore } from '../state/store'
 import { comparisonVerdictStore } from './comparison-verdict-fixture'
 import { PREVIEW_ROOM } from './harness'
+import { PREVIEW_ROOT } from './sidebar-fixture'
 import { README_RACE_RUNTIMES } from './readme-names'
 import { SIDE_BY_SIDE_KEYS } from './side-by-side-fixture'
+import { Sidebar } from '../components/Sidebar'
 import { TeamFramePreview } from './TeamFramePreview'
 
 /** Each Seat's lane serves its attempt on the lane's first port. */
@@ -50,6 +52,11 @@ const withStage = (base: AppSnapshot, picked: AppSnapshot, stage: Stage): Partia
   return { sessions, teams: source.teams, goals: source.goals, flowExecutions: source.flowExecutions, boardEvidence: source.boardEvidence }
 }
 
+/** The Flow's revision is a short placeholder, so the Run's facts read as a revision and not a run of one character. */
+const REVISION = '3f9a1c'
+const shortRevision = (snapshot: AppSnapshot): AppSnapshot => ({ ...snapshot,
+  flowExecutions: new Map([...snapshot.flowExecutions].map(([id, run]) => [id, run.revision ? { ...run, revision: REVISION } : run])) })
+
 /** The race's own store, opened on the given theme; `stage` moves it through the race. */
 export const raceStore = (theme: 'light' | 'dark'): Patchable & { stage: (stage: RaceStage) => void } => {
   const picked = comparisonVerdictStore('combined') as Patchable
@@ -61,18 +68,18 @@ export const raceStore = (theme: 'light' | 'dark'): Patchable & { stage: (stage:
   }, snapshot.workbench)
   /* The Board's cards keep their recorded attempt titles; name them for this brief. */
   const named = (snap: AppSnapshot): Pick<AppSnapshot, 'teams' | 'goals'> => {
-    const rename = <T extends { intents: readonly { id: number; title: string; note?: string | null }[]; name?: string }>(team: T): T => ({ ...team, name: 'Runner game comparison',
+    const rename = <T extends { intents: readonly { id: number; title: string; note?: string | null }[]; name?: string; root?: string }>(team: T): T => ({ ...team, name: 'Runner game comparison', root: PREVIEW_ROOT,
       intents: team.intents.map(card => card.id <= 2 ? { ...card, title: BRIEF.replace(/\.$/, '') }
         : card.id === 5 && card.note ? { ...card, note: VERDICT } : card) })
     return {
       teams: new Map([...snap.teams].map(([id, team]) => [id, rename(team)])),
       goals: new Map([...snap.goals].map(([id, goal]) => [id, { ...goal, board: goal.board ? rename(goal.board) : goal.board,
-        goal: { ...goal.goal, sentence: 'Runner game comparison' } }])),
+        goal: { ...goal.goal, sentence: 'Runner game comparison', root: PREVIEW_ROOT } }])),
     }
   }
-  const pickedNamed = { ...snapshot, ...named(snapshot) }
+  const pickedNamed = shortRevision({ ...snapshot, ...named(snapshot) })
   /* "Before" is recorded without browsers; keep this Team's checkouts so each tile keeps its lane. */
-  const beforeNamed = { ...before, ...named(before), goals: new Map([...named(before).goals].map(([id, goal]) => [id, { ...goal, members: pickedNamed.goals.get(id)?.members ?? goal.members }])) }
+  const beforeNamed = shortRevision({ ...before, ...named(before), goals: new Map([...named(before).goals].map(([id, goal]) => [id, { ...goal, members: pickedNamed.goals.get(id)?.members ?? goal.members }])) })
   picked.patch({ theme, runtimes: RUNTIMES, models: MODELS.map(model => ({ ...snapshot.models[0]!, ...model, description: '' })), workbench,
     ...withStage(beforeNamed, pickedNamed, 0) })
   const peers = picked.teamPeers.bind(picked)
@@ -92,7 +99,7 @@ export const RaceFrame = ({ store }: { store: AppStore }) => {
   return <StoreProvider store={store}>
     <MountProvider scope={{ area: 'main', id: 'team-room', view }}>
       <KeyboardHereContext.Provider value={false}>
-        <Themed><TeamFramePreview room={PREVIEW_ROOM} view={view} railOpen={false} /></Themed>
+        <Themed><TeamFramePreview room={PREVIEW_ROOM} view={view} railOpen={false} sidebar={<Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /></Themed>
       </KeyboardHereContext.Provider>
     </MountProvider>
   </StoreProvider>

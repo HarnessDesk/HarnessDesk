@@ -32,13 +32,15 @@
 .nodeLabel {
   display: flex;
   align-items: center;
+  justify-content: center;
   width: 100%;
   height: 100%;
   padding-inline: var(--hd-space-1);
+  text-align: center;
   color: var(--hd-foreground);
   font-family: var(--hd-font-family);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-xs);
 }
-.nodeLabel > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.empty { display: flex; align-items: center; min-height: var(--hd-space-18); }
+.nodeLabel > span { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty { display: flex; align-items: center; justify-content: center; text-align: center; min-height: var(--hd-space-18); }

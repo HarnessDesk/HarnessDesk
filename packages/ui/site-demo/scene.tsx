@@ -5,6 +5,7 @@ import { dashboardData, DashboardScene } from './dashboard'
 import { isDashboardScene, SCENES, type SceneName } from './scenes'
 import { PageSceneBody, usePageStore, type PageSceneName } from './pages'
 import { RaceScene } from './race'
+import { useFlowsLoop } from './flows-loop'
 import { raceStore } from '../src/preview/readme-race'
 import { BoardShowcase, boardShowcaseStore, RunShowcase } from './showcase'
 import { previewStore } from '../src/preview/harness'
@@ -60,6 +61,7 @@ const Page = ({ name, theme, motion }: { name: PageSceneName; theme: 'light' | '
   const store = usePageStore(name, theme)
   const { width, height } = SCENES[name]
   const reduced = useReduced(motion)
+  useFlowsLoop(name === 'tour-flows' && !reduced)
   return <StoreProvider store={store}><SceneBody name={name} reduced={reduced} store={store}><PageSceneBody store={store} width={width} height={height} /></SceneBody></StoreProvider>
 }
 
