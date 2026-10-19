@@ -4,7 +4,7 @@ import { CaretIcon } from '../../components/Icons'
 import { forwardRef, type ComponentProps, type MouseEvent, type ReactNode } from 'react'
 import { Bar } from '../ui/bar'
 import { Button } from '../ui/button'
-import { SidebarMenuButton } from '../ui/sidebar'
+import { SidebarMenu, SidebarMenuButton } from '../ui/sidebar'
 import { GroupLabel } from '../ui/group-label'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { Text, Search, Chip, NavigationGroupHeader, Segmented } from './Settings'
@@ -14,7 +14,7 @@ import styles from './LeftColumn.module.css'
 
 export type LeftColumnTrail =
   | { readonly kind: 'count'; readonly value: number; readonly label: string }
-  | { readonly kind: 'mark'; readonly icon: ReactNode; readonly label: string }
+  | { readonly kind: 'mark'; readonly icon: ReactNode; readonly label: string; readonly prefix?: ReactNode }
 export interface LeftColumnAction {
   readonly label: string
   readonly onClick: (event: MouseEvent<HTMLButtonElement>) => void
@@ -40,6 +40,9 @@ export interface LeftColumnRowProps {
   readonly selected?: boolean
   readonly disabled?: boolean
   readonly expanded?: boolean
+  /** Separate leading-gutter disclosure preserves the icon and label columns. */
+  readonly disclosure?: { readonly open: boolean; readonly onToggle: () => void }
+  readonly nested?: boolean
   readonly trailing?: LeftColumnTrail
   readonly action?: LeftColumnAction
   readonly onClick?: (event: MouseEvent<HTMLButtonElement>) => void
@@ -49,16 +52,24 @@ export interface LeftColumnRowProps {
   readonly buttonProps?: Pick<ComponentProps<'button'>, 'aria-label' | 'aria-describedby' | 'onKeyDown' | 'onDragOver' | 'onDrop'>
 }
 export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((props, ref) =>
-  <div data-left-row data-left-tree={props.tree ? '' : undefined} data-letter={props.tree?.letter ?? undefined} data-left-project={props.project ? '' : undefined} data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
+  <div data-left-row data-left-nested={props.nested ? '' : undefined} data-left-tree={props.tree ? '' : undefined} data-letter={props.tree?.letter ?? undefined} data-left-project={props.project ? '' : undefined} data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
     <SidebarMenuButton data-draggable={props.project ? '' : undefined} ref={ref} className={styles.button}
       style={props.tree ? { paddingInlineStart: `calc(var(--hd-space-2) + ${props.tree.depth} * var(--hd-space-4))` } : undefined}
       label={props.tree ? <span className={styles.treeLabel}><span className={styles.treeIcon}>{props.icon}</span><span className={styles.treeName}>{props.label}</span></span> : props.expanded === undefined ? props.label : <><span data-left-fold-name className={styles.foldName}>{props.label}</span><DisclosureChevron open={props.expanded} size="xs" className={styles.disclosure} /></>}
       icon={props.tree ? props.tree.expanded === undefined ? <span aria-hidden="true" /> : <DisclosureChevron open={props.tree.expanded} size="xs" /> : props.expanded === undefined ? props.icon ?? <span aria-hidden="true" /> : undefined} isActive={props.selected}
       title={props.title ?? props.label} disabled={props.disabled}
-      aria-current={props.selected ? 'page' : undefined} aria-expanded={props.tree ? props.tree.expanded : props.expanded}
+      aria-current={props.selected ? 'page' : undefined} aria-expanded={props.disclosure?.open ?? (props.tree ? props.tree.expanded : props.expanded)}
       aria-label={props.label} onClick={props.onClick} onDoubleClick={props.onDoubleClick} {...props.buttonProps} />
+    {props.disclosure && <Button variant="ghost" size="pattern" className={styles.gutterDisclosure} data-left-disclosure
+      tabIndex={-1} aria-label={`${props.disclosure.open ? 'Hide' : 'Show'} the agents in ${props.label}`} aria-expanded={props.disclosure.open}
+      onClick={event => {
+        event.stopPropagation()
+        event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')?.focus({ preventScroll: true })
+        props.disclosure?.onToggle()
+      }}><DisclosureChevron open={props.disclosure.open} size="xs" /></Button>}
     <span data-left-trailing className={styles.trailing}>
       {props.trailing && <span data-left-mark className={styles.mark} role="img" aria-label={props.trailing.label} title={props.trailing.label}>
+        {props.trailing.kind === 'mark' && props.trailing.prefix && <span data-left-mark-prefix className={styles.markPrefix}>{props.trailing.prefix}</span>}
         {props.trailing.kind === 'count' ? <Text role="meta" numeric>{props.trailing.value}</Text> : props.trailing.icon}
       </span>}
       {props.menu ? <Popover icons={props.menu.icons} title={props.menu.label} label={<CaretIcon size={16} />} panelWidth="wide" drop="down" align="right"
@@ -73,7 +84,7 @@ export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((
 LeftColumnRow.displayName = 'LeftColumnRow'
 export const LeftColumnGroup = ({ label, children, heading = true }: { label: string; children: ReactNode; heading?: boolean }) =>
   <section data-left-group className={styles.group} aria-label={label} role="group">
-    {heading && <GroupLabel className={styles.label}><span data-left-group-text>{label}</span></GroupLabel>}{children}
+    {heading && <GroupLabel className={styles.label}><span data-left-group-text>{label}</span></GroupLabel>}<SidebarMenu as="div">{children}</SidebarMenu>
   </section>
 export const LeftColumnHead = ({ label, controls, search }: {
   label?: string; controls?: ReactNode; search?: ReactNode
@@ -221,3 +232,7 @@ export const LeftColumnExplorerFoot = ({ onClick }: { readonly onClick: () => vo
     aria-label="Go to file" title="Go to file (⌘P)" aria-keyshortcuts="Meta+P" onClick={onClick}>
     <SearchIcon size={16} /><span>Go to file</span><Text role="meta">⌘P</Text>
   </Button></div>
+
+/** Seat rows indent their leading column while retaining the parent's end rail. */
+export const LeftColumnSeats = ({ children }: { readonly children: ReactNode }) =>
+  <SidebarMenu nested inset="rail" className={styles.seats}>{children}</SidebarMenu>

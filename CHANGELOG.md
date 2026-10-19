@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- A Team's seats are listed under it in the sidebar again, and a conversation that is working shows a spinner.
+
 Agents that cannot start now say exactly what is missing from the moment a
 desk opens, Antigravity holds a second Google account, the Library keeps your
 place, and toasts move out of the way of the composer.

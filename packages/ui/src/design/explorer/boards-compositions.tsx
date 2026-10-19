@@ -3532,7 +3532,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'left-column', title: 'Left column', about: 'Aligned rows with one trailing slot and long titles.', render: LeftColumnBoard },
 ]
 
-import { LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
+import { LeftColumnSeats, LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
 import { BellIcon, UserIcon, FileIcon } from '../../components/Icons'
 
 export const LEFTCOLUMN_CATALOG_VARIANTS = ['light', 'dark'] as const
@@ -3541,6 +3541,7 @@ export const LEFTCOLUMN_CATALOG_STATES = ['default', 'selected', 'disabled', 'lo
 
 export function LeftColumnBoard() {
   const [mode, setMode] = useState<'conversation' | 'editor'>('conversation')
+  const [teamOpen, setTeamOpen] = useState(true)
   return <LeftColumn
   top={<LeftColumnTop shown settings={false} back={false} forward={false} toggle={() => {}} goBack={() => {}} goForward={() => {}}
     search={<Button variant="ghost" size="icon-sm" aria-label="Search everything"><SearchIcon size={16} /></Button>}
@@ -3555,6 +3556,11 @@ export function LeftColumnBoard() {
       action={{ label: 'Actions for Release notes', onClick: () => {} }} />
     <LeftColumnRow label="Conversation with no leading mark" onClick={() => {}} />
     <LeftColumnRow label="Unavailable conversation" disabled title="Conversation not kept" />
+    <LeftColumnRow label="Writer" icon={<TeamIcon size={16} />} disclosure={{ open: teamOpen, onToggle: () => setTeamOpen(!teamOpen) }} />
+    {teamOpen && <LeftColumnSeats>
+      <li><LeftColumnRow nested label="Agent 2" icon={<AgentIcon size={16} />} trailing={{ kind: 'mark', label: 'Working', prefix: '#4', icon: <Spinner aria-hidden /> }} /></li>
+      <li><LeftColumnRow nested label="Agent with a long seat label" icon={<AgentIcon size={16} />} title="Agent · Idle" /></li>
+    </LeftColumnSeats>}
   </LeftColumnGroup></>}
 </LeftColumnBody>}
   footer={<>{mode === 'editor' && <LeftColumnExplorerFoot onClick={() => {}} />}<LeftColumnSeat notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>} settingsOpen={false} onSettings={() => {}}

@@ -31,20 +31,25 @@ const SidebarGroupContent = ({ className, nested = false, ...props }: React.Comp
     className={cn('min-w-0 text-sm', className)} {...props} />
 )
 
-const SidebarMenu = ({ className, nested = false, horizontal = false, ...props }: React.ComponentProps<'ul'> & { nested?: boolean; horizontal?: boolean }) => (
-  <ul
-    data-slot="sidebar-menu"
-    data-sidebar="menu"
-    data-nested={nested ? 'true' : undefined}
-    className={cn(
-      'flex w-full min-w-0 gap-0',
-      horizontal ? 'flex-row items-center gap-(--hd-space-1) px-(--hd-space-2)' : 'flex-col',
-      nested && sidebarNestedClass,
-      className,
-    )}
-    {...props}
-  />
+type SidebarMenuProps = { nested?: boolean; horizontal?: boolean; inset?: 'tree' | 'rail' } & (
+  | ({ as: 'div' } & React.ComponentProps<'div'>)
+  | ({ as?: 'ul' } & React.ComponentProps<'ul'>)
 )
+const SidebarMenu = (props: SidebarMenuProps) => {
+  const { nested = false, horizontal = false, inset = 'tree' } = props
+  const shared = {
+    'data-slot': 'sidebar-menu', 'data-sidebar': 'menu', 'data-nested': nested ? 'true' : undefined,
+    className: cn('flex w-full min-w-0 gap-0',
+      horizontal ? 'flex-row items-center gap-(--hd-space-1) px-(--hd-space-2)' : 'flex-col',
+      nested && (inset === 'rail' ? 'm-0 w-full border-0 p-0' : sidebarNestedClass), props.className),
+  }
+  if (props.as === 'div') {
+    const { as: _as, nested: _nested, horizontal: _horizontal, inset: _inset, ...rest } = props
+    return <div {...rest} {...shared} />
+  }
+  const { as: _as, nested: _nested, horizontal: _horizontal, inset: _inset, ...rest } = props
+  return <ul {...rest} {...shared} />
+}
 
 const SidebarMenuItem = ({ className, style, trailingActions = 1, trailingMarks = 0, ...props }: React.ComponentProps<'li'> & { trailingActions?: 1 | 2; trailingMarks?: 0 | 1 | 2 | 3 | 4 }) => (
   <li

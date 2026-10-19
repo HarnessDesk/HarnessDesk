@@ -91,6 +91,31 @@ bounded run.
 
 **Rule:** bounded green is feedback, and only full green is landing evidence.
 
+## Team seats nest under their Team, and running rows spin — 2026-10-18 (owner)
+
+The owner chose seats nested under their Team again, with a spinner on working
+conversations and careful alignment. This supersedes the 2026-10-15 bullet
+“running rows have no spinner” and the app-frame spec's “a Team is one row”.
+
+Every Team has a leading-gutter disclosure, separate from opening its label.
+The selected Team and the Team owning an open Seat start expanded; other Teams
+start collapsed. Deliberate folds last for the UI session, until another Seat
+activation. A matching seat filter reveals its Team and matching Seats.
+Seats use the Overview's names, order and states. Their runtime icon stands
+under the Team label, one indent step in. Clicking an open Seat opens its
+conversation; a Seat not yet open opens the Team Overview.
+
+Needs you takes priority over New or Failed, then working activity. Working
+Seats show their claimed card number, when present, and a spinner; idle Seats
+have no trailing mark and say Idle on hover. A collapsed working Team spins;
+an expanded Team leaves activity to its Seats. Loose working conversations
+spin too. Runtime, model, card title and state remain in the Seat's hover title.
+
+All rows keep the 34px pitch and one trailing rail. Disclosure never moves a
+Team icon away from loose-conversation icons. Seats belong to a visible Team
+and do not consume the project's five-row allowance; hiding a Team hides its
+Seats. Pins do not lift Seats out of their Team.
+
 ## The sidebar keeps its rhythm quiet and its marks for attention — 2026-10-15
 
 The owner chose five changes so a long conversation list reads calmly and a
@@ -105,7 +130,8 @@ mark means "needs you":
   conversations remain uncapped above the projects.
 - Trailing marks are reserved for attention or errors. Running activity,
   branch, worktree and pin facts remain on hover and in the existing menus;
-  running rows have no spinner.
+  the original “running rows have no spinner” rule is superseded by
+  [the 2026-10-18 owner decision](#team-seats-nest-under-their-team-and-running-rows-spin--2026-10-18-owner).
 - The footer has a full-width hairline and a transparent account row, with
   no pill around the identity. Readiness and usage live in the account menu.
 

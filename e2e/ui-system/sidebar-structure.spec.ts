@@ -90,7 +90,7 @@ for (const theme of ['light', 'dark'] as const) {
       })
       await expect(head).toHaveAttribute('aria-expanded', 'true')
       await expect(team).toBeVisible()
-      await expect(tree.locator('[data-nested="true"]')).toHaveCount(0)
+      await expect(tree.locator('[data-nested="true"]')).toHaveCount(1)
       await head.click()
       await expect(head).toHaveAttribute('aria-expanded', 'false')
       await page.evaluate(() => {
@@ -120,7 +120,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(row.locator('[data-left-mark] [data-slot="dot"]')).toHaveAttribute('data-state','new')
       expect(await team.getAttribute('title')).toContain('Unread activity')
       expect(await team.getAttribute('title')).toContain('Working')
-      await expect(fixture.locator('[data-nested="true"]')).toHaveCount(0)
+      await expect(fixture.locator('[data-nested="true"]')).toHaveCount(1)
       await expect(team).not.toContainText('Working')
     }
   })
@@ -148,10 +148,10 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(head.locator('[data-slot="disclosure-chevron"]')).toHaveCount(1)
     await team.focus()
     await page.keyboard.press('ArrowRight')
-    await expect(team).toBeFocused()
-    await expect(tree.locator('[data-nested="true"]')).toHaveCount(0)
+    await expect(project.locator('[data-region="seat-row"] [data-slot="sidebar-menu-button"]').first()).toBeFocused()
+    await expect(tree.locator('[data-nested="true"]')).toHaveCount(1)
     const busy = project.locator('[data-region="session-row"]').filter({ hasText: 'Check build' })
-    await expect(busy.locator('[data-left-mark]')).toHaveCount(0)
+    await expect(busy.locator('[data-slot="spinner"]')).toHaveCount(1)
     await expect(busy.locator('[data-slot="sidebar-menu-button"]')).toHaveAttribute('title', /Thinking|Running/)
     for (const width of [320, 200]) {
       await fixture.evaluate((node, size) => { (node as HTMLElement).style.width = `${size}px` }, width)
@@ -163,6 +163,8 @@ for (const theme of ['light', 'dark'] as const) {
       expect(await fixture.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
     }
     await team.focus()
+    await page.keyboard.press('ArrowLeft')
+    await expect(team).toHaveAttribute('aria-expanded', 'false')
     await page.keyboard.press('ArrowLeft')
     await expect(head).toBeFocused()
     await page.keyboard.press('Enter')
@@ -184,7 +186,7 @@ for (const theme of ['light', 'dark'] as const) {
     const pinned = tree.locator('[data-sidebar-band="pinned"]')
     const busy = project.locator('[data-region="session-row"]').filter({ hasText: 'Check build' })
     const runningTeam = tree.getByRole('button', { name: 'Room Check release notes', exact: true }).locator('..')
-    await expect(runningTeam.locator('[data-left-mark]')).toHaveCount(0)
+    await expect(runningTeam.locator('[data-slot="spinner"]')).toHaveCount(1)
     await expect(runningTeam.locator('[data-slot="sidebar-menu-button"]')).toHaveAttribute('title', /Working/)
     await expect(tree.getByRole('button', { name: 'Other projects', exact: false })).toHaveAttribute('aria-expanded', 'true')
     await expect(tree.locator('[data-project-root="/work/compass"] button[data-draggable] [data-slot="disclosure-chevron"]')).toHaveCount(1)
@@ -216,7 +218,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
       await page.mouse.move(1000, 0)
       const mark = busy.locator('[data-left-mark]')
-      await expect(mark).toHaveCount(0)
+      await expect(mark).toHaveCount(1)
       await expect(busy.locator('[data-slot="sidebar-menu-button"]')).toHaveAttribute('title', /Thinking|Running/)
     }
   })
@@ -247,7 +249,119 @@ for (const theme of ['light', 'dark'] as const) {
       }
       expect(await bounds(pinned.locator('[data-slot="separator"]'))).toEqual([8, width - 8])
       await expect(project.locator('[data-virtual-project]')).toHaveCSS('border-left-width', '0px')
-      await expect(fixture.locator('[data-nested="true"]')).toHaveCount(0)
+      await expect(fixture.locator('[data-nested="true"]')).toHaveCount(1)
     }
   })
 }
+
+for (const theme of ['light', 'dark'] as const) test(`nested seats keep their icon, pitch and trailing rails through disclosure and activity — ${theme}`, async ({ page }) => {
+  await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+  await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+  const fixture = page.locator('#sidebar-structure')
+  const team = fixture.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
+  const collapsed = fixture.getByRole('button', { name: 'Room Check release notes', exact: true })
+  const seats = fixture.locator('[data-region="seat-row"]')
+  const working = seats.filter({ hasText: 'Writer 2' })
+  const idle = seats.filter({ hasText: 'Writer with a long seat label' })
+  const busy = fixture.locator('[data-region="session-row"]').filter({ hasText: 'Check build' })
+  const toggleDisclosure = async () => {
+    const control = team.locator('..').locator('[data-left-disclosure]')
+    await control.scrollIntoViewIfNeeded()
+    await control.click()
+  }
+  const near = (actual: number, expected: number, why: string) => expect(Math.abs(actual - expected), `${why}: ${actual} vs ${expected}`).toBeLessThanOrEqual(1)
+  const measure = () => fixture.evaluate(node => {
+    const bounds = (el: Element) => { const r = el.getBoundingClientRect(); return { x: r.x, right: r.right, y: r.y, h: r.height, w: r.width, cy: r.y + r.height / 2 } }
+    return [...node.querySelectorAll('[data-left-row]')].map(row => {
+      const button = row.querySelector('[data-slot="sidebar-menu-button"]')!
+      const icon = button.querySelector('[data-slot="sidebar-menu-icon"]')
+      const label = button.querySelector('[data-slot="sidebar-menu-label-content"]')!
+      const mark = row.querySelector('[data-left-mark]')
+      const spinner = row.querySelector('[data-slot="spinner"]')
+      return { name: button.getAttribute('aria-label'), nested: row.hasAttribute('data-left-nested'), row: bounds(row), button: bounds(button), label: bounds(label), icon: icon ? bounds(icon) : null, mark: mark ? bounds(mark) : null, spinner: spinner ? bounds(spinner) : null }
+    })
+  })
+  for (const width of [320, 200]) {
+    await fixture.evaluate((node, size) => { (node as HTMLElement).style.width = `${size}px` }, width)
+    await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
+    await page.mouse.move(1000, 0)
+    await expect(working.locator('[data-slot="spinner"]')).toHaveCount(1)
+    await expect(working.locator('[data-left-mark-prefix]')).toHaveText('#4')
+    await expect(idle.locator('[data-left-mark]')).toHaveCount(0)
+    await expect(collapsed.locator('..').locator('[data-slot="spinner"]')).toHaveCount(1)
+    const before = await measure()
+    const parent = before.find(row => row.name === 'Room Ship checkout retry')!
+    const loose = before.find(row => row.name === 'Check build')!
+    const nested = before.filter(row => row.nested)
+    for (const row of before.filter(row => row.icon)) {
+      near(row.row.h, FRAME.rail.rowPitch, 'row pitch')
+      near(row.button.h, FRAME.rail.rowHeight, 'highlight height')
+      near(row.icon!.x, row.nested ? parent.label.x : parent.icon!.x, 'icon column')
+      if (row.nested) near(row.label.x, nested[0]!.label.x, 'seat label column')
+      if (row.mark) { near(row.mark.right, parent.mark!.right, 'trailing rail'); near(row.mark.cy, row.label.cy, 'mark centre'); near(row.mark.w, parent.mark!.w, 'mark slot') }
+      if (row.spinner) near(row.spinner.cy, row.label.cy, 'spinner centre')
+    }
+    near(loose.icon!.x, parent.icon!.x, 'Team and session icon')
+    const disclosure = await team.locator('..').locator('[data-left-disclosure] [data-slot="disclosure-chevron"]').boundingBox()
+    expect(disclosure!.x + disclosure!.width).toBeLessThanOrEqual(parent.icon!.x + 1)
+    await team.scrollIntoViewIfNeeded()
+    await toggleDisclosure()
+    await expect(team).toHaveAttribute('aria-expanded', 'false')
+    await expect(seats).toHaveCount(0)
+    await toggleDisclosure()
+    await expect(team).toHaveAttribute('aria-expanded', 'true')
+    await expect(seats).toHaveCount(3)
+    const expanded = await measure()
+    for (const row of before.filter(row => row.icon)) {
+      const after = expanded.find(one => one.name === row.name)!
+      near(after.icon!.x, row.icon!.x, 'no icon shift after expand')
+      near(after.label.x, row.label.x, 'no label shift after expand')
+      near(after.row.h, row.row.h, 'no height shift after expand')
+    }
+    await page.evaluate(() => {
+      const { store } = (window as unknown as { __hdSidebarStructure: { store: { getSnapshot(): AppSnapshot; patch(value: Partial<AppSnapshot>): void } } }).__hdSidebarStructure
+      const held = store.getSnapshot(), sessions = new Map(held.sessions), teams = new Map(held.teams)
+      for (const [key, live] of sessions) if (live.id === 'structure-0') sessions.set(key, { ...live, status: { type: 'idle' }, turns: [] })
+      const team = teams.get('structure-team')!
+      teams.set(team.id, { ...team, intents: [] })
+      store.patch({ sessions, teams })
+    })
+    await expect(working.locator('[data-slot="spinner"]')).toHaveCount(0)
+    const stopped = await measure()
+    const labelBefore = before.find(row => row.name === 'Writer 2')!
+    const labelAfter = stopped.find(row => row.name === 'Writer 2')!
+    near(labelAfter.icon!.x, labelBefore.icon!.x, 'no icon shift after spinner/card disappears')
+    near(labelAfter.label.x, labelBefore.label.x, 'no label shift after spinner/card disappears')
+    near(labelAfter.row.h, labelBefore.row.h, 'no height shift after spinner/card disappears')
+    for (const attention of ['New', 'Failed'] as const) {
+      await page.evaluate(unread => {
+        const { store } = (window as unknown as { __hdSidebarStructure: { store: { getSnapshot(): AppSnapshot; patch(value: Partial<AppSnapshot>): void } } }).__hdSidebarStructure
+        const held = store.getSnapshot(), sessions = new Map(held.sessions)
+        const entry = [...sessions].find(([, live]) => live.id === 'structure-0')!
+        sessions.set(entry[0], { ...entry[1], turns: [{ id: 'geometry-failed' as typeof entry[1]['turns'][number]['id'], status: 'failed', items: [] }] })
+        store.patch({ sessions, inbox: unread ? [{ id: 'geometry-news', read: false, at: 1, tone: 'neutral', title: 'Review ready', from: { runtime: entry[1].runtime, sessionId: entry[1].id, name: 'Writer' } }] : [] })
+      }, attention === 'New')
+      const mark = working.locator('[data-left-mark]')
+      await expect(mark).toHaveAttribute('aria-label', attention)
+      const rect = (await mark.boundingBox())!
+      near(rect.x + rect.width, parent.mark!.right, `${attention} trailing rail`)
+      near(rect.y + rect.height / 2, (await working.locator('[data-slot="sidebar-menu-label-content"]').boundingBox())!.y + labelBefore.label.h / 2, `${attention} centre`)
+      near((await working.locator('[data-slot="sidebar-menu-label-content"]').boundingBox())!.x, labelBefore.label.x, `${attention} label shift`)
+    }
+    // Restore activity and its claim to capture the same public fixture in both widths.
+    await page.evaluate(() => {
+      const { store } = (window as unknown as { __hdSidebarStructure: { store: { getSnapshot(): AppSnapshot; patch(value: Partial<AppSnapshot>): void } } }).__hdSidebarStructure
+      const held = store.getSnapshot(), sessions = new Map(held.sessions), teams = new Map(held.teams)
+      const entry = [...sessions].find(([, live]) => live.id === 'structure-0')!
+      sessions.set(entry[0], { ...entry[1], status: { type: 'active' }, turns: [] })
+      const team = teams.get('structure-team')!
+      teams.set(team.id, { ...team, intents: [{ id: 4, title: 'Build the checkout retry page', state: 'claimed', claim: { runtime: entry[1].runtime, sessionId: entry[1].id }, dependsOn: [], files: [], createdAt: 1, updatedAt: 1 }] as unknown as typeof team.intents })
+      store.patch({ sessions, teams, inbox: [] })
+    })
+    await expect(working.locator('[data-slot="spinner"]')).toHaveCount(1)
+    expect(await fixture.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+    expect(await idle.locator('[data-slot="sidebar-menu-label-content"]').evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true)
+    console.log(JSON.stringify({ theme, width, measurement: before, spinnerToggle: { before: labelBefore, after: labelAfter } }))
+    if (process.env.SIDEBAR_SEATS_FRAMES) await fixture.screenshot({ path: path.join(process.env.SIDEBAR_SEATS_FRAMES, `sidebar-seats-${theme}-${width}.png`) })
+  }
+})

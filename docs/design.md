@@ -1081,8 +1081,10 @@ capitals and for a heavier weight.
 ### Sidebar trailing rail
 
 In the production `SessionTree`, trailing state marks mean attention or an
-error: **Needs you**, **Ready to wrap**, a failure or a missing folder. Running conversations
-and Teams have no spinner or Working label; their activity stays on hover,
+error: **Needs you**, **New**, a failure or a missing folder. Working conversations
+show a spinner, after attention and errors in priority. A working Team spins
+only while collapsed; its expanded Seats carry their own activity. Activity
+words stay on hover,
 along with branch, worktree and pin facts. `LeftColumnRow` uses a compact
 mark that yields to the hover action without folding a full state label.
 
@@ -1111,11 +1113,16 @@ The production tree uses `LeftColumnRow`: a 34px row pitch
 (`--hd-sidebar-highlight-h`), leaving a 2px gap. About 20px of air above
 group headers comes from `--hd-sidebar-group-space`, adjusted for the line's
 position inside its row. State stays on its row as a compact attention or
-error mark; running activity stays on hover.
+error mark, followed in priority by a working spinner. Activity words stay on hover.
 
 Pinned is one plain section for loose conversations, with its heading,
 separator and uncapped rows. Every active Team, and each finished Team until
-it is wrapped, is one row in its project beside the loose conversations.
+it is wrapped, has a row in its project beside the loose conversations.
+Its leading-gutter disclosure reveals Seats one step in: their runtime icons
+start at the Team label, while all trailing marks retain the parent rail.
+The selected Team and the Team owning an open Seat start expanded.
+A working Seat shows its claimed card number, when present, and a spinner;
+an idle Seat has no mark. Seats do not count toward the project cap.
 A finished Team keeps the attention dot, labelled **Ready to wrap**. Team
 members do not also appear as loose rows. Wrapped Teams live on the Teams page.
 Agents and Plugins keep catalogue counts on their pages; a sidebar count

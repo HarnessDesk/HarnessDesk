@@ -19,7 +19,7 @@
 /* A glyph inside an inline wrapper (the hover-card trigger, a label span) sits on the text baseline of a 20px line box, a few pixels above the row's centre line; as a block it fills its wrapper and the slot centres it. */
 .trailing { pointer-events: none; position: absolute; inset-inline-end: var(--hd-space-2); top: 50%; translate: 0 -50%; width: var(--hd-icon-target); height: var(--hd-icon-target); display: grid; place-items: center; }
 .mark, .action { grid-area: 1 / 1; }
-.mark { display: flex; align-items: center; justify-content: center; }
+.mark { position: relative; width: var(--hd-icon-target); height: var(--hd-icon-target); display: flex; align-items: center; justify-content: center; }
 .action { display: inline-flex; align-items: center; justify-content: center; width: var(--hd-icon-target); height: var(--hd-icon-target); border-radius: var(--hd-radius-sm); visibility: hidden; opacity: 0; pointer-events: none; }
 .row:is(:hover, :focus-within:not(:has(.button[aria-expanded])), :has(:focus-visible)) .action, .action[aria-expanded='true'] { visibility: visible; opacity: 1; pointer-events: auto; }
 .row:is(:hover, :focus-within:not(:has(.button[aria-expanded])), :has(:focus-visible)):has(.action) .mark, .row:has(.action[aria-expanded='true']) .mark { visibility: hidden; }
@@ -108,3 +108,10 @@
 .fileSearch > span:last-child { margin-inline-start: auto; }
 
 .seatMenu > div > button { background: transparent; }
+
+.gutterDisclosure { position: absolute; z-index: var(--hd-z-sticky); inset-inline-start: calc(-1 * var(--hd-space-2)); top: calc((var(--hd-left-row-h) - var(--hd-icon-target)) / 2); width: var(--hd-icon-target); height: var(--hd-icon-target); padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.seats .row .button { padding-inline-start: calc(var(--hd-space-2) + var(--hd-space-4) + var(--hd-left-menu-gap)); }
+.row[data-left-nested] .button [data-slot='sidebar-menu-label'] { padding-inline-end: var(--hd-space-12); }
+.markPrefix { position: absolute; inset-inline-end: 100%; padding-inline-end: var(--hd-space-1); white-space: nowrap; font-size: var(--hd-text-xs); line-height: var(--hd-line-xs); font-variant-numeric: tabular-nums; color: var(--hd-secondary-foreground); }
+
+.gutterDisclosure > svg { translate: calc(-1 * var(--hd-space-1)) 0; }

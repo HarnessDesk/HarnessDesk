@@ -5,7 +5,7 @@ import { RailSection } from '../design'
 import { StoreProvider } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { previewStore, store } from './harness'
-import { previewSession } from './sidebar-fixture'
+import { previewSession, sidebarSeatNames } from './sidebar-fixture'
 
 /** One public fixture for the project / Team / Seat hierarchy and row states. */
 export const sidebarStructureFixture = (seed: AppSnapshot): AppSnapshot => {
@@ -22,11 +22,13 @@ export const sidebarStructureFixture = (seed: AppSnapshot): AppSnapshot => {
   const team: TeamState = {
     id: 'structure-team', name: 'Ship checkout retry', root: roots[0]!, updatedAt: 101,
     members: history.slice(0, 3).map(one => sessionKey(one.runtime, one.id)),
-    intents: [], channel: [], messaging: true,
+    nicknames: Object.fromEntries(history.slice(0, 3).map((one, index) => [sessionKey(one.runtime, one.id), sidebarSeatNames[index]!])),
+    intents: [{ id: 4, title: 'Build the checkout retry page', state: 'claimed', claim: { runtime: history[0]!.runtime, sessionId: history[0]!.id }, dependsOn: [], files: [], updatedAt: 1, createdAt: 1 }] as unknown as TeamState['intents'], channel: [], messaging: true,
   }
   return { ...seed, workspace: { path: roots[0]!, name: 'atlas', lastOpenedAt: 1 },
     workspaces: roots.map(path => ({ path, name: path.split('/').at(-1)!, lastOpenedAt: 1 })),
-    history, sessions, activeSessionKey: null, teams: new Map([[team.id, team], ['structure-running-team', { ...team, id: 'structure-running-team', name: 'Check release notes', root: roots[1]!, members: [sessionKey(history[7]!.runtime, history[7]!.id)] }]]), goals: new Map(), flowExecutions: new Map(),
+    layout: { ...seed.layout, root: { kind: 'pane', id: 'structure-main', view: { kind: 'room', room: team.id } } },
+    history, sessions, activeSessionKey: null, teams: new Map([[team.id, team], ['structure-running-team', { ...team, id: 'structure-running-team', name: 'Check release notes', nicknames: { [sessionKey(history[7]!.runtime, history[7]!.id)]: 'Runner' }, intents: [], root: roots[1]!, members: [sessionKey(history[7]!.runtime, history[7]!.id)] }]]), goals: new Map(), flowExecutions: new Map(),
     foldersGone: new Map(), tasks: new Map(), queues: new Map(), inbox: [],
     approvals: [{ key: sessionKey(history[1]!.runtime, history[1]!.id), approval: {
       id: approvalId('structure-approval'), sessionId: history[1]!.id, type: 'command', command: 'pnpm test',
@@ -44,7 +46,7 @@ export const SidebarStructureExample = () => {
       const history = seed.history.map(one => one.id === 'structure-0' ? { ...one, cwd: '/work/atlas-review' } : one)
       const writer = history[0]!
       const key = sessionKey(writer.runtime, writer.id)
-      return previewStore({ ...seed, history, sessions: new Map(seed.sessions).set(key, { ...seed.sessions.get(key)!, cwd: writer.cwd }) })
+      return previewStore({ ...seed, layout: { ...seed.layout, root: { kind: 'pane', id: 'structure-main', view: { kind: 'conversation', session: null } } }, history, sessions: new Map(seed.sessions).set(key, { ...seed.sessions.get(key)!, cwd: writer.cwd }) })
     }
     if (params.has('unread-seat')) {
       const unread = seed.history[5]!
