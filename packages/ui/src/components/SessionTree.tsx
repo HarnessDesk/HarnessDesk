@@ -106,7 +106,6 @@ type SessionRowSlice = {
   folderGone: string | null
   active: boolean
   needsYou: boolean
-  unread: boolean
   busy: boolean
   /** What a seat nobody typed to is called: its job and its Team. */
   seatLabel: string | null
@@ -118,7 +117,7 @@ const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boo
   left.liveTitle === right.liveTitle && left.livePreview === right.livePreview &&
   left.deskCopy === right.deskCopy && left.trace === right.trace &&
   left.backgrounded === right.backgrounded && left.error === right.error && left.folderGone === right.folderGone &&
-  left.active === right.active && left.needsYou === right.needsYou && left.unread === right.unread && left.busy === right.busy &&
+  left.active === right.active && left.needsYou === right.needsYou && left.busy === right.busy &&
   left.seatLabel === right.seatLabel
 
 const SessionRow = memo(({
@@ -146,7 +145,7 @@ const SessionRow = memo(({
   const key = sessionKey(summary.runtime, summary.id)
   const {
     runtime, pinned, liveTitle, livePreview, deskCopy, trace, backgrounded, error,
-    folderGone, active, needsYou, unread, busy, seatLabel,
+    folderGone, active, needsYou, busy, seatLabel,
   } = useSnapshotSelector((snapshot): SessionRowSlice => {
     const live = snapshot.sessions.get(key)
     const status = live?.status ?? summary.status
@@ -165,7 +164,6 @@ const SessionRow = memo(({
       folderGone: snapshot.foldersGone.get(summary.cwd) ?? null,
       active: snapshot.activeSessionKey === key,
       needsYou: needsYou || trace === 'waiting',
-      unread: snapshot.inbox.some(one => !one.read && one.from?.runtime === summary.runtime && one.from?.sessionId === summary.id),
       busy: live ? isBusy(live) : summary.status.type === 'active',
       seatLabel: seatLabelsOf(snapshot).get(String(key)) ?? null,
     }
@@ -205,7 +203,7 @@ const SessionRow = memo(({
 
   const facts = [
     label, agentName,
-    needsYou ? 'Needs you' : unread ? 'New' : error ?? (traceShown ? TRACE_LABEL[trace] : running ? 'Running' : 'Idle'),
+    needsYou ? 'Needs you' : error ?? (traceShown ? TRACE_LABEL[trace] : running ? 'Running' : 'Idle'),
     relativeTime(summary.updatedAt, now),
     summary.git?.branch,
     worktree ? `Worktree ${folderName(summary.cwd)}` : null,
@@ -215,12 +213,11 @@ const SessionRow = memo(({
   ].filter(Boolean).join(' · ')
   const trailing: LeftColumnTrail | undefined = needsYou
     ? { kind: 'mark', icon: <SidebarMenuState label="Needs you" tone="warning" state="limit" compact />, label: 'Needs you' }
-    : unread ? { kind: 'mark', icon: <SidebarMenuState label="New" tone="info" state="new" compact />, label: 'New' }
     : error !== null || trace === 'failed'
       ? { kind: 'mark', icon: <Dot state="broken" variant="navigation" />, label: error ?? 'Failed' }
       : folderGone
         ? { kind: 'mark', icon: <FolderGoneIcon size={16} />, label: `${folderGone}. The transcript can be read; nothing more can be sent.` }
-        : running ? { kind: 'mark', icon: <Spinner aria-hidden />, label: 'Working' } : undefined
+        : running ? { kind: 'mark', icon: <Spinner size="sm" aria-hidden />, label: 'Working' } : undefined
 
   return <div data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex}
     data-virtual-count={virtualCount} onContextMenu={menu.open}>
@@ -491,19 +488,17 @@ const roomMembers = (
   sessions: readonly SessionSummary[],
   snapshot: AppSnapshot,
   hiddenKeys: ReadonlySet<string>,
+  historyByKey: ReadonlyMap<string, SessionSummary>,
 ): SessionSummary[] => {
-  const shown = new Map(
-    [...snapshot.history.filter((summary) => !snapshot.foldersGone.has(summary.cwd)), ...sessions]
-      .map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]),
-  )
+  const shown = new Map(sessions.map(summary => [String(sessionKey(summary.runtime, summary.id)), summary]))
   const filtered = snapshot.listPrefs.agent !== null
   return teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
     .filter(hasConversation)
     .map(({key, record}) => {
-      const listed = shown.get(String(key))
+      const recorded = historyByKey.get(String(key))
+      const listed = shown.get(String(key)) ?? (recorded && !snapshot.foldersGone.has(recorded.cwd) ? recorded : undefined)
       if (listed) return listed
       const live = snapshot.sessions.get(key)
-      const recorded = snapshot.history.find((one) => sessionKey(one.runtime, one.id) === key)
       // A search already put its matches in `shown`. Outside that list, a
       // hidden gone-folder member must not be recreated from its Seat record.
       if (snapshot.foldersGone.has(recorded?.cwd ?? live?.cwd ?? room.cwd ?? room.root)) return undefined
@@ -521,13 +516,14 @@ const roomMembers = (
     )
 }
 
-const RoomRow = ({ room, state, news, open, onToggle, overview, members, suppressSelection = false, virtualKey, virtualIndex, virtualCount }: {
+const RoomRow = ({ room, state, news, open, onToggle, overview, historyByKey, members, suppressSelection = false, virtualKey, virtualIndex, virtualCount }: {
   readonly room: TeamState
   readonly state: TeamListState
   readonly news: boolean
   readonly open: boolean
   readonly onToggle: () => void
   readonly overview: ReturnType<typeof teamsInput>[number]['overview']
+  readonly historyByKey: ReadonlyMap<string, SessionSummary>
   readonly members: readonly string[] | null
   readonly suppressSelection?: boolean
   readonly virtualKey?: string
@@ -539,7 +535,8 @@ const RoomRow = ({ room, state, news, open, onToggle, overview, members, suppres
   const name = goal ? goalName(goal.goal) : room.name
   const execution = goalRunOf(room.id, goal, snapshot.flowExecutions)
   const seats = teamSeats(goal, room, execution)
-  const records = [...(goal?.members ?? []), ...(goal?.pastMembers ?? [])]
+  const records = new Map([...(goal?.members ?? []), ...(goal?.pastMembers ?? [])].map(record => [record.id, record]))
+  const seatRows = new Map(overview.seats.map(row => [row.seat, row]))
   const ended = execution?.state === 'stopped'
   const waiting = state === 'needs-you' || seats.some(({ key }) => key &&
     (snapshot.approvals.some(one => one.key === key) || snapshot.queues.get(key)?.status === 'paused'
@@ -556,8 +553,8 @@ const RoomRow = ({ room, state, news, open, onToggle, overview, members, suppres
   const attention = waiting ? 'Needs you' : news && !selected ? 'New' : null
   const trailing: LeftColumnTrail | undefined = attention
     ? { kind: 'mark', icon: <SidebarMenuState label={attention} tone={waiting ? 'warning' : 'info'} state={waiting ? 'limit' : 'new'} compact />, label: attention }
-    : running && !open ? { kind: 'mark', icon: <Spinner aria-hidden />, label: 'Working' } : undefined
-  const displayMembers = seats.filter(hasConversation).map(seat => ({ record: records.find(one => one.id === seat.record.id), nickname: seat.name, runtimeName: snapshot.runtimes.find(one => one.id === seat.record.session.runtime)?.presentation.name }))
+    : running && !open ? { kind: 'mark', icon: <Spinner size="sm" aria-hidden />, label: 'Working' } : undefined
+  const displayMembers = seats.filter(hasConversation).map(seat => ({ record: records.get(seat.record.id), nickname: seat.name, runtimeName: snapshot.runtimes.find(one => one.id === seat.record.session.runtime)?.presentation.name }))
   return <div data-region="team-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
     <LeftColumnRow label={name} icon={<TeamIcon size={16} />} selected={selected && !suppressSelection}
       title={`${name}${state === 'stopping' ? ' · Stopping' : state === 'stopped' ? ' · Stopped' : ''}${attention ? ` · ${attention}` : ''}${ready ? ' · Ready to wrap' : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
@@ -569,14 +566,14 @@ const RoomRow = ({ room, state, news, open, onToggle, overview, members, suppres
         }
       } }} trailing={trailing}
       onClick={() => store.openTeamRoom(room.id)} />
-    {open && <LeftColumnSeats>{overview.seats.map(row => {
-      const seat = seats.find(one => one.record.id === row.seat)
-      if (!seat || members !== null && !members.includes(row.seat)) return null
+    {open && <LeftColumnSeats>{seats.map(seat => {
+      const row = seatRows.get(seat.record.id)
+      if (!row || members !== null && !members.includes(row.seat)) return null
       const runtime = seat.record.session ? snapshot.runtimes.find(one => one.id === seat.record.session!.runtime) : undefined
       const live = seat.key ? snapshot.sessions.get(seat.key) : undefined
-      const summary = seat.key ? snapshot.history.find(one => sessionKey(one.runtime, one.id) === seat.key) : undefined
+      const summary = seat.key ? historyByKey.get(String(seat.key)) : undefined
       const canOpen = hasConversation(seat) && Boolean(live || summary || seat.record.openedAt > 0)
-      const record = records.find(one => one.id === seat.record.id)
+      const record = records.get(seat.record.id)
       const label = seatDisplayName(record, row.name, runtime?.presentation.name, displayMembers)
       const status = live?.status ?? summary?.status
       const error = status?.type === 'error' ? status.message ?? 'Failed' : live && traceOf(live, false) === 'failed' ? 'Failed' : null
@@ -585,7 +582,7 @@ const RoomRow = ({ room, state, news, open, onToggle, overview, members, suppres
       const mark: LeftColumnTrail | undefined = row.state === 'needs-you' || row.state === 'unread'
         ? { kind: 'mark', label: stateLabel, icon: <SidebarMenuState label={stateLabel} tone={row.state === 'needs-you' ? 'warning' : 'info'} state={row.state === 'needs-you' ? 'limit' : 'new'} compact /> }
         : error ? { kind: 'mark', label: error, icon: <Dot state="broken" variant="navigation" /> }
-          : working ? { kind: 'mark', label: 'Working', prefix: row.card ? `#${row.card.id}` : undefined, icon: <Spinner aria-hidden /> } : undefined
+          : working ? { kind: 'mark', label: 'Working', prefix: row.card ? `#${row.card.id}` : undefined, icon: <Spinner size="sm" aria-hidden /> } : undefined
       return <li key={row.seat} data-region="seat-row"><LeftColumnRow nested label={label}
         icon={runtime ? <RuntimeMark runtime={runtime} size={16} /> : <AgentIcon size={16} />}
         title={[runtime?.presentation.name, (live ? sessionModel(live) : null) ?? record?.seat?.model, row.card?.title, stateLabel, canOpen ? null : 'Not open'].filter(Boolean).join(' · ')}
@@ -1071,7 +1068,7 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const treeRef = useRef<HTMLDivElement>(null)
+  const treeRef = useRef<HTMLElement>(null)
   const typeahead = useRef({ text: '', timer: 0 })
   const [navigationTarget, setNavigationTarget] = useState<{ root: string; index: number } | null>(null)
   const lastReveal = useRef<string | null>(null)
@@ -1084,6 +1081,12 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
       return missing.length > 0 ? new Map([...current, ...missing.map(id => [id, true] as const)]) : current
     })
   }, [snapshot.layout.root])
+  const filterKey = JSON.stringify([searching ? filter.trim() : null, snapshot.listPrefs.agent])
+  const [filterExpansion, setFilterExpansion] = useState<{ key: string; teams: ReadonlyMap<string, boolean> }>(() => ({ key: filterKey, teams: new Map() }))
+  useEffect(() => {
+    setFilterExpansion(current => current.key === filterKey ? current : { key: filterKey, teams: new Map() })
+  }, [filterKey])
+  const historyByKey = useMemo(() => new Map(snapshot.history.map(one => [String(sessionKey(one.runtime, one.id)), one])), [snapshot.history])
   const [expandedProjects, setExpandedProjects] = useState<ReadonlySet<string>>(() => new Set())
   const { groups, noFolder, chatFolders, hiddenPinned, gone } = useProjectList({ searching })
   const noFolderGroup = useMemo<ProjectGroup>(() => ({ root: 'no-folder', name: 'Chats', sessions: noFolder, folders: chatFolders, updatedAt: 0 }), [noFolder, chatFolders])
@@ -1180,7 +1183,7 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
     if (entry && entry.tabIndex !== 0) entry.tabIndex = 0
   })
 
-  const onTreeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+  const onTreeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     const target = event.target
     if (!(target instanceof HTMLButtonElement) || !target.matches('[data-slot="sidebar-menu-button"]')) return
     if (event.altKey || event.ctrlKey || event.metaKey && event.key !== '.') return
@@ -1298,6 +1301,7 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
     }
   }, [])
   const teamInputs = teamsInput(snapshot)
+  const teamInputsById = new Map(teamInputs.map(input => [input.team.id, input]))
   const teamRows = new Map(teamInputs.map(input => [input.team.id, teamListRow(input)]))
   // A fold hides matches without removing them from the search results.
   const hasChatRooms = chatFolders.some(root => (roomsByProject.get(root) ?? []).some(room => teamInSidebar(teamRows.get(room.id))))
@@ -1308,7 +1312,7 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
   // A Seat's own checkout can differ from the project that holds its Team.
   const activeTeam = activeKey === null ? null : [...snapshot.teams.values()].find(room =>
     teamInSidebar(teamRows.get(room.id)) && teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
-      .some(seat => String(seat.key) === activeKey) && roomMembers(room, [], snapshot, liftedKeys)
+      .some(seat => String(seat.key) === activeKey) && roomMembers(room, [], snapshot, liftedKeys, historyByKey)
       .some(summary => String(sessionKey(summary.runtime, summary.id)) === activeKey)) ?? null
   const activeTeamRoot = activeTeam ? roomGroupRootOf(activeTeam, [snapshot.workspace, ...snapshot.workspaces]) : null
   const activeGroup = useMemo(
@@ -1499,8 +1503,8 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
               if (row.kind === 'session') return <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} suppressSelection={suppressSelection} virtualKey={`session:${row.summary.runtime}:${row.summary.id}`} virtualIndex={index} virtualCount={rows.length} />
               const selected = activeTeam?.id === row.room.id || panes(snapshot.layout.root).some(pane => pane.view.kind === 'room' && pane.view.room === row.room.id)
               const matchingMembers = searching || snapshot.listPrefs.agent !== null
-                ? roomMembers(row.room, group.sessions, snapshot, liftedKeys)
-                  .filter(one => !searching || snapshot.history.some(match => sessionKey(match.runtime, match.id) === sessionKey(one.runtime, one.id))) : []
+                ? roomMembers(row.room, group.sessions, snapshot, liftedKeys, historyByKey)
+                  .filter(one => !searching || historyByKey.has(String(sessionKey(one.runtime, one.id)))) : []
               const needle = filter.trim().toLocaleLowerCase()
               const goal = snapshot.goals.get(row.room.id)
               const matching = searching || snapshot.listPrefs.agent !== null
@@ -1510,14 +1514,21 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
                   return matchingMembers.some(one => sessionKey(one.runtime, one.id) === seat.key)
                     || searching && needle.length > 0 && seat.name.toLocaleLowerCase().includes(needle)
                 }).map(seat => seat.record.id) : null
-              const open = Boolean(matching?.length) || (expandedTeams.get(row.room.id) ?? selected)
+              const revealing = Boolean(matching?.length)
+              const storedOpen = expandedTeams.get(row.room.id) ?? selected
+              const open = revealing ? (filterExpansion.key === filterKey ? filterExpansion.teams.get(row.room.id) : undefined) ?? true : storedOpen
               return <RoomRow
                 key={row.room.id}
                 room={row.room}
-                overview={teamInputs.find(input => input.team.id === row.room.id)!.overview}
+                overview={teamInputsById.get(row.room.id)!.overview}
+                historyByKey={historyByKey}
                 members={matching}
                 open={open}
-                onToggle={() => setExpandedTeams(current => new Map(current).set(row.room.id, !open))}
+                onToggle={() => {
+                  if (revealing) setFilterExpansion(current => ({ key: filterKey,
+                    teams: new Map(current.key === filterKey ? current.teams : []).set(row.room.id, !open) }))
+                  else setExpandedTeams(current => new Map(current).set(row.room.id, !storedOpen))
+                }}
                 state={teamRows.get(row.room.id)!.state}
                 news={teamRows.get(row.room.id)!.unread}
                 suppressSelection={suppressSelection}
@@ -1537,7 +1548,7 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
   const farContent = othersOpen ? far.map(group => renderGroup(group)) : null
 
   const tree = (
-    <div ref={treeRef} onKeyDown={onTreeKeyDown} onFocusCapture={(event) => {
+    <LeftColumnGroup label="Conversations" heading={false} disclosureGutter ref={treeRef} onKeyDown={onTreeKeyDown} onFocusCapture={(event) => {
       const target = event.target as HTMLElement
       if (!target.matches('[data-slot="sidebar-menu-button"]') || target.closest('[data-nested="true"]')) return
       const row = target.closest<HTMLElement>('[data-virtual-index]')
@@ -1580,7 +1591,7 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
       <div className="sr-only" role="status" aria-live="polite">
         {announcement}
       </div>
-    </div>
+    </LeftColumnGroup>
   )
   return <>{tree}{searching && !hasSearchRows && searchEmptyState}</>
 }

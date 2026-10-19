@@ -1081,7 +1081,7 @@ capitals and for a heavier weight.
 ### Sidebar trailing rail
 
 In the production `SessionTree`, trailing state marks mean attention or an
-error: **Needs you**, **New**, a failure or a missing folder. Working conversations
+error: **Needs you**, a failure or a missing folder; Team and Seat rows also show **New**. Working conversations
 show a spinner, after attention and errors in priority. A working Team spins
 only while collapsed; its expanded Seats carry their own activity. Activity
 words stay on hover,

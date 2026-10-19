@@ -340,11 +340,11 @@ short result list cannot read as missing data. The title, list filter and
 conversation history all remain in the same sidebar column.
 
 **State belongs to the row.** A running conversation names its activity on hover — Planning, Editing, Testing,
-Running or Thinking — and shows a spinner. Needs you, New and
+Running or Thinking — and shows a spinner. Needs you and
 an error take priority over the spinner; branch, worktree and pin facts stay on hover. A conversation waiting for an approval,
 a held queue or an answer says **Needs you** beside its own title. Neither state
 moves it into a separate band. Stored conversations say when they last ran on
-hover instead.
+hover instead. Unread loose-conversation output stays in the Inbox.
 
 **Teams and their Seats.** Each active Team, and each finished Team until it is
 wrapped, sits inside its project, one indent step beside the project's loose
@@ -358,7 +358,10 @@ one further indent step in; the selected Team and the Team owning the open
 Seat start expanded, and other Teams start collapsed. A leading-gutter chevron
 reveals them without opening the Team. ArrowRight expands and ArrowLeft folds.
 Team and loose-conversation icons align; a Seat icon starts under the Team label.
-Seat rows keep the same 34px pitch and trailing rail as their parent.
+Seat rows keep the same 34px pitch and trailing rail as their parent, in the
+Team's roster order; activity does not reorder them. A filter temporarily reveals
+matching Seats, and the chevron can fold that reveal. Clearing the filter restores
+each Team's own stored expansion, including the selected-Team default.
 A Seat conversation stays under its Team, including when pinned or waiting.
 Opening a Seat conversation elsewhere reveals its project and Team, including
 when the Seat works in another checkout. A later deliberate fold stays folded

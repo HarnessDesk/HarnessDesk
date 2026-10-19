@@ -119,7 +119,7 @@ test('keeps the trailing values out of the label’s space', () => {
   expect(trail.textContent).toBe('25')
   expect(trail.parentElement).toBe(row)
   expect(text.contains(trail)).toBe(false)
-  expect(sheet).toMatch(/\.button \[data-slot='sidebar-menu-label'\]\s*\{\s*padding-inline-end: var\(--hd-icon-target\);/)
+  expect(sheet).toMatch(/\.button \[data-slot='sidebar-menu-label'\]\s*\{\s*padding-inline-end: calc\(var\(--hd-icon-target\) \+ var\(--hd-space-2\)\);/)
   expect(sheet).toMatch(/\.trailing\s*\{[^}]*position: absolute;[^}]*width: var\(--hd-icon-target\);/)
   expect(sheet).toMatch(/\.row\s*\{[^}]*height: var\(--hd-left-row-h\);/)
 })
@@ -159,4 +159,14 @@ test('an unavailable mode switch explains only Editor and keeps Conversation’s
   }
   expect(container.querySelector('[data-mode-switch]')?.hasAttribute('title')).toBe(false)
   expect(change).not.toHaveBeenCalled()
+})
+
+
+test('a group keeps its children directly and card numbers use meta numeric text', () => {
+  mount(<LeftColumnGroup label="Projects"><LeftColumnRow label="Writer" trailing={{ kind: 'mark', label: 'Working', icon: <span />, prefix: '#4' }} /></LeftColumnGroup>)
+  expect(container.querySelector('[data-left-group] > [data-slot="sidebar-menu"]')).toBeNull()
+  const prefix = container.querySelector('[data-left-mark-prefix]')!
+  expect(prefix.getAttribute('data-slot')).toBe('text')
+  expect(prefix.getAttribute('data-role')).toBe('meta')
+  expect(prefix.classList.contains('tabular-nums')).toBe(true)
 })

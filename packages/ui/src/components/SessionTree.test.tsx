@@ -2272,7 +2272,7 @@ it('spins on collapsed working Teams and replaces activity with Needs you', () =
   const live = { ...one, turns: [{ id: 'spin-turn', status: 'inProgress', items: [] }] } as unknown as Session
   const board = room({ id: 'spin-team', name: 'Running Team', members: [String(sessionKey(one.runtime, one.id))] })
   const view = treeWith([board], [one], [live])
-  expect(view.container.querySelectorAll('[data-slot="spinner"][data-tone="neutral"]')).toHaveLength(1)
+  expect(view.container.querySelectorAll('[data-slot="spinner"][data-tone="neutral"][data-size="sm"]')).toHaveLength(1)
   expect(roomRow(view.container, board.name).title).toContain('Working')
   expect(view.container.textContent).not.toContain('Working')
   expect(roomRow(view.container, board.name).querySelector('[data-left-mark][aria-label="Needs you"]')).toBeNull()
@@ -2634,7 +2634,7 @@ it('seat marks prioritize Needs you, unread, working card and idle; only collaps
   const seat = () => container.querySelector<HTMLElement>('[data-region="seat-row"]')!
   const mark = () => seat().querySelector('[data-left-mark]')!
   expect(opener.closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).toBeNull()
-  expect(mark().textContent).toContain('#4')
+  expect(seat().querySelector('[data-left-mark-prefix]')?.textContent).toContain('#4')
   expect(mark().querySelector('[data-slot="spinner"]')).not.toBeNull()
   expect(seat().querySelector('button')!.title).toContain('Build the page')
   update({ inbox: [{ id: 'news', read: false, at: 1, tone: 'neutral', title: 'New output', from: { runtime: member.runtime, sessionId: member.id, name: 'Agent' } }] as AppSnapshot['inbox'] })
@@ -2687,14 +2687,14 @@ it('a selected Team starts expanded and a seat filter reveals matching seats', (
 })
 
 
-it('unread conversation output outranks activity and clears back to the spinner', () => {
+it('unread Inbox output does not mark loose conversations or suppress their spinner', () => {
   const member = summary({ id: 'unread-loose', status: { type: 'active' } })
   const key = sessionKey(member.runtime, member.id)
   const view = treeWith([], [member], [member])
   const row = () => container.querySelector('[data-region="session-row"]')!
   view.update({ inbox: [{ id: 'new-output', read: false, at: 1, tone: 'neutral', title: 'New output', from: { runtime: member.runtime, sessionId: member.id, name: 'Agent' } }] as AppSnapshot['inbox'] })
-  expect(row().querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('New')
-  expect(row().querySelector('[data-slot="spinner"]')).toBeNull()
+  expect(row().querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Working')
+  expect(row().querySelector('[data-slot="spinner"]')).not.toBeNull()
   view.update({ inbox: [] })
   expect(row().querySelector('[data-slot="spinner"]')).not.toBeNull()
   view.update({ sessions: new Map([[key, { ...member, status: { type: 'idle' }, turns: [], itemsLoaded: true } as Session]]) })
@@ -2802,4 +2802,65 @@ it('a title filter reveals an unopened Seat by its visible name and keeps its Ov
   act(() => seats[0]!.click())
   expect(view.store.openSession).not.toHaveBeenCalled()
   expect(view.store.setTeamFramePage).toHaveBeenCalledWith(team.id, 'overview')
+})
+
+
+it('seats stay in roster order when their activity changes', () => {
+  const members = ['First', 'Second', 'Third'].map(id => summary({ id }))
+  const keys = members.map(one => sessionKey(one.runtime, one.id))
+  const team = { ...room({ id: 'roster', name: 'Build', members: keys }), nicknames: Object.fromEntries(keys.map((key, i) => [key, members[i]!.id])) }
+  const view = treeWith([team], members, members)
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  const labels = () => [...container.querySelectorAll('[data-region="seat-row"] [data-slot="sidebar-menu-label-content"]')].map(one => one.textContent)
+  expect(labels()).toEqual(['First', 'Second', 'Third'])
+  view.update({ sessions: new Map(members.map((one, i) => [keys[i]!, { ...one, status: { type: i === 1 ? 'active' : 'idle' } } as Session])) })
+  expect(labels()).toEqual(['First', 'Second', 'Third'])
+  view.update({ sessions: new Map(members.map((one, i) => [keys[i]!, { ...one, status: { type: i === 2 ? 'active' : 'idle' } } as Session])) })
+  expect(labels()).toEqual(['First', 'Second', 'Third'])
+})
+
+it('a matching agent filter can be folded and reopened without changing the stored Team fold', () => {
+  const member = summary({ id: 'filter-worker' }), key = sessionKey(member.runtime, member.id)
+  const team = room({ id: 'filter-fold', name: 'Build', members: [key] })
+  const view = treeWith([team], [member])
+  const toggle = () => act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  view.update({ listPrefs: { ...emptySnapshot().listPrefs, agent: member.runtime } })
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+  toggle()
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('false')
+  toggle()
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+  view.update({ listPrefs: emptySnapshot().listPrefs })
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('false')
+})
+
+it.each([false, true])('search reveal restores the Team’s own %s stored expansion after temporary toggles', storedOpen => {
+  const member = summary({ id: 'search-worker' }), key = sessionKey(member.runtime, member.id)
+  const team = room({ id: 'search-fold', name: 'Build', members: [key] })
+  const view = treeWith([team], [member])
+  const toggle = () => act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  if (storedOpen) toggle()
+  const search = (filter: string) => act(() => root.render(<StoreProvider store={view.store}><SessionTree now={3} searching={Boolean(filter)} filter={filter} /></StoreProvider>))
+  search('search-worker')
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+  toggle()
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('false')
+  if (!storedOpen) toggle()
+  search('')
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe(String(storedOpen))
+  search('search-worker')
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+})
+
+it('clearing search preserves the selected Team’s default expansion after a temporary fold', () => {
+  const member = summary({ id: 'selected-worker' }), key = sessionKey(member.runtime, member.id)
+  const team = room({ id: 'selected-filter', name: 'Build', members: [key] })
+  const view = treeWith([team], [member])
+  view.update({ layout: { ...emptySnapshot().layout, root: { kind: 'pane', id: 'main', view: { kind: 'room', room: team.id } } } })
+  const render = (filter: string) => act(() => root.render(<StoreProvider store={view.store}><SessionTree now={3} searching={Boolean(filter)} filter={filter} /></StoreProvider>))
+  render('selected-worker')
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('false')
+  render('')
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
 })

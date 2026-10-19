@@ -32,23 +32,20 @@ const SidebarGroupContent = ({ className, nested = false, ...props }: React.Comp
 )
 
 type SidebarMenuProps = { nested?: boolean; horizontal?: boolean; inset?: 'tree' | 'rail' } & (
-  | ({ as: 'div' } & React.ComponentProps<'div'>)
+  | ({ as: 'section' } & React.ComponentProps<'section'>)
   | ({ as?: 'ul' } & React.ComponentProps<'ul'>)
 )
 const SidebarMenu = (props: SidebarMenuProps) => {
   const { nested = false, horizontal = false, inset = 'tree' } = props
-  const shared = {
-    'data-slot': 'sidebar-menu', 'data-sidebar': 'menu', 'data-nested': nested ? 'true' : undefined,
-    className: cn('flex w-full min-w-0 gap-0',
-      horizontal ? 'flex-row items-center gap-(--hd-space-1) px-(--hd-space-2)' : 'flex-col',
-      nested && (inset === 'rail' ? 'm-0 w-full border-0 p-0' : sidebarNestedClass), props.className),
-  }
-  if (props.as === 'div') {
+  const className = cn('flex w-full min-w-0 gap-0',
+    horizontal ? 'flex-row items-center gap-(--hd-space-1) px-(--hd-space-2)' : 'flex-col',
+    nested && (inset === 'rail' ? 'm-0 w-full border-0 p-0' : sidebarNestedClass), props.className)
+  if (props.as === 'section') {
     const { as: _as, nested: _nested, horizontal: _horizontal, inset: _inset, ...rest } = props
-    return <div {...rest} {...shared} />
+    return <section data-slot="sidebar-menu" data-sidebar="menu" data-nested={nested ? 'true' : undefined} {...rest} className={className} />
   }
   const { as: _as, nested: _nested, horizontal: _horizontal, inset: _inset, ...rest } = props
-  return <ul {...rest} {...shared} />
+  return <ul data-slot="sidebar-menu" data-sidebar="menu" data-nested={nested ? 'true' : undefined} {...rest} className={className} />
 }
 
 const SidebarMenuItem = ({ className, style, trailingActions = 1, trailingMarks = 0, ...props }: React.ComponentProps<'li'> & { trailingActions?: 1 | 2; trailingMarks?: 0 | 1 | 2 | 3 | 4 }) => (
@@ -92,6 +89,7 @@ type SidebarMenuButtonProps = Omit<React.ComponentProps<'button'>, 'children'> &
     iconSize?: 'default' | 'lg'
     label?: React.ReactNode
     trailingOverlay?: boolean
+    labelEnd?: React.ReactNode
     labelTrailingContent?: boolean
     isActive?: boolean
     trailingActions?: 1 | 2
@@ -105,6 +103,7 @@ const SidebarMenuButton = ({
   label,
   trailingOverlay = false,
   labelTrailingContent = false,
+  labelEnd,
   children,
   isActive = false,
   trailingActions = 1,
@@ -124,6 +123,7 @@ const SidebarMenuButton = ({
     <span data-slot="sidebar-menu-label" className={cn('block min-w-0 flex-1 truncate', (trailingOverlay || trailingActions === 2) && 'sidebar-menu-label-fade [mask-image:linear-gradient(to_right,black_calc(100%-var(--hd-space-8)),transparent)]')}>
       <span data-slot="sidebar-menu-label-content" className={cn('block min-w-0 truncate', labelTrailingContent && 'pe-(--hd-space-8)')}>{label ?? children}</span>
     </span>
+    {labelEnd}
   </button>
 )
 
