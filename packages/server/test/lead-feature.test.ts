@@ -165,23 +165,66 @@ test('host Stop effects reach only running and stalled owned runs, preserving pr
   const descriptor = Object.getOwnPropertyDescriptor(journal, 'state')
   const readState = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(journal), 'state')!.get!
   const runs = ['running', 'stalled', 'settled', 'stopped'].map(state => ({ runId: `owned-${state}`, teamId: `team-${state}`, correlationId: `start-${state}` }))
-  // Isolate the host's cancellation boundary from worker execution and accounting.
+  // Isolate both cancellation owners from worker execution and accounting.
   Object.defineProperty(journal, 'state', { configurable: true, get: () => ({ ...readState.call(journal), runs }) })
   const postings = { state: 'prepared', run: 'owned-settled' }
   const before = JSON.stringify(postings), stopped: string[] = [], interrupted: string[] = []
-  t.mock.method(host.flowsPlane, 'leadRuns', () => runs.map(run => ({ id: run.runId, state: run.runId.slice(6) })) as any)
+  const flows = runs.map(run => ({ id: run.runId, goal: run.teamId, state: run.runId.slice(6), lead: { logicalGoalId: 'stop-effects' } }))
+  t.mock.method(host.flowsPlane, 'leadRuns', () => flows as any)
   t.mock.method(host.flowsPlane, 'interruptChecks', (team: string) => { interrupted.push(team) })
-  t.mock.method(host.flowsPlane, 'stopRun', async (run: string) => { stopped.push(run); if (run === postings.run) postings.state = 'skipped' })
+  t.mock.method(host.flowsPlane, 'stopRun', async (run: string) => { stopped.push(run); flows.find(flow => flow.id === run)!.state = 'stopped'; if (run === postings.run) postings.state = 'skipped' })
   t.mock.method(host.credentials, 'leadStatus', async () => ({ configured: false, protection: 'synthetic cipher' }))
+  const registration = host.registerLead(journal, { id: 'demo', path: '/workspace/demo' })
   const service = host.createLeadService({ journal, project: { id: 'demo', path: '/workspace/demo' }, prices: {},
     resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
     readEvidence: async () => { throw new Error('unused') },
-    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => { registration.close() }, ownershipWithdrawn() {} }) })
   try {
     await host.call('lead/stop', { expectedRevision: journal.state.seq })
     assert.deepEqual(stopped, ['owned-running', 'owned-stalled'])
     assert.deepEqual(interrupted, ['team-running', 'team-stalled'])
     assert.equal(JSON.stringify(postings), before)
+  } finally {
+    registration.close()
+    if (descriptor) Object.defineProperty(journal, 'state', descriptor)
+    else Reflect.deleteProperty(journal, 'state')
+    assert.deepEqual(Object.getOwnPropertyDescriptor(journal, 'state'), descriptor, 'restore the exact state descriptor')
+    await service.close()
+  }
+})
+
+
+test('child crash finishes a stopped owned run after its earlier cleanup failed', async t => {
+  const { host } = rig(t, true); await host.start()
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  const descriptor = Object.getOwnPropertyDescriptor(journal, 'state')
+  const state = journal.state
+  Object.defineProperty(journal, 'state', { configurable: true, get: () => ({ ...state,
+    runs: [{ runId: 'owned-run', teamId: 'owned-team', correlationId: 'owned-start' }] }) })
+  const run = { id: 'owned-run', state: 'running' }
+  let attempts = 0, cleanupFinished = false
+  t.mock.method(host.flowsPlane, 'leadRuns', () => [run] as any)
+  t.mock.method(host.flowsPlane, 'interruptChecks', () => {})
+  t.mock.method(host.flowsPlane, 'stopRun', async () => {
+    run.state = 'stopped'
+    if (++attempts === 1) throw new Error('synthetic publication cleanup failure')
+    cleanupFinished = true
+  })
+  let exited!: (reason: string) => void | Promise<void>
+  const service = host.createLeadService({ journal, project: { id: 'demo', path: '/workspace/demo' }, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: options => {
+      exited = options.onExit!
+      return { live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }
+    } })
+  try {
+    await assert.rejects(service.ownershipWithdrawn('owned-run'), /lead-owned-work-stop-pending/)
+    assert.equal(run.state, 'stopped')
+    assert.equal(cleanupFinished, false)
+    await exited('lead-child-exited')
+    assert.equal(attempts, 2, 'crash cleanup must retry stop listeners on the stopped run')
+    assert.equal(cleanupFinished, true)
   } finally {
     if (descriptor) Object.defineProperty(journal, 'state', descriptor)
     else Reflect.deleteProperty(journal, 'state')

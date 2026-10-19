@@ -6,6 +6,7 @@ import { seatWindowOf } from '../insight/attribution.js'
 import type { UsageSample } from '../ledger/insight.js'
 import { leadRoundId, type FlowLeadBinding, type FlowLeadGuard, type StoredFlowExecution } from '../flow-execution.js'
 import { leadStepContractDigest } from './admission.js'
+import { leadStopReachesRun } from './stop.js'
 
 export interface LeadBudgetPort {
   usage?(project: string, from: number, to: number): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
@@ -220,10 +221,11 @@ export class LeadBudgets implements FlowLeadGuard {
       const runs = this.port.runs().filter(run => run.lead?.logicalGoalId === logicalGoalId)
       if (journal.state.runs.some(owned => !runs.some(run => run.id === owned.runId && run.goal === owned.teamId)))
         throw new Error('lead-stop-runs-unavailable')
-      for (const run of runs) this.port.interruptChecks(run.goal)
+      const reached = runs.filter(run => leadStopReachesRun(run, journal.state.budget!.stop!.reason))
+      for (const run of reached) this.port.interruptChecks(run.goal)
       // Stop owns Seat interruption, release, approval cancellation and unsent
       // publication cleanup. Retrying an ended run finishes that same cleanup.
-      const results = await Promise.allSettled(runs.map(run => this.port.stop(run.id, 'Lead budget stopped.')))
+      const results = await Promise.allSettled(reached.map(run => this.port.stop(run.id, 'Lead budget stopped.')))
       if (results.some(result => result.status === 'rejected')) throw new Error('lead-stop-cleanup-failed')
     })
     this.#cleaning.set(logicalGoalId, task)

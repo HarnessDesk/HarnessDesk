@@ -124,6 +124,7 @@ import { Agents } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
 import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
+import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, type LeadJournal } from '@harnessdesk/lead'
@@ -3350,9 +3351,11 @@ export class Host {
     if (this.#leadService) throw new Error('lead-service-exists')
     const { journal, project } = options
     const stopOwned = async (reason: string) => {
+      const stopReason = reason === 'lead-budget-stopped' || reason === 'lead-request-cancelled'
+        ? journal.state.budget?.stop?.reason ?? reason : reason
       const results = await Promise.allSettled(journal.state.runs.map(async run => {
         const flow = this.#flows.leadRuns().find(flow => flow.id === run.runId)
-        if (flow?.state !== 'running' && flow?.state !== 'stalled') return
+        if (!leadStopReachesRun(flow, stopReason)) return
         this.#flows.interruptChecks(run.teamId)
         await this.#flows.stopRun(run.runId, reason, 'desk')
       }))
