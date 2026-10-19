@@ -160,3 +160,65 @@ test('an unavailable mode switch explains only Editor and keeps Conversation’s
   expect(container.querySelector('[data-mode-switch]')?.hasAttribute('title')).toBe(false)
   expect(change).not.toHaveBeenCalled()
 })
+
+
+test('a group keeps its children directly and card numbers use meta numeric text', () => {
+  mount(<LeftColumnGroup label="Projects"><LeftColumnRow label="Writer" trailing={{ kind: 'mark', label: 'Working', icon: <span />, prefix: '#4' }} /></LeftColumnGroup>)
+  expect(container.querySelector('[data-left-group] > [data-slot="sidebar-menu"]')).toBeNull()
+  const prefix = container.querySelector('[data-left-mark-prefix]')!
+  expect(prefix.getAttribute('data-slot')).toBe('text')
+  expect(prefix.getAttribute('data-role')).toBe('meta')
+  expect(prefix.classList.contains('tabular-nums')).toBe(true)
+})
+
+
+test('a Team keeps its icon and name beside a separate trailing fold control', () => {
+  const open = vi.fn(), toggle = vi.fn()
+  mount(<LeftColumnRow label="Build" icon={<FolderIcon size={16} />} disclosure={{ open: true, onToggle: toggle }} onClick={open} />)
+  const row = button('Build').parentElement!
+  const control = button('Hide the agents in Build')
+  expect(button('Build').querySelector('[data-left-fold-name]')?.textContent).toBe('Build')
+  expect(control.parentElement).toBe(row)
+  expect(button('Build').contains(control)).toBe(false)
+  expect(control.tabIndex).toBe(-1)
+  expect(control.className).not.toContain('gutterDisclosure')
+  expect(control.querySelector('[data-slot="disclosure-chevron"]')?.getAttribute('data-size')).toBe('xs')
+  act(() => control.click())
+  expect(toggle).toHaveBeenCalledOnce()
+  expect(open).not.toHaveBeenCalled()
+  expect(document.activeElement).toBe(button('Build'))
+  act(() => button('Build').click())
+  expect(open).toHaveBeenCalledOnce()
+})
+
+
+test('Team fold controls use the project visibility rule without changing label weight', () => {
+  const visibility = [...sheet.matchAll(/([^{}]+)\{([^{}]+)\}/g)]
+    .filter(([, , body]) => body!.includes('visibility:'))
+    .map(([, selector, body]) => `${selector}{${body}}`).join('\n')
+    .replace(/\.([\w-]+)/g, (match, name: string) => styles[name] ? `.${styles[name]}` : match)
+    .replaceAll(':hover', '[data-test-hover]').replaceAll(':focus-visible', '[data-test-focus-visible]')
+  const css = document.createElement('style'); css.textContent = visibility; document.head.append(css)
+  try {
+    const draw = (open: boolean) => mount(<LeftColumnRow label="Build" disclosure={{ open, onToggle: vi.fn() }} />)
+    draw(true)
+    const control = button('Hide the agents in Build'), row = control.parentElement!
+    expect(getComputedStyle(control).visibility).toBe('hidden')
+    row.setAttribute('data-test-hover', '')
+    expect(getComputedStyle(control).visibility).toBe('visible')
+    row.removeAttribute('data-test-hover')
+    button('Build').setAttribute('data-test-focus-visible', '')
+    expect(getComputedStyle(control).visibility).toBe('visible')
+    button('Build').removeAttribute('data-test-focus-visible')
+    draw(false)
+    expect(getComputedStyle(button('Show the agents in Build')).visibility).toBe('visible')
+  } finally { css.remove() }
+})
+
+
+test('a card prefix shares the full-width label slot while its text keeps intrinsic space', () => {
+  mount(<LeftColumnRow label="Writer" trailing={{ kind: 'mark', label: 'Working', icon: <span />, prefix: '#12345' }} />)
+  const label = button('Writer').querySelector('[data-slot="sidebar-menu-label"]')!
+  expect(container.querySelector('[data-left-mark-prefix]')?.parentElement).toBe(label)
+  expect(label.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent).toBe('Writer')
+})

@@ -3532,7 +3532,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'left-column', title: 'Left column', about: 'Aligned rows with one trailing slot and long titles.', render: LeftColumnBoard },
 ]
 
-import { LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
+import { LeftColumnSeats, LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
 import { BellIcon, UserIcon, FileIcon } from '../../components/Icons'
 
 export const LEFTCOLUMN_CATALOG_VARIANTS = ['light', 'dark'] as const
@@ -3541,13 +3541,14 @@ export const LEFTCOLUMN_CATALOG_STATES = ['default', 'selected', 'disabled', 'lo
 
 export function LeftColumnBoard() {
   const [mode, setMode] = useState<'conversation' | 'editor'>('conversation')
+  const [teamOpen, setTeamOpen] = useState(true)
   return <LeftColumn
   top={<LeftColumnTop shown settings={false} back={false} forward={false} toggle={() => {}} goBack={() => {}} goForward={() => {}}
     search={<Button variant="ghost" size="icon-sm" aria-label="Search everything"><SearchIcon size={16} /></Button>}
     modeSwitch={{ value: mode, onChange: setMode, disabled: false, disabledTitle: "Editor mode opens a conversation's files" }} />}
   head={mode === 'editor' ? <LeftColumnExplorerHead name="storefront" path="/work/storefront" filter="changed" changes={4} onFilter={() => {}} /> : null} body={<LeftColumnBody>
   {mode === 'editor' && <><LeftColumnRow label="src" icon={<FolderIcon size={16} />} tree={{ depth: 0, expanded: true }} onClick={() => {}} /><LeftColumnRow label="checkout.ts" icon={<FileIcon size={16} />} tree={{ depth: 1, letter: 'M' }} trailing={{ kind: 'mark', icon: 'M', label: 'Modified' }} selected onClick={() => {}} /></>}
-  {mode === 'conversation' && <><LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
+  {mode === 'conversation' && <LeftColumnGroup label="Conversations" heading={false}><LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
   <LeftColumnGroup label="Projects">
     <LeftColumnRow label="Release notes for checkout retry · 長い会話名" icon={<FolderIcon size={16} />}
       title={'Release notes for checkout retry\nThe folder is gone; the transcript remains readable.'}
@@ -3555,7 +3556,12 @@ export function LeftColumnBoard() {
       action={{ label: 'Actions for Release notes', onClick: () => {} }} />
     <LeftColumnRow label="Conversation with no leading mark" onClick={() => {}} />
     <LeftColumnRow label="Unavailable conversation" disabled title="Conversation not kept" />
-  </LeftColumnGroup></>}
+    <LeftColumnRow label="Writer" icon={<TeamIcon size={16} />} disclosure={{ open: teamOpen, onToggle: () => setTeamOpen(!teamOpen) }} />
+    {teamOpen && <LeftColumnSeats>
+      <li><LeftColumnRow nested label="Agent 2" icon={<AgentIcon size={16} />} trailing={{ kind: 'mark', label: 'Working', prefix: '#4', icon: <Spinner aria-hidden /> }} /></li>
+      <li><LeftColumnRow nested label="Agent with a long seat label" icon={<AgentIcon size={16} />} title="Agent · Idle" /></li>
+    </LeftColumnSeats>}
+  </LeftColumnGroup></LeftColumnGroup>}
 </LeftColumnBody>}
   footer={<>{mode === 'editor' && <LeftColumnExplorerFoot onClick={() => {}} />}<LeftColumnSeat notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>} settingsOpen={false} onSettings={() => {}}
     menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} /></>} />
@@ -3569,12 +3575,12 @@ export function LeftColumnWorkBoard() {
   return <LeftColumn head={<LeftColumnNavigation><LeftColumnRow label="New session" icon={<PlusIcon size={16} />} onClick={() => {}} /></LeftColumnNavigation>} body={<LeftColumnBody>
     <LeftColumnProjectsHead value={filter} onChange={setFilter} focused={focused} onFocusChange={setFocused}
       onBrowseFolders={() => {}} options={<LeftColumnListOptions filtered={false}><Button variant="muted" size="icon-xs" aria-label="List options"><MoreIcon size={16} /></Button></LeftColumnListOptions>} />
-    <LeftColumnList before={30} after={30} labels="Release plan|Rename">
+    <LeftColumnGroup label="Conversations" heading={false}><LeftColumnList before={30} after={30} labels="Release plan|Rename">
       <LeftColumnRow label="Release plan" icon={<FolderIcon size={16} />} project current expanded
         action={{ kind: 'new', label: 'New session in Release plan', onClick: () => {} }} />
       <LeftColumnRename input={<Input aria-label="Rename example" defaultValue="Release plan" />} />
       <LeftColumnEmpty>No conversations yet — ⌘N starts one here.</LeftColumnEmpty>
-    </LeftColumnList>
+    </LeftColumnList></LeftColumnGroup>
   </LeftColumnBody>} top={null} footer={null} />
 }
 COMPOSITION_BOARDS.push({ id: 'left-column-work', title: 'Left column work rows', about: 'Fixed rows, rename, virtual spacers and the existing project controls.', render: LeftColumnWorkBoard })

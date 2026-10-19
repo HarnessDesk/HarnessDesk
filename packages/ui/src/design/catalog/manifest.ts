@@ -721,7 +721,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'InboxMenu': ['InboxMenu'],
   'InfoCard': ['InfoCard', 'InfoCardBody'],
   'InspectorPanel': ['Counts', 'GroupLine', 'PanelBody', 'PanelEmpty', 'PanelFilter', 'PanelFooter', 'PanelFrame', 'PanelRow', 'RowTime', 'RunDot'],
-  'LeftColumn': ['LeftColumn', 'LeftColumnBody', 'LeftColumnEmpty', 'LeftColumnExplorerFoot', 'LeftColumnExplorerHead', 'LeftColumnGroup', 'LeftColumnHead', 'LeftColumnList', 'LeftColumnListOptions', 'LeftColumnModeHead', 'LeftColumnNavigation', 'LeftColumnProjectsHead', 'LeftColumnRename', 'LeftColumnRow', 'LeftColumnSeat', 'LeftColumnTop'],
+  'LeftColumn': ['LeftColumn', 'LeftColumnBody', 'LeftColumnEmpty', 'LeftColumnExplorerFoot', 'LeftColumnExplorerHead', 'LeftColumnGroup', 'LeftColumnHead', 'LeftColumnList', 'LeftColumnListOptions', 'LeftColumnModeHead', 'LeftColumnNavigation', 'LeftColumnProjectsHead', 'LeftColumnRename', 'LeftColumnRow', 'LeftColumnSeats', 'LeftColumnSeat', 'LeftColumnTop'],
   'LibraryMatrix': ['LibraryMatrix'],
   'Lightbox': ['Lightbox'],
   'MainDestination': ['DestinationBody', 'MainDestination'],

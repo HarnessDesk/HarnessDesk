@@ -174,6 +174,8 @@ import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
 import { sessionLabel, shortLabel } from '../lib/sessions'
 import { seatLabelsOf } from '../lib/seat-names'
+import { goalRunOf } from '../lib/goal-run'
+import { hasConversation, teamSeats } from '../lib/team-seats'
 import { isStale } from '../lib/versions'
 import { isPathInside } from '../lib/paths'
 import { buildHandoff, type Carry } from '../lib/handoff'
@@ -2422,13 +2424,19 @@ export class AppStore {
           ),
       )
       const labels = seatLabelsOf(this.#snapshot)
+      const seatNames = new Map([...this.#snapshot.teams.values()].flatMap(team => {
+        const goal = this.#snapshot.goals.get(team.id)
+        return teamSeats(goal, team, goalRunOf(team.id, goal, this.#snapshot.flowExecutions))
+          .filter(hasConversation).map(seat => [String(seat.key), seat.name] as const)
+      }))
       const needle = query.trim().toLocaleLowerCase()
       const local = this.#snapshot.historyIdentity.filter(row => {
         const key = sessionKey(row.runtime, row.id)
         const live = this.#snapshot.sessions.get(key)
         const first = live?.turns.flatMap(turn => turn.items).find(item => item.type === 'userMessage')
         const preview = first?.type === 'userMessage' ? first.content.filter(part => part.type === 'text').map(part => part.text).join('') : null
-        return sessionLabel(live?.title ?? row.title, live?.preview ?? preview ?? row.preview, labels.get(String(key))).toLocaleLowerCase().includes(needle)
+        return [sessionLabel(live?.title ?? row.title, live?.preview ?? preview ?? row.preview, labels.get(String(key))), seatNames.get(String(key))]
+          .some(label => label?.toLocaleLowerCase().includes(needle))
       })
       const results = [...new Map([...pages.flat(), ...local].map(row => [String(sessionKey(row.runtime, row.id)), row])).values()]
         .filter((row) => this.#snapshot.runtimes.some((entry) => entry.id === row.runtime))

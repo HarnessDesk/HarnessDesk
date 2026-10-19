@@ -340,24 +340,38 @@ short result list cannot read as missing data. The title, list filter and
 conversation history all remain in the same sidebar column.
 
 **State belongs to the row.** A running conversation names its activity on hover — Planning, Editing, Testing,
-Running or Thinking — and leaves the trailing slot quiet. Only Needs you and
-an error draw a trailing mark; branch, worktree and pin facts stay on hover. A conversation waiting for an approval,
+Running or Thinking — and shows a spinner. Needs you and
+an error take priority over the spinner; branch, worktree and pin facts stay on hover. A conversation waiting for an approval,
 a held queue or an answer says **Needs you** beside its own title. Neither state
 moves it into a separate band. Stored conversations say when they last ran on
-hover instead.
+hover instead. Unread loose-conversation output stays in the Inbox.
 
-**One row per Team.** Each active Team, and each finished Team until it is
+**Teams and their Seats.** Each active Team, and each finished Team until it is
 wrapped, sits inside its project, one indent step beside the project's loose
-conversations. A running Team names its activity on hover. Orange **Needs you** means someone
+conversations. A collapsed working Team shows a spinner; an expanded Team
+leaves running marks to its Seats. Orange **Needs you** means someone
 is waiting on you. Blue **New** means news since you last opened the Team:
 it became **Ready to wrap**, a Seat has unread activity, or its Run ended.
 Opening any Team tab clears blue; the host stores when you looked, so windows,
 restarts and the phone agree. Orange takes priority over blue. Its Seats fold underneath,
-collapsed initially and one further indent step in; the chevron reveals them without opening the Team.
+one further indent step in; the selected Team and the Team owning the open
+Seat start expanded, and other Teams start collapsed. The chevron follows the
+Team name like a project header's fold chevron, visible while folded or on row
+hover or keyboard focus; it reveals Seats without opening the Team. Rows keep
+their original edge, with no leading gutter. ArrowRight expands and ArrowLeft folds.
+Team and loose-conversation icons align; a Seat icon starts under the Team label.
+Seat rows keep the same 34px pitch and trailing rail as their parent, in the
+Team's roster order; activity does not reorder them. A filter temporarily reveals
+matching Seats, and the chevron can fold that reveal. Clearing the filter restores
+each Team's own stored expansion, including the selected-Team default.
 A Seat conversation stays under its Team, including when pinned or waiting.
 Opening a Seat conversation elsewhere reveals its project and Team, including
 when the Seat works in another checkout. A later deliberate fold stays folded
-until another conversation activation. Running activity stays on hover; unread output can raise the blue mark.
+until another conversation activation. A working Seat shows its claimed card
+number, when it holds one, and a spinner; idle Seats have no trailing mark.
+Needs you takes priority over New or Failed, then the spinner. The hover title
+keeps runtime, model, card title and state. A Seat without an open conversation
+opens its Team on Overview; other Seats open their conversation.
 Wrapped Teams and their conversations leave the sidebar and remain on **Teams**.
 Teams whose project folder is gone stay hidden from the ordinary list.
 
@@ -375,7 +389,8 @@ shows up to five rows, counting Teams and loose conversations together.
 **Show more** expands the whole list and **Show less** folds it again; if the
 selected row falls outside the first five, it replaces the fifth. This expansion
 lasts for the UI session; project group folds are remembered. Pinned rows are
-uncapped. Team conversations live under their Team's row.
+uncapped. Team conversations live under their Team's row and do not count toward the
+five-row allowance. A hidden Team hides its Seats too.
 
 Clones with the same remote and linked worktrees share one project. A checkout
 you opened leads; among several, the one worked in first keeps the name.
@@ -1772,6 +1787,10 @@ wait. The live line keeps pending release and trigger actions while these rows
 are shown; routing ids stay out of the reason. Below 800px Seats become list rows. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
+The selected Team and the Team owning the open Seat start expanded. Working
+Seats show a spinner and their claimed card number; idle Seats leave the end
+rail clear. Needs you and New or Failed take priority. The Team spins only
+while collapsed, keeping one activity mark per working conversation.
 A Team without a Run that is not ready to wrap opens on Chat and still offers Overview for its Seats.
 Each member row names its nickname, with a distinct conversation title in the
 wrapping subtitle. Its task or message refusal shares that subtitle, so the

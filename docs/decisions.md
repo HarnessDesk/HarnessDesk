@@ -91,6 +91,37 @@ bounded run.
 
 **Rule:** bounded green is feedback, and only full green is landing evidence.
 
+## Team seats nest under their Team, and running rows spin — 2026-10-18 (owner)
+
+The owner chose seats nested under their Team again, with a spinner on working
+conversations and careful alignment. This supersedes the 2026-10-15 bullet
+“running rows have no spinner” and the app-frame spec's “a Team is one row”.
+
+The chevron follows the Team name like a project header's fold chevron (owner,
+2026-10-18), with no leading gutter. It folds the Seats separately from opening
+the Team's label.
+The selected Team and the Team owning an open Seat start expanded; other Teams
+start collapsed. Deliberate folds last for the UI session, until another Seat
+activation. A matching seat filter temporarily reveals its Team and matching Seats.
+The chevron can fold that reveal; clearing the filter restores the Team's own
+stored state, including selected-Team defaults. Seats use the Overview's names
+and states, in the Team's roster order; activity never reorders the roster. Their runtime icon stands
+under the Team label, one indent step in. Clicking an open Seat opens its
+conversation; a Seat not yet open opens the Team Overview.
+
+Needs you takes priority over New or Failed, then working activity. Working
+Seats show their claimed card number, when present, and a spinner; idle Seats
+have no trailing mark and say Idle on hover. A collapsed working Team spins;
+an expanded Team leaves activity to its Seats. Loose working conversations
+spin too, retaining Needs you, Failed and folder-gone marks; unread output stays
+in the Inbox for loose conversations. Runtime, model, card title and state remain
+in the Seat's hover title.
+
+All rows keep the 34px pitch and one trailing rail. Disclosure never moves a
+Team icon away from loose-conversation icons. Seats belong to a visible Team
+and do not consume the project's five-row allowance; hiding a Team hides its
+Seats. Pins do not lift Seats out of their Team.
+
 ## The sidebar keeps its rhythm quiet and its marks for attention — 2026-10-15
 
 The owner chose five changes so a long conversation list reads calmly and a
@@ -103,9 +134,10 @@ mark means "needs you":
   **Show less**. A selected row beyond the first five takes the fifth slot;
   an expanded project stays expanded for the UI session. Pinned loose
   conversations remain uncapped above the projects.
-- Trailing marks are reserved for attention or errors. Running activity,
-  branch, worktree and pin facts remain on hover and in the existing menus;
-  running rows have no spinner.
+- The original attention/error-only trailing-mark rule is superseded by
+  [the 2026-10-18 owner decision](#team-seats-nest-under-their-team-and-running-rows-spin--2026-10-18-owner),
+  which adds working spinners and nested Seats. Branch, worktree and pin facts
+  remain on hover and in the existing menus.
 - The footer has a full-width hairline and a transparent account row, with
   no pill around the identity. Readiness and usage live in the account menu.
 

@@ -1867,6 +1867,12 @@ A quiet account row closes the column beneath a full-width hairline.
 
 Explorer occupies the same column; its header and foot share the row inset.
 
+### `LeftColumnSeats`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+Seat rows indent their leading column while retaining the parent's end rail.
+
 ### `LibraryMatrix`
 
 `packages/ui/src/design/patterns/LibraryMatrix.tsx`

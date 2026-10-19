@@ -19,7 +19,9 @@
 /* A glyph inside an inline wrapper (the hover-card trigger, a label span) sits on the text baseline of a 20px line box, a few pixels above the row's centre line; as a block it fills its wrapper and the slot centres it. */
 .trailing { pointer-events: none; position: absolute; inset-inline-end: var(--hd-space-2); top: 50%; translate: 0 -50%; width: var(--hd-icon-target); height: var(--hd-icon-target); display: grid; place-items: center; }
 .mark, .action { grid-area: 1 / 1; }
-.mark { display: flex; align-items: center; justify-content: center; }
+/* The running ring ends on the same trailing guide as its 24px mark slot. */
+.mark:has(> [data-slot='spinner']) { justify-content: flex-end; }
+.mark { position: relative; width: var(--hd-icon-target); height: var(--hd-icon-target); display: flex; align-items: center; justify-content: center; }
 .action { display: inline-flex; align-items: center; justify-content: center; width: var(--hd-icon-target); height: var(--hd-icon-target); border-radius: var(--hd-radius-sm); visibility: hidden; opacity: 0; pointer-events: none; }
 .row:is(:hover, :focus-within:not(:has(.button[aria-expanded])), :has(:focus-visible)) .action, .action[aria-expanded='true'] { visibility: visible; opacity: 1; pointer-events: auto; }
 .row:is(:hover, :focus-within:not(:has(.button[aria-expanded])), :has(:focus-visible)):has(.action) .mark, .row:has(.action[aria-expanded='true']) .mark { visibility: hidden; }
@@ -83,8 +85,8 @@
 /* Foldable group names start at the ordinary icon edge. The disclosure follows
    the visible name, inside the label's reserved space beside the end action. */
 .row[data-left-project] { margin-block-start: calc(var(--hd-sidebar-group-space) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2); }
-.button[aria-expanded] { color: var(--hd-secondary-foreground); font-weight: var(--hd-weight-medium); }
-.button[aria-expanded] [data-slot='sidebar-menu-label-content'] { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: var(--hd-space-1-5); }
+:where(.row:not([data-left-disclosable])) .button[aria-expanded] { color: var(--hd-secondary-foreground); font-weight: var(--hd-weight-medium); }
+.button[aria-expanded]:has([data-left-fold-name]) [data-slot='sidebar-menu-label-content'] { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: var(--hd-space-1-5); }
 .foldName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .disclosure { flex: none; visibility: hidden; }
 .button[aria-expanded='false'] .disclosure, .row:hover .disclosure, .row:has(:focus-visible) .disclosure { visibility: visible; }
@@ -108,3 +110,18 @@
 .fileSearch > span:last-child { margin-inline-start: auto; }
 
 .seatMenu > div > button { background: transparent; }
+
+/* The row and its button share tracks, so the separate control follows the
+   measured name without nesting a button or duplicating label text. Its 24px
+   hit target extends around the same 11px glyph used by project headings. */
+.row[data-left-disclosable] { --fold-glyph: calc(var(--hd-space-3) - var(--hd-border-width)); display: grid; grid-template-columns: var(--hd-space-2) var(--hd-space-4) var(--hd-left-menu-gap) minmax(0, max-content) var(--hd-space-1-5) calc(var(--hd-icon-target) - var(--hd-space-0-5)) minmax(calc(var(--hd-icon-target) + var(--hd-space-2)), 1fr) var(--hd-space-2); }
+.row[data-left-disclosable] .button { grid-area: 1 / 1 / 2 / -1; display: grid; grid-template-columns: subgrid; gap: 0; padding-inline: 0; }
+.row[data-left-disclosable] .button [data-slot='sidebar-menu-icon'] { grid-column: 2; }
+.row[data-left-disclosable] .button [data-slot='sidebar-menu-label'] { grid-column: 4; padding-inline-end: 0; }
+.row[data-left-disclosable] .foldName { display: block; }
+.nameDisclosure { grid-area: 1 / 6; z-index: 1; justify-self: start; width: var(--hd-icon-target); height: var(--hd-icon-target); margin-inline-start: calc((var(--fold-glyph) - var(--hd-icon-target)) / 2); padding: 0; display: inline-flex; align-items: center; justify-content: center; visibility: hidden; }
+.row:has(.button[aria-expanded='false']) .nameDisclosure, .row:hover .nameDisclosure, .row:has(:focus-visible) .nameDisclosure { visibility: visible; }
+
+.seats .row .button { padding-inline-start: calc(var(--hd-space-2) + var(--hd-space-4) + var(--hd-left-menu-gap)); }
+.row[data-left-prefix] .button [data-slot='sidebar-menu-label'] { padding-inline-end: 0; }
+.markPrefix { flex: none; margin-inline-end: calc(var(--hd-icon-target) + var(--hd-space-1)); white-space: nowrap; }

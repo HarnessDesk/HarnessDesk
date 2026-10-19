@@ -831,3 +831,6 @@ export const sidebarTeamAttention = (seed: import('@harnessdesk/protocol').GoalV
     }
   })
 }
+
+/** Public seat names used by the sidebar's hierarchy and narrow-width proof. */
+export const sidebarSeatNames = ['Writer 2', 'Reviewer', 'Writer with a long seat label that must truncate'] as const
