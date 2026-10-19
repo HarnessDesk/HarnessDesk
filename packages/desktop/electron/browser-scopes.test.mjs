@@ -81,6 +81,7 @@ function rig() {
     window: () => window,
     show: async () => window,
     allowedProfile: (profile) => ['lane-a', 'lane-b', 'session-WyJhIiwiMSJd', 'session-WyJhIiwiMiJd'].includes(profile),
+    resolveProfile: partition => ['session-WyJhIiwiMSJd', 'session-WyJhIiwiMiJd'].find(profile => browserPartition(profile, true) === partition),
     readyTimeoutMs: 25,
   })
   return { engine, ipc, window, makeGuest, fronts, contents }
@@ -167,4 +168,21 @@ test('session profiles isolate persistent storage, restore admission and close i
   assert.equal((await a.send('Runtime.evaluate')).result.value, aProfile)
   assert.equal(aGuest.session.cookies.login, 'alpha')
   await assert.rejects(engine.ensure(identity('session-forged')), /not owned/)
+})
+
+test('persisted session partitions stay distinct after Electron lowercases their directory names', () => {
+  const first = 'session-WyJmaXh0dXJlIiwiYWFhIl0'
+  const second = 'session-WyJmaXh0dXJlIiwiYWFHIl0'
+  assert.notEqual(browserPartition(first, true).toLowerCase(), browserPartition(second, true).toLowerCase())
+})
+
+test('a long logical session identity stays within one portable filesystem component', () => {
+  const profile = `session-${Buffer.from(JSON.stringify(['fixture', 's'.repeat(180)])).toString('base64url')}`
+  assert.ok(Buffer.byteLength(browserPartition(profile, true).slice('persist:'.length)) <= 100)
+})
+
+test('cold hashed partitions need a host-owned logical identity before any guest announces itself', () => {
+  const { engine } = rig()
+  assert.equal(engine.profileForPartition(browserPartition('session-WyJhIiwiMSJd', true)), 'session-WyJhIiwiMSJd')
+  assert.equal(engine.profileForPartition(`persist:hd-session-${'a'.repeat(64)}`), undefined)
 })

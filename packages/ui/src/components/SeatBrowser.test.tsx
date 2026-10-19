@@ -1,7 +1,7 @@
 import { act, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
-import { sessionBrowserProfile, sessionKey, type GoalView, type Lane, type SeatRecord } from '@harnessdesk/protocol'
+import { browserProfileStorageName, sessionBrowserProfile, sessionKey, type GoalView, type Lane, type SeatRecord } from '@harnessdesk/protocol'
 import { browserMount, tileBrowserWorkbench } from '../lib/browser-tiles'
 import { fromStored, type SideBySideState } from '../lib/side-by-side'
 import type { DesktopBridge } from '../lib/desktop'
@@ -69,7 +69,7 @@ it('two tiles borrow separate live profiles, route browser keys and agent focus,
     await act(async () => root.render(<StoreProvider store={store}><Harness /></StoreProvider>))
     const guests = [...container.querySelectorAll<HTMLElement>('webview')]
     expect(guests).toHaveLength(2)
-    expect(guests.map(node => node.getAttribute('partition'))).toEqual(lanes.map(lane => `persist:hd-${lane.browserProfile}`))
+    expect(guests.map(node => node.getAttribute('partition'))).toEqual(lanes.map(lane => `persist:hd-${browserProfileStorageName(lane.browserProfile!)}`))
     expect(tileBrowserWorkbench(store.getSnapshot()).right.root).toMatchObject({ kind: 'stack', views: [] })
     act(() => guests.forEach((guest, index) => {
       let url = guest.getAttribute('src')!
@@ -131,7 +131,7 @@ it('two tiles borrow separate live profiles, route browser keys and agent focus,
     expect(betaTile.querySelector('textarea[aria-label="Message"]')).not.toBeNull()
     click(betaTile.querySelector('button[aria-label="Show the browser"]')!)
     expect(state.modes[keys[1]!]).toBe('browser')
-    expect(betaTile.querySelector('webview')?.getAttribute('partition')).toBe(`persist:hd-${lanes[1]!.browserProfile}`)
+    expect(betaTile.querySelector('webview')?.getAttribute('partition')).toBe(`persist:hd-${browserProfileStorageName(lanes[1]!.browserProfile!)}`)
   } finally {
     act(() => root.unmount())
     container.remove()

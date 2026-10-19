@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import { ExtensionKernel, type HarnessContext, type HarnessPlugin } from '@harnessdesk/cordis-host'
 import { gitPlugin } from '@harnessdesk/plugins'
-import { sessionBrowserProfile, sessionId, type AgentRuntime, type Session } from '@harnessdesk/protocol'
+import { browserProfileStorageName, sessionBrowserProfile, sessionId, type AgentRuntime, type Session } from '@harnessdesk/protocol'
 
 import { bridgeCallerFor } from '../src/bootstrap.js'
 import { invokeForBridge } from '../src/tool-gateway.js'
@@ -779,5 +779,7 @@ test('desktop can restore a known session profile from the durable index before 
   await reopened.start()
   assert.equal(reopened.registry.get(session.runtime, session.id), undefined)
   assert.equal(reopened.browserProfileAllowed(profile), true)
+  assert.equal(reopened.browserProfileForPartition(`persist:hd-${browserProfileStorageName(profile)}`), profile)
+  assert.equal(reopened.browserProfileForPartition(`persist:hd-session-${'a'.repeat(64)}`), undefined)
   assert.equal(reopened.browserProfileAllowed(sessionBrowserProfile(session.runtime, 'not-known')), false)
 })

@@ -1,4 +1,4 @@
-import { isBrowserProfile } from '@harnessdesk/protocol'
+import { browserProfileStorageName, isBrowserProfile } from '@harnessdesk/protocol'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 
@@ -133,5 +133,5 @@ export function browserPartition(profile: string | null, keep: boolean): string 
   if (!isBrowserProfile(profile)) {
     throw new Error('The host did not name a browser profile.')
   }
-  return `persist:hd-${profile}`
+  return `persist:hd-${browserProfileStorageName(profile)}`
 }

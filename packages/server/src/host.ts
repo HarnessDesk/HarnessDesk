@@ -20,6 +20,7 @@ import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
+  browserProfileStorageName,
   sessionBrowserProfile,
   browserProfileSession,
   deskContextContent,
@@ -685,6 +686,17 @@ export class Host {
       catch { return false }
     }
     return this.#lanes.list().some(lane => Object.is(lane.browserProfile, profile) && lane.state !== 'released')
+  }
+
+  /** Resolve only known session identities; a digest alone never authorizes a partition. */
+  browserProfileForPartition(partition: string): string | undefined {
+    if (!/^persist:hd-session-[a-f0-9]{64}$/.test(partition) || partition.endsWith('\n')) return undefined
+    const storageName = partition.slice('persist:hd-'.length)
+    const live = this.registry.all().find(record => Object.is(browserProfileStorageName(sessionBrowserProfile(record.runtime, record.session.id)), storageName))
+    const owner = live ? { runtime: live.runtime, id: live.session.id } : this.#sessionIndex.browserProfileOwner(storageName)
+    if (!owner) return undefined
+    const profile = sessionBrowserProfile(owner.runtime, owner.id)
+    return this.browserProfileAllowed(profile) ? profile : undefined
   }
 
   #sessionBrowserProfile(runtime: RuntimeId, id: SessionId): string | undefined {

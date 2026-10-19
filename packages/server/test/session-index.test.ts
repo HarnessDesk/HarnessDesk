@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 
+import { browserProfileStorageName, sessionBrowserProfile } from '@harnessdesk/protocol'
 import type { RuntimeId, SessionId, SessionSummary } from '@harnessdesk/protocol'
 
 import { SessionIndex } from '../src/session-index.js'
@@ -30,7 +31,10 @@ test('seed gives old folderless conversations their first typed prompt as a prev
   await writeFile(join(folder, 'old.json'), body)
   const index = new SessionIndex(':memory:')
   try {
+    const storage = browserProfileStorageName(sessionBrowserProfile(runtime, 'old'))
+    assert.equal(index.browserProfileOwner(storage), null, 'warm the empty lookup before background seeding')
     await index.seed(home)
+    assert.deepEqual(index.browserProfileOwner(storage), { runtime, id: idOf('old') })
     const seeded = index.list().data[0]!
     assert.equal(seeded.cwd, '')
     assert.equal(seeded.title, null)
@@ -427,5 +431,21 @@ test('ordinary writes preserve origin; promotion alone adopts an imported conver
     index.upsert(row('desk'))
     index.upsert(row('desk', 20), { origin: 'imported' })
     assert.deepEqual(index.list().data.map(row => row.id), ['desk'], 'an existing desk row keeps its origin')
+  } finally { index.close() }
+})
+
+test('browser partition lookup caches identities while rechecking membership and tracking later sessions', () => {
+  const index = new SessionIndex(':memory:')
+  try {
+    const first = row('first')
+    index.upsert(first)
+    const name = browserProfileStorageName(sessionBrowserProfile(first.runtime, first.id))
+    assert.deepEqual(index.browserProfileOwner(name), { runtime, id: first.id })
+    const later = row('later')
+    index.upsert(later)
+    assert.deepEqual(index.browserProfileOwner(browserProfileStorageName(sessionBrowserProfile(runtime, later.id))), { runtime, id: later.id })
+    index.remove(runtime, first.id)
+    assert.equal(index.browserProfileOwner(name), null, 'a cached identity cannot admit a removed session')
+    assert.equal(index.browserProfileOwner(`session-${'a'.repeat(64)}`), null)
   } finally { index.close() }
 })

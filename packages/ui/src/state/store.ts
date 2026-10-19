@@ -11,7 +11,7 @@ import { terminalCwdForSnapshot } from '../lib/terminal-scope'
 import { type TeamChatLayout, type TeamFramePage } from './layout'
 import { replaceTeamPayload } from './workbench'
 import { settleConversationTool, conversationToolContext, fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
-import { activeView, fixedSubject, normalizeFixedWorkbench } from './workbench'
+import { activeView, fixedSubject, isolateSessionBrowserProfiles, normalizeFixedWorkbench } from './workbench'
 import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
 import { teamsInput } from '../lib/teams-snapshot'
 import { roomFoldersGone } from '../lib/room-folders'
@@ -4415,7 +4415,7 @@ export class AppStore {
         )
       : null
     const migration = rehomed ? normalizeFixedWorkbench(rehomed, true) : null
-    const restored = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
+    const restored = migration ? settleWorkbench(isolateSessionBrowserProfiles(migration.workbench)) : emptyWorkbench()
     const view = selected ? { kind: 'conversation' as const, session: selected.conversation } : null
     const target = view ? { ...restored, main: onlyIn(restored.main, view),
       navigation: visitDestination(restored.navigation, destinationOf(view)) } : restored

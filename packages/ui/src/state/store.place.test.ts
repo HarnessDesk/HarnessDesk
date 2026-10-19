@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  sessionBrowserProfile,
   runtimeId,
   sessionId,
   sessionKey,
@@ -1003,4 +1004,19 @@ it('Show Terminal uses the chosen project on a page instead of the retained conv
   expect(calls('terminal/open').at(-1)).toMatchObject({ cwd: REPO.path })
   expect(calls('terminal/open').at(-1)).not.toHaveProperty('sessionId')
   expect(dockViews(store.getSnapshot().workbench.bottom).at(-1)?.view).toMatchObject({ kind: 'terminal', cwd: REPO.path })
+})
+
+it.each(['bare layout', 'unowned dock'] as const)('restores a %s browser into its conversation partition after final ownership migration', async shape => {
+  const key = sessionKey(AGENT, 'legacy-session')
+  const browser = { kind: 'browser', tabs: [{ id: 'legacy-tab', url: 'https://example.com/legacy' }], active: 'legacy-tab', driven: 'legacy-tab' }
+  const conversationPane = { kind: 'pane', id: 'legacy-conversation', view: { kind: 'conversation', session: key } }
+  const raw = shape === 'bare layout'
+    ? { root: { kind: 'split', id: 'legacy-split', direction: 'row', ratio: 0.5, first: conversationPane, second: { kind: 'pane', id: 'legacy-browser', view: browser } }, focused: 'legacy-conversation' }
+    : { main: { root: conversationPane, focused: 'legacy-conversation' }, right: { views: [{ id: 'legacy-browser', view: browser }], active: 'legacy-browser' } }
+  answers['app/state/get'] = { layouts: { [REPO.path]: raw } }
+  answers['session/read'] = conversation('legacy-session', REPO.path)
+  await store.loadPreferences()
+  const restored = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')
+  expect(restored?.view).toMatchObject({ profile: sessionBrowserProfile(AGENT, 'legacy-session'), tabs: browser.tabs })
+  expect(store.getSnapshot().workbench.toolOwners[restored!.id]).toBe(`session:${key}`)
 })

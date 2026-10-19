@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { sessionBrowserProfile, runtimeId, sessionId, type Session } from '@harnessdesk/protocol'
+import { browserProfileStorageName, sessionBrowserProfile, runtimeId, sessionId, type Session } from '@harnessdesk/protocol'
 import { browserPartition } from '../lib/desktop'
 import { AppStore } from './store'
 import { dockViews, readWorkbench } from './workbench'
@@ -36,8 +36,8 @@ it('two conversations in one checkout retain separate browser tabs across switch
 
 it('the real webview partition accepts session identities independently of the default persistence preference', () => {
   const profile = sessionBrowserProfile('fixture', 'alpha')
-  expect(browserPartition(profile, true)).toBe(`persist:hd-${profile}`)
-  expect(browserPartition(profile, false)).toBe(`persist:hd-${profile}`)
+  expect(browserPartition(profile, true)).toBe(`persist:hd-${browserProfileStorageName(profile)}`)
+  expect(browserPartition(profile, false)).toBe(`persist:hd-${browserProfileStorageName(profile)}`)
 })
 
 it('a first tool open for a background session belongs to that session without changing the foreground', async () => {
@@ -50,4 +50,11 @@ it('a first tool open for a background session belongs to that session without c
   expect(after.toolOwners[browser.id]).toBe('session:fixture\u0000beta')
   expect(after.main).toEqual(before.main)
   expect(after.navigation).toEqual(before.navigation)
+})
+
+it('session storage names survive Electron case folding and long ids', () => {
+  const first = browserPartition(sessionBrowserProfile('fixture', 'aaa'), true)
+  const second = browserPartition(sessionBrowserProfile('fixture', 'aaG'), true)
+  expect(first.toLowerCase()).not.toBe(second.toLowerCase())
+  expect(browserPartition(sessionBrowserProfile('fixture', 's'.repeat(180)), true).length).toBeLessThanOrEqual(100)
 })

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { answered } from './deadline.mjs'
 import { printOptions, printResult } from './pdf.mjs'
 
@@ -12,7 +13,7 @@ export function browserPartition(profile, keep) {
   ) {
     throw new Error('The host did not name a browser profile.')
   }
-  return `persist:hd-${profile}`
+  return `persist:hd-${profile.startsWith('session-') ? `session-${createHash('sha256').update(profile).digest('hex')}` : profile}`
 }
 
 /** Dependency injection keeps the tests on the actual engine, without an Electron process. */
@@ -23,6 +24,7 @@ export function createProfileBrowserEngine({
   window: currentWindow,
   show,
   allowedProfile,
+  resolveProfile = () => undefined,
   keep = () => true,
   readyTimeoutMs = 10_000,
 }) {
@@ -32,6 +34,7 @@ export function createProfileBrowserEngine({
   const focused = new Map()
   const banked = new WeakMap()
   const partitionProfiles = new Map()
+  const profilesByPartition = new Map()
   const attaching = new WeakMap()
   let nextRequest = 0
   let tail = Promise.resolve()
@@ -47,6 +50,7 @@ export function createProfileBrowserEngine({
       throw new Error('This browser profile is not owned by a known conversation or kept lane.')
     }
     partitionProfiles.set(sessionForPartition(value), profile)
+    profilesByPartition.set(value, profile)
     return value
   }
   const pending = (map, key, message) => {
@@ -200,7 +204,10 @@ export function createProfileBrowserEngine({
         return null
       }
       if (typeof value !== 'string' || !value.startsWith('persist:hd-')) return undefined
-      const profile = value.slice('persist:hd-'.length)
+      const profile = value.startsWith('persist:hd-session-')
+        ? (profilesByPartition.get(value) ?? resolveProfile(value))
+        : value.slice('persist:hd-'.length)
+      if (typeof profile !== 'string') return undefined
       try {
         return partition(profile) === value ? profile : undefined
       } catch {

@@ -1,3 +1,4 @@
+import { browserProfileStorageName } from '@harnessdesk/protocol'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, type Dirent } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -236,7 +237,7 @@ const settingsFor = (state: BrowserState): BrowserSettings =>
         profileDir: join(
           dirname(settings.profileDir ?? join(homedir(), '.harnessdesk', 'browser-profile')),
           'browser-profiles',
-          state.profile,
+          browserProfileStorageName(state.profile),
         ),
       }
 

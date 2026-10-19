@@ -1,4 +1,4 @@
-import { isBrowserProfile } from '@harnessdesk/protocol'
+import { browserProfileStorageName, isBrowserProfile } from '@harnessdesk/protocol'
 /**
  * The Electron bridge, as the renderer sees it.
  *
@@ -182,5 +182,5 @@ export function browserPartition(profile: string | null, keep: boolean): string 
   if (!isBrowserProfile(profile)) {
     throw new Error('The host did not name a browser profile.')
   }
-  return `persist:hd-${profile}`
+  return `persist:hd-${browserProfileStorageName(profile)}`
 }

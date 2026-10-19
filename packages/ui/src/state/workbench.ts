@@ -1345,7 +1345,7 @@ export const readWorkbench = (raw: unknown, windowHeight = 900): Workbench | nul
     }
   }
 
-  let workbench: Workbench = {
+  const workbench: Workbench = {
     navigation: readDestinationHistory(record['navigation'], navigationFor(main).current),
     frameTools: readToolIntents(record.frameTools), toolOwners, frameSubjects,
     sidebar: readDock('sidebar', record['sidebar'], windowHeight),
@@ -1355,6 +1355,12 @@ export const readWorkbench = (raw: unknown, windowHeight = 900): Workbench | nul
     zoom: readZoom(record['zoom']),
     focus: typeof record['focus'] === 'string' ? record['focus'] : null,
   }
+  return isolateSessionBrowserProfiles(workbench)
+}
+
+/** Run again after legacy panels are rehomed and their conversation owners are assigned. */
+export const isolateSessionBrowserProfiles = (before: Workbench): Workbench => {
+  let workbench = before
   // Preserve saved pages, while old shared/lane cookies stay out of a
   // conversation's new partition. Never assign a shared login to a session.
   for (const entry of mountedViews(workbench)) {

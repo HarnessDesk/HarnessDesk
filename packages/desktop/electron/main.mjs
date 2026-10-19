@@ -634,6 +634,7 @@ const sendShortcut = (name) => {
  */
 const browserEngine = createInlineBrowserEngine({
   allowedProfile: (profile) => host?.browserProfileAllowed(profile) === true,
+  resolveProfile: (partition) => host?.browserProfileForPartition(partition),
   window: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
   show: async () => {
     await showMainWindow()
