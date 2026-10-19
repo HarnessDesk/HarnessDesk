@@ -24,10 +24,9 @@ test('real sidebar footer fills its column and its menu is painted and clickable
       // literal would have to be edited every time the column is re-spaced,
       // and the claim is "level with its neighbours", not "four pixels".
       const rail = parseFloat(getComputedStyle(node.closest('[data-left-column]')!).getPropertyValue('--hd-rail-inset'))
-      const gutter = parseFloat(getComputedStyle(node).getPropertyValue('--hd-icon-target'))
-      return { left: row.left - box.left, right: box.right - row.right, rail, gutter }
+      return { left: row.left - box.left, right: box.right - row.right, rail }
     })
-    expect(gap.right + gap.gutter).toBeCloseTo(gap.left, 0)
+    expect(gap.right).toBeCloseTo(gap.left, 0)
     expect(gap.right).toBeCloseTo(gap.rail, 0)
   }
   await trigger.click()

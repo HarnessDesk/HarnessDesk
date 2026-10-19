@@ -1535,12 +1535,12 @@ body[data-hd-interface='studio'][data-hd-dark-theme] {
   --hd-ring-muted: color-mix(in srgb, var(--hd-ring) 55%, transparent);
 }
 
-/* Settings keeps 32px rows, 1px apart, and the control radius.
-   Its icon-to-label gap shares the working sidebar's column. */
+/* The Settings menu keeps the working sidebar's 32px rows, 1px apart, 12px
+   from icon to label, and the control radius. */
 [data-left-settings] {
   --hd-left-row-h: 32px;
   --hd-left-row-gap: 1px;
-  --hd-left-menu-gap: var(--hd-space-2); /* desk: Settings shares the main sidebar's 8px icon-to-label gap. */
+  --hd-left-menu-gap: var(--hd-space-3);
   --hd-nav-radius: var(--hd-radius-md);
 }
 

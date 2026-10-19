@@ -1,4 +1,3 @@
-import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES } from './frame-wall-destinations'
@@ -77,19 +76,14 @@ for (const theme of WALL_THEMES) {
 }
 
 for (const theme of WALL_THEMES) {
-  test(`D3 Teams reveal nested seats at the same row height in ${theme}`, async ({ page }) => {
+  test(`D3 Teams are single rows in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=left-work', theme)
     const team = page.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
     await expect(team).toBeVisible()
     expect((await team.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
     await expect(team.locator('..').locator('[data-left-trailing]')).toHaveCount(1)
-    await expect(team).toHaveAttribute('aria-expanded', 'true')
-    const seats = team.locator('xpath=ancestor::*[@data-region="team-row"]').locator('[data-region="seat-row"]')
-    await expect(seats).toHaveCount(3)
-    for (const seat of await seats.locator('[data-slot="sidebar-menu-button"]').all()) {
-      expect((await seat.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
-    }
-    await expect(team.locator('..').getByRole('button', { name: 'Hide the agents in Ship checkout retry', exact: true })).toHaveCount(1)
+    await expect(page.locator('[data-left-column] [data-nested="true"]')).toHaveCount(0)
+    await expect(page.locator('[data-left-column] [aria-label*="agents in"]')).toHaveCount(0)
     await team.click()
     await expect(team).toHaveAttribute('aria-current', 'page')
   })
@@ -124,51 +118,4 @@ test('D8 the hidden-column lead restores the column that owns Search', async ({ 
   await expect(top.getByRole('button', { name: 'Search everything', exact: true })).toHaveCount(0)
   await top.getByRole('button', { name: 'Show sidebar', exact: true }).click()
   await expect(page.locator('[data-left-column]:visible').getByRole('button', { name: 'Search everything', exact: true })).toBeVisible()
-})
-
-for (const theme of WALL_THEMES) test(`one leading column for navigation, work, footer and Settings in ${theme}`, async ({ page }) => {
-  // Keep a second synthetic index page available so the real load-more row renders.
-  await page.route('**/src/preview/frame-destination-store.ts*', async route => {
-    const response = await route.fetch()
-    const body = (await response.text()).replaceAll('query.pageSize ?? 50', '7')
-    await route.fulfill({ response, body })
-  })
-  await openFrame(page, 'frame-wall=left-work&frame-update=1', theme)
-  const column = page.locator('[data-left-column]:visible')
-  const account = column.locator('button[class*="accountRow"]')
-  const rows = {
-    navigation: column.getByRole('button', { name: 'Teams', exact: true }),
-    loose: column.getByRole('button', { name: 'Release notes', exact: true }),
-    team: column.getByRole('button', { name: 'Room Ship checkout retry', exact: true }),
-    loadMore: column.getByRole('button', { name: 'Load more conversations', exact: true }),
-    update: column.getByRole('button', { name: 'Relaunch to update', exact: true }),
-  }
-  const measure = (row: typeof account) => row.evaluate(node => {
-    const origin = node.closest('[data-left-column]')!.getBoundingClientRect().x
-    const icon = node.querySelector('[data-slot="sidebar-menu-icon"], [data-shape="face"]')!
-    const label = node.querySelector('[data-slot="sidebar-menu-label-content"], [class*="accountName"]')!
-    return { icon: icon.getBoundingClientRect().x - origin, label: label.getBoundingClientRect().x - origin }
-  })
-  const measurements: Record<string, { icon: number; label: number }> = {}
-  for (const [kind, row] of Object.entries({ ...rows, account })) {
-    await expect(row).toBeVisible()
-    measurements[kind] = await measure(row)
-  }
-  console.log(JSON.stringify({ theme, leftColumn: measurements }))
-  for (const row of Object.values(measurements)) {
-    expect(Math.abs(row.icon - measurements.navigation!.icon)).toBeLessThanOrEqual(1)
-    expect(Math.abs(row.label - measurements.navigation!.label)).toBeLessThanOrEqual(1)
-  }
-  await page.mouse.move(1400, 899)
-  if (process.env.SIDEBAR_SEATS_R2_FRAMES) await column.screenshot({ path: path.join(process.env.SIDEBAR_SEATS_R2_FRAMES, `left-column-${theme}.png`) })
-  await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.locator('[data-left-column]:visible').last()
-  const general = settings.getByRole('button', { name: 'General', exact: true })
-  await expect(general).toBeVisible()
-  const settingsX = await measure(general)
-  console.log(JSON.stringify({ theme, settings: settingsX }))
-  expect(Math.abs(settingsX.icon - measurements.navigation!.icon)).toBeLessThanOrEqual(1)
-  expect(Math.abs(settingsX.label - measurements.navigation!.label)).toBeLessThanOrEqual(1)
-  await page.mouse.move(1400, 899)
-  if (process.env.SIDEBAR_SEATS_R2_FRAMES) await settings.screenshot({ path: path.join(process.env.SIDEBAR_SEATS_R2_FRAMES, `settings-${theme}.png`) })
 })

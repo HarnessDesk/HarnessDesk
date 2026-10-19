@@ -57,7 +57,6 @@ import { RemoveWorktree } from './RemoveWorktree'
 import {
   Dot,
   LeftColumnGroup,
-  LeftColumnEmpty,
   LeftColumnHead,
   LeftColumnRow,
   type LeftColumnTrail,
@@ -1755,6 +1754,6 @@ export const SettingsNavigation = ({ section, onSection, onBack }: {
           selected={section === entry.id} trailing={trailing} onClick={() => onSection(entry.id)} />
       })}
     </LeftColumnGroup>)}
-    {groups.length === 0 && <LeftColumnEmpty><Text as="p" role="meta">Nothing in settings matches “{query.trim()}”.</Text></LeftColumnEmpty>}
+    {groups.length === 0 && <Text as="p" role="meta">Nothing in settings matches “{query.trim()}”.</Text>}
   </nav>
 }

@@ -78,17 +78,15 @@ for (const theme of WALL_THEMES) {
     await expect(search).toBeFocused()
     const field = (await nav.locator('[data-slot="search"]').boundingBox())!
     const middle = (await nav.boundingBox())!
-    expect(field.x).toBe((await back.locator('[data-slot="sidebar-menu-icon"]').boundingBox())!.x)
-    expect(field.width).toBe(middle.width - (field.x - middle.x))
-    const labelX = (await general.locator('[data-slot="sidebar-menu-label-content"]').boundingBox())!.x
+    expect(field.x).toBe(middle.x)
+    expect(field.width).toBe(middle.width)
     await search.fill('no matching preference with a deliberately long search phrase')
     const empty = await nav.locator('p').evaluate(node => ({
-      x: node.getBoundingClientRect().x, height: node.getBoundingClientRect().height,
+      height: node.getBoundingClientRect().height,
       line: parseFloat(getComputedStyle(node).lineHeight),
       width: node.clientWidth,
       scroll: node.scrollWidth,
     }))
-    expect(Math.abs(empty.x - labelX)).toBeLessThanOrEqual(1)
     expect(empty.height).toBeGreaterThan(empty.line)
     expect(empty.scroll).toBeLessThanOrEqual(empty.width)
   })

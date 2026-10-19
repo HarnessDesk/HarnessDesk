@@ -193,7 +193,7 @@ export const Sidebar = ({
         searching={searchQuery.length > 0}
         filter={searchQuery}
         searchEmptyState={searchQuery && !snapshot.historyLoading ? (
-          <EmptyState variant="inline" align="start" title={`No conversations match “${searchQuery}”.`}>
+          <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
             {' '}
             <Button variant="muted" size="sm" onClick={() => setQuery('')}>Clear search</Button>
           </EmptyState>
@@ -539,7 +539,7 @@ export const AccountFooter = ({
 
   const accountTrigger = (
     <>
-      <ProfileFace size={16} />
+      <ProfileFace size={24} />
       <Text role="subject" className={styles.accountName}>
         <Clipped truncate className={styles.accountLabel}>{yourName}</Clipped>
       </Text>

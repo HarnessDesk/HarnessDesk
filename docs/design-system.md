@@ -1859,7 +1859,6 @@ Its compact cells use the shared switcher appearance.
 
 `packages/ui/src/design/patterns/LeftColumn.tsx`
 
-The account icon and label share the list columns; its face uses the 16px icon slot.
 A quiet account row closes the column beneath a full-width hairline.
 
 ### `LeftColumnExplorerHead`
