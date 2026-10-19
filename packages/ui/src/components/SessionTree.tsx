@@ -169,13 +169,11 @@ const SessionRow = memo(({
     }
   }, sameSessionRowSlice)
   const agentName = runtime?.presentation.name ?? 'This conversation’s runtime'
-  /* The name the person just gave it, before the history list has caught up.
-     A rename patches the open session and the indexed row at once;
-     138 renames in a row left the sidebar saying "Untitled session" down the
-     whole list for the better part of a minute while the room's rail already
-     read every name. The live session is the fresher record when it exists. */
+  /* The index carries names chosen for runtimes that cannot store them. A live
+     read can still carry that runtime's older title, so an indexed title wins;
+     live titles fill in only before the index has one. */
   /* A Seat without a person's first message is named by its job and Team. */
-  const label = sessionLabel(liveTitle === undefined ? summary.title : liveTitle, livePreview ?? summary.preview, seatLabel ?? undefined)
+  const label = sessionLabel(summary.title ?? liveTitle, livePreview ?? summary.preview, seatLabel ?? undefined)
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   const worktree = isWorktreeSession(summary)
   const running = !needsYou && (backgrounded > 0 || (trace !== null && ACTIVE_STATES.has(trace)) || busy)
@@ -664,7 +662,7 @@ const WindowedProjectRows = ({
     }
     const key = sessionKey(row.summary.runtime, row.summary.id)
     const live = snapshot.sessions.get(key)
-    return sessionLabel(live ? live.title : row.summary.title, live ? live.preview ?? firstAsk(live) : row.summary.preview, seatLabelsOf(snapshot).get(String(key)))
+    return sessionLabel(row.summary.title ?? live?.title, live ? live.preview ?? firstAsk(live) : row.summary.preview, seatLabelsOf(snapshot).get(String(key)))
   }))
 
   useEffect(() => {
