@@ -408,6 +408,8 @@ for (const theme of ['light', 'dark'] as const) {
     const fixture = page.locator('#sidebar-structure')
     const team = fixture.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
     const disclosure = team.locator('..').locator('[data-left-disclosure]')
+    // The row carries the expanded state; an open Team's chevron stays unfilled until it is hovered.
+    await expect(disclosure).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await disclosure.hover()
     const arrow = (await disclosure.boundingBox())!, highlight = (await team.boundingBox())!, sidebar = (await fixture.boundingBox())!
     expect(arrow.x + arrow.width).toBeLessThanOrEqual(highlight.x + 1)

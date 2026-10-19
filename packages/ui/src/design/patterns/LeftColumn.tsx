@@ -62,7 +62,7 @@ export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((
       aria-current={props.selected ? 'page' : undefined} aria-expanded={props.disclosure?.open ?? (props.tree ? props.tree.expanded : props.expanded)}
       aria-label={props.label} onClick={props.onClick} onDoubleClick={props.onDoubleClick} {...props.buttonProps} />
     {props.disclosure && <Button variant="ghost" size="pattern" className={styles.gutterDisclosure} data-left-disclosure
-      tabIndex={-1} aria-label={`${props.disclosure.open ? 'Hide' : 'Show'} the agents in ${props.label}`} aria-expanded={props.disclosure.open}
+      tabIndex={-1} aria-label={`${props.disclosure.open ? 'Hide' : 'Show'} the agents in ${props.label}`}
       onClick={event => {
         event.stopPropagation()
         event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')?.focus({ preventScroll: true })

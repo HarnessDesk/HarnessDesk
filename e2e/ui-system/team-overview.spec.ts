@@ -66,8 +66,16 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(attention.locator('[data-slot="dot"]')).toHaveAttribute('data-state', 'limit')
     await expect(tree.locator('[data-slot="spinner"]')).toHaveCount(0)
     await expect(tree.locator('[data-slot="chip"]')).toHaveCount(0)
+    // A Team that is not open starts folded; its chevron lists the seats under it and folds them again.
     const disclosure = tree.getByRole('button', { name: 'Show the agents in Retry the checkout call', exact: true })
-    await expect(disclosure).toHaveCount(0)
+    await expect(disclosure).toHaveCount(1)
+    await expect(tree.locator('[data-left-nested]')).toHaveCount(0)
+    await disclosure.click()
+    const fold = tree.getByRole('button', { name: 'Hide the agents in Retry the checkout call', exact: true })
+    await expect(fold).toHaveCount(1)
+    expect(await tree.locator('[data-left-nested]').count()).toBeGreaterThan(0)
+    await fold.click()
+    await expect(tree.locator('[data-left-nested]')).toHaveCount(0)
     const team = tree.getByRole('button', { name: 'Room Retry the checkout call', exact: true })
     const project = tree.locator('[data-project-root] button[data-draggable]')
     await expect(project).toHaveAttribute('aria-expanded', 'true')
@@ -77,7 +85,7 @@ for (const theme of ['light', 'dark'] as const) {
     await project.click()
     await expect(project).toHaveAttribute('aria-expanded', 'true')
     await expect(team).toBeVisible()
-    // The flat Team row keeps its Seats in Details rather than nesting views.
+    // Details still lists every seat with its conversation.
     const running = page.locator('#team-overview-live-running')
     const runningSeats = await teamSeats(running)
     await expect(runningSeats.locator('[data-slot="list-row"]')).toHaveCount(2)
