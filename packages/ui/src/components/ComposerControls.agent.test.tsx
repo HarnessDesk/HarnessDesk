@@ -44,7 +44,7 @@ const click = (element: Element): void => {
   })
 }
 
-it('keeps an unavailable agent and its consequence visible while ordinary taglines stay on hover', () => {
+it('keeps an unavailable agent on one line with a hover explanation and does not warm it on hover', () => {
   const current = runtime('current', 'Current', 'The current agent.')
   const unavailable = runtime('down', 'Down', 'The unavailable agent.')
   const available = runtime('ready', 'Ready', 'The available agent.')
@@ -87,13 +87,18 @@ it('keeps an unavailable agent and its consequence visible while ordinary taglin
   const down = rows.find((row) => row.textContent?.includes('Down'))
   const ready = rows.find((row) => row.textContent?.includes('Ready'))
 
-  expect(down?.textContent).toContain('Down — unavailable')
-  expect(down?.textContent).toContain('This runtime cannot start right now. Selecting it shows what to fix.')
+  expect(down?.querySelector('[data-menu-label]')?.textContent).toBe('Down')
+  expect(down?.querySelector('[data-menu-hint]')).toBeNull()
+  expect(down?.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toBe('This runtime cannot start right now. Select it to see what to fix.')
   expect(down?.title).toBe('')
   expect(ready?.textContent).not.toContain('The available agent.')
   expect(ready?.title).toBe('The available agent.')
   expect(ready?.querySelector('[data-menu-hint]')).toBeNull()
   expect(rows.every(row => row.querySelector('[data-menu-icon]') !== null)).toBe(true)
+  act(() => down?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })))
+  expect(store.transport.request).not.toHaveBeenCalledWith('runtime/warm', { runtime: 'down' })
+  act(() => ready?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })))
+  expect(store.transport.request).toHaveBeenCalledWith('runtime/warm', { runtime: 'ready' })
 })
 
 it('offers hand-off once as a submenu whose recipient rows keep their agent marks', () => {

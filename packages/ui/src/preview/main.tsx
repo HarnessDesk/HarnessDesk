@@ -1344,6 +1344,8 @@ createRoot(container).render(
           ? <ReadCeilingFrames />
           : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
+          : new URLSearchParams(window.location.search).has('runtime-start-only')
+          ? <RuntimeStartFrames />
           : new URLSearchParams(window.location.search).has('review-publication')
           ? <PublicationPreview />
           : new URLSearchParams(window.location.search).has('flow-brief')

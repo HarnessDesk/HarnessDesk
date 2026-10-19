@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 
-import { Button, Chip, ComposerTrack, Dialog, Row, RowChoice, Text, TextMark } from '../design'
+import { Button, Chip, ComposerTrack, Dialog, IssueMark, Row, RowChoice, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -225,13 +225,13 @@ const useStaleDefaults = (slot: ComposerOptionSlot): readonly StaleDefault[] => 
   return (runtime ? snapshot.staleDraftDefaults[runtime] ?? [] : []).filter((one) => slotForCategory(one.category) === slot)
 }
 
-const DefaultWarning = () => <TextMark label="Stale saved default" tone="warning"><AlertIcon size={12} /></TextMark>
+const DefaultWarning = () => <IssueMark message="Stale saved default" />
 
 const StaleDefaultRows = ({ stale }: { stale: readonly StaleDefault[] }) => {
   const store = useStore()
   const runtime = useRuntime()?.id
-  return <>{stale.map((one) => <MenuItem key={one.id} icon={<AlertIcon size={14} />}
-    label="Use the runtime’s current value" hint={`Saved ${one.label}: ${one.valueLabel}. ${one.reason}`}
+  return <>{stale.map((one) => <MenuItem key={one.id} icon={<RetryIcon size={14} />}
+    label="Use the runtime’s current value" value={<IssueMark message={`Saved ${one.label}: ${one.valueLabel}. ${one.reason}`} />}
     onSelect={() => { if (runtime) void Promise.resolve(store.clearNewSessionDefault(runtime, one.id)).catch(error => store.resultNotice('warning', error instanceof Error ? error.message : String(error))) }} />)}
     {stale.length > 0 && <MenuSeparator />}
   </>
@@ -248,7 +248,7 @@ const MissingOptionControl = ({ stale, label, reason, narrow, tight, children }:
 ) : <RefusedComposerControl label={label} reason={reason} narrow={narrow} tight={tight}>{children}</RefusedComposerControl>
 
 const UnavailableChoice = ({ option }: { option: ConfigOption }) => option.type === 'select' && !selectedChoice(option)
-  ? <MenuItem icon={<AlertIcon size={14} />} label={currentLabel(option)} disabled="This current value is no longer offered." onSelect={() => undefined} /> : null
+  ? <MenuItem icon={<ModelIcon size={14} />} label={currentLabel(option)} value={<IssueMark message="This current value is no longer offered." />} disabled onSelect={() => undefined} /> : null
 
 const RefusedComposerControl = ({
   label,
@@ -769,8 +769,10 @@ export const ModelControl = () => {
                       key={route.id}
                       selected={snapshot.draftRouteId === route.id}
                       label={route.name}
-                      hint={route.usable === false ? route.reason : route.endpoint}
-                      disabled={route.usable === false ? route.reason : false}
+                      hint={route.usable === false ? undefined : route.endpoint}
+                      value={route.usable === false && route.reason ? <IssueMark message={route.reason} /> : undefined}
+                      disabled={route.usable === false}
+                      title={route.usable === false ? route.reason : undefined}
                       onSelect={() => store.setDraftRoute(route.id)}
                     />
                   ))}
@@ -1096,17 +1098,13 @@ export const AgentControl = () => {
                       key={entry.id}
                       icon={<RuntimeMark runtime={entry} />}
                       selected={entry.id === owner.id}
-                      label={down ? `${label(entry)} — unavailable` : label(entry)}
-                      // A dead agent's state is a consequence and stays on
-                      // screen. A tagline is not: these are brand names the
-                      // reader arrived knowing, the blurb cannot change which
-                      // one they pick, and only some agents declare one — so
-                      // on screen it is a ragged menu rather than a column
-                      // worth reading. Settings and first-run still show it,
-                      // where choosing is the whole task.
-                      hint={down ? 'This runtime cannot start right now. Selecting it shows what to fix.' : undefined}
+                      label={label(entry)}
+                      value={down ? <IssueMark message="This runtime cannot start right now. Select it to see what to fix." /> : undefined}
                       title={down ? undefined : entry.presentation.tagline}
-                      onHighlight={() => warm(entry.id)}
+                      // Hover is only intent to inspect this row. Starting a
+                      // failed runtime here toggles its health through
+                      // starting/unavailable and makes the menu change height.
+                      onHighlight={down ? undefined : () => warm(entry.id)}
                       onSelect={() => {
                         warm(entry.id)
                         if (entry.id !== owner.id) void store.selectRuntime(entry.id).then(() => {

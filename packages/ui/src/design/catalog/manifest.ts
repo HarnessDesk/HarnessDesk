@@ -725,7 +725,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'LibraryMatrix': ['LibraryMatrix'],
   'Lightbox': ['Lightbox'],
   'MainDestination': ['DestinationBody', 'MainDestination'],
-  'Menu': ['ContextMenu', 'Menu', 'MenuAccountGroup', 'MenuAccountRow', 'MenuItem', 'MenuLabel', 'MenuNote', 'MenuSeparator', 'MenuToggle', 'Submenu', 'useContextMenu', 'useMenuClose'],
+  'Menu': ['ContextMenu', 'IssueMark', 'Menu', 'MenuAccountGroup', 'MenuAccountRow', 'MenuItem', 'MenuLabel', 'MenuNote', 'MenuSeparator', 'MenuToggle', 'Submenu', 'useContextMenu', 'useMenuClose'],
   'ModalDialog': ['Dialog', 'DialogBody', 'DialogFooter', 'DialogHead'],
   'Notices': ['ComposerNotice', 'ComposerNoticeStack', 'ComposerTail', 'InboxPanel', 'NoticeCard', 'NoticeStrip', 'showToast'],
   'Page': ['Page', 'PageColumns', 'PageStack'],

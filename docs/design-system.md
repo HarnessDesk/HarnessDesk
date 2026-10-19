@@ -1910,6 +1910,12 @@ Keep work and visited pages mounted; only the active main layer is interactive.
 
 Each visited page owns one scroll element for the current project.
 
+### `IssueMark`
+
+`packages/ui/src/design/patterns/Menu.tsx`
+
+A single-line warning or error with an explanation on hover and in the accessible name.
+
 ### `MenuAccountGroup`
 
 `packages/ui/src/design/patterns/Menu.tsx`

@@ -20,7 +20,9 @@ export const RuntimeStartFrames = () => {
     const store = previewStore({
       status: 'open', runtimes, activeRuntime: runtimeId('alpha'), activeSessionKey: null, sessions: new Map(),
       health: { state: 'ready' }, draftOptions: null,
-      healthByRuntime: { alpha: { state: 'ready' }, beta: { state: state === 'before' ? 'ready' : 'idle' } },
+      healthByRuntime: { alpha: { state: 'ready' }, beta: state === 'unavailable'
+        ? { state: 'unavailable', reason: 'notInstalled', message: 'Beta is not installed.', remediation: 'Install Beta.' }
+        : { state: state === 'before' ? 'ready' : 'idle' } },
       accountsByRuntime: {
         [runtimeId('alpha')]: { accounts: [{ kind: 'subscription', label: 'Jane Doe', planType: 'Demo' }], signInMethods: [] },
         ...(state === 'cold' ? {} : { [runtimeId('beta')]: { accounts: [{ kind: 'subscription', label: 'Jane Doe', planType: 'Demo' }], signInMethods: [] } }),
