@@ -165,10 +165,34 @@ it('keeps a removed current model visibly unavailable with valid choices and no 
   expect(trigger.title).toContain('Low')
   click(trigger)
   expect(document.querySelector('[role="menu"]')?.textContent).toContain('spark-3 — Unavailable')
+  const unavailable = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((node) => node.textContent?.includes('spark-3'))!
+  expect(unavailable.querySelector('[data-menu-hint]')).toBeNull()
+  expect(unavailable.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toBe('This current value is no longer offered.')
   expect(setOption).not.toHaveBeenCalled()
   const valid = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((node) => node.textContent?.includes('Brain 9'))!
   click(valid)
   expect(setOption).toHaveBeenCalledWith('model', 'brain-9')
+})
+
+it('keeps an unusable model route on one line with its reason on the issue mark', () => {
+  const reason = 'This route needs a credential.'
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id,
+    draftOptions: [model],
+    routes: [{ id: 'route_1', name: 'Acme proxy', endpoint: 'https://proxy.acme.dev/v1',
+      wireProtocol: 'responses', credentialRef: 'cred_a', usable: false, reason }],
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><ModelControl /></StoreProvider>))
+  click(container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!)
+  const routeMenu = [...document.querySelectorAll<HTMLButtonElement>('[data-slot="dropdown-menu-sub-trigger"]')]
+    .find((node) => node.textContent?.includes('Model route'))!
+  click(routeMenu)
+  const route = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+    .find((node) => node.textContent?.includes('Acme proxy'))!
+  expect(route).toBeTruthy()
+  expect(route.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toBe(reason)
+  expect(route.querySelector('[data-menu-hint]')).toBeNull()
 })
 
 it('flags a stale saved model in the control and offers one click to clear its original pick', () => {
@@ -181,8 +205,8 @@ it('flags a stale saved model in the control and offers one click to clear its o
   expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
   click(trigger)
   const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((node) => node.textContent?.includes('Use the runtime’s current value'))!
-  expect(row.textContent).toContain('Retired model')
-  expect(row.textContent).toContain('This value is no longer offered.')
+  expect(row.querySelector('[data-menu-hint]')).toBeNull()
+  expect(row.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toContain('Retired model. This value is no longer offered.')
   click(row)
   expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'model')
 })
@@ -216,7 +240,7 @@ it.each(['stale default', 'unavailable current value'] as const)('keeps a single
   if (state === 'stale default') {
     expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
     const clear = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Use the runtime’s current value'))!
-    expect(clear.textContent).toContain('Retired mode')
+    expect(clear.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toContain('Retired mode')
     click(clear)
     expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'mode')
   } else {
@@ -238,7 +262,7 @@ it.each([['model', ModelControl], ['mode', ModeControl], ['_permissions', Permis
   expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
   click(trigger)
   const clear = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Use the runtime’s current value'))!
-  expect(clear.textContent).toContain('Original value')
+  expect(clear.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toContain('Original value')
   click(clear)
   expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'removed')
 })

@@ -16,7 +16,7 @@ import {
   type Ref,
 } from 'react'
 
-import { CheckIcon, ChevronIcon } from '../../components/Icons'
+import { AlertIcon, CheckIcon, ChevronIcon } from '../../components/Icons'
 import {
   DropdownMenu,
   DropdownMenuCheckboxControl,
@@ -37,6 +37,13 @@ import { useDismissOverlays } from './Popover'
 import { Text, Chip } from './Settings'
 
 import styles from './Menu.module.css'
+
+/** A single-line warning or error with an explanation on hover and in the accessible name. */
+export const IssueMark = ({ message, tone = 'warning' }: { readonly message: string; readonly tone?: 'warning' | 'danger' }) => (
+  <span className={styles.issueMark} data-slot="issue-mark" data-tone={tone} role="img" aria-label={message} title={message}>
+    <AlertIcon size={14} aria-hidden="true" />
+  </span>
+)
 
 interface Scope {
   readonly close: () => void

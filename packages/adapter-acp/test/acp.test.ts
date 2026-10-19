@@ -736,6 +736,25 @@ test('ACP modes and config options land on the capability surface unchanged', as
   }
 })
 
+test('an ACP config mode option is written through config options when native modes share its id', async () => {
+  const runtime = make({ FAKE_ACP_CONFIG_MODE: '1' })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const mode = session.options().find((option) => option.id === 'mode')
+    assert.ok(mode && mode.type === 'select' && mode.category === 'mode')
+    assert.equal(mode.currentValue, 'default')
+    assert.deepEqual(mode.choices.map((choice) => choice.value), ['default', 'auto_edit', 'yolo'])
+
+    await session.setOption('mode', 'auto_edit')
+
+    const updated = session.options().find((option) => option.id === 'mode')
+    assert.equal(updated?.currentValue, 'auto_edit')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('Cline-style auto_approve is a permission option and round-trips as a boolean', async () => {
   const runtime = make()
   await runtime.start()

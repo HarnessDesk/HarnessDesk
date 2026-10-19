@@ -195,8 +195,8 @@ it('keeps a collapsed Team as one navigation row inside a virtual project', () =
 })
 
 
-it('uses the rendered room and live session names for virtual type-ahead', () => {
-  const renamed = summary({ id: 'renamed', title: 'Old title', updatedAt: 1000 })
+it('uses the rendered room and indexed session names for virtual type-ahead', () => {
+  const renamed = summary({ id: 'renamed', title: 'Chosen conversation name', updatedAt: 1000 })
   const rest = Array.from({ length: 51 }, (_, index) => summary({ id: `other-${index}`, updatedAt: 500 - index }))
   const board = room({ id: 'goal-room', name: 'Old room name', updatedAt: 2000 })
   const baseGoal = triggerGoalView(board)
@@ -204,7 +204,7 @@ it('uses the rendered room and live session names for virtual type-ahead', () =>
   const snapshot = {
     ...emptySnapshot(), status: 'open', workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 },
     workspaces: [{ path: '/repo', name: 'repo', lastOpenedAt: 1 }], history: [renamed, ...rest],
-    sessions: new Map([[sessionKey(renamed.runtime, renamed.id), { ...renamed, title: 'Live renamed title' }]]),
+    sessions: new Map([[sessionKey(renamed.runtime, renamed.id), { ...renamed, title: 'Stale runtime title' }]]),
     teams: new Map([[board.id, board]]), goals: new Map([[board.id, goal]]),
   } as unknown as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
@@ -215,7 +215,8 @@ it('uses the rendered room and live session names for virtual type-ahead', () =>
   }
   const project = container.querySelector<HTMLElement>('[data-virtual-project="true"][data-virtual-labels]')!
   const labels = JSON.parse(project.dataset.virtualLabels ?? '[]') as string[]
-  expect(labels).toContain('Live renamed title')
+  expect(labels).toContain('Chosen conversation name')
+  expect(labels).not.toContain('Stale runtime title')
   expect(labels).toContain('Visible Goal Title')
 })
 
@@ -1521,6 +1522,32 @@ it('a row shows the live session\'s title before the history list has it', () =>
   })
   expect(container.textContent).toContain('/about')
   expect(container.textContent).not.toContain('Untitled session')
+})
+
+it('keeps an indexed rename when a live session refresh returns the runtime title', () => {
+  const row = summary({ id: 'renamed', title: 'Chosen conversation name' })
+  const key = sessionKey(row.runtime, row.id)
+  let snapshot = {
+    ...emptySnapshot(), status: 'open', history: [row],
+    sessions: new Map([[key, { ...row, title: row.title, turns: [] }]]),
+  } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
+  const store = {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    getSnapshot: () => snapshot,
+  } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  const labels = () => [...container.querySelectorAll('[data-slot="sidebar-menu-label"]')].map(node => node.textContent)
+  expect(labels()).toContain('Chosen conversation name')
+
+  // Opening the conversation or resuming its runtime can return the agent's
+  // original metadata while the index still holds the person's chosen name.
+  act(() => {
+    snapshot = { ...snapshot, sessions: new Map([[key, { ...row, title: 'Stale runtime title', turns: [] } as unknown as Session]]) }
+    for (const listener of listeners) listener()
+  })
+  expect(labels()).toContain('Chosen conversation name')
+  expect(labels()).not.toContain('Stale runtime title')
 })
 
 it('gives a conversation open in this window a row even when its agent lists no history', () => {

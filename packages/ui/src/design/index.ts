@@ -171,6 +171,7 @@ export {
 } from './patterns/ApprovalDialog'
 export {
   ContextMenu,
+  IssueMark,
   Menu,
   MenuItem,
   MenuAccountGroup,

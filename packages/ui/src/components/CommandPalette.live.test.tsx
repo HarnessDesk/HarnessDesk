@@ -70,6 +70,18 @@ it('keeps the history title when the open session has not been titled', async ()
   expect(text).toContain('Release checklist')
 })
 
+it('keeps an indexed rename when the live session carries the runtime title', async () => {
+  const text = await show({ title: 'Chosen conversation name' }, { title: 'Stale runtime title', turns: [ask] })
+  expect(text).toContain('Chosen conversation name')
+  expect(text).not.toContain('Stale runtime title')
+})
+
+it('uses a live title while the index has no title', async () => {
+  const text = await show({}, { title: 'New conversation title', turns: [ask] })
+  expect(text).toContain('New conversation title')
+  expect(text).not.toContain('Build a small arcade game')
+})
+
 it('keeps the history preview when the open session has nothing to say yet', async () => {
   const text = await show({ preview: 'Fix the flaky test' }, { turns: [] })
   expect(text).toContain('Fix the flaky test')
