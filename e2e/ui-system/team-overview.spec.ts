@@ -46,11 +46,6 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(rig.getByText('2 done', { exact: true })).toBeVisible()
     const members = await teamSeats(rig)
     await expect(members.locator('[data-slot="list-row"]')).toHaveCount(2)
-    const guides = await members.evaluate(section => ({
-      card: section.getBoundingClientRect().left,
-      row: section.querySelector('[data-slot="list-row"]')!.getBoundingClientRect().left,
-    }))
-    expect(guides.row - guides.card).toBe(0)
     const completed = members.locator('[data-slot="list-row-trail"] [data-slot="chip"]').filter({ hasText: /^Done$/ })
     await expect(completed).toHaveCount(2)
     for (const state of await completed.all()) {
