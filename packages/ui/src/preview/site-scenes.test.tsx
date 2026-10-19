@@ -43,10 +43,12 @@ afterEach(() => {
   document.body.removeAttribute('data-hd-dark-theme')
 })
 
-it('registers the full Dashboard, three focused 672 × 432 views, the 800 × 500 tour pages and the 1200 × 750 hero race', () => {
+it('registers the full Dashboard, three focused 672 × 432 views, the 800 × 500 tour pages, the 1200 × 750 hero race and the two showcase scenes', () => {
   expect(Object.keys(SCENES)).toEqual(['dashboard', 'dashboard-spend', 'dashboard-limits', 'dashboard-activity',
-    'tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats', 'hero-race'])
+    'tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats', 'hero-race', 'showcase-run', 'showcase-board'])
   expect(SCENES['hero-race']).toEqual({ width: 1200, height: 750 })
+  expect(SCENES['showcase-run']).toEqual({ width: 1260, height: 520 })
+  expect(SCENES['showcase-board']).toEqual({ width: 1480, height: 540 })
   for (const name of ['tour-teams', 'tour-run', 'tour-flows', 'tour-library', 'tour-runtimes', 'tour-chats'] as const) {
     expect(SCENES[name]).toEqual({ width: 800, height: 500 })
   }
@@ -280,4 +282,77 @@ it.each([
   const names = snapshot.runtimes.map(info => info.presentation.name)
   expect(names.length).toBeGreaterThan(0)
   for (const one of names) expect(one).not.toMatch(/^(Alpha|Beta|Gamma)$/)
+})
+
+/** A visitor whose system asks for reduced motion, with no `?motion=reduce` on the URL. */
+const systemReducesMotion = () => vi.stubGlobal('matchMedia', (media: string) => ({ media, matches: media.includes('prefers-reduced-motion'), onchange: null,
+  addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }))
+const boardColumn = (name: string) => [...host.querySelectorAll('[data-slot="board-column"]')].find(one => one.querySelector('h3')?.textContent?.trim().startsWith(name))
+const steps = () => [...host.querySelectorAll('[data-showcase="run"] [data-slot="flow-graph"] [data-step-row]')].map(one => one.getAttribute('data-step-row'))
+const pass = async (seconds: number) => { await act(async () => { vi.advanceTimersByTime(seconds * 1000) }) }
+
+it('draws the Run\'s path and the board, each settled under reduced motion', async () => {
+  await act(async () => root.render(<SiteScene name="showcase-run" theme="light" motion="reduce" />))
+  /* jsdom has no layout, so the graph draws its list of steps: every step of the settled path is a row of the graph. */
+  expect(steps()).toEqual(['write', 'check', 'review', 'fix', 'land', 'you'])
+  expect(host.textContent).toContain('Waiting for you')
+  await act(async () => root.render(<SiteScene name="showcase-board" theme="light" motion="reduce" />))
+  expect([...host.querySelectorAll('[data-slot="board-column"] h3')].map(one => one.textContent?.trim().replace(/\d+$/, ''))).toEqual(['Needs you', 'Working', 'In review', 'To do', 'Ready'])
+  /* The working job finished with its evidence, so it sits in Ready, not Working or Needs you. */
+  expect(boardColumn('Ready')!.textContent).toContain('#4')
+  expect(boardColumn('Working')!.textContent).not.toContain('#4')
+  expect(boardColumn('Needs you')!.textContent).not.toContain('#4')
+})
+
+it('plays the board\'s loop: the next job is taken up, then the working one is finished into Ready', async () => {
+  await act(async () => root.render(<SiteScene name="showcase-board" theme="light" />))
+  expect(boardColumn('To do')!.textContent).toContain('#5')
+  expect(boardColumn('Working')!.textContent).toContain('#4')
+  await pass(3.4)
+  expect(boardColumn('Working')!.textContent).toContain('#5')
+  expect(boardColumn('To do')!.textContent).not.toContain('#5')
+  expect(boardColumn('Working')!.textContent).toContain('#4')
+  await pass(3)
+  expect(boardColumn('Ready')!.textContent).toContain('#4')
+  expect(boardColumn('Working')!.textContent).not.toContain('#4')
+  expect(boardColumn('Working')!.textContent).toContain('#5')
+})
+
+it('plays the Run\'s loop to the node that waits for you', async () => {
+  await act(async () => root.render(<SiteScene name="showcase-run" theme="light" />))
+  expect(host.textContent).not.toContain('Waiting for you')
+  await pass(7)
+  expect(host.textContent).toContain('Waiting for you')
+})
+
+it('moves a pointer to the verdict only when motion is welcome', async () => {
+  await act(async () => root.render(<SiteScene name="hero-race" theme="light" motion="reduce" />))
+  expect(host.querySelector('[data-race-pointer]')).toBeNull()
+  await act(async () => root.render(<SiteScene name="hero-race" theme="light" />))
+  expect(host.querySelector('[data-race-pointer]')).not.toBeNull()
+})
+
+it('walks the pointer through waiting, moving, pressing and leaving as the loop plays', async () => {
+  await act(async () => root.render(<SiteScene name="hero-race" theme="light" />))
+  const phase = () => host.querySelector<HTMLElement>('[data-race-pointer]')!.dataset.phase
+  expect(phase()).toBe('waiting')
+  await pass(7.5)
+  expect(phase()).toBe('moving')
+  await pass(1)
+  expect(phase()).toBe('pressed')
+  await pass(2)
+  expect(phase()).toBe('hidden')
+})
+
+it('honours the system\'s reduced-motion setting without a URL flag: no pointer, and every scene settled', async () => {
+  systemReducesMotion()
+  await act(async () => root.render(<SiteScene name="hero-race" theme="light" />))
+  expect(host.querySelector('[data-site-scene]')?.getAttribute('data-scene-motion')).toBe('reduce')
+  expect(host.querySelector('[data-race-pointer]')).toBeNull()
+  await act(async () => root.render(<SiteScene name="showcase-run" theme="light" />))
+  expect(host.textContent).toContain('Waiting for you')
+  await act(async () => root.render(<SiteScene name="showcase-board" theme="light" />))
+  expect(boardColumn('Ready')!.textContent).toContain('#4')
+  await pass(10)
+  expect(boardColumn('Ready')!.textContent).toContain('#4')
 })
