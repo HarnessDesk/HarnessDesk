@@ -172,7 +172,7 @@ import {
 } from '../editor'
 import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
-import { sessionLabel, shortLabel } from '../lib/sessions'
+import { indexedSessionLabel, sessionLabel, shortLabel } from '../lib/sessions'
 import { seatLabelsOf } from '../lib/seat-names'
 import { goalRunOf } from '../lib/goal-run'
 import { hasConversation, teamSeats } from '../lib/team-seats'
@@ -2435,7 +2435,7 @@ export class AppStore {
         const live = this.#snapshot.sessions.get(key)
         const first = live?.turns.flatMap(turn => turn.items).find(item => item.type === 'userMessage')
         const preview = first?.type === 'userMessage' ? first.content.filter(part => part.type === 'text').map(part => part.text).join('') : null
-        return [sessionLabel(live?.title ?? row.title, live?.preview ?? preview ?? row.preview, labels.get(String(key))), seatNames.get(String(key))]
+        return [indexedSessionLabel(row, { title: live?.title, preview: live?.preview ?? preview }, labels.get(String(key))), seatNames.get(String(key))]
           .some(label => label?.toLocaleLowerCase().includes(needle))
       })
       const results = [...new Map([...pages.flat(), ...local].map(row => [String(sessionKey(row.runtime, row.id)), row])).values()]

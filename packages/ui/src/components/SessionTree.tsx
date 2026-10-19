@@ -36,7 +36,7 @@ import { isBusy, sessionKey, sessionId, runtimeId, sessionModel, type Session, t
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
-import { firstAsk, sessionLabel } from '../lib/sessions'
+import { firstAsk, indexedSessionLabel } from '../lib/sessions'
 import { seatLabelsOf } from '../lib/seat-names'
 import { captureForRoot } from '../lib/provenance'
 import { teamSeats, hasConversation, seatDisplayName } from '../lib/team-seats'
@@ -173,7 +173,7 @@ const SessionRow = memo(({
      read can still carry that runtime's older title, so an indexed title wins;
      live titles fill in only before the index has one. */
   /* A Seat without a person's first message is named by its job and Team. */
-  const label = sessionLabel(summary.title ?? liveTitle, livePreview ?? summary.preview, seatLabel ?? undefined)
+  const label = indexedSessionLabel(summary, { title: liveTitle, preview: livePreview }, seatLabel ?? undefined)
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   const worktree = isWorktreeSession(summary)
   const running = !needsYou && (backgrounded > 0 || (trace !== null && ACTIVE_STATES.has(trace)) || busy)
@@ -662,7 +662,7 @@ const WindowedProjectRows = ({
     }
     const key = sessionKey(row.summary.runtime, row.summary.id)
     const live = snapshot.sessions.get(key)
-    return sessionLabel(row.summary.title ?? live?.title, live ? live.preview ?? firstAsk(live) : row.summary.preview, seatLabelsOf(snapshot).get(String(key)))
+    return indexedSessionLabel(row.summary, live ? { title: live.title, preview: live.preview ?? firstAsk(live) } : undefined, seatLabelsOf(snapshot).get(String(key)))
   }))
 
   useEffect(() => {
