@@ -707,7 +707,7 @@ export class Host {
     if (!session) return undefined
     const key = sessionKey(runtime, id), revision = this.#laneStore.revision, now = Date.now()
     const cached = this.#browserProfileChecks.get(key)
-    if (cached && cached.cwd === session.cwd && cached.revision === revision && cached.until > now) return cached.profile
+    if (cached && samePath(cached.cwd, session.cwd) && cached.revision === revision && cached.until > now) return cached.profile
     const profile = withCanonicalPaths(() => {
       const cwd = canonicalPath(session.cwd)
       const matches = this.#lanes.list().filter(lane => lane.cwd !== '' && samePath(canonicalPath(lane.cwd), cwd))

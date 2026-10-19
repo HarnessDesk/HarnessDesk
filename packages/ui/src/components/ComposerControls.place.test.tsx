@@ -357,9 +357,10 @@ it('keeps repository controls when fresh Git status arrives before repository id
 it('keeps the place control while repository facts have not been read', () => {
   rig({ workspace: { path: MAIN.path, name: MAIN.name, lastOpenedAt: 1 } as WorkspaceEntry })
   expect(trigger()).not.toBeNull()
-  expect(trigger()?.textContent).toContain('harness-desk')
+  expect(trigger()?.textContent).toContain('Checking Git…')
   open()
   expect(row('Local')).toBeDefined()
+  expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
   expect(row('New worktree')).toBeDefined()
 })
 
