@@ -54,7 +54,7 @@ export const chatsStore = (): AppStore => {
   const key = sessionKey(chat.runtime, chat.id)
   const workbench = store.getSnapshot().workbench
   const main = only(workbench.main, { kind: 'conversation', session: key })
-  store.patch({ sessions: new Map([[key, chat]]), activeSessionKey: key, layout: main, sidebarCollapsed: false, sidebarFloating: true,
+  store.patch({ sessions: new Map([[key, chat]]), activeSessionKey: key, layout: main, sidebarCollapsed: true, sidebarFloating: false,
     workbench: { ...workbench, main, navigation: { ...workbench.navigation,
       current: { kind: 'work', view: { kind: 'conversation', session: key } } } } } as never)
   store.notice = () => {}

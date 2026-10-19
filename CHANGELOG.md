@@ -11,6 +11,8 @@ Agents that cannot start now say exactly what is missing from the moment a
 desk opens, Antigravity holds a second Google account, the Library keeps your
 place, and toasts move out of the way of the composer.
 
+- **Flow card diagrams line up, and the Run view reads cleaner.** Every step in a card's diagram is the same width on one centre line with centred labels (a Flow whose cards were moved still draws whole), a step waiting on you no longer shows "0ms", and a long revision in a Run's facts is shortened in the middle instead of running out of its column.
+
 ## 0.5.3 — 2026-10-18
 
 - **Toasts sit at the bottom right, just above the composer when one is showing**, keeping page controls, Send and the model picker clear.

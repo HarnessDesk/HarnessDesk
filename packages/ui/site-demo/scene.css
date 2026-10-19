@@ -92,7 +92,7 @@
 .site-scene[data-site-scene^="tour-"] { overflow: hidden; }
 /* The Flows scene draws each diagram step by step (flows-loop.ts); what is not drawn yet is hidden, and reduced motion never marks anything. */
 .site-scene[data-site-scene="tour-flows"] [data-slot="flow-mini-graph"] :is([data-step], [data-edge]) {
-  transition: opacity 360ms ease, transform 360ms ease;
+  transition: opacity var(--hd-duration-slow) var(--hd-ease-out), transform var(--hd-duration-slow) var(--hd-ease-out);
   transform-box: fill-box;
   transform-origin: center;
 }

@@ -83,8 +83,11 @@ export const raceStore = (theme: 'light' | 'dark'): Patchable & { stage: (stage:
   picked.patch({ theme, runtimes: RUNTIMES, models: MODELS.map(model => ({ ...snapshot.models[0]!, ...model, description: '' })), workbench,
     ...withStage(beforeNamed, pickedNamed, 0) })
   const peers = picked.teamPeers.bind(picked)
+  const catalog = MODELS.map(model => ({ ...snapshot.models[0]!, id: model.displayName, displayName: model.displayName, description: '' }))
   return Object.assign(picked, {
+    // A tile shows its seat's model by name, so the catalogue every agent offers lists the same names: the Seats card then finds each seat's model.
     teamPeers: async () => (await peers(PREVIEW_ROOM)).map((peer, index) => ({ ...peer, agent: RUNTIMES[index]!.name, model: MODELS[index]!.displayName })),
+    modelsFor: async () => catalog,
     stage: (stage: Stage) => picked.patch(withStage(beforeNamed, pickedNamed, stage)),
   })
 }

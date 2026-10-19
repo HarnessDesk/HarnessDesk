@@ -152,6 +152,111 @@ it('draws every step the same width and gap on one centre line, whatever the lab
   expect(new Set(row.slice(1).map((box, index) => box.x - (row[index]!.x + row[index]!.w))).size).toBe(1)
 })
 
+/** A Flow of `count` agents in a line, then whatever extra rules and positions the case adds. */
+const flowOf = (count: number, rules: readonly [string, string][] = [], positions?: Record<string, { x: number; y: number }>, extra: readonly string[] = []): FlowPolicy => {
+  const ids = [...Array.from({ length: count }, (_, index) => `s${index}`), ...extra]
+  return {
+    version: 2, name: 'Shape', inputs: [], messaging: 'board-only', wait: 240,
+    roles: ids.map(id => ({ id, kind: 'agent' as const, uses: [`${id}-agent`], seats: [], isolate: false, grant: 'read' as const, independentOf: [] })),
+    seed: { role: 's0', title: 'Go' },
+    rules: [
+      ...Array.from({ length: count - 1 }, (_, index) => ({ id: `line${index}`, on: `s${index}`, then: { role: `s${index + 1}`, title: 'Next' } })),
+      ...rules.map(([on, to], index) => ({ id: `extra${index}`, on, then: { role: to, title: 'Then' } })),
+    ],
+    ...(positions ? { layout: { positions } } : {}),
+  }
+}
+
+/** What the thumbnail draws, in the viewport's own units: every card and every sampled point of every line, after any fit-scaling. */
+const drawn = (topology: FlowPolicy) => {
+  act(() => root.render(<design.FlowMiniGraph policy={topology} />))
+  const svg = host.querySelector('svg')!
+  const transform = svg.querySelector(':scope > g')!.getAttribute('transform')
+  const scale = transform ? Number(/scale\(([\d.]+)\)/.exec(transform)![1]) : 1
+  const fit = (x: number, y: number) => ({ x: 160 + (x - 160) * scale, y: 36 + (y - 36) * scale })
+  const points: { x: number; y: number }[] = [], boxes: { x: number; y: number; w: number; h: number }[] = []
+  for (const rect of svg.querySelectorAll('[data-step] rect')) {
+    const [x, y, w, h] = ['x', 'y', 'width', 'height'].map(name => Number(rect.getAttribute(name)))
+    boxes.push({ x: x!, y: y!, w: w!, h: h! })
+    points.push(fit(x!, y!), fit(x! + w!, y! + h!))
+  }
+  for (const path of svg.querySelectorAll('[data-edge] path')) {
+    let at = { x: 0, y: 0 }
+    for (const [, command, rest] of path.getAttribute('d')!.matchAll(/([MCHV])([^MCHV]*)/g)) {
+      const n = rest!.trim().split(/[\s,]+/).map(Number)
+      if (command === 'M') { at = { x: n[0]!, y: n[1]! }; points.push(fit(at.x, at.y)) }
+      else if (command === 'H') { at = { x: n[0]!, y: at.y }; points.push(fit(at.x, at.y)) }
+      else if (command === 'V') { at = { x: at.x, y: n[0]! }; points.push(fit(at.x, at.y)) }
+      else {
+        const [a, b, c, d, e, f] = n as [number, number, number, number, number, number]
+        for (let t = 0; t <= 1; t += 0.1) {
+          const u = 1 - t
+          points.push(fit(u ** 3 * at.x + 3 * u * u * t * a + 3 * u * t * t * c + t ** 3 * e, u ** 3 * at.y + 3 * u * u * t * b + 3 * u * t * t * d + t ** 3 * f))
+        }
+        at = { x: e, y: f }
+      }
+    }
+  }
+  return { boxes, points, scale, width: svg.querySelector('[data-step] rect')!.getAttribute('width') }
+}
+const within = (points: readonly { x: number; y: number }[]) => {
+  for (const point of points) {
+    expect(point.x).toBeGreaterThanOrEqual(0); expect(point.x).toBeLessThanOrEqual(320)
+    expect(point.y).toBeGreaterThanOrEqual(0); expect(point.y).toBeLessThanOrEqual(72)
+  }
+}
+const apart = (boxes: readonly { x: number; y: number; w: number; h: number }[]) => {
+  for (const [index, a] of boxes.entries()) for (const b of boxes.slice(index + 1)) {
+    expect(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h).toBe(false)
+  }
+}
+
+it('keeps a Flow whose cards were dragged inside the thumbnail, one row where they are level to within half a card', () => {
+  const level = drawn(flowOf(4, [], { s0: { x: 40, y: 40 }, s1: { x: 270, y: 52 }, s2: { x: 520, y: 30 }, s3: { x: 760, y: 61 } }))
+  expect(new Set(level.boxes.map(box => box.y)).size).toBe(1)
+  within(level.points); apart(level.boxes)
+  // Cards dragged to three bands of their own still fit, drawn apart.
+  const three = drawn(flowOf(4, [], { s0: { x: 40, y: 40 }, s1: { x: 270, y: 240 }, s2: { x: 520, y: 440 }, s3: { x: 760, y: 40 } }))
+  expect(new Set(three.boxes.map(box => box.y)).size).toBe(3)
+  within(three.points); apart(three.boxes)
+})
+
+it('draws a branch and a step nothing reaches in three rows without cutting any off', () => {
+  const branched = drawn(flowOf(3, [['s0', 'b'], ['b', 's2']], undefined, ['b', 'c']))
+  within(branched.points); apart(branched.boxes)
+})
+
+it('puts a step only a loop reaches between the main road\'s columns, with no empty column and every line in view', () => {
+  const loop = flowOf(4, [['s2', 'fix'], ['fix', 's1']], undefined, ['fix'])
+  const { boxes, points } = drawn(loop)
+  const top = boxes.filter(box => box.y === Math.min(...boxes.map(one => one.y))).sort((a, b) => a.x - b.x)
+  expect(top).toHaveLength(4)
+  expect(new Set(top.slice(1).map((box, index) => box.x - (top[index]!.x + top[index]!.w))).size).toBe(1)
+  const fix = boxes.find(box => box.y > top[0]!.y)!
+  expect(fix.x + fix.w / 2).toBeGreaterThan(top[1]!.x + top[1]!.w / 2)
+  expect(fix.x + fix.w / 2).toBeLessThan(top[2]!.x + top[2]!.w / 2)
+  within(points); apart(boxes)
+  // A loop along a lower row that dips under it stays in view too.
+  within(drawn(flowOf(3, [['b', 'a'], ['s1', 'a'], ['a', 'b']], undefined, ['a', 'b'])).points)
+})
+
+it('never draws a step with a width below its floor: a long Flow is scaled to fit rather than overlapped', () => {
+  const long = drawn(flowOf(16))
+  expect(Number(long.width)).toBeGreaterThanOrEqual(40)
+  expect(long.scale).toBeLessThan(1)
+  within(long.points); apart(long.boxes)
+})
+
+it('draws a step that returns to itself as an arc beside it, not a tick', () => {
+  drawn(flowOf(3, [['s1', 's1']]))
+  const loop = host.querySelector<SVGPathElement>('[data-edge="s1>s1"] path')!
+  const numbers = loop.getAttribute('d')!.match(/-?\d+(\.\d+)?/g)!.map(Number)
+  const ys = numbers.filter((_, index) => index % 2 === 1), xs = numbers.filter((_, index) => index % 2 === 0)
+  expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThanOrEqual(8)
+  expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(8)
+  within(drawn(flowOf(3, [['s1', 's1']])).points)
+})
+
 it('keeps every card in the responsive card grid without imposing grid keyboard semantics', () => {
   expect(design.FlowCardGrid).toBeTypeOf('function')
   act(() => root.render(<design.FlowCardGrid><span>First</span><span>Second</span></design.FlowCardGrid>))

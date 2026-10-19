@@ -541,7 +541,7 @@ export const previewHistory: SessionSummary[] = [
       { title: 'Add fixtures for the refund path before extending the checkout matrix', cwd: worktree('worktree-mgmt-4f10'), branch: 'feat/worktrees', ago: 26 },
       { title: 'Draft the 2.5 migration notes after reviewing the sidebar target behavior', cwd: worktree('settings-audit-77aa'), branch: 'chore/settings-audit', ago: 90 },
       { title: 'Research the agent hand-off', cwd: worktree('research-2b41'), branch: 'docs/research', ago: 150, runtime: CURSOR },
-      { title: '[done] Agents icon to circle-gauge', cwd: worktree('agents-icon-7e7e24'), branch: 'claude/agents-icon', ago: 260 },
+      { title: 'Swap the agents icon for the circle gauge', cwd: worktree('agents-icon-7e7e24'), branch: 'claude/agents-icon', ago: 260 },
       { title: 'Panel system', cwd: HOME, branch: 'feat/panel-system', ago: 400 },
       { title: 'Delegation plane', cwd: HOME, branch: 'feat/runtime-frontier', ago: 520 },
       { title: 'Repo history pane', cwd: worktree('repo-history-1a09'), branch: 'feat/repo-history', ago: 900 },
