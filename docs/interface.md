@@ -364,6 +364,9 @@ Team name like a project header's fold chevron, visible while folded or on row
 hover or keyboard focus; it reveals Seats without opening the Team. Rows keep
 their original edge, with no leading gutter. ArrowRight expands and ArrowLeft folds.
 Team and loose-conversation icons align; a Seat icon starts under the Team label.
+A Team row’s right-click menu and trailing action button offer the same Rename,
+Run again, Wrap and Stop run actions as its header, with the same eligibility
+and confirmation questions. They remain available without kept Seat conversations.
 Seat rows keep the same 34px pitch and trailing rail as their parent, in the
 Team's roster order; activity does not reorder them. A filter temporarily reveals
 matching Seats, and the chevron can fold that reveal. Clearing the filter restores
