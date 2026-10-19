@@ -1,5 +1,5 @@
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
-import { canIsolateDraft } from '../lib/draft-isolation'
+import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
@@ -3132,6 +3132,7 @@ export class AppStore {
     const carried = this.#snapshot.draftHandoff?.cwd
     if (carried) return { cwd: carried }
     let workspace = this.#snapshot.workspace
+    if (workspace && keepsWorkspacePlace(workspace)) return {}
     if (workspace && workspace.git == null) {
       const root = workspace.path, navigation = this.#navigationEpoch
       const runtime = this.#snapshot.activeRuntime, handoff = this.#snapshot.draftHandoff
@@ -7338,28 +7339,35 @@ export class AppStore {
     }
   }
 
-  readonly #workspaceGitReads = new Map<string, object>()
+  readonly #workspaceGitReads = new Map<string, { next?: Promise<boolean> }>()
 
   /** Refresh a menu's checkout without opening it or reordering recent folders. */
-  async refreshWorkspaceGit(root: string): Promise<boolean> {
-    const read = {}
+  refreshWorkspaceGit(root: string): Promise<boolean> {
+    const previous = this.#workspaceGitReads.get(root)
+    const read: { next?: Promise<boolean> } = {}
     this.#workspaceGitReads.set(root, read)
-    try {
-      const status = await this.transport.request('git/status', { root })
-      if (this.#workspaceGitReads.get(root) !== read) return false
-      const update = (entry: WorkspaceEntry): WorkspaceEntry => entry.path === root
-        ? { ...entry, git: status ? { branch: status.branch, sha: status.headSha } : null }
-        : entry
-      this.#patch({
-        workspace: this.#snapshot.workspace ? update(this.#snapshot.workspace) : null,
-        workspaces: this.#snapshot.workspaces.map(update),
-        workspaceGitFacts: new Map(this.#snapshot.workspaceGitFacts).set(root, status ? { branch: status.branch, sha: status.headSha } : null),
-      })
-      return true
-    } catch { return false /* Keep the last known facts when Git cannot be read. */ }
-    finally {
-      if (this.#workspaceGitReads.get(root) === read) this.#workspaceGitReads.delete(root)
-    }
+    const pending = (async (): Promise<boolean> => {
+      try {
+        const status = await this.transport.request('git/status', { root })
+        // Older callers follow the newer result, even if it already finished
+        // and left the map. A superseded read is not a failed first send.
+        if (read.next) return read.next
+        const update = (entry: WorkspaceEntry): WorkspaceEntry => entry.path === root
+          ? { ...entry, git: status ? { branch: status.branch, sha: status.headSha } : null }
+          : entry
+        this.#patch({
+          workspace: this.#snapshot.workspace ? update(this.#snapshot.workspace) : null,
+          workspaces: this.#snapshot.workspaces.map(update),
+          workspaceGitFacts: new Map(this.#snapshot.workspaceGitFacts).set(root, status ? { branch: status.branch, sha: status.headSha } : null),
+        })
+        return true
+      } catch { return read.next ?? false /* Keep established facts when the latest read fails. */ }
+      finally {
+        if (this.#workspaceGitReads.get(root) === read) this.#workspaceGitReads.delete(root)
+      }
+    })()
+    if (previous) previous.next = pending
+    return pending
   }
 
   #folderCleared = false

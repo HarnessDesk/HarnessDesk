@@ -362,3 +362,25 @@ it('keeps the place control while repository facts have not been read', () => {
   expect(row('Local')).toBeDefined()
   expect(row('New worktree')).toBeDefined()
 })
+
+it('keeps a linked worktree as the default without an explicit draftPlace', () => {
+  rig({ workspace: { ...MAIN, path: '/review-tree', checkoutRoot: '/review-tree', repo: { root: MAIN.path, worktree: true }, git: { branch: 'review' } } })
+  expect(trigger()?.title).toBe('Starts in this worktree, on review')
+  expect(trigger()?.textContent).not.toContain('New worktree')
+  open()
+  expect(row('This worktree')?.getAttribute('aria-checked')).toBe('true')
+})
+
+it('keeps an opened monorepo package in its selected subfolder', () => {
+  rig({ workspace: { ...MAIN, path: `${MAIN.path}/packages/widget`, checkoutRoot: MAIN.path } })
+  expect(trigger()?.title).toBe('Starts in widget, on main')
+  expect(trigger()?.textContent).not.toContain('New worktree')
+})
+
+it('shows checking instead of promising Local while Git facts are unread', () => {
+  rig({ workspace: { ...MAIN, git: undefined } })
+  expect(trigger()?.textContent).toContain('Checking Git')
+  expect(trigger()?.title).toContain('checking Git')
+  open()
+  expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
+})

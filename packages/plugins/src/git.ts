@@ -1147,7 +1147,7 @@ export const gitPlugin: HarnessPlugin = {
           const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'])
           if (branch === 'HEAD') throw new Error('The workspace is on a detached HEAD; check out this session’s branch first.')
           if (current.headRefName !== branch) {
-            throw new Error(`Pull request #${current.number} belongs to branch ${current.headRefName ?? '(unknown)'}, but this session is on ${branch}. Publish this session’s own branch instead.`)
+            throw new Error(`Pull request #${current.number} belongs to branch ${current.headRefName ?? '(unknown)'}, but this session is on ${branch}. Rename this local branch to ${current.headRefName ?? 'the PR head branch'} before retrying, or publish a PR for ${branch} with pr_create. An upstream alias alone does not establish ownership: new worktrees can inherit another branch’s upstream.`)
           }
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)

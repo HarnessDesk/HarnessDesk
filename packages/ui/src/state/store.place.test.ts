@@ -191,6 +191,44 @@ describe('where a draft starts', () => {
     expect(store.getSnapshot().inbox[0]?.read).toBe(true)
   })
 
+  it.each([
+    { path: '/review-tree', repo: { root: REPO.path, worktree: true }, checkoutRoot: '/review-tree' },
+    { path: '/repo/packages/widget', repo: { root: REPO.path, worktree: false }, checkoutRoot: REPO.path },
+  ])('keeps the explicitly opened checkout or subfolder $path on first send', async (location) => {
+    Object.assign(store.getSnapshot(), { workspace: { ...REPO, ...location } })
+    answers['session/create'] = conversation('opened-place', location.path)
+    store.newDraft()
+    await store.send([{ type: 'text', text: 'Work on the code I opened' }])
+    expect(calls('worktree/create')).toHaveLength(0)
+    expect(calls('session/create')[0]).toMatchObject({ options: { cwd: location.path } })
+  })
+
+  it.each(['older first', 'newer first'])('waits for the newest overlapping Git refresh: %s', async (order) => {
+    Object.assign(store.getSnapshot(), { workspace: { ...REPO, git: undefined } })
+    const finish: ((status: unknown) => void)[] = []
+    answers['git/status'] = () => new Promise(resolve => { finish.push(resolve) })
+    answers['worktree/create'] = { ...LISTED.tree }
+    answers['session/create'] = conversation('overlap', TREE)
+    store.newDraft()
+    const sending = store.queue([{ type: 'text', text: 'Fix this bug' }])
+    const newer = store.refreshWorkspaceGit(REPO.path)
+    const status = { branch: 'main', headSha: 'abc', files: [] }
+    if (order === 'older first') {
+      finish[0]!(null)
+      await Promise.resolve()
+      expect(calls('session/create')).toHaveLength(0)
+      finish[1]!(status)
+    } else {
+      finish[1]!(status)
+      await newer
+      finish[0]!(null)
+    }
+    await newer
+    expect(await sending).toBe(true)
+    expect(calls('worktree/create')).toHaveLength(1)
+    expect(calls('session/create')[0]).toMatchObject({ options: { cwd: TREE } })
+  })
+
   it('reads missing Git facts before deciding whether the first message needs isolation', async () => {
     Object.assign(store.getSnapshot(), { workspace: { ...REPO, git: undefined } })
     answers['git/status'] = { branch: 'main', headSha: 'abc', files: [] }

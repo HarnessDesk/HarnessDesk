@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { mkdir, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -784,4 +785,31 @@ test('desktop can restore a known session profile from the durable index before 
   assert.equal(reopened.browserProfileForPartition(`hd-session-${'a'.repeat(64)}`), undefined)
   assert.equal(reopened.browserProfileForPartition(`persist:hd-session-${'a'.repeat(64)}`), undefined)
   assert.equal(reopened.browserProfileAllowed(sessionBrowserProfile(session.runtime, 'not-known')), false)
+})
+
+test('browser admission reuses path checks and immediately invalidates on lane writes', async (t) => {
+  const base = tempDir('hd-browser-admission-cache-')
+  let lanes!: LaneStore
+  const load = LaneStore.prototype.load
+  t.mock.method(LaneStore.prototype, 'load', function (this: LaneStore) { lanes = this; return load.call(this) })
+  const host = new Host({ logger: silent, state: new StateStore(join(base, 'state.json')),
+    builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  await host.start()
+  const agent = new FakeRuntime()
+  const id = sessionId('cached-browser')
+  host.registry.upsert({ id, runtime: agent.info.id, cwd: base, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }, null)
+  const profile = sessionBrowserProfile(agent.info.id, id)
+  const paths = t.mock.method(realpathSync, 'native')
+  assert.equal(host.browserProfileAllowed(profile), true)
+  const checked = paths.mock.callCount()
+  assert.ok(checked > 0)
+  for (let n = 0; n < 20; n++) assert.equal(host.browserProfileAllowed(profile), true)
+  assert.equal(paths.mock.callCount(), checked, 'CDP commands do not repeatedly resolve the same paths')
+  await lanes.save({ id: 'cached-lane', goal: 'fixture-goal', seat: null, cwd: base, branch: 'fixture',
+    ports: { start: 30000, end: 30019 }, browserProfile: null, state: 'active', createdAt: 1 })
+  assert.equal(host.browserProfileAllowed(profile), true)
+  assert.ok(paths.mock.callCount() > checked)
+  await lanes.save({ ...lanes.list()[0]!, state: 'released' })
+  assert.equal(host.browserProfileAllowed(profile), false, 'revocation invalidates a warm cache immediately')
 })

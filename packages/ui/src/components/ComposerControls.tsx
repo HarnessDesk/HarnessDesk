@@ -6,7 +6,7 @@ import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
 import { worktreeBranch } from '../lib/worktree-branch'
-import { canIsolateDraft } from '../lib/draft-isolation'
+import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { type Brand, brandForRuntime } from '../lib/brands'
 import { brandOf } from '../lib/identity'
 import { describesEveryChoice, riskTone, selectedChoice } from '../lib/options'
@@ -1251,6 +1251,7 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
 
   const place = snapshot.draftPlace
   const carried = place === null ? snapshot.draftHandoff?.cwd : undefined
+  const checking = place === null && !carried && workspace.repo !== null && workspace.git == null && !keepsWorkspacePlace(workspace)
   const automatic = place === null && !carried && canIsolateDraft(workspace)
   const folder = workspace.path.split('/').filter(Boolean).at(-1) ?? workspace.path
   const branch = workspace.git?.branch ?? null
@@ -1300,6 +1301,8 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
 
   const title = carried
     ? `Starts in ${carried}`
+    : checking
+    ? 'Starts in a new worktree if Git confirms a committed repository; checking Git'
     : automatic
     ? 'Starts in a new worktree on its own branch, made when you send'
     : armed
@@ -1330,6 +1333,8 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
     name?.split('/').filter(Boolean).at(-1) ?? fallback
   const word = carried
     ? carried.split('/').filter(Boolean).at(-1) ?? carried
+    : checking
+    ? 'Checking Git…'
     : armed || automatic
     ? 'New worktree'
     : chosenHere && !linked
@@ -1348,7 +1353,7 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
         {/* Missing repository facts are unread; only an explicit null with no Git facts hides this control. */}
         {(workspace.repo !== null || workspace.git) && <Popover
           fullWidth={!onChooseProject}
-          triggerVariant={onChooseProject && !carried && !automatic && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
+          triggerVariant={onChooseProject && !carried && !checking && !automatic && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
           title={title}
           drop="up"
           align="left"
@@ -1362,11 +1367,11 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
             ) : (
               <LocalIcon size={13} />
             )}
-            {onChooseProject && !carried && !automatic && !armed && !chosen ? null : armed || automatic
+            {onChooseProject && !carried && !checking && !automatic && !armed && !chosen ? null : armed || automatic
               ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
               : <Text role="row" truncate title={workspace.path} className={sheet.word}>{word}</Text>}
             {tagged && <Badge variant="secondary">worktree</Badge>}
-            {(!onChooseProject || carried || automatic || armed || chosen) && <Chevron size={12} />}
+            {(!onChooseProject || carried || checking || automatic || armed || chosen) && <Chevron size={12} />}
           </>
         }
          panelWidth="wide" icons="none">
@@ -1379,7 +1384,7 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
                 label={linked ? 'This worktree' : 'Local'}
                 value={branch ?? undefined}
                 title={branch ? `${branch} — ${workspace.path}` : workspace.path}
-                selected={!automatic && place === null && (!carried || carried === workspace.path) || chosen?.path === workspace.path}
+                selected={!checking && !automatic && place === null && (!carried || carried === workspace.path) || chosen?.path === workspace.path}
                 onSelect={() => store.startDraftIn(null)}
               />
               {main && (

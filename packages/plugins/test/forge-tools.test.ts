@@ -497,6 +497,24 @@ test('pr_update refuses another session branch before editing or recording its P
   assert.equal(forge.published.length, 0)
 })
 
+test('pr_update refuses a detached HEAD before editing or recording', async (t) => {
+  const forge = await rig(t)
+  writeFileSync(join(forge.home, 'head-branch'), 'main')
+  execFileSync('git', ['checkout', '--detach', '-q'], { cwd: forge.repo })
+  assert.match(await forge.run('pr_update', { number: 7, body: 'Detached edit' }), /detached HEAD/)
+  assert.equal(forge.calls().some(args => args[0] === 'pr' && args[1] === 'edit'), false)
+  assert.equal(forge.published.length, 0)
+})
+
+test('pr_update names the local rename remedy for a differently named upstream', async (t) => {
+  const forge = await rig(t)
+  execFileSync('git', ['checkout', '-q', '-b', 'local-topic'], { cwd: forge.repo })
+  execFileSync('git', ['push', '-q', '-u', 'origin', 'local-topic:remote-topic'], { cwd: forge.repo })
+  writeFileSync(join(forge.home, 'head-branch'), 'remote-topic')
+  assert.match(await forge.run('pr_update', { number: 7, body: 'Aliased edit' }), /Rename this local branch to remote-topic/)
+  assert.equal(forge.calls().some(args => args[0] === 'pr' && args[1] === 'edit'), false)
+})
+
 test('pr_update retains earlier contributors in a new description and records the update', async (t) => {
   const forge = await rig(t)
   forge.seat.current = { ...SEAT, role: 'writer' }

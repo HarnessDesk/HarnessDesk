@@ -699,17 +699,28 @@ export class Host {
     return this.browserProfileAllowed(profile) ? profile : undefined
   }
 
+  readonly #browserProfileChecks = new Map<string, { cwd: string; revision: number; until: number; profile: string }>()
+
   #sessionBrowserProfile(runtime: RuntimeId, id: SessionId): string | undefined {
     const session = this.registry.get(runtime, id)?.session ??
       (this.#sessionIndex.isRemoved(runtime, id) ? null : this.#sessionIndex.get(runtime, id))
     if (!session) return undefined
-    return withCanonicalPaths(() => {
+    const key = sessionKey(runtime, id), revision = this.#laneStore.revision, now = Date.now()
+    const cached = this.#browserProfileChecks.get(key)
+    if (cached && cached.cwd === session.cwd && cached.revision === revision && cached.until > now) return cached.profile
+    const profile = withCanonicalPaths(() => {
       const cwd = canonicalPath(session.cwd)
       const matches = this.#lanes.list().filter(lane => lane.cwd !== '' && samePath(canonicalPath(lane.cwd), cwd))
       if (matches.length > 1) throw new Error('This checkout has conflicting browser lanes.')
       if (matches[0]?.state === 'released') throw new Error('This lane was released. Open a new isolated Seat.')
       return sessionBrowserProfile(runtime, id)
     })
+    // CDP sends repeatedly check the same owner. Lane writes invalidate at
+    // once; a short lifetime also rechecks filesystem aliases without making
+    // every command resolve every retained lane synchronously.
+    if (this.#browserProfileChecks.size >= 512) this.#browserProfileChecks.delete(this.#browserProfileChecks.keys().next().value!)
+    this.#browserProfileChecks.set(key, { cwd: session.cwd, revision, until: now + 1000, profile })
+    return profile
   }
 
   readonly registry = new SessionRegistry()

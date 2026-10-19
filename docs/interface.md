@@ -299,6 +299,8 @@ in one click, just like ⌘N. In a repository with a commit, the draft defaults 
 **New worktree**: the first message makes a checkout and branch of its own from
 the known default branch. **Local** and an existing worktree are explicit choices;
 non-Git folders and repositories before their first commit keep their folder.
+An explicitly opened linked worktree or repository subfolder also keeps its
+selected location. Unread Git facts show **Checking Git…** until the place is known.
 The always-visible ⌄ beside it opens **More ways to
 start**: Open folder…, New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk

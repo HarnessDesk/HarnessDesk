@@ -7,7 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **New development sessions start in their own worktree and branch.** Local remains an explicit choice. Each session keeps its own browser tabs and sign-ins, even when sessions share a checkout, and updating a PR refuses a different branch. Team sidebar rows now expose their actions on right-click.
+- **New development sessions start in their own worktree and branch.** Local remains an explicit choice; an opened linked worktree or repository subfolder keeps its selected location. Each session keeps its own browser tabs and sign-ins, even when sessions share a checkout, and updating a PR refuses a different branch. Team sidebar rows now expose their actions on right-click.
 
 - A Team's seats are listed under it in the sidebar again, and a conversation that is working shows a spinner.
 

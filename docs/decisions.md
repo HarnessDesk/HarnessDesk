@@ -1271,7 +1271,9 @@ branch, so all three published to the same PR. A project draft now defaults to
 a new managed worktree on its own branch, allocated only on first send. It starts
 from the known remote default, then local main or master, with HEAD as the local
 repository fallback. An explicit Local or existing-worktree choice still uses
-that checkout. A failed runtime start keeps its allocated checkout for retry.
+that checkout. Opening a linked worktree or repository subfolder is itself a
+place choice, so ordinary drafts keep that code and subfolder scope instead of
+cutting from the default branch. A failed runtime start keeps its allocated checkout for retry.
 Existing conversations are never relocated automatically: already mixed changes
 cannot be safely attributed by moving folders.
 
