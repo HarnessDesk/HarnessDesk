@@ -174,6 +174,27 @@ it('keeps a removed current model visibly unavailable with valid choices and no 
   expect(setOption).toHaveBeenCalledWith('model', 'brain-9')
 })
 
+it('keeps an unusable model route on one line with its reason on the issue mark', () => {
+  const reason = 'This route needs a credential.'
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id,
+    draftOptions: [model],
+    routes: [{ id: 'route_1', name: 'Acme proxy', endpoint: 'https://proxy.acme.dev/v1',
+      wireProtocol: 'responses', credentialRef: 'cred_a', usable: false, reason }],
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><ModelControl /></StoreProvider>))
+  click(container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!)
+  const routeMenu = [...document.querySelectorAll<HTMLButtonElement>('[data-slot="dropdown-menu-sub-trigger"]')]
+    .find((node) => node.textContent?.includes('Model route'))!
+  click(routeMenu)
+  const route = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+    .find((node) => node.textContent?.includes('Acme proxy'))!
+  expect(route).toBeTruthy()
+  expect(route.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toBe(reason)
+  expect(route.querySelector('[data-menu-hint]')).toBeNull()
+})
+
 it('flags a stale saved model in the control and offers one click to clear its original pick', () => {
   const clearNewSessionDefault = vi.fn()
   const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [model],

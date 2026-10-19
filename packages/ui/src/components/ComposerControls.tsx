@@ -772,7 +772,6 @@ export const ModelControl = () => {
                       hint={route.usable === false ? undefined : route.endpoint}
                       value={route.usable === false && route.reason ? <IssueMark message={route.reason} /> : undefined}
                       disabled={route.usable === false}
-                      title={route.usable === false ? route.reason : undefined}
                       onSelect={() => store.setDraftRoute(route.id)}
                     />
                   ))}
