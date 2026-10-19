@@ -120,10 +120,10 @@ const SidebarMenuButton = ({
     {...props}
   >
     {icon === undefined ? null : <span data-slot="sidebar-menu-icon" data-size={iconSize} className={cn('inline-flex shrink-0 items-center justify-center', iconSize === 'lg' ? 'size-6' : 'size-4')}>{icon}</span>}
-    <span data-slot="sidebar-menu-label" className={cn('block min-w-0 flex-1 truncate', (trailingOverlay || trailingActions === 2) && 'sidebar-menu-label-fade [mask-image:linear-gradient(to_right,black_calc(100%-var(--hd-space-8)),transparent)]')}>
-      <span data-slot="sidebar-menu-label-content" className={cn('block min-w-0 truncate', labelTrailingContent && 'pe-(--hd-space-8)')}>{label ?? children}</span>
+    <span data-slot="sidebar-menu-label" className={cn('block min-w-0 flex-1 truncate', labelEnd && 'flex items-center gap-(--hd-space-2)', (trailingOverlay || trailingActions === 2) && 'sidebar-menu-label-fade [mask-image:linear-gradient(to_right,black_calc(100%-var(--hd-space-8)),transparent)]')}>
+      <span data-slot="sidebar-menu-label-content" className={cn('block min-w-0 truncate', labelTrailingContent && 'pe-(--hd-space-8)', labelEnd && 'flex-1')}>{label ?? children}</span>
+      {labelEnd}
     </span>
-    {labelEnd}
   </button>
 )
 

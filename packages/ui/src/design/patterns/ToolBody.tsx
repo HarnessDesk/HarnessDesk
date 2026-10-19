@@ -17,6 +17,7 @@ export const ToolBody = ({ children }: { children: ReactNode }) => useContext(Se
 
 /**
  * One card of the right panel (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md).
+ * Its outline is inset, so its rows and its outer box share the same guides.
  *
  * The header is the card's label, a disclosure when it folds, and its `value`
  * — the summary a folded card still shows, so a glance down the panel reads
@@ -37,7 +38,7 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
   const bodyId = useId()
   const shown = !fold || open
   return <section data-slot="tool-section" data-folded={shown ? undefined : ''} aria-label={label}
-    className="min-w-0 rounded-(--hd-panel-card-radius) border border-(--hd-border-strong) bg-(--hd-background) py-(--hd-panel-card-pad-y)">
+    className="min-w-0 rounded-(--hd-panel-card-radius) inset-ring inset-ring-(--hd-border-strong) bg-(--hd-background) py-(--hd-panel-card-pad-y)">
     <GroupLabel as="div" surface="tool">
       {fold ? <Button variant="ghost" size="content" data-slot="tool-section-fold" aria-expanded={open} aria-controls={bodyId}
         className="hd-no-drag min-w-0 gap-(--hd-space-1)" onClick={() => setOpen(value => !value)}>

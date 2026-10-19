@@ -48,3 +48,10 @@ it('the fold line hides the rest until asked', () => {
   expect(fold.getAttribute('aria-expanded')).toBe('true')
   expect(container.textContent).toContain('Rounds 2')
 })
+
+
+it('keeps the card outline inside its box so rows and card edges share a guide', () => {
+  act(() => root.render(<ToolSection label="Seats">Alpha</ToolSection>))
+  expect(card('Seats').className.split(' ')).not.toContain('border')
+  expect(card('Seats').className).toContain('inset-ring-(--hd-border-strong)')
+})

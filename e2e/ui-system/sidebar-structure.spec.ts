@@ -310,7 +310,7 @@ for (const theme of ['light', 'dark'] as const) test(`nested seats keep their ic
       near(row.icon!.x, row.nested ? parent.label.x : parent.icon!.x, 'icon column')
       if (row.nested) near(row.label.x, nested[0]!.label.x, 'seat label column')
       if (row.mark) { near(row.mark.right, parent.mark!.right, 'trailing rail'); near(row.mark.cy, row.label.cy, 'mark centre'); near(row.mark.w, parent.mark!.w, 'mark slot') }
-      if (row.spinner) near(row.spinner.cy, row.label.cy, 'spinner centre')
+      if (row.spinner) { near(row.spinner.cy, row.label.cy, 'spinner centre'); near(row.spinner.right, row.rail.right, 'spinner right guide') }
     }
     near(loose.icon!.x, parent.icon!.x, 'Team and session icon')
     const disclosure = await team.locator('..').locator('[data-left-disclosure] [data-slot="disclosure-chevron"]').boundingBox()
@@ -488,4 +488,54 @@ test('multi-digit card prefixes reserve their intrinsic width without overlappin
   const prefixBox = (await prefix.boundingBox())!, labelBox = (await label.boundingBox())!
   expect(labelBox.x + labelBox.width).toBeLessThanOrEqual(prefixBox.x - 8 + 1)
   console.log(JSON.stringify({ cardPrefix: { labelRight: labelBox.x + labelBox.width, prefixLeft: prefixBox.x, prefixWidth: prefixBox.width } }))
+})
+
+
+for (const theme of ['light', 'dark'] as const) test(`long Team and Seat names keep the fold gap at both sidebar widths — ${theme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: theme })
+  await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+  await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+  const name = 'Ship checkout retry and validate every deployment before the release'
+  await page.evaluate(name => {
+    const { store } = (window as unknown as { __hdSidebarStructure: { store: { getSnapshot(): AppSnapshot; patch(value: Partial<AppSnapshot>): void } } }).__hdSidebarStructure
+    const held = store.getSnapshot(), teams = new Map(held.teams), team = teams.get('structure-team')!
+    teams.set(team.id, { ...team, name }); store.patch({ teams })
+  }, name)
+  const fixture = page.locator('#sidebar-structure')
+  const team = fixture.getByRole('button', { name: `Room ${name}`, exact: true })
+  const control = team.locator('..').locator('[data-left-disclosure]')
+  for (const width of [320, FRAME.sidebar.min]) {
+    await fixture.evaluate((node, width) => { (node as HTMLElement).style.width = `${width}px` }, width)
+    await fixture.scrollIntoViewIfNeeded()
+    await page.mouse.move(1000, 0)
+    await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
+    await expect(control).toHaveCSS('visibility', 'hidden')
+    const label = team.locator('[data-left-fold-name]')
+    expect(await label.evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true)
+    await expect(label).toHaveCSS('text-overflow', 'ellipsis')
+    const seat = fixture.getByRole('button', { name: 'Writer with a long seat label that must truncate', exact: true })
+    expect(await seat.locator('[data-slot="sidebar-menu-label-content"]').evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true)
+    if (process.env.SIDEBAR_SEATS_FRAMES) await fixture.screenshot({ path: path.join(process.env.SIDEBAR_SEATS_FRAMES, `long-names-${theme}-${width}-rest.png`) })
+    await team.hover({ position: { x: 8, y: 16 } })
+    await expect(control).toHaveCSS('visibility', 'visible')
+    const text = (await label.boundingBox())!, arrow = (await control.locator('[data-slot="disclosure-chevron"]').boundingBox())!
+    expect(Math.abs(arrow.x - text.x - text.width - 6)).toBeLessThanOrEqual(1)
+    console.log(JSON.stringify({ theme, width, longName: { textRight: text.x + text.width, arrowX: arrow.x, gap: arrow.x - text.x - text.width } }))
+    if (process.env.SIDEBAR_SEATS_FRAMES && width === 320) await fixture.screenshot({ path: path.join(process.env.SIDEBAR_SEATS_FRAMES, `long-names-${theme}-${width}-hover.png`) })
+  }
+})
+
+for (const theme of ['light', 'dark'] as const) test(`unselected Team labels match loose conversations — ${theme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: theme })
+  await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+  const fixture = page.locator('#sidebar-structure')
+  const team = fixture.getByRole('button', { name: 'Room Check release notes', exact: true })
+  const loose = fixture.getByRole('button', { name: 'Release notes', exact: true })
+  const ink = (row: typeof team) => row.locator('[data-slot="sidebar-menu-label-content"]').evaluate(node => {
+    const css = getComputedStyle(node)
+    return { weight: css.fontWeight, buttonWeight: getComputedStyle(node.closest('button')!).fontWeight, color: css.color }
+  })
+  await expect(team).not.toHaveAttribute('aria-current')
+  await expect(loose).not.toHaveAttribute('aria-current')
+  expect(await ink(team)).toEqual(await ink(loose))
 })

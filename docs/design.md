@@ -1118,11 +1118,12 @@ error mark, followed in priority by a working spinner. Activity words stay on ho
 Pinned is one plain section for loose conversations, with its heading,
 separator and uncapped rows. Every active Team, and each finished Team until
 it is wrapped, has a row in its project beside the loose conversations.
-Its leading-gutter disclosure reveals Seats one step in: their runtime icons
+The disclosure after its name reveals Seats one step in: their runtime icons
 start at the Team label, while all trailing marks retain the parent rail.
 The selected Team and the Team owning an open Seat start expanded.
 A working Seat shows its claimed card number, when present, and a spinner;
-an idle Seat has no mark. Seats do not count toward the project cap.
+the small running ring ends on the trailing guide inside the unchanged mark slot.
+An idle Seat has no mark. Seats do not count toward the project cap.
 A finished Team keeps the attention dot, labelled **Ready to wrap**. Team
 members do not also appear as loose rows. Wrapped Teams live on the Teams page.
 Agents and Plugins keep catalogue counts on their pages; a sidebar count

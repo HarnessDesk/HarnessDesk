@@ -83,6 +83,9 @@ for (const theme of WALL_THEMES) {
     expect((await team.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
     await expect(team.locator('..').locator('[data-left-trailing]')).toHaveCount(1)
     await expect(page.locator('[data-left-column] [data-nested="true"]')).toHaveCount(1)
+    const seats = team.locator('xpath=ancestor::*[@data-region="team-row"]').locator('[data-region="seat-row"]')
+    await expect(seats).toHaveCount(3)
+    for (const seat of await seats.locator('[data-slot="sidebar-menu-button"]').all()) expect((await seat.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
     const fold = team.locator('..').locator('[data-left-disclosure]')
     await expect(fold).toHaveCount(1)
     const name = (await team.locator('[data-left-fold-name]').boundingBox())!
@@ -127,4 +130,53 @@ test('D8 the hidden-column lead restores the column that owns Search', async ({ 
   await expect(top.getByRole('button', { name: 'Search everything', exact: true })).toHaveCount(0)
   await top.getByRole('button', { name: 'Show sidebar', exact: true }).click()
   await expect(page.locator('[data-left-column]:visible').getByRole('button', { name: 'Search everything', exact: true })).toBeVisible()
+})
+
+for (const theme of WALL_THEMES) test(`original edges for navigation, work, footer and Settings in ${theme}`, async ({ page }) => {
+  // Keep a second synthetic index page available so the real load-more row renders.
+  await page.route('**/src/preview/frame-destination-store.ts*', async route => {
+    const response = await route.fetch()
+    const body = (await response.text()).replaceAll('query.pageSize ?? 50', '7')
+    await route.fulfill({ response, body })
+  })
+  await openFrame(page, 'frame-wall=left-work&frame-update=1', theme)
+  const column = page.locator('[data-left-column]:visible')
+  const account = column.locator('button[class*="accountRow"]')
+  const rows = {
+    navigation: column.getByRole('button', { name: 'Teams', exact: true }),
+    loose: column.getByRole('button', { name: 'Release notes', exact: true }),
+    team: column.getByRole('button', { name: 'Room Ship checkout retry', exact: true }),
+    loadMore: column.getByRole('button', { name: 'Load more conversations', exact: true }),
+    update: column.getByRole('button', { name: 'Relaunch to update', exact: true }),
+  }
+  const measure = (row: typeof account) => row.evaluate(node => {
+    const origin = node.closest('[data-left-column]')!.getBoundingClientRect().x
+    const icon = node.querySelector('[data-slot="sidebar-menu-icon"], [data-shape="face"]')!
+    const label = node.querySelector('[data-slot="sidebar-menu-label-content"], [class*="accountName"]')!
+    return { icon: icon.getBoundingClientRect().x - origin, label: label.getBoundingClientRect().x - origin }
+  })
+  const measurements: Record<string, { icon: number; label: number }> = {}
+  for (const [kind, row] of Object.entries({ ...rows, account })) {
+    await expect(row).toBeVisible()
+    measurements[kind] = await measure(row)
+  }
+  console.log(JSON.stringify({ theme, leftColumn: measurements }))
+  for (const [kind, row] of Object.entries(measurements)) {
+    if (kind === 'account') continue
+    expect(Math.abs(row.icon - measurements.navigation!.icon)).toBeLessThanOrEqual(1)
+    expect(Math.abs(row.label - measurements.navigation!.label)).toBeLessThanOrEqual(1)
+  }
+
+  // The account retains its original bordered 24px face and 6px label gap.
+  expect(measurements.account!.icon).toBe(17)
+  expect(measurements.account!.label).toBe(47)
+  await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.locator('[data-left-column]:visible').last()
+  const general = settings.getByRole('button', { name: 'General', exact: true })
+  await expect(general).toBeVisible()
+  const settingsX = await measure(general)
+  console.log(JSON.stringify({ theme, settings: settingsX }))
+  expect(Math.abs(settingsX.icon - measurements.navigation!.icon)).toBeLessThanOrEqual(1)
+  expect(Math.abs(settingsX.label - measurements.navigation!.label - 4)).toBeLessThanOrEqual(1)
+
 })

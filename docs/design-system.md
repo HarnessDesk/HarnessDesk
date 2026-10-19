@@ -2685,6 +2685,7 @@ The shell tabs and panel actions share one row above the terminal screen.
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
 One card of the right panel (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md).
+Its outline is inset, so its rows and its outer box share the same guides.
 
 The header is the card's label, a disclosure when it folds, and its `value`
 — the summary a folded card still shows, so a glance down the panel reads

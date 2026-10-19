@@ -214,3 +214,11 @@ test('Team fold controls use the project visibility rule without changing label 
     expect(getComputedStyle(button('Show the agents in Build')).visibility).toBe('visible')
   } finally { css.remove() }
 })
+
+
+test('a card prefix shares the full-width label slot while its text keeps intrinsic space', () => {
+  mount(<LeftColumnRow label="Writer" trailing={{ kind: 'mark', label: 'Working', icon: <span />, prefix: '#12345' }} />)
+  const label = button('Writer').querySelector('[data-slot="sidebar-menu-label"]')!
+  expect(container.querySelector('[data-left-mark-prefix]')?.parentElement).toBe(label)
+  expect(label.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent).toBe('Writer')
+})

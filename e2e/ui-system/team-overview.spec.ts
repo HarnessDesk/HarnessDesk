@@ -46,6 +46,12 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(rig.getByText('2 done', { exact: true })).toBeVisible()
     const members = await teamSeats(rig)
     await expect(members.locator('[data-slot="list-row"]')).toHaveCount(2)
+    const guides = await members.evaluate(section => ({
+      card: section.getBoundingClientRect().left,
+      row: section.querySelector('[data-slot="list-row"]')!.getBoundingClientRect().left,
+    }))
+    expect(guides.row - guides.card).toBe(0)
+    console.log(JSON.stringify({ theme, seatsGuides: guides, delta: guides.row - guides.card }))
     const completed = members.locator('[data-slot="list-row-trail"] [data-slot="chip"]').filter({ hasText: /^Done$/ })
     await expect(completed).toHaveCount(2)
     for (const state of await completed.all()) {
@@ -279,7 +285,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(blue.locator('[data-slot="dot"]')).toHaveAttribute('data-state','new')
     await expect(quiet.locator('[data-left-mark]')).toHaveCount(0)
     await sidebar.screenshot({path:`${process.env.HD_1777_FRAMES ?? 'output/playwright/1777'}/sidebar-${theme}.png`})
-    await blue.getByRole('button',{name:'Room Finished work',exact:true}).click()
+    await blue.getByRole('button',{name:'Room Finished work',exact:true}).click({ position: { x: 8, y: 16 } })
     await expect(blue.locator('[data-left-mark]')).toHaveCount(0)
     const frame=page.locator('#team-overview-live-unchecked')
     const overview=frame.locator('[data-slot="team-overview"]')
