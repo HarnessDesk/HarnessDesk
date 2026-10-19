@@ -1025,8 +1025,12 @@ it('first-send promotion moves the draft browser into the new session partition 
   store.newDraft()
   store.openBrowser('https://example.com/task-a')
   const held = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
-  answers['session/create'] = conversation('promoted-browser', REPO.path)
+  answers['git/status'] = { branch: 'main', headSha: 'abc', files: [] }
+  answers['worktree/create'] = { ...LISTED.tree }
+  answers['session/create'] = conversation('promoted-browser', TREE)
   await store.send([{ type: 'text', text: 'Start task A' }])
+  expect(calls('worktree/create')).toHaveLength(1)
+  expect(calls('session/create')).toContainEqual(expect.objectContaining({ options: expect.objectContaining({ cwd: TREE }) }))
   const promoted = dockViews(store.getSnapshot().workbench.right).find(one => one.id === held.id)!
   expect(promoted.view).toMatchObject({ profile: sessionBrowserProfile(AGENT, 'promoted-browser'), tabs: held.view.kind === 'browser' ? held.view.tabs : [] })
   expect(store.getSnapshot().workbench.toolOwners[held.id]).toBe(`session:${sessionKey(AGENT, 'promoted-browser')}`)

@@ -1507,7 +1507,8 @@ host transactions; the renderer refreshes the resulting Goal instead of
 splicing a member into local state.
 
 Isolated Goal work receives a durable lane: retained checkout and disjoint port
-block. Each conversation has its own persistent browser partition. The host injects
+block. Each conversation has its own browser partition, whose persistence follows
+the browser setting. The host injects
 the lane environment into each agent invocation that can take it per session.
 A lane depends on its checkout, never on a variable in the agent's process: the
 cwd is the confinement; browser identity follows the conversation, while the
