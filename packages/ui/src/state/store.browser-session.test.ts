@@ -34,10 +34,11 @@ it('two conversations in one checkout retain separate browser tabs across switch
   expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === first.id)?.view).toEqual(first.view)
 })
 
-it('the real webview partition accepts session identities independently of the default persistence preference', () => {
+it('the real webview partition preserves session isolation while honoring the persistence preference', () => {
   const profile = sessionBrowserProfile('fixture', 'alpha')
   expect(browserPartition(profile, true)).toBe(`persist:hd-${browserProfileStorageName(profile)}`)
-  expect(browserPartition(profile, false)).toBe(`persist:hd-${browserProfileStorageName(profile)}`)
+  expect(browserPartition(profile, false)).toBe(`hd-${browserProfileStorageName(profile)}`)
+  expect(browserPartition('lane-fixture', false)).toBe('persist:hd-lane-fixture')
 })
 
 it('a first tool open for a background session belongs to that session without changing the foreground', async () => {

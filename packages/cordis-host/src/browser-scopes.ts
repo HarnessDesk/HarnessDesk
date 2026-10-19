@@ -133,5 +133,5 @@ export function browserPartition(profile: string | null, keep: boolean): string 
   if (!isBrowserProfile(profile)) {
     throw new Error('The host did not name a browser profile.')
   }
-  return `persist:hd-${browserProfileStorageName(profile)}`
+  return `${profile.startsWith('session-') && !keep ? '' : 'persist:'}hd-${browserProfileStorageName(profile)}`
 }

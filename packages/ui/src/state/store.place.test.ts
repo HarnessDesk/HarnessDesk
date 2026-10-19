@@ -1020,3 +1020,19 @@ it.each(['bare layout', 'unowned dock'] as const)('restores a %s browser into it
   expect(restored?.view).toMatchObject({ profile: sessionBrowserProfile(AGENT, 'legacy-session'), tabs: browser.tabs })
   expect(store.getSnapshot().workbench.toolOwners[restored!.id]).toBe(`session:${key}`)
 })
+
+it('first-send promotion moves the draft browser into the new session partition and leaves the next draft independent', async () => {
+  store.newDraft()
+  store.openBrowser('https://example.com/task-a')
+  const held = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
+  answers['session/create'] = conversation('promoted-browser', REPO.path)
+  await store.send([{ type: 'text', text: 'Start task A' }])
+  const promoted = dockViews(store.getSnapshot().workbench.right).find(one => one.id === held.id)!
+  expect(promoted.view).toMatchObject({ profile: sessionBrowserProfile(AGENT, 'promoted-browser'), tabs: held.view.kind === 'browser' ? held.view.tabs : [] })
+  expect(store.getSnapshot().workbench.toolOwners[held.id]).toBe(`session:${sessionKey(AGENT, 'promoted-browser')}`)
+  store.newDraft()
+  store.openBrowser('https://example.com/task-b')
+  const browsers = dockViews(store.getSnapshot().workbench.right).filter(one => one.view.kind === 'browser')
+  expect(browsers).toHaveLength(2)
+  expect(browsers.find(one => one.id === held.id)?.view).toEqual(promoted.view)
+})

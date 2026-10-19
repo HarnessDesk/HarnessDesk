@@ -2895,11 +2895,11 @@ export class AppStore {
           if (intent || scope) {
             const subject = `session:${key}`
             const pane = focusedPane(before.main)
-            this.#setWorkbench({ ...before,
+            this.#setWorkbench(isolateSessionBrowserProfiles({ ...before,
               frameTools: intent ? { ...frameTools, [subject]: intent } : frameTools,
               frameSubjects: { ...frameSubjects, [subject]: { paneId: pane.id, view: pane.view } },
               toolOwners: Object.fromEntries(Object.entries(before.toolOwners).map(([id, owner]) => [id, owner === draftSubject ? subject : owner])),
-            })
+            }))
           }
         }
       }

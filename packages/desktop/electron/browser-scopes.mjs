@@ -13,7 +13,7 @@ export function browserPartition(profile, keep) {
   ) {
     throw new Error('The host did not name a browser profile.')
   }
-  return `persist:hd-${profile.startsWith('session-') ? `session-${createHash('sha256').update(profile).digest('hex')}` : profile}`
+  return `${profile.startsWith('session-') && !keep ? '' : 'persist:'}hd-${profile.startsWith('session-') ? `session-${createHash('sha256').update(profile).digest('hex')}` : profile}`
 }
 
 /** Dependency injection keeps the tests on the actual engine, without an Electron process. */
@@ -35,6 +35,7 @@ export function createProfileBrowserEngine({
   const banked = new WeakMap()
   const partitionProfiles = new Map()
   const profilesByPartition = new Map()
+  const chosenPartitions = new Map()
   const attaching = new WeakMap()
   let nextRequest = 0
   let tail = Promise.resolve()
@@ -45,7 +46,7 @@ export function createProfileBrowserEngine({
   }
   const deskSender = (event) => event.sender === currentWindow()?.webContents
   const partition = (profile) => {
-    const value = browserPartition(profile, keep())
+    const value = chosenPartitions.get(profile) ?? browserPartition(profile, keep())
     if (profile !== null && !allowedProfile(profile)) {
       throw new Error('This browser profile is not owned by a known conversation or kept lane.')
     }
@@ -203,13 +204,19 @@ export function createProfileBrowserEngine({
         partitionProfiles.set(sessionForPartition(value), null)
         return null
       }
-      if (typeof value !== 'string' || !value.startsWith('persist:hd-')) return undefined
-      const profile = value.startsWith('persist:hd-session-')
+      if (typeof value !== 'string') return undefined
+      const sessionProfile = /^(?:persist:)?hd-session-/.test(value)
+      const profile = sessionProfile
         ? (profilesByPartition.get(value) ?? resolveProfile(value))
-        : value.slice('persist:hd-'.length)
+        : value.startsWith('persist:hd-') ? value.slice('persist:hd-'.length) : undefined
       if (typeof profile !== 'string') return undefined
       try {
-        return partition(profile) === value ? profile : undefined
+        partition(profile) // Recheck ownership even when the requested persistence mode changed.
+        if (![browserPartition(profile, true), browserPartition(profile, false)].includes(value)) return undefined
+        chosenPartitions.set(profile, value)
+        profilesByPartition.set(value, profile)
+        partitionProfiles.set(sessionForPartition(value), profile)
+        return profile
       } catch {
         return undefined
       }

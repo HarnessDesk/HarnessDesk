@@ -780,6 +780,8 @@ test('desktop can restore a known session profile from the durable index before 
   assert.equal(reopened.registry.get(session.runtime, session.id), undefined)
   assert.equal(reopened.browserProfileAllowed(profile), true)
   assert.equal(reopened.browserProfileForPartition(`persist:hd-${browserProfileStorageName(profile)}`), profile)
+  assert.equal(reopened.browserProfileForPartition(`hd-${browserProfileStorageName(profile)}`), profile)
+  assert.equal(reopened.browserProfileForPartition(`hd-session-${'a'.repeat(64)}`), undefined)
   assert.equal(reopened.browserProfileForPartition(`persist:hd-session-${'a'.repeat(64)}`), undefined)
   assert.equal(reopened.browserProfileAllowed(sessionBrowserProfile(session.runtime, 'not-known')), false)
 })

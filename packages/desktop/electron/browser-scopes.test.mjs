@@ -4,7 +4,7 @@ import { test } from 'node:test'
 
 import { browserPartition, createProfileBrowserEngine } from './browser-scopes.mjs'
 
-function rig() {
+function rig(keep = true) {
   const ipc = new EventEmitter()
   const sessions = new Map()
   const sessionForPartition = (key) => {
@@ -64,7 +64,7 @@ function rig() {
     })
     Object.assign(wc, {
       id: contents.size + 1,
-      session: sessionForPartition(browserPartition(profile, true)),
+      session: sessionForPartition(browserPartition(profile, keep)),
       hostWebContents: window.webContents,
       getType: () => 'webview',
       isDestroyed: () => false,
@@ -81,7 +81,8 @@ function rig() {
     window: () => window,
     show: async () => window,
     allowedProfile: (profile) => ['lane-a', 'lane-b', 'session-WyJhIiwiMSJd', 'session-WyJhIiwiMiJd'].includes(profile),
-    resolveProfile: partition => ['session-WyJhIiwiMSJd', 'session-WyJhIiwiMiJd'].find(profile => browserPartition(profile, true) === partition),
+    resolveProfile: partition => ['session-WyJhIiwiMSJd', 'session-WyJhIiwiMiJd'].find(profile => [browserPartition(profile, true), browserPartition(profile, false)].includes(partition)),
+    keep: () => keep,
     readyTimeoutMs: 25,
   })
   return { engine, ipc, window, makeGuest, fronts, contents }
@@ -185,4 +186,24 @@ test('cold hashed partitions need a host-owned logical identity before any guest
   const { engine } = rig()
   assert.equal(engine.profileForPartition(browserPartition('session-WyJhIiwiMSJd', true)), 'session-WyJhIiwiMSJd')
   assert.equal(engine.profileForPartition(`persist:hd-session-${'a'.repeat(64)}`), undefined)
+})
+
+test('session persistence follows the preference while legacy lanes stay persisted', () => {
+  const profile = 'session-WyJhIiwiMSJd'
+  assert.equal(browserPartition(profile, false), browserPartition(profile, true).slice('persist:'.length))
+  assert.equal(browserPartition('lane-a', false), 'persist:hd-lane-a')
+})
+
+test('cold in-memory session partitions require the same known owner and remain isolated', async () => {
+  const { engine, contents } = rig(false)
+  const profile = 'session-WyJhIiwiMSJd'
+  const memory = browserPartition(profile, true).slice('persist:'.length)
+  assert.equal(engine.profileForPartition(memory), profile)
+  assert.equal(engine.profileForPartition(`hd-session-${'a'.repeat(64)}`), undefined)
+  assert.equal(engine.partition(profile), memory)
+  const first = await engine.ensure(identity(profile))
+  await engine.ensure(identity('session-WyJhIiwiMiJd'))
+  const guests = [...contents.values()]
+  assert.notEqual(guests[0].session, guests[1].session)
+  assert.equal((await first.send('Runtime.evaluate')).result.value, profile)
 })
