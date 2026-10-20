@@ -356,3 +356,12 @@ it('honours the system\'s reduced-motion setting without a URL flag: no pointer,
   await pass(10)
   expect(boardColumn('Ready')!.textContent).toContain('#4')
 })
+
+it('keeps the tour sidebar inert, and puts the attribute back when a render clears it', async () => {
+  await act(async () => root.render(<SiteScene name="tour-run" theme="light" motion="reduce" />))
+  const columns = [...host.querySelectorAll('[data-left-column]')]
+  expect(columns.length).toBeGreaterThan(0)
+  for (const column of columns) expect(column.hasAttribute('inert')).toBe(true)
+  await act(async () => { columns[0]!.removeAttribute('inert') })
+  expect(columns[0]!.hasAttribute('inert')).toBe(true)
+})
