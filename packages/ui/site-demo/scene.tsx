@@ -31,6 +31,15 @@ const SceneBody = ({ name, reduced, store, children }: { name: SceneName; reduce
   const scene = SCENES[name]
   // Visibility governs timers only. This scene has no playback timer; local
   // controls and scrolling remain available even before the parent is ready.
+  // The sidebar is shown, not used: `inert` stops the pointer and the keyboard alike, and the column
+  // sets it itself when hidden, so a render that clears it is put back.
+  useEffect(() => {
+    const seal = () => document.querySelectorAll('[data-left-column]').forEach(column => { if (!column.hasAttribute('inert')) column.setAttribute('inert', '') })
+    seal()
+    const watch = new MutationObserver(seal)
+    watch.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['inert'] })
+    return () => watch.disconnect()
+  }, [])
   useEffect(() => {
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => window.parent.postMessage({ type: 'hdDemoReady' }, '*'))

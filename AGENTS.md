@@ -176,15 +176,16 @@ The website's embedded demos (`packages/ui/site-demo/`, copied into the
 `harnessdesk-site` repository) follow these rules whenever they are refreshed:
 
 - **Real names only.** Scenes say Codex, Claude Code and Cursor, and real model
-  names (Sol, Opus, Auto) — never the gallery's Alpha, Beta, Gamma, Delta,
+  names (Sol, Opus, Auto; the fourth seat is `Codex 2` on `Sol High`) — never the gallery's Alpha, Beta, Gamma, Delta,
   `Assistant A` or `Model A`. `site-demo/real-names.ts` does the renaming.
 - **Not every demo is clickable.** Interactive demos are the exception, chosen
   on purpose (today: the tour pages and the dashboard panels). Display-only
   scenes carry `data-scene-static` in the site's `index.html` and ignore the
   pointer.
-- **A sidebar may be shown, but its buttons are not all live.** The left
-  column is inert in the demos (`scene.css`); only the controls that make the
-  demo's point answer a click.
+- **A sidebar may be shown, but it is not live.** The left column is `inert` in
+  the demos (`SceneBody` in `scene.tsx`), so neither the pointer nor the keyboard
+  reaches it. A demo that needs a live sidebar control must render that control
+  outside the left column.
 - **Scrolling never traps.** A demo must pass the wheel through to the page
   (no `overscroll-behavior: contain` on the scene; `site.js` forwards the rest).
 

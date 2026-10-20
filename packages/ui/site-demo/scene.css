@@ -97,5 +97,4 @@
 }
 .site-scene[data-site-scene="tour-flows"] [data-slot="flow-mini-graph"] [data-step][data-flow-pending] { opacity: 0; transform: scale(0.94); }
 .site-scene[data-site-scene="tour-flows"] [data-slot="flow-mini-graph"] [data-edge][data-flow-pending] { opacity: 0; }
-/* The sidebar is there to be seen; its buttons are not wired in this demo. */
-.site-scene [data-left-column] { pointer-events: none; }
+/* The sidebar is there to be seen; SceneBody marks it `inert`, which also keeps the keyboard out. */
