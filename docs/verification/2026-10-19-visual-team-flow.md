@@ -106,3 +106,37 @@ alignment census 补全目录后的完整重跑在 9899bd575 通过：192 项（
 360px 的真实窄窗口修复：栏内标题从 0 恢复到 216.34px，data-fold=1，页面无横向溢出；直接保留 sidebar、标题与 More。More 含原 Back/Forward、rail、Terminal、Changes（原禁用原因）、Browser、Files、Run history 和窗口动作。折叠 rail 动作实际打开信息栏并把焦点交回 More。保持菜单打开时放大到 1440px，data-fold 回到 0，原工具恢复且菜单继续可用；深色也实际检查。
 
 独立静态复核还指出 compact 属性移除后折叠状态未复位，已在正宽与零宽两种情形先红后绿修正。内联审批的新旧焦点回归先红后绿，真实模态的聚焦/恢复测试仍通过。图中 Runtime 3 的拒绝现在只显示共享 issue mark，完整消息保留在 title 和无障碍名称中；CUA 选择 Use Runtime 1 后标记消失，Judge 显示 Runtime 1。
+
+
+## 最终产品源码与证据
+
+产品源码冻结在 `1bf847c5697303fe68137a365a6b8d05c19a790f`，已包含 development `24aa8d7fdeee47f03f787cc77f40978948bf8141`。提交后的完整 UI 命令 `pnpm --filter @harnessdesk/ui test --maxWorkers=4` 实际通过：677 个文件、8,604 项，退出码 0，210.31 秒。类型检查、Vite 构建、严格设计审计和 `pnpm check:push --base origin/development --fast` 通过，快速门禁耗时 65.7 秒；其跳过的 Node/browser/native 套件不计为通过。审计保留所有硬零类别与既有几何标准，布局债务上限为 2,038，没有增加例外。
+
+最终新增的浅色 Chat、窄顶栏浅色/深色菜单帧已逐张检查，来自隔离 rig 或 preview，发布于不可变截图提交 [2c9d4a06acd4](https://github.com/HarnessDesk/HarnessDesk/tree/2c9d4a06acd4c2e8390d956768518e3b686d8304/pr-1813/visual-team-flow)。真实 Claude 桌面只用于本机观察，没有发布。最终本机 Chat 保持两个原待处理审批、空输入区、可收起 Run/Seats 和正常窗口尺寸，没有发送新的 Agent 消息。
+
+
+最终一轮独立只读复核覆盖共享 TopBar 的折叠属性切换、零宽与正常宽度清理、原工具回调与拒绝原因，内联/模态审批聚焦边界，以及 rail 的透明内层、composer 测量清理、工具优先级、显式 reveal 持久化和 Swap。该范围未发现新的可复现缺陷；它是有界静态审阅，不替代完整逐文件审查、hosted 浏览器结果或 native 验证。
+
+
+同一最终产品源码的 hosted 浏览器实跑（runs=1、copies=1、单 worker、无 retry）：
+
+| Spec | 实际结果 | Run |
+| --- | --- | --- |
+| alignment-census | 192 passed | [39385553578](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385553578) |
+| edge-alignment | 8 passed | [39385555228](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385555228) |
+| goal-bar-alignment | 2 passed | [39385557814](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385557814) |
+| reading-column-edges | 4 passed | [39385559709](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385559709) |
+| sidebar-edges | 19 passed | [39385561540](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385561540) |
+| team-tabs | 6 passed | [39385564127](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385564127) |
+| team-frame | 37 passed | [39385565299](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385565299) |
+| team-bar | 4 passed | [39385567714](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385567714) |
+| publication-words | 2 passed | [39385569752](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385569752) |
+| frame-contract-work-leads-wide-teams | 54 passed | [39385571857](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385571857) |
+| frame-contract-work-leads-narrow-teams | 54 passed | [39385574263](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385574263) |
+
+上述十一组共 382 项通过，0 项失败，其中五组视觉对齐检查共 225 项。没有修改 alignment-census.json 或放宽 title-contract；实际浏览器结果与静态发现、CUA 测量分别记录。
+
+
+最终产品源码的常规 CI [39385542685](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385542685) 已完成并通过，tier 为 bounded；其中显式跳过的浏览器分片、server-facing 与 native smoke 仍不计为通过，不把 bounded 解释为 full-tier 或可合并证明。
+
+最终证据文件整理后再执行快速提交门禁，退出码 0，64.3 秒。

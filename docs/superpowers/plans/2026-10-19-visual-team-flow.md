@@ -124,15 +124,15 @@ Design: own messages use the existing right-hand user bubble; Agent messages ret
 - [x] Add consistent folding across Work, Run/step/Seat metadata, SkillPage asides and the Flow editor inspector; preserve warnings/loading/failure/retry, full controls and explicit unknown costs.
 - [x] Implement measured composer clearance and subject-local tool/rail priority; retain exact resources and restoration. Fix the requester relationship label for assistive technology.
 - [x] Verify all combined changes in both themes and narrow/wide geometry, including long labels, empty/error/full rails, Details plus manual rail reveal, own/grouped/Agent-directed messages and persistent composer.
-- [ ] Run focused source contracts, full UI/typecheck/build/design gates and hosted visual alignment specs; do not record a browser discovery as a passed execution or loosen geometry baselines.
-- [ ] Publish final source and inspected synthetic frames, update PR evidence and request review without merging.
+- [x] Run focused source contracts, full UI/typecheck/build/design gates and hosted visual alignment specs; do not record a browser discovery as a passed execution or loosen geometry baselines.
+- [x] Publish final source and inspected synthetic frames, update PR evidence and request review without merging.
 
 ### Task 12: Exact browser alignment evidence for the new queue
 
 - [x] Migrate alignment-census and sentence-case checks from retired role Rows to the actual team-role-seat headers and Configure controls; retain exact geometry and optional Judge disclosure requirements.
 - [x] Migrate only the Chat-layout selectors in the two frame contracts; preserve the Flow-choice names.
-- [ ] Dispatch repeat-test.yml on the published branch with runs=1 and copies=1 for alignment-census, edge-alignment, goal-bar-alignment, reading-column-edges and sidebar-edges; inspect every run and repair confirmed failures.
-- [ ] Record CUA geometry measurements and CI results separately, with exact source head and any unexecuted wider suites.
+- [x] Dispatch repeat-test.yml on the published branch with runs=1 and copies=1 for alignment-census, edge-alignment, goal-bar-alignment, reading-column-edges and sidebar-edges; inspect every run and repair confirmed failures.
+- [x] Record CUA geometry measurements and CI results separately, with exact source head and any unexecuted wider suites.
 
 
 ### Task 13: Fresh review follow-up
@@ -140,7 +140,7 @@ Design: own messages use the existing right-hand user bubble; Agent messages ret
 - [x] Review current design-system and interaction changes independently; retain incomplete review coverage explicitly.
 - [x] Correct remaining Chat / Split browser contract selectors and enter optional Judge through Details, preserving all decision and refusal assertions.
 - [x] Correct the long plain-task validation reason so it identifies the visible source of the limit; cover explicit Done when separately.
-- [ ] Execute the four additional affected browser specs and the current Team Work contract; inspect results and repair failures.
+- [x] Execute the four additional affected browser specs and the current Team Work contract; inspect results and repair failures.
 
 
 ### Task 14: Narrow title and toolbar geometry found by hosted tests
@@ -148,7 +148,7 @@ Design: own messages use the existing right-hand user bubble; Agent messages ret
 - [x] Measure the failure through CUA: 360px viewport, 328px embedded Team frame, 302px top bar and zero-width title while all tool controls remain drawn.
 - [x] Preserve the title floor and button sizes by moving narrow-only secondary controls into the existing More menu, retaining navigation and exact tool actions.
 - [x] Restore the canonical page-control group to the opposite gutter while preserving its shared row alignment.
-- [ ] Rerun strict team-tabs, team-frame, publication and full census measurements on the corrected source; never weaken the title contract.
+- [x] Rerun strict team-tabs, team-frame, publication and full census measurements on the corrected source; never weaken the title contract.
 
 
 ### Task 15: Final shared-action and focus follow-up
@@ -157,4 +157,4 @@ Design: own messages use the existing right-hand user bubble; Agent messages ret
 - [x] Migrate the shared wall action helper and Split destination, including direct/overflow tool and rail doors without bypassing the UI.
 - [x] Replace graph-seat warning paragraphs with the shared accessible issue mark and retain direct runtime recovery.
 - [x] Review canonical TopBar lifecycle independently and repair folded-to-noncompact prop changes at positive and zero width.
-- [ ] Finish current-source full UI/gates, selected hosted browser matrix and final evidence publication.
+- [x] Finish current-source full UI/gates, selected hosted browser matrix and final evidence publication.
