@@ -177,7 +177,7 @@ The website's embedded demos (`packages/ui/site-demo/`, copied into the
 
 - **Real names only.** Scenes say Codex, Claude Code and Cursor, and real model
   names (Sol, Opus, Auto; the fourth seat is `Codex 2` on `Sol High`) — never the gallery's Alpha, Beta, Gamma, Delta,
-  `Assistant A` or `Model A`. `site-demo/real-names.ts` does the renaming.
+  `Assistant A` or `Model A`. `packages/ui/site-demo/real-names.ts` does the renaming.
 - **Not every demo is clickable.** Interactive demos are the exception, chosen
   on purpose (today: the tour pages and the dashboard panels). Display-only
   scenes carry `data-scene-static` in the site's `index.html` and ignore the
