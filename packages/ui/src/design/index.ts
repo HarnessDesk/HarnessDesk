@@ -274,6 +274,7 @@ export { PictureChoices, AccentChoices, RingChoices } from './patterns/SettingsC
 export { DashboardOverviewStats, DashboardBands, DashboardColumns, DashboardAccounts, DashboardAccountHead, DashboardAccountBody, DashboardAccountFoot, DashboardFigure, DashboardLanes, DashboardReadingNote, DashboardFact, DashboardMoney, DashboardTable, DashboardPlanName, DashboardPlanReading, DashboardAgentReading, DashboardStats, DashboardBurn, DashboardAccountActivity, type DashboardBand } from './patterns/DashboardBands'
 export { PageRecords, PageRecordViews, type RecordColumn, type PageRecord, type RecordGroup } from './patterns/PageRecords'
 export { TeamsBoard, TeamsBoardColumn, TeamsBoardCard, TeamsBoardToolbar, TeamsBoardWrapped } from './patterns/TeamsBoard'
+export { AgentCatalogue, AgentCatalogueCard, AgentCatalogueSources, type AgentCatalogueCardProps } from './patterns/AgentCatalogue'
 export { BoardCard as CompactBoardCard, BoardCardGrid as CompactBoardCardGrid } from './patterns/BoardCard'
 export { LibraryMatrix, type LibraryMatrixColumn, type LibraryMatrixCell, type LibraryMatrixRow, type LibraryMatrixFooter } from './patterns/LibraryMatrix'
 export { SignInRail } from './patterns/SignInRail'

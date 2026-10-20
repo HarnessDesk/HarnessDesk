@@ -1767,7 +1767,10 @@ Each card shows the brief's first sentence, with the whole brief on hover;
 the ask, current step and observed activity, or recorded outcome; the frozen
 Run's path as completed, current and unreached segments; and its Seats' faces,
 project and age. A Team without a Flow has no path. Unknown age stays a dash.
-Waiting reasons wrap whole. Clicking a card or activating its named keyboard
+Attention cards show a concise status and one issue mark; the full reason
+remains in its accessible description, hover text, search and the Team's
+details. Task titles can use two lines; ordinary summaries are bounded.
+Clicking a card or activating its named keyboard
 button opens the Team and records its observed change as read. A small dot
 marks a Team changed since it was last opened here.
 
@@ -1777,6 +1780,21 @@ dependencies and unfinished follow-ups stay **Working**. Quiet finished work
 stays visible in **Ready to wrap**. **Wrapped · N** folds its retained receipts
 below that column, without reading their Runs until opened. The project
 filter uses the Teams' existing project data.
+
+### The Agents page
+
+**Agents** is the catalogue of reusable roles; **Flows** defines how roles
+work together, and **Teams** follows the concrete work they are doing.
+Search and **Agent origin** scope the role cards in **Project**, **Yours**,
+and **Built in** precedence order. A card separates the role's name and
+purpose from the runtime, model and earned seating or ceiling facts. It opens
+that exact Agent's existing page. A failed or pending seat check stays
+explicit; an unreadable definition stays inspectable with its full issue.
+
+**Sources and precedence** folds full source paths and shadowed copies into
+one place. It names the actual checkout read, including a linked worktree,
+and never relabels retained records as coming from a newly selected folder.
+Unfinished authoring saves keep their existing Resume and Discard actions.
 
 ### A Team's Work
 

@@ -3926,7 +3926,7 @@ The line is a rendering of facts the host already decided (`FlowPreviewSeat.atta
 The owner found that Overview, Run, Flow and Timeline hid one story behind too
 many choices. Work now opens with the Run's frozen graph and recent activity;
 Full record expands history in place. Tasks groups Board and Findings without
-changing their ledger or actions, and Chat retains Thread and Side by side.
+changing their ledger or actions, and Chat offers combined and Split layouts.
 An explicit saved destination still restores. Run history and Receipt remain
 secondary destinations, and a compact chooser selects a historical Run.
 
@@ -3939,3 +3939,21 @@ actions scroll with the conversation and cannot be clipped in a second dock. Hum
 task decisions remain marked in the graph with the existing task and inspector
 answer actions. The selected Agent's actual glyph identifies each Seat without
 a surrounding coloured tile, and generated duplicate role names keep ordinals.
+
+## Teams follows work; Agents holds reusable roles — 2026-10-20
+
+The owner asked what Teams contributes beside Flows and requested the same
+visual quality for Teams and Agents. Teams keeps attention, working and
+ready-to-wrap work together across projects. Its cards show a concise status
+instead of reproducing an entire runtime refusal; one shared issue mark and
+the exact Team details retain the full explanation, which remains searchable.
+
+Agents uses a responsive role catalogue with source filtering and search.
+Purpose and actual seating facts have separate places. Source paths and
+shadowed copies remain in a deliberate disclosure rather than stretching the
+catalogue between groups. This presentation does not change precedence,
+permission enforcement, authoring recovery or the host's seating decisions.
+
+Superpowers specs and plans are local working notes. Both corresponding
+folders are ignored and untracked at the owner's request; product contracts
+and verification evidence remain in the ordinary documentation tree.

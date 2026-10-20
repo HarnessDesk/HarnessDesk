@@ -15,15 +15,18 @@ test('the sidebar and Agents window mark agents and align names with their secti
   const builtIn = frame.getByRole('region', { name: 'Built in', exact: true })
   const agent = builtIn.getByRole('button', { name: /Implementer/ }).first()
   await expect(agent.locator('[data-slot="sidebar-menu-icon"]')).toHaveCount(0)
-  await expect(agent.locator('[data-slot="row-face"]')).toBeVisible()
+  await expect(agent.locator('[data-slot="agent-card-face"]')).toBeVisible()
   const edges = await builtIn.evaluate(section => {
     const title = section.querySelector('[data-section-name]')!
-    const labels = [...section.querySelectorAll('[data-slot="row-title"]')]
+    const cards = [...section.querySelectorAll('[data-slot="agent-card"]')]
     return { heading: title.getBoundingClientRect().left, page: section.getBoundingClientRect().left,
-      labels: labels.map(label => label.getBoundingClientRect().left) }
+      labels: cards.map(card => card.querySelector('[data-slot="agent-card-title"]')!.getBoundingClientRect().left - card.getBoundingClientRect().left),
+      faces: cards.map(card => card.querySelector('[data-slot="agent-card-face"]')!.getBoundingClientRect().left - card.getBoundingClientRect().left) }
   })
   expect(Math.abs(edges.heading - edges.page)).toBeLessThan(1)
+  expect(edges.labels.length).toBeGreaterThan(0)
   for (const label of edges.labels) expect(Math.abs(label - edges.labels[0]!)).toBeLessThan(1)
+  for (const face of edges.faces) expect(Math.abs(face - edges.faces[0]!)).toBeLessThan(1)
 
 })
 

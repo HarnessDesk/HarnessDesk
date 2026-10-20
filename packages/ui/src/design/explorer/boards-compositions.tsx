@@ -20,6 +20,7 @@ import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { ShapeGraphBoard } from '../../preview/frames-shape-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
+import { AgentCatalogueBoard } from '../../preview/frames-agent-catalogue'
 import { BoardCardExample } from './board-card-example'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
@@ -3468,6 +3469,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Teams on the desk',
     about: 'Attention first, settled work folded, and recorded usage in its own unit.',
     render: TeamsPageBoard,
+  },
+  {
+    id: 'agent-catalogue',
+    title: 'Agent catalogue',
+    about: 'Reusable roles with their purpose and observed seats, source precedence, and the production catalogue in its loading, empty and failed states.',
+    render: AgentCatalogueBoard,
   },
   {
     id: 'board-card',

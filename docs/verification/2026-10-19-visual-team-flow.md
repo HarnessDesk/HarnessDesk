@@ -140,3 +140,16 @@ alignment census 补全目录后的完整重跑在 9899bd575 通过：192 项（
 最终产品源码的常规 CI [39385542685](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39385542685) 已完成并通过，tier 为 bounded；其中显式跳过的浏览器分片、server-facing 与 native smoke 仍不计为通过，不把 bounded 解释为 full-tier 或可合并证明。
 
 最终证据文件整理后再执行快速提交门禁，退出码 0，64.3 秒。
+
+
+## Teams 与 Agents 目录复核 — 2026-10-20
+
+Teams 保留按需要人处理、工作中、可收尾的真实三组工作入口；长 runtime 拒绝改为准确状态与一个共享 IssueMark，全文保留在可访问描述、悬停、搜索和原 Team 详情。任务标题可读两行，普通摘要有界。Agent 目录把角色用途与实际 runtime/model、asked/held ceiling 分开，新增来源筛选和搜索；完整文件来源与被覆盖副本由 Sources and precedence 统一展开，精确详情身份和未完成保存恢复保持原行为。
+
+实际 CUA 已检查两页浅色、深色与宽/窄窗口。375px 时 Agent 卡片宽 319px，高 112–136px；Teams 卡片高 124–144px，两页都没有横向溢出。搜索 Implementer 只保留一个角色卡，点击后进入准确的 Implementer 详情。警告全文仍可由原共享标记读取。公开帧只取自隔离 rig 与 preview。
+
+完整 UI 命令 pnpm --filter @harnessdesk/ui test --maxWorkers=4 实际通过：678 文件、8,613 项，209.81 秒。独立类型检查、Vite 构建、严格设计审计与文档路径检查通过。新 Agent Catalogue 问题描述回归先红后绿；两页聚焦回归共 69 项通过。新增目录板覆盖生产默认、加载、空、失败、长名称与来源展开；注册测试 37 项通过。完整 CI 与本轮浏览器验证结果随后记录。
+
+依照所有者新指示，.superpowers 和 docs/superpowers 从 Git 跟踪中移除并忽略，本机工作文件保留；正式接口、决定与验证记录仍在文档树中。
+
+推送前快速门禁实际通过，退出码 0，67.2 秒；跳过项不计为通过。两页六张浅色/深色/窄窗口帧已逐张检查并发布到不可变截图提交 [ef22d1ee6ba0](https://github.com/HarnessDesk/HarnessDesk/tree/ef22d1ee6ba0f89383a0d35697539bd407e94cc2/pr-1813/visual-team-flow)。

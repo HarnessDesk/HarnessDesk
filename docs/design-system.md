@@ -1170,6 +1170,24 @@ With `description`, the small face stays beside the name while the prose
 sits directly under the name, in that same text column. `meta` is the
 role or other recorded fact beside the name.
 
+### `AgentCatalogue`
+
+`packages/ui/src/design/patterns/AgentCatalogue.tsx`
+
+A responsive catalogue of reusable roles; the host remains the authority for their seats.
+
+### `AgentCatalogueCard`
+
+`packages/ui/src/design/patterns/AgentCatalogue.tsx`
+
+One role, its purpose, and its actual seating result, each with a distinct place.
+
+### `AgentCatalogueSources`
+
+`packages/ui/src/design/patterns/AgentCatalogue.tsx`
+
+Sources and lower-precedence copies stay available without repeating source paragraphs between role cards.
+
 ### `ApprovalReason`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
