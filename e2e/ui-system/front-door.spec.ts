@@ -54,6 +54,7 @@ test('a chosen Flow shows its seats in the same task dialog before Start Team', 
 
 test('a broken shape stays visible with its own reason, never silently dropped from the list', async ({ page }) => {
   await openBrokenFixture(page)
+  await page.getByRole('button', { name: 'All Flows', exact: true }).click()
   const broken = page.getByRole('button', { name: 'Broken flow', exact: true })
   await expect(broken).toBeVisible()
   await expect(broken).toContainText('there is no usable Agent called "ghost"')

@@ -93,6 +93,10 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   const pickerRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLDivElement>(null)
   const selectionRequested = useRef(false)
+  // Choosing can render defaults and preflight again after folding the picker.
+  // Keep that whole focus handoff separate from the preview's edit generation.
+  const choiceGeneration = useRef(0)
+  const [initializingChoice, setInitializingChoice] = useState(false)
   const [starts] = useState(readShapeStarts)
   const [task, setTask] = useState(initialTask)
   const taskRef = useRef(initialTask)
@@ -187,6 +191,8 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     async (next: FlowEntry | Chosen, suppliedSource?: string): Promise<void> => {
       const entry: Chosen = 'kind' in next ? next : { kind: 'saved', id: next.id, origin: next.origin, name: next.name }
       if (created || starting) return
+      const choice = ++choiceGeneration.current
+      setInitializingChoice(true)
       if (chosen && source) drafts.current.set(choiceKey(chosen), { source, vars, template: templates.current })
       setPlainTeam(false)
       setPickerOpen(false)
@@ -276,7 +282,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
         setPolicyPending(false)
         setReadingAccounts(false)
         setProblem(error instanceof Error ? error.message : 'That shape could not be read.')
-      }
+      } finally { if (choice === choiceGeneration.current) setInitializingChoice(false) }
     },
     [context, goal, root, runPreview, store, chosen, source, vars, created, starting],
   )
@@ -317,11 +323,15 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   const changeFlow = (): void => { setAllFlows(true); setQuery(''); setPickerOpen(true) }
   useEffect(() => {
     if (pickerOpen && (chosen || plainTeam)) pickerRef.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
-    else if (!pickerOpen && selectionRequested.current) {
-      selectedRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+  }, [pickerOpen])
+  useEffect(() => {
+    if (!pickerOpen && !initializingChoice && !policyPending && !readingAccounts && selectionRequested.current) {
+      const change = selectedRef.current?.querySelector<HTMLButtonElement>('button')
+      if (!change || change.disabled) return
+      change.focus()
       selectionRequested.current = false
     }
-  }, [pickerOpen])
+  }, [pickerOpen, initializingChoice, policyPending, readingAccounts])
 
   const preview = snapshot.frontDoor?.preview ?? null
   const flow = (preview ?? displayPreview)?.flow ?? null
@@ -345,6 +355,8 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     : !startable ? 'Resolve the dry-run requirements first.' : null
   const choosePlainTeam = (): void => {
     if (created || starting) return
+    choiceGeneration.current += 1
+    setInitializingChoice(false)
     if (chosen && source) drafts.current.set(choiceKey(chosen), { source, vars, template: templates.current })
     sequence.current += 1
     policySequence.current += 1
@@ -488,7 +500,8 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     >
       <FormStack>
         <Field label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'}>
-          {control => <Textarea {...control} aria-label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'} autoFocus value={task} disabled={locked || readingAccounts} onChange={event => {
+          {control => <Textarea {...control} aria-label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'} autoFocus value={task} disabled={locked || readingAccounts} onFocus={() => { selectionRequested.current = false }} onChange={event => {
+            selectionRequested.current = false
             const next = event.target.value
             taskRef.current = next; setTask(next); onTaskChange?.(next); setPlainDryRun(false)
             if (primary && !plainTeam) {

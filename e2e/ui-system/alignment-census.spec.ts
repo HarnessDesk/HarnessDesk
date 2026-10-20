@@ -25,9 +25,10 @@ for (const theme of ['light', 'dark'] as const) {
     let rows = dialog.locator('section[aria-label="Who does what"] [data-slot="row"]')
     await expect(rows).toHaveCount(2)
     if (shape === 'comparison') {
-      const judge = dialog.locator('[data-slot="row"]').filter({ has: page.getByText('Judge · optional', { exact: true }) })
+      const judge = dialog.locator('[data-slot="row"]').filter({ has: page.getByRole('button', { name: 'Configure Judge', exact: true }) })
       await expect(judge).toHaveCount(1)
-      await expect(judge.getByRole('button', { name: 'Runtime for Judge', exact: true })).toBeVisible()
+      await expect(judge.getByText('Optional', { exact: true })).toBeVisible()
+      await expect(judge.getByRole('button', { name: 'Configure Judge', exact: true })).toBeVisible()
       rows = rows.or(judge)
       await expect(rows).toHaveCount(3)
     }
@@ -37,6 +38,8 @@ for (const theme of ['light', 'dark'] as const) {
       const label = (await row.locator('[data-slot="row-title"]').locator('..').boundingBox())!
       const control = (await row.locator('[data-slot="row-ctl"]').boundingBox())!
       expect(Math.abs(label.y + label.height / 2 - control.y - control.height / 2)).toBeLessThan(10)
+      await expect(row.getByRole('button', { name: /^Configure / })).toHaveCount(1)
+      await expect(row.getByRole('button', { name: /^Runtime for / })).toHaveCount(0)
     }
     expect(await dialog.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false)
 

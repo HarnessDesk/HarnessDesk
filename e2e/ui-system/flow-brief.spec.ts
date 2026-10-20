@@ -1,9 +1,15 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 
 const paragraphs = 'Make the settings easier to read.\n\nKeep each choice beside its explanation and preserve keyboard navigation.\n\nCheck both themes and a narrow window before handing over the change.'
 const frames = 'output/flow-brief'
+
+const openCompletion = async (dialog: Locator): Promise<void> => {
+  const disclosure = dialog.getByRole('button', { name: 'Completion and dry run', exact: true })
+  if (await disclosure.getAttribute('aria-expanded') !== 'true') await disclosure.click()
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+}
 
 for (const theme of ['light', 'dark'] as const) {
   test(`Start stays disabled while a brief file is reading (${theme})`, async ({ page }) => {
@@ -27,6 +33,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?flow-brief=empty')
     const dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
+    await openCompletion(dialog)
     const brief = dialog.getByRole('textbox', { name: 'Brief', exact: true })
     const title = dialog.getByRole('textbox', { name: 'Done when · optional' })
     await expect(brief).toBeVisible()
@@ -101,6 +108,7 @@ test('a late imported brief cannot replace text typed in New Team', async ({ pag
   await expect(start).toBeEnabled()
   await page.evaluate(() => window.dispatchEvent(new Event('finish-dialog-brief-read')))
   await expect(brief).toHaveValue(paragraphs)
+  await openCompletion(dialog)
   await expect(dialog.getByRole('textbox', { name: 'Done when · optional' })).toHaveValue('Improve the settings')
   await expect(start).toBeEnabled()
 })

@@ -21,6 +21,18 @@ it('bounds quick Flow choices to three project, recent and common options withou
   expect(pickerSections(entries, {}, '').more).toHaveLength(shapes.length)
 })
 
+it('reserves quick choices for current readable Flows while keeping broken and legacy entries in the catalogue', () => {
+  const broken = entry('broken', { origin: 'project', problem: 'Unknown Agent', format: null })
+  const legacy = entry('old-fix', { origin: 'project', format: 'legacy' })
+  const recentBroken = entry('recent-broken', { problem: 'Invalid policy' })
+  const local = entry('local', { origin: 'project' })
+  const entries = [broken, legacy, recentBroken, ...shapes, local]
+  expect(quickFlowChoices(entries, { 'recent-broken': 20 }).map(one => one.id)).toEqual(['local', 'fix-and-review', 'comparison'])
+  expect(quickFlowChoices([broken, legacy], {})).toEqual([])
+  expect(pickerSections(entries, {}, '').project).toEqual(expect.arrayContaining([broken, legacy, local]))
+  expect(pickerSections(entries, {}, 'broken').more).toContain(recentBroken)
+})
+
 it('leaves a project comparison with a renamed person destination intact', () => {
   const base = TEAM_START_POLICIES.comparison
   const project: FlowPolicy = { ...base,

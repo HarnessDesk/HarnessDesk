@@ -18,17 +18,25 @@ for (const theme of ['light', 'dark'] as const) test(`a completed person choice 
 
 test('Side by side defaults to You and allows either attempt’s provider to judge', async ({ page }) => {
   await page.goto('/preview.html?team-start=comparison')
+  const configure = page.getByRole('button', { name: 'Configure Judge', exact: true })
   const judge = page.getByRole('button', { name: 'Runtime for Judge', exact: true })
-  await expect(page.getByText('Judge · optional', { exact: true })).toBeVisible()
+  const row = page.locator('[data-slot="row"]').filter({ has: configure })
+  await expect(row.getByText('Optional', { exact: true })).toBeVisible()
+  await expect(configure).toHaveText('You')
+  await expect(judge).toHaveCount(0)
+  await configure.click()
   await expect(judge).toHaveText('You')
   await expect(page.getByRole('button', { name: 'Model for Judge' })).toHaveCount(0)
   await judge.click()
   await page.getByRole('menuitemradio', { name: 'Runtime 1', exact: true }).click()
+  await expect(configure).toContainText('Runtime 1')
   await expect(judge).toHaveText('Runtime 1')
   await expect(page.getByRole('button', { name: 'Model for Judge' })).toBeVisible()
   await judge.click()
   await page.getByRole('menuitemradio', { name: 'You', exact: true }).click()
   await expect(judge).toHaveText('You')
+  await expect(configure).toHaveText('You')
+  await expect(page.getByRole('button', { name: 'Model for Judge' })).toHaveCount(0)
 })
 
 test('/race defaults to You and offers both providers as judges', async ({ page }) => {

@@ -104,10 +104,11 @@ export const pickerSections = (entries: readonly FlowEntry[], starts: Readonly<R
 
 /** A small front door; the searchable catalogue remains the complete source of choices. */
 export const quickFlowChoices = (entries: readonly FlowEntry[], starts: Readonly<Record<string, number>>): readonly FlowEntry[] => {
-  const sections = pickerSections(entries, starts, '')
+  const ready = entries.filter(entry => entry.problem === null && entry.format === 'agents')
+  const sections = pickerSections(ready, starts, '')
   const candidates = [
     ...sections.project.slice(0, 1), ...sections.most.slice(0, 2),
-    ...FRESH.flatMap(id => entries.filter(entry => entry.id === id && entry.origin !== 'project')),
+    ...FRESH.flatMap(id => ready.filter(entry => entry.id === id && entry.origin !== 'project')),
     ...sections.project, ...sections.more,
   ]
   return candidates.filter((entry, index) => candidates.findIndex(one => one.id === entry.id && one.origin === entry.origin) === index).slice(0, 3)

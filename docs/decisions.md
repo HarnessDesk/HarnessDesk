@@ -207,6 +207,15 @@ and writable destination of isolated attempts, without saving authority or
 allocating a lane. After redeeming that exact preview, Start captures the folder
 through the same `captureShellProject` path as workspace open.
 
+A plain Team has no Flow preview to redeem. Its renderer-only `goal/start`
+request accepts the selected project root, task sentence and checkout mode,
+never a caller-supplied checkout path. Before creating the Team it runs the
+same `admitTeamProject` check: the root must already be a remembered project
+or known from conversation history; an unknown folder is refused. A missing
+legacy identity can be captured, but a changed captured identity is refused
+until the person opens that folder again. Generic `goal/create`, including
+agent calls, does not grant this authority.
+
 The admission belongs to the start request's project, never a folder named by
 the Flow, a card, an agent or a conversation listing. An existing captured
 identity is revalidated rather than silently replaced. Subsequent Seat openings

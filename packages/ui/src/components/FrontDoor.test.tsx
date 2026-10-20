@@ -142,6 +142,43 @@ it('keeps optional completion and dry-run controls folded without adding another
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
 })
 
+it.each(['render', 'preview'])('focuses Change after a comparison’s initial %s settles without interrupting task editing', async phase => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  for (const editing of [false, true]) {
+    const store = new AppStore('ws://localhost:0/')
+    const policy = TEAM_START_POLICIES.comparison
+    let release!: () => void
+    const pending = new Promise<void>(resolve => { release = resolve })
+    let previews = 0
+    requestSpy(store, {
+      'flow/catalog': () => [ENTRY('comparison', 'Side by side')], 'agent/list': () => [], 'flow/source': () => JSON.stringify(policy),
+      'authoring/shape/render': async params => {
+        if (phase === 'render') await pending
+        return { source: JSON.stringify((params as { policy: unknown }).policy), issues: [] }
+      },
+      'authoring/start/preview': async params => {
+        if (++previews > 1 && phase === 'preview') await pending
+        const input = params as { source: string; vars: Record<string, string> }
+        const base = emptyFlow('token')
+        return previewOf({ ...base, compiled: { ...base.compiled, document: { format: 'agents', flow: JSON.parse(input.source) } } }, { source: input.source, vars: input.vars })
+      },
+    })
+    render(store)
+    await settle()
+    await act(async () => { const card = rowFor('Side by side'); card.focus(); card.click() })
+    // Native browsers drop focus when the initial defaults disable Change.
+    // Model that lost focus explicitly: jsdom leaves disabled buttons focused.
+    act(() => button('Change').blur())
+    const task = document.querySelector<HTMLTextAreaElement>('textarea')!
+    if (editing) act(() => task.focus())
+    await act(async () => release())
+    expect(button('Change').disabled).toBe(false)
+    expect(document.activeElement).toBe(editing ? task : button('Change'))
+    act(() => root.render(<div />))
+    await settle()
+  }
+})
+
 it('keeps the task, Flow picker and plain Team controls in one New Team dialog', async () => {
   const store = new AppStore('ws://localhost:0/')
   requestSpy(store, { 'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [] })
