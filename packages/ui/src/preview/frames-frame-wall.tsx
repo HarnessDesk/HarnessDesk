@@ -617,6 +617,8 @@ export const FrameWall = () => {
       }) as typeof next.transport.request
     }
     if (destination === 'draft' && query.get('frame-composer-labels') === '1') {
+      // A plain folder: no repository facts reads as "checking Git" and widens the row.
+      Object.assign(snapshot, snapshot.workspace ? { workspace: { ...snapshot.workspace, repo: null } } : {})
       Object.assign(snapshot, { draftOptions: [
         { id: 'sandbox', type: 'select', category: '_permissions', label: 'Sandbox', currentValue: 'workspace', choices: [
           { value: 'read', label: 'Read only' }, { value: 'workspace', label: 'Workspace' },
