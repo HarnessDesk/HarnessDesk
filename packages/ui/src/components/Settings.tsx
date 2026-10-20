@@ -924,7 +924,7 @@ const ModelsSection = () => {
                 Hide all
               </Button>
             )}
-            {hidden.length > 0 && (
+            {shown < total && (
               <Button size="sm" variant="outline" onClick={() => store.setAllModelsHidden(runtime.id, false)}>
                 Show all
               </Button>

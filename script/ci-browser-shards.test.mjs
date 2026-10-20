@@ -374,7 +374,9 @@ test('development push diff fetches before beyond checkout depth and computes th
   try {
     const clone = join(directory, 'clone')
     const before = git(['rev-parse', 'HEAD~3']).trim()
-    git(['clone', '--depth=2', '--no-checkout', `file://${root}`, clone])
+    // The workflow fetch must not leave detached maintenance writing into a
+    // disposable clone while finally removes it. Apply before the initial fetch too.
+    git(['clone', '--config', 'maintenance.auto=false', '--config', 'gc.auto=0', '--depth=2', '--no-checkout', `file://${root}`, clone])
     assert.notEqual(spawnSync('git', ['cat-file', '-e', `${before}^{commit}`], { cwd: clone }).status, 0)
     const block = job('changes').match(/        run: \|\n([\s\S]*?)          UI_THEME_TOUCHED=/)?.[1]
     assert.ok(block, 'workflow diff preparation')
