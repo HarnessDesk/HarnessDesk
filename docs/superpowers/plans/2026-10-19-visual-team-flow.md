@@ -110,7 +110,7 @@ Each item is an acceptance check for the user's accumulated requests. Existing i
 - [x] Save the reviewed follow-up fixes and merge latest fetched development without rewriting published history: development cd33160d2 is contained in merge eec3f7161; the subsequent CI-duration-only commit 24aa8d7fd is contained in merge 8906ecece.
 - [x] Finish the three acceptance audits. Remaining fixes bound Inspector paths/revisions and omit only confirmed empty optional conversation cards; preserve loading, failures/retry, recorded events and exact actions. An independent read-only review found no verified integration defect. Shipped-policy playback tests now cover all ten predefined Agent Flows.
 - [x] Rebuild and refresh the local fake-agent app. Full UI: 677 files / 8,573 tests passed with four workers; typecheck/build/design-doc/interface checks passed. Browser discovery: 266 files / 6,509 tests (discovery only). Selected push gates passed; repeat on the final committed head before pushing.
-- [ ] Push the refreshed PR, update its exact-head evidence and request the local extra-eyes review. Keep pending CI/browser/native coverage explicit; do not merge.
+- [x] Push the refreshed PR, update its exact-head evidence and request the local extra-eyes review. Keep pending CI/browser/native coverage explicit; do not merge.
 
 ### Task 11: New screenshot queue — task list, message bubbles and every information rail
 
@@ -133,3 +133,11 @@ Design: own messages use the existing right-hand user bubble; Agent messages ret
 - [x] Migrate only the Chat-layout selectors in the two frame contracts; preserve the Flow-choice names.
 - [ ] Dispatch repeat-test.yml on the published branch with runs=1 and copies=1 for alignment-census, edge-alignment, goal-bar-alignment, reading-column-edges and sidebar-edges; inspect every run and repair confirmed failures.
 - [ ] Record CUA geometry measurements and CI results separately, with exact source head and any unexecuted wider suites.
+
+
+### Task 13: Fresh review follow-up
+
+- [x] Review current design-system and interaction changes independently; retain incomplete review coverage explicitly.
+- [x] Correct remaining Chat / Split browser contract selectors and enter optional Judge through Details, preserving all decision and refusal assertions.
+- [x] Correct the long plain-task validation reason so it identifies the visible source of the limit; cover explicit Done when separately.
+- [ ] Execute the four additional affected browser specs and the current Team Work contract; inspect results and repair failures.

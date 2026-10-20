@@ -1487,3 +1487,51 @@ it('keeps placeholder rows visible until the chosen form has loaded and explains
   expect(button('Start Team').disabled).toBe(true)
   expect(document.body.textContent).toContain('Add a task first')
 })
+
+it.each([
+  ['fallback task', 'x'.repeat(2001), '', 'Keep the task to 2,000 characters.'],
+  ['explicit Done when', 'Inspect the cart', 'x'.repeat(2001), 'Keep Done when to 2,000 characters.'],
+] as const)('points a plain Team’s over-limit %s to the field that needs correction', async (_case, initialTask, initialDone, message) => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, { 'flow/catalog': () => [], 'agent/list': () => [], 'worktree/list': () => [] })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  act(() => root.render(<StoreProvider store={store}><FrontDoor context={{ kind: 'project', root: '/repo' }} initialPlain initialTask={initialTask} initialDone={initialDone} onClose={() => {}} onStarted={() => {}} /></StoreProvider>))
+  await settle()
+  const task = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="What should they do?"]')!
+  const done = document.querySelector<HTMLInputElement>('input[aria-label="Done when · optional"]')!
+  expect(button('Start Team').disabled).toBe(true)
+  expect(document.getElementById('team-start-reason')?.textContent).toBe(message)
+  const invalid = initialDone ? done : task
+  const other = initialDone ? task : done
+  expect(invalid.getAttribute('aria-invalid')).toBe('true')
+  expect(other.getAttribute('aria-invalid')).toBeNull()
+  const field = invalid.closest('[data-slot="form-field"]')!
+  const mark = field.querySelector('[data-slot="issue-mark"]')!
+  expect(mark?.getAttribute('title')).toBe(message)
+  expect(mark.closest('[hidden]')).toBeNull()
+  expect(document.querySelectorAll('[data-slot="issue-mark"]')).toHaveLength(1)
+  if (initialDone) {
+    act(() => button('Completion and dry run').click())
+    expect(document.getElementById('team-start-reason')?.textContent).toBe(message)
+    act(() => button('Completion and dry run').click())
+    expect(mark.closest('[hidden]')).toBeNull()
+  }
+  act(() => {
+    const prototype = initialDone ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype
+    Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(invalid, 'Inspect the cart')
+    invalid.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(button('Start Team').disabled).toBe(false)
+  expect(document.querySelector('[data-slot="issue-mark"]')).toBeNull()
+})
+
+it('allows a long task when a plain Team has a valid explicit Done when', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, { 'flow/catalog': () => [], 'agent/list': () => [], 'worktree/list': () => [] })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  act(() => root.render(<StoreProvider store={store}><FrontDoor context={{ kind: 'project', root: '/repo' }} initialPlain initialTask={'x'.repeat(2001)} initialDone="The cause is documented" onClose={() => {}} onStarted={() => {}} /></StoreProvider>))
+  await settle()
+  expect(button('Start Team').disabled).toBe(false)
+  expect(document.querySelector('[aria-invalid="true"]')).toBeNull()
+  expect(document.querySelector('[data-slot="issue-mark"]')).toBeNull()
+})

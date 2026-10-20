@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import type { AgentEntry, FlowEntry, FlowExecution, FlowPolicy, GoalView, StartContext } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Button, Checkbox, Chip, Dialog, DisclosureChevron, Field, Fieldset, FlowCard, FlowCardGrid, FormStack, Input, Note, Row, Rows, SectionHead, Search, SelectedFlow, Text, Textarea } from '../design'
+import { ActionError, Banner, Button, Checkbox, Chip, Dialog, DisclosureChevron, Field, Fieldset, FlowCard, FlowCardGrid, FormStack, Input, IssueMark, Note, Row, Rows, SectionHead, Search, SelectedFlow, Text, Textarea } from '../design'
 import { pickerSections, quickFlowChoices, readShapeStarts, recordShapeStart, shapeSummary, supportsAttemptCheck, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from '../lib/team-start'
 import { agentName, inForce } from '../lib/agents'
 import styles from './FrontDoor.module.css'
@@ -416,6 +416,8 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   }
 
   const plainWords = sentence.trim() || task.trim()
+  const taskIssue = plainTeam && !sentence.trim() && task.trim().length > 2000 ? 'Keep the task to 2,000 characters.' : undefined
+  const doneIssue = sentence.trim().length > 2000 ? 'Keep Done when to 2,000 characters.' : undefined
   const plainValid = plainWords.length > 0 && plainWords.length <= 2000
   const plainAgents = inForce(snapshot.agents ?? [])
   const submitPlain = async (): Promise<void> => {
@@ -486,7 +488,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   </section>
   const locked = starting || !!created
   const reason = plainTeam
-    ? starting ? 'Starting the Team…' : openingProject ? 'Opening the project…' : !plainValid ? plainWords.length > 2000 ? 'Keep Done when to 2,000 characters.' : 'Add a task first.' : null
+    ? starting ? 'Starting the Team…' : openingProject ? 'Opening the project…' : !plainValid ? taskIssue ?? doneIssue ?? 'Add a task first.' : null
     : chosen ? startReason : 'Choose a Flow first.'
   const canStart = plainTeam ? plainValid && !openingProject && !starting : !!chosen && startable && sentenceValid && !briefReading && !policyPending && !starting
   const dryRun = (): void => {
@@ -505,7 +507,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
       footerNavigation={<><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" disabled={locked} onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></>}
     >
       <FormStack>
-        <Field label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'}>
+        <Field label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'} error={taskIssue ? <IssueMark message={taskIssue} tone="danger" /> : undefined}>
           {control => <Textarea {...control} aria-label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'} autoFocus value={task} disabled={locked || readingAccounts} onChange={event => {
             const next = event.target.value
             taskRef.current = next; setTask(next); onTaskChange?.(next); setPlainDryRun(false)
@@ -581,7 +583,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
         {(chosen || plainTeam) && <section className={styles.section} aria-label="Completion and dry run">
         <div><Button variant="quiet" size="inline-link" aria-expanded={advancedOpen} aria-controls={advancedId} onClick={() => setAdvancedOpen(open => !open)}><DisclosureChevron open={advancedOpen} size="sm" />Completion and dry run</Button></div>
         <div id={advancedId} className={advancedOpen ? styles.section : undefined} hidden={!advancedOpen}>
-        <Field label="Done when · optional" error={(plainTeam ? plainWords.length : sentence.trim().length) > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
+        <Field label="Done when · optional" error={doneIssue ? <IssueMark message={doneIssue} tone="danger" /> : undefined}>
           {control => <Input {...control} aria-label="Done when · optional" value={sentence} disabled={locked} onChange={event => { setSentence(event.target.value); onDoneChange?.(event.target.value); setPlainDryRun(false) }} />}
         </Field>
         <div><Button variant="secondary" size="sm" disabled={starting || openingProject || policyPending || readingAccounts || (!plainTeam && !source)} onClick={dryRun}>Dry run</Button></div>

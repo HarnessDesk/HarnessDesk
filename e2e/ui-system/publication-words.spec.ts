@@ -19,6 +19,11 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByRole('dialog')).toContainText('Not published')
 
     await page.goto(`/preview.html?team-start=comparison&unheld-read&theme=${theme}`)
+    const dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
+    const details = dialog.getByRole('button', { name: 'Details', exact: true })
+    await expect(details).toHaveAttribute('aria-expanded', 'false')
+    await details.click()
+    await expect(details).toHaveAttribute('aria-expanded', 'true')
     const configure = page.getByRole('button', { name: 'Configure Judge', exact: true })
     await expect(configure).toHaveText('You')
     await configure.click()
@@ -27,8 +32,10 @@ for (const theme of ['light', 'dark'] as const) {
     await judge.click()
     await page.getByRole('menuitemradio', { name: 'Runtime 3', exact: true }).click()
     await expect(configure).toContainText('Runtime 3')
-    await page.keyboard.press('Escape')
+    // Enabling Judge moves its control into the graph and closes the old
+    // popover. Escape here would dismiss the New Team form itself.
     await expect(judge).toHaveCount(0)
+    await expect(dialog).toBeVisible()
     await expect(page.getByRole('dialog')).toContainText('Runtime 3 can be asked to stay read-only here but cannot be held to it. Choose another runtime, or start from /race.')
     await page.getByRole('button', { name: 'Use Runtime 1', exact: true }).click()
     await expect(configure).toContainText('Runtime 1')

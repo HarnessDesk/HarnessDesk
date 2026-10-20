@@ -11,7 +11,7 @@ for (const theme of ['light', 'dark'] as const) {
       const frame = page.locator('[data-frame-id="comparison-combined"]')
       const tabs = frame.getByRole('tablist', { name: 'Team views', exact: true })
       await selectTeamPage(frame, 'room')
-      const view = frame.getByRole('button', { name: /^(Thread|Side by side)$/ })
+      const view = frame.getByRole('button', { name: /^(Chat|Split)$/ })
       const tiles = frame.locator('[data-slot="side-by-side-tile"]')
       await expect(tiles).toHaveCount(2)
       await page.evaluate(() => document.fonts.ready)
@@ -36,7 +36,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(tabs.getByRole('tab')).toHaveCount(3)
       // Every destination stays reachable even when the strip must scroll.
       await selectTeamPage(frame, 'findings')
-      await expect(frame.getByRole('tablist', { name: 'Task views', exact: true }).getByRole('tab', { name: /^Findings/ })).toHaveAttribute('aria-selected', 'true')
+      await expect(frame.locator('[data-slot="task-navigation"]').getByRole('button', { name: /^Findings(?:\s|$)/ })).toHaveAttribute('aria-pressed', 'true')
     })
   }
 

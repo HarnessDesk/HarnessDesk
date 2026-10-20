@@ -79,3 +79,22 @@ CI 上原有三个真实图形配置用例曾接近或超过 5 秒默认测试�
 最终冻结产品源码后的完整 UI Vitest：677 个文件、8,596 项通过，退出码 0，211.94 秒。最终类型检查、Vite 构建和快速提交门禁再次通过。760px 收起与 1200px Details 并排均通过实际测量；1200×800 时浮动 rail 为 x=504、宽 288、底 448，Details 从 x=800 开始，保留 8px 间隔且无横向溢出。
 
 Hosted browser 先执行于 50d45bc51。旧完成结果预览需要先切到 Chat；修正后 optional-judge 在 91e205d45 上四项全部通过（run 39382135011）。另外两处 Team Work helper 迁移保留了 Tasks/Findings 的实际选中状态断言和 Seats 区域可见性断言，等待独立重跑。
+
+已完成的 hosted 浏览器执行（这些文件在后续提交中未修改）：
+
+| Spec | 源码 | 结果 | Run |
+| --- | --- | --- | --- |
+| edge-alignment | 50d45bc51 | 8 passed | [39381508634](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39381508634) |
+| goal-bar-alignment | 50d45bc51 | 2 passed | [39381510685](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39381510685) |
+| reading-column-edges | 50d45bc51 | 4 passed | [39381512071](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39381512071) |
+| sidebar-edges | 50d45bc51 | 19 passed | [39381514351](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39381514351) |
+| frame-fix6 | 50d45bc51 | 50 passed | [39381516115](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39381516115) |
+| frame-contract-work-tile-composer | 50d45bc51 | 2 passed | [39381521377](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39381521377) |
+| optional-judge | 91e205d45 | 4 passed | [39382135011](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39382135011) |
+| frame-contract-team-work | 1ef634850 | 30 passed | [39382384479](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39382384479) |
+
+完整浏览器套件、所有 native 与全量 pnpm verify 尚未执行，以上有界验证不替代这些套件。
+
+额外复审在 50d45bc51 上确认共享气泡、审批、FlowCanvas、浮动 rail 与玻璃材质没有新增缺陷，但覆盖仅 87/125 个要求文件，不能记录为完整无问题审查。指出的剩余旧 Chat 布局测试和 publication-words 的 Judge 入口已迁移；普通 Team 的长任务误指 Done when 的提示已修正，三个新增回归与 FrontDoor 60 项通过，类型检查通过。
+
+alignment census 首轮 87 项通过，104 个 board 用例在测量前因同一目录清单缺少新增 Flow example 而失败。未测量的 board 使 afterAll 的“fixed”信息无效，本轮没有据此修改对齐基线。补全清单后执行完整重跑，再决定是否存在真实几何变化。
