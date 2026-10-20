@@ -357,6 +357,10 @@ export const ChannelStream = ({
     const members = (snapshot.teams.get(room)?.members ?? []).filter(key => key !== sender)
     const reached = new Set(targets.map(target => sessionKey(target.runtime, target.sessionId)))
     const everyone = members.length > 0 && reached.size === members.length && members.every(key => reached.has(key))
+    if (!everyone && reached.size === 1) {
+      const target = targets[0]!
+      return { to: recipientName(target), toTitle: sanitizeText(target.nickname ?? target.title) }
+    }
     return { to: everyone ? 'Everyone' : `${reached.size} agents`, toTitle: targets.map(target => sanitizeText(target.nickname ?? target.title)).join(', ') }
   }
   const cardLink = (entry: TeamSignal): ReactNode => {

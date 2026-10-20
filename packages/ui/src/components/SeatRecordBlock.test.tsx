@@ -7,7 +7,7 @@ import { runtimeId, sessionKey, type Session, type SessionId, type TeamState } f
 import { EVIDENCE_ROOM, PREVIEW_SEAT } from '../preview/evidence-fixture'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { SeatRecordBlock } from './SeatRecordBlock'
+import { SeatRecordBlock, SeatRecordView } from './SeatRecordBlock'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -131,6 +131,7 @@ it('a record that cannot be read says so, in the host’s words', async () => {
 
 it('keeps the permission hold in the summary and reveals technical seat facts only on demand', async () => {
   await mount(async () => PREVIEW_SEAT)
+  expect(container.querySelector('[data-slot="tool-section-fold"]')?.getAttribute('aria-expanded')).toBe('false')
   expect(container.textContent).toContain('Asked, not held')
   expect(container.textContent).not.toContain('Passed over')
   expect(container.textContent).not.toContain('Opened')
@@ -139,4 +140,15 @@ it('keeps the permission hold in the summary and reveals technical seat facts on
   act(() => details.click())
   expect(container.textContent).toContain('Passed over')
   expect(container.textContent).toContain('Opened')
+})
+
+it('the content presentation keeps the phase, role and complete record without a second disclosure', async () => {
+  const store = await mount(async () => PREVIEW_SEAT)
+  await act(async () => root.render(<StoreProvider store={store}><SeatRecordView seat={{ ...PREVIEW_SEAT, role: 'reviewer' }} presentation="content" /></StoreProvider>))
+  const facts = container.querySelector('[data-slot="key-value"]')!
+  expect(facts.textContent).toContain('StatusOpen')
+  expect(facts.textContent).toContain('Rolereviewer')
+  expect(facts.textContent).toContain('Checkout')
+  expect(facts.textContent).toContain('Opened')
+  expect(container.querySelector('[data-slot="tool-section"], [data-slot="tool-fold"], [data-slot="summary-list"]')).toBeNull()
 })

@@ -10,6 +10,25 @@ const MEMBERS = [
 ] as const
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`merged repeats keep the single recipient name in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?channel-case=repeated-recipient&theme=${theme}`)
+    await expect(page.locator('body[data-hd-dark-theme]')).toHaveCount(theme === 'dark' ? 1 : 0)
+    const frame = page.locator('[data-frame-id="room-channel-grouping"]')
+    await expect(frame.locator('[data-channel="message"]')).toHaveCount(1)
+    await expect(frame.locator('[data-channel-recipient]')).toHaveText('to Reviewer')
+    await expect(frame.locator('[data-channel-recipient]')).toHaveAttribute('title', 'Reviewer')
+    await expect(frame).not.toContainText('1 agents')
+    for (const width of [1440, 720]) {
+      await page.setViewportSize({ width, height: 900 })
+      const gap = await frame.locator('[data-slot="channel-head"]').evaluate(el => {
+        const range = document.createRange()
+        range.selectNodeContents(el.querySelector('[data-channel-recipient]')!)
+        return el.querySelector('[data-slot="meta-list"]')!.getBoundingClientRect().left - range.getBoundingClientRect().right
+      })
+      expect(gap).toBeCloseTo(6, 1)
+    }
+  })
   test(`room member context stays whole beside compact names and models in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?side-by-side&theme=${theme}`)

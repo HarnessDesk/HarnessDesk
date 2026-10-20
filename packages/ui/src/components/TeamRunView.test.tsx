@@ -49,7 +49,7 @@ const mount = async (store: AppStore, props: Partial<ComponentProps<typeof TeamR
   const container = document.createElement('div')
   const root = createRoot(container)
   /** Renders the view again with other props, as a Run that moves to another Goal would. */
-  const show = (next: Partial<ComponentProps<typeof TeamRunView>> = {}) => act(async () => root.render(<StoreProvider store={store}><TopBarProvider><WorkViewControlsOutlet owner="" /><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
+  const show = (next: Partial<ComponentProps<typeof TeamRunView>> = {}, nextStore = store) => act(async () => root.render(<StoreProvider store={nextStore}><TopBarProvider><WorkViewControlsOutlet owner="" /><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
     model={runTimeline(fixture)} number={1} selectedRow="card-3-3" onSelect={() => {}} {...props} {...next} /></TopBarProvider></StoreProvider>))
   await show()
   return { container, show, close: () => act(() => root.unmount()) }
@@ -233,6 +233,89 @@ it('does not show one Goal’s cost under another while the other’s report is 
     expect(insight).toHaveBeenLastCalledWith('other-team')
     expect(costOf(view.container)).toContain('Not recorded')
   } finally { view.close() }
+})
+
+it('uses the room report without its own initial, minute, or retry usage read', async () => {
+  vi.useFakeTimers()
+  const insight = vi.fn().mockResolvedValue(overviewReport())
+  const findings = vi.fn().mockResolvedValue(undefined)
+  const execution = { ...runFixture().execution, state: 'running' as const }
+  const view = await mount(storeWith(() => ({}), { readGoalInsight: insight, loadFindingRun: findings }), {
+    execution, insight: overviewReport(), problem: 'Some reads failed.', onRetry: () => {},
+  })
+  try {
+    expect(costOf(view.container)).not.toContain('Not recorded')
+    expect(insight).not.toHaveBeenCalled()
+    expect(findings).toHaveBeenCalledOnce()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(insight).not.toHaveBeenCalled()
+    expect(findings).toHaveBeenCalledTimes(2)
+    await act(async () => tryAgain(view.container).click())
+    expect(insight).not.toHaveBeenCalled()
+    expect(findings).toHaveBeenCalledTimes(3)
+  } finally { view.close(); vi.useRealTimers() }
+})
+it('keeps a shared pending, failed, or other Goal report unrecorded rather than reading or inventing zero cost', async () => {
+  const insight = vi.fn().mockResolvedValue(overviewReport())
+  const view = await mount(storeWith(() => ({}), { readGoalInsight: insight }), { insight: null })
+  try {
+    expect(costOf(view.container)).toContain('Not recorded')
+    expect(costOf(view.container)).not.toContain('$0.00')
+    await view.show({ insight: { ...overviewReport(), goal: 'other-team' } })
+    expect(costOf(view.container)).toContain('Not recorded')
+    await view.show({ insight: overviewReport() })
+    expect(costOf(view.container)).not.toContain('Not recorded')
+    expect(insight).not.toHaveBeenCalled()
+  } finally { view.close() }
+})
+it('keeps the newest standalone usage report when an older minute read answers later', async () => {
+  vi.useFakeTimers()
+  const report = overviewReport()
+  const newer = { ...report, breakdowns: report.breakdowns.map(part => ({ ...part, rows: part.rows.map(row => ({ ...row,
+    amounts: { ...row.amounts, turns: { ...row.amounts.turns, value: 999 } },
+  })) })) }
+  let finish!: (value: typeof report) => void
+  const insight = vi.fn().mockResolvedValueOnce(report)
+    .mockImplementationOnce(() => new Promise(resolve => { finish = resolve })).mockResolvedValue(newer)
+  const view = await mount(storeWith(() => ({}), { readGoalInsight: insight }), {
+    execution: { ...runFixture().execution, state: 'running' as const },
+  })
+  try {
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(insight).toHaveBeenCalledTimes(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(insight).toHaveBeenCalledTimes(3)
+    expect(costOf(view.container)).toContain('999 turns')
+    await act(async () => finish(report))
+    expect(costOf(view.container)).toContain('999 turns')
+  } finally { view.close(); vi.useRealTimers() }
+})
+it('does not reuse a standalone report after the connection owner changes or accept its late answer', async () => {
+  let finish!: (value: ReturnType<typeof overviewReport>) => void
+  const oldRead = vi.fn().mockResolvedValueOnce(overviewReport()).mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  const nextRead = vi.fn().mockImplementation(() => new Promise(() => {}))
+  const view = await mount(storeWith(() => ({}), { readGoalInsight: oldRead }), { problem: 'Some reads failed.', onRetry: () => {} })
+  try {
+    expect(costOf(view.container)).not.toContain('Not recorded')
+    await act(async () => tryAgain(view.container).click())
+    await view.show({}, storeWith(() => ({}), { readGoalInsight: nextRead }))
+    expect(nextRead).toHaveBeenCalledOnce()
+    expect(costOf(view.container)).toContain('Not recorded')
+    await act(async () => finish(overviewReport()))
+    expect(costOf(view.container)).toContain('Not recorded')
+  } finally { view.close() }
+})
+it('retains its own initial and minute usage reads when mounted without a room report', async () => {
+  vi.useFakeTimers()
+  const insight = vi.fn().mockResolvedValue(overviewReport())
+  const view = await mount(storeWith(() => ({}), { readGoalInsight: insight }), {
+    execution: { ...runFixture().execution, state: 'running' as const },
+  })
+  try {
+    expect(insight).toHaveBeenCalledOnce()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(insight).toHaveBeenCalledTimes(2)
+  } finally { view.close(); vi.useRealTimers() }
 })
 
 const READING = 'Reading findings…'

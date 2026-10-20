@@ -63,10 +63,46 @@ export const orderWords = (standing: SeatRecord['standing']): string =>
       ? `${LEVEL_WORDS[standing.level]} · its ceiling`
       : 'Unknown · its ceiling was not kept'
 
-export const SeatRecordView = ({ seat }: { readonly seat: SeatRecord }) => {
+export const SeatRecordView = ({ seat, presentation = 'rail' }: { readonly seat: SeatRecord; readonly presentation?: 'rail' | 'content' }) => {
   const snapshot = useSnapshot()
   const project = seat.checkout.project.split('/').filter(Boolean).at(-1) ?? null
   const room = seat.board ? (snapshot.teams.get(seat.board)?.name ?? 'a room this desk no longer has') : null
+  const details = <>
+    <KeyValue variant="panel" inset="row" aria-label="Seat facts">
+      {presentation === 'content' && <KeyValueRow label="Status">{seat.restored ? 'From a backup' : seat.closed ? 'Closed' : 'Open'}</KeyValueRow>}
+      <KeyValueRow label="Agent" kind="name">
+        {seat.agent
+          ? `${seat.agent.name} · ${originWords(seat.agent.origin, project)}`
+          : `No Agent — a flow's ${seat.role ?? 'role'} seat`}
+      </KeyValueRow>
+      <KeyValueRow label="Runs on" kind="name">{seat.seatLabel}</KeyValueRow>
+      {presentation === 'content' && seat.role && <KeyValueRow label="Role" kind="name">{seat.role}</KeyValueRow>}
+      {seat.passedOver.length > 0 && (
+        <KeyValueRow label="Passed over">{seat.passedOver.length}</KeyValueRow>
+      )}
+      <KeyValueRow label="Told it may">{orderWords(seat.standing)}</KeyValueRow>
+      {seat.ceiling && <KeyValueRow label="Ceiling">{seatCeilingWords(seat.ceiling)}</KeyValueRow>}
+      <KeyValueRow label="Checkout" kind="name">
+        {seat.checkout.head
+          ? `${seat.checkout.branch ?? 'a detached HEAD'} at ${shortSha(seat.checkout.head)}`
+          : 'no commit yet'}
+      </KeyValueRow>
+      <KeyValueRow label="Folder" kind="path">{shortPath(seat.checkout.cwd, snapshot.home)}</KeyValueRow>
+      {room && <KeyValueRow label="Board" kind="name">{seat.role ? `${room} · as ${seat.role}` : room}</KeyValueRow>}
+      <KeyValueRow label="Opened">{new Date(seat.openedAt).toLocaleString()}</KeyValueRow>
+      {seat.closed && (
+        <KeyValueRow label="Closed">{new Date(seat.closed.at).toLocaleString()}</KeyValueRow>
+      )}
+      {seat.restored && (
+        <KeyValueRow label="Restored">{new Date(seat.restored.at).toLocaleString()}</KeyValueRow>
+      )}
+    </KeyValue>
+    {seat.passedOver.map((passed, index) => <ToolProse key={index}>{passedWords(passed)}</ToolProse>)}
+    {seat.closed && <ToolProse>{closedWords(seat.closed.why)}</ToolProse>}
+    {seat.restored && <ToolProse>This desk did not keep this seat, so it says nothing about what this conversation is here.</ToolProse>}
+    <SeatAttachments seat={seat.id} historical={seat.closed !== null || seat.restored !== null} presentation={presentation} />
+  </>
+  if (presentation === 'content') return details
   return (
     <ToolSection label="Seat record" fold defaultOpen={false} value={seat.restored ? 'From a backup' : seat.closed ? 'Closed' : 'Open'}>
       <SummaryList surface="panel" aria-label="Seat summary">
@@ -79,37 +115,7 @@ export const SeatRecordView = ({ seat }: { readonly seat: SeatRecord }) => {
         </InlineParts> : orderWords(seat.standing)}</SummaryItem>
       </SummaryList>
       <ToolFold label="Details">
-      <KeyValue variant="panel" inset="row">
-        <KeyValueRow label="Agent" kind="name">
-          {seat.agent
-            ? `${seat.agent.name} · ${originWords(seat.agent.origin, project)}`
-            : `No Agent — a flow's ${seat.role ?? 'role'} seat`}
-        </KeyValueRow>
-        <KeyValueRow label="Runs on" kind="name">{seat.seatLabel}</KeyValueRow>
-        {seat.passedOver.length > 0 && (
-          <KeyValueRow label="Passed over">{seat.passedOver.length}</KeyValueRow>
-        )}
-        <KeyValueRow label="Told it may">{orderWords(seat.standing)}</KeyValueRow>
-        {seat.ceiling && <KeyValueRow label="Ceiling">{seatCeilingWords(seat.ceiling)}</KeyValueRow>}
-        <KeyValueRow label="Checkout" kind="name">
-          {seat.checkout.head
-            ? `${seat.checkout.branch ?? 'a detached HEAD'} at ${shortSha(seat.checkout.head)}`
-            : 'no commit yet'}
-        </KeyValueRow>
-        <KeyValueRow label="Folder" kind="path">{shortPath(seat.checkout.cwd, snapshot.home)}</KeyValueRow>
-        {room && <KeyValueRow label="Board" kind="name">{seat.role ? `${room} · as ${seat.role}` : room}</KeyValueRow>}
-        <KeyValueRow label="Opened">{new Date(seat.openedAt).toLocaleString()}</KeyValueRow>
-        {seat.closed && (
-          <KeyValueRow label="Closed">{new Date(seat.closed.at).toLocaleString()}</KeyValueRow>
-        )}
-        {seat.restored && (
-          <KeyValueRow label="Restored">{new Date(seat.restored.at).toLocaleString()}</KeyValueRow>
-        )}
-      </KeyValue>
-      {seat.passedOver.map((passed, index) => <ToolProse key={index}>{passedWords(passed)}</ToolProse>)}
-      {seat.closed && <ToolProse>{closedWords(seat.closed.why)}</ToolProse>}
-      {seat.restored && <ToolProse>This desk did not keep this seat, so it says nothing about what this conversation is here.</ToolProse>}
-      <SeatAttachments seat={seat.id} historical={seat.closed !== null || seat.restored !== null} />
+        {details}
       </ToolFold>
     </ToolSection>
   )

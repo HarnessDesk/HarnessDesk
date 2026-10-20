@@ -25,9 +25,11 @@ const findingsRead = (list: FindingsListState | undefined): 'reading' | 'failed'
 }
 
 /** Reads only while the Run is mounted; the pane's rail owns conversation navigation. */
-export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFlow, attempts, incompleteAttempts, attemptsRead, waitingSeats, ...view }: ComponentProps<typeof RunView> & {
+export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFlow, attempts, incompleteAttempts, attemptsRead, waitingSeats, insight, ...view }: ComponentProps<typeof RunView> & {
   execution: RunTimelineInput['execution']
   origin: string | null
+  /** The room owns usage reads when supplied; null means it has no report yet. Omit for a standalone Run. */
+  insight?: InsightReport | null
   onOpenSeat: (key: SessionKey) => void
   /** What the desk recorded each time a check card ran, by card, as the pane read it for the timeline beside this. */
   attempts?: ReadonlyMap<number, readonly FlowCheckAttempt[]>
@@ -53,24 +55,28 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
   const listed = snapshot.findings.get(execution.goal)
   const findingsList = listed?.filter === 'all' ? listed : undefined
   const seats = useMemo(() => teamSeats(goal, team, execution, 'seat'), [goal, team, execution])
-  const [report, setReport] = useState<InsightReport | null>(null)
+  const [report, setReport] = useState<{ store: typeof store; value: InsightReport } | null>(null)
+  const readsUsage = insight === undefined
   const [readAgain, setReadAgain] = useState(0)
   const [readProblem, setReadProblem] = useState<string | null>(null)
   const finished = cards.filter(card => card.state === 'done').map(card => card.id).join(',')
   useEffect(() => {
     let active = true
     setReadProblem(null)
+    let generation = 0
     const read = () => {
+      const current = ++generation
       // The last report stays on screen while the next is read, and when that read fails: a cost is "Not recorded"
       // only when none was ever read. A report of another Goal is never shown (below), so none is cleared here.
-      if (typeof store.readGoalInsight === 'function') void store.readGoalInsight(execution.goal).then(value => { if (active) setReport(value) }, () => {})
+      if (readsUsage && typeof store.readGoalInsight === 'function') void store.readGoalInsight(execution.goal).then(value => { if (active && current === generation) setReport({ store, value }) }, () => {})
       if (typeof store.loadFindingRun === 'function') void store.loadFindingRun(execution.goal, execution.id).then(() => { if (active) setReadProblem(null) }, () => { if (active) setReadProblem('Review details could not be read.') })
     }
     read()
     const timer = execution.state === 'running' ? window.setInterval(read, 60_000) : null
     return () => { active = false; if (timer !== null) window.clearInterval(timer) }
-  }, [store, execution.goal, execution.id, execution.state, Boolean(execution.findings), finished, readAgain])
-  const usage = report?.goal === execution.goal ? report : null
+  }, [store, execution.goal, execution.id, execution.state, Boolean(execution.findings), finished, readAgain, readsUsage])
+  const supplied = readsUsage ? report?.store === store ? report.value : null : insight
+  const usage = supplied?.goal === execution.goal ? supplied : null
   const costs = new Map(seats.map(seat => {
     // Usage may know a Seat's runtime even when an older receipt kept no session pointer. It does not grant Open.
     const runtimeId = seat.record.session?.runtime ?? usage?.breakdowns.find(one => one.dimension === 'seat')?.rows

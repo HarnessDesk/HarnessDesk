@@ -108,7 +108,7 @@ import {
   sidebarProjectsUnloadedSearchFixture,
 } from './sidebar-projects-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
-import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
+import { captureHealth, commitProvenance, provenanceDetail, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
 import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
 import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
@@ -212,6 +212,10 @@ const sidebarOpenSearchStore = previewStore(sidebarOpenSearchFixture(store.getSn
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
+// The focused finding specimen has no theme dial of its own.
+if (new URLSearchParams(window.location.search).get('findings') === 'seat') {
+  previewMutable.patch({ theme: new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light' })
+}
 /**
  * The store this page mounted, for a spec that has to stage state in it.
  *
@@ -309,7 +313,9 @@ if (SHOW_DENSE) {
   }
 Object.assign(store as unknown as Record<string, unknown>, {
   readProvenance: async () => ({ project: PROVENANCE_ROOT, revision: 1, health: captureHealth(), commits: [previewProvenance] }),
-  readProvenanceSeat: async () => ({ seat: null, session: previewProvenance.seats[0]!.session, unavailable: 'The historical Seat record is unavailable.' }),
+  readProvenanceSeat: async () => new URLSearchParams(window.location.search).has('historical-seat')
+    ? { ...provenanceDetail(7), seat: { ...provenanceDetail(7).seat!, openedAt: Date.UTC(2026, 8, 18, 15, 0) } }
+    : ({ seat: null, session: previewProvenance.seats[0]!.session, unavailable: 'The historical Seat record is unavailable.' }),
   loadCaptureHealth: async () => {},
   setCapture: async (_root: string, enabled: boolean) => {
     const health = captureHealth({ enabled, state: enabled ? 'healthy' : 'stopped', revision: enabled ? 3 : 2, reason: enabled ? 'Capture is current for the refs Git exposes.' : 'Capture is off on this machine.', nextStep: enabled ? 'No action needed.' : 'Turn capture on.' })

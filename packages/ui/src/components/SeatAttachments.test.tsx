@@ -71,11 +71,12 @@ it('no sidecar reads "Not recorded", never invented as a loaded-nothing success'
   const text = container.textContent ?? ''
   expect(text).toContain('Not recorded')
   expect(text).not.toContain('Loaded')
+  expect(container.querySelector('[data-slot="inspector-empty"]')).not.toBeNull()
 })
 
-it('a loaded skill and an unsupported server are shown distinctly, each with its own reason', async () => {
+it.each(['rail', 'content'] as const)('a loaded skill and an unsupported server stay distinct in %s, each with its own reason', async presentation => {
   const store = storeFor(RECORD)
-  act(() => root.render(<StoreProvider store={store}><SeatAttachments seat={SEAT} /></StoreProvider>))
+  act(() => root.render(<StoreProvider store={store}><SeatAttachments seat={SEAT} presentation={presentation} /></StoreProvider>))
   await settle()
   const text = container.textContent ?? ''
   expect(text).toContain('review')
@@ -89,6 +90,31 @@ it('a loaded skill and an unsupported server are shown distinctly, each with its
   const toneOf = (word: string) => [...container.querySelectorAll<HTMLElement>('[data-tone]')].find((node) => node.textContent === word)?.dataset.tone
   expect([...container.querySelectorAll('[data-role=meta]')].some(node => node.textContent === 'Loaded')).toBe(true)
   expect(toneOf('Not loaded')).toBe('warning')
+})
+
+it.each(['unknown', 'failed', 'empty'] as const)('content labels %s attachments without an empty-panel spacer', async state => {
+  const store = storeFor(state === 'empty' ? { ...RECORD, declarations: [], results: [] } : null)
+  if (state === 'failed') Object.assign(store, { readSeatAttachments: vi.fn(async () => { throw new Error('Connection lost') }) })
+  act(() => root.render(<StoreProvider store={store}><SeatAttachments seat={SEAT} presentation="content" /></StoreProvider>))
+  await settle()
+  expect(container.textContent).toContain('Attachments')
+  expect(container.querySelector('[data-slot="inspector-empty"]')).toBeNull()
+  if (state === 'unknown') {
+    expect(container.textContent).toBe('AttachmentsNot recorded')
+    expect(container.textContent).not.toContain('nothing declared')
+  } else if (state === 'failed') expect(container.textContent).toContain('Its attachments could not be read: Connection lost')
+  else {
+    expect(container.textContent).toContain('Runtime defaults — nothing declared')
+    expect(container.textContent).not.toContain('Not recorded')
+  }
+})
+
+it('a rail read failure retains its existing empty-panel explanation', async () => {
+  const store = storeFor(null)
+  Object.assign(store, { readSeatAttachments: vi.fn(async () => { throw new Error('Connection lost') }) })
+  act(() => root.render(<StoreProvider store={store}><SeatAttachments seat={SEAT} /></StoreProvider>))
+  await settle()
+  expect(container.querySelector('[data-slot="inspector-empty"]')?.textContent).toBe('Its attachments could not be read: Connection lost')
 })
 
 it('a restored epoch never says currently loaded, whatever historical says', async () => {

@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { StoreProvider } from '../state/context'
+import { historicalSeat } from '../preview/provenance-fixture'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { ProvenanceDialog } from './ProvenanceDialog'
 
@@ -23,6 +24,19 @@ afterEach(() => { act(() => root.unmount()); host.remove() })
 it('reads the exact immutable Seat id rather than a current session', async () => {
   await act(async () => root.render(<StoreProvider store={store}><ProvenanceDialog root="/work/project" seat="seat-17" onClose={() => {}} /></StoreProvider>))
   expect(store.readProvenanceSeat).toHaveBeenCalledWith('/work/project', 'seat-17')
+})
+
+it('shows the historical Seat facts immediately without a nested rail disclosure', async () => {
+  const seat = historicalSeat(7)
+  Object.assign(store, { readProvenanceSeat: vi.fn(async () => ({ seat, session: null, unavailable: null })), readSeatAttachments: vi.fn(async () => null) })
+  await act(async () => root.render(<StoreProvider store={store}><ProvenanceDialog root="/work/project" seat={seat.id} onClose={() => {}} /></StoreProvider>))
+  const dialog = document.querySelector('[role="dialog"]')!
+  const facts = dialog.querySelector('[data-slot="key-value"]')!
+  expect(facts).not.toBeNull()
+  expect(facts.closest('[hidden]')).toBeNull()
+  expect(facts.textContent).toContain('Checkout')
+  expect(facts.textContent).toContain('Folder')
+  expect(dialog.querySelector('[data-slot="tool-section"], [data-slot="tool-fold"]')).toBeNull()
 })
 
 /** The host's own reason is said once — never followed by the generic sentence it already answers. */

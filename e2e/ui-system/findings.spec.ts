@@ -1,6 +1,24 @@
 import { expect, test } from '@playwright/test'
 import { selectTeamPage } from './team-frame-actions'
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`finding keeps its raised-by Seat facts visible inside the dialog (${theme})`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(`/preview.html?findings=seat&theme=${theme}&guides=off`)
+    if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+    else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
+    const group = page.getByRole('group', { name: 'Raised by', exact: true })
+    const facts = group.locator('[data-slot="key-value"][aria-label="Seat facts"]')
+    await expect(facts).toBeVisible()
+    await expect(facts).toContainText('retry-on-502 at a1b2c3d')
+    await expect(facts).toContainText('Opened')
+    await expect(group.locator('[data-slot="tool-section"], [data-slot="tool-fold"]')).toHaveCount(0)
+    await expect(group.locator('[data-slot="inspector-empty"]')).toHaveCount(0)
+    await expect(group).toContainText('AttachmentsNot recorded')
+    expect(await facts.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  })
+}
+
 /**
  * The findings ledger, in the Goal Team page.
  *

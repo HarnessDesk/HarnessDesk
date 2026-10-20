@@ -803,3 +803,18 @@ it('applies structured names to agent recipients and summarizes only a proven fu
   expect(container.textContent).toContain('refused')
   expect(container.textContent).toContain('Conversation closed.')
 })
+
+it.each(['user', 'agent'] as const)('keeps one recipient named when repeated %s messages merge in a three-member Team', async kind => {
+  const { store } = rig({ members: [sessionKey('codex', 'c1'), sessionKey('claude', 'k1'), sessionKey('codex', 'c2')] })
+  const target = { runtime: runtimeId('claude'), sessionId: 'k1', title: 'Auth refactor', nickname: 'Reviewer · full recorded identity' }
+  const from = kind === 'user' ? { kind: 'user' as const }
+    : { kind: 'agent' as const, runtime: runtimeId('codex'), sessionId: 'c1', title: 'API migration' }
+  const entries: TeamEntry[] = [1, 2].map(index => ({ kind: 'message', id: `repeat-${index}`, at: 100 + index,
+    from, to: target, text: 'Yes, check this.', state: 'delivered' }))
+  await act(async () => root.render(<StoreProvider store={store}><ChannelStream entries={entries} room="room-1" onTrouble={() => {}}
+    displayName={actor => actor.kind === 'agent' && actor.sessionId === 'k1' ? 'Reviewer' : undefined} /></StoreProvider>))
+  expect(container.querySelectorAll('[data-channel="message"]')).toHaveLength(1)
+  expect(container.querySelector('[data-channel-recipient]')?.textContent).toBe('to Reviewer')
+  expect(container.querySelector('[data-channel-recipient]')?.getAttribute('title')).toBe(target.nickname)
+  expect(container.textContent?.match(/Yes, check this\./g)).toHaveLength(1)
+})

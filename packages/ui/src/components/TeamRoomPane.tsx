@@ -745,20 +745,26 @@ export const TeamRoomPane = ({
     record: goal?.members.find(one => sessionKey(one.session.runtime, one.session.sessionId) === sessionKey(peer.runtime, peer.sessionId)),
     runtimeName: snapshot.runtimes.find(one => one.id === peer.runtime)?.presentation.name,
   })), [members, goal?.members, snapshot.runtimes])
-  const [report, setReport] = useState<InsightReport | null>(null)
+  const [reportRead, setReportRead] = useState<{ store: typeof store; value: InsightReport } | null>(null)
+  // A pane survives room and connection changes. Only its current owner may supply usage to the Run.
+  const report = reportRead?.store === store && reportRead.value?.goal === room ? reportRead.value : null
   const newestUnreadSeatAt = Math.max(0, ...snapshot.inbox.filter(one => !one.read && one.from && seats.some(seat =>
     seat.record.session.runtime === one.from!.runtime && seat.record.session.sessionId === one.from!.sessionId)).map(one => one.at))
   useEffect(() => { store.markTeamSeen(room, newestUnreadSeatAt) }, [store, room, Boolean(goal), open, goal?.readyAt, flowExecution?.endedAt, newestUnreadSeatAt])
   const closedCards = intents.filter(one => one.state === 'done').map(one => one.id).join(',')
   useEffect(() => {
     let active = true
-    setReport(null)
-    if ((open !== 'overview' && open !== 'run' && !detailsVisible) || !goal || typeof store.readGoalInsight !== 'function') return
-    const read = () => { void store.readGoalInsight(room).then(answer => { if (active) setReport(answer) }, () => { if (active) setReport(null) }) }
+    if (!readingRun || (!goal && !timelineRun) || typeof store.readGoalInsight !== 'function') return
+    // Keep the last report from this owner during a refresh or failure, just as a standalone Run does.
+    let generation = 0
+    const read = () => {
+      const current = ++generation
+      void store.readGoalInsight(room).then(answer => { if (active && current === generation) setReportRead({ store, value: answer }) }, () => {})
+    }
     read()
-    const timer = flowExecution?.state === 'running' ? window.setInterval(read, 60_000) : null
+    const timer = flowExecution?.state === 'running' || timelineRun?.state === 'running' ? window.setInterval(read, 60_000) : null
     return () => { active = false; if (timer !== null) window.clearInterval(timer) }
-  }, [store, room, open, detailsVisible, Boolean(goal), closedCards, flowExecution?.state])
+  }, [store, room, readingRun, Boolean(goal), Boolean(timelineRun), closedCards, flowExecution?.state, timelineRun?.state, timelineRead])
   useEffect(() => {
     if (flowExecution && typeof store.loadFindingRun === 'function') void store.loadFindingRun(room, flowExecution.id).catch(() => {})
   }, [store, room, flowExecution?.id])
@@ -1268,7 +1274,7 @@ export const TeamRoomPane = ({
           ) : workOpen && !timelineRun ? workSummary : open === 'runs' ? null : workOpen && timelineRun ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
 
-              <TeamRunView key={timelineRun.id} execution={timelineRun} unified recordRequest={recordRequest} introduction={timelineRun.id === flowExecution?.id ? workSummary : undefined}
+              <TeamRunView key={timelineRun.id} insight={report} execution={timelineRun} unified recordRequest={recordRequest} introduction={timelineRun.id === flowExecution?.id ? workSummary : undefined}
                 waitingSeats={waitingSeats}
                 stopRefusal={record ? RECORD_REASON : undefined}
                 onStop={!record ? () => setStoppingRun(timelineRun.id) : undefined}

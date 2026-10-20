@@ -3676,7 +3676,7 @@ it('includes recorded spend from earlier Seats using the runtime capabilities al
   expect(container.querySelector('[aria-label="Run"]')?.textContent).not.toContain('$0.80')
 })
 
-it('reads usage only while Overview is selected and stops polling when it is left', async () => {
+it('shares one usage reader between Work and its Run and stops polling when both are left', async () => {
  const runs = new Map<string,FlowExecution>()
  const {store,pushes}=rig([],undefined,{members:[]},GOAL,runs)
  const readGoalInsight=vi.fn(async()=>null)
@@ -3695,13 +3695,113 @@ it('reads usage only while Overview is selected and stops polling when it is lef
  vi.useFakeTimers()
  try {
   await pick('Work')
-  expect(readGoalInsight).toHaveBeenCalledTimes(3)
+  expect(readGoalInsight).toHaveBeenCalledTimes(2)
   await act(async()=>{await vi.advanceTimersByTimeAsync(60_000)})
-  expect(readGoalInsight).toHaveBeenCalledTimes(5)
+  expect(readGoalInsight).toHaveBeenCalledTimes(3)
   await pick('Chat')
   await act(async()=>{await vi.advanceTimersByTimeAsync(60_000)})
-  expect(readGoalInsight).toHaveBeenCalledTimes(5)
+  expect(readGoalInsight).toHaveBeenCalledTimes(3)
  } finally {vi.useRealTimers()}
+})
+
+it('keeps a single room usage poller for a historical Run while the current Run is active', async () => {
+  const current: FlowExecution = { version: 2, id: 'current-usage', goal: ROOM, state: 'running', reason: null,
+    legacyRun: null, operations: [], rounds: [], document: FLOW_DOCUMENT }
+  const previous: FlowExecution = { ...current, id: 'previous-usage', state: 'stopped' }
+  const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[previous.id, previous], [current.id, current]]))
+  const read = vi.fn(async () => null)
+  Object.assign(store, { readGoalInsight: read })
+  vi.useFakeTimers()
+  try {
+    await render(store)
+    expect(read).toHaveBeenCalledOnce()
+    const choose = container.querySelector<HTMLSelectElement>('select[aria-label="Choose a Run"]')!
+    expect(choose.value).toBe(current.id)
+    await act(async () => { choose.value = previous.id; choose.dispatchEvent(new Event('change', { bubbles: true })) })
+    expect(choose.value).toBe(previous.id)
+    expect(read).toHaveBeenCalledTimes(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(read).toHaveBeenCalledTimes(3)
+  } finally { vi.useRealTimers() }
+})
+it('reads shared usage for open Details in Chat and stops when Details closes', async () => {
+  const execution: FlowExecution = { version: 2, id: 'details-usage', goal: ROOM, state: 'running', reason: null,
+    legacyRun: null, operations: [], rounds: [], document: FLOW_DOCUMENT }
+  const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
+  let snapshot = store.getSnapshot()
+  const read = vi.fn(async () => null)
+  Object.assign(store, { getSnapshot: () => snapshot, readGoalInsight: read })
+  vi.useFakeTimers()
+  try {
+    await render(store)
+    expect(read).toHaveBeenCalledOnce()
+    await pickTeamPage('Chat')
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(read).toHaveBeenCalledOnce()
+    snapshot = { ...snapshot, workbench: { ...snapshot.workbench, frameTools: { [`team:${ROOM}`]: { tool: 'details', mode: 'details', open: true } } } }
+    await render(store)
+    expect(read).toHaveBeenCalledTimes(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(read).toHaveBeenCalledTimes(3)
+    snapshot = { ...snapshot, workbench: { ...snapshot.workbench, frameTools: {} } }
+    await render(store)
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(read).toHaveBeenCalledTimes(3)
+  } finally { vi.useRealTimers() }
+})
+
+it('keeps shared Run usage through pending and failed refreshes, ordered against older or other-owner answers', async () => {
+  const { overviewReport, overviewTeamStore } = await import('../preview/team-overview-fixture')
+  const report = overviewReport()
+  const usage = { ...report, goal: ROOM, breakdowns: report.breakdowns.map(part => ({ ...part,
+    rows: part.rows.filter(row => row.seat === 'seat-0').map(row => ({ ...row, goal: ROOM, seat: 'writer' })),
+  })) }
+  const execution: FlowExecution = { version: 2, id: 'usage-retained', goal: ROOM, document: FLOW_DOCUMENT,
+    state: 'running', reason: null, legacyRun: null, operations: [{ key: 'seat-1', kind: 'seat', state: 'finished', card: 1, seat: 'writer' }],
+    rounds: [{ n: 1, role: 'reviewer', cards: [1], seats: ['writer'], state: 'running', cause: 'seed', evidence: [] }] }
+  const make = () => rig([], [{ id: 'codex', presentation: { name: 'Assistant' }, capabilities: { metered: true } }], {},
+    { ...GOAL, members: [{ ...overviewTeamStore().getSnapshot().goals.get('overview-team')!.members[0]!, id: 'writer', session: { runtime: runtimeId('codex'), sessionId: sessionId('c1') } }] },
+    new Map([[execution.id, execution]]))
+  const newer = { ...usage, breakdowns: usage.breakdowns.map(part => ({ ...part, rows: part.rows.map(row => ({ ...row,
+    amounts: { ...row.amounts, usd: { ...row.amounts.usd, value: 1.28 } },
+  })) })) }
+  let finish!: (value: InsightReport) => void
+  const read = vi.fn().mockResolvedValueOnce(usage).mockRejectedValueOnce(new Error('Unavailable'))
+    .mockImplementationOnce(() => new Promise(resolve => { finish = resolve })).mockResolvedValueOnce(newer)
+    .mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  const first = make()
+  Object.assign(first.store, { readGoalInsight: read })
+  vi.useFakeTimers()
+  try {
+    await render(first.store)
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-row="card-1-1"]')!.click())
+    const cost = () => container.querySelector('[data-slot="run-inspector"]')?.textContent ?? ''
+    expect(cost()).toContain('$0.64')
+    expect(read).toHaveBeenCalledOnce()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(cost()).toContain('$0.64')
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(read).toHaveBeenCalledTimes(3)
+    expect(cost()).toContain('$0.64')
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(read).toHaveBeenCalledTimes(4)
+    expect(cost()).toContain('$1.28')
+    await act(async () => finish(usage))
+    expect(cost()).toContain('$1.28')
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(read).toHaveBeenCalledTimes(5)
+    const next = make()
+    const nextRead = vi.fn().mockImplementation(() => new Promise(() => {}))
+    Object.assign(next.store, { readGoalInsight: nextRead })
+    await render(next.store)
+    expect(nextRead).toHaveBeenCalledOnce()
+    expect(cost()).toContain('Not recorded')
+    expect(cost()).not.toContain('$0.00')
+    await act(async () => finish(usage))
+    expect(cost()).toContain('Not recorded')
+    expect(cost()).not.toContain('$0.64')
+  } finally { vi.useRealTimers() }
 })
 
 it('opens a read-only Run from the rail and Overview, and keeps selection in the pane', async () => {

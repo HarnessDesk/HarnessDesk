@@ -265,7 +265,7 @@ export const ChannelMessage = ({
                 shrink below its content without it, and a recipient list of
                 138 names ran off the row and gave the channel a scrollbar. */}
             {to && (
-              <Text role="meta" truncate data-channel-recipient="" className="min-w-0 flex-1" title={toTitle ?? `to ${to}`} aria-label={`To ${toTitle ?? to}`}>
+              <Text role="meta" truncate data-channel-recipient="" className={`min-w-0 flex-1 ${own ? 'text-right' : ''}`} title={toTitle ?? `to ${to}`} aria-label={`To ${toTitle ?? to}`}>
                 to {to}
               </Text>
             )}
