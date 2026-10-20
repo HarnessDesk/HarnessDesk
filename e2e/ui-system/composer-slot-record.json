@@ -71,7 +71,8 @@
             "agent",
             "permissions",
             "more",
-            "context"
+            "context",
+            "model"
           ],
           "tight": []
         },
