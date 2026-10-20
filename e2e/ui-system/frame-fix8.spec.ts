@@ -153,12 +153,15 @@ test('spend selected ranges equal their shorter figures', async ({ page }) => {
 
 test('stopping a waiting Team removes its command approval', async ({ page }) => {
   await openFrame(page, 'frame-wall=team&frame-fix8-stop=1')
+  await selectFrameTab(page, 'room')
+  await expect(page.locator('[data-slot="room-stream"]')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Allow', exact: true })).toBeVisible()
   await selectFrameTab(page, 'run')
   await page.getByRole('button', { name: 'Stop run…', exact: true }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Stop run', exact: true }).click()
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
-  await selectFrameTab(page, 'overview')
+  await selectFrameTab(page, 'room')
+  await expect(page.locator('[data-slot="room-stream"]')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Allow', exact: true })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Needs you', exact: true })).toHaveCount(0)
   await expect(page.getByRole('banner')).not.toContainText('Needs you')
@@ -169,6 +172,8 @@ test('stopping a waiting Team removes its command approval', async ({ page }) =>
   for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`settled Team Receipt and Findings share the kept finding and count [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=team-receipt&frame-fix8-receipt-finding=1', 1280, theme)
+    await selectFrameTab(page, 'receipt')
+    await expect(page.locator('[data-slot="goal-receipt"]')).toBeVisible()
     await expect(page.getByRole('button', { name: /Missing null check on the checkout path/ })).toBeVisible()
     await selectFrameTab(page, 'findings')
     await expect(page.getByRole('region', { name: 'Findings', exact: true })).toContainText('Missing null check on the checkout path')

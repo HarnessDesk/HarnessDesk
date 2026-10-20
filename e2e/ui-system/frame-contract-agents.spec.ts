@@ -52,7 +52,10 @@ for (const state of ['parse', 'refused', 'missing']) test(`E4 Agents ${state} ke
   const main = page.locator('[data-page-destination="agents"]:visible')
   if (state === 'parse') await expect(main).toContainText('Why it will not parse')
   if (state === 'refused') await expect(main).toContainText('signed out')
-  if (state === 'missing') await expect(main).toContainText('Who does the work')
+  if (state === 'missing') {
+    await expect(main.getByRole('heading', { name: 'Agents', exact: true, level: 1 })).toBeVisible()
+    await expect(main).toContainText('Reusable roles for your Teams.')
+  }
 })
 for (const width of [1440, 720]) test(`E4 Agents column opens draft session and Settings ${width}`, async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light', width)

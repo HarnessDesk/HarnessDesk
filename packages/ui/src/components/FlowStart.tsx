@@ -451,14 +451,29 @@ const seedTitleOf = (flow: FlowPolicy, vars: Readonly<Record<string, string>>): 
   flow.seed.title.replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (_slot, name: string) =>
     vars[name]?.trim() ? vars[name]! : flow.inputs.find(input => input.id === name)?.label ?? name)
 
+/** Facts that qualify starting a Run stay visible even when its technical report is folded. */
+const FlowPreviewNotices = ({ preview, warnings }: {
+  readonly preview: FlowPreview
+  readonly warnings: readonly FlowProblem[]
+}) => <>
+  {preview.seats.length > 0 && <Note tone="warn">
+    On usage-based pricing, charges include each Agent’s work throughout the Run, beyond opening its Seat.
+  </Note>}
+  {warnings.length > 0 && <Banner tone="warning" title="Worth reading first">
+    <NoteList>{warnings.map(one => <li key={`${one.at}-${one.text}`}><code>{one.at}</code> — {one.text}</li>)}</NoteList>
+  </Banner>}
+</>
+
 export const FlowPreviewReport = ({
-  preview, flow, warnings, roster, vars = {},
+  preview, flow, warnings, roster, vars = {}, includeNotices = true,
 }: {
   readonly preview: FlowPreview
   readonly flow: FlowPolicy | null
   readonly warnings: readonly FlowProblem[]
   readonly vars?: Readonly<Record<string, string>>
   readonly roster: ReadonlyMap<string, AgentEntry>
+  /** A parent may keep start qualifications outside its folded technical report. */
+  readonly includeNotices?: boolean
 }) => (
   <>
     <FlowPreviewSeats preview={preview} roster={roster} />
@@ -513,25 +528,7 @@ export const FlowPreviewReport = ({
       )
     })()}
 
-    {preview.seats.length > 0 && (
-      <Note tone="warn">
-        That is what opening them costs. Each seat then keeps working inside its one turn — one round trip
-        per step, for as long as the flow runs — so on usage-based pricing the run costs more than the
-        seating.
-      </Note>
-    )}
-
-    {warnings.length > 0 && (
-      <Banner tone="warning" title="Worth reading first">
-        <NoteList>
-          {warnings.map((one) => (
-            <li key={`${one.at}-${one.text}`}>
-              <code>{one.at}</code> — {one.text}
-            </li>
-          ))}
-        </NoteList>
-      </Banner>
-    )}
+    {includeNotices && <FlowPreviewNotices preview={preview} warnings={warnings} />}
   </>
 )
 
@@ -746,6 +743,7 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
   // A shared measured height keeps parallel roles aligned and leaves each seat editable.
   const cardHeight = Math.max(180, 32 + mostSeats * 100)
   return <div className={styles.flow}>
+    <FlowPreviewNotices preview={preview} warnings={preview.problems.filter(one => one.level === 'warning')} />
     <section aria-label="Who does what" className={styles.flow}>
       <FlowGraph key={JSON.stringify(model.steps.map(step => step.id))} model={model} stepContent={roleContent} cardHeight={cardHeight} listPlacement="summary" showControls title="Who does what" />
     </section>
@@ -772,7 +770,7 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
       ? <Field label="Check each attempt with" hint={checkHint}>{checkControl}</Field>
       : <Rows><Row title={<label htmlFor={checkId}>Check each attempt with</label>} desc={<span id={`${checkId}-hint`}>{checkHint}</span>} control={checkControl({ id: checkId, 'aria-describedby': `${checkId}-hint` })} /></Rows>)}
       {details}
-      <FlowPreviewReport preview={preview} flow={flow} warnings={preview.problems.filter(one => one.level === 'warning')} roster={roster} vars={vars} />
+      <FlowPreviewReport preview={preview} flow={flow} warnings={preview.problems.filter(one => one.level === 'warning')} roster={roster} vars={vars} includeNotices={false} />
       </div>
     </div>
   </div>

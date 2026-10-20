@@ -107,6 +107,22 @@ export const compactTeamSeatName = (
   }))
   const name = generated.get(seat.record.id)
   if (!name) return nameOf(seat)
-  const matching = [...generated].filter(([, value]) => value === name)
-  return `${name}${matching.length > 1 ? ` ${matching.findIndex(([id]) => id === seat.record.id) + 1}` : ''}`
+  // User names and other Agents' base names own their spelling before generated
+  // ordinals are assigned. Allocate the whole list in chronological order so
+  // caller sorting cannot change a recipient's visible address.
+  const used = new Set(seats.filter(one => !generated.has(one.record.id)).map(nameOf))
+  const bases = new Set(generated.values())
+  const counts = new Map<string, number>()
+  for (const base of generated.values()) counts.set(base, (counts.get(base) ?? 0) + 1)
+  const next = new Map<string, number>()
+  const labels = new Map<string, string>()
+  for (const [id, base] of generated) {
+    let ordinal = counts.get(base)! > 1 ? next.get(base) ?? 1 : 0
+    let label = ordinal ? `${base} ${ordinal}` : base
+    while (used.has(label) || (label !== base && bases.has(label))) label = `${base} ${++ordinal}`
+    labels.set(id, label)
+    used.add(label)
+    next.set(base, ordinal + 1)
+  }
+  return labels.get(seat.record.id)!
 }

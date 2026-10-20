@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { expect, it, vi } from 'vitest'
+import { beforeAll, expect, it, vi } from 'vitest'
 import type { FlowPolicy } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
@@ -10,9 +10,14 @@ import { canvasDOM } from '../test/flow-canvas-dom'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-it('takes /race through New Team with its task and ordinary preview token, then opens the Team', async () => {
+// Load the real canvas engine as suite setup, just like FrontDoor's suite.
+// A cold transform must not consume the interaction test's five-second budget.
+beforeAll(async () => {
   canvasDOM()
   await import('../design/patterns/FlowCanvas/Engine')
+})
+
+it('takes /race through New Team with its task and ordinary preview token, then opens the Team', async () => {
   const store = new AppStore('ws://localhost:0/')
   const open = vi.spyOn(store, 'openGoal').mockImplementation(() => {})
   const close = vi.fn()

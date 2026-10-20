@@ -1678,23 +1678,28 @@ Agent, seat and evidence actually are.
 
 ### The front door
 
-**New Team…** (⌘⇧N) opens one dialog from every door: task, searchable Flow
-cards with mini graphs, the selected Flow's role controls, **Done when ·
-optional**, **Dry run** and **Start Team**. A door only pre-fills it with a
-Flow, project, branch, pull request or current source. The picker remains in
-the dialog while its role form is open; changing Flow preserves the task and
-each Flow's edits. Just a Team uses the same dialog and keeps partial creation
-and seating progress if a retry is needed.
+**New Team…** (⌘⇧N) opens one dialog from every door. It starts with the task
+and a few Flow cards with mini graphs; search and **All Flows** reveal the
+complete catalogue. Choosing one replaces the picker with a compact selected
+Flow summary and **Change**. The required inputs and role graph stay visible,
+with each role's runtime, model, effort and instruction choices in **Configure**.
+A door only pre-fills the same form with a Flow, project, branch, pull request
+or current source. Changing Flow preserves the task and each Flow's edits.
+Just a Team uses the same dialog and keeps partial creation and seating
+progress if a retry is needed.
 
 The project's own Flows come first, then frequent starts and the rest. Cards
 use the file's short summary, falling back to its description. **Build your
 own** opens a new Flow page and retains the target, empty Team and entered
-fields for its later Start a Team action. Leaving Done when empty uses the
-task as the completion sentence. **New session** (⌘N) continues to start a
-solo session directly.
+fields for its later Start a Team action. **Completion and dry run** reveals
+**Done when · optional** and **Dry run**. Leaving Done when empty uses the task
+as the completion sentence. **Start Team** stays in the footer. **New session**
+(⌘N) continues to start a solo session directly.
 
-**Details** holds the remaining inputs, instruction files and dry-run facts.
-Write and review has one fresh independent reviewer and a maximum of one,
+Cost and warning notices stay visible before the role graph. **Details** holds
+optional review and handoff choices, the optional judge and attempt check,
+recorded target facts and the full dry-run report; required inputs stay outside
+that fold. Write and review has one fresh independent reviewer and a maximum of one,
 two or three reviews. Its writer may edit and commit locally. After approval,
 **Approve publishing the reviewed change** hands the reviewed revision and
 branch context to you; you decide whether to push the branch, open a pull

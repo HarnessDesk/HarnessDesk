@@ -76,3 +76,41 @@ test('native Agents opens initially folded sources before verifying the shadowed
   await scene.run()
   assert.equal(open, true, 'repeating the scene keeps an already open source disclosure open')
 })
+
+for (const initialLayout of ['Chat', 'Split']) test(`native room chooses Split from the current ${initialLayout} body control`, async () => {
+  const from = shoot.indexOf('    room: { leaveOverlay: true,')
+  const to = shoot.indexOf('    /**\n     * Creating a Goal', from)
+  assert.ok(from >= 0 && to > from)
+  let chat = false, layout = initialLayout, menu = false, composer = true
+  const visible = { getBoundingClientRect: () => ({ height: 300 }) }
+  const tile = { ...visible, hasAttribute: () => false }
+  const grid = { querySelectorAll: () => [tile, tile] }
+  const document = {
+    querySelector: selector => {
+      if (selector === '[data-slot="side-by-side-grid"]') return chat && layout === 'Split' ? grid : null
+      if (selector === 'button[aria-label="Send to"]') return chat && layout === 'Split' && composer ? visible : null
+      if (selector.includes('[data-slot="page-options"]') && selector.includes(`[aria-label="${layout}"]`)) return chat ? visible : null
+      return null
+    },
+    querySelectorAll: selector => selector === '[role="menuitemradio"]' && menu ? ['Chat', 'Split'].map(textContent => ({ textContent })) : [],
+  }
+  const fixtureStore = { openTeamRoom: () => {} }
+  const cdp = { eval: async expression => new Function('document', 'fixtureStore', 'getComputedStyle', `return ${expression}`)(document, fixtureStore, () => ({ visibility: 'visible' })) }
+  const presses = []
+  const press = async target => {
+    presses.push(target)
+    if (target.selector?.includes('[data-team-page="room"]')) { chat = true; return true }
+    if (target.selector && document.querySelector(target.selector)) { menu = true; return true }
+    if (target.text === 'Split' && menu) { layout = 'Split'; menu = false; return true }
+    return false
+  }
+  const scene = new Function('stageRoom', 'cdp', 'STORE', 'q', 'roomId', 'press', 'waitForSnapshot',
+    `return ({${shoot.slice(from, to)}}).room`)(async () => {}, cdp, 'fixtureStore', JSON.stringify, 'synthetic-team', press,
+    async (read, accept) => assert.equal(accept(await read()), true))
+  await scene.run()
+  await scene.verify()
+  assert.equal(layout, 'Split')
+  assert.equal(presses.at(-1).text, 'Split')
+  composer = false
+  await assert.rejects(scene.verify(), /Split and its visible composer are not on screen/)
+})

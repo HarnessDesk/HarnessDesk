@@ -27,7 +27,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720] 
     const reviewer = main.locator('section[aria-label="Project"] [data-slot="agent-card"]').filter({ hasText: 'Code reviewer' })
     await expect(reviewer).toHaveCount(1)
     await expect(reviewer.locator('[data-slot="agent-card-description"]')).toHaveText('The storefront team’s reviewer: reads the diff against our checkout rules.')
-    await expect(reviewer).toHaveAccessibleDescription('The storefront team’s reviewer: reads the diff against our checkout rules. Gamma is signed out')
+    await expect(reviewer).toHaveAccessibleDescription("The storefront team’s reviewer: reads the diff against our checkout rules. Can't seat here Gamma is signed out")
     await expect(reviewer.locator('[data-slot="issue-mark"]')).toHaveAttribute('title', 'Gamma is signed out')
     await expect(reviewer).toContainText("Can't seat here")
     await expect(reviewer).not.toContainText("Set by this file's older permission line")

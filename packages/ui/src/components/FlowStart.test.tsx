@@ -8,7 +8,7 @@ import type { AgentEntry, CompiledFlow, FlowEntry, FlowPolicy, FlowPreview, Flow
 import { StoreProvider } from '../state/context'
 import { emptySnapshot } from '../state/snapshot'
 import type { AppStore } from '../state/store'
-import { FlowStart, type FlowChoice } from './FlowStart'
+import { FlowPreviewReport, FlowStart, type FlowChoice } from './FlowStart'
 import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
 import { withAttemptCheck } from '../lib/team-start'
 import { CONTEST_START_POLICY } from '../lib/contest-start-fixture'
@@ -102,6 +102,46 @@ const renderTeam = async (flow: FlowPolicy, seats: readonly FlowPreviewSeat[], r
     }} /></StoreProvider>)
   })
 }
+
+it('keeps usage pricing and preview warnings visible while technical Details are folded, without duplicating them when opened', async () => {
+  const flow = TEAM_START_POLICIES['fix-and-review']
+  const warning = 'The reviewer provider could not be confirmed independently.'
+  const preview = { ...emptyPreview(), seats: [seat('fixer', false)], problems: [{ level: 'warning' as const, at: 'roles.reviewer', text: warning }] }
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{
+    flow, template: flow, preview, roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {},
+  }} /></StoreProvider>))
+  const details = container.querySelector<HTMLElement>('[data-flow-details]')!
+  const toggle = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Details')!
+  const notices = () => {
+    const cost = [...container.querySelectorAll('[data-slot="note"]')].filter(note => note.textContent?.includes('On usage-based pricing, charges include each Agent’s work throughout the Run, beyond opening its Seat.'))
+    const warnings = [...container.querySelectorAll('[data-slot="alert"]')].filter(banner => banner.textContent?.includes(warning))
+    expect(cost).toHaveLength(1)
+    expect(warnings).toHaveLength(1)
+    for (const notice of [...cost, ...warnings]) expect(notice.closest('[hidden]')).toBeNull()
+    const plan = container.querySelector('[aria-label="Who does what"]')!
+    for (const notice of [...cost, ...warnings]) expect(notice.compareDocumentPosition(plan) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(warnings[0]?.textContent).toContain('Worth reading first')
+    expect(warnings[0]?.textContent).toContain('roles.reviewer')
+  }
+  expect(details.hidden).toBe(true)
+  notices()
+  await act(async () => toggle.click())
+  expect(details.hidden).toBe(false)
+  notices()
+  await act(async () => toggle.click())
+  notices()
+})
+
+it('keeps standalone Flow preview reports cost and warning notices by default', async () => {
+  const warning = 'Confirm the selected provider before starting.'
+  const preview = { ...emptyPreview(), seats: [seat('fixer', false)] }
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowPreviewReport preview={preview} flow={null}
+    warnings={[{ level: 'warning', at: 'roles.fixer', text: warning }]} roster={new Map()} /></StoreProvider>))
+  expect(container.textContent).toContain('On usage-based pricing, charges include each Agent’s work throughout the Run, beyond opening its Seat.')
+  expect(container.textContent).toContain(warning)
+})
 
 it('shows one compact role configuration with its resolved model and instructions', async () => {
   const policy = TEAM_START_POLICIES['fix-and-review']

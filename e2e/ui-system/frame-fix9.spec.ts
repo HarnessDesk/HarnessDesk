@@ -210,5 +210,8 @@ test('FIX9 spend grouping uses sentence case', async ({ page }) => {
 test('FIX9 unavailable Findings names its refusal without an internal noun', async ({ page }) => {
   await openFrame(page, 'frame-wall=team&frame-fix9-no-findings=1')
   await selectFrameTab(page, 'board')
-  await expect(page.getByRole('tablist', { name: 'Task views', exact: true }).getByRole('tab', { name: /^Findings/ })).toBeDisabled()
+  const findings = page.locator('[data-slot="task-navigation"]').getByRole('button', { name: /^Findings(?:\s|$)/ })
+  await expect(findings).toBeVisible()
+  await expect(findings).toBeDisabled()
+  await expect(findings).toHaveAttribute('aria-pressed', 'false')
 })

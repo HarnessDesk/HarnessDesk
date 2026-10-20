@@ -141,7 +141,11 @@ export const expectDestinationTab = async (page: Page, value: string): Promise<v
       await expect(page.getByRole('button', { name: 'Back to Work', exact: true })).toBeVisible()
     } else {
       await expect(page.locator(`[data-team-page="${primary}"]:visible`)).toHaveAttribute('aria-selected', 'true')
-      if (value === 'board' || value === 'findings') await expect(page.getByRole('tablist', { name: 'Task views', exact: true }).getByRole('tab', { name: value === 'board' ? 'Board' : /^Findings(?:\s|$)/, exact: value === 'board' })).toHaveAttribute('aria-selected', 'true')
+      if (value === 'board' || value === 'findings') {
+        const findings = page.locator('[data-slot="task-navigation"]').getByRole('button', { name: /^Findings(?:\s|$)/ })
+        await expect(findings).toBeVisible()
+        await expect(findings).toHaveAttribute('aria-pressed', String(value === 'findings'))
+      }
     }
     return
   }
