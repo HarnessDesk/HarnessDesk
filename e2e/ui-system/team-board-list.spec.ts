@@ -18,7 +18,7 @@ for (const theme of ['light', 'dark'] as const) {
       expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
       if (process.env.HD_BOARD_REPAIR_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_REPAIR_FRAMES}/${evidence}-${theme}.png` })
       const title = evidence === 'failed' ? 'Evidence unavailable' : 'Checking current evidence'
-      await expect(pane.locator('[data-state-group="unknown"]')).toHaveText(title)
+      await expect(pane.locator('[data-state-group="unknown"]')).toHaveText(`${title} 2`)
       await expect(pane.getByRole(evidence === 'failed' ? 'alert' : 'status')).toContainText(title)
       await expect(pane.locator('[data-job="1"]')).toBeVisible()
       await expect(pane.locator('[data-job="4"]')).toBeVisible()

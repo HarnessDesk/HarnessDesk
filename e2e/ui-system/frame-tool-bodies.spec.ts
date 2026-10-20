@@ -38,10 +38,9 @@ for (const theme of ['light', 'dark'] as const) {
         await panel.getByRole('button', { name: 'Edit', exact: true }).click()
         await expect(panel.locator('.cm-content')).toContainText('Storefront')
       }
-      // These checks exercise the body; the independent floating rail may cover it.
+      // Opening a tool gives its body the room; the independent rail needs an explicit reveal.
       const railToggle = page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Toggle rail', exact: true })
-      await expect(railToggle).toHaveAttribute('aria-pressed', 'true')
-      await railToggle.click()
+      await expect(railToggle).toHaveAttribute('aria-pressed', 'false')
       await expect(page.locator('[data-frame-region="rail"]')).toBeHidden()
       for (const width of [320, 400, 640]) {
         await resizePanel(page, width)
@@ -115,14 +114,15 @@ for (const theme of ['light', 'dark'] as const) {
       }
     })
   }
-  test(`B7a actual Details labels and facts share the card inset in ${theme}`, async ({ page }) => {
+  test(`B7a actual Details disclosures and facts share the card inset in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?frame-wall=conversation&theme=${theme}`)
     const panel = page.locator('[data-frame-region="rail"]')
     await expect(panel).toBeVisible()
     const edges = await panel.evaluate(element => {
-      const label = element.querySelector('[data-slot="tool-section"] [data-slot="group-label"] [data-slot="text"]')!
+      // The whole disclosure target starts at the row edge; its chevron precedes the label text.
+      const label = element.querySelector('[data-slot="tool-section"] [data-slot="tool-section-fold"]')!
       const fact = element.querySelector('[data-slot="summary-item"] dt')!
       return [label, fact].map(node => node.getBoundingClientRect().left - element.getBoundingClientRect().left)
     })

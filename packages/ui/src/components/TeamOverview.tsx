@@ -136,7 +136,7 @@ export const TeamOverview = ({ attention, uncheckedDone = 0, onBoard, onTask, mo
   return (
     <div data-slot="team-overview" data-layout={narrow === null ? 'unmeasured' : narrow ? 'narrow' : 'table'} className={compact ? undefined : "min-w-0 overflow-y-auto"}>
       <Page width="wide" gutter={compact ? "none" : "page"}>
-        {compact && pendingRequests === 0 && <section aria-label="Run">{statusLine?.(now, !reasonInWait)}</section>}
+        {compact && pendingRequests === 0 && <section aria-label="Run">{statusLine?.(now, !reasonInWait && !timeline?.header.end)}</section>}
         {!compact && run && (
           <Card spacing="compact">
             <section aria-label="Run" className="flex flex-col gap-2">

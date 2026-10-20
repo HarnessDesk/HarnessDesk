@@ -148,7 +148,7 @@ export const TopBar = (props: TopBarProps) => {
       <div data-topbar="place" className={styles.place}>
         {props.state && <div data-topbar="state" className={styles.fixed}>{props.state}</div>}
         {props.place != null && <div data-topbar-title className={styles.title} title={props.placeTitle}>
-          {props.placeMenu ? <Popover title={props.placeTitle} triggerVariant={{ variant: 'ghost', size: 'sm' }} icons="all"
+          {props.placeMenu ? <Popover title={props.placeTitle} triggerVariant={{ variant: 'ghost', size: 'sm', className: 'border-0 px-2' }} icons="all"
             label={<span data-topbar-place-menu className={styles.placeMenu}><Text role="subject" truncate>{props.place}</Text><CaretIcon /></span>}>
             {close => <Menu close={close}>{props.placeMenu?.(close)}</Menu>}
           </Popover> : <Text role="subject" truncate>{props.place}</Text>}

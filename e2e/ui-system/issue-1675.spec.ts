@@ -8,7 +8,7 @@ for (const theme of ['light', 'dark']) {
       test(`${scene} at ${width} in ${theme}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/preview.html?issue-1675=${scene}&team-start=fix-and-review&theme=${theme}`)
-        if (scene === 'team') await expect(page.getByRole('dialog')).toBeVisible()
+        if (scene === 'team') await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
         else await expect(page.locator('[data-slot="page"]:visible, [data-slot="composer-track"]:visible').first()).toBeVisible()
         await page.evaluate(() => document.fonts.ready)
         await expect.poll(() => page.locator('body').evaluate(body => body.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')
@@ -28,7 +28,7 @@ for (const theme of ['light', 'dark']) {
         }
         if (phase === 'before') return
         if (scene === 'team') {
-          const dialog = page.getByRole('dialog')
+          const dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
           const configure = dialog.getByRole('button', { name: 'Configure Writes', exact: true })
           await configure.click()
           const configuration = page.getByRole('group', { name: 'Writes configuration', exact: true })

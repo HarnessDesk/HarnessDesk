@@ -1,5 +1,5 @@
 import { selectTeamPage } from './team-frame-actions'
-import { selectRunView } from './run-frame-actions'
+import { closeRunInspector, selectRunView } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
@@ -7,6 +7,7 @@ import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 const advance = (page: Page, scene: string) => page.evaluate(scene => window.dispatchEvent(new CustomEvent('flow-overlay-scene', { detail: scene })), scene)
 const graph = (page: Page) => page.locator('#flow-overlay-live [data-slot="flow-graph"]')
 const state = (page: Page, step: string) => graph(page).locator(`[data-slot="flow-step"][data-step="${step}"]`)
+const activity = (page: Page, step: string) => state(page, step).locator('..').locator('[data-slot="flow-doing"]')
 const choose = (page: Page, name: 'Timeline' | 'Flow') => selectRunView(page.locator('#flow-overlay-live'), name)
 const frame = async (page: Page, name: string, selector = '#flow-overlay-live [data-slot="flow-canvas"]') => {
   const folder = process.env.RUN_FLOW_OVERLAY_FRAMES_DIR
@@ -27,9 +28,20 @@ for (const theme of ['light', 'dark']) {
     })
     test('live rounds and person answers redraw the open Flow without a reload or a tab switch', async ({ page }) => {
       await expect(state(page, 'fix')).toHaveAttribute('data-state', 'working', { timeout: 5000 })
-      await expect(state(page, 'review').locator('[data-shape="face"]')).toHaveCount(2)
+      await expect(state(page, 'review').getByRole('img', { name: '2 seats', exact: true })).toBeVisible()
+      const ring = state(page, 'fix').locator('[data-slot="flow-ring"]')
+      await expect(ring).toHaveAttribute('aria-hidden', 'true')
+      const decoration = await ring.evaluate(node => {
+        const carrier = node.getBoundingClientRect(), card = node.parentElement!.getBoundingClientRect()
+        const paint = getComputedStyle(node, '::before'), gap = parseFloat(getComputedStyle(node).getPropertyValue('--hd-space-1'))
+        return { carrier: [carrier.left - card.left, carrier.top - card.top, carrier.right - card.right, carrier.bottom - card.bottom],
+          inset: [paint.left, paint.top, paint.right, paint.bottom].map(Number.parseFloat), gap, animation: paint.animationName }
+      })
+      expect(decoration.carrier).toEqual([0, 0, 0, 0])
+      expect(decoration.inset).toEqual(Array(4).fill(-decoration.gap))
+      expect(decoration.animation).toBe('none')
       await expect(graph(page)).toContainText('request-changes ×1')
-      await expect(state(page, 'fix')).toContainText('Edited src/checkout/retry.ts')
+      await expect(activity(page, 'fix')).toContainText('Edited src/checkout/retry.ts')
       await expect(state(page, 'fix').locator('[data-slot="card"] [data-slot="text"][data-role="meta"]')).toHaveText('retry.ts')
       for (const id of ['land', 'you']) {
         const future = state(page, id)
@@ -49,12 +61,13 @@ for (const theme of ['light', 'dark']) {
       for (const [scene, step, expected] of [['check-again', 'check', 'working'], ['review', 'review', 'working'], ['you', 'you', 'waiting'], ['answered', 'you', 'done'], ['evidence-wait', 'you', 'blocked'], ['settled', 'you', 'done'], ['stopped', 'fix', 'stopped']]) {
         await advance(page, scene!)
         await expect(state(page, step!)).toHaveAttribute('data-state', expected!)
-        await expect(page.locator('#flow-overlay-live [data-slot="run-workspace"]')).toHaveAttribute('data-view', 'flow')
+        await expect(page.locator('#flow-overlay-live [data-slot="run-workspace"]')).toHaveAttribute('data-view', 'work')
+        await expect(graph(page)).toBeVisible()
         if (scene === 'answered' || scene === 'evidence-wait') await expect(state(page, 'you')).not.toContainText('Waiting for you')
         if (scene === 'evidence-wait') await expect(state(page, 'you').locator('[data-slot="flow-state"]')).toHaveText('Waiting')
         if (scene === 'check-again') await expect(state(page, 'check')).toContainText('×2')
         if (scene === 'review') {
-          await expect(state(page, 'review')).toContainText('Read src/checkout/retry.ts')
+          await expect(activity(page, 'review')).toContainText('Read src/checkout/retry.ts')
           await expect(state(page, 'check')).toContainText('×3')
         }
         await frame(page, `${scene}-${theme}`)
@@ -66,22 +79,22 @@ for (const theme of ['light', 'dark']) {
       await expect(state(page, 'fix').locator('[data-slot="flow-duration"]')).toHaveText('2m')
     })
 
-    test('stack rings follow their Card surface in both palettes', async ({page}) => {
+    test('multi-seat marks stay neutral and unframed in both palettes', async ({page}) => {
       await page.evaluate(theme => (window as unknown as {__hdPreview:{store:{setTheme:(theme:string)=>void}}}).__hdPreview.store.setTheme(theme),theme)
       await expect.poll(()=>page.evaluate(()=>getComputedStyle(document.documentElement).colorScheme)).toBe(theme)
       for(const palette of ['harnessdesk','editorial']) {
         await page.evaluate(palette => (window as unknown as {__hdPreview:{store:{setPalette:(palette:string)=>void}}}).__hdPreview.store.setPalette(palette),palette)
         await expect.poll(()=>page.evaluate(()=>document.body.getAttribute('data-hd-palette') ?? 'harnessdesk')).toBe(palette)
-        const faces=state(page,'review').locator('[data-slot="avatar-stack"] [data-slot="avatar"]')
-        await expect(faces).toHaveCount(2)
-        for(const face of await faces.all()) {
-          expect(await face.evaluate(el=>{
-            const card=el.closest('[data-slot="card"]')!
-            const probe=document.createElement('span');probe.style.backgroundColor='var(--stack-surface,var(--hd-background))';el.append(probe)
-            const ring=getComputedStyle(probe).backgroundColor;probe.remove()
-            return {matched:ring===getComputedStyle(card).backgroundColor,painted:getComputedStyle(el).boxShadow.includes(ring)}
-          })).toEqual({matched:true,painted:true})
-        }
+        const mark=state(page,'review').getByRole('img',{name:'2 seats',exact:true})
+        await expect(mark).toHaveCount(1)
+        await expect(mark.locator('.lucide-bot')).toHaveCount(1)
+        await expect(state(page,'review').locator('[data-slot="avatar-stack"], [data-slot="icon-tile"]')).toHaveCount(0)
+        expect(await mark.evaluate(el=>{
+          const probe=document.createElement('span');probe.style.color='var(--hd-muted-foreground)';el.append(probe)
+          const ink=getComputedStyle(probe).color;probe.remove()
+          const style=getComputedStyle(el)
+          return {neutral:style.color===ink,background:style.backgroundColor,shadow:style.boxShadow}
+        })).toEqual({neutral:true,background:'rgba(0, 0, 0, 0)',shadow:'none'})
       }
     })
 
@@ -114,7 +127,7 @@ for (const theme of ['light', 'dark']) {
       expect(await fits()).toEqual([])
       await advance(page, 'review')
       await expect(state(page, 'review')).toHaveAttribute('data-state', 'working')
-      await expect(state(page, 'review')).toContainText('Read src/checkout/retry.ts')
+      await expect(activity(page, 'review')).toContainText('Read src/checkout/retry.ts')
       const collisions = await graph(page).evaluate(root => {
         const annotations = [...root.querySelectorAll('[data-slot="flow-doing"], [data-slot="flow-duration"], [data-slot="flow-word"]')]
         return annotations.flatMap((one, i) => annotations.slice(i + 1).flatMap(two => {
@@ -216,6 +229,10 @@ for (const theme of ['light', 'dark']) {
       await expect(graph(page).locator('[data-step-row="you"]')).toContainText('Waiting for you')
       await graph(page).locator('[data-step-row="you"]').focus()
       await page.keyboard.press('Enter')
+      const live = page.locator('#flow-overlay-live')
+      const inspector = live.locator('[data-slot="run-inspector"]')
+      await expect(inspector.getByRole('region', { name: 'Round 8', exact: true })).toContainText('0 of 1 answered')
+      await closeRunInspector(live)
       await choose(page, 'Timeline')
       await expect(page.locator('#flow-overlay-live [data-step-row="you"][data-row]')).toHaveAttribute('aria-current', 'true')
     })

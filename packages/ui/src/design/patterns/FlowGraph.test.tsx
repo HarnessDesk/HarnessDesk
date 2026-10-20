@@ -239,7 +239,8 @@ it('draws recorded Run state with plain runtime marks, accessible seat counts, d
   expect(container.querySelector('[data-step-row="review"]')?.textContent).toContain('Gamma mark')
   const fix = container.querySelector('[data-step="fix"]')!
   expect(fix.textContent).toContain('Working')
-  expect(fix.textContent).toContain('Editing src/retry.ts')
+  expect(fix.querySelector('[data-slot="flow-doing"]')).toBeNull()
+  expect(fix.parentElement!.querySelector('[data-slot="flow-doing"]')?.textContent).toBe('Editing src/retry.ts')
   expect(fix.getAttribute('data-selected')).toBe('true')
   expect(container.querySelector('[data-edge="review>fix"]')!.getAttribute('data-state')).toBe('travelled')
   expect(container.querySelector('[data-slot="flow-baton"]')).not.toBeNull()

@@ -105,7 +105,7 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, stepCont
       size: { width: FLOW_CANVAS_CARD_WIDTH, height: cardHeight },
       data: { name: step.name, kind: step.kind }, state: overlay?.steps.get(node.id)?.state,
       selected: selectedStep === node.id,
-      stateSlot: <div
+      stateSlot: <><div
       data-slot="flow-step"
       data-step={step.id}
       data-kind={step.kind}
@@ -134,10 +134,10 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, stepCont
         <Text role="meta" className="col-start-2" ink={run?.state === 'future' ? 'muted' : undefined} truncate={step.kind !== 'agent' || run?.state === 'working'} title={titleOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
         </>}
       </FlowStepSurface>
-      {activity.text &&
-        <span data-slot="flow-doing" className="absolute top-full mt-2 left-3 right-3 whitespace-nowrap text-center pointer-events-none"><FlowDoingLine text={activity.text} /></span>}
+    </div>{activity.text &&
+        <span data-slot="flow-doing" className="absolute top-full mt-2 whitespace-nowrap text-center pointer-events-none" style={{ left: 'calc(var(--hd-space-3) + var(--hd-border-width))', right: 'calc(var(--hd-space-3) + var(--hd-border-width))' }}><FlowDoingLine text={activity.text} /></span>}
 
-    </div>,
+    </>,
     }
   })
   const edges = layout.edges.map(edge => {

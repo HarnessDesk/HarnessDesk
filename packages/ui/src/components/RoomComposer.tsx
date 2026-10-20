@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -77,7 +78,11 @@ export interface RoomMember {
 export interface RoomComposerDraft {
   readonly text: string
   readonly to: readonly SessionKey[]
+  readonly selection?: { readonly start: number; readonly end: number; readonly direction: 'forward' | 'backward' | 'none' }
 }
+const clampSelection = (selection: RoomComposerDraft['selection'], length: number): RoomComposerDraft['selection'] => selection
+  ? { start: Math.max(0, Math.min(selection.start, length)), end: Math.max(0, Math.min(selection.end, length)), direction: selection.direction }
+  : undefined
 export interface RoomComposerDraftState {
   readonly value: RoomComposerDraft
   readonly onChange: Dispatch<SetStateAction<RoomComposerDraft>>
@@ -248,12 +253,28 @@ export const RoomComposer = ({
   const textarea = useRef<HTMLTextAreaElement>(null)
   const shell = useRef<HTMLDivElement>(null)
   const [localDraft, setLocalDraft] = useState<RoomComposerDraft>(EMPTY_ROOM_DRAFT)
-  const { text: draft, to } = draftState?.value ?? localDraft
+  const { text: draft, to, selection } = draftState?.value ?? localDraft
+  const keptSelection = useRef(selection)
+  keptSelection.current = selection
   const updateDraft = draftState?.onChange ?? setLocalDraft
   const setDraft = useCallback((next: SetStateAction<string>) => updateDraft((was) => {
     const text = typeof next === 'function' ? next(was.text) : next
-    return text === was.text ? was : { ...was, text }
+    return text === was.text ? was : { ...was, text, ...(was.selection ? { selection: clampSelection(was.selection, text.length) } : {}) }
   }), [updateDraft])
+  // The room keeps the insertion point with its words through Chat, Split and
+  // source-session visits. Restoring a new textarea must not take focus back.
+  useLayoutEffect(() => {
+    const node = textarea.current, kept = clampSelection(keptSelection.current, node?.value.length ?? 0)
+    if (node && kept) node.setSelectionRange(kept.start, kept.end, kept.direction)
+  }, [room])
+  const keepSelection = (node: HTMLTextAreaElement): void => {
+    const next = { start: node.selectionStart, end: node.selectionEnd, direction: node.selectionDirection }
+    updateDraft(was => {
+      const selection = clampSelection(next, was.text.length)!
+      return was.selection?.start === selection.start && was.selection.end === selection.end && was.selection.direction === selection.direction
+        ? was : { ...was, selection }
+    })
+  }
   const setTo = useCallback((next: SetStateAction<readonly SessionKey[]>) => updateDraft((was) => {
     const to = typeof next === 'function' ? next(was.to) : next
     return to === was.to ? was : { ...was, to }
@@ -682,6 +703,8 @@ export const RoomComposer = ({
         disabled={record}
         placeholder={record ? RECORD_REASON : tilePrompt ?? (defaultAudience ? 'Describe a task — @ to address someone' : 'Message the Team — @ to address someone')}
         onChange={(event) => change(event.target.value)}
+        onSelect={event => keepSelection(event.currentTarget)}
+        onBlur={event => keepSelection(event.currentTarget)}
         onKeyDown={onKeyDown}
       />
 

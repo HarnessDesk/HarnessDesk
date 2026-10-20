@@ -126,17 +126,29 @@ const collect = (root: Element, view: DOMRect): Box[] => {
  * box; ends only for boxes whose end is placed (a control, a container) —
  * a line of text ends wherever its words do.
  */
-const railsOf = (boxes: Box[]) => {
-  const count = (values: number[]) => {
-    const seen = new Map<number, number>()
-    for (const v of values) seen.set(round(v), (seen.get(round(v)) ?? 0) + 1)
-    return [...seen].filter(([, n]) => n >= RAIL_MIN).map(([v]) => v)
+export const railsOf = (boxes: Box[]) => {
+  const count = (edges: { at: number; el: Element }[]) => {
+    const owners = new Map<number, Set<Element>>()
+    for (const { at, el } of edges) {
+      const coordinate = round(at)
+      const peers = owners.get(coordinate) ?? new Set<Element>()
+      peers.add(el)
+      owners.set(coordinate, peers)
+    }
+    return [...owners].filter(([, peers]) => {
+      // A badge or control may have several nested wrappers at one edge.
+      // Only its deepest owner counts; three actual sibling placements
+      // still form a rail, even when their common parent shares it too.
+      const candidates = [...peers]
+      const independent = candidates.filter(el => !candidates.some(other => other !== el && el.contains(other)))
+      return independent.length >= RAIL_MIN
+    }).map(([at]) => at)
   }
   const placed = boxes.filter((one) => one.kind !== 'glyph')
   const ends = placed.filter((one) => one.kind !== 'text')
   return {
-    x: count([...placed.map(({ r }) => r.left), ...ends.map(({ r }) => r.right)]),
-    y: count([...ends.map(({ r }) => r.top), ...ends.map(({ r }) => r.bottom)]),
+    x: count([...placed.map(({ el, r }) => ({ el, at: r.left })), ...ends.map(({ el, r }) => ({ el, at: r.right }))]),
+    y: count([...ends.map(({ el, r }) => ({ el, at: r.top })), ...ends.map(({ el, r }) => ({ el, at: r.bottom }))]),
   }
 }
 
@@ -152,30 +164,70 @@ const nearest = (value: number, rails: number[]) => {
  * that is not a misplacement.
  */
 type Miss = { box: Box; at: number; rail: number }
-const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
+export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
   const out: Miss[] = []
+  const borders = new Map<Element, number>()
+  const ownersOf = (rail: number) => boxes.filter(one => one.kind !== 'glyph' && (round(one.r.left) === rail || one.kind !== 'text' && round(one.r.right) === rail))
+  const columnScopes = new Map<number, Element | null>()
+  const columnScopeOf = (rail: number) => {
+    if (columnScopes.has(rail)) return columnScopes.get(rail)!
+    const owners = ownersOf(rail)
+    const scope = owners[0]?.el.closest('table, dl, [role="table"], [role="grid"], [role="treegrid"]') ?? null
+    const r = scope?.getBoundingClientRect()
+    // Column boundaries belong to their table or definition list. Outer edges can
+    // still align a toolbar, and an outside owner makes a shared page rail.
+    const internal = scope && r && rail > round(r.left) && rail < round(r.right)
+      && owners.every(owner => owner.el.closest('table, dl, [role="table"], [role="grid"], [role="treegrid"]') === scope)
+    columnScopes.set(rail, internal ? scope : null)
+    return internal ? scope : null
+  }
+  const drawnLeftBorder = (el: Element): number => {
+    const known = borders.get(el)
+    if (known !== undefined) return known
+    const style = getComputedStyle(el)
+    const color = style.borderLeftColor
+    const transparent = color === 'transparent' || /rgba\([^)]*,\s*0\)$/.test(color) || /\/\s*0\)$/.test(color)
+    const width = style.borderLeftStyle === 'none' || style.borderLeftStyle === 'hidden' || transparent
+      ? 0 : parseFloat(style.borderLeftWidth) || 0
+    borders.set(el, width)
+    return width
+  }
+  const ownsBorderInset = (box: Box, at: number, rail: number): boolean => {
+    if (box.kind !== 'container' || at !== box.r.left) return false
+    const border = drawnLeftBorder(box.el)
+    if (border === 0 || rail !== round(at + border)) return false
+    // A frame's painted border and its content edge are deliberately apart.
+    // Identical peer frames share that inset too. Every owner of this rail
+    // must live inside one of those frames; an independent sibling keeps it
+    // a real alignment diagnostic, and controls are never excused here.
+    const frames = boxes.filter(one => one.kind === 'container' && one.r.left === at && drawnLeftBorder(one.el) === border)
+    const owners = ownersOf(rail)
+    return owners.length >= RAIL_MIN && owners.every(owner => frames.some(frame => frame.el !== owner.el && frame.el.contains(owner.el)))
+  }
   for (const box of boxes) {
     if (box.kind === 'glyph') continue
     const edges = box.kind === 'control' ? [box.r.left, box.r.right] : [box.r.left]
     for (const at of edges) {
-      const rail = nearest(at, rails.x)
+      const rail = nearest(at, rails.x.filter(one => {
+        const scope = columnScopeOf(one)
+        return !scope || scope.contains(box.el)
+      }))
       if (rail === null) continue
       const off = Math.abs(rail - at)
-      if (off > ON_RAIL && off <= NEAR_MISS) out.push({ box, at, rail })
+      if (off > ON_RAIL && off <= NEAR_MISS && !ownsBorderInset(box, at, rail)) out.push({ box, at, rail })
     }
   }
   return out
 }
 
 /**
- * A settings row's control slot draws nothing, and a control pulled to the
- * row's edge (`Button edge`) puts its glyph on the rows' inset line by
- * crossing the slot by its pull. That is the design, not a spill, so long as
- * it crosses by no more than the pull; the row's card around it is measured
- * on its own.
+ * A row's control slot or an explicitly marked unpainted action slot lets
+ * `Button edge` put its glyph on the content inset by crossing the slot by
+ * its pull. That is the design, not a spill, only within that exact margin;
+ * the painted card around the slot is still measured on its own.
  */
 export const pulledInSlot = (kid: Element, el: Element, k: Pick<DOMRect, 'left' | 'right' | 'bottom'>, r: Pick<DOMRect, 'left' | 'right' | 'bottom'>) => {
-  if (!el.matches('[data-slot="row-ctl"]')) return false
+  if (!el.matches('[data-slot="row-ctl"], [data-edge-pull-slot]')) return false
   const pulled = kid.closest('[style*="--edge-pull"]')
   if (!pulled || !el.contains(pulled)) return false
   // Each margin's pull is allowed on its own edge only: a control pulled to

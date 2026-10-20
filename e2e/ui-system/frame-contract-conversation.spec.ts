@@ -132,7 +132,18 @@ for (const theme of WALL_THEMES) {
       if (await page.locator('[data-slot="fixed-shell"]').getAttribute('data-rail-floats') === 'true') {
         expect(box.x + box.width).toBe(width - FRAME.rail.inset)
         expect(box.y).toBe(FRAME.bar.height + FRAME.rail.inset)
-        expect(box.y + box.height).toBe(900 - FRAME.rail.inset)
+        // Floating cards fit their contents and stop above the live composer.
+        const limit = await panel.evaluate((node, inset) => {
+          const main = node.closest('[data-slot="fixed-shell"]')!.querySelector('[data-frame-region="main"]')!.getBoundingClientRect()
+          const clearance = Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-composer-clearance')) || 0
+          return main.bottom - Math.max(clearance, inset)
+        }, FRAME.rail.inset)
+        expect(box.y + box.height).toBeLessThanOrEqual(limit)
+        expect(box.height).toBeGreaterThan(0)
+        const firstFold = panel.locator('[data-slot="tool-section-fold"]').first()
+        await expect(firstFold).toHaveAttribute('aria-expanded', 'true')
+        await firstFold.click()
+        await expect.poll(async () => (await panel.boundingBox())!.height).toBeLessThan(box.height)
       } else {
         expect(mainBox.x + mainBox.width).toBe(box.x)
         expect(box.y).toBe(FRAME.bar.height)

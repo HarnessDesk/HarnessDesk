@@ -546,7 +546,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
         zoomOnPinch={!inert && !positionOnly} ariaLabelConfig={ariaLabelConfig}>
         {edges.some(edge => edge.current) && batonPath && <EdgeLabelRenderer><FlowBaton path={batonPath} /></EdgeLabelRenderer>}
         <Background variant={BackgroundVariant.Dots} gap={GRID} size={1.5} color="var(--hd-border-strong)" />
-        {title && <Panel ref={titleRef} position="top-left"><Text role="meta">{title}</Text></Panel>}
+        {title && <Panel ref={titleRef} position="top-left" style={{ margin: 'var(--hd-space-3)' }}><Text role="meta">{title}</Text></Panel>}
         {showControls && !inert && <Panel position={toolbarOnTop ? "top-right" : "bottom-left"} className={styles.tools}>
           {!readOnly && <>
             <Button variant="ghost" size="icon" aria-label="Select tool" title="Select steps" aria-pressed={tool === 'select'} onClick={() => setTool('select')}><CanvasSelectIcon /></Button>

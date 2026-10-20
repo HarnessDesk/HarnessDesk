@@ -34,6 +34,15 @@ describe('pulledInSlot', () => {
     expect(pulledInSlot(control, el, box(180, 205), r)).toBe(false)
   })
 
+  it('uses the same bounded directional pull for an explicitly marked action slot', () => {
+    const { el, control } = slot('margin-right: -5px')
+    el.dataset['slot'] = 'action-slot'
+    el.dataset['edgePullSlot'] = ''
+    expect(pulledInSlot(control, el, box(180, 205), box(100, 200))).toBe(true)
+    expect(pulledInSlot(control, el, box(180, 207), box(100, 200))).toBe(false)
+    expect(pulledInSlot(control, el, box(95, 120), box(100, 200))).toBe(false)
+  })
+
   it('grants nothing outside a row’s control slot', () => {
     const { el, control } = slot('margin-right: -5px')
     el.dataset['slot'] = 'toolbar'

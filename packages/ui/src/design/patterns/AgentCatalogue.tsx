@@ -37,7 +37,7 @@ export const AgentCatalogueCard = ({ name, description, face, runtime, ceiling, 
       <span data-slot="agent-card-title" className={styles.name}><Text as="span" role="subject" truncate title={name}>{name}</Text></span>
     </span>
     <span id={descriptionId} data-slot="agent-card-description" className={styles.description}>
-      <Text as="span" role="prose" ink="secondary" lines={2}>{description}</Text>
+      <Text as="span" role="prose" ink="secondary">{description}</Text>
     </span>
     <span className={styles.foot}>
       {runtime && <span id={runtimeId} data-slot="agent-card-runtime" className={styles.runtime}><Text as="span" role="meta" ink="secondary" truncate title={runtime}>{runtime}</Text></span>}

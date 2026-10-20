@@ -28,7 +28,7 @@ for (const theme of ['light', 'dark'] as const) {
  * viewports and small controls have their own geometry; these are content
  * containers with an inset tier (docs/design.md). */
 const contracts = [
-  { selector: '[data-slot="composer-tail"] > *', tier: 'row' },
+  { selector: '[data-slot="composer-tail"][data-variant="default"] > *', tier: 'row' },
   { selector: '[data-slot="board-column"]', tier: 'dense' },
   { selector: '[data-slot="board-card"]', tier: 'card' },
   { selector: '[data-slot="bubble"][data-variant="secondary"]', tier: 'card' },
@@ -145,7 +145,13 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
         import insetReact from ${JSON.stringify(reactUrl)};
         import { SummaryList as InsetSummary, SummaryItem as InsetFact, AgentCard as InsetAgentCard, ApprovalDialog as InsetApproval, ApprovalReason as InsetReason, ApprovalCode as InsetCode } from '/src/design/index.ts';
         import { ListRow as InsetListRow, Row as InsetRow, Rows as InsetRows, IconTile as InsetTile, Button as InsetButton } from '/src/design/index.ts';
+        import { ComposerTail as InsetTail, TurnWorkLive as InsetLive } from '/src/design/index.ts';
         import { AlertIcon as InsetWarning } from '/src/components/Icons.tsx';
+        const tailHost = document.createElement('section');
+        tailHost.style.width = '360px'; tailHost.dataset.insetProbe = 'default-tail'; document.body.append(tailHost);
+        createRoot(tailHost).render(insetReact.createElement(InsetTail, null,
+          insetReact.createElement(InsetLive, { settled: true }, 'Alpha is waiting for your approval'),
+          insetReact.createElement(InsetLive, { settled: true }, 'Agents cannot message each other. You still can.')));
         const rowHost = document.createElement('section');
         rowHost.style.width = '360px'; document.body.append(rowHost);
         createRoot(rowHost).render(insetReact.createElement(InsetRows, null,
@@ -198,7 +204,31 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     await expect(team.locator('[data-slot="summary-card"][data-surface="panel"]').first()).toBeVisible()
     const roster = page.locator('[data-frame-id="goal-roster"]')
     await selectTeamDestination(roster, 'room')
-    await expect(roster.locator('[data-slot="composer-tail"]')).toBeVisible()
+    const plainTail = roster.locator('[data-slot="composer-tail"][data-variant="plain"]')
+    await expect(plainTail).toBeVisible()
+    const defaultLines = page.locator('[data-inset-probe="default-tail"] [data-slot="composer-tail"][data-variant="default"] > *')
+    await expect(defaultLines).toHaveCount(2)
+    await expect(defaultLines.first()).toBeVisible()
+    await expect(defaultLines.last()).toBeVisible()
+    // Plain tails inherit each live line's own compact rhythm rather than
+    // the default tinted strip's row inset. Both contracts keep real coverage.
+    const plainLines = plainTail.locator('> :has(> [data-slot="turn-work-live-words"])')
+    await expect(plainLines.first()).toBeVisible()
+    const plainPadding = await plainLines.evaluateAll(lines => lines.map(line => {
+      const probe = document.createElement('div')
+      probe.style.padding = 'var(--hd-space-0-5) var(--hd-space-0) var(--hd-space-1) var(--hd-space-0-5)'
+      probe.style.minHeight = 'var(--hd-control-h)'
+      document.body.append(probe)
+      const expected = getComputedStyle(probe), css = getComputedStyle(line)
+      const sides = (style: CSSStyleDeclaration) => [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].map(parseFloat)
+      const measured = { actual: sides(css), expected: sides(expected), height: line.getBoundingClientRect().height, floor: parseFloat(expected.minHeight) }
+      probe.remove()
+      return measured
+    }))
+    for (const line of plainPadding) {
+      expect(line.actual).toEqual(line.expected)
+      expect(line.height).toBeGreaterThanOrEqual(line.floor)
+    }
     await expect(page.locator('[data-slot=approval-dialog-scope] [role=dialog]')).toBeVisible()
     await expect(page.locator('[data-slot="agent-card-band"]').filter({ hasText: 'The context budget is nearly full.' })).toBeVisible()
     const bareControl = page.locator('[data-slot="row"]').filter({ hasText: 'Choose a folder' })

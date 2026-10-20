@@ -424,6 +424,7 @@ it('position-only graphs move steps but refuse connections and deletion', async 
 it('groups read-only navigation and caller actions at the top right with a title at the top left', async () => {
   await draw({ readOnly: true, title: 'The path this Run took', actions: <button>Open the file</button> })
   expect(host.querySelector('.react-flow__panel.top.left')?.textContent).toBe('The path this Run took')
+  expect(host.querySelector<HTMLElement>('.react-flow__panel.top.left')?.style.margin).toBe('var(--hd-space-3)')
   const tools = host.querySelector('.react-flow__panel.top.right')!
   expect(tools.textContent).toContain('Open the file')
   expect(tools.querySelector('[aria-label="Fit plan"]')).not.toBeNull()

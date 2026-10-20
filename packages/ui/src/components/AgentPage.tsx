@@ -242,14 +242,16 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
       </>} />
       <PageOptions title={name}><Toolbar>
         {definition && <Button variant="outline" size="sm" onClick={start}>Start a conversation as {definition.name}</Button>}
+        <Button variant="ghost" size="sm" onClick={onBack}>Back to Agents</Button>
+      </Toolbar></PageOptions>
+      <Toolbar>
         {definition && <Button variant="outline" size="sm" disabled={primaryChoiceDisabled}
           title={seatingUnreadable ? 'The file cannot be read, so nothing here writes to it — fix it by hand first.' : (localSeats?.length ?? 0) > SEAT_PREFERENCE_LIMIT ? `An Agent names at most ${SEAT_PREFERENCE_LIMIT} seats.` : undefined}
           onClick={() => setAdding('primary')}>Choose runtime…</Button>}
         {targets.length > 0 && <Button variant="outline" size="sm" onClick={() => setCustomizing(true)}>Customize…</Button>}
-        <Button variant="ghost" size="sm" onClick={onBack}>Back to Agents</Button>
         <AgentFace entry={entry} />
         {definition && <Chip label={ceilingWords(definition.ceiling)} tone="neutral" title={ceilingFlag ?? undefined} />}
-      </Toolbar></PageOptions>
+      </Toolbar>
       {definition?.description && <PageExplanation>{definition.description}</PageExplanation>}
 
       {(folder || definition) && (

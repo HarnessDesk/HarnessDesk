@@ -20,7 +20,8 @@ export const toggleTeamRail = async (frame: Locator): Promise<void> => {
 
 /** Body controls sit behind the floating rail until the person puts it away. */
 export const closeFloatingTeamRail = async (frame: Locator): Promise<void> => {
-  const shell = frame.locator('[data-slot="fixed-shell"]:visible').first()
+  const shell = await frame.getAttribute('data-slot') === 'fixed-shell'
+    ? frame : frame.locator('[data-slot="fixed-shell"]:visible').first()
   if (await shell.count() && await shell.getAttribute('data-rail-floats') === 'true' && await shell.getAttribute('data-rail-open') === 'true') {
     await toggleTeamRail(frame)
     await expect(shell).toHaveAttribute('data-rail-open', 'false')
@@ -54,8 +55,9 @@ export const selectTeamPage = async (frame: Locator, value: string): Promise<voi
 
 export const teamDetails = async (frame: Locator): Promise<Locator> => {
   const body = frame.locator('[data-frame-region="rail"] [data-slot="tool-body"]:visible').filter({has:frame.page().getByText('Seats',{exact:true})})
-  const tool = teamBar(frame).locator('[data-work-rail-toggle]')
-  if (await tool.getAttribute('aria-pressed') !== 'true') await toggleTeamRail(frame)
+  const shell = await frame.getAttribute('data-slot') === 'fixed-shell'
+    ? frame : frame.locator('[data-slot="fixed-shell"]:visible').first()
+  if (await shell.getAttribute('data-rail-open') !== 'true') await toggleTeamRail(frame)
   await expect(body).toHaveCount(1)
   return body
 }

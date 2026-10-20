@@ -125,16 +125,21 @@ for (const theme of ['light', 'dark'] as const) {
       })
     }
 
-    test('a narrow Work view reaches the full record and last Step by wheel and restores the wide drawing', async ({ page }) => {
+    test('a narrow Work view reaches the full record and last Step by wheel and Fit restores the wide drawing', async ({ page }) => {
       const pane = await run(page, theme)
       await pane.scrollIntoViewIfNeeded()
       const graph = pane.locator('[data-slot="flow-graph"]')
-      const wideZoom = await zoomOf(graph.locator('[data-slot="flow-canvas"]'))
-      await page.setViewportSize({ width: 390, height: 900 })
+      const canvas = graph.locator('[data-slot="flow-canvas"]')
       await nodesInCanvas(pane)
-      await closeFloatingTeamRail(page.locator('body'))
+      const wideWidth = await canvas.evaluate(el => el.getBoundingClientRect().width)
+      const wideZoom = await zoomOf(canvas)
+      await page.setViewportSize({ width: 390, height: 900 })
+      await expect.poll(() => canvas.evaluate(el => el.getBoundingClientRect().width)).toBeLessThan(wideWidth)
+      await nodesInCanvas(pane)
+      await closeFloatingTeamRail(pane)
       const scroll = pane.locator('[data-slot="run-scroll"]')
-      const narrowZoom = await zoomOf(graph.locator('[data-slot="flow-canvas"]'))
+      const narrowWidth = await canvas.evaluate(el => el.getBoundingClientRect().width)
+      const narrowZoom = await zoomOf(canvas)
       expect(narrowZoom).toBeLessThan(wideZoom)
       // Work keeps one finite drawing; its Steps and Rules remain the text
       // alternative rather than a second visible record below the graph.
@@ -175,7 +180,11 @@ for (const theme of ['light', 'dark'] as const) {
       await expect.poll(() => graph.locator('[data-slot="flow-drawing"]').evaluate(el => el.getBoundingClientRect().height)).toBe(360)
       await nodesInCanvas(pane)
       await page.setViewportSize({ width: 1440, height: 900 })
-      await expect.poll(() => zoomOf(graph.locator('[data-slot="flow-canvas"]'))).toBeGreaterThan(narrowZoom)
+      await expect.poll(() => canvas.evaluate(el => el.getBoundingClientRect().width)).toBeGreaterThan(narrowWidth)
+      // Resize preserves the person's scale; Fit explicitly restores the
+      // readable wide view instead of relying on an incidental canvas remount.
+      await canvas.getByRole('button', { name: 'Fit plan', exact: true }).click()
+      await expect.poll(() => zoomOf(canvas)).toBeGreaterThan(narrowZoom)
       await nodesInCanvas(pane)
       expect(await graph.locator('[data-slot="flow-list"] button').evaluateAll(buttons => buttons.filter(button => (button as HTMLButtonElement).tabIndex >= 0).length)).toBe(0)
     })
@@ -276,7 +285,7 @@ for (const theme of ['light', 'dark'] as const) {
         else await selectTeamPage(rig, 'run')
         await selectRunView(rig, 'Flow')
         await rig.scrollIntoViewIfNeeded()
-        await closeFloatingTeamRail(page.locator('body'))
+        await closeFloatingTeamRail(rig)
         const need = rig.locator('[data-slot="run-need"]')
         const canvas = rig.locator('[data-slot="flow-canvas"]')
         await expect(canvas.locator('.react-flow__node').first()).toBeVisible()
@@ -319,7 +328,7 @@ for (const theme of ['light', 'dark'] as const) {
       await pane.screenshot({ path: `${folder}/run-${theme}.png` })
       await page.setViewportSize({ width: 390, height: 900 })
       await nodesInCanvas(pane)
-      await closeFloatingTeamRail(page.locator('body'))
+      await closeFloatingTeamRail(pane)
       await pane.screenshot({ path: `${folder}/run-narrow-${theme}.png` })
       await pane.getByRole('button', { name: 'Full record', exact: true }).click()
       const record = pane.getByRole('list', { name: 'Run timeline', exact: true })

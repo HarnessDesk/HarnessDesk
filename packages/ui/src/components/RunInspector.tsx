@@ -301,7 +301,7 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
             </span></SummaryItem>}
             {diff?.kind === 'diff' && <SummaryItem label="Changes"><ChangeStats added={diff.added} removed={diff.removed} /></SummaryItem>}
           </SummaryList></ToolSection>}
-        <ToolSection label="Run" fold value={{ running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' }[execution.state]} action={flowFile}><SummaryList surface="panel">
+        <ToolSection label="Run" fold value={{ running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' }[execution.state]} action={flowFile}><SummaryList surface="panel" aria-label="Team Run facts">
             <SummaryItem label="Flow">{sanitizeText(execution.document.flow.name)}{execution.revision ? ` · ${sanitizeText(execution.revision)}` : ''}</SummaryItem>
             {execution.base && <SummaryItem label="Base" kind="path">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</SummaryItem>}
             {input.origin && <SummaryItem label="Started by">{sanitizeText(input.origin)}</SummaryItem>}
@@ -309,6 +309,7 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
             {budget && <SummaryItem label="Without progress"><Progress size="sm" value={idle} max={budget.withoutProgress} label={`${idle} of ${budget.withoutProgress} rounds`} aria-label="Without progress" /></SummaryItem>}
             <SummaryItem label="Cost">{costSummary ?? 'Not recorded'}</SummaryItem>
           </SummaryList>
+          {execution.reason && <ToolProse variant="note"><Words fold>{execution.reason}</Words></ToolProse>}
           {extra && <div className="mt-2"><Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words></div>}
         </ToolSection>
 

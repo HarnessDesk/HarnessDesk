@@ -1750,6 +1750,9 @@ it('a half-written message does not follow you into the next room', async () => 
 
   const box = container.querySelector('textarea') as HTMLTextAreaElement
   act(() => type(box, 'not for this room'))
+  act(() => box.focus())
+  box.setSelectionRange(4, 9, 'backward')
+  act(() => box.blur())
   expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('not for this room')
 
   /* The same pane, pointed at a different room. The audience prunes itself
@@ -1757,7 +1760,9 @@ it('a half-written message does not follow you into the next room', async () => 
      one keystroke from being sent to people they were never written for. */
   await render(store, '/other')
   await act(async () => row('Chat').click())
-  expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('')
+  const nextBox = container.querySelector('textarea') as HTMLTextAreaElement
+  expect(nextBox.value).toBe('')
+  expect([nextBox.selectionStart, nextBox.selectionEnd, nextBox.selectionDirection]).toEqual([0, 0, 'none'])
 })
 
 it('never wears the last room’s roster under this room’s name', async () => {
@@ -2161,7 +2166,7 @@ it('keeps a running idle Run’s waiting reason in the production Overview', asy
   expect(run.textContent?.split('Waiting for recorded evidence for round 2')).toHaveLength(2)
 })
 
-it('keeps an unrouted settled Run’s reason in the production Overview', async () => {
+it('keeps an unrouted settled Run’s reason once in the production Work need', async () => {
   const reason = 'Review the change (#2) answered revise; no rule continues from reviewer, so this waits for you'
   const execution: FlowExecution = {
     version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'settled',
@@ -2170,9 +2175,9 @@ it('keeps an unrouted settled Run’s reason in the production Overview', async 
   }
   const { store } = rig([CLAUDE], undefined, { intents: [] }, GOAL, new Map([[execution.id, execution]]))
   await render(store)
-  const run = container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')!
+  const run = container.querySelector('[data-slot="run-need"]')!
   expect(run.textContent).toContain(reason)
-  expect(run.textContent?.split(reason)).toHaveLength(2)
+  expect(container.textContent?.split(reason)).toHaveLength(2)
 })
 
 it('reads a retained claim as Stopping in Overview, the timeline and inspector after Stop', async () => {
@@ -2716,6 +2721,7 @@ it('an approval arriving mid-sentence keeps the draft, caret and scroll position
   const back = container.querySelector<HTMLTextAreaElement>('textarea')!
   expect(back).toBe(box)
   expect(back.value).toBe('half a thought about step 3')
+  expect([back.selectionStart, back.selectionEnd]).toEqual([5, 12])
   expect(back.closest('[hidden]')).toBeNull()
   expect(stream.scrollTop).toBe(120)
 })
@@ -3728,12 +3734,13 @@ it('warns when a Run reads only part of the findings ledger', async () => {
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('One finding could not be read.')
 })
 
-it('an unrouted settled Run says Needs you once and keeps its Overview reason', async () => {
+it('an unrouted settled Run says Needs you once and keeps its Work need reason', async () => {
   const execution = { version: 2, id: 'unrouted-run', goal: ROOM, state: 'settled', end: { kind: 'unrouted', card: 1, outcome: 'no-pr' }, reason: 'No rule follows no-pr.', operations: [], rounds: [], document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
   const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
   await render(store)
   expect(container.querySelector('header [data-slot="dot"]')?.getAttribute('aria-label')).toBe('Needs you')
-  expect(container.querySelector('[aria-label="Run"]')?.textContent).toContain('No rule follows no-pr.')
+  expect(container.querySelector('[data-slot="run-need"]')?.textContent).toContain('No rule follows no-pr.')
+  expect(container.textContent?.split('No rule follows no-pr.')).toHaveLength(2)
   expect(container.querySelector('[aria-label="Run"] [data-slot="chip"]')).toBeNull()
 })
 

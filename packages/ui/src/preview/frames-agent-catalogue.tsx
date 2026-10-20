@@ -50,13 +50,21 @@ const CatalogueSpecimen = ({ state }: { readonly state: CatalogueState }) => {
   return <div ref={sources}><AgentCatalogueSources><Note>Project Agents come first, then yours, then built in. Copies with the same ID use that order.</Note></AgentCatalogueSources></div>
 }
 
+/** A measured case is one real catalogue card, never the combined state wall. */
+const CatalogueMetricSpecimen = () => <AgentCatalogue>
+  <AgentCatalogueCard name="Code reviewer" face={<AgentIcon />} description="Reads a change against the project's rules."
+    runtime="Local seat · Review model" ceiling={<Chip tone="neutral" size="sm">Read</Chip>} onOpen={() => {}} />
+</AgentCatalogue>
+
 /** Catalogue cards and source disclosure remain the same exports that the production roster composes. */
 export const AgentCatalogueBoard = () => <div className="flex flex-col gap-4">
-  {AGENTCATALOGUE_CATALOG_VARIANTS.map(variant => <div key={variant} data-catalog-variant={variant}>
-    {AGENTCATALOGUE_CATALOG_SIZES.map(size => <div key={size} data-catalog-size={size} className="flex flex-col gap-4">
-      {AGENTCATALOGUE_CATALOG_STATES.map(state => <Section key={state} title={state} data-catalog-state={state}>
-        <CatalogueSpecimen state={state} />
-      </Section>)}
-    </div>)}
-  </div>)}
+  {AGENTCATALOGUE_CATALOG_VARIANTS.map(variant => <Section key={variant} title={`Variant: ${variant}`}>
+    <div data-slot="agent-catalogue-specimen" data-catalog-variant={variant}><CatalogueMetricSpecimen /></div>
+  </Section>)}
+  {AGENTCATALOGUE_CATALOG_SIZES.map(size => <Section key={size} title={`Size: ${size}`}>
+    <div data-slot="agent-catalogue-specimen" data-catalog-size={size}><CatalogueMetricSpecimen /></div>
+  </Section>)}
+  {AGENTCATALOGUE_CATALOG_STATES.map(state => <Section key={state} title={state} data-catalog-state={state}>
+    <CatalogueSpecimen state={state} />
+  </Section>)}
 </div>

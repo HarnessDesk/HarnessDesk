@@ -38,15 +38,15 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
   const shown = !fold || open
   const summary = value !== undefined && value !== null
     ? <span id={`${bodyId}-summary`} data-slot="tool-section-value" title={typeof value === 'string' ? value : undefined}
-      className="ms-auto min-w-0 max-w-1/2 shrink-0 truncate tabular-nums"><Text role="muted" ink="secondary">{value}</Text></span> : null
+      className="ms-auto min-w-0 max-w-1/2 shrink-0 truncate tabular-nums"><Text role="muted" ink="secondary" truncate className="block">{value}</Text></span> : null
   return <section data-slot="tool-section" data-folded={shown ? undefined : ''} aria-label={label}
     className="min-w-0 rounded-(--hd-panel-card-radius) border border-(--hd-border-strong) bg-(--hd-background) py-(--hd-panel-card-pad-y)">
     <GroupLabel as="div" surface="tool">
-      {fold ? <Button variant="ghost" size="content" data-slot="tool-section-fold" aria-label={label} aria-describedby={summary ? `${bodyId}-summary` : undefined} aria-expanded={open} aria-controls={bodyId}
-        className="hd-no-drag min-w-0 min-h-(--hd-panel-head-h) flex-1 shrink justify-start gap-(--hd-space-1) text-left" onClick={() => setOpen(value => !value)}>
+      {fold ? <Button variant="ghost" size="content-min" bordered={false} data-slot="tool-section-fold" aria-label={label} aria-describedby={summary ? `${bodyId}-summary` : undefined} aria-expanded={open} aria-controls={bodyId}
+        className="hd-no-drag min-w-0 flex-1 shrink justify-start gap-(--hd-space-1) text-left" onClick={() => setOpen(value => !value)}>
         <DisclosureChevron open={open} size="sm" /><Text role="row" ink="primary" truncate title={label} className="min-w-0">{label}</Text>{summary}
       </Button> : <><Text role="row" ink="primary" truncate title={label}>{label}</Text>{summary}</>}
-      {action && <span data-slot="tool-section-actions" className={`${fold || summary ? '' : 'ms-auto '}flex shrink-0 items-center gap-(--hd-space-1)`}>{action}</span>}
+      {action && <span data-slot="tool-section-actions" data-edge-pull-slot="" className={`${fold || summary ? '' : 'ms-auto '}flex shrink-0 items-center gap-(--hd-space-1)`}>{action}</span>}
     </GroupLabel>
     {children !== undefined && children !== null && <div id={bodyId} data-slot="tool-section-body" hidden={!shown} className="mt-(--hd-space-1) min-w-0">{children}</div>}
   </section>
@@ -57,7 +57,7 @@ export const ToolFold = ({ label, children }: { label: string; children: ReactNo
   const bodyId = useId()
   return <div data-slot="tool-fold">
     <div className="flex min-h-(--hd-panel-row-h) items-center px-(--hd-inset-row)">
-      <Button variant="ghost" size="content" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(value => !value)}
+      <Button variant="ghost" size="content-min" bordered={false} aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(value => !value)}
         className="hd-no-drag gap-(--hd-space-1)">
         <Text role="muted" ink="secondary">{label}</Text><DisclosureChevron open={open} size="sm" placement="trailing" />
       </Button>

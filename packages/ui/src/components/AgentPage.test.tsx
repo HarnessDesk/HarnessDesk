@@ -304,6 +304,20 @@ it('opens from its roster row, names its file, and opens or reveals it', () => {
   expect(onLeave).toHaveBeenCalled()
 })
 
+it('keeps the title row to starting and returning, with configuration and identity in the next toolbar', async () => {
+  mount({ focus: 'code-reviewer' })
+  await settle()
+  const options = container.querySelector('[data-slot="page-options"]')!
+  expect([...options.querySelectorAll('button')].map(button => button.textContent)).toEqual([
+    'Start a conversation as Code reviewer', 'Back to Agents',
+  ])
+  const configuration = options.nextElementSibling!
+  expect(configuration.getAttribute('data-slot')).toBe('toolbar')
+  expect(configuration.textContent).toContain('Choose runtime…')
+  expect(configuration.querySelector('[data-shape="face"]')).not.toBeNull()
+  expect(configuration.textContent).toContain('Edit')
+})
+
 it('names a project Agent’s File relative to the project, since the header already says which one, with the full path on hover', () => {
   mount({ focus: 'code-reviewer' })
   const file = summaryItem('File')!

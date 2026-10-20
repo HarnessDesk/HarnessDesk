@@ -10,7 +10,7 @@ const MEMBERS = [
 ] as const
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`room member titles arrive whole in ${theme}`, async ({ page }) => {
+  test(`room member context stays whole beside compact names and models in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?side-by-side&theme=${theme}`)
     const frame = page.locator('[data-frame-id="side-by-side-two"]')
@@ -35,11 +35,14 @@ for (const theme of ['light', 'dark'] as const) {
     for (const width of [1440, 1000]) {
       await page.setViewportSize({ width, height: 1000 })
       for (const [nickname, title] of MEMBERS) {
-        const row = members.locator('[data-slot="list-row"]').filter({ has: page.getByRole('button', { name: `Actions for ${nickname}`, exact: true }) })
+        const row = members.getByRole('group', { name: new RegExp(`^${nickname} · `) })
         const name = row.locator('[data-slot="list-row-title"]')
         await expect(name).not.toContainText(title)
+        await expect(row).toHaveAccessibleName(new RegExp(title))
+        await expect(name.locator('[title]')).toHaveAttribute('title', new RegExp(title))
         const subtitle = row.locator('[data-slot="list-row-subtitle"]')
-        await expect(subtitle).toContainText(title)
+        await expect(subtitle).not.toBeEmpty()
+        await expect(subtitle).not.toContainText(title)
         await row.scrollIntoViewIfNeeded()
         const geometry = await subtitle.evaluate(node => {
           const box = node.getBoundingClientRect()
@@ -54,13 +57,12 @@ for (const theme of ['light', 'dark'] as const) {
             }
           }
           const style = getComputedStyle(node)
-          return { contained, whitespace: style.whiteSpace, overflowWrap: style.overflowWrap, ellipsis: style.textOverflow }
+          return { contained, whitespace: style.whiteSpace, ellipsis: style.textOverflow }
         })
         expect(geometry.contained).toBe(true)
-        expect(geometry.whitespace).toBe('normal')
-        expect(geometry.overflowWrap).toBe('normal')
-        expect(geometry.ellipsis).not.toBe('ellipsis')
-        // The face keeps the whole row's centre as the subtitle grows, as every row of the table family does.
+        expect(geometry.whitespace).toBe('nowrap')
+        expect(geometry.ellipsis).toBe('ellipsis')
+        // Compact model metadata and the name share the row's centred face.
         const leadOffset = await row.evaluate(node => {
           const face = node.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
           const bounds = node.getBoundingClientRect()

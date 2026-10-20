@@ -18,7 +18,7 @@ for (const theme of ['light', 'dark'] as const) {
     await column.getByRole('button', { name: 'New Flow', exact: true }).click()
     await expect(page.getByRole('region', { name: 'Shape graph', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(0)
-    await expect(bar.locator('[data-topbar-title]')).toContainText('Your own shape')
+    await expect(bar.locator('[data-topbar-title]')).toHaveText('New Flow')
   })
 
   test(`builds, edits, saves and starts the current Flow entirely from its page · ${theme}`, async ({ page }, testInfo) => {

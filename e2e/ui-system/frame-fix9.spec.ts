@@ -1,4 +1,5 @@
 import { selectFrameTab } from './frame-actions'
+import { teamDetails, teamSeats } from './team-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { FRAME } from '../../packages/ui/src/design/frame'
@@ -44,11 +45,16 @@ test('FIX9 stopped Team keeps its Researcher and explains round counts', async (
   await page.getByRole('button', { name: 'Stop run…', exact: true }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Stop run', exact: true }).click()
   await selectFrameTab(page, 'overview')
-  const agents = page.locator('[data-slot="team-overview"]')
-  await expect(agents).not.toContainText('No agents')
-  await expect(agents).toContainText('Researcher')
-  await expect(agents).toContainText('Stopped')
-  await expect(page.locator('[data-slot="team-overview"]')).not.toContainText('Rounds 0 of')
+  const run = page.locator('[data-slot="run-view"]')
+  await expect(run).toContainText('The person stopped this run.')
+  await expect(run.locator('[data-step-row="researcher"][data-presentation="activity"]')).toHaveAttribute('data-flow-state', 'stopped')
+  const seats = await teamSeats(page.locator('body'))
+  await expect(seats).not.toContainText('No agents')
+  await expect(seats.getByRole('group', { name: /^Researcher · .* · Stopped$/ })).toHaveCount(1)
+  const details = await teamDetails(page.locator('body'))
+  const facts = details.locator('[aria-label="Team Run facts"]')
+  await expect(facts).toContainText('Round 1 of 3')
+  await expect(facts).not.toContainText('Rounds 0 of')
 })
 
 test('FIX9 command card waits for approval and names its folder', async ({ page }) => {

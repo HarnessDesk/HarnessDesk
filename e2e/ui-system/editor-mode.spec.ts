@@ -187,7 +187,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.screenshot({ path: testInfo.outputPath(`editor-clean-deletion-${width}-${theme}.png`) })
 
       await openFrame(page, 'frame-wall=conversation&frame-editor-mode=source', theme, width)
-      await showEditorAtNarrowWidth(page, width)
+      await showEditorMain(page)
       await expect(main.locator('.cm-content')).toContainText('retryPayment')
       await remove()
       await page.clock.fastForward(3100)
@@ -202,11 +202,11 @@ for (const theme of ['light', 'dark'] as const) {
     test(`an admitted alias retains Changed letters and editable HEAD comparison at ${width} in ${theme}`, async ({ page }, testInfo) => {
       await openFrame(page, 'frame-wall=conversation&frame-editor-mode=alias', theme, width)
       const main = page.locator('[data-slot="editor-main"]')
-      await showEditorAtNarrowWidth(page, width)
+      await showEditorMain(page)
       if (width < 1000) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
       await expect(page.getByRole('radio', { name: 'Changed 4', exact: true })).toBeChecked()
       await expect(page.locator('[aria-label="auth.ts: modified"]')).toBeVisible()
-      await showEditorAtNarrowWidth(page, width)
+      await showEditorMain(page)
       await main.getByRole('radio', { name: /^Changes/ }).click()
       await expect(main.locator('.cm-deletedChunk')).toContainText('token.length > 8')
       await expect(main.locator('.cm-content')).toHaveAttribute('contenteditable', 'true')

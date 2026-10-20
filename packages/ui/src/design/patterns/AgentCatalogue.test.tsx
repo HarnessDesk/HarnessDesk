@@ -3,12 +3,31 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AgentCatalogue, AgentCatalogueCard, AgentCatalogueSources } from './AgentCatalogue'
 import { Chip } from './Settings'
+import sheet from './AgentCatalogue.module.css?raw'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let host: HTMLDivElement
 let root: Root
 beforeEach(() => { host = document.createElement('div'); document.body.append(host); root = createRoot(host) })
 afterEach(() => { act(() => root.unmount()); host.remove() })
+
+it('gives purpose prose widow-resistant wrapping without changing the card grid or its text', () => {
+  const description = 'Reads a change it did not write for the ways it could be abused, and says how to close each one.'
+  act(() => root.render(<AgentCatalogueCard name="Security reviewer" description={description} face={<span>SR</span>} onOpen={() => {}} />))
+  const prose = host.querySelector('[data-slot="agent-card-description"]')!
+  expect(prose.textContent).toBe(description)
+  const rule = sheet.match(/\.description\s*\{([^}]+)\}/)?.[1]
+  expect(rule).toMatch(/text-wrap:\s*pretty\s*;/)
+  expect(rule).toMatch(/overflow-wrap:\s*anywhere\s*;/)
+})
+
+it('keeps a role purpose readable in full instead of cutting the sentence to two lines', () => {
+  const description = 'Builds the change it is given on its own branch, proves it with the project’s checks, and hands it over.'
+  act(() => root.render(<AgentCatalogueCard name="Implementer" description={description} face={<span>IM</span>} onOpen={() => {}} />))
+  const prose = host.querySelector('[data-slot="agent-card-description"] [data-slot="text"]')!
+  expect(prose.textContent).toBe(description)
+  expect(prose.className).not.toMatch(/line-clamp-/)
+})
 
 it('opens a role through one native button and keeps purpose, runtime and issue readings separate', () => {
   const onOpen = vi.fn()

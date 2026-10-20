@@ -24,6 +24,24 @@ it('leaves terminal Run recovery to the unified Flow warning without another gen
  act(()=>root.render(<TeamOverview pendingInChat timeline={timeline} model={model} attention={attention} onRun={vi.fn()} />))
  expect(box.textContent).toContain('Review the Run')
 })
+it.each([
+ ['complete',true,false], ['stopped',true,false], ['settled',true,false], ['budget-rounds',true,false],
+ ['running',true,true], ['stalled',true,true], ['settled',false,true],
+] as const)('keeps one %s reason with compact=%s and retains pending-release facts', (scene,compact,includeReason) => {
+ const fixture=runFixture(scene)
+ // The mounted legacy stalled specimen has no explicit ending record.
+ const timeline=runTimeline(scene==='stalled'?{...fixture,execution:{...fixture.execution,end:null}}:fixture)
+ const statusLine=vi.fn((_now:number,withReason:boolean)=><>
+  {withReason&&<span>Recorded Run reason</span>}
+  <span>Waiting for a Seat to finish before releasing its checkout.</span>
+ </>)
+ const model={...overviewModel('running'),needsYou:[],seats:[]}
+ act(()=>root.render(<TeamOverview compact={compact} pendingInChat timeline={timeline} model={model} attention={[]} statusLine={statusLine} />))
+ expect(statusLine.mock.calls.at(-1)?.[1]).toBe(includeReason)
+ expect(box.textContent).toContain('Waiting for a Seat to finish before releasing its checkout.')
+ expect(box.textContent?.includes('Recorded Run reason')).toBe(includeReason)
+})
+
 it.each([600,1000])('keeps an unlinked Seat’s reason visible without a conversation action at %spx',width=>{
  const previous=globalThis.ResizeObserver
  globalThis.ResizeObserver=class {

@@ -43,6 +43,17 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
       await expect(body.getByRole('button', { name: 'Back to Agents', exact: true })).toBeVisible()
       await expect(body.getByRole('button', { name: /^Start a conversation as / })).toBeVisible()
       await expect(bar.getByRole('button', { name: /^Start a conversation as / })).toHaveCount(0)
+    } else {
+      const purposes = page.locator('[data-page-destination="agents"] [data-slot="agent-card-description"]')
+      await expect(purposes).toHaveCount(5)
+      for (const purpose of await purposes.all()) {
+        expect(await purpose.evaluate(node => {
+          const box = node.getBoundingClientRect()
+          const range = document.createRange(); range.selectNodeContents(node)
+          const text = range.getBoundingClientRect()
+          return node.scrollHeight <= node.clientHeight && text.bottom <= box.bottom && text.right <= box.right
+        }), 'the complete purpose fits its card without clipping the sentence').toBe(true)
+      }
     }
   })
 }

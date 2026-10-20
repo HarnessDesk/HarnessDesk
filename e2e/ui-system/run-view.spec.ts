@@ -235,7 +235,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto(`/preview.html?run-view&theme=${theme}`)
     const flow = page.locator('#run-view-live-polish-flow')
     await expect(flow.locator('[data-slot="run-flow"] [data-step-row="writer"]')).toContainText('Edit · asked, not enforced')
-    const ceiling = flow.locator('[data-step="writer"] [data-role="meta"]')
+    const ceiling = flow.locator('[data-step="writer"] [data-slot="flow-step-content"] [data-role="meta"]')
     expect(await ceiling.evaluate(el => ({ clipped: el.scrollWidth > el.clientWidth + 1,
       outside: el.getBoundingClientRect().bottom > el.closest('[data-slot="flow-step"]')!.getBoundingClientRect().bottom })))
       .toEqual({ clipped: false, outside: false })

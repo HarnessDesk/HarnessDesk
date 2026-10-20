@@ -114,7 +114,11 @@ test(`R10.39 Flow cards use the approved selection and graph colours at ${width}
   await expect(dialog.locator('[data-slot="flow-card"][data-selected]')).toHaveCount(0)
   const selected = dialog.getByRole('button', { name: 'Write and review', exact: true })
   await selected.click()
-  await expect(dialog.getByRole('region', { name: 'Selected Flow', exact: true }).locator('[data-slot="flow-mini-graph"]')).toBeVisible()
+  await expect(dialog.getByRole('region', { name: 'Selected Flow', exact: true })).toContainText('Write and review')
+  // The configured Flow below owns the drawing after selection; the picker thumbnail returns with Change.
+  const configured = dialog.getByRole('region', { name: 'Who does what', exact: true }).locator('[data-slot="flow-graph"]')
+  await expect(configured).toBeVisible()
+  await expect(configured.locator('[data-slot="flow-step"]')).toHaveCount(3)
   await dialog.getByRole('button', { name: 'Change', exact: true }).click()
   await expect(selected).toHaveAttribute('data-selected', 'true')
   await expect(selected).toBeEnabled()

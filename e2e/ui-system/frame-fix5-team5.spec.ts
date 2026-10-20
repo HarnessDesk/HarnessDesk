@@ -41,14 +41,25 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByRole('button', { name: 'Model for Writes', exact: true })).toHaveCount(0)
     const writerBounds = await writes.boundingBox()
     const reviewerBounds = await reviews.boundingBox()
+    const writerCard = await page.locator('.react-flow__node').filter({ has: writes }).boundingBox()
+    const reviewerCard = await page.locator('.react-flow__node').filter({ has: reviews }).boundingBox()
     expect(writerBounds).not.toBeNull()
     expect(reviewerBounds).not.toBeNull()
-    expect(Math.abs(writerBounds!.x - reviewerBounds!.x)).toBeLessThanOrEqual(1)
+    expect(writerCard).not.toBeNull()
+    expect(reviewerCard).not.toBeNull()
+    // Parallel graph cards share a row; each control starts at the same inset inside its card.
+    expect(Math.abs(writerCard!.y - reviewerCard!.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs(writerCard!.width - reviewerCard!.width)).toBeLessThanOrEqual(1)
+    expect(Math.abs(writerCard!.height - reviewerCard!.height)).toBeLessThanOrEqual(1)
+    expect(Math.abs(writerBounds!.x - writerCard!.x - (reviewerBounds!.x - reviewerCard!.x))).toBeLessThanOrEqual(1)
     expect(Math.abs(writerBounds!.width - reviewerBounds!.width)).toBeLessThanOrEqual(1)
     expect(Math.abs(writerBounds!.height - reviewerBounds!.height)).toBeLessThanOrEqual(1)
     const roles = page.getByRole('region', { name: 'Who does what' })
-    await expect(roles.getByText('Runtime 2 is not added to HarnessDesk', { exact: true })).toBeVisible()
-    await expect(roles.getByText('Runtime 3 is signed out', { exact: true })).toBeVisible()
+    for (const reason of ['Runtime 2 is not added to HarnessDesk', 'Runtime 3 is signed out']) {
+      const issue = roles.getByRole('img', { name: reason, exact: true })
+      await expect(issue).toBeVisible()
+      await expect(issue).toHaveAttribute('title', reason)
+    }
   })
 
   test(`Team board folds empty columns and scrolls when expanded at 1280 in ${theme}`, async ({ page }) => {

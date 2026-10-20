@@ -231,15 +231,30 @@ try {
         await page.getByRole('dialog', { name: 'Command palette', exact: true }).getByRole('searchbox').fill('Show Repository')
         await page.getByRole('option', { name: /^Show Repository/ }).click()
       }
+      const closeWorkRail = async () => {
+        const shell = page.locator('[data-slot="fixed-shell"]:visible')
+        await expect(shell).toHaveCount(1)
+        if (await shell.getAttribute('data-rail-open') === 'true') {
+          const bar = shell.locator('[data-slot="top-bar"]:visible')
+          const direct = bar.getByRole('button', { name: 'Toggle rail', exact: true })
+          if (await direct.isVisible()) await direct.click()
+          else {
+            await bar.getByRole('button', { name: 'More', exact: true }).click()
+            await page.getByRole('menuitemradio', { name: 'Toggle rail', exact: true }).click()
+          }
+        }
+        await expect(shell).toHaveAttribute('data-rail-open', 'false')
+        await expect(shell.locator('[data-frame-region="rail"]')).toBeHidden()
+      }
       const mergeFromRepository = async revision => {
         await repository()
-        const rail = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Toggle rail', exact: true })
-        if (await rail.getAttribute('aria-pressed') === 'true') await rail.click()
-        await expect(page.locator('[data-frame-region="rail"]')).toBeHidden()
         const repositoryPanel = page.locator('[data-frame-region="right"]')
         const changes = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Changes', exact: true })
+        // The palette action changes the active pane asynchronously. Read the
+        // new frame's rail only after Repository has actually taken its place.
         await expect(changes).toHaveAttribute('aria-pressed', 'true')
         await expect(repositoryPanel).toBeVisible()
+        await closeWorkRail()
         await expect(repositoryPanel.getByRole('grid', { name: 'Commits', exact: true })).toBeVisible()
         await expect(repositoryPanel).toContainText('commits')
         await expect.poll(() => repositoryPanel.evaluate(node => node.getBoundingClientRect().width)).toBe(FRAME.rightPanel.width)

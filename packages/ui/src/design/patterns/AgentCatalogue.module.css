@@ -18,7 +18,7 @@
 .face { display: flex; flex-shrink: 0; }
 .name { min-width: 0; }
 .name > :first-child { display: block; }
-.description { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.description { min-width: 0; overflow-wrap: anywhere; white-space: normal; text-wrap: pretty; }
 .foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--hd-space-2); min-width: 0; margin-top: auto; }
 .runtime { display: block; flex: 1 1 var(--hd-space-16); min-width: 0; }
 .runtime > :first-child { display: block; }

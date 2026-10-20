@@ -41,12 +41,12 @@ const openFrame = async (page: Page, query: string, theme: 'light' | 'dark' = 'l
     await expect(room).toHaveAttribute('title', /Stopping/)
     await expect(room).not.toHaveAttribute('title', /Working/)
     await expect(page.locator('[data-slot="team-overview"] [aria-label="Run"]')).toContainText('Stopping')
-    await expect(page.locator('[data-seat="seat-1"] [data-slot="seat-state"]')).toHaveText('Stopping')
+    await expect(page.locator('[data-slot="run-view"] [data-step-row="researcher"][data-presentation="activity"]')).toHaveAttribute('data-flow-state', 'stopping')
     await page.evaluate(() => (window as Window & { __hdFrameWall: { finishStoppedTurn(): void } }).__hdFrameWall.finishStoppedTurn())
     await expect(room).toHaveAttribute('title', /Stopped/)
     await expect(room.locator('..').getByRole('img', { name: 'Working', exact: true })).toHaveCount(0)
-    await expect(page.locator('[data-slot="team-overview"] [aria-label="Run"]')).toContainText('Stopped')
-    await expect(page.locator('[data-seat="seat-1"] [data-slot="seat-state"]')).toHaveText('Stopped')
+    await expect(page.locator('[data-slot="team-overview"] [aria-label="Run"]')).toContainText('The person stopped this run.')
+    await expect(page.locator('[data-slot="run-view"] [data-step-row="researcher"][data-presentation="activity"]')).toHaveAttribute('data-flow-state', 'stopped')
 
 
   })

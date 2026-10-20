@@ -862,6 +862,12 @@ const KeyValueBoard = () => (
       </Case>
       <Case label="compact panel facts">
         <KeyValue variant="panel" className="w-full" data-catalog-variant="panel">
+          <KeyValueRow label="Branch" kind="path">feature/a-long-checkout-name</KeyValueRow>
+          <KeyValueRow label="Status">Ready</KeyValueRow>
+        </KeyValue>
+      </Case>
+      <Case label="compact panel with a long identity">
+        <KeyValue variant="panel" className="w-full">
           <KeyValueRow label="Agent" kind="name">Code reviewer with a long descriptive model selection</KeyValueRow>
           <KeyValueRow label="Branch" kind="path">feature/a-long-checkout-name</KeyValueRow>
           <KeyValueRow label="Status">Ready</KeyValueRow>

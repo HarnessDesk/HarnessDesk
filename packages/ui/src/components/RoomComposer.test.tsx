@@ -7,7 +7,7 @@ import { sessionKey, type SessionKey, type TeamMessage, type TeamPeerInfo } from
 import { StoreProvider } from '../state/context'
 import { dismissOverlays, escapeSurface } from '../lib/overlays'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { RoomComposer, type RoomComposerHandle, type RoomMember } from './RoomComposer'
+import { RoomComposer, type RoomComposerDraft, type RoomComposerHandle, type RoomMember } from './RoomComposer'
 
 /**
  * The room's composer.
@@ -116,6 +116,41 @@ const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messag
 }
 
 const box = (): HTMLTextAreaElement => container.querySelector('textarea') as HTMLTextAreaElement
+
+it.each(['forward', 'backward'] as const)('keeps the %s draft selection when Chat returns from a source session', direction => {
+  const { store } = rig()
+  let draft: RoomComposerDraft = { text: 'Keep this draft', to: [] }
+  const show = (visible: boolean) => act(() => root.render(<StoreProvider store={store}>{visible && <RoomComposer
+    room={ROOM} members={[OPUS, GPT]} messaging onMessaging={async () => {}} onTrouble={() => {}} onPosted={() => {}}
+    draftState={{ value: draft, onChange: next => { draft = typeof next === 'function' ? next(draft) : next } }}
+  />}</StoreProvider>))
+  show(true)
+  const original = box()
+  act(() => original.focus())
+  original.setSelectionRange(5, 9, direction)
+  act(() => original.blur())
+  show(false)
+  show(true)
+  const returned = box()
+  expect(returned).not.toBe(original)
+  expect(document.activeElement).not.toBe(returned)
+  expect(returned.value).toBe('Keep this draft')
+  expect([returned.selectionStart, returned.selectionEnd, returned.selectionDirection]).toEqual([5, 9, direction])
+  act(() => returned.focus())
+  expect([returned.selectionStart, returned.selectionEnd, returned.selectionDirection]).toEqual([5, 9, direction])
+})
+
+it('clamps a kept selection when the draft text has become shorter', () => {
+  const { store } = rig()
+  act(() => root.render(null))
+  act(() => root.render(<StoreProvider store={store}><RoomComposer
+    room={ROOM} members={[OPUS, GPT]} messaging onMessaging={async () => {}} onTrouble={() => {}} onPosted={() => {}}
+    draftState={{ value: { text: 'Short', to: [], selection: { start: 9, end: 17, direction: 'backward' } }, onChange: () => {} }}
+  /></StoreProvider>))
+  expect(box().value).toBe('Short')
+  expect([box().selectionStart, box().selectionEnd, box().selectionDirection]).toEqual([5, 5, 'backward'])
+  expect(document.activeElement).not.toBe(box())
+})
 
 /* React tracks the value setter, so assigning `.value` and firing `input` is a
    change React never hears. This goes through the prototype's setter, which is

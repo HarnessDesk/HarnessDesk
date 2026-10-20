@@ -92,6 +92,32 @@ it('selecting Timeline or Flow changes main only, while selecting a row explicit
   } finally { act(() => root.unmount()); container.remove() }
 })
 
+it('the explicit Run summary action opens recorded details instead of an empty pane', () => {
+  const store = runDockStore(), source = runFixture()
+  const fixture = { ...source, execution: { ...source.execution, reason: 'Choose the target before continuing.' } }
+  const model = runTimeline(fixture)
+  const container = document.createElement('div'), root = createRoot(container)
+  const Producer = () => {
+    const [selectedRow, onSelect] = useState<string | null>(null)
+    return <RunWorkspace unified model={{ ...model, header: { ...model.header, needsYou: true } }} number={1}
+      selectedRow={selectedRow} onSelect={onSelect} inspector={{ input: fixture, seats: [] }} />
+  }
+  try {
+    act(() => root.render(<StoreProvider store={store}><TopBarProvider><RunDockProvider><PaneProvider scope={scope('dock-team')}>
+      <Producer /><aside><RunDetailsView inspectionOnly /></aside>
+    </PaneProvider></RunDockProvider></TopBarProvider></StoreProvider>))
+    expect(container.querySelector('aside')?.textContent).toBe('')
+    const action = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Review details')!
+    expect(action).toBeDefined()
+    act(() => action.click())
+    expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]).toMatchObject({ tool: 'details', mode: 'run-details', open: true })
+    expect(container.querySelector('aside [aria-label="Team Run facts"]')).not.toBeNull()
+    expect(container.querySelector('aside')?.textContent).toContain('Running')
+    expect(container.querySelector('aside')?.textContent).toContain('Choose the target before continuing.')
+    expect(container.querySelectorAll('[data-slot="run-inspector"]')).toHaveLength(1)
+  } finally { act(() => root.unmount()); container.remove() }
+})
+
 it('outlets read their mounted owner and cannot inherit another Team’s records after cleanup', () => {
   const store = runDockStore(), fixture = runFixture()
   const container = document.createElement('div'), root = createRoot(container)

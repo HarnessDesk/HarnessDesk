@@ -160,6 +160,7 @@ test('an agent approval shares its session request, keeps the Chat draft, and an
   await expect(composer).toBeFocused()
   await page.keyboard.press('1')
   await expect(composer).toHaveValue('Keep this draft 1')
+  const draftSelection = await composer.evaluate(node => ({ start: node.selectionStart, end: node.selectionEnd, direction: node.selectionDirection }))
   await expect(card).toBeVisible()
   await expect(budget(frame)).toContainText('left')
   const answers = () => page.evaluate(() => (window as unknown as { __intakeAnswers?: unknown[] }).__intakeAnswers ?? [])
@@ -173,6 +174,7 @@ test('an agent approval shares its session request, keeps the Chat draft, and an
   await showChat(frame)
   await expect(card).toBeVisible()
   await expect(composer).toHaveValue('Keep this draft 1')
+  expect(await composer.evaluate(node => ({ start: node.selectionStart, end: node.selectionEnd, direction: node.selectionDirection }))).toEqual(draftSelection)
 
   // A 1 typed in another field is that field's.
   const filter = page.getByRole('searchbox', { name: 'Filter this list', exact: true }).first()
@@ -193,6 +195,7 @@ test('an agent approval shares its session request, keeps the Chat draft, and an
   await expect(chat.locator('[data-slot="dot"][data-pulse]')).toHaveCount(0)
   await expect(stateChip(frame)).toHaveAttribute('aria-label', 'Running')
   await composer.focus()
+  expect(await composer.evaluate(node => ({ start: node.selectionStart, end: node.selectionEnd, direction: node.selectionDirection }))).toEqual(draftSelection)
   await page.keyboard.press('1')
   await expect(composer).toHaveValue('Keep this draft 11')
   expect(await answers()).toHaveLength(1)
