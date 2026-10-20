@@ -170,6 +170,24 @@ them in `docs/decisions.md`.
       frame taken on a real desk is for measuring; it stays on the machine and
       is deleted after.
 
+## Refreshing the website demos
+
+The website's embedded demos (`packages/ui/site-demo/`, copied into the
+`harnessdesk-site` repository) follow these rules whenever they are refreshed:
+
+- **Real names only.** Scenes say Codex, Claude Code and Cursor, and real model
+  names (Sol, Opus, Auto) — never the gallery's Alpha, Beta, Gamma, Delta,
+  `Assistant A` or `Model A`. `site-demo/real-names.ts` does the renaming.
+- **Not every demo is clickable.** Interactive demos are the exception, chosen
+  on purpose (today: the tour pages and the dashboard panels). Display-only
+  scenes carry `data-scene-static` in the site's `index.html` and ignore the
+  pointer.
+- **A sidebar may be shown, but its buttons are not all live.** The left
+  column is inert in the demos (`scene.css`); only the controls that make the
+  demo's point answer a click.
+- **Scrolling never traps.** A demo must pass the wheel through to the page
+  (no `overscroll-behavior: contain` on the scene; `site.js` forwards the rest).
+
 ## Before you commit
 
 Before you push, run `pnpm check:push`. It uses CI's planners for the committed,

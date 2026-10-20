@@ -2,7 +2,6 @@
 .site-scene {
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior: contain;
   contain: layout paint;
   background: var(--hd-background);
   color: var(--hd-foreground);
@@ -90,3 +89,5 @@
 .site-scene[data-scene-motion="reduce"] *::after { animation: none !important; transition: none !important; }
 /* A tour page is a whole App window; the App scrolls its own page. */
 .site-scene[data-site-scene^="tour-"] { overflow: hidden; }
+/* The sidebar is there to be seen; its buttons are not wired in this demo. */
+.site-scene [data-left-column] { pointer-events: none; }
