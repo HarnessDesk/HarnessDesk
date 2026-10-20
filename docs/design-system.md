@@ -590,7 +590,7 @@ A table scope owns its density, including list and settings examples. Restating 
 
 ### Panel cards
 
-The right panel is a stack of cards on the left column's ground: a piece of work's facts and actions, each card showing its summary while folded (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md). A card is the main ground on a hairline; its header is one 20px line and each row inside it is 28. On `body`, where the spacing scale it is built from lives.
+The right panel is a stack of cards on the left column's ground: a piece of work's facts and actions, each card showing its summary while folded (docs/design.md). A card is the main ground on a hairline; its header is one 20px line and each row inside it is 28. On `body`, where the spacing scale it is built from lives.
 
 | token | value |
 | --- | --- |
@@ -2709,7 +2709,7 @@ The shell tabs and panel actions share one row above the terminal screen.
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
-One card of the right panel (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md).
+One card of the right panel (docs/design.md).
 
 The header is the card's label, a disclosure when it folds, and its `value`
 — the summary a folded card still shows, so a glance down the panel reads

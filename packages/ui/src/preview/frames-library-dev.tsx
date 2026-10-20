@@ -27,7 +27,7 @@ import { LIBRARY_AGENTS, LIBRARY_SKILLS, type SkillFact } from './library-option
  * is reviewed and applied, and the bar then becomes the receipt.
  *
  * Mockup only: fixture data, no store, no wire. Reach words follow the
- * evidence rule in docs/superpowers/specs/2026-10-01-skills-management-use-cases.md.
+ * evidence rule in AGENTS.md.
  */
 
 const noop = (): void => {}

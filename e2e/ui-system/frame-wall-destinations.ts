@@ -1,5 +1,5 @@
 /**
- * What the frame wall captures (docs/superpowers/plans/2026-10-09-app-frame.md,
+ * What the frame wall captures (docs/design.md,
  * "The visual check"). `tab` is a Team view's `data-team-page` value. A phase
  * that adds a destination adds it here, and the wall grows with it.
  */

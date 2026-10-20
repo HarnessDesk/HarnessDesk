@@ -1644,7 +1644,7 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
 /* --- panel cards ------------------------------------------------------------
    The right panel is a stack of cards on the left column's ground: a piece of
    work's facts and actions, each card showing its summary while folded
-   (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md). A card is
+   (docs/design.md). A card is
    the main ground on a hairline; its header is one 20px line and each row
    inside it is 28. On `body`, where the spacing scale it is built from lives.
 */

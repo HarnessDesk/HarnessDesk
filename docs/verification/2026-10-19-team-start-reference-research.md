@@ -50,4 +50,4 @@ TeamCatalog 把一支队伍作为可预览的完整包来安装，而不是要�
 4. 任务、Flow 图、成员、错误和主按钮共享清晰的边界。正常启动无需换页；可选完成条件和专家信息收起，必需输入仍显示。
 5. 用真实桌面走查和 light/dark、窄/宽窗口的边界测量验证结果。“10x”是改善目标，未作为已测得的性能或可用性倍数。
 
-实施契约见 [紧凑 Team 启动设计](../superpowers/specs/2026-10-19-compact-team-start-design.md)。
+实施与验证见 [Visual Team 与 Flow 验证记录](2026-10-19-visual-team-flow.md)。

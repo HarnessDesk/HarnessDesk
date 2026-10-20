@@ -4536,7 +4536,7 @@ test('round-card geometry exemption names only its recorded-data slots in the ro
   assert.equal(staleSingleAreaPrimitiveExemptions([entry], () => undefined).length, 5)
 })
 /**
- * The frame work's burn-downs (docs/superpowers/specs/2026-10-09-app-frame-design.md):
+ * The frame work's burn-downs (docs/design.md):
  * frame parts a screen still draws, page measures a screen sets itself, and
  * layout written in a screen. Each only falls.
  */

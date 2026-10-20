@@ -3684,7 +3684,7 @@ for (const file of [...cssFiles(), ...tsxFiles()]) {
 }
 
 /**
- * Components the app frame retires (docs/superpowers/specs/2026-10-09-app-frame-design.md,
+ * Components the app frame retires (docs/design.md,
  * Components). Each use in a screen is a page still drawing a part of the
  * frame the shell will own. A burn-down: it reaches zero when the last page
  * moves into main, and a new use fails at once.

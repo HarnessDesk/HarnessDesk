@@ -16,7 +16,7 @@ export const ToolBody = ({ children }: { children: ReactNode }) => useContext(Se
 </div>
 
 /**
- * One card of the right panel (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md).
+ * One card of the right panel (docs/design.md).
  *
  * The header is the card's label, a disclosure when it folds, and its `value`
  * — the summary a folded card still shows, so a glance down the panel reads
