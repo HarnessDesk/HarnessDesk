@@ -329,6 +329,19 @@ export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
       : (parseFloat(style.paddingRight) || 0) + (parseFloat(style.borderRightWidth) || 0)
     return Math.abs(at - (side === 'left' ? r.left + inset * scale : r.right - inset * scale)) <= ON_RAIL
   }
+  const insetOwners = new Map<number, { scope: Element; outside: number } | null>()
+  const insetOwnerOf = (rail: number) => {
+    if (insetOwners.has(rail)) return insetOwners.get(rail)!
+    const owners = ownersOf(rail)
+    let scope = owners[0]?.el.parentElement ?? null
+    while (scope && !owners.every(owner => scope!.contains(owner.el))) scope = scope.parentElement
+    const r = scope ? rects.get(scope) ?? scope.getBoundingClientRect() : null
+    const internal = scope && r && rail > round(r.left) && rail < round(r.right)
+    const owner = scope && r && internal && atContentEdge(scope, rail, 'left') ? { scope, outside: r.left }
+      : scope && r && internal && atContentEdge(scope, rail, 'right') ? { scope, outside: r.right } : null
+    insetOwners.set(rail, owner)
+    return owner
+  }
   const borrowedEnds = new Set<Element>()
   for (const box of boxes) {
     if (box.kind === 'glyph') continue
@@ -371,6 +384,12 @@ export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
       // moving it a pixel away still goes through the ordinary rail check.
       if (anchor === box.el && anchor.parentElement && rects.has(anchor.parentElement) && atContentEdge(anchor.parentElement, at, 'right')) continue
       const rail = nearest(at, rails.x.filter(one => {
+        const inset = insetOwnerOf(one)
+        // A sibling exactly aligned with a frame's outside edge is not
+        // misplaced against its declared content inset. Other outsiders,
+        // including a control shifted a pixel off that inset, still compare.
+        if (inset && (inset.scope === box.el || !inset.scope.contains(box.el))
+          && Math.abs(at - inset.outside) <= ON_RAIL) return false
         const scope = columnScopeOf(one)
         if (scope && !scope.contains(box.el)) return false
         const owners = ownersOf(one)
