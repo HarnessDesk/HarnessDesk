@@ -18,6 +18,26 @@ const frame = (border = 1) => {
 afterEach(() => document.body.replaceChildren())
 
 describe('guide alignment around drawn borders', () => {
+  it('keeps a descendant container on the exact inside of its ancestor’s drawn border', () => {
+    const one = frame()
+    expect(missesOf([one.outer, ...one.inner], { x: [100] })).toEqual([])
+  })
+
+  it('still diagnoses a descendant shifted one pixel past the drawn border inset', () => {
+    const one = frame()
+    const shifted = one.inner.map(row => ({ ...row, r: new DOMRect(102, 0, 100, 24) }))
+    expect(missesOf([one.outer, ...shifted], { x: [100] }).map(one => one.box.el)).toEqual(shifted.map(one => one.el))
+  })
+
+  it('does not treat an unpainted ancestor as a border or excuse an inner control', () => {
+    const one = frame()
+    const control = document.createElement('button')
+    one.outer.el.append(control)
+    expect(missesOf([one.outer, placed(control, 101, 'control')], { x: [100] }).map(one => one.box.el)).toEqual([control])
+    ;(one.outer.el as HTMLElement).style.borderColor = 'transparent'
+    expect(missesOf([one.outer, ...one.inner], { x: [100] }).map(one => one.box.el)).toEqual(one.inner.map(one => one.el))
+  })
+
   it('does not call a frame’s own border inset an off-line placement', () => {
     const one = frame()
     expect(missesOf([one.outer, ...one.inner], { x: [101] })).toEqual([])

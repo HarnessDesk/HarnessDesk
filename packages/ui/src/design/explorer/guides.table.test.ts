@@ -14,6 +14,17 @@ const table = () => {
 afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren() })
 
 describe('semantic table column rails', () => {
+  it('keeps a definition-list action from following an unrelated page interior rail', () => {
+    const list = document.createElement('dl')
+    document.body.append(list)
+    vi.spyOn(list, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 300, 120))
+    const pages = Array.from({ length: 3 }, () => { const el = document.createElement('div'); document.body.append(el); return placed(el, 100) })
+    const action = document.createElement('button')
+    list.append(action)
+    const boxes = [...pages, placed(action, 101, 40, 'control')]
+    expect(missesOf(boxes, railsOf(boxes))).toEqual([])
+  })
+
   it('keeps a definition list’s internal value column local too', () => {
     const list = document.createElement('dl')
     document.body.append(list)

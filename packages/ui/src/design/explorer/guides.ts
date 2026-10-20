@@ -167,7 +167,97 @@ type Miss = { box: Box; at: number; rail: number }
 export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
   const out: Miss[] = []
   const borders = new Map<Element, number>()
-  const ownersOf = (rail: number) => boxes.filter(one => one.kind !== 'glyph' && (round(one.r.left) === rail || one.kind !== 'text' && round(one.r.right) === rail))
+  const styles = new Map<Element, CSSStyleDeclaration>()
+  const styleOf = (el: Element) => {
+    let style = styles.get(el)
+    if (!style) { style = getComputedStyle(el); styles.set(el, style) }
+    return style
+  }
+  const rects = new Map(boxes.map(box => [box.el, box.r]))
+  const railOwners = new Map<number, Box[]>()
+  const ownersOf = (rail: number) => {
+    let owners = railOwners.get(rail)
+    if (!owners) {
+      owners = boxes.filter(one => one.kind !== 'glyph' && (round(one.r.left) === rail || one.kind !== 'text' && round(one.r.right) === rail))
+      railOwners.set(rail, owners)
+    }
+    return owners
+  }
+  const independentCount = (owners: Box[]) => owners.filter(one => !owners.some(other => one.el !== other.el && one.el.contains(other.el))).length
+  const realms = new Map<Element, Element | null>()
+  const realmOf = (el: Element): Element | null => {
+    if (realms.has(el)) return realms.get(el)!
+    let realm: Element | null = null
+    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+      const transform = styleOf(parent).transform
+      if (transform && transform !== 'none') realm = parent
+    }
+    realms.set(el, realm)
+    return realm
+  }
+  const peerCounts = new Map<Element, Map<string, number>>()
+  const localCount = (rail: number, scope: Element, ownership: 'contains' | 'realm' = 'contains'): number => {
+    let counts = peerCounts.get(scope)
+    if (!counts) { counts = new Map(); peerCounts.set(scope, counts) }
+    const key = `${ownership}:${rail}`
+    const known = counts.get(key)
+    if (known !== undefined) return known
+    const count = independentCount(ownersOf(rail).filter(owner => ownership === 'realm'
+      ? realmOf(owner.el) === scope : scope.contains(owner.el)))
+    counts.set(key, count)
+    return count
+  }
+  const anchors = new Map<Element, Element | null>()
+  const endAnchorOf = (el: Element): Element | null => {
+    if (anchors.has(el)) return anchors.get(el)!
+    for (let item: Element | null = el; item?.parentElement; item = item.parentElement) {
+      const parent: HTMLElement = item.parentElement
+      const style = styleOf(parent)
+      if (!style.display.includes('flex') || style.flexDirection.startsWith('column')) continue
+      const siblings: Element[] = [...parent.children].filter(child => styleOf(child).display !== 'none' && !['absolute', 'fixed'].includes(styleOf(child).position))
+      if (siblings.at(-1) !== item || siblings.length < 2) continue
+      const before = siblings.slice(0, -1)
+      // Resolved margins may be pixels even when the CSS value is `auto`.
+      // Typed OM preserves that keyword; an ordinary positive gap is not
+      // evidence that a flex item is anchored at the end.
+      const typed = typeof item.computedStyleMap === 'function' ? item.computedStyleMap() : null
+      const autoStart = typed?.get('margin-inline-start')?.toString() === 'auto'
+        || styleOf(item).marginInlineStart === 'auto'
+        || (style.direction !== 'rtl' && styleOf(item).marginLeft === 'auto')
+      const pushed = before.some(child => (parseFloat(styleOf(child).flexGrow) || 0) > 0)
+        || autoStart
+        || ['end', 'flex-end', 'space-between'].includes(style.justifyContent)
+      if (pushed && (parseFloat(styleOf(item).flexGrow) || 0) === 0) {
+        anchors.set(el, item)
+        return item
+      }
+    }
+    anchors.set(el, null)
+    return null
+  }
+  const controlGroups = new Map<Element, Element | null>()
+  const controlGroupOf = (el: Element): Element | null => {
+    if (controlGroups.has(el)) return controlGroups.get(el)!
+    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+      const style = styleOf(parent)
+      if (!style.display.includes('flex')) continue
+      const children = [...parent.children].filter(child => {
+        const r = rects.get(child) ?? child.getBoundingClientRect()
+        const s = styleOf(child)
+        return visible(r) && s.display !== 'none' && s.visibility !== 'hidden' && !['absolute', 'fixed'].includes(s.position)
+      })
+      if (children.length < 2 || children.some(child => !child.matches(CONTROL) || (parseFloat(styleOf(child).flexGrow) || 0) > 0)) continue
+      const widths = children.map(child => (rects.get(child) ?? child.getBoundingClientRect()).width)
+      const content = style.flexDirection.startsWith('column') ? Math.max(...widths)
+        : widths.reduce((sum, width) => sum + width, 0) + (parseFloat(style.columnGap) || 0) * (children.length - 1)
+      const expected = content + (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0)
+        + (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.borderRightWidth) || 0)
+      const width = (rects.get(parent) ?? parent.getBoundingClientRect()).width
+      if (Math.abs(width - expected) <= ON_RAIL) { controlGroups.set(el, parent); return parent }
+    }
+    controlGroups.set(el, null)
+    return null
+  }
   const columnScopes = new Map<number, Element | null>()
   const columnScopeOf = (rail: number) => {
     if (columnScopes.has(rail)) return columnScopes.get(rail)!
@@ -184,7 +274,7 @@ export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
   const drawnLeftBorder = (el: Element): number => {
     const known = borders.get(el)
     if (known !== undefined) return known
-    const style = getComputedStyle(el)
+    const style = styleOf(el)
     const color = style.borderLeftColor
     const transparent = color === 'transparent' || /rgba\([^)]*,\s*0\)$/.test(color) || /\/\s*0\)$/.test(color)
     const width = style.borderLeftStyle === 'none' || style.borderLeftStyle === 'hidden' || transparent
@@ -204,17 +294,60 @@ export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
     const owners = ownersOf(rail)
     return owners.length >= RAIL_MIN && owners.every(owner => frames.some(frame => frame.el !== owner.el && frame.el.contains(owner.el)))
   }
+  const sitsInsideBorder = (box: Box, at: number, rail: number): boolean => {
+    if (box.kind !== 'container' || at !== box.r.left) return false
+    for (let parent = box.el.parentElement; parent; parent = parent.parentElement) {
+      const border = drawnLeftBorder(parent)
+      if (!border) continue
+      const r = rects.get(parent) ?? parent.getBoundingClientRect()
+      if (rail === round(r.left) && round(at) === round(r.left + border)) return true
+    }
+    return false
+  }
   for (const box of boxes) {
     if (box.kind === 'glyph') continue
-    const edges = box.kind === 'control' ? [box.r.left, box.r.right] : [box.r.left]
+    const header = box.el.closest('header, [role="banner"], [role="radiogroup"], [role="tablist"], [role="toolbar"]')
+    const headerRect = header ? rects.get(header) ?? header.getBoundingClientRect() : null
+    const columns = box.el.closest('table, dl, [role="table"], [role="grid"], [role="treegrid"]')
+    const columnsRect = columns ? rects.get(columns) ?? columns.getBoundingClientRect() : null
+    const realm = realmOf(box.el)
+    const anchor = endAnchorOf(box.el)
+    const anchorRect = anchor ? rects.get(anchor) ?? anchor.getBoundingClientRect() : null
+    const controls = controlGroupOf(box.el)
+    const controlsRect = controls ? rects.get(controls) ?? controls.getBoundingClientRect() : null
+    const edges = anchor === box.el ? [box.r.right] : box.kind === 'control' ? [box.r.left, box.r.right] : [box.r.left]
     for (const at of edges) {
       const rail = nearest(at, rails.x.filter(one => {
         const scope = columnScopeOf(one)
-        return !scope || scope.contains(box.el)
+        if (scope && !scope.contains(box.el)) return false
+        const owners = ownersOf(one)
+        // A transformed world (a panned/scaled drawing, for example) owns
+        // its coordinates. It still diagnoses local peer misalignment, but
+        // does not lend its interior rails to the surrounding page.
+        if (realm && localCount(one, realm, 'realm') < RAIL_MIN) return false
+        const ownerRealm = owners[0] ? realmOf(owners[0].el) : null
+        if (!realm && ownerRealm && owners.every(owner => realmOf(owner.el) === ownerRealm)) return false
+        if (columns && columns !== box.el && columnsRect && one !== round(columnsRect.left) && one !== round(columnsRect.right)
+          && localCount(one, columns) < RAIL_MIN) return false
+        // Headers and semantic composite controls have their own internal alignment. Its outer edge
+        // remains available to the page, and independent inner peers still
+        // diagnose a shifted title or control inside the same header.
+        if (header && header !== box.el && headerRect && one !== round(headerRect.left) && one !== round(headerRect.right)
+          && localCount(one, header) < RAIL_MIN) return false
+        // An intrinsic item pushed after a growing flex sibling is anchored
+        // at its end. Its variable text starts belong to that item, rather
+        // than lending rails to other end-aligned labels of different widths.
+        if (anchor && anchorRect && anchor !== box.el && one !== round(anchorRect.right)
+          && localCount(one, anchor) < RAIL_MIN) return false
+        // A shrink-wrapped group made only of controls owns their internal
+        // spacing. Its own outer box still participates in page alignment.
+        if (controls && controlsRect && one !== round(controlsRect.left) && one !== round(controlsRect.right)
+          && localCount(one, controls) < RAIL_MIN) return false
+        return true
       }))
       if (rail === null) continue
       const off = Math.abs(rail - at)
-      if (off > ON_RAIL && off <= NEAR_MISS && !ownsBorderInset(box, at, rail)) out.push({ box, at, rail })
+      if (off > ON_RAIL && off <= NEAR_MISS && !ownsBorderInset(box, at, rail) && !sitsInsideBorder(box, at, rail)) out.push({ box, at, rail })
     }
   }
   return out
