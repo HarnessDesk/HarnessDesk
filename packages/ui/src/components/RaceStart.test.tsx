@@ -37,7 +37,12 @@ it('takes /race through New Team with its task and ordinary preview token, then 
     expect(document.querySelector<HTMLTextAreaElement>('[aria-label="What should both try?"]')?.value).toBe('Fix the cart total')
     expect(document.body.textContent).not.toContain('Race an Agent against itself')
     const chooseJudge = async (value: string) => {
+      if (!document.querySelector('[aria-label="Judge configuration"]')) {
+        const configure = document.querySelector<HTMLButtonElement>('[aria-label="Configure Judge"]')!
+        await act(async () => configure.click())
+      }
       const judge = document.querySelector<HTMLButtonElement>('[aria-label="Runtime for Judge"]')!
+      expect(judge).not.toBeNull()
       await act(async () => judge.click())
       const name = value ? 'Runtime 1' : 'You'
       const choice = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(one => one.textContent === name)!
@@ -51,6 +56,8 @@ it('takes /race through New Team with its task and ordinary preview token, then 
     expect(chosen().roles.some(role => role.id === 'judge')).toBe(false)
     expect(chosen().roles.find(role => role.id === 'referee')).toMatchObject({ review: true })
     await chooseJudge('alpha')
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Configure Judge"]')!.click())
+    expect(document.querySelector('[aria-label="Judge configuration"]')).toBeNull()
     const start = [...document.querySelectorAll('button')].find(one => one.textContent === 'Start Team')!
     expect(start.disabled).toBe(false)
     await act(async () => start.click())
