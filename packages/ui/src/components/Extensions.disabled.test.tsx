@@ -7,6 +7,7 @@ import type { McpServer, RuntimeCatalog, RuntimeInfo, RuntimePlugin } from '@har
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { ExtensionsSection } from './Extensions'
+import { DestinationPageScope } from '../panels/destination-page'
 
 /**
  * An installed plugin the runtime will not run.
@@ -58,7 +59,7 @@ const runtime = {
   presentation: { name: 'Codex' },
 } as unknown as RuntimeInfo
 
-const mount = (plugins: readonly RuntimePlugin[], servers: readonly McpServer[] = []) => {
+const mount = (plugins: readonly RuntimePlugin[], servers: readonly McpServer[] = [], active = true) => {
   const catalog: RuntimeCatalog = { plugins, marketplaces: ['openai'], loadErrors: [], featured: [] }
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -77,7 +78,7 @@ const mount = (plugins: readonly RuntimePlugin[], servers: readonly McpServer[] 
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <ExtensionsSection />
+        <DestinationPageScope owner="destination:settings" active={active}><ExtensionsSection /></DestinationPageScope>
       </StoreProvider>,
     )
   })
@@ -120,9 +121,8 @@ it('an installed plugin the runtime will not run says why, beside the one that w
   ])
   await act(async () => {})
 
-  expect(rowFor('Blocked plugin').querySelector('[data-slot="chip"]')?.textContent).toBe(
-    'Turned off by an administrator',
-  )
+  expect(rowFor('Blocked plugin').querySelector('[data-slot="chip"]')?.textContent).toBe('Off')
+  expect(rowFor('Blocked plugin').querySelector('[data-slot="row-desc"]')?.textContent).toContain('Turned off by an administrator')
   /* The control. Both rows say "Installed" — that was the whole of what the
      list used to report — and only one of them is off. */
   expect(rowFor('Blocked plugin').textContent).toContain('Installed')
@@ -155,4 +155,61 @@ it('removing an installed plugin is an uninstall, and the method says so', async
     'good@openai',
     false,
   )
+})
+
+const catalogWith = (entry: RuntimePlugin): RuntimeCatalog => ({ plugins: [entry], marketplaces: ['openai'], loadErrors: [], featured: [] })
+
+it('moves a plugin between available and installed using the refreshed catalogue', async () => {
+  const available = plugin({ id: 'good@openai', name: 'Working plugin', installed: false })
+  const installed = { ...available, installed: true }
+  const store = mount([available])
+  await act(async () => {})
+  vi.mocked(store.loadCatalog).mockResolvedValueOnce(catalogWith(installed))
+  await act(async () => [...rowFor(available.name).querySelectorAll('button')].find(node => node.textContent?.trim() === 'Install')!.click())
+  expect(container.textContent).toContain('Installed · 1')
+  expect(container.textContent).toContain('Available · 0')
+  expect(rowFor(available.name).textContent).toContain('Installed')
+
+  vi.mocked(store.loadCatalog).mockResolvedValueOnce(catalogWith(available))
+  await act(async () => [...rowFor(available.name).querySelectorAll('button')].find(node => node.textContent?.trim() === 'Installed')!.click())
+  expect(container.textContent).toContain('Installed · 0')
+  expect(container.textContent).toContain('Available · 1')
+  expect(store.setRuntimePluginInstalled).toHaveBeenNthCalledWith(1, 'openai', available.name, available.id, true)
+  expect(store.setRuntimePluginInstalled).toHaveBeenNthCalledWith(2, 'openai', available.name, available.id, false)
+})
+
+it('keeps a long refusal whole in the wrapping description beside a compact status', async () => {
+  const reason = 'Turned off by an administrator until the workspace owner grants permission to access the required resources.'
+  mount([plugin({ id: 'off@openai', name: 'Blocked plugin', enabled: false, disabledReason: reason })])
+  await act(async () => {})
+  const row = rowFor('Blocked plugin')
+  expect(row.querySelector('[data-slot="chip"]')?.textContent).toBe('Off')
+  expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toContain(reason)
+  expect(row.querySelector('[data-slot="row-desc"]')?.getAttribute('data-wrap')).toBe('true')
+})
+
+it('does not reload a hidden page after its install finishes', async () => {
+  const entry = plugin({ id: 'good@openai', name: 'Working plugin', installed: false })
+  const store = mount([entry])
+  await act(async () => {})
+  let finish!: () => void
+  vi.mocked(store.setRuntimePluginInstalled).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+  act(() => [...rowFor(entry.name).querySelectorAll('button')].find(node => node.textContent?.trim() === 'Install')!.click())
+  await act(async () => root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:settings" active={false}><ExtensionsSection /></DestinationPageScope></StoreProvider>))
+  await act(async () => finish())
+  expect(store.loadCatalog).toHaveBeenCalledTimes(1)
+})
+
+it('discards a catalogue refresh that finishes after its page was hidden', async () => {
+  const entry = plugin({ id: 'good@openai', name: 'Working plugin', installed: false })
+  const store = mount([entry])
+  await act(async () => {})
+  let finish!: (catalog: RuntimeCatalog) => void
+  vi.mocked(store.loadCatalog).mockImplementationOnce(() => new Promise<RuntimeCatalog>(resolve => { finish = resolve }))
+  act(() => [...rowFor(entry.name).querySelectorAll('button')].find(node => node.textContent?.trim() === 'Install')!.click())
+  await act(async () => {})
+  await act(async () => root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:settings" active={false}><ExtensionsSection /></DestinationPageScope></StoreProvider>))
+  await act(async () => finish(catalogWith({ ...entry, installed: true })))
+  expect(container.textContent).toContain('Installed · 0')
+  expect(container.textContent).toContain('Available · 1')
 })

@@ -46,14 +46,15 @@ export const ExtensionsSection = () => {
   const generation=useRef(0)
   const activeRead=useRef(destinationActive)
   activeRead.current=destinationActive
-  const reload = useCallback(() => {
+  const reload = useCallback(async () => {
     if (!activeRead.current) return
     const epoch=++generation.current
-    void store.loadCatalog().then(value=>{if(activeRead.current && epoch===generation.current)setCatalog(value)})
+    const value = await store.loadCatalog()
+    if(activeRead.current && epoch===generation.current)setCatalog(value)
   }, [store])
   useEffect(() => {
     activeRead.current=destinationActive
-    if (destinationActive) reload()
+    if (destinationActive) void reload()
     return () => {generation.current++;activeRead.current=false}
   }, [destinationActive, reload, snapshot.workspace?.path])
 
@@ -154,7 +155,7 @@ export const ExtensionsSection = () => {
                 {installed.length === 0 ? (
                   <EmptyState variant="row" title={query ? 'No installed plugin matches' : 'Nothing installed yet'} />
                 ) : (
-                  installed.map((plugin) => <PluginRow key={plugin.id} plugin={plugin} />)
+                  installed.map((plugin) => <PluginRow key={plugin.id} plugin={plugin} onChanged={reload} />)
                 )}
               </Rows>
               <SectionHead level="label" name={`Available · ${available.length}`} />
@@ -163,7 +164,7 @@ export const ExtensionsSection = () => {
                   <EmptyState variant="row" title="Nothing more to add" />
                 ) : (
                   available.slice(0, shown).map((plugin) => (
-                    <PluginRow key={plugin.id} plugin={plugin} />
+                    <PluginRow key={plugin.id} plugin={plugin} onChanged={reload} />
                   ))
                 )}
               </Rows>
@@ -186,7 +187,7 @@ export const ExtensionsSection = () => {
 const rank = (plugin: RuntimePlugin, featured: ReadonlySet<string>): number =>
   plugin.installed ? 0 : featured.has(plugin.id) ? 1 : 2
 
-const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
+const PluginRow = ({ plugin, onChanged }: { plugin: RuntimePlugin; onChanged?: () => Promise<void> }) => {
   const active=useDestinationActive(),activeRead=useRef(active)
   activeRead.current=active
   const lifetime=useRef(0),wasActive=useRef(active)
@@ -206,7 +207,7 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
         plugin.id,
         !plugin.installed,
       )
-      if(activeRead.current && owner===lifetime.current) await store.loadCatalog()
+      if(activeRead.current && owner===lifetime.current) await onChanged?.()
     } finally {
       setBusy(false)
     }
@@ -246,6 +247,10 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
         <>
           {plugin.description}
           {plugin.developer ? `${plugin.description ? ' · ' : ''}by ${plugin.developer}` : ''}
+          {plugin.installed && !plugin.enabled && plugin.disabledReason && <>
+            {(plugin.description || plugin.developer) && <br />}
+            {disabledLabel(plugin.disabledReason)}
+          </>}
         </>
       }
       control={
@@ -267,7 +272,7 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
                 offers a verb that turns one back on, so the honest control
                 is a word, and the removal button beside it. */}
             {plugin.installed && !plugin.enabled && (
-              <Chip state="broken" label={disabledLabel(plugin.disabledReason)} />
+              <Chip state="broken" label="Off" />
             )}
             <Button
               size="sm"

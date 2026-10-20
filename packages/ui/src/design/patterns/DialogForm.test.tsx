@@ -293,6 +293,13 @@ describe('Fieldset and ChoiceList', () => {
 })
 
 describe('the rhythm, as the sheets say it', () => {
+  it('keeps row cards at their intrinsic height inside a bounded scrolling dialog body', () => {
+    expect(rule(formSheet, '.stack')).toMatch(/display:\s*grid/)
+    expect(rule(formSheet, '.stack')).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/)
+    expect(rule(formSheet, '.stack')).toMatch(/grid-auto-rows:\s*max-content/)
+    expect(rule(formSheet, '.stack')).toMatch(/align-content:\s*start/)
+  })
+
   it('fields 16px apart, a label or a legend 6px over what it names', () => {
     expect(rule(formSheet, '.stack')).toMatch(/gap:\s*var\(--hd-space-4\)/)
     expect(rule(settingsSheet, '.formField')).toMatch(/gap:\s*var\(--hd-space-1-5\)/)

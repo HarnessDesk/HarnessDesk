@@ -63,12 +63,47 @@ const choose = (element: HTMLSelectElement, value: string) =>
     element.dispatchEvent(new Event('change', { bubbles: true }))
   })
 
-it('opens on what each kind of message is for, then groups the kinds by it', () => {
+it('keeps the guide folded while notification controls remain available', () => {
   mount()
   const text = container.textContent ?? ''
   expect(text).toContain('How messages reach you')
-  expect(text.indexOf('When something stops a turn')).toBeGreaterThan(text.indexOf('How messages reach you'))
+  const guide = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'How messages reach you')!
+  expect(guide.getAttribute('aria-expanded')).toBe('false')
+  expect(text).not.toContain('Shown on the composer of the conversation it stops, and nowhere else.')
+  expect(text).toContain('When something stops a turn')
   expect(text).toContain('When there is something to do later')
+  expect(select('Out of quota').value).toBe('composer')
+  expect(container.querySelector('[aria-label="System notifications"]')).not.toBeNull()
+})
+
+it('opens all seven guide facts together and folds them with keyboard activation', () => {
+  mount()
+  const guide = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'How messages reach you')!
+  const shell = guide.closest('[data-slot="rows"]')!
+  expect(shell.children).toHaveLength(1)
+  act(() => guide.click())
+  expect(guide.getAttribute('aria-expanded')).toBe('true')
+  expect(shell.children).toHaveLength(8)
+  expect([...shell.children].slice(1).every(child => child.getAttribute('data-slot') === 'row')).toBe(true)
+  for (const title of ['Something stops a turn', 'Something to do later', 'About one conversation', 'Worth keeping', 'An Agent writes to you', 'The result of what you did', 'The connection drops']) {
+    expect(shell.textContent).toContain(title)
+  }
+  expect(shell.textContent?.match(/Always on\./g)).toHaveLength(2)
+  expect(guide.querySelector('[data-slot="disclosure-chevron"]')?.hasAttribute('data-open')).toBe(true)
+
+  act(() => {
+    guide.focus()
+    // jsdom does not synthesize the native button's click from Enter.
+    // Preserve the uncancelled key, then supply the browser's keyboard click.
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    guide.dispatchEvent(enter)
+    expect(enter.defaultPrevented).toBe(false)
+    guide.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }))
+  })
+  expect(guide.getAttribute('aria-expanded')).toBe('false')
+  expect(shell.children).toHaveLength(1)
+  expect(document.activeElement).toBe(guide)
+  expect(select('Out of quota').value).toBe('composer')
 })
 
 it('each kind says where it is shown, offers only the places it may go, and Off', () => {

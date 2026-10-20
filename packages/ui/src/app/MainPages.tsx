@@ -22,7 +22,7 @@ export const MainPages = ({onSignIn,onNewTeam,libraryImportIntent,suspended=fals
     const owns=():boolean=>active && live.current.mounted && !live.current.suspended && live.current.generation===generation && store.getSnapshot().workbench.navigation.current===page
     const visit=(target:PageDestination):void=>{if(owns())store.openDestination(target)}
     const replace=(target:PageDestination):void=>{if(owns())store.replaceDestination(target)}
-    return <DestinationBody key={page.kind} id={page.kind} active={active}>
+    return <DestinationBody key={page.kind} id={page.kind} active={active} stableGutter={page.kind === 'settings'}>
       <DestinationPageScope owner={`destination:${page.kind}`} active={active}>
         {MAIN_PAGE_ENTRIES[page.kind]?.({page,visit,replace,onSignIn,onNewTeam,libraryImportIntent})}
       </DestinationPageScope>

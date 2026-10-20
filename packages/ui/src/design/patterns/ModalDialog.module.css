@@ -38,9 +38,12 @@
 
 .description {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal; /* desk: consequence sentences wrap whole instead of ending in an ellipsis */
+  overflow-wrap: anywhere;
+  /* Authored consequences stay whole; a host error can be arbitrarily long.
+     Give that text its own scroll budget so the title, body and footer stay reachable. */
+  max-height: min(8vh, calc(var(--hd-line-sm) * 4));
+  overflow-y: auto;
 }
 
 .body {

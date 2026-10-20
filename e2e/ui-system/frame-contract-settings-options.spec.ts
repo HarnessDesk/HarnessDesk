@@ -6,6 +6,46 @@ import { useFrameContractEvidence } from './frame-contract-split-setup'
 
 useFrameContractEvidence()
 
+for (const [name, query] of [
+  ['Theme', 'frame-wall=settings&frame-section=appearance'],
+  ['Accent', 'frame-wall=settings&frame-section=appearance'],
+  ['Ring colour', 'frame-wall=settings&frame-detail=account'],
+] as const) test(`Settings ${name} is one keyboard radio choice`, async ({ page }) => {
+  await openFrame(page, query, 'light')
+  const group = page.getByRole('radiogroup', { name, exact: true })
+  await expect(group).toBeVisible()
+  const radios = group.getByRole('radio')
+  const checked = group.getByRole('radio', { checked: true })
+  await expect(checked).toHaveCount(1)
+  await expect(group.locator('[role="radio"][tabindex="0"]')).toHaveCount(1)
+  await checked.focus()
+  await page.keyboard.press('Tab')
+  await expect(group.locator(':focus')).toHaveCount(0)
+  await page.keyboard.press('Shift+Tab')
+  await expect(checked).toBeFocused()
+
+  const initial = await checked.getAttribute('id')
+  await page.keyboard.press('ArrowRight')
+  await expect(checked).toBeFocused()
+  await expect(checked).not.toHaveAttribute('id', initial!)
+  const moved = await checked.getAttribute('id')
+  for (const key of ['Home', 'End']) {
+    await page.keyboard.press(key)
+    await expect(checked).toHaveAttribute('id', moved!)
+    await expect(checked).toBeFocused()
+  }
+
+  const unselected = group.getByRole('radio', { checked: false }).first()
+  await unselected.focus()
+  const spaceTarget = await unselected.getAttribute('id')
+  await page.keyboard.press('Space')
+  await expect(checked).toHaveAttribute('id', spaceTarget!)
+  await expect(checked).toBeFocused()
+  await radios.last().click()
+  await expect(radios.last()).toBeChecked()
+  await expect(group.locator('[role="radio"][tabindex="0"]')).toHaveCount(1)
+})
+
 
 for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
   test(`E2a Profile choices remain inside the frame ${width} ${theme}`, async ({ page }) => {

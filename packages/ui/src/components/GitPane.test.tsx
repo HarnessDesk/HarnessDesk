@@ -396,10 +396,10 @@ it('uses padded canonical segments for the branch scope', async () => {
   const group = container.querySelector('[role="radiogroup"][aria-label="Which branches"]')!
   const options = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
 
-  expect(group.getAttribute('data-slot')).toBe('toggle-group')
+  expect(group.getAttribute('data-slot')).toBe('radio-group')
   expect(options.map((option) => option.textContent)).toEqual(['All branches', 'Current'])
   for (const option of options) {
-    expect(option.getAttribute('data-slot')).toBe('toggle-group-item')
+    expect(option.getAttribute('data-slot')).toBe('radio-group-item')
     // The canonical default size owns horizontal padding; a content-sized
     // Button has none and made these two labels read as one phrase.
     expect(option.classList.contains('px-2')).toBe(true)

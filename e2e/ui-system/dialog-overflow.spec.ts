@@ -1,5 +1,170 @@
 import { expect, test } from '@playwright/test'
 
+for (const theme of ['light', 'dark'] as const) test(`Storage cleanup keeps its full consequence visible in a short window (${theme})`, async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 520 })
+  await page.route('**/src/preview/main.tsx*', async route => {
+    const response = await route.fetch(), source = await response.text()
+    const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
+    if (!reactUrl) throw new Error('preview React module import was not found')
+    await route.fulfill({ response, body: `${source}
+      import storageReact from ${JSON.stringify(reactUrl)};
+      import { StorageSection as DescriptionStorageSection } from '/src/components/Storage.tsx';
+      import { StoreProvider as StorageStoreProvider } from '/src/state/context.tsx';
+      import { emptySnapshot as emptyStorageSnapshot } from '/src/state/store.ts';
+      const storageSnapshot = emptyStorageSnapshot();
+      const reading = { bytes: 1024, count: 12, computing: false };
+      const storageFixture = {
+        subscribe: () => () => {}, getSnapshot: () => storageSnapshot,
+        subscribeStorageUsage: () => () => {},
+        transport: { request: async method => {
+          if (method === 'storage/usage') return { database: reading, snapshots: reading, cachedPreviews: reading, worktrees: reading };
+          if (method === 'storage/kept') return [];
+          if (method === 'storage/cleanupPreview') return {
+            cleanBytes: 12288, dirtyBytes: 0, inventoryToken: 'storage-dialog-fixture', // hd-secrets-ok: synthetic storage preview inventory stamp
+            candidates: Array.from({ length: 12 }, (_, at) => ({
+              runtime: 'demo', sessionId: 'inactive-' + at, title: 'Inactive conversation ' + (at + 1),
+              path: '/work/demo-' + at, bytes: 1024, clean: true,
+            })),
+          };
+          throw new Error('The description fixture does not perform storage mutations');
+        } },
+      };
+      const storageFrame = document.createElement('section');
+      storageFrame.setAttribute('aria-label', 'Storage description fixture');
+      document.body.append(storageFrame);
+      createRoot(storageFrame).render(storageReact.createElement(StorageStoreProvider, { store: storageFixture }, storageReact.createElement(DescriptionStorageSection)));
+    ` })
+  })
+  await page.goto('/preview.html')
+  await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+  await page.getByRole('region', { name: 'Storage description fixture' }).getByRole('button', { name: 'Review…', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Clean up inactive conversations', exact: true })
+  await expect(dialog).toBeVisible()
+  const description = dialog.locator('[data-slot="dialog-description"]')
+  await expect(description).toHaveText('Conversations and branches stay. Reopening a conversation recreates its worktree.')
+  const held = await dialog.evaluate(node => {
+    const head = node.querySelector<HTMLElement>('[data-slot="dialog-head"]')!, desc = head.querySelector<HTMLElement>('[data-slot="dialog-description"]')!
+    const footer = node.querySelector<HTMLElement>('[data-slot="dialog-footer"]')!, body = node.querySelector<HTMLElement>('[data-slot="modal-dialog-body"]')!
+    const range = document.createRange(); range.selectNodeContents(desc)
+    const ink = range.getBoundingClientRect(), h = head.getBoundingClientRect(), d = node.getBoundingClientRect(), f = footer.getBoundingClientRect(), css = getComputedStyle(desc)
+    return {
+      whiteSpace: css.whiteSpace, textOverflow: css.textOverflow,
+      lines: desc.clientHeight / Number.parseFloat(css.lineHeight),
+      inkSpill: Math.max(h.top - ink.top, ink.bottom - h.bottom, h.left - ink.left, ink.right - h.right),
+      horizontalSpill: node.scrollWidth - node.clientWidth,
+      viewportSpill: Math.max(-d.top, d.bottom - innerHeight, -d.left, d.right - innerWidth),
+      footerSpill: f.bottom - d.bottom, bodyHeight: body.clientHeight, bodyScroll: body.scrollHeight - body.clientHeight,
+      cards: [...body.querySelectorAll<HTMLElement>('[data-slot="rows"]')].map(card => {
+        const rows = [...card.querySelectorAll<HTMLElement>(':scope > [data-slot="row"]')]
+        const c = card.getBoundingClientRect()
+        return { height: c.height, contentHeight: rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0),
+          clipped: card.scrollHeight - card.clientHeight,
+          rowHeights: rows.map(row => row.getBoundingClientRect().height),
+          rowFloor: parseFloat(getComputedStyle(card).getPropertyValue('--hd-table-row-min-bare')) }
+      }),
+    }
+  })
+  expect(held.whiteSpace).toBe('normal')
+  expect(held.textOverflow).not.toBe('ellipsis')
+  expect(held.lines).toBeGreaterThan(1)
+  expect(held.inkSpill).toBeLessThanOrEqual(1)
+  expect(held.horizontalSpill).toBeLessThanOrEqual(1)
+  expect(held.viewportSpill).toBeLessThanOrEqual(1)
+  expect(held.footerSpill).toBeLessThanOrEqual(1)
+  expect(held.bodyHeight).toBeGreaterThan(0)
+  expect(held.bodyScroll).toBeGreaterThan(0)
+  expect(held.cards).toHaveLength(1)
+  expect(held.cards[0]!.rowHeights).toHaveLength(12)
+  for (const card of held.cards) {
+    expect(card.height, 'the candidate card contains every row at its full height').toBeGreaterThanOrEqual(card.contentHeight)
+    expect(card.clipped, 'candidate rows scroll with the dialog body, not behind a clipped card').toBeLessThanOrEqual(1)
+    for (const height of card.rowHeights) expect(height, 'a candidate retains the table row floor').toBeGreaterThanOrEqual(card.rowFloor)
+  }
+  await dialog.getByText('Inactive conversation 12', { exact: true }).scrollIntoViewIfNeeded()
+  await expect(dialog.getByText('Inactive conversation 12', { exact: true })).toBeVisible()
+  expect(await dialog.locator('[data-slot="modal-dialog-body"]').evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+  await dialog.locator('[data-slot="dialog-footer"]').getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+})
+
+for (const theme of ['light', 'dark'] as const) test(`a long folder refusal leaves its body and actions reachable (${theme})`, async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 520 })
+  await page.route('**/src/preview/main.tsx*', async route => {
+    const response = await route.fetch(), source = await response.text()
+    const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
+    if (!reactUrl) throw new Error('preview React module import was not found')
+    await route.fulfill({ response, body: `${source}
+      import folderReact from ${JSON.stringify(reactUrl)};
+      import { FolderPicker as RefusedFolderPicker } from '/src/components/FolderPicker.tsx';
+      import { StoreProvider as FolderStoreProvider } from '/src/state/context.tsx';
+      import { emptySnapshot as emptyFolderSnapshot } from '/src/state/store.ts';
+      import { Button as FolderFixtureButton } from '/src/design/ui/button.tsx';
+      const folderSnapshot = emptyFolderSnapshot();
+      const folderFixtureStore = {
+        subscribe: () => () => {}, getSnapshot: () => folderSnapshot,
+        transport: { request: async method => {
+          if (method === 'workspace/browse') return { path: '/work', parent: '/', entries: Array.from({ length: 20 }, (_, at) => ({ name: 'Folder ' + at, path: '/work/folder-' + at })) };
+          throw new Error('The refusal fixture does not perform filesystem mutations');
+        } },
+      };
+      const folderProblem = 'The chosen chats location contains an opened project: /work/' + 'nested-directory/'.repeat(45) + 'project';
+      const folderFixtureFrame = document.createElement('section');
+      folderFixtureFrame.setAttribute('aria-label', 'Folder refusal fixture');
+      document.body.append(folderFixtureFrame);
+      const RefusedFolderFixture = () => {
+        const [open, setOpen] = folderReact.useState(false);
+        return folderReact.createElement(FolderStoreProvider, { store: folderFixtureStore }, open
+          ? folderReact.createElement(RefusedFolderPicker, { title: 'Chats folder', problem: folderProblem,
+            onChoose: async path => { folderFixtureFrame.dataset.chosen = path; return false; }, onClose: () => setOpen(false) })
+          : folderReact.createElement(FolderFixtureButton, { onClick: () => setOpen(true) }, 'Open refused folder'));
+      };
+      createRoot(folderFixtureFrame).render(folderReact.createElement(RefusedFolderFixture));
+    ` })
+  })
+  await page.goto('/preview.html')
+  await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+  const opener = page.getByRole('button', { name: 'Open refused folder', exact: true })
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: 'Chats folder', exact: true })
+  const problem = 'The chosen chats location contains an opened project: /work/' + 'nested-directory/'.repeat(45) + 'project'
+  await expect(dialog).toHaveAccessibleDescription(problem)
+  const description = dialog.locator('[data-slot="dialog-description"]')
+  await expect(description).toHaveText(problem)
+  const held = await dialog.evaluate(node => {
+    const d = node.getBoundingClientRect(), body = node.querySelector<HTMLElement>('[data-slot="modal-dialog-body"]')!, footer = node.querySelector<HTMLElement>('[data-slot="dialog-footer"]')!
+    const description = node.querySelector<HTMLElement>('[data-slot="dialog-description"]')!, f = footer.getBoundingClientRect()
+    const list = body.querySelector<HTMLElement>('[data-slot="navigation-list"]')!, row = list.querySelector('button')!
+    const b = body.getBoundingClientRect(), l = list.getBoundingClientRect(), r = row.getBoundingClientRect()
+    const prelude = body.querySelector<HTMLElement>('[data-slot="dialog-body-prelude"]')!.getBoundingClientRect()
+    return { bodyHeight: body.clientHeight, footerSpill: f.bottom - d.bottom,
+      viewportSpill: Math.max(-d.top, d.bottom - innerHeight), horizontalSpill: node.scrollWidth - node.clientWidth,
+      reasonScroll: description.scrollHeight - description.clientHeight, reasonHeight: description.getBoundingClientRect().height,
+      folderHeight: r.height, visibleFolderHeight: Math.max(0, Math.min(r.bottom, l.bottom, b.bottom) - Math.max(r.top, l.top, b.top, prelude.bottom)),
+      lineHeight: Number.parseFloat(getComputedStyle(description).lineHeight) }
+  })
+  expect(held.bodyHeight).toBeGreaterThan(0)
+  expect(held.folderHeight).toBeGreaterThan(0)
+  expect(held.visibleFolderHeight).toBeGreaterThanOrEqual(held.folderHeight - 1)
+  expect(held.footerSpill).toBeLessThanOrEqual(1)
+  expect(held.viewportSpill).toBeLessThanOrEqual(1)
+  expect(held.horizontalSpill).toBeLessThanOrEqual(1)
+  expect(held.reasonScroll).toBeGreaterThan(0)
+  expect(held.reasonHeight).toBeLessThanOrEqual(Math.min(520 * .08, held.lineHeight * 4))
+  const end = await description.evaluate(node => {
+    node.scrollTop = node.scrollHeight
+    return { top: node.scrollTop, remaining: node.scrollHeight - node.clientHeight - node.scrollTop }
+  })
+  expect(end.top).toBeGreaterThan(0)
+  expect(end.remaining).toBeLessThanOrEqual(1)
+  await dialog.getByRole('button', { name: 'Open “work”', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Folder refusal fixture' })).toHaveAttribute('data-chosen', '/work')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await opener.click()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+})
+
 /**
  * A dialog holds what it is given, in both directions.
  *

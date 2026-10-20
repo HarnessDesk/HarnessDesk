@@ -118,7 +118,24 @@ it('holds a head with lines under its name to their top, with the aside on the n
   expect(modalSheet).toMatch(/\.header\[data-lines\]\s*\{[^}]*align-items:\s*flex-start/s)
   expect(head?.querySelector('[data-slot="dialog-description"]')?.className).toContain('text-(--hd-secondary-foreground)')
   expect(head?.querySelector('[data-slot="dialog-description"]')?.className).toContain('text-(length:--hd-text-sm)')
-  expect(modalSheet).toMatch(/\.description\s*\{[^}]*white-space:\s*nowrap/s)
+})
+
+it('keeps consequence sentences and opaque identifiers readable while the title remains a truncated name', () => {
+  const title = 'A long subject name that still belongs on one title line'
+  const consequence = 'Conversations and branches stay. Reopening a conversation recreates its worktree.'
+  const identifier = `mcp-${'resource'.repeat(30)}`
+  sheet(<DialogHead title={title}>{consequence} {identifier}</DialogHead>)
+  const head = document.body.querySelector('[data-slot="dialog-head"]')!
+  const description = head.querySelector('[data-slot="dialog-description"]')!
+  expect(description.textContent).toBe(`${consequence} ${identifier}`)
+  expect(head.querySelector('h2')?.classList.contains('truncate')).toBe(true)
+  expect(head.querySelector('h2')?.getAttribute('title')).toBe(title)
+  const rule = /\.description\s*\{([^}]*)\}/s.exec(modalSheet)?.[1] ?? ''
+  expect(rule).toMatch(/white-space:\s*normal/)
+  expect(rule).toMatch(/overflow-wrap:\s*anywhere/)
+  expect(rule).toMatch(/max-height:\s*min\(8vh,\s*calc\(var\(--hd-line-sm\)\s*\*\s*4\)\)/)
+  expect(rule).toMatch(/overflow-y:\s*auto/)
+  expect(rule).not.toMatch(/(?:overflow:\s*hidden|text-overflow:\s*ellipsis|white-space:\s*nowrap)/)
 })
 
 it('keeps a reading body out of the form grammar', () => {

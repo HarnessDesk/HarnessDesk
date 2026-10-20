@@ -1,6 +1,6 @@
 import { useDestinationActive } from '../panels/destination-page'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { splitSessionKey, type SessionKey, type StorageCandidate, type StorageCleanupPreview, type StorageCleanupResult, type StorageConversation, type StorageKeptWorktree, type StorageUsage } from '@harnessdesk/protocol'
 import { Alert, AlertContent, AlertTitle, Button, Chip, ConfirmDialog, Dialog, MiddleTruncate, NativeSelect, Note, NoteList, Row, Rows, RowValue, SectionHead, Switch, FormStack } from '../design'
 import { useSnapshot, useStore } from '../state/context'
@@ -94,7 +94,7 @@ export const StorageSection = () => {
     <RowValue><span title={reading?.error}>{!reading || reading.computing ? 'Measuring…' : reading.error ? 'Unavailable' : `${reading.count === undefined ? '' : `${reading.count} · `}${bytes(reading.bytes)}`}</span></RowValue>
   const candidates = preview?.candidates ?? [], clean = candidates.filter(row => row.clean), dirty = candidates.filter(row => !row.clean)
   const selected = candidates.filter(row => row.clean || includeDirty)
-  const candidate = (row: StorageCandidate, inventory = false) => <div key={row.path}>
+  const candidate = (row: StorageCandidate, inventory = false) => <Fragment key={row.path}>
     <Row title={<span title={row.path}>{sessionLabel(row.title, null)}</span>} control={<>
       <RowValue>{snapshot.runtimes.find(info => info.id === row.runtime)?.presentation.name ?? 'Unavailable runtime'}</RowValue>
       <RowValue>{bytes(row.bytes)}</RowValue>
@@ -106,7 +106,7 @@ export const StorageSection = () => {
         {row.changes.ignored.map(file => <li key={file}><span>{file}</span> <Chip size="sm" tone="warning">Ignored</Chip></li>)}
         {row.changes.ignoredCount > row.changes.ignored.length && <li>and {row.changes.ignoredCount - row.changes.ignored.length} more ignored entries</li>}
       </NoteList></AlertContent></Alert>}
-  </div>
+  </Fragment>
   useEffect(() => { if (!destinationActive) { setReviewing(false); setClearing(false); setDiscarding(null) } }, [destinationActive])
 
   return <>

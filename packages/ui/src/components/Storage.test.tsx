@@ -66,6 +66,32 @@ it('reviews two groups and exposes inventories only after the separate discard c
   expect(button('Review again').getAttribute('data-variant')).toBe('default')
   expect(document.querySelectorAll('[data-slot="dialog-footer"] [data-filled]')).toHaveLength(1)
 })
+it('keeps cleanup candidates directly in their row cards so neighboring candidates retain dividers', async () => {
+  await mount()
+  const clean = preview.candidates[0]!
+  request.mockImplementation(async (method: string) => method === 'storage/cleanupPreview' ? {
+    ...preview,
+    cleanBytes: clean.bytes * 2,
+    candidates: [clean, { ...clean, sessionId: sessionId('another-clean'), title: 'Another clean task', path: '/preview/worktrees/another-clean' }, preview.candidates[1]!],
+  } : null)
+  await act(async () => button('Review…').click())
+  const rowFor = (title: string) => [...document.querySelectorAll<HTMLElement>('[data-slot="row"]')]
+    .find(row => row.querySelector('[data-slot="row-title"]')?.textContent === title)!
+  const first = rowFor('Clean task'), second = rowFor('Another clean task')
+  expect(first.parentElement?.getAttribute('data-slot')).toBe('rows')
+  expect(second.parentElement).toBe(first.parentElement)
+  expect(first.nextElementSibling).toBe(second)
+  expect(first.matches(':last-child')).toBe(false)
+
+  const dirty = rowFor('Kept task')
+  expect(dirty.parentElement?.getAttribute('data-slot')).toBe('rows')
+  expect(document.body.textContent).not.toContain('.env')
+  await act(async () => document.querySelector<HTMLButtonElement>('[role="switch"]')!.click())
+  expect(rowFor('Kept task')).toBe(dirty)
+  expect(dirty.nextElementSibling?.textContent).toContain('.env')
+  expect(button('Remove 3 worktrees').getAttribute('data-variant')).toBe('danger')
+  expect(request.mock.calls.some(([method]) => method === 'storage/cleanup')).toBe(false)
+})
 it('requires confirmation before clearing cached previews', async () => {
   await mount(); await act(async () => button('Clear').click())
   expect(request).not.toHaveBeenCalledWith('history/clearCached', {})

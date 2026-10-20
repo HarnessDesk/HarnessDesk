@@ -3,6 +3,7 @@ import type { Tint as AccountTint } from '../../lib/accounts'
 import type { AvatarId } from '../../lib/avatars'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group'
 import { AccountMark, Face } from './Settings'
 import styles from './SettingsChoices.module.css'
 /** Picture, accent and account ring choices; picture arrows move by the eight-column grid. */
@@ -32,15 +33,15 @@ export const PictureChoices = ({ value, items, describedBy, change }: {
 export const AccentChoices = <T extends string,>({ value, items, change }: {
   readonly value: T; readonly items: readonly { readonly value: T; readonly label: string; readonly swatch: string }[]
   readonly change: (value: T) => void
-}) => <span className={styles.inline} role="radiogroup" aria-label="Accent">
-  {items.map(item => <Button key={item.value} type="button" role="radio" aria-checked={value === item.value}
-    aria-label={item.label} title={item.label} variant="ghost" size="icon-circle" data-on={value === item.value ? '' : undefined}
-    swatch={item.swatch} onClick={() => change(item.value)} />)}
-</span>
+}) => <RadioGroup variant="choice" render={<span />} className={styles.inline} aria-label="Accent" value={value} onValueChange={change}>
+  {items.map(item => <RadioGroupItem key={item.value} variant="choice" value={item.value} nativeButton
+    aria-label={item.label} title={item.label} render={<Button type="button" variant="ghost" size="icon-circle"
+      data-on={value === item.value ? '' : undefined} swatch={item.swatch} />} />)}
+</RadioGroup>
 /** Account ring colours, keeping the selected mark and current tint callback. */
 export const RingChoices = <T extends AccountTint,>({ value, values, mark, change }: {
   readonly value: T; readonly values: readonly T[]; readonly mark: ReactNode; readonly change: (value: T) => void
-}) => <span className={styles.inline} role="radiogroup" aria-label="Ring colour">
-  {values.map(tint => <AccountMark key={tint} as="button" role="radio" aria-checked={tint === value} aria-label={tint}
-    className={styles.ring} data-tint={tint} data-on={tint === value ? '' : undefined} onClick={() => change(tint)}>{mark}</AccountMark>)}
-</span>
+}) => <RadioGroup variant="choice" render={<span />} className={styles.inline} aria-label="Ring colour" value={value} onValueChange={change}>
+  {values.map(tint => <RadioGroupItem key={tint} variant="choice" value={tint} nativeButton aria-label={tint}
+    render={<AccountMark as="button" className={styles.ring} data-tint={tint} data-on={tint === value ? '' : undefined}>{mark}</AccountMark>}>{mark}</RadioGroupItem>)}
+</RadioGroup>

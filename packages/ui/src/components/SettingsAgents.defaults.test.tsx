@@ -65,3 +65,16 @@ it('shows a read failure even when recovery declarations are unavailable', async
   expect(host.textContent).toContain('Runtime unavailable.')
   expect(host.textContent).not.toContain('Set per conversation')
 })
+
+it('keeps a refused short select disabled and shows its full reason alongside its description', async () => {
+  const store = setup()
+  const refusal = 'This setting is managed by your workspace administrator until the current conversation finishes.'
+  vi.spyOn(store, 'newSessionDefaultsFor').mockResolvedValue([{ ...access, description: 'Choose the access level for new sessions.', disabled: refusal }])
+  const write = vi.spyOn(store, 'setNewSessionDefault')
+  await mount(store)
+  const select = host.querySelector<HTMLSelectElement>('select[aria-label="Permissions"]')!
+  expect(select.disabled).toBe(true)
+  expect(host.querySelector('[data-slot="row-desc"]')?.textContent).toContain('Choose the access level for new sessions.')
+  expect(host.querySelector('[data-slot="row-desc"]')?.textContent).toContain(refusal)
+  expect(write).not.toHaveBeenCalled()
+})
