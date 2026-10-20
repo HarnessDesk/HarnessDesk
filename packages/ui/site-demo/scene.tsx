@@ -5,6 +5,7 @@ import { dashboardData, DashboardScene } from './dashboard'
 import { isDashboardScene, SCENES, type SceneName } from './scenes'
 import { PageSceneBody, usePageStore, type PageSceneName } from './pages'
 import { RaceScene } from './race'
+import { withRealNamesAlways } from './real-names'
 import { useFlowsLoop } from './flows-loop'
 import { raceStore } from '../src/preview/readme-race'
 import { BoardShowcase, boardShowcaseStore, RunShowcase } from './showcase'
@@ -66,7 +67,7 @@ const Page = ({ name, theme, motion }: { name: PageSceneName; theme: 'light' | '
 }
 
 const Race = ({ theme, motion }: { theme: 'light' | 'dark'; motion?: 'reduce' }) => {
-  const store = useMemo(() => raceStore(theme), [])
+  const store = useMemo(() => withRealNamesAlways(raceStore(theme)), [])
   const reduced = useReduced(motion)
   return <StoreProvider store={store}><SceneBody name="hero-race" reduced={reduced} store={store}><RaceScene store={store} motion={reduced ? 'reduce' : undefined} /></SceneBody></StoreProvider>
 }
