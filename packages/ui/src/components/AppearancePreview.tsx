@@ -1,4 +1,4 @@
-import { Button, Card, CardViewport, Text } from '../design'
+import { Button, Card, CardViewport, RadioGroup, RadioGroupItem, Text } from '../design'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 
 import { CodeView, editorLook } from '../editor'
@@ -111,22 +111,20 @@ export const ThemeCards = () => {
   const store = useStore()
   const { theme } = useSnapshot()
   return (
-    <div className={styles.cards} role="radiogroup" aria-label="Theme">
+    <RadioGroup variant="choice" className={styles.cards} aria-label="Theme" value={theme} onValueChange={value => store.setTheme(value)}>
       {THEMES.map((entry) => (
-        <Button
+        <RadioGroupItem
           key={entry.value}
-          type="button"
-          role="radio"
-          aria-checked={theme === entry.value}
-          variant="choice" size="row" className={styles.card}
-          {...(theme === entry.value ? { 'data-on': '' } : {})}
-          onClick={() => store.setTheme(entry.value)}
+          value={entry.value}
+          variant="choice"
+          nativeButton
+          render={<Button type="button" variant="choice" size="row" className={styles.card} data-on={theme === entry.value ? '' : undefined} />}
         >
           <Mini dark={entry.dark} both={entry.both} />
           <Text role="row">{entry.label}</Text>
-        </Button>
+        </RadioGroupItem>
       ))}
-    </div>
+    </RadioGroup>
   )
 }
 

@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -131,4 +131,27 @@ it('refuses a disabled choice and explains the reason on hover', () => {
   expect(board.title).toBe('Board needs a pane at least 600px wide')
   act(() => board.click())
   expect(change).not.toHaveBeenCalled()
+})
+
+it('arrows select the focused segment and skip refused answers, with one tab stop on the answer', async () => {
+  const Choice = () => {
+    const [value, change] = useState('week')
+    return <Segmented label="Range" value={value} onChange={change} options={[
+      { value: 'day', label: 'Day' }, { value: 'week', label: 'Week' },
+      { value: 'quarter', label: 'Quarter', disabled: 'Not available' }, { value: 'year', label: 'Year' },
+    ]} />
+  }
+  await act(async () => root.render(<Choice />))
+  const radios = () => [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+  const recordedOptions = [...container.querySelectorAll('[data-slot="toggle-group-item"]')]
+  expect(recordedOptions.length).toBeGreaterThan(0)
+  expect(recordedOptions).toEqual(radios())
+  const selected = () => radios().find(radio => radio.getAttribute('aria-checked') === 'true')!
+  act(() => selected().focus())
+  for (const [key, answer] of [['ArrowRight', 'Year'], ['ArrowLeft', 'Week'], ['ArrowUp', 'Day'], ['ArrowDown', 'Week'], ['Home', 'Week'], ['End', 'Week']] as const) {
+    await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })))
+    expect(selected().textContent).toBe(answer)
+    expect(document.activeElement).toBe(selected())
+    expect(radios().filter(radio => radio.tabIndex === 0).map(radio => radio.textContent)).toEqual([answer])
+  }
 })

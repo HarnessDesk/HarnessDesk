@@ -133,7 +133,7 @@ export const ArchiveSection = () => {
         <PageControls search={{label:"Search archived conversations",placeholder:"Search the archive",value:query,change:setQuery}}/>
       )}
 
-      {!loading && shown.length === 0 && <Empty query={query.trim()} />}
+      {!loading && unreachable.length === 0 && shown.length === 0 && <Empty query={query.trim()} />}
 
       {!loading &&
         groups.map(({ runtime, rows }) => (

@@ -1512,12 +1512,12 @@ const OptionRows = ({
       {options.map((option) => {
         const nativeSelect =
           option.type === 'select' &&
-          (option.choices.length > 3 || option.choices.some((choice) => Boolean(choice.disabled)))
+          (Boolean(option.disabled) || option.choices.length > 3 || option.choices.some((choice) => Boolean(choice.disabled)))
         return (
           <Row
             key={option.id}
             title={option.label}
-            desc={option.description ?? option.disabled}
+            desc={[...new Set([option.description, option.disabled].filter(Boolean))].join(' ') || undefined}
             control={
               option.type === 'boolean' ? (
                 <Switch
@@ -2009,11 +2009,14 @@ export const RuntimesSection = ({
   onSignIn,
   view, onView,
   onBrowseHistory = () => {},
+  showAddRuntimeAction = true,
 }: {
   onSignIn: (runtime: RuntimeId) => void
   view:RuntimeSettingsView
   onView:(view:RuntimeSettingsView)=>void
   onBrowseHistory?: (id: string) => void
+  /** Settings owns this action beside its page title; standalone sections keep it here. */
+  showAddRuntimeAction?: boolean
 }) => {
   const destinationActive = useDestinationActive()
 
@@ -2104,11 +2107,11 @@ export const RuntimesSection = ({
   return (
     <>
       <DestinationBar place="Runtimes" />
-      <Toolbar>
+      {showAddRuntimeAction && <Toolbar>
         <Button variant="outline" size="sm" onClick={() => setView({ kind: 'add' })}>
           <PlusIcon size={13} />Add a runtime
         </Button>
-      </Toolbar>
+      </Toolbar>}
 <PageExplanation>What your Agents run on: the runtimes HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
 
       {/* Two agents fit on a screen and need no help being found; the filters
@@ -2129,12 +2132,12 @@ export const RuntimesSection = ({
                 : 'Nothing matches that search.'
             }
             control={
-              groups.length === 0 ? (
+              groups.length === 0 ? showAddRuntimeAction ? (
                 <Button size="sm" variant="default" onClick={() => setView({ kind: 'add' })}>
                   <PlusIcon size={13} />
                   Add a runtime
                 </Button>
-              ) : (
+              ) : undefined : (
                 <Button variant="secondary"
                   size="sm"
                   onClick={() => setQuery('')}

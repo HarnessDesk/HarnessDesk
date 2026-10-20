@@ -775,7 +775,8 @@ it.each(['render', 'preview'])('holds Flow choices and Details inputs until a po
   expect(ticket.disabled).toBe(false)
   act(() => rowFor('Write and review').click())
   await settle()
-  expect(button('2').getAttribute('aria-pressed')).toBe('true')
+  expect(button('2').getAttribute('role')).toBe('radio')
+  expect(button('2').getAttribute('aria-checked')).toBe('true')
   act(() => button('Start Team').click())
   await settle()
   const started = spy.mock.calls.find(call => call[0] === 'flow/start-goal')?.[1] as { source: string; vars: Record<string, string> }

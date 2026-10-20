@@ -305,6 +305,18 @@ test('a change the unit tests may read from outside the UI source runs every tes
   ]) assert.equal(plan(['packages/ui/src/components/BringHome.tsx', path]).mode, 'all', path)
 })
 
+test('the public UI design entrypoint runs every test, alone or alongside a leaf change', () => {
+  const entrypoint = 'packages/ui/src/design/index.ts'
+  const leaf = 'packages/ui/src/components/BringHome.tsx'
+  for (const paths of [[entrypoint], [leaf, entrypoint]]) {
+    const run = plan(paths)
+    assert.equal(run.mode, 'all', paths.join(' '))
+    assert.deepEqual(run.files, [])
+    assert.match(run.summary, /shared design entrypoint/)
+  }
+  assert.equal(plan([leaf]).mode, 'related', 'a leaf retains dependency-based selection')
+})
+
 test('a deleted source file runs every test', () => {
   const run = plan(['packages/ui/src/components/Gone.tsx'])
   assert.equal(run.mode, 'all')

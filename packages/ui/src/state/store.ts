@@ -6805,16 +6805,11 @@ export class AppStore {
     }
   }
 
-  /** The selected runtime's plugin catalogue, or an empty one. */
+  /** The selected runtime's plugin catalogue. A failed read rejects; it is not an empty catalogue. */
   async loadCatalog(): Promise<RuntimeCatalog> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return { plugins: [], marketplaces: [], loadErrors: [], featured: [] }
-    return this.transport
-      .request('runtime/catalog', { runtime, ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}) })
-      .catch((error: unknown) => {
-        this.infoNotice('warning', describe(error))
-        return { plugins: [], marketplaces: [], loadErrors: [], featured: [] }
-      })
+    return this.transport.request('runtime/catalog', { runtime, ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}) })
   }
 
   /** Searches the runtime's app/connector directory — thousands of entries, so paged. */

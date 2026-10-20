@@ -243,6 +243,23 @@ it('holds forty characters, counted the way a person counts them', () => {
   expect(profile()).toEqual({ name: '🐳'.repeat(40) })
 })
 
+it('previews a forty-character wide name as a clipped record without changing the full value', () => {
+  const { profile } = mount()
+  const name = 'W'.repeat(40)
+  type(name)
+  const row = container.querySelector<HTMLElement>('[data-slot="row"]')!
+  expect(row.getAttribute('data-kind')).toBe('record')
+  const label = row.querySelector<HTMLElement>('[data-slot="row-title"] > span')!
+  expect(label.textContent).toBe(name)
+  Object.defineProperties(label, { scrollWidth: { value: 480 }, clientWidth: { value: 200 } })
+  act(() => label.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+  expect(label.title).toBe(name)
+  expect(field().value).toBe(name)
+  expect(button('Reset to default')).not.toBeNull()
+  act(() => field().blur())
+  expect(profile().name).toBe(name)
+})
+
 it('writes a held name when the window goes away', () => {
   const { profile } = mount()
   type('Jane')
@@ -361,6 +378,12 @@ it('leaves a name it was given as it is, unless you edit it', () => {
   const { setProfile, profile } = mount({ name: long })
   expect(field().value).toBe(long)
   expect(heading()).toBe(long)
+  expect(container.querySelector('[data-slot="row"]')?.getAttribute('data-kind')).toBe('record')
+  const label = container.querySelector<HTMLElement>('[data-slot="row-title"] > span')!
+  expect(label.textContent).toBe(long)
+  Object.defineProperties(label, { scrollWidth: { value: 720 }, clientWidth: { value: 200 } })
+  act(() => label.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+  expect(label.title).toBe(long)
   act(() => field().focus())
   act(() => field().blur())
   expect(setProfile).not.toHaveBeenCalled()

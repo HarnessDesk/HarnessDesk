@@ -2442,9 +2442,10 @@ The *behaviour* is no longer this app's own. It was a row of hand-rolled
 keyboard reaching the fourth choice pressed Tab four times, where a real
 radio group is one press to enter and arrows to choose. It now sits on
 `design/ui/radio-group`, the shadcn Base UI build, which brings the roving
-focus, the arrow keys, Home/End, and the form value with it.
+focus, arrow-key selection, and the form value with it. Home/End stay with
+the page, following the primitive's radio policy.
 
-The canonical toggle group supplies radio semantics and roving focus while
+The canonical radio group supplies radio semantics and roving focus while
 this pattern supplies the settings-specific segmented appearance.
 An unavailable answer takes a disabled reason, kept in its hover title.
 

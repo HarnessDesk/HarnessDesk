@@ -20,28 +20,35 @@ import { cn } from '@/lib/utils'
  * composition.
  */
 
-const RadioGroup = ({ className, ...props }: RadioGroupPrimitive.Props) => (
+/** Choice cards and swatches keep their existing layout while sharing radio behavior. */
+const RadioGroup = ({ className, variant = 'default', ...props }: RadioGroupPrimitive.Props & {
+  variant?: 'default' | 'choice'
+}) => (
   <RadioGroupPrimitive
     data-slot="radio-group"
-    className={cn('grid gap-2', className)}
+    className={cn(variant === 'default' && 'grid gap-2', className)}
     {...props}
   />
 )
 
-const RadioGroupItem = ({ className, ...props }: Radio.Root.Props) => (
+/** `choice` uses the supplied render element's box and children, without a second radio glyph. */
+const RadioGroupItem = ({ className, variant = 'default', children, render, ...props }: Radio.Root.Props & {
+  variant?: 'default' | 'choice'
+}) => (
   <Radio.Root
-    data-slot="radio-group-item"
+    {...(variant === 'choice' && render ? {} : { 'data-slot': 'radio-group-item' })}
+    render={render}
     className={cn(
-      'aspect-square size-4 shrink-0 rounded-full border border-(--hd-border-strong) outline-none transition-colors',
+      variant === 'default' && 'aspect-square size-4 shrink-0 rounded-full border border-(--hd-border-strong) outline-none transition-colors',
       /* Checked is the solid, the same ink a filled button and an on switch
          are drawn in — see `--hd-solid`. */
-      'data-checked:border-(--hd-toggle-on) data-checked:bg-(--hd-toggle-on)',
-      'data-disabled:cursor-not-allowed data-disabled:opacity-50',
+      variant === 'default' && 'data-checked:border-(--hd-toggle-on) data-checked:bg-(--hd-toggle-on)',
+      variant === 'default' && 'data-disabled:cursor-not-allowed data-disabled:opacity-50',
       className,
     )}
     {...props}
   >
-    <Radio.Indicator
+    {variant === 'choice' ? children : <Radio.Indicator
       data-slot="radio-group-indicator"
       className="flex size-full items-center justify-center"
     >
@@ -49,7 +56,7 @@ const RadioGroupItem = ({ className, ...props }: Radio.Root.Props) => (
           through, for the same reason the switch's knob is: it is the mark,
           not a gap in the surface. */}
       <span className="block size-1.5 rounded-full bg-(--hd-toggle-knob-on)" />
-    </Radio.Indicator>
+    </Radio.Indicator>}
   </Radio.Root>
 )
 

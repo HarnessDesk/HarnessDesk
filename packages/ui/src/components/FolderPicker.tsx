@@ -118,6 +118,7 @@ export const FolderPicker = ({ onClose, onChoose, title = 'Choose a project fold
     <Dialog
       title={title}
       description={problem ?? 'Click a folder to enter it; open the one you are in.'}
+      scrollDescription={problem != null}
       size="lg"
       tall
       flush

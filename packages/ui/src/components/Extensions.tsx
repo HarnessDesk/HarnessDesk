@@ -8,7 +8,7 @@ import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, ExtensionIcon, PluginIcon, ServerIcon } from './Icons'
-import { Button, Chip, EmptyState, IconTile, Monogram, Note, Row, Rows, Search, SectionHead } from '../design'
+import { Banner, Button, Chip, EmptyState, IconTile, Monogram, Note, Row, Rows, Search, SectionHead } from '../design'
 import { Tabs, TabsList, TabsTrigger } from '../design'
 
 /**
@@ -36,6 +36,8 @@ export const ExtensionsSection = () => {
   const runtime = useRuntime()
   const snapshot = useSnapshot()
   const [catalog, setCatalog] = useState<RuntimeCatalog | null>(null)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
+  const [catalogLoading, setCatalogLoading] = useState(false)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<'plugins' | 'apps' | 'mcp'>(
     runtime.capabilities.extensionStore ? 'plugins' : 'mcp',
@@ -43,19 +45,39 @@ export const ExtensionsSection = () => {
   const [shown, setShown] = useState(PAGE)
   const [failuresShown, setFailuresShown] = useState(FAILURES)
 
-  const generation=useRef(0)
-  const activeRead=useRef(destinationActive)
-  activeRead.current=destinationActive
-  const reload = useCallback(() => {
-    if (!activeRead.current) return
-    const epoch=++generation.current
-    void store.loadCatalog().then(value=>{if(activeRead.current && epoch===generation.current)setCatalog(value)})
-  }, [store])
+  const generation = useRef(0)
+  const activeRead = useRef(destinationActive)
+  activeRead.current = destinationActive
+  const workspace = snapshot.workspace?.path
+  const scope = useRef({ store, runtime: runtime.id, workspace })
+  scope.current = { store, runtime: runtime.id, workspace }
+  const reload = useCallback(async () => {
+    const sameScope = () => scope.current.store === store && scope.current.runtime === runtime.id && scope.current.workspace === workspace
+    if (!activeRead.current || !sameScope()) return
+    const epoch = ++generation.current
+    const ownsRead = () => activeRead.current && epoch === generation.current && sameScope()
+    setCatalogLoading(true)
+    try {
+      const value = await store.loadCatalog()
+      if (ownsRead()) {
+        setCatalog(value)
+        setCatalogError(null)
+      }
+    } catch (error) {
+      if (ownsRead()) setCatalogError(error instanceof Error ? error.message : String(error))
+    } finally {
+      if (ownsRead()) setCatalogLoading(false)
+    }
+  }, [store, runtime.id, workspace])
   useEffect(() => {
-    activeRead.current=destinationActive
-    if (destinationActive) reload()
-    return () => {generation.current++;activeRead.current=false}
-  }, [destinationActive, reload, snapshot.workspace?.path])
+    setCatalog(null)
+    setCatalogError(null)
+  }, [store, runtime.id, workspace])
+  useEffect(() => {
+    activeRead.current = destinationActive
+    if (destinationActive) void reload()
+    return () => { generation.current++; activeRead.current = false }
+  }, [destinationActive, reload])
 
   const { installed, available } = useMemo(() => {
     const all = catalog?.plugins ?? []
@@ -145,8 +167,15 @@ export const ExtensionsSection = () => {
               setQuery(next)
               setShown(PAGE)
             }}}/>
+          {catalogError !== null && (
+            <Banner tone="warning" title="Could not load plugins" actions={
+              <Button variant="secondary" disabled={catalogLoading} onClick={() => void reload()}>Retry</Button>
+            }>
+              {catalogError}{catalog !== null && ' Showing the last loaded catalogue; plugin status may have changed.'}
+            </Banner>
+          )}
           {catalog === null ? (
-            <Note>Loading…</Note>
+            catalogError === null ? <Note>Loading…</Note> : null
           ) : (
             <>
               <SectionHead level="label" name={`Installed · ${installed.length}`} />
@@ -154,7 +183,7 @@ export const ExtensionsSection = () => {
                 {installed.length === 0 ? (
                   <EmptyState variant="row" title={query ? 'No installed plugin matches' : 'Nothing installed yet'} />
                 ) : (
-                  installed.map((plugin) => <PluginRow key={plugin.id} plugin={plugin} />)
+                  installed.map((plugin) => <PluginRow key={plugin.id} plugin={plugin} onChanged={reload} />)
                 )}
               </Rows>
               <SectionHead level="label" name={`Available · ${available.length}`} />
@@ -163,7 +192,7 @@ export const ExtensionsSection = () => {
                   <EmptyState variant="row" title="Nothing more to add" />
                 ) : (
                   available.slice(0, shown).map((plugin) => (
-                    <PluginRow key={plugin.id} plugin={plugin} />
+                    <PluginRow key={plugin.id} plugin={plugin} onChanged={reload} />
                   ))
                 )}
               </Rows>
@@ -186,7 +215,7 @@ export const ExtensionsSection = () => {
 const rank = (plugin: RuntimePlugin, featured: ReadonlySet<string>): number =>
   plugin.installed ? 0 : featured.has(plugin.id) ? 1 : 2
 
-const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
+const PluginRow = ({ plugin, onChanged }: { plugin: RuntimePlugin; onChanged?: () => Promise<void> }) => {
   const active=useDestinationActive(),activeRead=useRef(active)
   activeRead.current=active
   const lifetime=useRef(0),wasActive=useRef(active)
@@ -206,7 +235,7 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
         plugin.id,
         !plugin.installed,
       )
-      if(activeRead.current && owner===lifetime.current) await store.loadCatalog()
+      if(activeRead.current && owner===lifetime.current) await onChanged?.()
     } finally {
       setBusy(false)
     }
@@ -246,6 +275,10 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
         <>
           {plugin.description}
           {plugin.developer ? `${plugin.description ? ' · ' : ''}by ${plugin.developer}` : ''}
+          {plugin.installed && !plugin.enabled && plugin.disabledReason && <>
+            {(plugin.description || plugin.developer) && <br />}
+            {disabledLabel(plugin.disabledReason)}
+          </>}
         </>
       }
       control={
@@ -267,7 +300,7 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
                 offers a verb that turns one back on, so the honest control
                 is a word, and the removal button beside it. */}
             {plugin.installed && !plugin.enabled && (
-              <Chip state="broken" label={disabledLabel(plugin.disabledReason)} />
+              <Chip state="broken" label="Off" />
             )}
             <Button
               size="sm"

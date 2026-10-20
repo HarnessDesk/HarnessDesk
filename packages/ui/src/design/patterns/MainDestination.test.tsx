@@ -37,6 +37,21 @@ it('retained native work keeps its layout box while hidden outside the clipped d
   expect(css).toMatch(/\.work\[data-hidden\]\s*\{[^}]*transform:\s*translateX\(-101%\)/)
 })
 
+it('reserves a stable scrollbar gutter only when a destination requests it', () => {
+  act(() => root.render(<>
+    <DestinationBody active id="settings" stableGutter><input aria-label="Settings input" /></DestinationBody>
+    <DestinationBody active={false} id="library"><input aria-label="Library input" /></DestinationBody>
+  </>))
+  const settings = host.querySelector<HTMLElement>('[data-page-destination="settings"]')!
+  const library = host.querySelector<HTMLElement>('[data-page-destination="library"]')!
+  expect(settings.hasAttribute('data-stable-gutter')).toBe(true)
+  expect(library.hasAttribute('data-stable-gutter')).toBe(false)
+  expect(library.hidden).toBe(true)
+  expect(library.hasAttribute('inert')).toBe(true)
+  expect(css).toMatch(/\.body\[data-stable-gutter\]\s*\{[^}]*scrollbar-gutter:\s*stable\s*;/)
+  expect(css).not.toMatch(/\.body\s*\{[^}]*scrollbar-gutter:/)
+})
+
 it('dismisses an anchored recipient picker when its retained work becomes inactive', async () => {
   const Work = () => {
     const anchor = useRef<HTMLTextAreaElement>(null)

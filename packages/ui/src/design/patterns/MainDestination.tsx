@@ -13,6 +13,8 @@ export const MainDestination = ({ page, work, pages }: {
 </div>
 }
 /** Each visited page owns one scroll element for the current project. */
-export const DestinationBody = ({ active, id, children }: {
+export const DestinationBody = ({ active, id, stableGutter = false, children }: {
   readonly active: boolean; readonly id: string; readonly children: ReactNode
-}) => <div role="region" aria-label={id === 'changes-review' ? 'Changes review' : id.charAt(0).toUpperCase() + id.slice(1)} data-page-destination={id} hidden={!active} inert={!active} data-slot="destination-scroll" className={styles.body}>{children}</div>
+  /** Keep a reading column in place when its pages alternate between short and scrolling content. */
+  readonly stableGutter?: boolean
+}) => <div role="region" aria-label={id === 'changes-review' ? 'Changes review' : id.charAt(0).toUpperCase() + id.slice(1)} data-page-destination={id} hidden={!active} inert={!active} data-slot="destination-scroll" {...(stableGutter ? { 'data-stable-gutter': '' } : {})} className={styles.body}>{children}</div>
