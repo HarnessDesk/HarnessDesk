@@ -673,7 +673,7 @@ export const FrameWall = () => {
     }
     const fix6Folder = query.get('frame-fix6-folder')
     if (destination === 'draft' && (fix6Folder === 'storefront' || fix6Folder === 'pricing-service')) {
-      const workspace = { path: `/work/${fix6Folder}`, name: fix6Folder, lastOpenedAt: 1 }
+      const workspace = { path: `/work/${fix6Folder}`, name: fix6Folder, lastOpenedAt: 1, repo: null }
       Object.assign(snapshot, { workspace, workspaces: [workspace], activeSessionKey: null, sessions: new Map() })
     }
     if (destination === 'draft' && query.get('frame-fix5-long-folder') === '1') {
@@ -732,7 +732,9 @@ export const FrameWall = () => {
           items: [{ id: itemId('frame-fix5-live-title'), type: 'userMessage' as const, content: [{ type: 'text' as const, text: task }] }],
         }],
       }
-      const stale = { ...live, title: 'Untitled session', preview: null }
+      // An index row that has not caught up carries no title yet; an indexed title
+      // would win over the live one, so a placeholder here is not a real state.
+      const stale = { ...live, title: null, preview: null }
       Object.assign(snapshot, {
         sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, live),
         history: [stale],
