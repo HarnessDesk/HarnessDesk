@@ -72,15 +72,25 @@ export const RunView = ({ home, model, execution, stepsInput, attemptsRead, face
   const [retry, setRetry] = useState<{ run: string; card: number } | null>(null)
   useEffect(() => setRetry(null), [model.header.run])
   const [fullRecord, setFullRecord] = useState(false)
-  useEffect(() => setFullRecord(false), [model.header.run])
+  const displayedRun = useRef(model.header.run)
   useEffect(() => {
-    if (!unified || !selectedRow || !execution) return
+    if (displayedRun.current === model.header.run) return
+    displayedRun.current = model.header.run
+    setFullRecord(false)
+  }, [model.header.run])
+  const revealedSelection = useRef<{ identity: string; handled: boolean } | null>(null)
+  useEffect(() => {
+    if (!unified || !selectedRow || !execution) { revealedSelection.current = null; return }
+    const identity = JSON.stringify([model.header.run, selectedRow])
+    if (revealedSelection.current?.identity === identity && revealedSelection.current.handled) return
     const selectedRound = model.rows.find(row => row.id === selectedRow)?.round
     const recentRounds = execution.rounds.slice(-3)
     const selectedStep = selectedRow.startsWith('step:') ? selectedRow.slice(5) : null
+    // A pending row may still arrive; a handled selection never overrides a later manual collapse.
+    revealedSelection.current = { identity, handled: selectedRound != null || selectedStep != null }
     if (selectedRound != null && !recentRounds.some(round => round.n === selectedRound)
       || selectedStep && execution.rounds.some(round => round.role === selectedStep && !recentRounds.includes(round))) setFullRecord(true)
-  }, [unified, selectedRow, execution, model.rows])
+  }, [unified, selectedRow, execution, model.header.run, model.rows])
   useEffect(() => { if (recordRequest) setFullRecord(true) }, [recordRequest])
   const showing: RunViewTab = flow ? view ?? 'timeline' : 'timeline'
   const [now, setNow] = useState(Date.now)

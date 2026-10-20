@@ -4953,6 +4953,59 @@ it('keeps the drafted composer visible and its audience intact while an approval
  expect(box.closest('[hidden]')).toBeNull()
 })
 
+it('offers a way to an approval arriving below the fold without moving the reader or losing the draft', async () => {
+ const {store,raise,respondToApproval}=triggerRig([])
+ await render(store)
+ await pickTeamPage('Chat')
+ const box=container.querySelector<HTMLTextAreaElement>('textarea')!
+ act(()=>type(box,'Keep this draft while reading earlier messages'))
+ const audienceBefore=audience().textContent
+ const stream=container.querySelector<HTMLDivElement>('[data-slot="room-stream"]')!
+ Object.defineProperty(stream,'scrollHeight',{value:1000,configurable:true})
+ Object.defineProperty(stream,'clientHeight',{value:400,configurable:true})
+ stream.scrollTop=120
+ act(()=>stream.dispatchEvent(new Event('scroll',{bubbles:true})))
+ await act(async()=>raise(PENDING))
+ expect(stream.scrollTop).toBe(120)
+ expect(box.value).toBe('Keep this draft while reading earlier messages')
+ expect(audience().textContent).toBe(audienceBefore)
+ const waiting=()=>[...container.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent==='Approval waiting')
+ expect(waiting(),'the request has a pinned way down even without a channel message').toBeDefined()
+ await act(async()=>raise(PENDING.map(one=>({...one,approval:{...one.approval}}))))
+ act(()=>waiting()!.click())
+ expect(stream.scrollTop).toBe(1000)
+ expect(waiting()).toBeUndefined()
+ await act(async()=>raise(PENDING.map(one=>({...one,approval:{...one.approval}}))))
+ expect(waiting(),'the same request is not a new arrival').toBeUndefined()
+ expect(respondToApproval).not.toHaveBeenCalled()
+ const yes=[...container.querySelectorAll<HTMLButtonElement>('[data-slot="approval-card"] button')].find(one=>/^Yes\d?$/.test(one.textContent??''))!
+ await act(async()=>yes.click())
+ expect(respondToApproval).toHaveBeenCalledWith(sessionKey('codex','c1'),'a1',{type:'option',optionId:'yes'})
+ expect(box.value).toBe('Keep this draft while reading earlier messages')
+ expect(audience().textContent).toBe(audienceBefore)
+})
+
+it('only marks a new pending request below the fold and clears its door when it resolves', async () => {
+ const {store,raise}=triggerRig(PENDING)
+ await render(store)
+ await pickTeamPage('Chat')
+ const waiting=()=>[...container.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent==='Approval waiting')
+ expect(waiting()).toBeUndefined()
+ const stream=container.querySelector<HTMLDivElement>('[data-slot="room-stream"]')!
+ Object.defineProperty(stream,'scrollHeight',{value:1000,configurable:true})
+ Object.defineProperty(stream,'clientHeight',{value:400,configurable:true})
+ stream.scrollTop=120
+ act(()=>stream.dispatchEvent(new Event('scroll',{bubbles:true})))
+ await act(async()=>raise(PENDING.map(one=>({...one,approval:{...one.approval}}))))
+ expect(waiting(),'refreshing the same approval is not another arrival').toBeUndefined()
+ await act(async()=>raise(PENDING.map(one=>({...one,approval:{...one.approval,id:'a2'}}))))
+ expect(waiting(),'another request from the same member is a new arrival').toBeDefined()
+ expect(stream.scrollTop).toBe(120)
+ await act(async()=>raise([]))
+ expect(waiting()).toBeUndefined()
+ expect(stream.scrollTop).toBe(120)
+})
+
 it('keeps duplicate generated Agent names distinct and their real glyphs unframed', async () => {
  const members=[
   {id:'first',session:{runtime:'codex',sessionId:'c1'},role:'implementer',agent:{name:'Implementer'},seatLabel:'GPT 5.5 · High',openedAt:1,closed:null},

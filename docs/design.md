@@ -1819,9 +1819,12 @@ has never been tested.
 
 ## The Team overview
 
-Overview is the first page tab in a Team. A Team with a Run or ready to wrap opens
-there; one with neither opens on Chat. Its Seat table uses the wide `Page`
-measure; narrow panes keep that same page contract and switch to list rows.
+Work is the first primary destination in a Team, alongside Tasks and Chat.
+Work opens by default, including a Team ready to wrap and a Team without a Run.
+An explicit saved destination is restored. A Run's frozen Flow leads Work,
+followed by a concise pending request link and recent activity. The standalone
+overview's Seat table uses the wide `Page` measure; narrow panes keep that same
+page contract and switch to list rows.
 The Run's current round and recorded
 usage lead, followed by what needs the person and the Seats in attention order:
 Needs you, Unread, Working, then Idle. Each Seat carries its face, role, card,

@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { sessionId, sessionKey, turnId, WAITING_FINDINGS, type Session } from '@harnessdesk/protocol'
@@ -643,5 +643,47 @@ it('shows only concise recorded activity by default and retains full history and
     const full = container.querySelector<HTMLButtonElement>('[data-row="card-1-1"] button')!
     act(() => full.click())
     expect(onSelect).toHaveBeenLastCalledWith('card-1-1')
+  } finally { act(() => root.unmount()) }
+})
+
+it('keeps a user-collapsed record closed across model refreshes and reveals a newly selected older round', () => {
+  const input = runFixture('many')
+  const container = document.createElement('div'), root = createRoot(container)
+  const render = (selectedRow: string, recordRequest = 0, run = input.execution.id) => act(() => {
+    const execution = { ...input.execution, id: run, rounds: [...input.execution.rounds] }
+    const refreshed = { ...input, execution }
+    root.render(<StrictMode><RunView unified model={runTimeline(refreshed)} stepsInput={refreshed} execution={execution} number={1} selectedRow={selectedRow} recordRequest={recordRequest} onSelect={() => {}} /></StrictMode>)
+  })
+  const button = (name: string) => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === name)
+  try {
+    render('card-1-1')
+    expect(button('Recent activity')).toBeDefined()
+    act(() => button('Recent activity')!.click())
+    expect(button('Full record')).toBeDefined()
+    render('card-1-1')
+    expect(button('Full record')).toBeDefined()
+    expect(container.querySelector('[aria-label="Run timeline"]')).toBeNull()
+    render('check-2-2')
+    expect(button('Recent activity')).toBeDefined()
+    act(() => button('Recent activity')!.click())
+    render('check-2-2', 1)
+    expect(button('Recent activity')).toBeDefined()
+    act(() => button('Recent activity')!.click())
+    render('check-2-2', 1)
+    expect(button('Full record')).toBeDefined()
+    render('check-2-2', 1, 'historical-run')
+    expect(button('Recent activity')).toBeDefined()
+  } finally { act(() => root.unmount()) }
+})
+
+it('reveals a selected historical row when that recorded row finishes loading', () => {
+  const input = runFixture('many'), model = runTimeline(input)
+  const container = document.createElement('div'), root = createRoot(container)
+  const render = (ready: boolean) => act(() => root.render(<RunView unified model={ready ? model : { ...model, rows: model.rows.filter(row => row.id !== 'card-1-1') }} stepsInput={input} execution={input.execution} number={1} selectedRow="card-1-1" onSelect={() => {}} />))
+  try {
+    render(false)
+    expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Full record')).toBe(true)
+    render(true)
+    expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Recent activity')).toBe(true)
   } finally { act(() => root.unmount()) }
 })

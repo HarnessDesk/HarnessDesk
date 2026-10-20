@@ -26,12 +26,19 @@ test('Team membership and label weight descriptions match the shipped frame', ()
   assert.equal(/What the \*rail\* could not do, said on the rail/.test(pane), false, 'member failures belong to their popover')
 })
 
-test('both Overview references include the ready-to-wrap default without a Run', () => {
-  const design = readFileSync(join(root, 'docs/design.md'), 'utf8').split('## The Team overview')[1].split('\n## ')[0]
-  const contract = readFileSync(join(root, 'docs/interface.md'), 'utf8').split("### A Team's Overview")[1].split('\n### ')[0]
+test('both Team references document Work as the default, including a Team without a Run or ready to wrap', () => {
+  const section = (path, heading, nextHeading) => {
+    const doc = readFileSync(join(root, path), 'utf8')
+    const [, body] = doc.split(heading)
+    assert.ok(body, `${path} includes ${heading}`)
+    return body.split(nextHeading)[0]
+  }
+  const design = section('docs/design.md', '## The Team overview', '\n## ')
+  const contract = section('docs/interface.md', "### A Team's Work", '\n### ')
   for (const reference of [design, contract]) {
-    assert.equal(/(?:Run|there)[\s\S]{0,100}ready to wrap/.test(reference), true, 'Overview also opens for a Team ready to wrap')
-    assert.equal(/A Team without a Run opens on Chat/.test(reference), false, 'the later Chat description keeps the ready-to-wrap exception')
+    assert.match(reference, /Work opens by default/, 'Work is the unconditional Team default, including ready-to-wrap Teams')
+    assert.match(reference, /Team without a Run/, 'Work remains usable without a Run')
+    assert.doesNotMatch(reference, /one with neither opens on Chat|A Team without a Run opens on Chat/, 'Chat is an explicit destination rather than the no-Run default')
   }
 })
 

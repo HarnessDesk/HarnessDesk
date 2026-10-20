@@ -1989,6 +1989,9 @@ const Room = ({
   const rows = useMemo(() => readChannel(entries, channelSignalBatches(room, snapshot.flowExecutions.values())), [entries, room, snapshot.flowExecutions])
   const [behind, setBehind] = useState<{ rows: number; onlyMessages: boolean }>(AT_THE_FLOOR)
   const counted = useRef(rows.length)
+  const countedApproval = useRef(pendingId)
+  const [unseenApproval, setUnseenApproval] = useState<string | null>(null)
+  const approvalBehind = pendingId !== null && unseenApproval === pendingId
   useEffect(() => {
     const box = stream.current
     if (!box) return
@@ -2000,7 +2003,11 @@ const Room = ({
          becomes an infinite loop rather than a wasted render. It was one:
          `entries` was a new `[]` per render before `NO_ENTRIES`. */
       setBehind((was) => (was.rows === 0 && was.onlyMessages ? was : AT_THE_FLOOR))
+      setUnseenApproval(null)
     } else {
+      // Requests are drawn after the channel, so a new request can arrive
+      // below the fold without adding a channel row. Keep its own way down.
+      if (pendingId !== countedApproval.current) setUnseenApproval(pendingId)
       /* A row can absorb a later one — a refusal is folded into the delivery
          that followed it — so the derived list can get *shorter* as entries
          arrive. Resync rather than counting a negative. */
@@ -2013,6 +2020,7 @@ const Room = ({
       }
     }
     counted.current = rows.length
+    countedApproval.current = pendingId
   }, [rows, pendingId])
 
   const toFloor = (): void => {
@@ -2020,6 +2028,7 @@ const Room = ({
     if (!box) return
     following.current = true
     box.scrollTop = box.scrollHeight
+    setUnseenApproval(null)
     setBehind((was) => (was.rows === 0 && was.onlyMessages ? was : AT_THE_FLOOR))
   }
 
@@ -2082,7 +2091,10 @@ const Room = ({
             const box = event.currentTarget
             const near = box.scrollHeight - box.scrollTop - box.clientHeight < 64
             following.current = near
-            if (near) setBehind((was) => (was.rows === 0 && was.onlyMessages ? was : AT_THE_FLOOR))
+            if (near) {
+              setBehind((was) => (was.rows === 0 && was.onlyMessages ? was : AT_THE_FLOOR))
+              setUnseenApproval(null)
+            }
           }}
         >
           {/* The reading column, which the transcript one keystroke away is
@@ -2120,13 +2132,13 @@ const Room = ({
             }} /></PaneProvider>}
           </div>
         </PaneColumn>
-        {behind.rows > 0 && (
+        {(behind.rows > 0 || approvalBehind) && (
           /* "messages" only when that is all they are. A batch with a claim or
              a completion in it takes the plainer word, because a signal is not
              a message and a pill that says it is teaches the reader to distrust
              the count. */
           <Button type="button" variant="outline" size="chip" className={styles.behind} onClick={toFloor}>
-            {behind.onlyMessages
+            {approvalBehind ? 'Approval waiting' : behind.onlyMessages
               ? behind.rows === 1
                 ? '1 new message'
                 : `${behind.rows} new messages`

@@ -240,6 +240,8 @@ it('does not describe a one-off judge as fresh each round', async () => {
   expect(container.textContent).not.toContain('Fresh each round')
 })
 
+// Four real graph/configuration transitions take about five seconds on CI.
+// Keep the whole interaction sequence and allow a bounded runner margin.
 it.each([false, true])('keeps the attempt check editable when empty, including a saved checked template (%s)', async checked => {
   const original: FlowPolicy = TEAM_START_POLICIES.comparison
   const baseline = { ...original, roles: original.roles.filter(role => role.kind !== 'check'), rules: [
@@ -286,7 +288,7 @@ it.each([false, true])('keeps the attempt check editable when empty, including a
   expect(current.rules.filter(rule => rule.on === 'competitor').map(rule => rule.then.role)).toEqual(['verify'])
   expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
   await act(async () => {})
-})
+}, 10_000)
 
 it('offers the same optional attempt check for a contest without a judge', async () => {
   const template = CONTEST_START_POLICY
@@ -339,7 +341,7 @@ it('keeps a saved custom check’s success and incoming guards through clearing,
   expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toEqual(success)
   expect(current.rules.find(rule => rule.id === 'retry')).toEqual(template.rules.find(rule => rule.id === 'retry'))
   await act(async () => {})
-})
+}, 10_000)
 
 it('the review options preserve the review cap and require recorded approval before automatic merging', async () => {
   const flow: import('@harnessdesk/protocol').FlowPolicy = TEAM_START_POLICIES['fix-and-review']

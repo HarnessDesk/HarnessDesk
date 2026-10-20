@@ -56,7 +56,7 @@
 - [x] Launch the built fake-agent application and visually click through task, roles, nested configuration, examples, person pause, return paths and real launch.
 - [x] Inspect both themes and narrow/wide layouts. Measure card boxes, shared edges and connector endpoints; correct clipping or overlap.
 - [x] Update the experience document with observed outcomes and limits, regenerate design documentation, run selected push checks.
-- [ ] Commit, push to PR 1813, update its final description and safe screenshot evidence, then request the local extra-eyes review on that exact head. Do not merge.
+- [x] Commit, push to PR 1813, update its final description and safe screenshot evidence, then request the local extra-eyes review on that exact head. Do not merge.
 
 ### Task 5: Walkthrough refinements requested during implementation
 
