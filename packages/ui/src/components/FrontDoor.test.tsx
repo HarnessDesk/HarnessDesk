@@ -1308,6 +1308,65 @@ it('can open a project before its shape catalogue can be read', async () => {
   expect(document.body.textContent).not.toContain('outside every folder and repository opened here')
 })
 
+it.each(['try', 'preview'])('Just a Team reopens a changed checkout after the %s refusal and waits for an explicit retry', async wording => {
+  const store = new AppStore('ws://localhost:0/')
+  const refusal = `The project checkout changed. Open the project folder again, then ${wording} again.`
+  let opened = false
+  let finishOpen!: () => void
+  requestSpy(store, {
+    'flow/catalog': () => [], 'agent/list': () => [], 'worktree/list': () => [],
+    'workspace/open': () => new Promise(resolve => { finishOpen = () => {
+      opened = true
+      resolve({ path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 })
+    } }),
+    'workspace/recent': () => [{ path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 }],
+  })
+  Object.assign(store.getSnapshot(), { agents: ['writer', 'reviewer'].map(id => ({
+    id, origin: 'builtin', path: `/app/agents/${id}/AGENT.md`, digest: 'd', shadows: [], problems: [],
+    definition: { id, name: id === 'writer' ? 'Writer' : 'Reviewer', description: '', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: 'Inspect the work.' },
+  } satisfies import('@harnessdesk/protocol').AgentEntry)) })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  const start = vi.spyOn(store, 'startTeam').mockImplementation(async () => {
+    if (!opened) throw new Error(refusal)
+    return { goal: { id: 'team-1' } } as import('@harnessdesk/protocol').GoalView
+  })
+  const openWorkspace = vi.spyOn(store, 'openWorkspace')
+  const add = vi.spyOn(store, 'teamAdd').mockResolvedValue(undefined)
+  const seat = vi.spyOn(store, 'seatGoal').mockResolvedValue({} as never)
+  const openGoal = vi.spyOn(store, 'openGoal').mockImplementation(() => {})
+  const { onClose } = render(store, { kind: 'project', root: '/work/storefront' }, undefined, 'Inspect the cart')
+  await settle()
+  await act(async () => rowFor('Just a Team').click())
+  const writer = () => document.querySelector<HTMLButtonElement>('[aria-label="Seat Writer"]')!
+  const reviewer = () => document.querySelector<HTMLButtonElement>('[aria-label="Seat Reviewer"]')!
+  await act(async () => writer().click())
+  await act(async () => button('Start Team').click())
+  expect(document.body.textContent).toContain(refusal)
+  expect(start).toHaveBeenCalledOnce()
+  await act(async () => button('Open storefront').click())
+  expect(openWorkspace).toHaveBeenCalledExactlyOnceWith('/work/storefront')
+  expect(button('Start Team').disabled).toBe(true)
+  await act(async () => finishOpen())
+  expect(store.getSnapshot().workspace?.path).toBe('/work/storefront')
+  expect(document.body.textContent).not.toContain(refusal)
+  expect(document.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Inspect the cart')
+  expect(writer().getAttribute('aria-checked')).toBe('true')
+  expect(reviewer().getAttribute('aria-checked')).toBe('false')
+  expect(start).toHaveBeenCalledOnce()
+  expect(add).not.toHaveBeenCalled()
+  expect(seat).not.toHaveBeenCalled()
+  expect(openGoal).not.toHaveBeenCalled()
+  expect(onClose).not.toHaveBeenCalled()
+  expect(button('Start Team').disabled).toBe(false)
+  await act(async () => button('Start Team').click())
+  expect(start).toHaveBeenCalledTimes(2)
+  expect(start).toHaveBeenLastCalledWith({ root: '/work/storefront', sentence: 'Inspect the cart', checkout: 'shared' })
+  expect(add).toHaveBeenCalledExactlyOnceWith('team-1', { title: 'Inspect the cart' })
+  expect(seat).toHaveBeenCalledExactlyOnceWith({ goal: 'team-1', agent: 'writer' })
+  expect(openGoal).toHaveBeenCalledExactlyOnceWith('team-1')
+  expect(onClose).toHaveBeenCalledOnce()
+})
+
 it.each(['catalogue', 'create'])('Just a Team recovers a %s refusal and keeps the form choices', async stage => {
   const store = new AppStore('ws://localhost:0/')
   const refusal = '/work/storefront is outside every folder and repository opened here. Open it first.'

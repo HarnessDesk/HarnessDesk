@@ -66,13 +66,13 @@ HarnessDesk 使用仓库的假代理 rig。它证明真实 UI、预检、项目�
 - `pnpm build` 成功。
 - `node --test packages/server/dist/test/goal-start.test.js packages/server/dist/test/flow-methods.test.js packages/server/dist/test/flow-preview.test.js`：50 项通过。
 - FrontDoor、GoalCreate、FlowStart、AgentPage、FlowCards、team-start、store.goal 和 store.front-door：8 个文件，221 项通过。
-- 扩大到完整 UI Vitest 后，New Session、/race 与旧控制网格的三个测试契约完成同步；最终 `pnpm --filter @harnessdesk/ui test --maxWorkers=8`：672 个文件、8,440 项全部通过。
+- 扩大到完整 UI Vitest 后，New Session、/race 与旧控制网格的三个测试契约完成同步；最终 `pnpm --filter @harnessdesk/ui test --maxWorkers=8`：673 个文件、8,451 项全部通过。
 - 桌面复验：同一记住的项目成功创建普通团队、打开所选 Seat 并显示任务卡；人为改变可丢弃项目的 Git checkout identity 后，启动仍被拒绝，错误自动进入视口并获得焦点；恢复 fixture 后，Write and review 的同提供方阻断信息明确显示原因。
 - `pnpm check:push --base origin/development`：所选架构、设计、类型检查、protocol 和 retention 检查通过；server 测试中的 flow-resumed-work 在批量运行时超时。该文件单独重跑 1/1 通过。此次完整 check:push 的退出码仍为 1，不能记为全绿；规划器跳过的广泛依赖和浏览器套件也不算通过。
 
 - 最终 `pnpm check:push --base origin/development --fast` 成功；它明确跳过 Node/UI/browser 测试，不能替代上面单独执行的测试。新共享组件已注册到目录，生成文档和设计审计通过；布局历史基线减少 2 项，严格项保持零。
 
-浏览器回归文件同步更新了折叠目录、键盘焦点和四种布局组合的断言；本次通过 CUA 实际走查同一页面，未将未执行的 Playwright 套件记为通过。[PR #1813](https://github.com/HarnessDesk/HarnessDesk/pull/1813) 的首轮本地 reviewer 提出两项 low：快捷目录不应优先推荐损坏或旧格式 Flow，以及 decisions 应解释普通 Team 的项目准入。两者均修复：快捷推荐只取当前可读格式，完整目录仍保留错误；架构决策补记 renderer-only 的普通 Team 路径。新增回归先失败再通过。第二轮的两项 low（Keep selected Flow 焦点与图形加载状态）也已复现并修复；独立交叉检查另补充了完成条件编辑时的焦点保护。第三轮发现 New Session 仍断言旧创建方法，已修复并扩展到完整 UI 套件验证。最终审核结果随 PR 记录。
+浏览器回归文件同步更新了折叠目录、键盘焦点和四种布局组合的断言；本次通过 CUA 实际走查同一页面，未将未执行的 Playwright 套件记为通过。[PR #1813](https://github.com/HarnessDesk/HarnessDesk/pull/1813) 的首轮本地 reviewer 提出两项 low：快捷目录不应优先推荐损坏或旧格式 Flow，以及 decisions 应解释普通 Team 的项目准入。两者均修复：快捷推荐只取当前可读格式，完整目录仍保留错误；架构决策补记 renderer-only 的普通 Team 路径。新增回归先失败再通过。第二轮的两项 low（Keep selected Flow 焦点与图形加载状态）也已复现并修复；独立交叉检查另补充了完成条件编辑时的焦点保护。第三轮发现 New Session 仍断言旧创建方法，已修复并扩展到完整 UI 套件验证。第四轮发现 checkout 改变后的普通 Team 拒绝缺少直接恢复入口；已增加 Open project 识别，并把共享准入错误改成 try again。桌面实际点击 Open storefront 后任务保留，错误清除；再次明确点击 Start 后创建 Team 与任务卡，未自动重试。回归另验证所选 Agent 保留、旧版错误兼容和重开期间禁止启动。最终审核结果随 PR 记录。
 
 
 ## 可检查的界面证据
@@ -84,3 +84,5 @@ HarnessDesk 使用仓库的假代理 rig。它证明真实 UI、预检、项目�
 ![预设 Agent 直接配置](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/998014c248ed1904cc997f6b41e3a39bbfc1d37a/team-start-2026-10-19-b2aa/agent-runtime-direct.png)
 
 [角色配置](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/998014c248ed1904cc997f6b41e3a39bbfc1d37a/team-start-2026-10-19-b2aa/compact-role-configuration.png) · [窄窗口 light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/998014c248ed1904cc997f6b41e3a39bbfc1d37a/team-start-2026-10-19-b2aa/compact-flow-narrow-light.png) · [窄窗口 dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/998014c248ed1904cc997f6b41e3a39bbfc1d37a/team-start-2026-10-19-b2aa/compact-flow-narrow-dark.png) · [实际启动两个 Seat](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/998014c248ed1904cc997f6b41e3a39bbfc1d37a/team-start-2026-10-19-b2aa/compact-team-opened.png)
+
+![普通 Team 项目恢复](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/8766c655a17deac1dec9a3da75d20755beef93ed/team-start-2026-10-19-b2aa/plain-team-project-recovery.png)

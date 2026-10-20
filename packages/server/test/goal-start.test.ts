@@ -56,7 +56,11 @@ test('plain Team start refuses a changed captured checkout until the person open
   const replacement = await makeRepo('hd-plain-team-replacement-')
   t.after(() => rm(replacement.dir, { recursive: true, force: true }))
   await repo.git('config', 'core.worktree', replacement.dir)
-  await assert.rejects(client.call('goal/start', { root: repo.dir, sentence: 'Changed project' }), /project checkout changed/i)
+  await assert.rejects(client.call('goal/start', { root: repo.dir, sentence: 'Changed project' }), (error: Error) => {
+    assert.equal(error.message, 'The project checkout changed. Open the project folder again, then try again.')
+    assert.doesNotMatch(error.message, /preview/i)
+    return true
+  })
   assert.deepEqual(state.state.workspaces.find(entry => entry.path === repo.dir)?.shellIdentity, saved)
   assert.deepEqual(await client.call('goal/list', {}), [])
 })
