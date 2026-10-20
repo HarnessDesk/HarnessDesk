@@ -36,3 +36,14 @@ it('keeps the origin description and its Open action on Started by', () => {
     expect(row?.querySelector('button')?.textContent).toBe('Open origin')
   } finally { act(() => root.unmount()) }
 })
+
+it('gives up the middle of a long revision rather than overflowing, keeping the whole hash readable', () => {
+  const fixture = runFixture()
+  const revision = 'f'.repeat(40)
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<TeamRunFacts input={{ ...fixture, execution: { ...fixture.execution, revision } }} number={1} at="head-a" />))
+    const note = container.querySelector<HTMLElement>('[data-slot="summary-note"] [data-slot="middle-truncate"]')
+    expect(note?.textContent).toContain(`Revision ${revision}`)
+  } finally { act(() => root.unmount()) }
+})

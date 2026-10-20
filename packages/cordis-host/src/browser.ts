@@ -1,3 +1,4 @@
+import { browserProfileStorageName } from '@harnessdesk/protocol'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, type Dirent } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -226,19 +227,21 @@ export const setBrowserSettings = (next: Partial<BrowserSettings>): void => {
 export const browserSettings = (): BrowserSettings => settings
 
 /** The engine the setting asks for, or the nearest thing this process has. */
-const settingsFor = (state: BrowserState): BrowserSettings =>
-  state.profile === 'default'
+export const browserSettingsForProfile = (settings: BrowserSettings, profile: string): BrowserSettings =>
+  profile === 'default'
     ? settings
     : {
         ...settings,
         placement: settings.placement === 'system' ? 'window' : settings.placement,
-        keepProfile: true,
+        keepProfile: profile.startsWith('lane-') || settings.keepProfile !== false,
         profileDir: join(
           dirname(settings.profileDir ?? join(homedir(), '.harnessdesk', 'browser-profile')),
           'browser-profiles',
-          state.profile,
+          browserProfileStorageName(profile),
         ),
       }
+
+const settingsFor = (state: BrowserState): BrowserSettings => browserSettingsForProfile(settings, state.profile)
 
 const engine = (state = scopes.current()): BrowserEngine => {
   switch (settingsFor(state).placement) {

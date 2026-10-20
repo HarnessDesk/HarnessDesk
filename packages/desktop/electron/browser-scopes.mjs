@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { answered } from './deadline.mjs'
 import { printOptions, printResult } from './pdf.mjs'
 
@@ -7,12 +8,12 @@ export function browserPartition(profile, keep) {
   if (profile === null) return keep ? 'persist:harnessdesk-browser' : 'harnessdesk-browser-once'
   if (
     typeof profile !== 'string' ||
-    !/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) ||
+    !(/^(?:lane-[A-Za-z0-9-]{1,100}|session-[A-Za-z0-9_-]+)$/.test(profile)) ||
     profile.endsWith('\n')
   ) {
-    throw new Error('The host did not name a lane browser profile.')
+    throw new Error('The host did not name a browser profile.')
   }
-  return `persist:hd-${profile}`
+  return `${profile.startsWith('session-') && !keep ? '' : 'persist:'}hd-${profile.startsWith('session-') ? `session-${createHash('sha256').update(profile).digest('hex')}` : profile}`
 }
 
 /** Dependency injection keeps the tests on the actual engine, without an Electron process. */
@@ -23,6 +24,8 @@ export function createProfileBrowserEngine({
   window: currentWindow,
   show,
   allowedProfile,
+  resolveProfile = () => undefined,
+  storedPartitions = async () => [],
   keep = () => true,
   readyTimeoutMs = 10_000,
 }) {
@@ -32,6 +35,8 @@ export function createProfileBrowserEngine({
   const focused = new Map()
   const banked = new WeakMap()
   const partitionProfiles = new Map()
+  const profilesByPartition = new Map()
+  const chosenPartitions = new Map()
   const attaching = new WeakMap()
   let nextRequest = 0
   let tail = Promise.resolve()
@@ -42,11 +47,12 @@ export function createProfileBrowserEngine({
   }
   const deskSender = (event) => event.sender === currentWindow()?.webContents
   const partition = (profile) => {
-    const value = browserPartition(profile, keep())
+    const value = chosenPartitions.get(profile) ?? browserPartition(profile, keep())
     if (profile !== null && !allowedProfile(profile)) {
-      throw new Error('This browser profile is not owned by a kept lane.')
+      throw new Error('This browser profile is not owned by a known conversation or kept lane.')
     }
     partitionProfiles.set(sessionForPartition(value), profile)
+    profilesByPartition.set(value, profile)
     return value
   }
   const pending = (map, key, message) => {
@@ -192,20 +198,50 @@ export function createProfileBrowserEngine({
       },
     }
   }
+  // Discovery and clearing authorize a storage name without selecting it as
+  // the live guest's mode. Cold persistent data must not replace a memory guest.
+  const profileAtPartition = (value) => {
+    if (value === 'persist:harnessdesk-browser' || value === 'harnessdesk-browser-once') return null
+    if (typeof value !== 'string') return undefined
+    try {
+      const sessionProfile = /^(?:persist:)?hd-session-/.test(value)
+      const profile = sessionProfile
+        ? (profilesByPartition.get(value) ?? resolveProfile(value))
+        : value.startsWith('persist:hd-') ? value.slice('persist:hd-'.length) : undefined
+      if (typeof profile !== 'string' || !allowedProfile(profile)) return undefined
+      return [browserPartition(profile, true), browserPartition(profile, false)].includes(value) ? profile : undefined
+    } catch {
+      return undefined
+    }
+  }
   return {
     partition,
     profileForPartition(value) {
-      if (value === 'persist:harnessdesk-browser' || value === 'harnessdesk-browser-once') {
-        partitionProfiles.set(sessionForPartition(value), null)
-        return null
+      const profile = profileAtPartition(value)
+      if (profile === undefined) return undefined
+      chosenPartitions.set(profile, value)
+      profilesByPartition.set(value, profile)
+      partitionProfiles.set(sessionForPartition(value), profile)
+      return profile
+    },
+    async clearAllData() {
+      const targets = new Map(['persist:harnessdesk-browser', 'harnessdesk-browser-once'].map(value => [sessionForPartition(value), null]))
+      for (const [guestSession, profile] of partitionProfiles) {
+        if (profile === null || allowedProfile(profile)) targets.set(guestSession, profile)
       }
-      if (typeof value !== 'string' || !value.startsWith('persist:hd-')) return undefined
-      const profile = value.slice('persist:hd-'.length)
-      try {
-        return partition(profile) === value ? profile : undefined
-      } catch {
-        return undefined
+      // These are actual Electron Partitions directory names, already lowercased
+      // and escaped by Electron. Only names the current host owns are admitted.
+      for (const name of await storedPartitions()) {
+        const value = `persist:${name}`
+        const profile = profileAtPartition(value)
+        if (profile !== undefined) targets.set(sessionForPartition(value), profile)
       }
+      await Promise.all([...targets].map(async ([guestSession, profile]) => {
+        if (profile !== null && !allowedProfile(profile)) return
+        await guestSession.clearStorageData()
+        if (profile !== null && !allowedProfile(profile)) return
+        await guestSession.clearCache()
+      }))
     },
     profileOfSession(value) {
       return partitionProfiles.get(value)

@@ -62,7 +62,9 @@ for (const theme of ['light', 'dark'] as const) {
     await surface.screenshot({ path: testInfo.outputPath(`stale-defaults-${theme}.png`) })
     await model.click()
     const menu = page.getByRole('menu')
-    await expect(menu).toContainText('Saved Model: Model A. This value is no longer offered.')
+    // The reason rides the clear row's mark as its tooltip rather than a second line of text.
+    const clear = menu.getByRole('menuitem', { name: /Use the runtime’s current value/ })
+    await expect(clear.locator('[data-slot="issue-mark"]')).toHaveAttribute('title', 'Saved Model: Model A. This value is no longer offered.')
     await expect(menu).toContainText('model-a — Unavailable')
     await expect(menu.getByRole('menuitemradio', { name: 'Model B' })).toBeEnabled()
     await page.screenshot({ path: testInfo.outputPath(`stale-menu-${theme}.png`) })

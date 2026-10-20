@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { runtimeId, sessionId, type HostMethodName, type SessionSummary, type WireNotification } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, type HostMethodName, type SessionSummary, type TeamState, type WireNotification } from '@harnessdesk/protocol'
 import { AppStore } from './store'
 
 const runtimeInfo = {
@@ -122,6 +122,20 @@ describe('history search request ordering', () => {
     await store.loadHistory({ reset: true })
     await store.searchHistory('Lead')
     expect(store.getSnapshot().history.map(row => row.title)).toEqual(['Lead'])
+  })
+
+  it('matches a nested Seat nickname independently of its conversation title', async () => {
+    const row = { ...summary('seat-conversation'), title: 'A different conversation title' }
+    const key = sessionKey(row.runtime, row.id)
+    const team: TeamState = { id: 'search-team', name: 'Build', root: '/repo', updatedAt: 1,
+      members: [key], nicknames: { [key]: 'Writer 2' }, messaging: true, intents: [], channel: [] }
+    push(store, { method: 'team/changed', params: { state: team } } as WireNotification)
+    request.mockImplementation(((method: HostMethodName) => Promise.resolve(
+      method === 'session/index' ? { data: [row], nextCursor: null } : method === 'session/search' ? { data: [], nextCursor: null } : null
+    )) as never)
+    await store.loadHistory({ reset: true })
+    await store.searchHistory('Writer 2')
+    expect(store.getSnapshot().history.map(one => one.id)).toEqual([row.id])
   })
 
 })

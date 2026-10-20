@@ -13,6 +13,9 @@ export const SCENES = {
   'tour-chats': { width: 800, height: 500 },
   // The hero: the README's race, Side by side on two Browsers.
   'hero-race': { width: 1200, height: 750 },
+  // The showcase band: a Run's path, and the Team's board.
+  'showcase-run': { width: 1260, height: 520 },
+  'showcase-board': { width: 1480, height: 540 },
 } as const
 
 export type SceneName = keyof typeof SCENES

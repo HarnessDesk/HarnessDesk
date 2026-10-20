@@ -16,6 +16,14 @@ const ANSWER = [
   'If you want, start a project from this chat and I can sketch the client.',
 ].join('\n')
 
+/** What the composer's pickers offer: a model list under the placeholder account, and its effort levels. */
+const MODELS = [['gpt-5.6-sol', 'GPT-5.6 Sol'], ['gpt-5.6-luna', 'GPT-5.6 Luna'], ['gpt-5.5', 'GPT-5.5'], ['gpt-5.4-mini', 'GPT-5.4 mini']] as const
+const EFFORTS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high']] as const
+const OPTIONS = [
+  { id: 'model', type: 'select', label: 'Model', category: 'model', currentValue: 'gpt-5.6-sol', choices: MODELS.map(([value, label]) => ({ value, label })) },
+  { id: 'reasoning_effort', type: 'select', label: 'Reasoning effort', category: 'thought_level', currentValue: 'medium', choices: EFFORTS.map(([value, label]) => ({ value, label })) },
+]
+
 const summary = (id: string, cwd: string, title: string, updatedAt: number): SessionSummary => ({
   id: sessionId(id), runtime: runtimeId('codex'), cwd, title, preview: title, createdAt: updatedAt - 60_000, updatedAt,
   status: { type: 'notLoaded' }, archived: false, git: null, repo: null,
@@ -38,7 +46,7 @@ export const chatsStore = (): AppStore => {
   } as never)
   store.agentCatalog = async () => []
   store.queue = async () => true
-  const chat = { ...history[0]!, status: { type: 'idle' }, itemsLoaded: true, turns: [{ id: turnId('chat-turn'), status: 'completed',
+  const chat = { ...history[0]!, status: { type: 'idle' }, itemsLoaded: true, options: OPTIONS, turns: [{ id: turnId('chat-turn'), status: 'completed',
     startedAt: now - 3 * 60_000, completedAt: now - 2 * 60_000, items: [
       { id: itemId('question'), type: 'userMessage', content: [{ type: 'text', text: ASK }] },
       { id: itemId('answer'), type: 'assistantMessage', text: ANSWER },
@@ -46,7 +54,7 @@ export const chatsStore = (): AppStore => {
   const key = sessionKey(chat.runtime, chat.id)
   const workbench = store.getSnapshot().workbench
   const main = only(workbench.main, { kind: 'conversation', session: key })
-  store.patch({ sessions: new Map([[key, chat]]), activeSessionKey: key, layout: main, sidebarCollapsed: false, sidebarFloating: true,
+  store.patch({ sessions: new Map([[key, chat]]), activeSessionKey: key, layout: main, sidebarCollapsed: true, sidebarFloating: false,
     workbench: { ...workbench, main, navigation: { ...workbench.navigation,
       current: { kind: 'work', view: { kind: 'conversation', session: key } } } } } as never)
   store.notice = () => {}

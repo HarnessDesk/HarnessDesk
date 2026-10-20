@@ -1269,7 +1269,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'terminal/close': shape({ terminalId: isString }),
 
   'worktree/list': shape({ root: isString }),
-  'worktree/create': shape({ root: isString, name: isString, base: optional(isString) }),
+  'worktree/create': shape({ root: isString, name: isString, base: optional(isString), fromDefault: optional(isBoolean) }),
   'worktree/changes': shape({ path: isString }),
   'worktree/remove': shape({ path: isString, force: optional(isBoolean) }),
   'worktree/bringHome': shape({ path: isString }),

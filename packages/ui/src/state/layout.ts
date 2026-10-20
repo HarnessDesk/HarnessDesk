@@ -1,3 +1,4 @@
+import { isBrowserProfile } from '@harnessdesk/protocol'
 import type { RuntimeId, SessionKey, UiDock } from '@harnessdesk/protocol'
 import { fromStored, toStored, type StoredSideBySide } from '../lib/side-by-side'
 
@@ -827,7 +828,7 @@ const readBrowser = (record: Record<string, unknown>): BrowserView => {
   const profile = record['profile'] ?? null
   if (
     profile !== null &&
-    (typeof profile !== 'string' || !/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))
+    !isBrowserProfile(profile)
   ) {
     return browserView(BLANK)
   }

@@ -10,7 +10,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 
-import { currentTurn, type RuntimeInfo, type SessionKey } from '@harnessdesk/protocol'
+import { currentTurn, sessionBrowserProfile, splitSessionKey, type RuntimeInfo, type SessionKey } from '@harnessdesk/protocol'
 
 import {
   ANNOTATE_ALIVE,
@@ -757,7 +757,14 @@ const BrowserPaneContent = () => {
   const inline = hasInlineBrowser()
   const prefs = snapshot.browserPrefs
   const observedDriving = useDriving()
-  const driving = profile === null ? observedDriving : null
+  // A named profile belongs to one conversation, so only that conversation
+  // driving counts; the shared default pane is driven by whoever calls the tool.
+  const drivenKey = observedDriving?.key ?? null
+  const driving = profile === null
+    ? observedDriving
+    : drivenKey !== null && sessionBrowserProfile(splitSessionKey(drivenKey).runtime, splitSessionKey(drivenKey).id) === profile
+      ? observedDriving
+      : null
 
   /** The runtime of the conversation beside this pane, for the driven mark. */
   const activeRuntime = useMemo(() => {

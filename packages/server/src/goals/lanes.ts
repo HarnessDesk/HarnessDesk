@@ -140,11 +140,11 @@ export function laneOf(value: unknown): Lane {
 }
 
 export class LaneStore {
-  readonly #file: string; readonly #serial = new Serial(); #lanes: Lane[] = []; #loaded = false
+  readonly #file: string; readonly #serial = new Serial(); #lanes: Lane[] = []; #loaded = false; #revision = 0
   constructor(home: string, private readonly write: typeof atomicJson = atomicJson) { this.#file = join(home, 'lanes', 'index.json') }
   async load(): Promise<void> {
     let raw: string
-    try { raw = await readFile(this.#file, 'utf8') } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; this.#loaded = true; return }
+    try { raw = await readFile(this.#file, 'utf8') } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; this.#loaded = true; this.#revision++; return }
     if (Buffer.byteLength(raw) > 8 * 1024 * 1024) throw new Error('The lane registry is larger than 8 MiB.')
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null || (parsed as { version?: unknown }).version !== 1 || !Array.isArray((parsed as { lanes?: unknown }).lanes)) throw new Error('The lane registry version cannot be read. Update the desk before allocating a lane.')
@@ -155,13 +155,15 @@ export class LaneStore {
       if (intervals.some((one) => lane.ports.start <= one.ports.end && one.ports.start <= lane.ports.end)) throw new Error('The lane registry has overlapping port leases. Repair it before allocating a lane.')
       intervals.push(lane)
     }
-    this.#lanes = lanes; this.#loaded = true
+    this.#lanes = lanes; this.#loaded = true; this.#revision++
   }
   get loaded(): boolean { return this.#loaded }
+  /** Changes only after a successful load or durable write. */
+  get revision(): number { return this.#revision }
   list(): readonly Lane[] { if (!this.#loaded) throw new Error('Read the lane registry before allocating a lane.'); return this.#lanes.map((lane) => structuredClone(lane)) }
   save(lane: Lane): Promise<void> { return this.#serial.run(async () => {
     this.list(); const next = [...this.#lanes.filter((one) => one.id !== lane.id), laneOf(lane)]
-    await mkdir(join(this.#file, '..'), { recursive: true }); await this.write(this.#file, { version: 1, lanes: next }); this.#lanes = next
+    await mkdir(join(this.#file, '..'), { recursive: true }); await this.write(this.#file, { version: 1, lanes: next }); this.#lanes = next; this.#revision++
   }) }
 }
 

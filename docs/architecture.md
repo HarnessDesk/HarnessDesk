@@ -260,12 +260,15 @@ sample.
   and delivery tracking.
 - **Goals, Seats and lanes** — finite work lives in `goals/`, while append-only
   Seat/evidence records say who belonged. Isolated Seats receive a retained git
-  worktree, a durable port block and an invocation-scoped browser profile. The
+  worktree and a durable port block. Every conversation, including sessions
+  sharing a checkout, owns a browser profile keyed by its runtime and session id.
+  Browser panes, Team tiles and tool invocations use that same identity; the host
+  admits restored profiles only for known sessions or retained legacy lanes. The
   six-value lane environment is supplied by the host to each new/resumed agent
   process whose runtime can take it per session; the renderer never reads or
   invents it. A lane needs only its checkout from a runtime — the cwd, from the
-  desk's own lane record, is the confinement, and the browser profile is found
-  by it — so a runtime that cannot take the variables is still seated in its
+  desk's own lane record, is the confinement; released lanes also refuse browser
+  tools — so a runtime that cannot take the variables is still seated in its
   lane, and its standing order tells it the values to pass explicitly.
   A settled Run keeps its Seats open for follow-ups. A Seat that held work
   releases its live session after all its cards are done and it has no turn,

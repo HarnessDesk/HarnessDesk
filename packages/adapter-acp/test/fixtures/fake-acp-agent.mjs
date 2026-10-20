@@ -134,6 +134,7 @@ const newSession = (id0, cwd) => {
     modeId: 'chatty',
     modelId: 'small',
     options: {
+      mode: 'default',
       voice: 'plain',
       verbose: false,
       auto_approve: false,
@@ -152,6 +153,18 @@ const newSession = (id0, cwd) => {
 }
 
 const declaredOptionsOf = (state) => [
+  ...(process.env.FAKE_ACP_CONFIG_MODE === '1' ? [{
+    id: 'mode',
+    name: 'Session Mode',
+    category: 'mode',
+    type: 'select',
+    currentValue: state.options.mode,
+    options: [
+      { value: 'default', name: 'Default' },
+      { value: 'auto_edit', name: 'Auto Edit' },
+      { value: 'yolo', name: 'YOLO' },
+    ],
+  }] : []),
   ...(GROUPED_MODELS ? [{
     id: 'model',
     name: 'Model',
@@ -1256,6 +1269,13 @@ const handlers = {
   'session/set_config_option': (id, params) => {
     const state = sessions.get(params.sessionId)
     if (!state) return fail(id, 'no such session')
+    if (process.env.FAKE_ACP_CONFIG_MODE === '1' && params.configId === 'mode') {
+      if (!['default', 'auto_edit', 'yolo'].includes(params.value)) return fail(id, `no mode ${params.value}`)
+      state.options.mode = params.value
+      reply(id, { configOptions: configOptionsOf(state) })
+      update(state.id, { sessionUpdate: 'config_option_update', configOptions: configOptionsOf(state) })
+      return
+    }
     if (params.configId === 'auto_approve' && params.type !== 'boolean') {
       return fail(id, 'auto_approve must use the ACP boolean option type')
     }

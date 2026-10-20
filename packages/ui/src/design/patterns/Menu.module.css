@@ -10,4 +10,14 @@
   z-index: var(--hd-z-popover);
 }
 
+.issueMark {
+  display: inline-flex;
+  align-items: center;
+  color: var(--hd-warning-ink);
+}
+
+.issueMark[data-tone='danger'] {
+  color: var(--hd-danger-ink);
+}
+
 .surface, .flyout { position: relative; }

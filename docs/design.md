@@ -1081,8 +1081,10 @@ capitals and for a heavier weight.
 ### Sidebar trailing rail
 
 In the production `SessionTree`, trailing state marks mean attention or an
-error: **Needs you**, **Ready to wrap**, a failure or a missing folder. Running conversations
-and Teams have no spinner or Working label; their activity stays on hover,
+error: **Needs you**, a failure or a missing folder; Team and Seat rows also show **New**. Working conversations
+show a spinner, after attention and errors in priority. A working Team spins
+only while collapsed; its expanded Seats carry their own activity. Activity
+words stay on hover,
 along with branch, worktree and pin facts. `LeftColumnRow` uses a compact
 mark that yields to the hover action without folding a full state label.
 
@@ -1111,11 +1113,17 @@ The production tree uses `LeftColumnRow`: a 34px row pitch
 (`--hd-sidebar-highlight-h`), leaving a 2px gap. About 20px of air above
 group headers comes from `--hd-sidebar-group-space`, adjusted for the line's
 position inside its row. State stays on its row as a compact attention or
-error mark; running activity stays on hover.
+error mark, followed in priority by a working spinner. Activity words stay on hover.
 
 Pinned is one plain section for loose conversations, with its heading,
 separator and uncapped rows. Every active Team, and each finished Team until
-it is wrapped, is one row in its project beside the loose conversations.
+it is wrapped, has a row in its project beside the loose conversations.
+The disclosure after its name reveals Seats one step in: their runtime icons
+start at the Team label, while all trailing marks retain the parent rail.
+The selected Team and the Team owning an open Seat start expanded.
+A working Seat shows its claimed card number, when present, and a spinner;
+the small running ring ends on the trailing guide inside the unchanged mark slot.
+An idle Seat has no mark. Seats do not count toward the project cap.
 A finished Team keeps the attention dot, labelled **Ready to wrap**. Team
 members do not also appear as loose rows. Wrapped Teams live on the Teams page.
 Agents and Plugins keep catalogue counts on their pages; a sidebar count
@@ -1129,12 +1137,14 @@ and is preserved when selection changes.
 
 Project headers have no folder icon: their names use 14px secondary ink.
 The fold chevron follows the name, visible when folded or on hover or keyboard
-focus; the end actions appear on hover or focus. Folding leaves only the
+focus; Team rows use the same fold chevron after their name, with no leading
+gutter, and its own control folds Seats without opening the Team. The end
+actions appear on hover or focus. Folding leaves only the
 header. The footer is a transparent 48px row with a full-width hairline and
 no identity pill; readiness and usage are read in the account menu.
 The sidebar catalogue and `preview.html?sidebar-structure` mount the same
-production tree. Nested Seat rows, guide lines and full state-label folding
-belong to the generic sidebar specimens, not this tree.
+production tree, including nested Seat rows. Guide lines and full state-label
+folding belong to the generic sidebar specimens.
 
 ### Destination rows
 

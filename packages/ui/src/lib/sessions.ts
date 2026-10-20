@@ -32,6 +32,17 @@ export const sessionLabel = (
 }
 
 /**
+ * Indexed titles keep the person's name when live runtime metadata is older.
+ * Live titles fill a missing indexed title; live previews fill out a row whose
+ * first ask has not reached the index yet.
+ */
+export const indexedSessionLabel = (
+  indexed: Pick<Session, 'title' | 'preview'>,
+  live?: Pick<Session, 'title' | 'preview'>,
+  fallback?: string,
+): string => sessionLabel(indexed.title ?? live?.title, live?.preview ?? indexed.preview, fallback)
+
+/**
  * How long a name may be where nothing can elide it for us. 60 keeps the
  * Window menu and the Dock's window list readable at their usual widths.
  */
@@ -86,4 +97,3 @@ export const firstAsk = (session: Session): string | null => {
   }
   return null
 }
-

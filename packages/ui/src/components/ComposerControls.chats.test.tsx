@@ -35,5 +35,5 @@ it('recovers the worktree menu when the open repository had no live facts in rec
   await act(async () => root.render(<StoreProvider store={store}><PlaceControl onChooseProject={() => {}} /></StoreProvider>))
   expect(request).toHaveBeenCalledWith('git/status', { root: '/project' })
   await act(async () => { await new Promise<void>(done => requestAnimationFrame(() => done())) })
-  expect([...host.querySelectorAll('button')].map(button => button.title)).toContain('Starts in project, on main')
+  expect([...host.querySelectorAll('button')].map(button => button.title)).toContain('Starts in a new worktree on its own branch, made when you send')
 })

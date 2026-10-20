@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { mkdir, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import { ExtensionKernel, type HarnessContext, type HarnessPlugin } from '@harnessdesk/cordis-host'
 import { gitPlugin } from '@harnessdesk/plugins'
-import { sessionId, type AgentRuntime, type Session } from '@harnessdesk/protocol'
+import { browserProfileStorageName, sessionBrowserProfile, sessionId, type AgentRuntime, type Session } from '@harnessdesk/protocol'
 
 import { bridgeCallerFor } from '../src/bootstrap.js'
 import { invokeForBridge } from '../src/tool-gateway.js'
@@ -689,7 +690,7 @@ test('POSIX browser lane membership keeps slash/backslash checkouts distinct', {
   const scope = { runtime: agent.info.id, sessionId: id }
   assert.throws(() => resolveBrowser(scope), /lane was released/, 'control: the actual lane is found')
   host.registry.upsert({ ...session, cwd: foreign }, null)
-  assert.equal(resolveBrowser(scope), 'default', 'a distinct POSIX folder cannot select the released browser lane')
+  assert.equal(resolveBrowser(scope), sessionBrowserProfile(scope.runtime, scope.sessionId), 'a distinct POSIX folder cannot select the released browser lane')
 })
 
 test('legacy workspace record without identity refuses shell until workspace open', async (t) => {
@@ -730,4 +731,92 @@ test('ambient GIT_DIR and GIT_WORK_TREE cannot redirect captured or validated id
   } finally {
     keys.forEach((key, index) => { const value = saved[index]; if (value === undefined) delete process.env[key]; else process.env[key] = value })
   }
+})
+
+
+test('browser tools isolate sessions sharing a checkout and include the runtime identity', async (t) => {
+  const base = tempDir('hd-browser-session-')
+  const kernel = new ExtensionKernel()
+  let resolveBrowser!: Parameters<ExtensionKernel['setBrowserResolver']>[0]
+  const original = kernel.setBrowserResolver.bind(kernel)
+  t.mock.method(kernel, 'setBrowserResolver', (resolve: typeof resolveBrowser) => { resolveBrowser = resolve; original(resolve) })
+  const host = new Host({ logger: silent, state: new StateStore(join(base, 'state.json')), extensions: kernel,
+    builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(async () => { await host.dispose(); await kernel.dispose() })
+  await host.start()
+  const agent = new FakeRuntime()
+  const scopes = ['alpha', 'beta'].map(id => {
+    host.registry.upsert({ id: sessionId(id), runtime: agent.info.id, cwd: base, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }, null)
+    return { runtime: agent.info.id, sessionId: sessionId(id) }
+  })
+  const profiles = scopes.map(scope => resolveBrowser(scope))
+  assert.notEqual(profiles[0], profiles[1], 'same-checkout sessions must not share tabs or storage')
+  for (const profile of profiles) {
+    assert.match(profile!, /^session-/)
+    assert.equal(host.browserProfileAllowed(profile!), true)
+  }
+  assert.equal(resolveBrowser(scopes[0]!), profiles[0], 'a repeated tool invocation returns the same profile')
+  assert.equal(host.browserProfileForPartition(`persist:hd-${browserProfileStorageName(profiles[0]!)}`), profiles[0], 'a live session not yet indexed still resolves through the fallback')
+  const otherRuntime = { runtime: 'other-runtime' as typeof agent.info.id, sessionId: scopes[0]!.sessionId }
+  host.registry.upsert({ ...host.registry.get(scopes[0]!.runtime, scopes[0]!.sessionId)!.session, runtime: otherRuntime.runtime }, null)
+  assert.notEqual(resolveBrowser(otherRuntime), profiles[0], 'runtime accounts may reuse a session id')
+  assert.equal(host.browserProfileAllowed(sessionBrowserProfile('unknown-runtime', 'alpha')), false)
+  assert.equal(host.browserProfileAllowed('session-forged'), false)
+  assert.throws(() => resolveBrowser({ runtime: agent.info.id, sessionId: sessionId('not-known') }), /known conversation/)
+})
+
+test('desktop can restore a known session profile from the durable index before its runtime reopens', async (t) => {
+  const base = tempDir('hd-browser-restore-')
+  const options = { logger: silent, state: new StateStore(join(base, 'state.json')), builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') }
+  const host = new Host(options)
+  const runtime = new FakeRuntime()
+  host.register(runtime)
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: base } })
+  const profile = sessionBrowserProfile(session.runtime, session.id)
+  assert.equal(host.browserProfileAllowed(profile), true)
+  const liveScans = t.mock.method(host.registry, 'all')
+  for (let n = 0; n < 3; n++) {
+    assert.equal(host.browserProfileForPartition(`persist:hd-${browserProfileStorageName(profile)}`), profile)
+  }
+  assert.equal(liveScans.mock.callCount(), 0, 'indexed profiles never hash and scan all live records')
+  liveScans.mock.restore()
+  await host.dispose()
+  const reopened = new Host({ ...options, state: new StateStore(join(base, 'state.json')) })
+  t.after(() => reopened.dispose())
+  await reopened.start()
+  assert.equal(reopened.registry.get(session.runtime, session.id), undefined)
+  assert.equal(reopened.browserProfileAllowed(profile), true)
+  assert.equal(reopened.browserProfileForPartition(`persist:hd-${browserProfileStorageName(profile)}`), profile)
+  assert.equal(reopened.browserProfileForPartition(`hd-${browserProfileStorageName(profile)}`), profile)
+  assert.equal(reopened.browserProfileForPartition(`hd-session-${'a'.repeat(64)}`), undefined)
+  assert.equal(reopened.browserProfileForPartition(`persist:hd-session-${'a'.repeat(64)}`), undefined)
+  assert.equal(reopened.browserProfileAllowed(sessionBrowserProfile(session.runtime, 'not-known')), false)
+})
+
+test('browser admission reuses path checks and immediately invalidates on lane writes', async (t) => {
+  const base = tempDir('hd-browser-admission-cache-')
+  let lanes!: LaneStore
+  const load = LaneStore.prototype.load
+  t.mock.method(LaneStore.prototype, 'load', function (this: LaneStore) { lanes = this; return load.call(this) })
+  const host = new Host({ logger: silent, state: new StateStore(join(base, 'state.json')),
+    builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  await host.start()
+  const agent = new FakeRuntime()
+  const id = sessionId('cached-browser')
+  host.registry.upsert({ id, runtime: agent.info.id, cwd: base, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }, null)
+  const profile = sessionBrowserProfile(agent.info.id, id)
+  const paths = t.mock.method(realpathSync, 'native')
+  assert.equal(host.browserProfileAllowed(profile), true)
+  const checked = paths.mock.callCount()
+  assert.ok(checked > 0)
+  for (let n = 0; n < 20; n++) assert.equal(host.browserProfileAllowed(profile), true)
+  assert.equal(paths.mock.callCount(), checked, 'CDP commands do not repeatedly resolve the same paths')
+  await lanes.save({ id: 'cached-lane', goal: 'fixture-goal', seat: null, cwd: base, branch: 'fixture',
+    ports: { start: 30000, end: 30019 }, browserProfile: null, state: 'active', createdAt: 1 })
+  assert.equal(host.browserProfileAllowed(profile), true)
+  assert.ok(paths.mock.callCount() > checked)
+  await lanes.save({ ...lanes.list()[0]!, state: 'released' })
+  assert.equal(host.browserProfileAllowed(profile), false, 'revocation invalidates a warm cache immediately')
 })

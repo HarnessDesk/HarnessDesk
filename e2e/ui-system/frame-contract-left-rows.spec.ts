@@ -12,17 +12,19 @@ for (const theme of WALL_THEMES) {
   test(`D4 all work rows share the same text and icon edges in ${theme}`, async ({ page }) => {
     await openFrame(page, 'sidebar-structure', theme)
     const column = page.locator('#sidebar-structure')
-    const rows = column.locator('[data-left-row]:visible:not(:has([data-draggable]))')
+    const rows = column.locator('[data-left-row]:visible:not([data-left-nested]):not(:has([data-draggable]))')
     expect(await rows.count()).toBeGreaterThan(3)
-    const values = await expectColumnRowEdges(rows)
+    const values = await expectColumnRowEdges(rows.filter({ hasNot: page.locator('[data-left-disclosure]') }))
+    const teamIcons = await rows.filter({ has: page.locator('[data-left-disclosure]') }).locator('[data-slot="sidebar-menu-icon"]').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x))
+    for (const x of teamIcons) expect(Math.abs(x - values[0].icon!)).toBeLessThanOrEqual(1)
     const labels = await column.locator('[data-left-group-text]:visible')
       .evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x))
     for (const x of labels) expect(Math.abs(x - values[0].icon)).toBeLessThanOrEqual(1)
     const groupType = await column.locator('[data-left-group-text]:visible')
       .evaluateAll(nodes => nodes.map(node => ({ size: parseFloat(getComputedStyle(node).fontSize), weight: parseInt(getComputedStyle(node).fontWeight, 10) })))
     for (const group of groupType) { expect(group.size).toBe(FRAME.rail.label); expect(group.weight).toBe(FRAME.rail.groupWeight) }
-    await expect(column.locator('[data-nested="true"]')).toHaveCount(0)
-    await expect(column.locator('[aria-label*="agents in"]')).toHaveCount(0)
+    await expect(column.locator('[data-nested="true"]')).toHaveCount(1)
+    await expect(column.locator('[data-left-disclosure]')).toHaveCount(2)
   })
 }
 

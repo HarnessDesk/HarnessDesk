@@ -269,10 +269,12 @@ const SummaryList = ({ className, children, surface = 'card', style, ...props }:
 const ON_ACTION_LINE =
   'group-has-[[data-slot=summary-action]]/summary:py-[calc((var(--hd-btn-h-sm)_-_var(--hd-line-sm))_/_2)]'
 
-const SummaryItem = ({ className, label, children, note, action, numeric = false, kind = 'text', ...props }:
+const SummaryItem = ({ className, label, children, note, noteKind = 'text', action, numeric = false, kind = 'text', ...props }:
   Omit<React.ComponentProps<'div'>, 'children'> & {
     label: React.ReactNode; children: React.ReactNode; note?: React.ReactNode; action?: React.ReactNode
     numeric?: boolean; kind?: 'text' | 'path'
+    /** `path` gives a one-line note its middle to lose, as `kind` does the value: for a hash or a path, never a sentence. */
+    noteKind?: 'text' | 'path'
   }) => {
   const panel = useContext(SummarySurface) === 'panel'
   return <div data-slot="summary-item" {...(numeric ? { 'data-numeric': '' } : {})}
@@ -285,7 +287,7 @@ const SummaryItem = ({ className, label, children, note, action, numeric = false
         numeric ? panel ? 'text-left tabular-nums' : 'text-right tabular-nums' : 'text-left',
         action == null && 'col-span-2', !panel && ON_ACTION_LINE)}>
         {valueOf(children, kind)}
-        {note != null && <p data-slot="summary-note" className="m-0 mt-(--hd-space-0-5) text-left text-(--hd-secondary-foreground)">{note}</p>}
+        {note != null && <p data-slot="summary-note" className="m-0 mt-(--hd-space-0-5) text-left text-(--hd-secondary-foreground)">{valueOf(note, noteKind)}</p>}
       </div>
       {action != null && <div data-slot="summary-action" className="col-start-2 flex min-w-0 items-start justify-end gap-(--hd-space-2)">{action}</div>}
     </dd>
