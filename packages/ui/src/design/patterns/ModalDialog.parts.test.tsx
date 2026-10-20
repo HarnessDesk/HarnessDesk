@@ -133,9 +133,68 @@ it('keeps consequence sentences and opaque identifiers readable while the title 
   const rule = /\.description\s*\{([^}]*)\}/s.exec(modalSheet)?.[1] ?? ''
   expect(rule).toMatch(/white-space:\s*normal/)
   expect(rule).toMatch(/overflow-wrap:\s*anywhere/)
-  expect(rule).toMatch(/max-height:\s*min\(8vh,\s*calc\(var\(--hd-line-sm\)\s*\*\s*4\)\)/)
+  expect(rule).toMatch(/max-height:\s*min\(round\(down,\s*8vh,\s*var\(--hd-line-sm\)\),\s*calc\(var\(--hd-line-sm\)\s*\*\s*4\)\)/)
   expect(rule).toMatch(/overflow-y:\s*auto/)
   expect(rule).not.toMatch(/(?:overflow:\s*hidden|text-overflow:\s*ellipsis|white-space:\s*nowrap)/)
+})
+
+it('makes only an overflowing description tabbable and remeasures text and viewport changes', () => {
+  const observers: { check: () => void; observe: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    observe = vi.fn()
+    disconnect = vi.fn()
+    constructor(callback: ResizeObserverCallback) { observers.push({ check: () => callback([], this as unknown as ResizeObserver), observe: this.observe, disconnect: this.disconnect }) }
+  })
+  try {
+    sheet(<DialogHead title="Chats folder">Short consequence.</DialogHead>)
+    const description = document.body.querySelector<HTMLElement>('[data-slot="dialog-description"]')!
+    expect(description.hasAttribute('tabindex')).toBe(false)
+    let content = 120, height = 40
+    Object.defineProperties(description, { scrollHeight: { get: () => content }, clientHeight: { get: () => height } })
+    act(() => window.dispatchEvent(new Event('resize')))
+    expect(description.tabIndex).toBe(0)
+    const first = observers.at(-1)!
+    expect(first.observe).toHaveBeenCalledWith(description)
+    height = 120
+    act(() => first.check())
+    expect(description.hasAttribute('tabindex')).toBe(false)
+    height = 40
+    act(() => window.dispatchEvent(new Event('resize')))
+    expect(description.tabIndex).toBe(0)
+    content = 40
+    // A changed string must be measured even when the constrained box has not resized.
+    sheet(<DialogHead title="Chats folder">A changed short consequence.</DialogHead>)
+    expect(description.hasAttribute('tabindex')).toBe(false)
+    expect(first.disconnect).toHaveBeenCalledOnce()
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('disconnects removed descriptions and ignores their queued observer callbacks', () => {
+  const observers: { check: () => void; disconnect: ReturnType<typeof vi.fn> }[] = []
+  const remove = vi.spyOn(window, 'removeEventListener')
+  vi.stubGlobal('ResizeObserver', class {
+    observe = vi.fn()
+    disconnect = vi.fn()
+    constructor(callback: ResizeObserverCallback) { observers.push({ check: () => callback([], this as unknown as ResizeObserver), disconnect: this.disconnect }) }
+  })
+  try {
+    sheet(<DialogHead title="Chats folder"><span>Long refusal</span></DialogHead>)
+    const old = document.body.querySelector<HTMLElement>('[data-slot="dialog-description"]')!
+    Object.defineProperties(old, { scrollHeight: { value: 120 }, clientHeight: { value: 40 } })
+    act(() => window.dispatchEvent(new Event('resize')))
+    expect(old.tabIndex).toBe(0)
+    const first = observers.at(-1)!
+    sheet(<DialogHead title="Chats folder" />)
+    expect(first.disconnect).toHaveBeenCalledOnce()
+    expect(remove).toHaveBeenCalledWith('resize', expect.any(Function))
+    sheet(<DialogHead title="Chats folder">Short consequence.</DialogHead>)
+    const fresh = document.body.querySelector<HTMLElement>('[data-slot="dialog-description"]')!
+    act(() => first.check())
+    expect(fresh.hasAttribute('tabindex')).toBe(false)
+    const last = observers.at(-1)!
+    act(() => root.render(null))
+    expect(last.disconnect).toHaveBeenCalledOnce()
+  } finally { remove.mockRestore(); vi.unstubAllGlobals() }
 })
 
 it('keeps a reading body out of the form grammar', () => {

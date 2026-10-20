@@ -42,6 +42,7 @@ for (const theme of ['light', 'dark'] as const) test(`Storage cleanup keeps its 
   await expect(dialog).toBeVisible()
   const description = dialog.locator('[data-slot="dialog-description"]')
   await expect(description).toHaveText('Conversations and branches stay. Reopening a conversation recreates its worktree.')
+  await expect(description).not.toHaveAttribute('tabindex')
   const held = await dialog.evaluate(node => {
     const head = node.querySelector<HTMLElement>('[data-slot="dialog-head"]')!, desc = head.querySelector<HTMLElement>('[data-slot="dialog-description"]')!
     const footer = node.querySelector<HTMLElement>('[data-slot="dialog-footer"]')!, body = node.querySelector<HTMLElement>('[data-slot="modal-dialog-body"]')!
@@ -87,8 +88,8 @@ for (const theme of ['light', 'dark'] as const) test(`Storage cleanup keeps its 
   await expect(dialog).toHaveCount(0)
 })
 
-for (const theme of ['light', 'dark'] as const) test(`a long folder refusal leaves its body and actions reachable (${theme})`, async ({ page }) => {
-  await page.setViewportSize({ width: 720, height: 520 })
+for (const height of [520, 900]) for (const theme of ['light', 'dark'] as const) test(`a long folder refusal leaves its body and actions reachable (${height} ${theme})`, async ({ page }) => {
+  await page.setViewportSize({ width: 720, height })
   await page.route('**/src/preview/main.tsx*', async route => {
     const response = await route.fetch(), source = await response.text()
     const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
@@ -149,13 +150,16 @@ for (const theme of ['light', 'dark'] as const) test(`a long folder refusal leav
   expect(held.viewportSpill).toBeLessThanOrEqual(1)
   expect(held.horizontalSpill).toBeLessThanOrEqual(1)
   expect(held.reasonScroll).toBeGreaterThan(0)
-  expect(held.reasonHeight).toBeLessThanOrEqual(Math.min(520 * .08, held.lineHeight * 4))
-  const end = await description.evaluate(node => {
-    node.scrollTop = node.scrollHeight
-    return { top: node.scrollTop, remaining: node.scrollHeight - node.clientHeight - node.scrollTop }
-  })
-  expect(end.top).toBeGreaterThan(0)
-  expect(end.remaining).toBeLessThanOrEqual(1)
+  expect(held.reasonHeight).toBe(Math.min(Math.floor(height * .08 / held.lineHeight) * held.lineHeight, held.lineHeight * 4))
+  await expect(description).toHaveAttribute('tabindex', '0')
+  await page.keyboard.press('Tab')
+  await expect(description).toBeFocused()
+  await page.keyboard.press('PageDown')
+  await expect.poll(() => description.evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+  await page.keyboard.press('End')
+  await expect.poll(() => description.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThanOrEqual(1)
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
   await dialog.getByRole('button', { name: 'Open “work”', exact: true }).click()
   await expect(page.getByRole('region', { name: 'Folder refusal fixture' })).toHaveAttribute('data-chosen', '/work')
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()

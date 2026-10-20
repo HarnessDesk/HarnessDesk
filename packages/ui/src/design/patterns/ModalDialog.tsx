@@ -1,4 +1,4 @@
-import { useRef, type ComponentProps, type ComponentType, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react'
 
 import { CrossIcon } from '../../components/Icons'
 import { cn } from '../../lib/utils'
@@ -64,6 +64,22 @@ export const DialogHead = ({
   closeDisabled?: boolean
   children?: ReactNode
 }) => {
+  const description = useRef<HTMLParagraphElement>(null)
+  const [descriptionOverflows, setDescriptionOverflows] = useState(false)
+  // Scrollable descriptions get one explicit keyboard stop across engines.
+  // Short consequences stay in the ordinary title-to-controls Tab order.
+  useEffect(() => {
+    const node = description.current
+    if (!node) { setDescriptionOverflows(false); return }
+    let live = true
+    const measure = () => { if (live) setDescriptionOverflows(node.scrollHeight > node.clientHeight) }
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(node)
+    for (const child of node.children) observer?.observe(child)
+    window.addEventListener('resize', measure)
+    return () => { live = false; observer?.disconnect(); window.removeEventListener('resize', measure) }
+  }, [children])
   /* The title step, said as utilities so the preview and app render alike. */
   const name = (className: string | undefined) => (
     // A title is a name: it gives way at its end on one line, and the whole of it is on hover.
@@ -85,6 +101,8 @@ export const DialogHead = ({
           </div>
           {children != null && (
             <DialogDescription
+              ref={description}
+              tabIndex={descriptionOverflows ? 0 : undefined}
               className={cn(styles.description, 'text-(--hd-secondary-foreground) text-(length:--hd-text-sm) leading-(--hd-line-sm)')}
             >
               {children}
