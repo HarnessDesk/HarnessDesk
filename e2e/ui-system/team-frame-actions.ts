@@ -26,9 +26,9 @@ export const selectTeamDestination = async (frame: Locator, value: string): Prom
   await tab.click()
   await expect(tab).toHaveAttribute('aria-selected', 'true')
   if (value === 'board' || value === 'findings') {
-    const local = frame.getByRole('tablist', { name: 'Task views', exact: true }).getByRole('tab', { name: value === 'board' ? 'Board' : /^Findings(?:\s|$)/, exact: value === 'board' })
-    await local.click()
-    await expect(local).toHaveAttribute('aria-selected', 'true')
+    const findings = frame.locator('[data-slot="task-navigation"]').getByRole('button', { name: /^Findings(?:\s|$)/ })
+    if (value === 'findings') await findings.click()
+    await expect(findings).toHaveAttribute('aria-pressed', String(value === 'findings'))
   }
 }
 

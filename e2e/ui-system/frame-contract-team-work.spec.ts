@@ -117,7 +117,7 @@ for (const theme of WALL_THEMES) {
     await expect(main).toContainText('Round 1')
     const details = await teamDetails(page.locator('[data-frame-id="frame-wall"]'))
     await expect(details.locator('[aria-label="Team Run facts"]')).toBeVisible()
-    await expect(details.locator('[aria-label="Seats"]')).toBeVisible()
+    await expect(details.locator('[data-slot="tool-section"][aria-label="Seats"]')).toBeVisible()
     await expect(details.locator('[data-slot="summary-card"][data-surface="card"]')).toHaveCount(0)
     // The canonical toggle stays above the covered main area and returns to
     // the same timeline without reselecting or releasing the retained record.

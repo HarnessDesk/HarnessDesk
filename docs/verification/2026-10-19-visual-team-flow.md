@@ -75,3 +75,7 @@ CI 上原有三个真实图形配置用例曾接近或超过 5 秒默认测试�
 新轮复核还补充了 SkillPage 的空 Loaded by 集合省略；读取中和保留的失败仍显示。测试先红后绿，SkillPage 48 项通过。输入框 No folder 测试保留原精确标题和内容断言，等待异步渲染完成，避免仅在完整套件负载下读取旧 DOM。合并后的三组守卫测试 53 项通过。
 
 公开新增帧位于不可变截图提交 [35a55e46f074](https://github.com/HarnessDesk/HarnessDesk/tree/35a55e46f0743df0c6e9234bbccd039377503c44/pr-1813/visual-team-flow)，均来自隔离 rig，已逐张检查。
+
+最终冻结产品源码后的完整 UI Vitest：677 个文件、8,596 项通过，退出码 0，211.94 秒。最终类型检查、Vite 构建和快速提交门禁再次通过。760px 收起与 1200px Details 并排均通过实际测量；1200×800 时浮动 rail 为 x=504、宽 288、底 448，Details 从 x=800 开始，保留 8px 间隔且无横向溢出。
+
+Hosted browser 先执行于 50d45bc51。旧完成结果预览需要先切到 Chat；修正后 optional-judge 在 91e205d45 上四项全部通过（run 39382135011）。另外两处 Team Work helper 迁移保留了 Tasks/Findings 的实际选中状态断言和 Seats 区域可见性断言，等待独立重跑。
