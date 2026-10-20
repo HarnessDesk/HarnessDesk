@@ -1,5 +1,6 @@
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
-import { recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
+import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
+import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
@@ -10,7 +11,7 @@ import { terminalCwdForSnapshot } from '../lib/terminal-scope'
 import { type TeamChatLayout, type TeamFramePage } from './layout'
 import { replaceTeamPayload } from './workbench'
 import { settleConversationTool, conversationToolContext, fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
-import { activeView, fixedSubject, normalizeFixedWorkbench } from './workbench'
+import { activeView, fixedSubject, isolateSessionBrowserProfiles, normalizeFixedWorkbench } from './workbench'
 import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
 import { teamsInput } from '../lib/teams-snapshot'
 import { roomFoldersGone } from '../lib/room-folders'
@@ -2777,6 +2778,10 @@ export class AppStore {
       readonly worktree?: string
       /** The branch the worktree starts from. HEAD when absent. */
       readonly base?: string
+      readonly fromDefault?: boolean
+      /** Independent tasks started from another conversation still need their own checkout. */
+      readonly isolated?: boolean
+      readonly onCheckout?: (checkout: Worktree) => void
       readonly split?: Split['direction']
       /** Start on this runtime instead of the active one. */
       readonly runtime?: RuntimeId
@@ -2811,20 +2816,39 @@ export class AppStore {
     }
     try {
       let cwd = workspace
-      if (options.worktree !== undefined && workspace) {
+      let worktree = options.worktree, fromDefault = options.fromDefault
+      if (options.isolated && worktree === undefined && workspace) {
+        const status = await this.transport.request('git/status', { root: workspace })
+        if (status?.headSha) {
+          worktree = `session-${crypto.randomUUID()}`
+          fromDefault = true
+        }
+      }
+      if (worktree !== undefined && workspace) {
+        const attemptedPlace = this.#snapshot.draftPlace
         const created = await this.transport.request('worktree/create', {
           root: workspace,
-          name: options.worktree,
+          name: worktree,
           ...(options.base ? { base: options.base } : {}),
+          ...(fromDefault ? { fromDefault: true } : {}),
+        }).catch((error: unknown) => {
+          // Failed allocation made no usable checkout. Restore only this
+          // automatic choice; a newer or explicitly armed place belongs to
+          // the person. Successful allocations still survive runtime refusal.
+          if (attemptedPlace?.kind === 'worktree' && attemptedPlace.fromDefault &&
+            attemptedPlace.root === workspace && attemptedPlace.name === worktree &&
+            this.#snapshot.draftPlace === attemptedPlace) this.#patch({ draftPlace: null })
+          throw error
         })
         cwd = created.path
+        options.onCheckout?.(created)
         void this.loadWorktrees()
         // The worktree exists now. When it is the draft's armed place, the
         // draft points at it: an agent that fails to start leaves the draft as
         // it was, and a retry must start in this worktree, not cut a second
         // one beside it. A race cuts its own worktrees and touches no draft.
         const place = this.#snapshot.draftPlace
-        if (place?.kind === 'worktree' && place.root === workspace && place.name === options.worktree) {
+        if (place?.kind === 'worktree' && place.root === workspace && place.name === worktree) {
           this.#patch({ draftPlace: { kind: 'existing', path: created.path, branch: created.branch } })
         }
       }
@@ -2880,11 +2904,11 @@ export class AppStore {
           if (intent || scope) {
             const subject = `session:${key}`
             const pane = focusedPane(before.main)
-            this.#setWorkbench({ ...before,
+            this.#setWorkbench(isolateSessionBrowserProfiles({ ...before,
               frameTools: intent ? { ...frameTools, [subject]: intent } : frameTools,
               frameSubjects: { ...frameSubjects, [subject]: { paneId: pane.id, view: pane.view } },
               toolOwners: Object.fromEntries(Object.entries(before.toolOwners).map(([id, owner]) => [id, owner === draftSubject ? subject : owner])),
-            })
+            }))
           }
         }
       }
@@ -3105,17 +3129,41 @@ export class AppStore {
    * either wastes a trip finding it or, worse, answers about the folder it
    * is actually in.
    */
-  #draftStart(): { readonly cwd?: string; readonly worktree?: string; readonly base?: string } {
+  async #draftStart(): Promise<{ readonly cwd?: string; readonly worktree?: string; readonly base?: string; readonly fromDefault?: boolean } | null> {
     // A place the person chose outranks the one the packet names: the
     // packet says where the work *was*, the choice says where it goes next.
     const place = this.#snapshot.draftPlace
     if (place?.kind === 'chats') return {}
     if (place?.kind === 'existing') return { cwd: place.path }
     if (place?.kind === 'worktree') {
-      return { cwd: place.root, worktree: place.name, ...(place.base ? { base: place.base } : {}) }
+      return { cwd: place.root, worktree: place.name, ...(place.base ? { base: place.base } : {}), ...(place.fromDefault ? { fromDefault: true } : {}) }
     }
     const carried = this.#snapshot.draftHandoff?.cwd
-    return carried ? { cwd: carried } : {}
+    if (carried) return { cwd: carried }
+    let workspace = this.#snapshot.workspace
+    if (workspace && keepsWorkspacePlace(workspace)) return {}
+    if (workspace && workspace.git == null) {
+      const root = workspace.path, navigation = this.#navigationEpoch
+      const runtime = this.#snapshot.activeRuntime, handoff = this.#snapshot.draftHandoff
+      const checked = await this.refreshWorkspaceGit(root)
+      if (navigation !== this.#navigationEpoch || this.#snapshot.workspace?.path !== root) return null
+      if (runtime !== this.#snapshot.activeRuntime || handoff !== this.#snapshot.draftHandoff) return null
+      // An explicit choice made while the read was pending wins.
+      if (this.#snapshot.draftPlace !== null) return this.#draftStart()
+      workspace = this.#snapshot.workspace
+      if (!checked || workspace.git === undefined) {
+        this.resultNotice('error', 'Could not check this folder’s Git state. Try again, or explicitly choose Local.')
+        return null
+      }
+    }
+    if (workspace && canIsolateDraft(workspace)) {
+      const name = `session-${crypto.randomUUID()}`
+      // Keep the choice before allocation so a failed runtime start retries
+      // in the checkout already made for this draft.
+      this.#patch({ draftPlace: { kind: 'worktree', root: workspace.path, name, fromDefault: true } })
+      return { cwd: workspace.path, worktree: name, fromDefault: true }
+    }
+    return {}
   }
 
   /**
@@ -3131,7 +3179,11 @@ export class AppStore {
   async send(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<void> {
     // Typing into an empty workspace is how a session starts: create it, then
     // send, so the first message is one gesture rather than two.
-    key ??= await this.newSession(this.#draftStart())
+    if (!key) {
+      const place = await this.#draftStart()
+      if (!place) return
+      key = await this.newSession(place)
+    }
     if (!key) return
     try {
       await this.transport.request('turn/send', { ...address(key), input })
@@ -3707,7 +3759,14 @@ export class AppStore {
       })
   }
 
-  /** The browser pane, if one is open. There is at most one per layout. */
+  #activeBrowserProfile(): string | null {
+    const key = this.#snapshot.activeSessionKey
+    if (!key) return null
+    const { runtime, id } = splitSessionKey(key)
+    return sessionBrowserProfile(runtime, id)
+  }
+
+  /** The browser pane, if one is open for the requested profile. */
   /**
    * The browser, wherever it is docked.
    *
@@ -3816,8 +3875,8 @@ export class AppStore {
     url?: string,
     options: { readonly split?: Split['direction'] | null; readonly profile?: string | null; readonly driven?: boolean } = {},
   ): void {
-    const profile = options.profile ?? null
-    if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) {
+    const profile = options.profile !== undefined ? options.profile : this.#activeBrowserProfile()
+    if (profile !== null && !isBrowserProfile(profile)) {
       throw new Error('Invalid browser profile.')
     }
     const existing = this.#browserPane(profile)
@@ -3838,8 +3897,28 @@ export class AppStore {
     const restored = this.#closedBrowsers.get(profile ?? 'default')
     this.#closedBrowsers.delete(profile ?? 'default')
     const view = sendDriven(restored ?? browserView(BLANK, profile))
-    // Legacy split arguments normalize to the fixed right panel.
-    this.openDefaultView(view)
+    // A first tool open can arrive for a background conversation. Its browser
+    // belongs to that conversation, even while the person keeps reading another.
+    const owner = profile && browserProfileSession(profile)
+    const ownerKey = owner ? sessionKey(owner.runtime, owner.sessionId) : null
+    const subject = ownerKey ? `session:${ownerKey}` : null
+    const before = this.#snapshot.workbench
+    if (options.driven && subject && subject !== fixedSubject(before.main)) {
+      const scope = before.frameSubjects[subject] ?? {
+        paneId: before.main.focused, view: { kind: 'conversation' as const, session: ownerKey },
+      }
+      const main = { root: { kind: 'pane' as const, id: scope.paneId, view: scope.view }, focused: scope.paneId, expanded: null }
+      let admitted = admitFixedTool({ ...before, main }, view)
+      if (admitted) {
+        const active = activeView(before.right)
+        if (active) admitted = activateIn(admitted, 'right', active.id)
+        this.#setWorkbench({ ...admitted, main: before.main, navigation: before.navigation, focus: before.focus,
+          right: { ...admitted.right, collapsed: before.right.collapsed } })
+      }
+    } else {
+      // Legacy split arguments normalize to the fixed right panel.
+      this.openDefaultView(view)
+    }
     this.#frontBrowserTile(profile)
   }
 
@@ -3935,7 +4014,7 @@ export class AppStore {
   }
 
   get hasClosedBrowserTabs(): boolean {
-    return (this.#closedTabs.get('default')?.length ?? 0) > 0
+    return (this.#closedTabs.get(this.#activeBrowserProfile() ?? 'default')?.length ?? 0) > 0
   }
 
   /** Closing the last tab closes the pane, the way closing a window's last tab does. */
@@ -3988,7 +4067,7 @@ export class AppStore {
     this.#patchBrowser(paneId, (view) => patchBrowserTab(view, tabId, { device }))
   }
 
-  closeBrowser(profile: string | null = null): void {
+  closeBrowser(profile: string | null = this.#activeBrowserProfile()): void {
     const existing = this.#browserPane(profile)
     if (!existing) return
     // A pane in the middle or a view in a dock: `closePane` knows only the
@@ -4346,7 +4425,7 @@ export class AppStore {
         )
       : null
     const migration = rehomed ? normalizeFixedWorkbench(rehomed, true) : null
-    const restored = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
+    const restored = migration ? settleWorkbench(isolateSessionBrowserProfiles(migration.workbench)) : emptyWorkbench()
     const view = selected ? { kind: 'conversation' as const, session: selected.conversation } : null
     const target = view ? { ...restored, main: onlyIn(restored.main, view),
       navigation: visitDestination(restored.navigation, destinationOf(view)) } : restored
@@ -4753,7 +4832,8 @@ export class AppStore {
       (pane) => pane.view.kind === 'conversation' && !sessionOf(pane),
     )
     if (!onDraft) this.newDraft()
-    this.#patch({ draftPlace: place })
+    const workspace = this.#snapshot.workspace
+    this.#patch({ draftPlace: place ?? (workspace ? { kind: 'existing', path: workspace.path, branch: workspace.git?.branch ?? null } : null) })
   }
 
   /**
@@ -6864,7 +6944,11 @@ export class AppStore {
    * the queue exists.
    */
   async queue(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<boolean> {
-    key ??= await this.newSession(this.#draftStart())
+    if (!key) {
+      const place = await this.#draftStart()
+      if (!place) return false
+      key = await this.newSession(place)
+    }
     if (!key) return false
     try {
       await this.transport.request('turn/queue', { ...address(key), input })
@@ -7264,27 +7348,35 @@ export class AppStore {
     }
   }
 
-  readonly #workspaceGitReads = new Map<string, object>()
+  readonly #workspaceGitReads = new Map<string, { next?: Promise<boolean> }>()
 
   /** Refresh a menu's checkout without opening it or reordering recent folders. */
-  async refreshWorkspaceGit(root: string): Promise<void> {
-    const read = {}
+  refreshWorkspaceGit(root: string): Promise<boolean> {
+    const previous = this.#workspaceGitReads.get(root)
+    const read: { next?: Promise<boolean> } = {}
     this.#workspaceGitReads.set(root, read)
-    try {
-      const status = await this.transport.request('git/status', { root })
-      if (this.#workspaceGitReads.get(root) !== read) return
-      const update = (entry: WorkspaceEntry): WorkspaceEntry => entry.path === root
-        ? { ...entry, git: status ? { branch: status.branch, sha: status.headSha } : null }
-        : entry
-      this.#patch({
-        workspace: this.#snapshot.workspace ? update(this.#snapshot.workspace) : null,
-        workspaces: this.#snapshot.workspaces.map(update),
-        workspaceGitFacts: new Map(this.#snapshot.workspaceGitFacts).set(root, status ? { branch: status.branch, sha: status.headSha } : null),
-      })
-    } catch { /* Keep the last known facts when Git cannot be read. */ }
-    finally {
-      if (this.#workspaceGitReads.get(root) === read) this.#workspaceGitReads.delete(root)
-    }
+    const pending = (async (): Promise<boolean> => {
+      try {
+        const status = await this.transport.request('git/status', { root })
+        // Older callers follow the newer result, even if it already finished
+        // and left the map. A superseded read is not a failed first send.
+        if (read.next) return read.next
+        const update = (entry: WorkspaceEntry): WorkspaceEntry => entry.path === root
+          ? { ...entry, git: status ? { branch: status.branch, sha: status.headSha } : null }
+          : entry
+        this.#patch({
+          workspace: this.#snapshot.workspace ? update(this.#snapshot.workspace) : null,
+          workspaces: this.#snapshot.workspaces.map(update),
+          workspaceGitFacts: new Map(this.#snapshot.workspaceGitFacts).set(root, status ? { branch: status.branch, sha: status.headSha } : null),
+        })
+        return true
+      } catch { return read.next ?? false /* Keep established facts when the latest read fails. */ }
+      finally {
+        if (this.#workspaceGitReads.get(root) === read) this.#workspaceGitReads.delete(root)
+      }
+    })()
+    if (previous) previous.next = pending
+    return pending
   }
 
   #folderCleared = false
@@ -8090,26 +8182,34 @@ export class AppStore {
     this.markInboxRead(id)
   }
 
-  /**
-   * Starts the task a kept message suggests: a new conversation, in the
-   * sender's project (or a fresh chat folder) and on its runtime, whose first
-   * message is the task. The message is read once it has been acted on.
-   */
+  readonly #suggestedTaskCheckouts = new Map<string, string>()
+  readonly #suggestedTasksStarting = new Set<string>()
+
+  /** Starts an independent task on its sender's runtime, retaining a refused start's checkout for retry. */
   async startSuggestedTask(id: string): Promise<void> {
     const entry = this.#snapshot.inbox.find((message) => message.id === id)
-    if (!entry?.task) return
+    if (!entry?.task || this.#suggestedTasksStarting.has(id)) return
     const from = entry.from
     const sender = from
       ? (this.#snapshot.sessions.get(sessionKey(from.runtime, from.sessionId as SessionId)) ??
         this.#snapshot.history.find((summary) => summary.runtime === from.runtime && summary.id === from.sessionId))
       : undefined
-    const key = await this.newSession({
-      ...(sender?.cwd ? { cwd: isChatFolder(sender.cwd, this.#snapshot.chatsFolderRoots) ? null : sender.cwd } : {}),
-      ...(from ? { runtime: from.runtime as RuntimeId } : {}),
-    })
-    if (!key) return
-    await this.send([{ type: 'text', text: entry.task }], key)
-    this.markInboxRead(id)
+    const source = sender?.cwd ? isChatFolder(sender.cwd, this.#snapshot.chatsFolderRoots) ? null : sender.cwd : this.#snapshot.workspace?.path
+    const allocation = JSON.stringify([id, from?.runtime ?? this.#snapshot.activeRuntime, source, entry.task])
+    const retained = this.#suggestedTaskCheckouts.get(allocation)
+    this.#suggestedTasksStarting.add(id)
+    try {
+      const key = await this.newSession({
+        isolated: !retained,
+        ...(retained ? { cwd: retained } : source !== undefined ? { cwd: source } : {}),
+        onCheckout: checkout => { this.#suggestedTaskCheckouts.set(allocation, checkout.path) },
+        ...(from ? { runtime: from.runtime as RuntimeId } : {}),
+      })
+      if (!key) return
+      this.#suggestedTaskCheckouts.delete(allocation)
+      await this.send([{ type: 'text', text: entry.task }], key)
+      this.markInboxRead(id)
+    } finally { this.#suggestedTasksStarting.delete(id) }
   }
 
   #setInbox(inbox: readonly InboxEntry[]): void {

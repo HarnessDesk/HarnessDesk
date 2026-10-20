@@ -1,21 +1,21 @@
 import { expect, it } from 'vitest'
-import { sessionKey, type GoalView, type Lane, type Session, type SeatRecord } from '@harnessdesk/protocol'
+import { sessionBrowserProfile, sessionKey, type GoalView, type Lane, type Session, type SeatRecord } from '@harnessdesk/protocol'
 import { emptySnapshot } from '../state/store'
 import { browserView } from '../state/layout'
 import { dock, findView, readWorkbench, viewAt } from '../state/workbench'
 import { BrowserTileRegistry, seatBrowserProfile, tileBrowserWorkbench } from './browser-tiles'
 
-it('reads the frozen Seat checkout, refuses unknown and released lanes, and respects a shared profile', () => {
+it('reads the frozen Seat checkout, refuses unknown and released lanes, and isolates sessions even without lane profiles', () => {
   const key = sessionKey('assistant', 'alpha')
   const snapshot = emptySnapshot()
   const seat = { session: { runtime: 'assistant', sessionId: 'alpha' }, checkout: { cwd: '/workspace/alpha' }, board: 'demo', closed: null } as SeatRecord
   const lanes = [{ cwd: '/workspace/alpha', browserProfile: 'lane-alpha', state: 'active' }] as Lane[]
   const known = { ...snapshot, lanePreferences: { start: 30000, width: 20, browserProfile: true }, lanes, goals: new Map([['demo', { goal: { checkout: 'isolated' }, members: [seat] } as unknown as GoalView]]), sessions: new Map([[key, { cwd: '/workspace/other' } as Session]]) }
   expect(seatBrowserProfile(snapshot, key)).toBeUndefined()
-  expect(seatBrowserProfile(known, key)).toBe('lane-alpha')
+  expect(seatBrowserProfile(known, key)).toBe(sessionBrowserProfile('assistant', 'alpha'))
   expect(seatBrowserProfile({ ...known, lanes: [] }, key)).toBeUndefined()
   expect(seatBrowserProfile({ ...known, lanes: [{ ...lanes[0]!, state: 'released' }] }, key)).toBeUndefined()
-  expect(seatBrowserProfile({ ...known, lanes: [{ ...lanes[0]!, browserProfile: null }] }, key)).toBeNull()
+  expect(seatBrowserProfile({ ...known, lanes: [{ ...lanes[0]!, browserProfile: null }] }, key)).toBe(sessionBrowserProfile('assistant', 'alpha'))
 })
 
 it('hands a shared browser to the next mounted tile and ignores a repeated release', () => {
@@ -48,4 +48,26 @@ it('projects borrowed browsers away without changing saved tabs, other panels or
   const room = findView(restored, { kind: 'room', room: 'demo' })!
   expect(viewAt(restored, room.area === 'main' ? room.pane : room.mounted.id)).toMatchObject({ sideBySide: { modes: { [key]: 'browser' }, expanded: key } })
   expect(findView(restored, browserView('about:blank', 'lane-alpha'))).not.toBeNull()
+})
+
+it('sessions and Seats sharing a checkout have separate profiles under the same runtime and across runtimes', () => {
+  const snapshot = { ...emptySnapshot(), lanePreferences: { start: 30000, width: 20, browserProfile: false },
+    sessions: new Map(['alpha', 'beta'].map(id => [sessionKey('assistant', id), { cwd: '/workspace/shared' } as Session])) }
+  const first = seatBrowserProfile(snapshot, sessionKey('assistant', 'alpha'))
+  const second = seatBrowserProfile(snapshot, sessionKey('assistant', 'beta'))
+  expect(first).toBe(sessionBrowserProfile('assistant', 'alpha'))
+  expect(first).not.toBe(second)
+})
+
+it('cold restoration moves a conversation legacy browser into its own partition while retaining tabs', () => {
+  const key = sessionKey('assistant', 'alpha')
+  const snapshot = emptySnapshot()
+  const workbench = dock(snapshot.workbench, 'right', browserView('https://example.com/legacy'))
+  const browser = findView(workbench, browserView())!
+  if (browser.area === 'main') throw new Error('expected docked browser')
+  const owned = { ...workbench, toolOwners: { [browser.mounted.id]: `session:${key}` },
+    frameSubjects: { [`session:${key}`]: { paneId: 'fixture', view: { kind: 'conversation' as const, session: key } } } }
+  const migrated = readWorkbench(JSON.parse(JSON.stringify(owned)))!
+  const view = viewAt(migrated, browser.mounted.id)
+  expect(view).toMatchObject({ profile: sessionBrowserProfile('assistant', 'alpha'), tabs: browser.mounted.view.kind === 'browser' ? browser.mounted.view.tabs : [] })
 })

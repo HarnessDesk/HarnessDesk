@@ -1,4 +1,4 @@
-import { splitSessionKey, type Approval, type CapabilityContribution } from '@harnessdesk/protocol'
+import { sessionBrowserProfile, splitSessionKey, type Approval, type CapabilityContribution } from '@harnessdesk/protocol'
 import { AppStore } from '../state/store'
 import { ToolBody, ToolSection, DestinationBody } from '../design'
 import { DestinationBar, DestinationPageScope } from './destination-page'
@@ -479,6 +479,10 @@ it('standalone Team admission retains each original Seat browser profile and pla
   const held = dockViews(store.getSnapshot().workbench.right)
   expect(held).toHaveLength(2)
   const keys = SIDE_BY_SIDE_KEYS.slice(0, 2)
+  expect(held.map(one => one.view.kind === 'browser' ? one.view.profile : null)).toEqual(keys.map(key => {
+    const { runtime, id } = splitSessionKey(key)
+    return sessionBrowserProfile(runtime, id)
+  }))
   const view = { kind: 'room' as const, room: PREVIEW_ROOM, framePage: 'room' as const, chatLayout: 'side-by-side' as const,
     sideBySide: { tiles: keys, focused: keys[0], modes: Object.fromEntries(keys.map(key => [key, 'browser' as const])) } }
   await act(async () => root.render(<StoreProvider store={store}><TeamFramePreview room={PREVIEW_ROOM} view={view} /></StoreProvider>))

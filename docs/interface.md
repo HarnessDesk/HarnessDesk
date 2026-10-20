@@ -295,7 +295,13 @@ everything-search, then New session and three navigation rows; one scrolling
 docked panels, notices and the seat.
 
 **New session** starts a draft in the current project with the default runtime,
-in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
+in one click, just like ⌘N. In a repository with a commit, the draft defaults to
+**New worktree**: the first message makes a checkout and branch of its own from
+the known default branch. **Local** and an existing worktree are explicit choices;
+non-Git folders and repositories before their first commit keep their folder.
+An explicitly opened linked worktree or repository subfolder also keeps its
+selected location. Unread Git facts show **Checking Git…** until the place is known.
+The always-visible ⌄ beside it opens **More ways to
 start**: Open folder…, New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
 until its first message. The project’s right-click menu also offers **New worktree…**,
@@ -360,6 +366,9 @@ Team name like a project header's fold chevron, visible while folded or on row
 hover or keyboard focus; it reveals Seats without opening the Team. Rows keep
 their original edge, with no leading gutter. ArrowRight expands and ArrowLeft folds.
 Team and loose-conversation icons align; a Seat icon starts under the Team label.
+A Team row’s right-click menu and trailing action button offer the same Rename,
+Run again, Wrap and Stop run actions as its header, with the same eligibility
+and confirmation questions. They remain available without kept Seat conversations.
 Seat rows keep the same 34px pitch and trailing rail as their parent, in the
 Team's roster order; activity does not reorder them. A filter temporarily reveals
 matching Seats, and the chevron can fold that reveal. Clearing the filter restores
@@ -864,7 +873,7 @@ presses none of its other ways in for it.
 in [extending.md](extending.md).
 
 - **Work in** says where a new conversation will run, while that is still a
-  choice: **Local** (the folder as it is), a worktree the project already has,
+  choice: **New worktree** by default in a committed repository, **Local** (the folder as it is), a worktree the project already has,
   or **New worktree** — named and based in a dialog, and made when the first
   message goes, so an abandoned draft leaves no branch behind. A folder that
   is itself a worktree wears its branch and a worktree badge, never Local —
@@ -1470,7 +1479,8 @@ same-project conversation through a durable Seat; stale or busy choices are
 refused without moving it.
 
 Workspaces › Lanes controls the machine-wide defaults for new isolated Seats:
-port start, block width and browser-profile isolation. Retained descriptors show
+port start and block width, with the legacy lane-profile preference retained for
+older browser panes. Conversation browsers always isolate by session. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Opening **Wrap** prefills **What finished** from the Run's recorded results.
 Comparison attempts have one line each, identified by card number and title:
@@ -1546,9 +1556,10 @@ show live pages at once. When two rows cannot fit the Browser controls, a
 usable page and the shared dock, member tabs show one tile at a time; making
 the room taller restores the grid without reloading its pages.
 A Seat with no page shows **Nothing open yet** and
-**Pages the runtime opens appear here.** Seats that share the ordinary browser
-profile share one surface; another tile says where that browser is already
-shown.
+**Pages the runtime opens appear here.** Every conversation owns its tabs, cookies
+and storage, including conversations in the same checkout or branch. Its browser
+tools and pane use that same profile. Closing one conversation's browser leaves
+other conversations' pages alone.
 
 A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
 and adding an Agent; Board omits its unclaimed count, and members show name and

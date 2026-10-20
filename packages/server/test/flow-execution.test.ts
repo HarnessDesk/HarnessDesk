@@ -454,7 +454,7 @@ rules: []
   assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-2', 'order:seat-1'])
   assert.deepEqual(rig.lanes.get('seat-1'), lanes[0])
 
-  rig.lanes.set('seat-2', { ...lanes[1]!, browserProfile: null })
+  rig.lanes.set('seat-2', { ...lanes[1]!, state: 'released' })
   await rig.flows.reArm(rig.sessionOf('seat-2').runtime, rig.sessionOf('seat-2').sessionId)
   await rig.flows.flush()
   assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-2', 'order:seat-1'], 'a changed environment is not re-armed')
@@ -465,7 +465,7 @@ test('an isolated step whose lane is incomplete is refused and its Seat released
   const rig = await goalRig(t)
   rig.laneFor = (n, seat) => ({
     id: `lane-${n}`, goal: seat.board!, seat: String(seat.id), cwd: seat.checkout.cwd, branch: `harnessdesk/lane-${n}`,
-    ports: { start: 30000, end: 30019 }, browserProfile: null, state: 'active', createdAt: 1,
+    ports: { start: 30000, end: 29999 }, browserProfile: null, state: 'active', createdAt: 1,
   })
   const run = await rig.start(`
 version: 2
@@ -2144,4 +2144,28 @@ complete: {land: [landed]}
 test('project and model opening refusals name their own recovery', () => {
   assert.match(seatRefused(1, [1, 2], 'The Seat project is outside every project opened here. Open it first.'), /Next: open the project folder again, then choose Run again\./)
   assert.match(seatRefused(1, [1], 'the model is unavailable'), /Next: choose an available model, then choose Run again\./)
+})
+
+test('isolated Seats start and re-arm without legacy lane browser profiles', async (t) => {
+  const rig = await goalRig(t)
+  rig.laneFor = (n, seat) => ({
+    id: `lane-${n}`, goal: seat.board!, seat: String(seat.id), cwd: seat.checkout.cwd, branch: `harnessdesk/lane-${n}`,
+    ports: { start: 30000 + n * 20, end: 30019 + n * 20 }, browserProfile: null, state: 'active', createdAt: 1,
+  })
+  const run = await rig.start(`
+version: 2
+name: Session browser isolation
+roles:
+  author: { kind: agent, uses: writer, count: 2, isolate: true }
+seed: { role: author, title: Write }
+rules: []
+`, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-2'])
+  assert.notEqual(rig.lanes.get('seat-1')!.cwd, rig.lanes.get('seat-2')!.cwd)
+  rig.kill('seat-1')
+  await rig.flows.reArm(rig.sessionOf('seat-1').runtime, rig.sessionOf('seat-1').sessionId)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-2', 'order:seat-1'])
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'running')
 })

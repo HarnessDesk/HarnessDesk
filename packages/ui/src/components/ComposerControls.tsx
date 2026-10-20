@@ -6,6 +6,7 @@ import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
 import { worktreeBranch } from '../lib/worktree-branch'
+import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { type Brand, brandForRuntime } from '../lib/brands'
 import { brandOf } from '../lib/identity'
 import { describesEveryChoice, riskTone, selectedChoice } from '../lib/options'
@@ -1249,6 +1250,9 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   }
 
   const place = snapshot.draftPlace
+  const carried = place === null ? snapshot.draftHandoff?.cwd : undefined
+  const checking = place === null && !carried && workspace.repo !== null && workspace.git == null && !keepsWorkspacePlace(workspace)
+  const automatic = place === null && !carried && canIsolateDraft(workspace)
   const folder = workspace.path.split('/').filter(Boolean).at(-1) ?? workspace.path
   const branch = workspace.git?.branch ?? null
   const linked = workspace.repo?.worktree === true
@@ -1293,9 +1297,18 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   /* Pointed at the main checkout, which is a place and not a worktree: the
      chip must wear neither the branch glyph nor the worktree badge for it. */
   const chosenMain = chosen !== null && main !== null && chosen.path === main.path
+  const chosenHere = chosen?.path === workspace.path
 
-  const title = armed
+  const title = carried
+    ? `Starts in ${carried}`
+    : checking
+    ? 'Starts in a new worktree if Git confirms a committed repository; checking Git'
+    : automatic
+    ? 'Starts in a new worktree on its own branch, made when you send'
+    : armed
     ? `Starts in a new worktree on ${armedBranch}, made when you send`
+    : chosenHere && !linked
+      ? `Starts in ${folder}${branch ? `, on ${branch}` : ''}`
     : chosenMain
       ? `Starts in the main checkout${chosen?.branch ? `, on ${chosen.branch}` : ''}`
       : chosen
@@ -1318,14 +1331,20 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   // never be caught disagreeing (#301).
   const leaf = (name: string | null, fallback: string): string =>
     name?.split('/').filter(Boolean).at(-1) ?? fallback
-  const word = armed
+  const word = carried
+    ? carried.split('/').filter(Boolean).at(-1) ?? carried
+    : checking
+    ? 'Checking Git…'
+    : armed || automatic
     ? 'New worktree'
+    : chosenHere && !linked
+      ? folder
     : chosen
       ? leaf(chosen.branch, chosenMain ? 'Local' : 'Worktree')
       : linked
         ? leaf(branch, 'Worktree')
         : folder
-  const tagged = !armed && !chosenMain && (chosen !== null || linked)
+  const tagged = !automatic && !armed && !chosenMain && (!carried || carried === workspace.path) && (chosenHere ? linked : chosen !== null || linked)
 
   return (
     <ComposerTrack name="work-in" contentSized shrinkable>
@@ -1334,25 +1353,25 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
         {/* Missing repository facts are unread; only an explicit null with no Git facts hides this control. */}
         {(workspace.repo !== null || workspace.git) && <Popover
           fullWidth={!onChooseProject}
-          triggerVariant={onChooseProject && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
+          triggerVariant={onChooseProject && !carried && !checking && !automatic && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
           title={title}
           drop="up"
           align="left"
           onOpenChange={(open) => { if (open) { void store.loadWorktrees(); void store.refreshWorkspaceGit(workspace.path) } }}
           label={
             <>
-            {armed ? (
+            {armed || automatic ? (
               <Text role="row" tone="brand"><NewWorktreeIcon size={13} /></Text>
             ) : tagged ? (
               <BranchIcon size={13} />
             ) : (
               <LocalIcon size={13} />
             )}
-            {onChooseProject && !armed && !chosen ? null : armed
+            {onChooseProject && !carried && !checking && !automatic && !armed && !chosen ? null : armed || automatic
               ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
               : <Text role="row" truncate title={workspace.path} className={sheet.word}>{word}</Text>}
             {tagged && <Badge variant="secondary">worktree</Badge>}
-            {(!onChooseProject || armed || chosen) && <Chevron size={12} />}
+            {(!onChooseProject || carried || checking || automatic || armed || chosen) && <Chevron size={12} />}
           </>
         }
          panelWidth="wide" icons="none">
@@ -1365,7 +1384,7 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
                 label={linked ? 'This worktree' : 'Local'}
                 value={branch ?? undefined}
                 title={branch ? `${branch} — ${workspace.path}` : workspace.path}
-                selected={place === null}
+                selected={!checking && !automatic && place === null && (!carried || carried === workspace.path) || chosen?.path === workspace.path}
                 onSelect={() => store.startDraftIn(null)}
               />
               {main && (
@@ -1387,9 +1406,9 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
               icon={<NewWorktreeIcon size={14} />}
               label={armed ? 'New worktree' : 'New worktree…'}
               value={armedBranch ?? undefined}
-              hint={armed ? `Made when you send, from ${armed.base ?? 'HEAD'}.` : undefined}
+              hint={armed ? `Made when you send, from ${armed.fromDefault ? 'the default branch' : armed.base ?? 'HEAD'}.` : undefined}
               title={armedBranch ?? 'A checkout of its own, on a branch of its own.'}
-              selected={armed !== null}
+              selected={automatic || armed !== null}
               disabled={branch ? false : 'Worktrees need a git repository. This folder is not one.'}
               onSelect={() => {
                 close()

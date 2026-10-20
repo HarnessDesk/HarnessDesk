@@ -14,6 +14,7 @@ import { destinationOf, stepDestination, visitDestination } from '../state/desti
 import type { ReactNode } from 'react'
 
 import {
+  isBrowserProfile,
   matchPlanSuggestion,
   runtimeId,
   splitSessionKey,
@@ -1404,7 +1405,7 @@ class PreviewStore {
   }
   openBrowser(url?: string, options: { readonly split?: 'row' | 'column' | null; profile?: string | null } = {}): void {
     const profile = options.profile ?? null
-    if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) throw new Error('Invalid browser profile.')
+    if (profile !== null && !isBrowserProfile(profile)) throw new Error('Invalid browser profile.')
     const before = this.#snapshot.workbench
     const browsers = dockViews(before.right).filter(one => one.view.kind === 'browser' && (one.view.profile ?? null) === profile)
     const held = browsers[0]

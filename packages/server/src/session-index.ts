@@ -1,6 +1,6 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
 
-import { sessionIndexCursorOf, type HistoryImportState, type HistorySummary, type HostParams, type Page, type RepoInfo, type RuntimeId, type SessionId, type SessionSummary } from '@harnessdesk/protocol'
+import { browserProfileStorageName, sessionBrowserProfile, sessionIndexCursorOf, type HistoryImportState, type HistorySummary, type HostParams, type Page, type RepoInfo, type RuntimeId, type SessionId, type SessionSummary } from '@harnessdesk/protocol'
 
 import { dropSessionBody, openSessionDatabase } from './session-database.js'
 
@@ -68,6 +68,7 @@ const summaryOf = (row: Row): SessionSummary => ({
 /** A list-only local index. Queries never read a transcript or ask an agent or Git. */
 export class SessionIndex {
   readonly #db: DatabaseSync
+  #browserProfiles: Map<string, { runtime: RuntimeId; id: SessionId }> | undefined
   readonly #get: StatementSync
   readonly #write: StatementSync
   readonly #onChange: ((change: SessionIndexChange) => void) | undefined
@@ -112,8 +113,10 @@ export class SessionIndex {
   }
 
   #notify(runtime: RuntimeId, id: SessionId, resolveRepos = true): void {
-    if (!this.#onChange || this.#closed) return
+    if (this.#closed) return
     const row = this.#row(runtime, id)
+    if (row) this.#browserProfiles?.set(browserProfileStorageName(sessionBrowserProfile(runtime, id)), { runtime, id })
+    if (!this.#onChange) return
     this.#pending.set(JSON.stringify([runtime, id]), { runtime, id, resolveRepos, summary: row && eligible(row) && row.archived !== null ? summaryOf(row) : null })
     if (this.#scheduled) return
     this.#scheduled = true
@@ -381,6 +384,16 @@ export class SessionIndex {
       else this.#db.prepare('UPDATE sessions SET team_id=? WHERE runtime=? AND id=? AND removed_at IS NULL').run(teamId, runtime, id)
     })
     this.#notify(runtime, id)
+  }
+
+  /** Lazy reverse lookup for a restored hashed browser partition. Membership is checked on every read. */
+  browserProfileOwner(storageName: string): { runtime: RuntimeId; id: SessionId } | null {
+    if (!this.#browserProfiles) {
+      const rows = this.#db.prepare('SELECT runtime,id FROM sessions').all() as unknown as { runtime: RuntimeId; id: SessionId }[]
+      this.#browserProfiles = new Map(rows.map(({ runtime, id }) => [browserProfileStorageName(sessionBrowserProfile(runtime, id)), { runtime, id }]))
+    }
+    const owner = this.#browserProfiles.get(storageName)
+    return owner && this.get(owner.runtime, owner.id) && !this.isRemoved(owner.runtime, owner.id) ? owner : null
   }
 
   get(runtime: RuntimeId, id: SessionId): SessionSummary | null {

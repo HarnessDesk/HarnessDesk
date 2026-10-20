@@ -61,6 +61,40 @@ test('a predicted isolated lane path matches flow checkout creation from a repos
   assert.equal(checkout.path.startsWith(join(stateDir, 'worktrees', 'repo-')), true)
 })
 
+test('automatic development checkouts start from the default branch and keep other sessions out', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const base = (await git(repo, 'rev-parse', 'HEAD')).trim()
+  await git(repo, 'checkout', '-q', '-b', 'another-session')
+  await writeFile(join(repo, 'other.txt'), 'another task\n')
+  await git(repo, 'add', 'other.txt')
+  await git(repo, 'commit', '-q', '-m', 'another task')
+  await writeFile(join(repo, 'shared.txt'), 'uncommitted\n')
+  const options = { name: 'new-session', fromDefault: true } as Parameters<Worktrees['create']>[1]
+  const first = await worktrees.create(repo, options)
+  const second = await worktrees.create(repo, options)
+  assert.equal(first.head, base)
+  assert.equal(second.head, base)
+  assert.notEqual(first.path, second.path)
+  assert.notEqual(first.branch, second.branch)
+  assert.equal(await readFile(join(first.path, 'shared.txt'), 'utf8'), 'original\n')
+  assert.equal(await readFile(join(repo, 'shared.txt'), 'utf8'), 'uncommitted\n')
+  assert.equal((await git(repo, 'branch', '--show-current')).trim(), 'another-session')
+})
+
+test('automatic checkouts prefer the remote default over a local main branch', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  await writeFile(join(repo, 'shared.txt'), 'remote default\n')
+  await git(repo, 'add', 'shared.txt')
+  await git(repo, 'commit', '-q', '-m', 'remote default')
+  const head = (await git(repo, 'rev-parse', 'HEAD')).trim()
+  await git(repo, 'update-ref', 'refs/remotes/origin/trunk', head)
+  await git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk')
+  await git(repo, 'reset', '--hard', 'HEAD~1')
+  const tree = await worktrees.create(repo, { name: 'remote-default', fromDefault: true })
+  assert.equal(tree.head, head)
+  assert.equal(await readFile(join(tree.path, 'shared.txt'), 'utf8'), 'remote default\n')
+})
+
 /**
  * What the session list groups on. Every checkout of a repository has to name
  * the same project — otherwise a conversation in a worktree becomes a project

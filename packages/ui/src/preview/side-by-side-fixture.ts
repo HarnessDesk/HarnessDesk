@@ -1,4 +1,4 @@
-import { approvalId, runtimeId, sessionKey, type Session, type SessionId, type SessionKey, type TeamPeerInfo } from '@harnessdesk/protocol'
+import { sessionBrowserProfile, approvalId, runtimeId, sessionKey, type Session, type SessionId, type SessionKey, type TeamPeerInfo } from '@harnessdesk/protocol'
 
 import { browserView } from '../state/layout'
 import { dock } from '../state/workbench'
@@ -141,7 +141,7 @@ export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStor
   const browserSeed: Partial<AppSnapshot> = options.browsers ? {
     lanePreferences: { start: 30000, width: 20, browserProfile: true },
     lanes: SIDE_BY_SIDE_MEMBERS.map((member, index) => ({ id: `lane-${member.nickname.toLowerCase()}`, goal: PREVIEW_ROOM, seat: null, cwd: sessions.get(SIDE_BY_SIDE_KEYS[index]!)!.cwd, branch: `demo/${member.nickname.toLowerCase()}`, ports: { start: 30000 + index * 20, end: 30019 + index * 20 }, browserProfile: `lane-${member.nickname.toLowerCase()}`, state: 'active', createdAt: 0 })),
-    workbench: SIDE_BY_SIDE_MEMBERS.slice(0, 2).reduce((workbench, member) => dock(workbench, 'right', browserView(`/src/preview/tile-page.html?seat=${member.nickname.toLowerCase()}`, `lane-${member.nickname.toLowerCase()}`)), snapshot.workbench),
+    workbench: SIDE_BY_SIDE_MEMBERS.slice(0, 2).reduce((workbench, member) => dock(workbench, 'right', browserView(`/src/preview/tile-page.html?seat=${member.nickname.toLowerCase()}`, sessionBrowserProfile(member.runtime, member.id))), snapshot.workbench),
   } : {}
   const own = previewStore({ ...snapshot, sessions, runtimes, models, approvals, teams, ...browserSeed } as Partial<AppSnapshot>)
   const peers: readonly TeamPeerInfo[] = SIDE_BY_SIDE_MEMBERS.map((member, index) => ({

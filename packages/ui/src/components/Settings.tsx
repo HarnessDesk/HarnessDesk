@@ -1406,7 +1406,7 @@ const BrowserSection = () => {
             />
             <Row
               title="Browsing data"
-              desc="Cookies, storage and caches for the pane’s pages."
+              desc="Cookies, storage and caches for all conversation browser panes."
               control={
                 <Button variant="secondary"
                   size="sm"
@@ -1414,9 +1414,9 @@ const BrowserSection = () => {
                   onClick={() => {
                     setClearing(true)
                     void desktop()
-                      ?.clearBrowserData?.()
+                      ?.clearAllBrowserData?.()
                       .then(() =>
-                        store.notice('info', 'The browser pane’s cookies and storage were cleared.'),
+                        store.notice('info', 'All conversation browser panes’ cookies, storage and caches were cleared.'),
                       )
                       .catch((error: unknown) =>
                         store.notice('error', error instanceof Error ? error.message : String(error)),

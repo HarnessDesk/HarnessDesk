@@ -10,6 +10,7 @@ import {
   wrapContext,
   type RuntimeInfo,
   type GoalView,
+  type FlowExecution,
   type Session,
   type SessionSummary,
   type TeamState,
@@ -541,6 +542,7 @@ const treeWith = (
     openSession: vi.fn(),
     triggerGoal: vi.fn(async () => null),
     refreshWorkspaceGit: async () => {},
+    loadTeamRuns: vi.fn(async () => {}),
     ...storeOverrides,
   } as unknown as AppStore
   act(() => {
@@ -1069,7 +1071,7 @@ it('a Team starts folded independently of legacy project preferences', () => {
   const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })], [summary({ id: 'session-1' })], [], { collapsed: ['r1'] })
   const opener = roomRow(tree, 'Checkout rewrite')
   expect(opener.getAttribute('aria-expanded')).toBe('false')
-  expect(opener.closest('[data-left-row]')?.querySelector('[data-slot="sidebar-menu-action"]')).toBeNull()
+  expect(opener.closest('[data-left-row]')?.querySelector('[data-slot="sidebar-menu-action"]')?.getAttribute('aria-label')).toBe('Actions for Checkout rewrite')
   expect(tree.querySelector('[data-nested="true"]')).toBeNull()
   expect(store.openTeamRoom).not.toHaveBeenCalled()
 })
@@ -2901,4 +2903,165 @@ it('clearing search preserves the selected Team’s default expansion after a te
   expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('false')
   render('')
   expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+})
+
+
+it('right-clicking a stopped Team without kept conversations offers its canonical actions and Rename', async () => {
+  const board = room({ id: 'menu-team', name: 'Build a game' })
+  const goal = triggerGoalView(board, 'needs-you')
+  const updateGoal = vi.fn(async () => goal)
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), { updateGoal })
+  view.update({ flowExecutions: new Map([['stopped-run', {
+    id: 'stopped-run', goal: board.id, state: 'stopped', rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution]]) })
+  const opener = roomRow(view.container, board.name)
+  act(() => opener.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })))
+  const items = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(items().map(one => one.querySelector('[data-menu-label]')?.textContent?.trim())).toEqual(['Rename', 'Run again…', 'Wrap…', 'Stop run…'])
+  expect(items().find(one => one.querySelector('[data-menu-label]')?.textContent === 'Stop run…')?.getAttribute('aria-disabled')).toBe('true')
+  expect(view.store.openTeamRoom).not.toHaveBeenCalled()
+  act(() => items().find(one => one.textContent === 'Rename')!.click())
+  const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!
+  expect(input.value).toBe(board.name)
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Build a puzzle')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+  expect(updateGoal).toHaveBeenCalledWith(board.id, 1, { sentence: 'Build a puzzle' })
+})
+
+it('Team actions are reachable by the row action button and Shift+F10 without opening the Team', () => {
+  const board = room({ id: 'keyboard-team', name: 'Build' })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]))
+  const opener = roomRow(view.container, board.name)
+  const action = view.container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Build"]')
+  expect(action).not.toBeNull()
+  act(() => action!.click())
+  expect(document.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe('Actions for Build')
+  act(() => document.querySelector('[role="menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true })))
+  expect(document.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe('Actions for Build')
+  expect(view.store.openTeamRoom).not.toHaveBeenCalled()
+})
+
+
+it('a Team menu reads its named uncached Run only when opened and never substitutes an older Run', async () => {
+  const board = room({ id: 'uncached-menu', name: 'Build' })
+  const base = triggerGoalView(board)
+  const goal = { ...base, goal: { ...base.goal, origin: { kind: 'flow' as const, run: 'new-run', flow: 'Build' } } } as GoalView
+  const readFlowExecution = vi.fn(async () => null as unknown as FlowExecution)
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), { readFlowExecution })
+  const execution = { id: 'old-run', goal: board.id, state: 'stopped', rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution
+  view.update({ flowExecutions: new Map([[execution.id, execution]]) })
+  expect(readFlowExecution).not.toHaveBeenCalled()
+  await act(async () => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  expect(readFlowExecution).toHaveBeenCalledExactlyOnceWith('new-run')
+  expect([...document.querySelectorAll('[data-menu-label]')].map(one => one.textContent)).not.toContain('Run again…')
+  view.update({ flowExecutions: new Map([[execution.id, execution], ['new-run', { ...execution, id: 'new-run' }]]) })
+  expect([...document.querySelectorAll('[data-menu-label]')].map(one => one.textContent)).toContain('Run again…')
+})
+
+it('a Team menu opens the canonical Run again question and retains saved-Flow errors', async () => {
+  const board = room({ id: 'again-menu', name: 'Build' })
+  const source = vi.fn(async () => { throw new Error('Saved Flow unavailable') })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]), { flowExecutionSource: source })
+  view.update({ flowExecutions: new Map([['stopped-run', { id: 'stopped-run', goal: board.id, state: 'stopped', rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution]]) })
+  act(() => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.querySelector('[data-menu-label]')?.textContent === 'Run again…')!.click())
+  expect(source).toHaveBeenCalledExactlyOnceWith('stopped-run')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Run again')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Saved Flow unavailable')
+  expect(view.store.openTeamRoom).not.toHaveBeenCalled()
+})
+
+it('a running Team menu stops only after the canonical confirmation, including without kept Seats', async () => {
+  const board = room({ id: 'stop-menu', name: 'Build' })
+  const stopFlowExecution = vi.fn(async () => ({}) as never)
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]), { stopFlowExecution })
+  view.update({ flowExecutions: new Map([['running-run', { id: 'running-run', goal: board.id, state: 'running', rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution]]) })
+  act(() => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  act(() => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.querySelector('[data-menu-label]')?.textContent === 'Stop run…')!.click())
+  expect(stopFlowExecution).not.toHaveBeenCalled()
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('No open Seats in this Run.')
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === 'Stop run')!.click())
+  expect(stopFlowExecution).toHaveBeenCalledExactlyOnceWith('running-run', 'You stopped this Run. No further step starts.')
+})
+
+it.each(['open', 'wrapping', 'problem'] as const)('a %s Team menu preserves Wrap eligibility and the receipt question', (state) => {
+  const board = room({ id: 'wrap-menu', name: 'Build' })
+  const base = triggerGoalView(board)
+  const goal = state === 'wrapping' ? { ...base, goal: { ...base.goal, state: 'wrapping' as const } }
+    : state === 'problem' ? { ...base, problem: 'The board could not be saved.' } : base
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]))
+  act(() => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  const wrap = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.querySelector('[data-menu-label]')?.textContent === 'Wrap…')!
+  expect(wrap.getAttribute('aria-disabled') === 'true').toBe(state !== 'open')
+  if (state === 'open') {
+    act(() => wrap.click())
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Wrap this Team')
+    expect([...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].some(one => one.textContent === 'Review receipt')).toBe(true)
+  }
+})
+
+
+it('closing a Team row action menu returns focus to the row', async () => {
+  const board = room({ id: 'focus-team', name: 'Build' })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]))
+  const row = roomRow(view.container, board.name)
+  const action = view.container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Build"]')!
+  act(() => { action.focus(); action.click() })
+  await act(async () => vi.waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('menuitem')))
+  act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  await act(async () => vi.waitFor(() => { expect(document.querySelector('[role="menu"]')).toBeNull(); expect(document.activeElement).toBe(row) }))
+})
+
+
+it.each(['person', 'trigger'] as const)('opening a %s Team menu discovers its persisted stopped Run after reconnect', async (origin) => {
+  const board = room({ id: 'reconnected-menu', name: 'Build' })
+  const base = triggerGoalView(board)
+  const goal = origin === 'person' ? { ...base, goal: { ...base.goal, origin: { kind: 'person' as const } } } : base
+  const execution = { id: 'persisted-stopped-run', goal: board.id, state: 'stopped', rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution
+  let finishRead!: () => void
+  const pending = new Promise<void>(resolve => { finishRead = resolve })
+  const loadTeamRuns = vi.fn(async (): Promise<void> => {
+    await pending
+    view.update({ flowExecutions: new Map([[execution.id, execution]]) })
+  })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), { loadTeamRuns })
+  expect(view.store.getSnapshot().flowExecutions.size).toBe(0)
+  expect(loadTeamRuns).not.toHaveBeenCalled()
+  await act(async () => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  expect(loadTeamRuns).toHaveBeenCalledExactlyOnceWith(board.id)
+  expect([...document.querySelectorAll('[data-menu-label]')].map(one => one.textContent)).not.toContain('Run again…')
+  await act(async () => { finishRead(); await pending })
+  const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(items.map(one => one.querySelector('[data-menu-label]')?.textContent)).toContain('Run again…')
+  expect(items.find(one => one.querySelector('[data-menu-label]')?.textContent === 'Stop run…')?.getAttribute('aria-disabled')).toBe('true')
+  expect(loadTeamRuns).toHaveBeenCalledTimes(1)
+  expect(view.store.openTeamRoom).not.toHaveBeenCalled()
+})
+
+it.each(['empty', 'refused'] as const)('an unnamed Team menu retries an %s history read only when reopened', async (result) => {
+  const board = room({ id: 'empty-run-menu', name: 'Build' })
+  const loadTeamRuns = vi.fn(async () => { if (result === 'refused') throw new Error('Run history unavailable') })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]), { loadTeamRuns })
+  const open = () => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+  await act(async () => { open() })
+  expect(loadTeamRuns).toHaveBeenCalledExactlyOnceWith(board.id)
+  view.update({ flowExecutions: new Map() })
+  view.update({ flowExecutions: new Map() })
+  expect(loadTeamRuns).toHaveBeenCalledTimes(1)
+  act(() => document.querySelector('[role="menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  await act(async () => { open() })
+  expect(loadTeamRuns).toHaveBeenCalledTimes(2)
 })

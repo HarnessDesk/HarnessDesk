@@ -1,3 +1,4 @@
+import { sessionBrowserProfile } from '@harnessdesk/protocol'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
@@ -82,4 +83,19 @@ test('partition names preserve default preference, isolate lanes and refuse arbi
 test('an operation with no identity can demand an agent invocation', () => {
   assert.equal(currentBrowserIdentity(), undefined)
   assert.throws(() => currentBrowserIdentity(true), /live invocation/)
+})
+
+test('session profiles retain separate state across invocations and close does not change a sibling', async () => {
+  const live = new BrowserInvocations()
+  const scopes = new BrowserScopes(profile => ({ profile, storage: new Map<string, string>() }), identity => live.has(identity))
+  const first = live.begin(sessionBrowserProfile('assistant', 'alpha'), 'browser')
+  const second = live.begin(sessionBrowserProfile('assistant', 'beta'), 'browser')
+  withBrowserIdentity(first, () => scopes.current().storage.set('login', 'alpha'))
+  withBrowserIdentity(second, () => assert.equal(scopes.current().storage.has('login'), false))
+  live.end(second.invocation)
+  withBrowserIdentity(first, () => assert.equal(scopes.current().storage.get('login'), 'alpha'))
+  live.end(first.invocation)
+  const reopened = live.begin(first.profile, 'browser')
+  withBrowserIdentity(reopened, () => assert.equal(scopes.current().storage.get('login'), 'alpha'))
+  live.end(reopened.invocation)
 })

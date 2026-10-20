@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  sessionBrowserProfile,
   runtimeId,
   sessionId,
   sessionKey,
@@ -148,6 +149,179 @@ describe.each(['panel toggle', 'lit tool'] as const)('right panel closure throug
 })
 
 describe('where a draft starts', () => {
+  it('retries a suggested task in the checkout already allocated before a runtime refusal', async () => {
+    Object.assign(store.getSnapshot(), { history: [conversation('sender', REPO.path)],
+      inbox: [{ id: 'suggested', task: 'Fix another bug', from: { runtime: AGENT, sessionId: 'sender', name: 'Source' } }] })
+    answers['git/status'] = { branch: 'main', headSha: 'abc', files: [] }
+    answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/suggested-task', head: 'abc', isMain: false, managed: true }
+    refused['session/create'] = 'Runtime unavailable'
+    await store.startSuggestedTask('suggested')
+    delete refused['session/create']
+    answers['session/create'] = conversation('suggested-task', TREE)
+    await store.startSuggestedTask('suggested')
+    expect(calls('worktree/create')).toHaveLength(1)
+    expect(calls('session/create').at(-1)).toMatchObject({ options: { cwd: TREE } })
+  })
+
+  it.each(['handoff', 'runtime'])('does not dispatch submitted input to a changed %s while Git is loading', async (changed) => {
+    Object.assign(store.getSnapshot(), { workspace: { ...REPO, git: undefined } })
+    let finish!: (status: unknown) => void
+    answers['git/status'] = () => new Promise(resolve => { finish = resolve })
+    answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/session-fixture', head: 'abc', isMain: false, managed: true }
+    answers['session/create'] = conversation('late', TREE)
+    store.newDraft()
+    const sending = store.queue([{ type: 'text', text: 'Fix this bug here' }])
+    Object.assign(store.getSnapshot(), changed === 'handoff'
+      ? { draftHandoff: { cwd: '/other-source' } }
+      : { activeRuntime: runtimeId('another-runtime') })
+    finish({ branch: 'main', headSha: 'abc', files: [] })
+    expect(await sending).toBe(false)
+    expect(calls('session/create')).toHaveLength(0)
+  })
+
+  it('gives a suggested independent task its own checkout instead of the sender’s', async () => {
+    Object.assign(store.getSnapshot(), { history: [conversation('sender', REPO.path)],
+      inbox: [{ id: 'suggested', task: 'Fix another bug', from: { runtime: AGENT, sessionId: 'sender', name: 'Source' } }] })
+    answers['git/status'] = { branch: 'main', headSha: 'abc', files: [] }
+    answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/suggested-task', head: 'abc', isMain: false, managed: true }
+    answers['session/create'] = conversation('suggested-task', TREE)
+    await store.startSuggestedTask('suggested')
+    expect(calls('worktree/create')).toHaveLength(1)
+    expect(calls('session/create')[0]).toMatchObject({ options: { cwd: TREE } })
+    expect(store.getSnapshot().inbox[0]?.read).toBe(true)
+  })
+
+  it.each([
+    { path: '/review-tree', repo: { root: REPO.path, worktree: true }, checkoutRoot: '/review-tree' },
+    { path: '/repo/packages/widget', repo: { root: REPO.path, worktree: false }, checkoutRoot: REPO.path },
+  ])('keeps the explicitly opened checkout or subfolder $path on first send', async (location) => {
+    Object.assign(store.getSnapshot(), { workspace: { ...REPO, ...location } })
+    answers['session/create'] = conversation('opened-place', location.path)
+    store.newDraft()
+    await store.send([{ type: 'text', text: 'Work on the code I opened' }])
+    expect(calls('worktree/create')).toHaveLength(0)
+    expect(calls('session/create')[0]).toMatchObject({ options: { cwd: location.path } })
+  })
+
+  it.each(['older first', 'newer first'])('waits for the newest overlapping Git refresh: %s', async (order) => {
+    Object.assign(store.getSnapshot(), { workspace: { ...REPO, git: undefined } })
+    const finish: ((status: unknown) => void)[] = []
+    answers['git/status'] = () => new Promise(resolve => { finish.push(resolve) })
+    answers['worktree/create'] = { ...LISTED.tree }
+    answers['session/create'] = conversation('overlap', TREE)
+    store.newDraft()
+    const sending = store.queue([{ type: 'text', text: 'Fix this bug' }])
+    const newer = store.refreshWorkspaceGit(REPO.path)
+    const status = { branch: 'main', headSha: 'abc', files: [] }
+    if (order === 'older first') {
+      finish[0]!(null)
+      await Promise.resolve()
+      expect(calls('session/create')).toHaveLength(0)
+      finish[1]!(status)
+    } else {
+      finish[1]!(status)
+      await newer
+      finish[0]!(null)
+    }
+    await newer
+    expect(await sending).toBe(true)
+    expect(calls('worktree/create')).toHaveLength(1)
+    expect(calls('session/create')[0]).toMatchObject({ options: { cwd: TREE } })
+  })
+
+  it('reads missing Git facts before deciding whether the first message needs isolation', async () => {
+    Object.assign(store.getSnapshot(), { workspace: { ...REPO, git: undefined } })
+    answers['git/status'] = { branch: 'main', headSha: 'abc', files: [] }
+    answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/session-fixture', head: 'abc', isMain: false, managed: true }
+    answers['session/create'] = conversation('read-facts', TREE)
+    store.newDraft()
+    await store.queue([{ type: 'text', text: 'Fix a bug' }])
+    expect(calls('git/status')).toHaveLength(1)
+    expect(calls('worktree/create')).toHaveLength(1)
+    expect(calls('session/create')[0]).toMatchObject({ options: { cwd: TREE } })
+  })
+
+  it.each([undefined, null])('refuses unread Git state %s instead of silently starting in a shared checkout', async (git) => {
+    Object.assign(store.getSnapshot(), { workspace: { ...REPO, git } })
+    refused['git/status'] = 'Repository unavailable'
+    store.newDraft()
+    expect(await store.queue([{ type: 'text', text: 'Fix a bug' }])).toBe(false)
+    expect(calls('session/create')).toHaveLength(0)
+  })
+
+  it('gives successive project drafts distinct managed checkouts by default', async () => {
+    answers['worktree/create'] = ({ name }: { name: string }) => ({ path: `/state/${name}`, branch: `harnessdesk/${name}`, head: 'abc', isMain: false, managed: true })
+    answers['session/create'] = ({ options }: { options: { cwd: string } }) => conversation(options.cwd, options.cwd)
+    store.newDraft()
+    await store.send([{ type: 'text', text: 'Fix the first bug' }])
+    store.newDraft()
+    await store.send([{ type: 'text', text: 'Fix the second bug' }])
+    const created = calls('worktree/create') as { root: string; name: string; fromDefault?: boolean }[]
+    expect(created).toHaveLength(2)
+    expect(created[0]).toMatchObject({ root: REPO.path, fromDefault: true })
+    expect(created[1]).toMatchObject({ root: REPO.path, fromDefault: true })
+    expect(created[0]!.name).not.toBe(created[1]!.name)
+    const sessions = calls('session/create') as { options: { cwd: string } }[]
+    expect(sessions[0]!.options.cwd).not.toBe(sessions[1]!.options.cwd)
+    expect(sessions.every(one => one.options.cwd !== REPO.path)).toBe(true)
+  })
+
+  it('retains an explicit Local choice without allocating a checkout', async () => {
+    answers['session/create'] = conversation('local', REPO.path)
+    store.newDraft()
+    store.startDraftIn(null)
+    await store.send([{ type: 'text', text: 'Work in the shared checkout' }])
+    expect(calls('worktree/create')).toHaveLength(0)
+    expect(calls('session/create')[0]).toMatchObject({ options: { cwd: REPO.path } })
+  })
+
+  it('restores the automatic default when allocation fails before a checkout exists', async () => {
+    refused['worktree/create'] = 'Disk unavailable'
+    store.newDraft()
+    expect(await store.queue([{ type: 'text', text: 'Fix a bug' }])).toBe(false)
+    expect(store.getSnapshot().draftPlace).toBeNull()
+    expect(calls('session/create')).toHaveLength(0)
+    delete refused['worktree/create']
+    answers['worktree/create'] = { ...LISTED.tree }
+    answers['session/create'] = conversation('allocated-retry', TREE)
+    expect(await store.queue([{ type: 'text', text: 'Retry the fix' }])).toBe(true)
+    expect(store.getSnapshot().sessions.get(sessionKey(AGENT, 'allocated-retry'))?.cwd).toBe(TREE)
+  })
+
+  it('keeps an explicitly armed worktree when its allocation fails', async () => {
+    refused['worktree/create'] = 'Disk unavailable'
+    await store.armWorktree(REPO.path, 'chosen-worktree', 'main')
+    const place = store.getSnapshot().draftPlace
+    expect(await store.queue([{ type: 'text', text: 'Fix a bug' }])).toBe(false)
+    expect(store.getSnapshot().draftPlace).toBe(place)
+  })
+
+  it('does not clear a newer place choice when an automatic allocation fails', async () => {
+    let fail!: (error: Error) => void
+    answers['worktree/create'] = () => new Promise((_resolve, reject) => { fail = reject })
+    store.newDraft()
+    const sending = store.queue([{ type: 'text', text: 'Fix a bug' }])
+    // First send awaits draft preparation before allocating.
+    await Promise.resolve()
+    store.startDraftIn(null)
+    const selected = store.getSnapshot().draftPlace
+    fail(new Error('Disk unavailable'))
+    expect(await sending).toBe(false)
+    expect(store.getSnapshot().draftPlace).toBe(selected)
+  })
+
+  it('reuses an automatically created checkout after the runtime fails to start', async () => {
+    answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/session-fixture', head: 'abc', isMain: false, managed: true }
+    refused['session/create'] = 'Runtime unavailable'
+    store.newDraft()
+    await store.send([{ type: 'text', text: 'Fix a bug' }])
+    delete refused['session/create']
+    answers['session/create'] = conversation('retry', TREE)
+    await store.send([{ type: 'text', text: 'Try again' }])
+    expect(calls('worktree/create')).toHaveLength(1)
+    expect(calls('session/create').at(-1)).toMatchObject({ options: { cwd: TREE } })
+  })
+
   it('cuts the worktree when the first message goes, and starts the conversation in it', async () => {
     answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/parser-fix', head: 'abc', isMain: false, managed: true }
     answers['session/create'] = conversation('s-2', TREE)
@@ -168,8 +342,10 @@ describe('where a draft starts', () => {
     await store.armWorktree(REPO.path, 'parser fix')
     store.newDraft()
     expect(store.getSnapshot().draftPlace).toBeNull()
+    expect(calls('worktree/create')).toHaveLength(0)
 
     answers['session/create'] = conversation('s-2', REPO.path)
+    store.startDraftIn(null)
     await store.send([{ type: 'text', text: 'Something else entirely' }])
 
     expect(calls('worktree/create')).toHaveLength(0)
@@ -901,4 +1077,39 @@ it('Show Terminal uses the chosen project on a page instead of the retained conv
   expect(calls('terminal/open').at(-1)).toMatchObject({ cwd: REPO.path })
   expect(calls('terminal/open').at(-1)).not.toHaveProperty('sessionId')
   expect(dockViews(store.getSnapshot().workbench.bottom).at(-1)?.view).toMatchObject({ kind: 'terminal', cwd: REPO.path })
+})
+
+it.each(['bare layout', 'unowned dock'] as const)('restores a %s browser into its conversation partition after final ownership migration', async shape => {
+  const key = sessionKey(AGENT, 'legacy-session')
+  const browser = { kind: 'browser', tabs: [{ id: 'legacy-tab', url: 'https://example.com/legacy' }], active: 'legacy-tab', driven: 'legacy-tab' }
+  const conversationPane = { kind: 'pane', id: 'legacy-conversation', view: { kind: 'conversation', session: key } }
+  const raw = shape === 'bare layout'
+    ? { root: { kind: 'split', id: 'legacy-split', direction: 'row', ratio: 0.5, first: conversationPane, second: { kind: 'pane', id: 'legacy-browser', view: browser } }, focused: 'legacy-conversation' }
+    : { main: { root: conversationPane, focused: 'legacy-conversation' }, right: { views: [{ id: 'legacy-browser', view: browser }], active: 'legacy-browser' } }
+  answers['app/state/get'] = { layouts: { [REPO.path]: raw } }
+  answers['session/read'] = conversation('legacy-session', REPO.path)
+  await store.loadPreferences()
+  const restored = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')
+  expect(restored?.view).toMatchObject({ profile: sessionBrowserProfile(AGENT, 'legacy-session'), tabs: browser.tabs })
+  expect(store.getSnapshot().workbench.toolOwners[restored!.id]).toBe(`session:${key}`)
+})
+
+it('first-send promotion moves the draft browser into the new session partition and leaves the next draft independent', async () => {
+  store.newDraft()
+  store.openBrowser('https://example.com/task-a')
+  const held = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
+  answers['git/status'] = { branch: 'main', headSha: 'abc', files: [] }
+  answers['worktree/create'] = { ...LISTED.tree }
+  answers['session/create'] = conversation('promoted-browser', TREE)
+  await store.send([{ type: 'text', text: 'Start task A' }])
+  expect(calls('worktree/create')).toHaveLength(1)
+  expect(calls('session/create')).toContainEqual(expect.objectContaining({ options: expect.objectContaining({ cwd: TREE }) }))
+  const promoted = dockViews(store.getSnapshot().workbench.right).find(one => one.id === held.id)!
+  expect(promoted.view).toMatchObject({ profile: sessionBrowserProfile(AGENT, 'promoted-browser'), tabs: held.view.kind === 'browser' ? held.view.tabs : [] })
+  expect(store.getSnapshot().workbench.toolOwners[held.id]).toBe(`session:${sessionKey(AGENT, 'promoted-browser')}`)
+  store.newDraft()
+  store.openBrowser('https://example.com/task-b')
+  const browsers = dockViews(store.getSnapshot().workbench.right).filter(one => one.view.kind === 'browser')
+  expect(browsers).toHaveLength(2)
+  expect(browsers.find(one => one.id === held.id)?.view).toEqual(promoted.view)
 })

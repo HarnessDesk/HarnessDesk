@@ -526,7 +526,6 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
             setSelectedAgents(next); setPlainDryRun(false)
           }} />} />)}</Rows>{plainAgents.length === 0 && <Note>Add work or seat an Agent after this Team is created.</Note>}</Fieldset>
           <Rows><Row title="Use an isolated checkout" desc="New Seats get retained worktrees, ports and browser profiles." control={<Checkbox checked={isolated} disabled={locked} aria-label="Use an isolated checkout" onCheckedChange={next => { setIsolated(next === true); setPlainDryRun(false) }} />} /></Rows>
-          {isolated && snapshot.lanePreferences?.browserProfile === false && <Note tone="warn">New lanes share the ordinary browser profile while browser isolation is off.</Note>}
         </>}
         <Field label="Done when · optional" error={(plainTeam ? plainWords.length : sentence.trim().length) > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
           {control => <Input {...control} aria-label="Done when · optional" value={sentence} disabled={locked} onChange={event => { setSentence(event.target.value); onDoneChange?.(event.target.value); setPlainDryRun(false) }} />}

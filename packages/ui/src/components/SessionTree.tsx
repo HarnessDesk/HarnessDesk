@@ -71,6 +71,7 @@ import { SessionHoverCard } from './AgentCards'
 import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { WorkspaceMenu } from './WorkspaceMenu'
+import { useTeamActions } from './TeamActions'
 
 /**
  * The session list, grouped by the folder each session belongs to.
@@ -529,6 +530,9 @@ const RoomRow = ({ room, state, news, open, onToggle, overview, historyByKey, me
   readonly virtualCount?: number
 }) => {
   const store = useStore(), snapshot = useSnapshot()
+  const menu = useContextMenu()
+  const rowRef = useRef<HTMLButtonElement>(null)
+  const actions = useTeamActions(room.id, { readRun: menu.at !== null, onRunStarted: () => { store.openTeamRoom(room.id); store.setTeamFramePage(room.id, 'run') } })
   const goal = snapshot.goals.get(room.id)
   const name = goal ? goalName(goal.goal) : room.name
   const execution = goalRunOf(room.id, goal, snapshot.flowExecutions)
@@ -554,7 +558,9 @@ const RoomRow = ({ room, state, news, open, onToggle, overview, historyByKey, me
     : running && !open ? { kind: 'mark', icon: <Spinner size="sm" aria-hidden />, label: 'Working' } : undefined
   const displayMembers = seats.filter(hasConversation).map(seat => ({ record: records.get(seat.record.id), nickname: seat.name, runtimeName: snapshot.runtimes.find(one => one.id === seat.record.session.runtime)?.presentation.name }))
   return <div data-region="team-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
-    <LeftColumnRow label={name} icon={<TeamIcon size={16} />} selected={selected && !suppressSelection}
+    <LeftColumnRow ref={rowRef} label={name} icon={<TeamIcon size={16} />} selected={selected && !suppressSelection}
+      onContextMenu={event => { rowRef.current?.focus({ preventScroll: true }); menu.open(event) }}
+      action={{ label: `Actions for ${name}`, expanded: menu.at !== null, onClick: event => { rowRef.current?.focus({ preventScroll: true }); menu.open(event) } }}
       title={`${name}${state === 'stopping' ? ' · Stopping' : state === 'stopped' ? ' · Stopped' : ''}${attention ? ` · ${attention}` : ''}${ready ? ' · Ready to wrap' : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
       disclosure={{ open, onToggle }} buttonProps={{ 'aria-label': `Room ${name}`, onKeyDown: event => {
         if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
@@ -564,6 +570,8 @@ const RoomRow = ({ room, state, news, open, onToggle, overview, historyByKey, me
         }
       } }} trailing={trailing}
       onClick={() => store.openTeamRoom(room.id)} />
+    <ContextMenu at={menu.at} label={`Actions for ${name}`} onClose={menu.close} icons="all">{actions.items(menu.close)}</ContextMenu>
+    {actions.dialogs}
     {open && <LeftColumnSeats>{seats.map(seat => {
       const row = seatRows.get(seat.record.id)
       if (!row || members !== null && !members.includes(row.seat)) return null
