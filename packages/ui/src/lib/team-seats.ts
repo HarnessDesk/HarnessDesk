@@ -91,3 +91,22 @@ export const seatDisplayName = (
   return short !== nickname && members.some(one => one.nickname !== nickname && shortenedSeatName(one.record, one.nickname, one.runtimeName) === short)
     ? nickname : short
 }
+
+/** Generated Seat addresses use stable Agent ordinals; deliberate nicknames stay whole. */
+export const compactTeamSeatName = (
+  seat: TeamSeat,
+  seats: readonly TeamSeat[],
+  goal: GoalView | null | undefined,
+  nameOf: (seat: TeamSeat) => string = one => one.name,
+): string => {
+  const identities = [...(goal?.members ?? []), ...(goal?.pastMembers ?? [])]
+  const generated = new Map([...seats].sort((a, b) => a.record.openedAt - b.record.openedAt || a.record.id.localeCompare(b.record.id)).flatMap(one => {
+    const identity = identities.find(record => record.id === one.record.id)
+    return identity?.agent?.name && identity.seatLabel && nameOf(one).startsWith(`${identity.agent.name} · ${identity.seatLabel}`)
+      ? [[one.record.id, identity.agent.name] as const] : []
+  }))
+  const name = generated.get(seat.record.id)
+  if (!name) return nameOf(seat)
+  const matching = [...generated].filter(([, value]) => value === name)
+  return `${name}${matching.length > 1 ? ` ${matching.findIndex(([id]) => id === seat.record.id) + 1}` : ''}`
+}

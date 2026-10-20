@@ -96,3 +96,14 @@ it('keeps the latest Seat facts for repeated live and stopped conversations', ()
  const seats=teamSeats({...goal([live,latest]),pastMembers:[past,pastLatest]},team(),run)
  expect(seats.map(one=>one.record.id)).toEqual(['live-latest','past-latest'])
 })
+
+it('uses chronological generated Seat ordinals across active and stopped Seats while preserving custom names', async () => {
+ const { compactTeamSeatName } = await import('./team-seats')
+ const first={...record('first','one'),agent:{...record('first','one').agent!,name:'Implementer'},seatLabel:'Model A · High',openedAt:1,closed:{at:3,why:'released'}}
+ const second={...record('second','two'),agent:{...record('second','two').agent!,name:'Implementer'},seatLabel:'Model A · Low',openedAt:2}
+ const third={...record('third','three'),agent:{...record('third','three').agent!,name:'Implementer'},seatLabel:'Model A · Low',openedAt:3}
+ const view={...goal([second,third]),pastMembers:[first]}
+ const board={...team(),nicknames:{[sessionKey('agent-a','one')]:'Implementer · Model A · High',[sessionKey('agent-a','two')]:'Implementer · Model A · Low',[sessionKey('agent-a','three')]:'Jane Doe'}}
+ const seats=teamSeats(view,board,null)
+ expect(seats.map(seat=>compactTeamSeatName(seat,seats,view))).toEqual(['Implementer 2','Jane Doe','Implementer 1'])
+})

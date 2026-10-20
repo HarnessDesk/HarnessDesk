@@ -217,10 +217,13 @@ const openInvestigation = async (page: Page, theme: 'light' | 'dark', width: num
   for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720]).entries()) test(`R12.4 the New Team role name uses sentence case [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
     const dialog = await openInvestigation(page, theme, width)
-    const role = dialog.locator('[aria-label="Who does what"] [data-slot="row-title"]').first()
-    // The title also includes its chosen instructions; the role itself keeps
-    // its sentence case rather than uppercasing the whole title block.
-    expect(await role.evaluate(node => node.firstElementChild?.firstChild?.textContent)).toBe('Research')
+    const seat = dialog.locator('[aria-label="Who does what"] [data-slot="team-role-seat"]').first()
+    const role = seat.locator('[data-slot="team-role-mark"]').locator('..').locator('[data-slot="text"][data-role="row"]')
+    await expect(seat).toBeVisible()
+    await expect(seat.getByRole('button', { name: 'Configure Research', exact: true })).toBeVisible()
+    // The graph seat's own role header keeps its sentence case, separately
+    // from the selected instructions and runtime beneath it.
+    await expect(role).toHaveText('Research')
     expect(await role.evaluate(node => getComputedStyle(node).textTransform)).toBe('none')
 
 

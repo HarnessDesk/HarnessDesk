@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { isFinishedTask, type BackgroundTask } from '@harnessdesk/protocol'
 
-import { ActionError, Button, CodeBlock, EmptyState, SectionBody, Spinner, Text, ToolSection } from '../design'
+import { ActionError, Button, Chip, CodeBlock, EmptyState, SectionBody, Spinner, Text, ToolSection } from '../design'
 import { splitTasks, taskElapsed, taskKindWord, tasksCount, taskStateWord, taskTooltip } from '../lib/tasks'
 import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, BackgroundIcon, CheckIcon, StopIcon } from './Icons'
@@ -52,6 +52,10 @@ export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
 
   const split = useMemo(() => splitTasks(tasks), [tasks])
   const { running, finished } = split
+  const failed = finished.filter(task => task.state === 'failed').length
+  const stopped = finished.filter(task => task.state === 'stopped').length
+  const attention = failed > 0 || stopped > 0
+  const summary = attention ? [failed ? `${failed} failed` : null, stopped ? `${stopped} stopped` : null, running.length ? `${running.length} running` : null].filter(Boolean).join(' · ') : tasksCount(split)
 
   // Opening the panel is the moment the held list is most likely to be out
   // of date: a job running since before this window opened has had no reason
@@ -133,7 +137,7 @@ export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
   if (card && tasks.length === 0 && (readState === 'loaded' || readState === 'unsupported')) return null
   const cardBody = tasks.length > 0 ? body : readState === 'reading' ? <Text role="meta">Reading background tasks…</Text>
     : <ActionError>Background tasks could not be read. <Button variant="link" size="inline-link" onClick={() => setReadAgain(value => value + 1)}>Try again</Button></ActionError>
-  return card ? <ToolSection label="Background tasks" value={tasks.length > 0 ? tasksCount(split) : undefined} action={clear}>{cardBody}</ToolSection>
+  return card ? <ToolSection label="Background tasks" fold defaultOpen={running.length > 0 || tasks.length === 0 || attention} value={tasks.length > 0 ? attention ? <Chip tone="warning">{summary}</Chip> : summary : readState === 'reading' ? 'Reading…' : 'Read failed'} action={clear}>{cardBody}</ToolSection>
     : <PanelFrame testId="background-tasks-panel"><ToolBodyControls>
       <Text role="meta" truncate className="min-w-0 flex-1">{tasks.length > 0 ? tasksCount(split) : 'Background tasks'}</Text>{clear}
     </ToolBodyControls><PanelBody>{body}</PanelBody></PanelFrame>

@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ToolBody, ToolFold, ToolSection } from './ToolBody'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -47,4 +47,44 @@ it('the fold line hides the rest until asked', () => {
   act(() => fold.click())
   expect(fold.getAttribute('aria-expanded')).toBe('true')
   expect(container.textContent).toContain('Rounds 2')
+})
+
+
+it('uses the summary as part of the disclosure target while keeping title actions independent', () => {
+  const action = vi.fn()
+  act(() => root.render(<ToolSection label="Background tasks" value="2 running" fold action={<button onClick={action}>Clear</button>}><input aria-label="Task filter" defaultValue="watch" /></ToolSection>))
+  const section = card('Background tasks')
+  const toggle = section.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!
+  const summary = section.querySelector<HTMLElement>('[data-slot="tool-section-value"]')!
+  expect(toggle.contains(summary)).toBe(true)
+  act(() => summary.click())
+  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  expect(section.querySelector<HTMLElement>('[data-slot="tool-section-body"]')!.hidden).toBe(true)
+  const clear = [...section.querySelectorAll('button')].find(one => one.textContent === 'Clear')!
+  expect(toggle.contains(clear)).toBe(false)
+  act(() => clear.click())
+  expect(action).toHaveBeenCalledOnce()
+  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  act(() => toggle.click())
+  expect(section.querySelector<HTMLInputElement>('input')!.value).toBe('watch')
+})
+
+
+it('keeps long labels and summaries named while the disclosure and independent action can shrink in a narrow header', () => {
+  const label = `Selected ${'step'.repeat(200)}`, value = 'revision'.repeat(200)
+  act(() => root.render(<ToolSection label={label} value={value} fold action={<button aria-label="Record actions">More</button>}>Facts</ToolSection>))
+  const section = card(label)
+  const toggle = section.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!
+  expect(toggle.getAttribute('aria-label')).toBe(label)
+  const summary = section.querySelector<HTMLElement>('[data-slot="tool-section-value"]')!
+  expect(toggle.getAttribute('aria-describedby')).toBe(summary.id)
+  expect(summary.title).toBe(value)
+  expect(summary.className).toContain('min-w-0')
+  expect(summary.className).toContain('truncate')
+  expect(section.querySelector('[data-slot="tool-section-actions"]')?.className).toContain('shrink-0')
+  toggle.focus()
+  act(() => toggle.click())
+  expect(document.activeElement).toBe(toggle)
+  expect(toggle.type).toBe('button')
+  expect(toggle.getAttribute('aria-expanded')).toBe('false')
 })

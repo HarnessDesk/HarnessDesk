@@ -52,6 +52,38 @@ it('a message uses a plain runtime glyph and keeps the full sender name on hover
   expect(row().querySelector('[data-slot="text"][data-role="row"]')?.getAttribute('title')).toBe('Reviewer · Scripted agent · long model selection')
 })
 
+it('places the current person on the right using the transcript bubble and keeps outbound facts', () => {
+  render(<ChannelMessage own from="You" to="Reviewer" toTitle="Reviewer · complete model name" at="03:35 PM" state="queued" reason="Waiting for the current turn" text="Please check this." />)
+  expect(row().hasAttribute('data-own')).toBe(true)
+  expect(row().querySelector('[data-slot="message"]')?.getAttribute('data-align')).toBe('end')
+  expect(row().querySelector('[data-slot="bubble"]')?.getAttribute('data-variant')).toBe('secondary')
+  expect(row().querySelector('[data-slot="channel-sender"]')?.className).toContain('sr-only')
+  expect(row().querySelector('[data-channel-recipient]')?.getAttribute('aria-label')).toBe('To Reviewer · complete model name')
+  expect(row().textContent).toContain('03:35 PM')
+  expect(row().textContent).toContain('queued')
+  expect(row().textContent).toContain('Waiting for the current turn')
+})
+
+it('keeps an agent named You on the left and bounds rich replies to the shared reading column', () => {
+  render(<ChannelMessage from="You" to="Builder" at="03:35 PM" state="delivered" text="A reply" body={<p><a href="https://example.com">Evidence</a><code>result</code></p>} />)
+  expect(row().hasAttribute('data-own')).toBe(false)
+  const message = row().querySelector('[data-slot="message"]')!
+  expect(message.getAttribute('data-align')).toBe('start')
+  expect(message.className).toContain('max-w-(--hd-column)')
+  expect(row().querySelector('[data-slot="bubble"]')?.getAttribute('data-variant')).toBe('ghost')
+  expect(row().querySelector('a')?.textContent).toBe('Evidence')
+  expect(row().querySelector('code')?.textContent).toBe('result')
+})
+
+it('keeps a grouped own message on the right with its own timestamp and delivery', () => {
+  render(<ChannelMessage own grouped from="You" at="03:36 PM" state="delivered" text="And this too." />)
+  expect(row().querySelector('[data-slot="message"]')?.getAttribute('data-align')).toBe('end')
+  expect(row().querySelector('[data-slot="bubble"]')?.getAttribute('data-variant')).toBe('secondary')
+  expect(row().querySelector('[data-slot="channel-head"]')).toBeNull()
+  expect(row().firstElementChild?.textContent).toBe('')
+  expect(row().textContent).toContain('03:36 PM, delivered')
+})
+
 it('reads the attribution as one run at the left: name, who it reached, when, how it went', () => {
   render(
     <ChannelMessage

@@ -638,15 +638,41 @@ it('draws you in the face the seat wears — the one you chose, or the house mar
   ] as unknown as TeamEntry[]
 
   await render(you({ name: 'Jane', avatar: 'astronaut' }), said)
+  const own = container.querySelector('[data-channel="message"]')!
+  expect(own.hasAttribute('data-own')).toBe(true)
+  expect(own.querySelector('[data-slot="message"]')?.getAttribute('data-align')).toBe('end')
+  expect(own.querySelector('[data-slot="bubble"]')?.getAttribute('data-variant')).toBe('secondary')
   const face = container.querySelector('[data-channel="message"] [data-slot="icon-tile"]')
   expect(face?.querySelector('img')?.getAttribute('src')).toMatch(/\/astronaut\.png$/)
-  // Still "You" in words: the face is decoration, and the header says who spoke.
+  // Still "You" for assistive readers; alignment and your face carry it visually.
   expect(container.textContent).toContain('You')
 
   await render(you({}), said)
   const mark = container.querySelector('[data-channel="message"] [data-slot="icon-tile"]')
   expect(mark?.querySelector('img')).toBeNull()
   expect(mark?.querySelector('.brand-harnessdesk')).not.toBeNull()
+})
+
+it('uses actor ownership for direction while preserving safe rich content and quiet activity', async () => {
+  const { store } = rig()
+  const entries: TeamEntry[] = [
+    { id: 'own-rich', at: 20, kind: 'message', from: { kind: 'user' }, text: 'First line\nSecond line\n\n[Evidence](https://example.com/check) and `result`\n\n<script>danger()</script>', state: 'delivered' },
+    { id: 'named-you', at: 30, kind: 'message', from: { kind: 'agent', runtime: runtimeId('codex'), sessionId: 'c1', title: 'You', nickname: 'You' }, to: { runtime: runtimeId('claude'), sessionId: 'k1', title: 'Reviewer', nickname: 'Reviewer' }, text: 'Agent reply.', state: 'delivered' },
+    state.channel[2]!,
+  ]
+  await render(store, entries)
+  const [own, agent] = [...container.querySelectorAll('[data-channel="message"]')]
+  expect(own?.hasAttribute('data-own')).toBe(true)
+  expect(own?.querySelector('a')?.getAttribute('href')).toBe('https://example.com/check')
+  expect(own?.querySelector('code')?.textContent).toBe('result')
+  expect(own?.querySelector('br')).not.toBeNull()
+  expect(own?.querySelector('script')).toBeNull()
+  expect(agent?.hasAttribute('data-own')).toBe(false)
+  expect(agent?.querySelector('[data-slot="message"]')?.getAttribute('data-align')).toBe('start')
+  expect(agent?.querySelector('[data-channel-recipient]')?.textContent).toBe('to Reviewer')
+  const activity = container.querySelector('[data-channel="signal"]')!
+  expect(activity.querySelector('[data-slot="bubble"]')).toBeNull()
+  expect(activity.hasAttribute('data-own')).toBe(false)
 })
 
 it('draws your face at the cost of anyone else’s row — no subscription of its own', async () => {

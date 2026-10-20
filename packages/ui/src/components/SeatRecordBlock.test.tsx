@@ -67,7 +67,11 @@ const mount = async (seatRecord: (runtime: string, sessionId: string) => Promise
   return store
 }
 
-const openDetails = () => act(() => [...container.querySelectorAll('button')].find(one => one.textContent?.includes('Details'))!.click())
+const openDetails = () => act(() => {
+  const toggle = container.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!
+  if (toggle.getAttribute('aria-expanded') === 'false') toggle.click()
+  ;[...container.querySelectorAll('button')].find(one => one.textContent?.includes('Details'))!.click()
+})
 
 it('shows who was seated, on what, told what, where, on which board, and since when', async () => {
   const store = await mount(async () => PREVIEW_SEAT)
@@ -119,7 +123,10 @@ it('a record that cannot be read says so, in the host’s words', async () => {
   await mount(async () => {
     throw new Error('the connection to HarnessDesk was lost')
   })
-  expect(container.textContent).toBe('Its Seat record could not be read: the connection to HarnessDesk was lost')
+  const section = container.querySelector('[data-slot="tool-section"][aria-label="Seat record"]')!
+  expect(section).not.toBeNull()
+  expect(section.querySelector('[data-slot="tool-prose"]')?.textContent).toBe('Its Seat record could not be read: the connection to HarnessDesk was lost')
+  expect(section.querySelector('[data-slot="tool-section-fold"]')?.getAttribute('aria-expanded')).toBe('true')
 })
 
 it('keeps the permission hold in the summary and reveals technical seat facts only on demand', async () => {

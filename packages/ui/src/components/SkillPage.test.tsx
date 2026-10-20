@@ -372,3 +372,20 @@ it.each([false, true])('merges matching sources and shows the newest copy date (
   expect(date.querySelector('[data-slot="row-ctl"]')?.textContent).toBe(new Date(newer).toLocaleDateString())
   expect(source.textContent).not.toContain(new Date(older).toLocaleDateString())
 })
+
+
+it('uses the same disclosure on every metadata aside card and keeps update problems initially readable', async () => {
+  await mount([skill({ update: [update('unreachable', { reason: 'No response.' })], catalogTokens: 24 })])
+  const aside = page().querySelector('[data-slot="skill-page-facts"]')!
+  const sections = [...aside.querySelectorAll('[data-slot="tool-section"]')]
+  expect(sections.map(one => one.getAttribute('aria-label'))).toEqual(['Update', 'Loaded by', 'Source', 'Files', 'Cost'])
+  for (const section of sections) {
+    const toggle = section.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!
+    expect(toggle, section.getAttribute('aria-label')!).not.toBeNull()
+    expect(section.querySelector('[data-slot="tool-section-value"]')?.textContent).toBeTruthy()
+  }
+  expect(card('Update')?.querySelector<HTMLElement>('[data-slot="tool-section-body"]')?.hidden).toBe(false)
+  expect(card('Source')?.querySelector<HTMLElement>('[data-slot="tool-section-body"]')?.hidden).toBe(true)
+  expect(card('Files')?.querySelector<HTMLElement>('[data-slot="tool-section-body"]')?.hidden).toBe(true)
+  expect(card('Cost')?.querySelector<HTMLElement>('[data-slot="tool-section-body"]')?.hidden).toBe(true)
+})

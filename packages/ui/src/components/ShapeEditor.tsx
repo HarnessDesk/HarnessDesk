@@ -608,7 +608,7 @@ export const ShapeEditor = ({ root, context, goal, document: initialDocument, in
           {tab === 'source' && <FlowCanvasContent><Field label="Source" hint="The exact file this would write. Unrecognized syntax stays here.">{control => <Textarea {...control} variant="code" rows={24} value={source} onChange={event => editSource(event.target.value)} />}</Field></FlowCanvasContent>}
           {errors.length > 0 && <Banner tone="danger" title="This will not run yet"><NoteList>{errors.map(error => <li key={`${error.at}:${error.text}`}>{error.at} — {error.text}</li>)}</NoteList></Banner>}
         </>} rail={rail ? <ToolBody>
-          <ToolSection label={role ? `Step · ${role.id}` : 'Selected step'} action={role && <DropdownMenu icons="all">
+          <ToolSection label={role ? `Step · ${role.id}` : 'Selected step'} fold value={role?.kind === 'person' ? 'Your turn' : role?.kind === 'check' ? 'Check' : role ? 'Agent' : undefined} action={role && <DropdownMenu icons="all">
             <DropdownMenuTrigger render={<BoardMenuButton aria-label={`Actions for step ${role.id}`} />} />
             <DropdownMenuContent align="end">
               <DropdownMenuItem label="Move up" icon={<MoveUpIcon size={14} />} disabled={selectedIndex === 0} onClick={() => moveRole(selectedIndex, -1)} />

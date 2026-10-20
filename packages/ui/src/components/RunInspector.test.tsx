@@ -271,7 +271,7 @@ it('does not show another round’s check output as the selected result', () => 
 it('reads a person’s sentence and declared outcomes as inert text', () => {
   const fixture = runFixture('person')
   const view = render({ input: fixture, selectedRow: 'person-4-4' })
-  try { expect(view.container.textContent).toContain('Answer the review'); expect(view.container.textContent).toContain('Approved'); expect(view.container.querySelector('button')).toBeNull() } finally { view.close() }
+  try { expect(view.container.textContent).toContain('Answer the review'); expect(view.container.textContent).toContain('Approved'); expect(view.container.querySelector('button:not([data-slot="tool-section-fold"])')).toBeNull() } finally { view.close() }
 })
 it('reads findings rows and falls back to the Run when the selected card is gone', () => {
   const fixture = runFixture()
@@ -419,7 +419,7 @@ it.each([
 
 /** The controls the connected view hands the inspector; none are present unless a caller gives them. */
 // These lifecycle assertions count actions; recorded-fact disclosures dispatch no work.
-const buttonsOf = (container: HTMLElement) => [...container.querySelectorAll('button')].map(one => one.textContent).filter(label => label !== 'Recorded facts')
+const buttonsOf = (container: HTMLElement) => [...container.querySelectorAll('button:not([data-slot="tool-section-fold"])')].map(one => one.textContent).filter(label => label !== 'Recorded facts')
 
 it('keeps an abandon question and its late refusal with the Run and card it belongs to (#1342)', async () => {
   const fixture = runFixture()
@@ -432,7 +432,7 @@ it('keeps an abandon question and its late refusal with the Run and card it belo
   const button = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === label)!
   const question = () => document.body.querySelector('[role="alertdialog"]')
   try {
-    act(() => view.container.querySelector<HTMLButtonElement>('button')!.click())
+    act(() => view.container.querySelector<HTMLButtonElement>('button:not([data-slot="tool-section-fold"])')!.click())
     act(() => button('Abandon card').click())
     expect(onAbandon).toHaveBeenCalledWith(4)
     const completed = { ...input, cards: input.cards.map(card => card.id === 4 ? { ...card, state: 'done' as const } : card) }
@@ -440,7 +440,7 @@ it('keeps an abandon question and its late refusal with the Run and card it belo
     expect(question()).toBeNull()
     draw(completed, 'card-3-3')
     expect(question()).toBeNull()
-    act(() => view.container.querySelector<HTMLButtonElement>('button')!.click())
+    act(() => view.container.querySelector<HTMLButtonElement>('button:not([data-slot="tool-section-fold"])')!.click())
     expect(question()?.textContent).toContain('Abandon card #3?')
     await act(async () => { refuse(new Error('Late refusal for #4')); await pending.catch(() => {}) })
     expect(question()?.textContent).not.toContain('Late refusal')
@@ -506,7 +506,7 @@ it('answers a person’s step from its inspector with the words its role declare
     expect(view.container.textContent).toContain('Approved finishes the Run.')
     expect(view.container.textContent).not.toContain('Outcomes')
     expect(buttonsOf(view.container)).toEqual(['Approved'])
-    await act(async () => view.container.querySelector('button')!.click())
+    await act(async () => view.container.querySelector<HTMLButtonElement>('button:not([data-slot="tool-section-fold"])')!.click())
     expect(onAnswer).toHaveBeenCalledWith(4, 'approved', '')
   } finally { view.close() }
 })
@@ -517,7 +517,7 @@ it('keeps a person’s answered step as text, with the answer it was given', () 
   try {
     expect(view.container.textContent).toContain('Outcomes')
     expect(view.container.textContent).toContain('Answer')
-    expect(view.container.querySelector('button')).toBeNull()
+    expect(view.container.querySelector('button:not([data-slot="tool-section-fold"])')).toBeNull()
   } finally { view.close() }
 })
 it('sends a person’s review step to the board', async () => {
@@ -528,7 +528,7 @@ it('sends a person’s review step to the board', async () => {
   const view = render({ input: review, selectedRow: 'person-4-4', onAnswer: vi.fn(), onOpenBoard })
   try {
     expect(buttonsOf(view.container)).toEqual(['Pick an attempt on the board'])
-    await act(async () => view.container.querySelector('button')!.click())
+    await act(async () => view.container.querySelector<HTMLButtonElement>('button:not([data-slot="tool-section-fold"])')!.click())
     expect(onOpenBoard).toHaveBeenCalledOnce()
   } finally { view.close() }
 })
@@ -578,7 +578,7 @@ it('uses flat sections, toned Seat states and canonical panel facts for the Run 
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' } } },
     seats: [{ id: 'seat-0', name: 'Alpha', override: 'Balanced · Medium', cost: { unit: 'turns', value: 3, estimated: false } }] })
   try {
-    expect([...view.container.querySelectorAll('[data-slot="tool-section"]')].map(one => one.getAttribute('aria-label'))).toEqual(['Brief', 'Seats 2', 'Run'])
+    expect([...view.container.querySelectorAll('[data-slot="tool-section"]')].map(one => one.getAttribute('aria-label'))).toEqual(['Brief', 'Seats', 'Run'])
     expect(view.container.querySelector('[data-slot="icon-tile"]')).toBeNull()
     expect(view.container.querySelector('[data-slot="chip"][data-tone="info"]')?.textContent).toBe('Working')
     expect(view.container.querySelector('[data-slot="summary-card"]')).not.toBeNull()
@@ -608,7 +608,7 @@ it('gives the observed pull request its state and check counts, and the recorded
     expect(cards.map(one => one.getAttribute('aria-label'))).toEqual(['Brief', 'Pull request #412', 'Run'])
     const pr = cards[1]!
     expect(pr.querySelector('[data-slot="chip"][data-tone="success"]')?.textContent).toBe('Open')
-    expect(pr.querySelector('[data-slot="group-label"] button')?.textContent).toBe('Open')
+    expect(pr.querySelector('[data-slot="tool-section-actions"] button')?.textContent).toBe('Open')
     expect(pr.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain('fix/checkout')
     expect(pr.querySelector('[data-slot="text"][data-tone="danger"]')?.textContent).toBe('1 failed')
     expect(pr.querySelector('[data-slot="change-stats"]')).not.toBeNull()
@@ -618,7 +618,7 @@ it('gives the observed pull request its state and check counts, and the recorded
       expect(meter?.getAttribute('aria-valuemax')).toBe(String(max))
       expect(meter?.textContent).toContain(reading)
     }
-    expect(cards[2]!.querySelector('[data-slot="group-label"] button')?.textContent).toBe('Flow file')
+    expect(cards[2]!.querySelector('[data-slot="tool-section-actions"] button')?.textContent).toBe('Flow file')
   } finally { view.close() }
 })
 it('omits unavailable optional summary facts without a missing-field inventory', () => {
@@ -739,15 +739,19 @@ it('keeps long recorded input behind an explicit disclosure and preserves its wh
 })
 
 
-it('keeps moderately long summary briefs behind a full-text door and unknown cost explicit', () => {
+it('reads a long summary Brief through one disclosure and keeps unknown cost explicit', () => {
   const fixture = runFixture()
   const brief = 'Keep this complete sentence available. '.repeat(6)
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, brief } } })
   try {
-    expect(view.container.textContent).not.toContain(brief)
+    const section = view.container.querySelector('[data-slot="tool-section"][aria-label="Brief"]')!
+    const body = section.querySelector<HTMLElement>('[data-slot="tool-section-body"]')!
+    expect(body.hidden).toBe(true)
     expect(sectionText(view.container, 'Run')).toContain('CostNot recorded')
-    act(() => [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.includes('Read full text'))!.click())
-    expect(view.container.textContent).toContain(brief)
+    act(() => section.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!.click())
+    expect(body.hidden).toBe(false)
+    expect(body.textContent).toContain(brief)
+    expect(section.querySelector('[data-slot="tool-fold"]')).toBeNull()
   } finally { view.close() }
 })
 
@@ -788,5 +792,23 @@ it('keeps a declared folder separate from an unknown observed Run location', () 
     expect(where.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain(cwd)
     expect(where.textContent).toContain('Declared folder')
     expect(where.textContent).toContain('Run location not recorded')
+  } finally { view.close() }
+})
+
+
+it('lets every recorded Run information card fold with its summary and actions intact', () => {
+  const view = render({ input: runFixture(), seats: [{ id: 'seat-0', name: 'Alpha' }], flowFile: <button>Open flow</button> })
+  try {
+    const sections = [...view.container.querySelectorAll('[data-slot="tool-section"]')]
+    expect(sections.length).toBeGreaterThan(1)
+    for (const section of sections) {
+      const toggle = section.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!
+      expect(toggle, section.getAttribute('aria-label')!).not.toBeNull()
+      if (toggle.getAttribute('aria-expanded') === 'true') act(() => toggle.click())
+      expect(section.querySelector<HTMLElement>('[data-slot="tool-section-body"]')!.hidden).toBe(true)
+    }
+    const run = view.container.querySelector('[data-slot="tool-section"][aria-label="Run"]')!
+    expect(run.querySelector('[data-slot="tool-section-value"]')?.textContent).toBeTruthy()
+    expect([...run.querySelectorAll('button')].find(one => one.textContent === 'Open flow')?.closest('[data-slot="tool-section-body"]')).toBeNull()
   } finally { view.close() }
 })

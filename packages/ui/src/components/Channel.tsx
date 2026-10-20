@@ -398,6 +398,7 @@ export const ChannelStream = ({
         ) : (
           <ChannelMessage
             key={row.entry.id}
+            own={row.entry.from.kind === 'user'}
             from={compactName(row.entry.from)}
             fromTitle={sanitizeText(actorName(row.entry.from, snapshot))}
             at={timeOf(row.entry.at)}

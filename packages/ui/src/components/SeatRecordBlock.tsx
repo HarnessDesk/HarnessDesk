@@ -8,7 +8,6 @@ import { ceilingTitle } from '../lib/ceilings'
 import { shortSha } from '../lib/evidence'
 import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
-import { PanelEmpty } from './Panel'
 import { SeatAttachments } from './SeatAttachments'
 
 export const SeatRecordBlock = () => {
@@ -42,7 +41,7 @@ export const SeatRecordBlock = () => {
 
   if (!read || read.key !== key) return null
   if ('problem' in read) {
-    return <PanelEmpty>{`Its Seat record could not be read: ${read.problem}`}</PanelEmpty>
+    return <ToolSection label="Seat record" fold value="Read failed"><ToolProse>{`Its Seat record could not be read: ${read.problem}`}</ToolProse></ToolSection>
   }
   return read.seat ? <SeatRecordView seat={read.seat} /> : null
 }
@@ -69,7 +68,7 @@ export const SeatRecordView = ({ seat }: { readonly seat: SeatRecord }) => {
   const project = seat.checkout.project.split('/').filter(Boolean).at(-1) ?? null
   const room = seat.board ? (snapshot.teams.get(seat.board)?.name ?? 'a room this desk no longer has') : null
   return (
-    <ToolSection label="Seat record" value={seat.restored ? 'From a backup' : seat.closed ? 'Closed' : 'Open'}>
+    <ToolSection label="Seat record" fold defaultOpen={false} value={seat.restored ? 'From a backup' : seat.closed ? 'Closed' : 'Open'}>
       <SummaryList surface="panel" aria-label="Seat summary">
         {seat.agent && <SummaryItem label="Agent" kind="name">{seat.agent.name}</SummaryItem>}
         <SummaryItem label="Runs on" kind="name">{seat.seatLabel}</SummaryItem>

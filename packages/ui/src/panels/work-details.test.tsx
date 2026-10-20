@@ -35,6 +35,10 @@ it('keeps conversation facts, plan and its background work beside a folded time 
   const trajectory = container.querySelector('[aria-label="Trajectory"]')!
   expect(trajectory.querySelector('[data-slot="tool-section-fold"]')?.getAttribute('aria-expanded')).toBe('false')
   expect(trajectory.querySelector('[data-slot="tool-section-value"]')?.textContent).toBe('6m · 1m in commands')
+  for (const section of container.querySelectorAll('[data-slot="tool-section"]')) {
+    expect(section.querySelector('[data-slot="tool-section-fold"]'), section.getAttribute('aria-label')!).not.toBeNull()
+  }
+  expect(container.querySelector('[aria-label="Plan"] [data-slot="tool-section-value"]')?.textContent).toBe('1 step')
   expect(container.querySelector('[aria-label="Events"]')).toBeNull()
   expect(container.querySelectorAll('[data-slot="tool-scroll"]')).toHaveLength(1)
   expect(container.querySelector('[data-slot="inspector-body"]')).toBeNull()

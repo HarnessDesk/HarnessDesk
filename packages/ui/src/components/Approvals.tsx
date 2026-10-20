@@ -363,7 +363,7 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester 
       actions={actions}
       placement={placement}
     >
-          {requester && <ApprovalMeta label={requester.mark ?? 'From'} kind="person"><Text>{sanitizeText(requester.name)}</Text><Button variant="link" size="inline-link" onClick={requester.open}>Open conversation</Button></ApprovalMeta>}
+          {requester && <ApprovalMeta label={requester.mark ? <>{requester.mark}<span className="sr-only">From</span></> : 'From'} kind="person"><Text>{sanitizeText(requester.name)}</Text><Button variant="link" size="inline-link" onClick={requester.open}>Open conversation</Button></ApprovalMeta>}
           {approval.type === 'command' && (
             <CommandBody
               approval={approval}

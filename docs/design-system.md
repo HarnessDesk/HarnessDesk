@@ -264,6 +264,8 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-bar-pad` | `12px` |
 | `--hd-bar-tool-gap` | `4px` |
 | `--hd-rail-inset` | `8px` |
+| `--hd-rail-sheet-fill` | `color-mix(in srgb, rgb(255, 255, 255) 88%, transparent)` |
+| `--hd-rail-sheet-filter` | `blur(12px)` |
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
 | `--hd-page-wide` | `1320px` |
@@ -277,6 +279,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-fade-edge` | `16px` |
 | `--hd-fade` | `linear-gradient(to right, #000 calc(100% - 16px), transparent)` |
 | `--hd-toast-gap` | `16px` |
+| `--hd-composer-clearance` | `0px` |
 | `--hd-toast-bottom` | `16px` |
 | `--hd-composer-min` | `44px` |
 | `--hd-composer-max` | `320px` |
@@ -2778,7 +2781,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 4 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 17 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2040 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2038 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
 ## Screens against the standard
 

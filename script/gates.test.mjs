@@ -185,13 +185,14 @@ test('single-screen pattern accounting names the settings, agent roster and room
   const agentRoster = path.join(repoRoot, 'packages/ui/src/components/AgentRoster.tsx')
   const agentPage = path.join(repoRoot, 'packages/ui/src/components/AgentPage.tsx')
   assert.equal(singleScreenAreaOf([agentsWindow, agentRoster, agentPage]), 'agentroster')
-  // Agents.tsx (a session's own delegated sub-agents, in the right-dock
-  // inspector) is a different screen and must stay out of that family — it
-  // now serves both Details.tsx and the conversation fact rail's recorded
-  // sub-agent presence query. Those independent consumers retain its own
-  // screen family rather than folding it into Details.
+  // A session's delegated sub-agents are composed only by the canonical
+  // Details inspector. The resting rail no longer imports this inspector
+  // for a presence query, so it belongs to Details rather than the roster.
+  // Pin the actual value-import edge as well as the resulting family.
   const agentsInspector = path.join(repoRoot, 'packages/ui/src/components/Agents.tsx')
-  assert.equal(screenAreaOf(agentsInspector), 'agents')
+  const details = path.join(repoRoot, 'packages/ui/src/components/Details.tsx')
+  assert.deepEqual(importersByFile.get(agentsInspector), [details])
+  assert.equal(singleScreenAreaOf([agentsInspector, details]), 'details')
   assert.notEqual(screenAreaOf(agentsInspector), 'agentroster')
 
   const teamRoomPane = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')

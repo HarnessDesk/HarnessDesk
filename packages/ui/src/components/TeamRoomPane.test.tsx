@@ -489,14 +489,14 @@ const row = (text: string): HTMLElement => {
   if (text === 'Board') text = 'Tasks'
   if (text === 'Findings') {
     act(() => container.querySelector<HTMLButtonElement>('[data-team-page="board"]')!.click())
-    return [...container.querySelectorAll<HTMLElement>('[aria-label="Task views"] [role="tab"]')].find(one => one.textContent?.startsWith('Findings'))!
+    return [...container.querySelectorAll<HTMLElement>('[data-slot="task-navigation"] button')].find(one => one.textContent?.startsWith('Findings'))!
   }
   if (text === 'Runs' || text === 'Receipt') { topMore(); return menuRow(text === 'Runs' ? 'Run history' : 'Receipt') }
 
   if (text === 'Side by side') {
     act(() => container.querySelector<HTMLButtonElement>('[data-team-page="room"]')!.click())
-    act(() => container.querySelector<HTMLButtonElement>('button[title="Thread"], button[title="Side by side"]')!.click())
-    return menuRow('Side by side')
+    act(() => container.querySelector<HTMLButtonElement>('button[title="Chat"], button[title="Split"]')!.click())
+    return menuRow('Split')
   }
   const tab = [...container.querySelectorAll<HTMLElement>('[data-team-page]')].find(one => one.textContent?.startsWith(text))
   if (tab) return tab
@@ -668,6 +668,7 @@ it('keeps the full stalled reason on Run and routes the other destinations there
     if (page !== 'Work') {
       const recovery = [...container.querySelectorAll('button')].find(one => one.textContent === 'Review stopped Run')
       expect(recovery, page).toBeDefined()
+      expect(recovery?.closest('[data-pane-tabs-row]'), page).not.toBeNull()
     }
     expect(container.textContent, page).not.toContain('lane-1')
     expect(container.textContent, page).not.toContain('Goal')
@@ -1035,7 +1036,7 @@ it('re-reads the roster when the room’s membership moves', async () => {
   const { store } = rig([], undefined, { members: [] })
   const snapshot = store.getSnapshot()
   await render(store)
-  expect(memberList().textContent).toContain('No agents in this Team yet')
+  expect(memberList().querySelector('[data-slot="tool-section-value"]')?.textContent).toBe('0')
   expect(container.textContent).not.toContain('takes a turn')
 
   // The host says somebody joined; the pane must ask again.
@@ -1154,11 +1155,12 @@ it('a member that cannot reach the board says so on its row', async () => {
  * rule is real — a conversation joins when it is attached to its agent — and it
  * was applied invisibly, which nobody can tell apart from a broken feature.
  */
-it('an empty roster says how many conversations it looked at', async () => {
+it('an empty roster keeps a compact add-seat doorway', async () => {
   const { store } = rig([])
   await render(store)
   const text = memberList().textContent ?? ''
-  expect(text).toContain('conversation')
+  expect(text).toBe('Seats0')
+  expect(memberList().querySelector('button[aria-label="Seat an Agent in this Team"]')).not.toBeNull()
   // Never the old phrasing, which said only what it wanted.
   expect(text).not.toContain('Open one in this workspace and it joins')
 })
@@ -4331,10 +4333,11 @@ it('an older receipt whose Seats were all kept without a conversation lists them
  expect(rail).not.toContain('No Agents were kept')
 })
 
-it('a receipt that kept no Seat at all still says so', async () => {
+it('a receipt that kept no Seat at all shows its zero count', async () => {
  const { store } = rig([], undefined, { members: [] }, receiptGoal([], []))
  await render(store)
- expect(memberList()?.textContent).toContain('No Agents were kept in this Team’s receipt.')
+ expect(memberList()?.textContent).toBe('Seats0')
+ expect(memberList().querySelector<HTMLButtonElement>('button[aria-label="Seat an Agent in this Team"]')?.disabled).toBe(true)
 })
 
 /* The pane is two columns at width and one at a time without it, and `data-showing` names the one on show. A wrapped
@@ -4439,7 +4442,7 @@ it('keeps worded tab counts and no-Run refusal accessible in the canonical bar',
  expect(row('Work').getAttribute('aria-selected')).toBe('true')
 })
 
-it('Chat View chooses Side by side and Thread while keeping Chat selected', async () => {
+it('Chat View chooses Split and Chat while keeping Chat selected', async () => {
  const {store}=rig(undefined,undefined,{},GOAL)
  await render(store)
  act(()=>row('Board').click()); await act(async()=>{})
@@ -4447,8 +4450,8 @@ it('Chat View chooses Side by side and Thread while keeping Chat selected', asyn
  await act(async()=>side.click())
  expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
  await expectChatSelected()
- act(()=>container.querySelector<HTMLButtonElement>('button[title="Thread"], button[title="Side by side"]')!.click())
- await act(async()=>menuRow('Thread').click())
+ act(()=>container.querySelector<HTMLButtonElement>('button[title="Chat"], button[title="Split"]')!.click())
+ await act(async()=>menuRow('Chat').click())
  expect(container.querySelector('[data-slot="room-stream"]')).not.toBeNull()
  expect(container.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
  await expectChatSelected()
@@ -4612,8 +4615,8 @@ it('remounts the chosen Thread while retaining the Side by side arrangement', as
   const arrangement = {tiles:[key],pinned:[key],focused:key,modes:{[key]:'browser' as const}}
   const {store} = await renderRoom({members:[key],view:{framePage:'room',chatLayout:'side-by-side',sideBySide:arrangement}})
   expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
-  act(()=>container.querySelector<HTMLButtonElement>('button[title="Thread"], button[title="Side by side"]')!.click())
-  await act(async()=>menuRow('Thread').click())
+  act(()=>container.querySelector<HTMLButtonElement>('button[title="Chat"], button[title="Split"]')!.click())
+  await act(async()=>menuRow('Chat').click())
   expect(container.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
   expect(store.lastView()).toMatchObject({framePage:'room',chatLayout:'thread',sideBySide:arrangement})
   act(()=>root.render(<div>Another view</div>))
@@ -4670,8 +4673,8 @@ it('returns to the last chosen Chat view after another Team page without clearin
   await act(async()=>row('Chat').click())
   expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
   expect(store.lastView().chatLayout).toBe('side-by-side')
-  act(()=>container.querySelector<HTMLButtonElement>('button[title="Thread"], button[title="Side by side"]')!.click())
-  await act(async()=>menuRow('Thread').click())
+  act(()=>container.querySelector<HTMLButtonElement>('button[title="Chat"], button[title="Split"]')!.click())
+  await act(async()=>menuRow('Chat').click())
   await act(async()=>row('Board').click())
   await act(async()=>row('Chat').click())
   expect(container.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
@@ -4714,7 +4717,7 @@ it('refreshes Seat display names when the active catalog changes without accepti
 it('names the disabled Findings tab without an internal Team noun', async () => {
   await render(rig().store)
   const findings = row('Findings')
-  expect(findings.getAttribute('aria-disabled')).toBe('true')
+  expect((findings as HTMLButtonElement).disabled).toBe(true)
 })
 
 
@@ -5070,4 +5073,20 @@ it('returns from the originating pending approval conversation to Chat without a
   expect(container.querySelector('[data-slot="approval-card"]')).not.toBeNull()
   expect(store.getSnapshot().approvals[0]).toBe(request)
   expect(respondToApproval).not.toHaveBeenCalled()
+})
+
+it('folds Run facts and Seats with summaries while preserving the add-seat doorway', async () => {
+  const { store } = rig(undefined, undefined, {}, GOAL)
+  await render(store)
+  const run = container.querySelector('[data-slot="tool-section"][aria-label="Run"]')!
+  const seats = container.querySelector('[data-slot="tool-section"][aria-label="Seats"]')!
+  const toggle = run.querySelector<HTMLButtonElement>('button[aria-controls]')!
+  expect(toggle).not.toBeNull()
+  expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  expect(run.querySelector('[data-slot="tool-section-value"]')?.textContent).toBe('No Run')
+  expect(seats.querySelector('button[aria-controls]')?.getAttribute('aria-expanded')).toBe('true')
+  expect(seats.querySelector('[data-slot="tool-section-value"]')?.textContent).toContain('2')
+  expect(seats.querySelector('button[aria-label="Seat an Agent in this Team"]')).not.toBeNull()
+  act(() => toggle.click())
+  expect(run.querySelector('[data-slot="tool-section-body"]')?.hasAttribute('hidden')).toBe(true)
 })

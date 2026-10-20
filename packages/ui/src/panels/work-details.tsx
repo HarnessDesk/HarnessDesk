@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { Session } from '@harnessdesk/protocol'
+import { allItems, type Session } from '@harnessdesk/protocol'
 import { SummaryList, SummaryItem, ToolBody, ToolBodySections, ToolFooterSuppressed, ToolSection, Checklist, ChecklistItem, ToolProse, ToolFold, Chip, InlineParts, BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '../design'
 import { useSnapshot, useRuntime } from '../state/context'
 import { useSeatAgent } from '../state/seat-agent'
@@ -10,7 +10,6 @@ import { sessionPlan, todoState } from '../lib/todos'
 import { worktreeBranch } from '../lib/worktree-branch'
 import { sanitizeText } from '../lib/sanitize'
 import { AgentsView, TrajectoryCard } from '../components/Details'
-import { hasSessionAgents } from '../components/Agents'
 import { SeatRecordBlock } from '../components/SeatRecordBlock'
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
 import { useStore } from '../state/context'
@@ -31,8 +30,9 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
   const agentName = seated?.name ?? snapshot.runtimes.find(one => one.id === session?.runtime)?.presentation.name ?? runtime.presentation.name
   const shown = session ? seatCeilingOf(session.settings, [...snapshot.flowRuns.values()].flat(), String(session.runtime), String(session.id)) : null
   const context = describeContext(session?.usage, agentName), todos = sessionPlan(session) ?? []
+  const agents = new Set((session ? allItems(session) : []).flatMap(item => item.type === 'subagent' ? item.members.map(member => member.sessionId) : [])).size
   return <ToolBody><ToolBodySections><ToolFooterSuppressed>
-    <ToolSection label={session ? 'Conversation' : 'Starts in'} action={session ? <DropdownMenu icons="none"><DropdownMenuTrigger render={<BoardMenuButton aria-label="Conversation actions" />} /><DropdownMenuContent align="end"><DropdownMenuItem label="Export as Markdown" onClick={() => { downloadMarkdown(exportFilename(session), sessionToMarkdown(session)); store.notice('info', 'Session exported as Markdown.') }} /></DropdownMenuContent></DropdownMenu> : undefined}>
+    <ToolSection label={session ? 'Conversation' : 'Starts in'} fold value={context?.fill ? `${context.fill.percent}% full` : branch ?? agentName} action={session ? <DropdownMenu icons="none"><DropdownMenuTrigger render={<BoardMenuButton aria-label="Conversation actions" />} /><DropdownMenuContent align="end"><DropdownMenuItem label="Export as Markdown" onClick={() => { downloadMarkdown(exportFilename(session), sessionToMarkdown(session)); store.notice('info', 'Session exported as Markdown.') }} /></DropdownMenuContent></DropdownMenu> : undefined}>
       <SummaryList surface="panel" aria-label="Conversation facts">
         <SummaryItem kind="name" label={seated?.name ? 'Agent' : 'Runtime'}>{agentName}</SummaryItem>
         {shown && <SummaryItem label="Ceiling"><InlineParts>
@@ -57,11 +57,11 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
       </ToolFold>}
       <Slot name="session.header" />
     </ToolSection>
-    {todos.length > 0 && <ToolSection label="Plan">
+    {todos.length > 0 && <ToolSection label="Plan" fold value={`${todos.length} ${todos.length === 1 ? 'step' : 'steps'}`}>
       <Checklist surface="panel">{todos.map((todo, index) => <ChecklistItem key={index} state={todoState(todo)}>{sanitizeText(todo.label)}</ChecklistItem>)}</Checklist>
     </ToolSection>}
     {session && <SeatRecordBlock />}
-    {hasSessionAgents(session) && <ToolSection label="Sub-agents"><AgentsView includeSeat={false} /></ToolSection>}
+    {agents > 0 && <ToolSection label="Sub-agents" fold defaultOpen={false} value={agents}><AgentsView includeSeat={false} /></ToolSection>}
     {session && <><BackgroundTasksView card /><TrajectoryCard hideEmpty /></>}
   </ToolFooterSuppressed></ToolBodySections></ToolBody>
 }

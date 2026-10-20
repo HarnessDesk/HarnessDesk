@@ -12,7 +12,9 @@ import { Chip, CodeText, MetaList, Text } from './Settings'
 import { TurnItem } from './TurnWork'
 
 /**
- * A channel message uses the transcript's unframed Message and Bubble parts.
+ * A channel message uses the transcript's Message and Bubble parts: the
+ * current person's own words stand on the right, on the shared muted bubble;
+ * everyone else's words stand on the left, unframed in the reading column.
  * The plain runtime glyph identifies its sender; a compact name and separate
  * timestamp sit above the words. Full identity stays available on hover.
  * Consecutive delivered messages share a header, while each keeps its time.
@@ -28,6 +30,8 @@ const FACE = 'grid-cols-[var(--hd-space-8)_minmax(0,1fr)] gap-(--hd-space-3)'
 const SPINE = 'mr-3 w-8 flex-none'
 
 export type ChannelMessageProps = {
+  /** Ownership comes from the actor, never from a display name such as "You". */
+  readonly own?: boolean
   /** The sender's display name — "You", or the conversation and its agent. */
   readonly from: string
   readonly fromTitle?: string
@@ -138,6 +142,7 @@ const TROUBLE_TONE: Readonly<Record<string, Tone>> = {
 const troubleTone = (state: string): Tone => TROUBLE_TONE[state] ?? 'neutral'
 
 export const ChannelMessage = ({
+  own = false,
   from,
   fromTitle,
   brand,
@@ -206,34 +211,38 @@ export const ChannelMessage = ({
      working replies as three errors. */
   const whisper =
     state === 'delivered' ? 'delivered' : state === 'shown' ? 'in the room' : null
+  const groupedTime = (
+    <Text
+      role="meta"
+      numeric
+      className="whitespace-nowrap opacity-0 select-none group-hover:opacity-100 group-focus-within:opacity-100"
+      title={whisper ?? undefined}
+    >
+      {at}
+      {whisper && <span className="sr-only">, {whisper}</span>}
+    </Text>
+  )
 
   return (
     <TurnItem
       {...(grouped ? { register: 'light' as const } : {})}
       /* Grouped, the gutter holds a time rather than a face, and it sits on
          the first line of the words beside it rather than at the row's top. */
-      className={`group grid ${FACE} data-[grouped]:items-baseline`}
+      className={`group grid ${own ? 'grid-cols-[minmax(0,1fr)_var(--hd-space-8)] gap-(--hd-space-3)' : FACE} data-[grouped]:items-baseline`}
       data-channel="message"
+      data-own={own ? '' : undefined}
       data-grouped={grouped ? '' : undefined}
       data-state={state}
     >
-      <div className={`flex ${grouped ? 'justify-end' : 'justify-center'}`}>
-        {grouped ? (
+      <div className={`flex ${own ? 'order-last' : ''} ${grouped ? (own ? 'justify-start' : 'justify-end') : 'justify-center'}`}>
+        {grouped ? (own ? null : (
           // The grouped row's own moment, offered on hover or focus where
           // the face would be — the way a chat app answers "when exactly?".
           // Faded, never hidden: opacity keeps the time in the
           // accessibility tree, so a screen reader hears it whether or not
           // a pointer ever passes.
-          <Text
-            role="meta"
-            numeric
-            className="whitespace-nowrap opacity-0 select-none group-hover:opacity-100 group-focus-within:opacity-100"
-            title={whisper ?? undefined}
-          >
-            {at}
-            {whisper && <span className="sr-only">, {whisper}</span>}
-          </Text>
-        ) : (
+          groupedTime
+        )) : (
           // The face is decoration — the header says who spoke in words. A
           // picture brings its own plate, so the tint is not painted under it.
           <IconTile variant="bare" shape="face" aria-hidden="true">
@@ -242,20 +251,16 @@ export const ChannelMessage = ({
         )}
       </div>
 
-      {/* The room's row genuinely stands on the transcript's own Message —
-          not a box borrowed and switched off. `items-stretch` because the
-          header and the content column both need to fill the row rather than
-          hug their own width (the way `ghost` already tunes `Bubble` for the
-          same reason); `gap-0` because the header below keeps the exact
-          `mb-px` it always drew itself, its own row rather than a shared
-          `MessageHeader` — no other row in the transcript names a sender
-          above its message, so there is no second caller to give one, and a
-          part with exactly one is the same audit-shaped dishonesty the box
-          itself was. */}
-      <Message align="start" className="items-stretch gap-0">
+      {/* The shared reading measure bounds a long review even in a wide
+          room. Ownership moves the whole column and face to the right;
+          recipient, time and trouble remain attached to the words. */}
+      <Message align={own ? 'end' : 'start'} className={`max-w-(--hd-column) gap-0 ${own ? 'justify-self-end' : 'items-stretch'}`}>
+        {/* On the right a timestamp cannot spill out of the face's narrow
+            gutter. It keeps its own line inside the message column. */}
+        {own && grouped ? groupedTime : null}
         {!grouped && (
-          <div data-slot="channel-head" className="mb-px flex min-w-0 items-baseline gap-1.5">
-            <div data-slot="channel-sender" className="flex min-w-0 max-w-1/2 shrink-0 items-baseline gap-1">{wrap(<Text role="row" ink="primary" truncate className="block min-w-0" title={fromTitle ?? from}>{from}</Text>)}</div>
+          <div data-slot="channel-head" className={`mb-px flex min-w-0 items-baseline gap-1.5 ${own ? 'w-2/3 flex-wrap justify-end' : ''}`}>
+            <div data-slot="channel-sender" className={own ? 'sr-only' : 'flex min-w-0 max-w-1/2 shrink-0 items-baseline gap-1'}>{wrap(<Text role="row" ink="primary" truncate className="block min-w-0" title={fromTitle ?? from} aria-label={fromTitle ?? from}>{from}</Text>)}</div>
             {/* `min-w-0`, or `truncate` is decoration: a flex item will not
                 shrink below its content without it, and a recipient list of
                 138 names ran off the row and gave the channel a scrollbar. */}
@@ -282,7 +287,7 @@ export const ChannelMessage = ({
             more", outcomes and trouble each already carry the margin they
             had before this was `MessageContent`, so the column adds none of
             its own on top. */}
-        <MessageContent className="gap-0">
+        <MessageContent className={`gap-0 ${own ? 'items-end' : ''}`}>
           {/* `body` when the app gave one, the words themselves otherwise, at
               the document's own reading size — the rendered body sets its own.
 
@@ -293,7 +298,7 @@ export const ChannelMessage = ({
               line at the reading size, the same unit Items' own clamp is
               expressed in rather than a pixel count the audit cannot see.
               The "Show more" below opens the rest. */}
-          <Bubble variant="ghost">
+          <Bubble variant={own ? 'secondary' : 'ghost'}>
             <BubbleContent
               ref={bodyRef}
               data-slot="channel-body"
@@ -304,7 +309,7 @@ export const ChannelMessage = ({
               // session tree) each clamp long content with their own "Show
               // more", none sharing a part. Giving that role one owner is a
               // wider decision than this message body alone.
-              className={`break-words ${body ? '' : 'whitespace-pre-wrap'}`}
+              className={`max-w-full [overflow-wrap:anywhere] ${body ? 'whitespace-normal' : 'whitespace-pre-wrap'}`}
             >
               {body ?? text}
             </BubbleContent>
@@ -317,7 +322,7 @@ export const ChannelMessage = ({
               data-slot="channel-more"
               /* `self-start`: MessageContent stretches its children, and a
                  stretched toggle centres its word across the whole row. */
-              className="mt-1 self-start"
+              className={`mt-1 ${own ? 'self-end' : 'self-start'}`}
               aria-expanded={expanded}
               onClick={() => setExpanded((on) => !on)}
             >
@@ -326,7 +331,7 @@ export const ChannelMessage = ({
           )}
 
           {outcomes && outcomes.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <div className={`mt-1.5 flex flex-wrap items-center gap-1.5 ${own ? 'max-w-2/3 justify-end' : ''}`}>
               {outcomes.map((outcome) => (
                 <span
                   key={`${outcome.state}-${outcome.reason ?? ''}`}
@@ -346,7 +351,7 @@ export const ChannelMessage = ({
               reads its time and actions from — status on the left, the one
               action a held delivery offers on the right. */}
           {(state === 'held' || state === 'refused' || state === 'queued') && (
-            <MessageFooter align="start" className="mt-1.5 flex-wrap gap-1.5">
+            <MessageFooter align={own ? 'end' : 'start'} className={`mt-1.5 flex-wrap gap-1.5 ${own ? 'max-w-2/3' : ''}`}>
               <Chip tone={troubleTone(state)}>{state}</Chip>
               {reason && (
                 <Text role="meta" className="min-w-0 flex-1 basis-48">
@@ -362,7 +367,7 @@ export const ChannelMessage = ({
           )}
 
           {refusedFirst && (
-            <Text as="p" role="meta" className="mt-1">
+            <Text as="p" role="meta" className={`mt-1 ${own ? 'max-w-2/3' : ''}`}>
               First attempt refused — {refusedFirst}
             </Text>
           )}

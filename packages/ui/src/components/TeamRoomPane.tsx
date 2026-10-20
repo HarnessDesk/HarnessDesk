@@ -29,7 +29,7 @@ import type { Tint } from '../design'
 import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
 import { goalRunOf, namedGoalRun } from '../lib/goal-run'
-import { teamSeats, hasConversation, seatDisplayName } from '../lib/team-seats'
+import { teamSeats, hasConversation, seatDisplayName, compactTeamSeatName } from '../lib/team-seats'
 import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { teamOverviewOf } from '@harnessdesk/client/views'
 import { clientSnapshot } from '../lib/client-snapshot'
@@ -48,7 +48,6 @@ import { goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
 import { canPlace, forgetMissing, fromStored, MAX_TILES, placeTile, removeTile, wouldReplace as modelWouldReplace, type SideBySideState } from '../lib/side-by-side'
 import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, originHoverWords, originSubject } from '../lib/intake'
-import { isPathInside } from '../lib/paths'
 import { PaneProvider, usePane, useSnapshot, useStore } from '../state/context'
 import { useNeedsYouAnswers } from '../state/needs-you'
 import type { AppSnapshot } from '../state/snapshot'
@@ -628,20 +627,7 @@ export const TeamRoomPane = ({
      count and changes the room. */
   const sessionCount = snapshot.sessions.size
   const membership = (team?.members ?? []).join(' ')
-  /* Conversations that live in this project, whether or not they have joined —
-     the evidence half of the empty state below. A roster that says zero has to
-     be able to say zero *of what*, and "zero of the four running here" is what
-     tells somebody the room needs staffing rather than that the app is broken. */
   const root = team?.root ?? ''
-  const here = useMemo(
-    () =>
-      root === ''
-        ? 0
-        : [...snapshot.sessions.values()].filter(
-            (one) => isPathInside(one.cwd, root),
-          ).length,
-    [snapshot.sessions, root],
-  )
   useEffect(() => {
     let live = true
     void store
@@ -842,17 +828,7 @@ export const TeamRoomPane = ({
   const savedSeatName = (seat: (typeof allSeats)[number]): string => (seat.key ? team?.nicknames?.[seat.key]
     ?? peers?.find(peer => sessionKey(peer.runtime, peer.sessionId) === seat.key)?.nickname : undefined) ?? seat.name
   const seatIdentity = (seat: (typeof allSeats)[number]) => [...(goal?.members ?? []), ...(goal?.pastMembers ?? [])].find(one => one.id === seat.record.id)
-  const generatedSeatNames = new Map([...allSeats].sort((a, b) => a.record.openedAt - b.record.openedAt || a.record.id.localeCompare(b.record.id)).flatMap(seat => {
-    const identity = seatIdentity(seat)
-    return identity?.agent?.name && identity.seatLabel && savedSeatName(seat).startsWith(`${identity.agent.name} · ${identity.seatLabel}`)
-      ? [[seat.record.id, identity.agent.name] as const] : []
-  }))
-  const compactSeatName = (seat: (typeof allSeats)[number]): string => {
-    const generated = generatedSeatNames.get(seat.record.id)
-    if (!generated) return savedSeatName(seat)
-    const sameNames = [...generatedSeatNames].filter(([, name]) => name === generated)
-    return `${generated}${sameNames.length > 1 ? ` ${sameNames.findIndex(([id]) => id === seat.record.id) + 1}` : ''}`
-  }
+  const compactSeatName = (seat: (typeof allSeats)[number]): string => compactTeamSeatName(seat, allSeats, goal, savedSeatName)
   const roster = useMemo(
     () =>
       members.map((peer) => {
@@ -1157,7 +1133,7 @@ export const TeamRoomPane = ({
   })
   const filteredSeats = filter.trim() ? seatRows.filter(one => `${one.name} ${one.detail} ${one.context ?? ''}`.toLowerCase().includes(filter.trim().toLowerCase())) : seatRows
   useWorkDetails(mainOwner, <ToolBody>
-    <ToolSection label="Run">
+    <ToolSection label="Run" fold defaultOpen value={detailsRun ? ({ running: 'Running', stalled: 'Needs you', settled: 'Done', stopped: 'Stopped' } as const)[detailsRun.state] : 'No Run'}>
       <TeamRunFacts input={detailsInput} number={detailsRun ? runs.findIndex(one => one.id === detailsRun.id) + 1 : 0}
         chooser={runChooser} at={detailsAt}
         continuesNumber={detailsRun?.continues ? runs.findIndex(one => one.id === detailsRun.continues) + 1 || undefined : undefined}
@@ -1166,24 +1142,20 @@ export const TeamRoomPane = ({
         originNote={originStatus ? originHoverWords(originStatus, triggerSourceTitle ?? 'Trigger') : undefined}
         pullRequest={detailsPullRequest} cost={detailsCosts} trigger={triggerKind ? <>{teamTriggerLabel(originStatus, triggerControl.view)}{originStatus && <Text as="span" role="meta" ink="secondary"> · {originHoverWords(originStatus, triggerSourceTitle ?? 'Trigger')}</Text>}{triggerControl.view && <Text as="span" role="meta" title={triggerControl.view.reason ?? undefined}> · {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}</Text>}{triggerControl.view?.reason && <Text as="span" role="meta"> · {triggerControl.view.reason}</Text>}{!detailsInput && originStatus?.url && <Button variant="link" size="inline-link" onClick={() => void openExternal(originStatus.url!)}>Open</Button>}</> : undefined} />
     </ToolSection>
-    <ToolSection label="Seats" action={<Button variant="ghost" size="icon-sm" aria-label="Seat an Agent in this Team"
+    <ToolSection label="Seats" fold defaultOpen={seatRows.length > 0} value={seatRows.length} action={<Button variant="ghost" size="icon-sm" aria-label="Seat an Agent in this Team"
       disabled={record || !goal} title={record ? RECORD_REASON : !goal ? 'This compatibility room is read-only' : undefined}
       onClick={() => setAdding(true)}><PlusIcon /></Button>}>
       {roster.length > 4 && <PanelFilter value={filter} onChange={setFilter} placeholder="Filter Seats" />}
       {idleShared && <Note>None of these agents has used the board yet.</Note>}
-      {peers !== null && allSeats.length === 0 && <EmptyState variant="inline" title={record ? 'No Agents were kept in this Team’s receipt.' : here === 0
-        ? 'No agents in this Team yet, and no conversations in this project either. + starts one and puts it in.'
-        : here === 1 ? 'No agents in this Team yet. One conversation is open in this project — + adds an agent.'
-        : `No agents in this Team yet. ${here} conversations are open in this project — + adds an agent.`} />}
       {seatRows.length > 0 && filteredSeats.length === 0 && <EmptyState variant="inline" title={`No agent here matches “${filter.trim()}”.`} />}
       <SeatList rows={filteredSeats} />
     </ToolSection>
   </ToolBody>, Boolean(mainOwner))
 
   useTopBarView(mainOwner, {
-    view: { label: open === 'side-by-side' ? 'Side by side' : 'Thread', content: close => <Menu close={close}>
-      <MenuItem label="Thread" selected={open === 'room'} onSelect={() => { show('room'); close() }} />
-      <MenuItem label="Side by side" selected={open === 'side-by-side'}
+    view: { label: open === 'side-by-side' ? 'Split' : 'Chat', content: close => <Menu close={close}>
+      <MenuItem label="Chat" selected={open === 'room'} onSelect={() => { show('room'); close() }} />
+      <MenuItem label="Split" selected={open === 'side-by-side'}
         disabled={record ? RECORD_REASON : roster.length === 0 ? 'There are no conversations to watch' : false}
         onSelect={() => { if (open !== 'side-by-side') toggleSideBySide(); close() }} />
     </Menu> },
@@ -1235,19 +1207,21 @@ export const TeamRoomPane = ({
   return (
     <PaneSurface className={`${styles.pane} h-full`} data-slot="team-room">
       {actions.dialogs}
-      <PaneTabsRow controls={<WorkViewControlsOutlet owner={mainOwner} />}>
+      <PaneTabsRow controls={<>
+        {(open === 'board' || open === 'findings') && <span data-slot="task-navigation"><Button variant="ghost" size="sm"
+          disabled={!goal} aria-label={`Findings${findingCount ? ` ${findingCount}` : ''}`} aria-pressed={open === 'findings'}
+          title={!goal ? 'Findings are available for a Team with a goal' : undefined}
+          onClick={() => show('findings')}>
+          Findings{findingCount ? <Text role="meta" numeric>{findingCount}</Text> : null}
+        </Button></span>}
+        {flowExecution?.state === 'stalled' && (!workOpen || timelineRun?.id !== flowExecution.id) && <Button variant="ghost" size="sm"
+          title="Work needs you: review the stopped Run" onClick={() => { setChosenRun(flowExecution.id); show('run') }}>Review stopped Run</Button>}
+        <WorkViewControlsOutlet owner={mainOwner} />
+      </>}>
         <Tabs value={open === 'side-by-side' || singleMember ? 'room' : open === 'findings' ? 'board' : open === 'run' ? 'overview' : open}>
           <TabsList aria-label="Team views" data-look="quiet" className="max-w-full justify-start overflow-x-auto">{teamTabs.map(tab => <TeamViewTab key={tab.value} tab={tab} title={tab.value === 'room' ? chatCountTitle : undefined} waiting={tab.value === 'room' && pendingReplies > 0}/>)}</TabsList>
         </Tabs>
       </PaneTabsRow>
-      {(open === 'board' || open === 'findings') && <PaneColumn inset="reading">
-        <Tabs value={open} onValueChange={value => show(value as 'board' | 'findings')}>
-          <TabsList aria-label="Task views" data-look="quiet">
-            <TabsTrigger value="board">Board</TabsTrigger>
-            <TabsTrigger value="findings" disabled={!goal} count={findingCount || undefined}>Findings</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </PaneColumn>}
       {workOpen && runs.length > 1 && <PaneColumn inset="reading"><NativeSelect aria-label="Choose a Run" value={timelineRun?.id ?? ''} onChange={event => setChosenRun(event.target.value)}>
         {runs.map((one, index) => <option key={one.id} value={one.id}>Run {index + 1}</option>)}
       </NativeSelect></PaneColumn>}
@@ -1256,7 +1230,6 @@ export const TeamRoomPane = ({
       {retryCheck && runs.some(one => one.id === retryCheck.run) && <RetryCheck run={retryCheck.run} card={retryCheck.card} onClose={() => setRetryCheck(null)} />}
 
       {goal ? <GoalHeader view={goal} coveredProblem={flowExecution?.reason ?? timelineRun?.reason} /> : null}
-      {flowExecution?.state === 'stalled' && (!workOpen || timelineRun?.id !== flowExecution.id) && <PaneColumn inset="reading"><Button variant="link" size="inline" onClick={() => { setChosenRun(flowExecution.id); show('run') }}>Review stopped Run</Button></PaneColumn>}
       {flowExecution ? <FlowRunStatus execution={flowExecution} checkRecovery={!workOpen} /> : null}
       {runs.map((execution, index) => {
         const failure = snapshot.flowStopProblems.get(execution.id)

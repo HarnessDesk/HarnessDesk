@@ -203,7 +203,7 @@ export const SkillPage = ({ entry, columns, hosts, cwd, usage, home, onBack, onC
     {[...groupedWhy].map(([note, group]) => <Banner key={note} tone={group.problem ? 'warning' : 'neutral'} measure="container" title={group.names.join(', ')}>{note}</Banner>)}
     {digests.size > 1 && <Banner tone="warning" measure="container" title="Resolve the copies before installing anywhere else." />}
     <PageColumns data-slot="skill-page-columns" asideProps={{ 'data-slot': 'skill-page-facts' }} aside={<>
-        {update && <ToolSection label="Update">
+        {update && <ToolSection label="Update" fold value={update.status === 'behind' ? 'Available' : update.status === 'gone' ? 'Source gone' : 'Read failed'}>
           {update.status === 'behind' && <>
             <Row density="compact" title="Update available" />
             <ToolProse variant="note">{fetchFailed ?? `${update.origin.commit.slice(0, 7)} → ${update.latest?.slice(0, 7) ?? ''}`}</ToolProse>
@@ -215,7 +215,7 @@ export const SkillPage = ({ entry, columns, hosts, cwd, usage, home, onBack, onC
           </>}
           {update.status === 'unreachable' && <ToolProse variant="note">Could not check: {update.reason}</ToolProse>}
         </ToolSection>}
-        <ToolSection label="Loaded by">
+        <ToolSection label="Loaded by" fold value={`${entry.reach.filter(one => one.state === 'reaches').length} of ${entry.reach.length}`}>
           {entry.reach.map(reach => {
             const column = columns.find(one => one.id === reach.runtime)
             const switchable = reach.basis === 'reported' && reach.toggleable !== false && (reach.state === 'reaches' || reach.state === 'off')
@@ -238,7 +238,7 @@ export const SkillPage = ({ entry, columns, hosts, cwd, usage, home, onBack, onC
             ? 'Read from disk against this build’s table of where each runtime looks — the runtimes themselves were not asked.'
             : 'Some rows are what the runtime itself reported; the rest are read from disk.'}</ToolProse>}
         </ToolSection>
-        <ToolSection label="Source">
+        <ToolSection label="Source" fold defaultOpen={false} value={origins.length > 0 ? `${origins.length} ${origins.length === 1 ? 'origin' : 'origins'}` : 'This Mac'}>
           {origins.length === 0 ? <Row density="compact" title="This Mac" /> : origins.map(origin => <div key={JSON.stringify(origin)}>
             <Row density="compact" title={<CodeText>{libraryRepository(origin)}</CodeText>} />
             <ToolProse variant="note">{origin.path || 'Repository root'} · {origin.ref}, pinned at {origin.commit.slice(0, 7)}</ToolProse>
@@ -249,7 +249,7 @@ export const SkillPage = ({ entry, columns, hosts, cwd, usage, home, onBack, onC
             <ToolProse variant="note">{copy.hollow ? 'No definition inside — the name lists and nothing loads.' : copy.readBy.length === 0 ? 'No runtime reads this directory.' : `Read by ${copy.readBy.map(labelOf).join(', ')}.`}{copy.readOnly && ' Shipped by the runtime.'}</ToolProse>
           </div>)}
         </ToolSection>
-        <ToolSection label="Files" value={definition ? `${definition.files.length + definition.moreFiles || 1}` : undefined}>
+        <ToolSection label="Files" fold defaultOpen={false} value={definition ? `${definition.files.length + definition.moreFiles || 1}` : reading ? 'Reading…' : 'Not read'}>
           {definition === null ? <ToolProse variant="note">{reading ? 'Reading files…' : 'No file list to read'}</ToolProse> : <>
             {definition.files.length === 0 && <Row density="compact" title={<CodeText>SKILL.md</CodeText>} />}
             {definition.files.slice(0, 5).map(file => <Row density="compact" key={file.path} title={<CodeText wrap>{file.path}</CodeText>} titleChip={(file.runnable || file.binary) && <>{file.runnable && <Chip tone="neutral">Can run</Chip>}{file.binary && <Chip tone="neutral">Binary</Chip>}</>} control={<RowValue numeric>{fileSize(file.bytes)}</RowValue>} />)}
@@ -257,7 +257,7 @@ export const SkillPage = ({ entry, columns, hosts, cwd, usage, home, onBack, onC
             {definition.moreFiles > 0 && <ToolProse variant="note">and {definition.moreFiles} more {definition.moreFiles === 1 ? 'file' : 'files'} not listed</ToolProse>}
           </>}
         </ToolSection>
-        <ToolSection label="Cost">
+        <ToolSection label="Cost" fold defaultOpen={false} value={entry.catalogTokens ? `≈${entry.catalogTokens} tok/turn` : 'Not measured'}>
           <Row density="compact" title="Every turn" control={<RowValue numeric><span title="Name and description at ≈3.6 characters per token — the catalogue line a runtime carries for every skill it loads, fired or not.">{entry.catalogTokens ? `≈${entry.catalogTokens} tok` : '—'}</span></RowValue>} />
           {usage !== null && <Row density="compact" title="Fired here" control={<RowValue numeric>{fired ? `${fired.activations}× in ${fired.sessions} ${fired.sessions === 1 ? 'conversation' : 'conversations'}` : 'never'}</RowValue>} />}
           {usage !== null && fired && fired.lastAt > 0 && <Row density="compact" title="Last used" control={<RowValue numeric>{new Date(fired.lastAt).toLocaleDateString()}</RowValue>} />}

@@ -306,3 +306,16 @@ it('retains real task data on a failed optional refresh', async () => {
   expect(container.textContent).toContain('Keep this watcher')
   expect(button('Stop Keep this watcher')).toBeTruthy()
 })
+
+
+it('keeps failed task records open and names the failure in the collapsed summary', async () => {
+  mount([done('broken', 'Failed build', { state: 'failed' })], { card: true })
+  await act(async () => {})
+  const section = container.querySelector('[data-slot="tool-section"]')!
+  const toggle = section.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!
+  expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  expect(section.querySelector('[data-slot="tool-section-value"]')?.textContent).toBe('1 failed')
+  click(toggle)
+  expect(section.querySelector('[data-slot="tool-section-value"]')?.textContent).toBe('1 failed')
+  expect(button('Clear')).toBeTruthy()
+})

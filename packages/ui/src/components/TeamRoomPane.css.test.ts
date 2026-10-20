@@ -47,7 +47,7 @@ describe('watched conversation layout', () => {
 })
 describe('appearance ownership', () => {
   it('composes shared frame, tool and Seat roles while its stylesheet keeps geometry', () => {
-    for (const part of ['<PaneSurface', '<WorkTools', '<ToolBody>', '<ToolSection label="Run">', '<ToolSection label="Seats"', '<SeatList', '<ComposerDock>']) expect(source, part).toContain(part)
+    for (const part of ['<PaneSurface', '<WorkTools', '<ToolBody>', '<ToolSection label="Run" fold', '<ToolSection label="Seats" fold', '<SeatList', '<ComposerDock>']) expect(source, part).toContain(part)
     const code=css.replace(/\/\*[\s\S]*?\*\//g, '')
     expect(code).not.toMatch(/^\s*(?:color|background[\w-]*|border[\w-]*|box-shadow|font[\w-]*|padding[\w-]*|line-height)\s*:/m)
   })

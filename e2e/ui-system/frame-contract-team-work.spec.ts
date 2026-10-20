@@ -18,7 +18,7 @@ for (const theme of WALL_THEMES) {
       await openFrame(page, 'frame-wall=team', theme)
       await selectFrameTab(page, tab)
       const main = page.locator('[data-slot="workbench-main"]')
-      const icon = main.locator('[data-slot="page-options"]:visible').getByRole('button', { name: /^(View|Thread|Side by side)$/ })
+      const icon = main.locator('[data-slot="page-options"]:visible').getByRole('button', { name: /^(View|Chat|Split)$/ })
       const work = tab === 'overview' || tab === 'run'
       await expect(icon).toHaveCount(work ? 0 : 1)
       if (work) {
@@ -166,9 +166,9 @@ for (const theme of WALL_THEMES) {
     expect(headings[0]).toContain('Run')
     expect(headings[1]).toContain('Seats')
     await selectFrameTab(page, 'room')
-    await page.getByRole('button', { name: /^(Thread|Side by side)$/ }).click()
-    await expect(page.getByRole('menuitemradio', { name: 'Thread', exact: true })).toBeVisible()
-    await expect(page.getByRole('menuitemradio', { name: 'Side by side', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: /^(Chat|Split)$/ }).click()
+    await expect(page.getByRole('menuitemradio', { name: 'Chat', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitemradio', { name: 'Split', exact: true })).toBeVisible()
   })
   test(`B4 Chat has one composer edge and no view toolbar in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
@@ -207,8 +207,8 @@ for (const theme of WALL_THEMES) {
     await input.fill('Check the retry budget')
     await page.getByRole('button', { name: 'Send to', exact: true }).click()
     await page.getByRole('switch', { name: 'Board-only', exact: true }).click()
-    await page.getByRole('button', { name: /^(Thread|Side by side)$/ }).click()
-    await page.getByRole('menuitemradio', { name: 'Side by side', exact: true }).click()
+    await page.getByRole('button', { name: /^(Chat|Split)$/ }).click()
+    await page.getByRole('menuitemradio', { name: 'Split', exact: true }).click()
     const shared = page.locator('[data-shared-composer]:visible')
     await expect(shared.getByText('Board-only', { exact: true })).toBeVisible()
     await expect(shared.locator('textarea')).toHaveValue('Check the retry budget')

@@ -1026,16 +1026,19 @@ export const rightPanelDrawn = (workbench: Workbench): boolean => {
   return subject !== null && workbench.frameTools[subject]?.open === true && areaVisible(workbench, 'right')
 }
 
-/** The card rail is a subject preference, independent of its tool pane. */
+/** Tools get the room first; an explicit reveal keeps the rail beside that tool. */
 export const workRailOpen = (workbench: Workbench): boolean => {
   const subject = fixedSubject(workbench.main)
-  return subject !== null && workbench.frameTools[subject]?.railOpen !== false
+  const intent = subject ? workbench.frameTools[subject] : undefined
+  return subject !== null && intent?.railOpen !== false && (!rightPanelDrawn(workbench) || intent?.tool === 'conversation' || intent?.railWithTool === true)
 }
 export const toggleWorkRail = (workbench: Workbench): Workbench => {
   const subject = fixedSubject(workbench.main)
   if (!subject) return workbench
   const intent = workbench.frameTools[subject] ?? { tool: 'details', mode: 'details', open: false }
-  return { ...workbench, frameTools: { ...workbench.frameTools, [subject]: { ...intent, railOpen: !workRailOpen(workbench) } } }
+  const shown = !workRailOpen(workbench)
+  return { ...workbench, frameTools: { ...workbench.frameTools, [subject]: { ...intent, railOpen: shown,
+    ...(rightPanelDrawn(workbench) && intent.tool !== 'conversation' ? { railWithTool: shown } : {}) } } }
 }
 export const workPaneExpanded = (workbench: Workbench): boolean => {
   const subject = fixedSubject(workbench.main)

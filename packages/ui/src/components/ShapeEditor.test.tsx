@@ -1160,3 +1160,22 @@ it('Undo after fixing an invalid File with an ordered edit restores its unparsed
   expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe(invalidSource)
   expect(button('Start a Team').disabled).toBe(true)
 })
+
+
+it('folds the selected Step inspector independently of its menu while keeping its form initially visible', async () => {
+  const fixture = savedPageFixture()
+  fixture.mount()
+  await settle()
+  const section = container.querySelector<HTMLElement>('[data-slot="tool-section"][aria-label="Step · review"]')!
+  const toggle = section.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!
+  expect(toggle).not.toBeNull()
+  expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  const action = section.querySelector<HTMLButtonElement>('[aria-label="Actions for step review"]')!
+  expect(toggle.contains(action)).toBe(false)
+  act(() => toggle.click())
+  expect(section.querySelector<HTMLElement>('[data-slot="tool-section-body"]')!.hidden).toBe(true)
+  act(() => action.click())
+  await settle()
+  expect(menuItem('Move up')).toBeTruthy()
+  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+})

@@ -36,15 +36,17 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
   const [open, setOpen] = useState(defaultOpen)
   const bodyId = useId()
   const shown = !fold || open
+  const summary = value !== undefined && value !== null
+    ? <span id={`${bodyId}-summary`} data-slot="tool-section-value" title={typeof value === 'string' ? value : undefined}
+      className="ms-auto min-w-0 max-w-1/2 shrink-0 truncate tabular-nums"><Text role="muted" ink="secondary">{value}</Text></span> : null
   return <section data-slot="tool-section" data-folded={shown ? undefined : ''} aria-label={label}
     className="min-w-0 rounded-(--hd-panel-card-radius) border border-(--hd-border-strong) bg-(--hd-background) py-(--hd-panel-card-pad-y)">
     <GroupLabel as="div" surface="tool">
-      {fold ? <Button variant="ghost" size="content" data-slot="tool-section-fold" aria-expanded={open} aria-controls={bodyId}
-        className="hd-no-drag min-w-0 gap-(--hd-space-1)" onClick={() => setOpen(value => !value)}>
-        <Text role="row" ink="primary" truncate>{label}</Text><DisclosureChevron open={open} size="sm" placement="trailing" />
-      </Button> : <Text role="row" ink="primary" truncate>{label}</Text>}
-      {value !== undefined && value !== null && <span data-slot="tool-section-value" className="ms-auto min-w-0 shrink-0 tabular-nums"><Text role="muted" ink="secondary">{value}</Text></span>}
-      {action && <span className={value === undefined || value === null ? 'ms-auto flex items-center' : 'flex items-center'}>{action}</span>}
+      {fold ? <Button variant="ghost" size="content" data-slot="tool-section-fold" aria-label={label} aria-describedby={summary ? `${bodyId}-summary` : undefined} aria-expanded={open} aria-controls={bodyId}
+        className="hd-no-drag min-w-0 min-h-(--hd-panel-head-h) flex-1 shrink justify-start gap-(--hd-space-1) text-left" onClick={() => setOpen(value => !value)}>
+        <DisclosureChevron open={open} size="sm" /><Text role="row" ink="primary" truncate title={label} className="min-w-0">{label}</Text>{summary}
+      </Button> : <><Text role="row" ink="primary" truncate title={label}>{label}</Text>{summary}</>}
+      {action && <span data-slot="tool-section-actions" className={`${fold || summary ? '' : 'ms-auto '}flex shrink-0 items-center gap-(--hd-space-1)`}>{action}</span>}
     </GroupLabel>
     {children !== undefined && children !== null && <div id={bodyId} data-slot="tool-section-body" hidden={!shown} className="mt-(--hd-space-1) min-w-0">{children}</div>}
   </section>

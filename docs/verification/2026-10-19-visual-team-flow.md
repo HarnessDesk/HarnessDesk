@@ -58,3 +58,16 @@ development 的 cd33160d2 已合入；随后新增、仅调整浏览器分片耗
 CI 上原有三个真实图形配置用例曾接近或超过 5 秒默认测试预算；只为这些用例设置 10 秒预算，断言不变，目标 FlowStart 60 项测试通过。第一次合并后全量本地 UI 运行因过高并发出现超时并停止；最终使用 4 个 worker 完整重跑，未改变断言。
 
 最终完整 UI 命令 `pnpm --filter @harnessdesk/ui test --maxWorkers=4`：677 个文件、8,573 项通过，退出码 0，227.58 秒。UI 类型检查、实际 Vite 构建、设计文档新鲜度及接口漂移检查通过。浏览器测试只做发现检查：266 文件、6,509 项可发现，未将其记为执行通过。
+
+
+## 新截图队列：Chat、Tasks 与所有信息栏
+
+自己的 Channel 消息使用右侧浅色气泡，保留接收者、时间、排队和投递状态；Agent 消息仍在左侧显示身份。Tasks 使用紧凑的一行工具栏和非空状态过滤，Assignee 与 Seats 共用稳定的简短名称及真实 runtime 标记。Chat 的两种布局改名为 Chat / Split，Flow 本身的 Side by side 名称保留。停止后的 Run 恢复入口放回当前 Run 的上下文控制。
+
+通过 computer use 观察了 Claude 的实际折叠、摘要、打开工具时收起信息栏、关闭后恢复及显式并排行为，原布局和草稿已还原。未发布真实桌面的图片。产品中的 Run、Conversation、Seats、步骤及技术记录统一使用可收起标题；可选空集合仅在成功读为空时省略，读取中、失败与重试仍可见。
+
+修复毛玻璃被内层不透明滚动底色遮住的问题：共享 rail 材质使用透明内层，信息卡片保持自己的背景。浮动 rail 按内容收缩，并受实际 composer 高度约束。760×640 的实际 CUA 测量：收起后 rail 为 288×120，顶边 48、底边 168；composer 顶边 470、高 170，页面没有横向溢出。内层滚动背景为 rgba(0, 0, 0, 0)，外层 backdrop-filter 为 blur(12px)。1440×900 的 Details 并排测量：rail 右边 1040 与 Details 左边 1040 接合，没有重叠；工具关闭后保留原 rail 偏好。浅色、深色和窄窗口均实际检查。
+
+新增审批来源的 From 无障碍关系文本，图标不会使其消失。可选 Judge 继续由 Details 明确进入；相应浏览器测试迁移到实际图形节点的 Configure 控件，并保留严格对齐与可达性断言，没有更新几何基线。
+
+当前验证：UI 类型检查、实际 Vite 构建、严格设计审计和 pnpm check:push --base origin/development --fast 均通过。该命令显式跳过的 Node 与 browser 套件不计入通过。新轮完整 UI 与 hosted browser alignment 结果待本节追加。

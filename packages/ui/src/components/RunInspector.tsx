@@ -193,7 +193,7 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
     return <RunSummary input={input} selectedRow={null} seats={seats} faces={faces} faceTints={faceTints} pullRequest={pullRequest} flowFile={flowFile} />
   }
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
-    <ToolSection label={sanitizeText(title)}><FormStack spacing="section">
+    <ToolSection key={selectedRow} label={sanitizeText(title)} fold value={selected?.status ? sanitizeText(selected.status) : undefined}><FormStack spacing="section">
       {card && selected?.status && <ToolProse>{sanitizeText(selected.status)}</ToolProse>}
       {round && <Section title={`Round ${round.n}`}><Words>{model.rows.find(row => row.kind === 'round' && row.round === round.n)?.detail ?? 'Progress not recorded'}</Words></Section>}
       {round && onSelect && round.cards.length > 1 && <Section title="Recorded cards"><ListRows>
@@ -252,8 +252,8 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
     <PanelFrame>
       <PanelBody><div className="flex min-w-0 flex-col gap-(--hd-inset-dense)">
-        {execution.brief && <ToolSection label="Brief"><ToolProse><Words fold>{execution.brief}</Words></ToolProse></ToolSection>}
-        {recorded.length > 0 && <ToolSection label={`Seats ${ids.length}`}>
+        {execution.brief && <ToolSection label="Brief" fold defaultOpen={false} value="Recorded"><ToolProse><Words>{execution.brief}</Words></ToolProse></ToolSection>}
+        {recorded.length > 0 && <ToolSection label="Seats" fold value={ids.length}>
             {recorded.map(one => {
               const keep = rows.find(row => row.seat === one.id && row.attempt)?.keep
               const state = keep === 'kept' ? 'Picked' : keep === 'not-kept' ? 'Not kept' : [...rows].reverse().find(row => row.seat === one.id && row.status)?.status
@@ -262,8 +262,7 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
                 trail={state ? <RunStateChip state={state} /> : undefined} onClick={one.onOpen} />
             })}
         </ToolSection>}
-        {request && <ToolSection label={`Pull request #${request.number}`} action={<>
-          {pr && <Chip tone={stateTone(pr.state).tone} stale={prRecord?.freshness.state !== 'fresh'}>{wordOf(pr.state)}</Chip>}
+        {request && <ToolSection label={`Pull request #${request.number}`} fold defaultOpen={false} value={pr ? <Chip tone={stateTone(pr.state).tone} stale={prRecord?.freshness.state !== 'fresh'}>{wordOf(pr.state)}</Chip> : undefined} action={<>
           {request.url && <Button variant="link" size="inline-link" onClick={() => openExternal(request.url!)}>Open</Button>}
         </>}><SummaryList surface="panel">
             {branch && <SummaryItem label="Branch" kind="path">{sanitizeText(branch)}</SummaryItem>}
@@ -277,7 +276,7 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
             </span></SummaryItem>}
             {diff?.kind === 'diff' && <SummaryItem label="Changes"><ChangeStats added={diff.added} removed={diff.removed} /></SummaryItem>}
           </SummaryList></ToolSection>}
-        <ToolSection label="Run" action={flowFile}><SummaryList surface="panel">
+        <ToolSection label="Run" fold value={{ running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' }[execution.state]} action={flowFile}><SummaryList surface="panel">
             <SummaryItem label="Flow">{sanitizeText(execution.document.flow.name)}{execution.revision ? ` · ${sanitizeText(execution.revision)}` : ''}</SummaryItem>
             {execution.base && <SummaryItem label="Base" kind="path">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</SummaryItem>}
             {input.origin && <SummaryItem label="Started by">{sanitizeText(input.origin)}</SummaryItem>}

@@ -87,10 +87,10 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
   return <PaneColumn ref={root} inset="reading" className="flex flex-col gap-3" data-slot="board-list" data-grouped={grouped || undefined}>
     <div className="flex flex-wrap items-center gap-2">
       <div className="min-w-0 basis-48"><PanelFilter value={query} placeholder="Filter jobs" onChange={setQuery} /></div>
-      <Tabs value={state} onValueChange={value => setState(value as typeof state)}><TabsList><TabsTrigger value="all" count={intents.length}>All </TabsTrigger>
+      <Tabs value={state} onValueChange={value => setState(value as typeof state)}><TabsList aria-label="Task state" data-look="quiet"><TabsTrigger value="all" count={intents.length}>All </TabsTrigger>
       {filters.map(id => {
         const column = FACT_COLUMNS.find(one => one.id === id)!
-        if (id === 'aside' && count(id) === 0 && state !== id) return null
+        if (count(id) === 0 && state !== id) return null
         return <TabsTrigger key={id} value={id} count={count(id)}>{column.title} </TabsTrigger>
       })}
       </TabsList></Tabs>
@@ -117,7 +117,7 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
     </div>
     <div className="overflow-hidden">
       <Table variant="framed" density={compact ? 'compact' : 'comfortable'} aria-label="Jobs">
-        <TableHeader><TableRow>
+        <TableHeader className={grouped ? 'sr-only' : undefined}><TableRow>
           <TableHead className="w-full">Job</TableHead>
           {JOB_COLUMNS.filter(one => columns.has(one.id)).map(one => <TableHead key={one.id} className={JOB_COLUMN_CLASS[one.id]} numeric={'numeric' in one && one.numeric}>{one.label}</TableHead>)}
           <TableHead><span className="sr-only">Primary action</span></TableHead>
@@ -128,13 +128,13 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
           if (!group.length) return null
           const title = FACT_COLUMNS.find(one => one.id === state)?.title ?? unplacedTitle
           return <Fragment key={state}>
-            <TableRow data-state-group={state}><TableCell colSpan={columns.size + 3}><GroupLabel as="h3">{title}</GroupLabel></TableCell></TableRow>
+            <TableRow data-state-group={state}><TableCell colSpan={columns.size + 3}><GroupLabel as="h3">{title} <Text role="meta" numeric>{group.length}</Text></GroupLabel></TableCell></TableRow>
             {group.map(intent => renderRow(intent, columns))}
           </Fragment>
         }) : jobs.map(intent => renderRow(intent, columns))}</TableBody>
       </Table>
       {jobs.length === 0 && <EmptyState variant="inline" title="No jobs match" />}
-      <PanelFooter left={`${jobs.length} ${jobs.length === 1 ? 'job' : 'jobs'}${jobs.length !== intents.length ? ` of ${intents.length}` : ''}`} right={grouped ? (sort === 'title' ? 'Grouped by state, then job title' : 'Needs you first, then the most recent') : sort === 'state' ? 'Needs you first, then the most recent' : sort === 'recent' ? 'Most recent first' : 'Job title'} />
+      {jobs.length !== intents.length && <PanelFooter left={`${jobs.length} of ${intents.length} tasks`} right={null} />}
     </div>
   </PaneColumn>
 }
