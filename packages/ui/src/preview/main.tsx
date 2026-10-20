@@ -37,6 +37,7 @@ import { SiteRunPreview } from '../../site-demo/run-demo'
 import { SiteScene } from '../../site-demo/scene'
 import { isSceneName } from '../../site-demo/scenes'
 import { TeamRecordFrames } from './frames-team-record'
+import { TeamWordsRepairPreview } from './team-words-repairs-fixture'
 import { TeamsPageFrames } from './frames-teams-page'
 import { CliInstallFrame } from './frames-cli-install'
 import { StrictMode, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
@@ -78,7 +79,7 @@ import { BoardListFrames } from './frames-board-list'
 import { FinishedBoardFrames } from './frames-finished-board'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamFramePreview } from './TeamFramePreview'
-import { ApprovalDialog, ApprovalReason, NativeSelect, PaneColumn } from '../design'
+import { ApprovalDialog, ApprovalReason, EmptyState, NativeSelect, PaneColumn, ToolSection } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { SignInMode } from '../components/SignInMode'
@@ -107,7 +108,7 @@ import {
   sidebarProjectsUnloadedSearchFixture,
 } from './sidebar-projects-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
-import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
+import { captureHealth, commitProvenance, provenanceDetail, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
 import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
 import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
@@ -211,6 +212,10 @@ const sidebarOpenSearchStore = previewStore(sidebarOpenSearchFixture(store.getSn
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
+// The focused finding specimen has no theme dial of its own.
+if (new URLSearchParams(window.location.search).get('findings') === 'seat') {
+  previewMutable.patch({ theme: new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light' })
+}
 /**
  * The store this page mounted, for a spec that has to stage state in it.
  *
@@ -308,7 +313,9 @@ if (SHOW_DENSE) {
   }
 Object.assign(store as unknown as Record<string, unknown>, {
   readProvenance: async () => ({ project: PROVENANCE_ROOT, revision: 1, health: captureHealth(), commits: [previewProvenance] }),
-  readProvenanceSeat: async () => ({ seat: null, session: previewProvenance.seats[0]!.session, unavailable: 'The historical Seat record is unavailable.' }),
+  readProvenanceSeat: async () => new URLSearchParams(window.location.search).has('historical-seat')
+    ? { ...provenanceDetail(7), seat: { ...provenanceDetail(7).seat!, openedAt: Date.UTC(2026, 8, 18, 15, 0) } }
+    : ({ seat: null, session: previewProvenance.seats[0]!.session, unavailable: 'The historical Seat record is unavailable.' }),
   loadCaptureHealth: async () => {},
   setCapture: async (_root: string, enabled: boolean) => {
     const health = captureHealth({ enabled, state: enabled ? 'healthy' : 'stopped', revision: enabled ? 3 : 2, reason: enabled ? 'Capture is current for the refs Git exposes.' : 'Capture is off on this machine.', nextStep: enabled ? 'No action needed.' : 'Turn capture on.' })
@@ -1244,6 +1251,13 @@ const FindingsPreview = () => {
 
 const siteSceneParam = new URLSearchParams(window.location.search).get('site-scene') ?? ''
 const siteScene = isSceneName(siteSceneParam) ? siteSceneParam : null
+/** A stable native specimen for guides mutation tests; empty optional app cards stay omitted. */
+const GuidesFixPreview = () => {
+  useTheme()
+  return <div data-frame-id="guides-fix" className="w-64 max-w-full p-4">
+    <ToolSection label="Background tasks"><EmptyState tight title="Nothing to list" description="This runtime keeps no background task list." /></ToolSection>
+  </div>
+}
 /* Guides draw over every route: each `Frame` is a page of its own, and a
    route without frames is one page. Alt+G steps through the modes. */
 const PreviewGuides = () => {
@@ -1270,7 +1284,8 @@ createRoot(container).render(
     <SceneSteps />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
+        {new URLSearchParams(window.location.search).has('guides-fix') ? <GuidesFixPreview />
+          : new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
           : new URLSearchParams(window.location.search).has('flows-page')
             ? <FlowsDestinationFixture />
@@ -1288,6 +1303,8 @@ createRoot(container).render(
           ? <TeamStartFrames />
           : new URLSearchParams(window.location.search).has('tile-browsers')
           ? <TileBrowserFrames />
+          : new URLSearchParams(window.location.search).has('team-words-repairs')
+          ? <TeamWordsRepairPreview scene={new URLSearchParams(window.location.search).get('team-words-repairs') === 'wrap' ? 'wrap' : 'overview'} />
           : new URLSearchParams(window.location.search).has('shape-graph')
           ? <ShapeGraphFrames />
           : new URLSearchParams(window.location.search).has('header-status')

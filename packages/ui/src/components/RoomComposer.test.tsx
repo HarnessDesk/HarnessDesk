@@ -7,7 +7,7 @@ import { sessionKey, type SessionKey, type TeamMessage, type TeamPeerInfo } from
 import { StoreProvider } from '../state/context'
 import { dismissOverlays, escapeSurface } from '../lib/overlays'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { RoomComposer, type RoomComposerHandle, type RoomMember } from './RoomComposer'
+import { RoomComposer, type RoomComposerDraft, type RoomComposerHandle, type RoomMember } from './RoomComposer'
 
 /**
  * The room's composer.
@@ -116,6 +116,41 @@ const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messag
 }
 
 const box = (): HTMLTextAreaElement => container.querySelector('textarea') as HTMLTextAreaElement
+
+it.each(['forward', 'backward'] as const)('keeps the %s draft selection when Chat returns from a source session', direction => {
+  const { store } = rig()
+  let draft: RoomComposerDraft = { text: 'Keep this draft', to: [] }
+  const show = (visible: boolean) => act(() => root.render(<StoreProvider store={store}>{visible && <RoomComposer
+    room={ROOM} members={[OPUS, GPT]} messaging onMessaging={async () => {}} onTrouble={() => {}} onPosted={() => {}}
+    draftState={{ value: draft, onChange: next => { draft = typeof next === 'function' ? next(draft) : next } }}
+  />}</StoreProvider>))
+  show(true)
+  const original = box()
+  act(() => original.focus())
+  original.setSelectionRange(5, 9, direction)
+  act(() => original.blur())
+  show(false)
+  show(true)
+  const returned = box()
+  expect(returned).not.toBe(original)
+  expect(document.activeElement).not.toBe(returned)
+  expect(returned.value).toBe('Keep this draft')
+  expect([returned.selectionStart, returned.selectionEnd, returned.selectionDirection]).toEqual([5, 9, direction])
+  act(() => returned.focus())
+  expect([returned.selectionStart, returned.selectionEnd, returned.selectionDirection]).toEqual([5, 9, direction])
+})
+
+it('clamps a kept selection when the draft text has become shorter', () => {
+  const { store } = rig()
+  act(() => root.render(null))
+  act(() => root.render(<StoreProvider store={store}><RoomComposer
+    room={ROOM} members={[OPUS, GPT]} messaging onMessaging={async () => {}} onTrouble={() => {}} onPosted={() => {}}
+    draftState={{ value: { text: 'Short', to: [], selection: { start: 9, end: 17, direction: 'backward' } }, onChange: () => {} }}
+  /></StoreProvider>))
+  expect(box().value).toBe('Short')
+  expect([box().selectionStart, box().selectionEnd, box().selectionDirection]).toEqual([5, 5, 'backward'])
+  expect(document.activeElement).not.toBe(box())
+})
 
 /* React tracks the value setter, so assigning `.value` and firing `input` is a
    change React never hears. This goes through the prototype's setter, which is
@@ -449,7 +484,7 @@ it('a recipient mid-turn is said before the send, not after', () => {
   act(() => press('Enter'))
   act(() => type('when you are free'))
 
-  expect(container.textContent).toContain('Opus is working — this waits for the turn to end')
+  expect(container.textContent).toContain('1 agent working · Sends after their turn')
   /* The conversation's own weight for a message a turn is ahead of. It is not
      disabled: the message will be sent, and saying "later" is not saying no. */
   expect(send().dataset['when']).toBe('later')
@@ -463,8 +498,8 @@ it('a broadcast that reaches most of the room now does not claim to wait', () =>
   /* One of three is mid-turn. Two get it now, so the coin is a send — and the
      line says which copy is held rather than claiming the message waits. */
   expect(send().dataset['when']).toBe('now')
-  expect(container.textContent).toContain('Opus is working — that copy waits')
-  expect(container.textContent).toContain('The rest go now')
+  expect(container.textContent).toContain('1 agent working · Their copy sends after the turn')
+  expect(container.textContent).toContain('The rest send now')
 })
 
 it('every recipient working is the whole message waiting', () => {
@@ -472,7 +507,7 @@ it('every recipient working is the whole message waiting', () => {
   act(() => type('when you are both free'))
 
   expect(send().dataset['when']).toBe('later')
-  expect(container.textContent).toContain('Opus, GPT are working — this waits for the turns to end')
+  expect(container.textContent).toContain('2 agents working · Sends after their turns')
 })
 
 it('the box empties before the host answers, so a second press sends nothing', async () => {
@@ -969,4 +1004,22 @@ it('a wrapped record refuses Hold with the record reason ahead of any caller rea
   expect(store.teamPost).not.toHaveBeenCalled()
   expect(box().disabled).toBe(true)
   expect(JSON.stringify([...view.goals])).toBe(before)
+})
+
+it('uses canonical display names in mentions, chips and audience while retaining full-name search and target identity', async () => {
+  const raw = 'Implementer · Test agent · selection-1 · high'
+  const seats = [member(peer('codex', 'one', raw), { displayName: 'Implementer 1' }), member(peer('codex', 'two', 'Implementer · Test agent · selection-2 · high'), { displayName: 'Implementer 2' })]
+  const { store } = rig(seats)
+  act(() => type('@selection-1'))
+  expect(menu()?.textContent).toContain('Implementer 1')
+  expect(menu()?.textContent).not.toContain('Implementer 2')
+  act(() => press('Enter'))
+  expect(chips()).toEqual(['Implementer 1'])
+  expect(anchor().textContent).toContain('Implementer 1')
+  expect(anchor().title).toContain(raw)
+  expect(container.querySelector('[data-slot="composer-chip"] [title]')?.getAttribute('title')).toBe(raw)
+  act(() => type('Review the change.'))
+  act(() => press('Enter'))
+  await act(async () => {})
+  expect(store.teamPost).toHaveBeenCalledWith(ROOM, 'Review the change.', { runtime: 'codex', sessionId: 'one' })
 })

@@ -47,3 +47,70 @@ test('native Agents scrolls the destination itself to include its shadowed row',
   assert.equal(page.scrollTop, page.scrollHeight)
   assert.equal(scrolled, true)
 })
+
+test('native Agents opens initially folded sources before verifying the shadowed copy', async () => {
+  const from = shoot.indexOf("    'settings-agents':")
+  const to = shoot.indexOf("    /** An Agent's page:", from)
+  assert.ok(from >= 0 && to > from)
+  let open = false
+  const page = { clientHeight: 700, scrollHeight: 1400, scrollTop: 0, querySelectorAll: () => [], dispatchEvent: () => {} }
+  const sources = { getAttribute: name => name === 'aria-expanded' ? String(open) : null }
+  const row = { textContent: 'Shadowed by the project copy. This copy is not used.', getBoundingClientRect: () => ({ width: 700, height: 40, top: 600, bottom: 640 }) }
+  const document = {
+    querySelector: selector => selector.includes('agent-catalogue-sources') ? sources : page,
+    querySelectorAll: () => open ? [row] : [],
+  }
+  const cdp = { eval: async expression => new Function('document', 'innerHeight', `return ${expression}`)(document, 800) }
+  const clickScrolled = async (label, scope) => {
+    assert.equal(label, 'Sources and precedence')
+    assert.equal(scope, '[data-page-destination="agents"]:not([hidden])')
+    open = !open
+    return true
+  }
+  const scene = new Function('openStorefront', 'click', 'clickScrolled', 'sleep', 'cdp', 'waitForSnapshot',
+    `return ({${shoot.slice(from, to)}})['settings-agents']`)(async () => {}, async () => true, clickScrolled, async () => {}, cdp,
+    async (read, accept) => assert.equal(accept(await read()), true))
+  await scene.run()
+  assert.equal(open, true, 'the scene must reveal sources rather than search the folded catalogue')
+  await scene.verify()
+  await scene.run()
+  assert.equal(open, true, 'repeating the scene keeps an already open source disclosure open')
+})
+
+for (const initialLayout of ['Chat', 'Split']) test(`native room chooses Split from the current ${initialLayout} body control`, async () => {
+  const from = shoot.indexOf('    room: { leaveOverlay: true,')
+  const to = shoot.indexOf('    /**\n     * Creating a Goal', from)
+  assert.ok(from >= 0 && to > from)
+  let chat = false, layout = initialLayout, menu = false, composer = true
+  const visible = { getBoundingClientRect: () => ({ height: 300 }) }
+  const tile = { ...visible, hasAttribute: () => false }
+  const grid = { querySelectorAll: () => [tile, tile] }
+  const document = {
+    querySelector: selector => {
+      if (selector === '[data-slot="side-by-side-grid"]') return chat && layout === 'Split' ? grid : null
+      if (selector === 'button[aria-label="Send to"]') return chat && layout === 'Split' && composer ? visible : null
+      if (selector.includes('[data-slot="page-options"]') && selector.includes(`[aria-label="${layout}"]`)) return chat ? visible : null
+      return null
+    },
+    querySelectorAll: selector => selector === '[role="menuitemradio"]' && menu ? ['Chat', 'Split'].map(textContent => ({ textContent })) : [],
+  }
+  const fixtureStore = { openTeamRoom: () => {} }
+  const cdp = { eval: async expression => new Function('document', 'fixtureStore', 'getComputedStyle', `return ${expression}`)(document, fixtureStore, () => ({ visibility: 'visible' })) }
+  const presses = []
+  const press = async target => {
+    presses.push(target)
+    if (target.selector?.includes('[data-team-page="room"]')) { chat = true; return true }
+    if (target.selector && document.querySelector(target.selector)) { menu = true; return true }
+    if (target.text === 'Split' && menu) { layout = 'Split'; menu = false; return true }
+    return false
+  }
+  const scene = new Function('stageRoom', 'cdp', 'STORE', 'q', 'roomId', 'press', 'waitForSnapshot',
+    `return ({${shoot.slice(from, to)}}).room`)(async () => {}, cdp, 'fixtureStore', JSON.stringify, 'synthetic-team', press,
+    async (read, accept) => assert.equal(accept(await read()), true))
+  await scene.run()
+  await scene.verify()
+  assert.equal(layout, 'Split')
+  assert.equal(presses.at(-1).text, 'Split')
+  composer = false
+  await assert.rejects(scene.verify(), /Split and its visible composer are not on screen/)
+})

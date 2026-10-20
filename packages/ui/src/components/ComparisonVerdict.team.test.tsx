@@ -20,7 +20,7 @@ const mount = async (scene: ComparisonScene, setup?: (store: ReturnType<typeof c
   const candidates = vi.spyOn(store, 'flowReviewCandidates')
   const decide = vi.spyOn(store, 'decideFlowReview')
   box = document.createElement('div'); document.body.append(box); root = createRoot(box)
-  const view = { kind: 'room' as const, room: PREVIEW_ROOM, sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 2), focused: SIDE_BY_SIDE_KEYS[0] } }
+  const view = { kind: 'room' as const, room: PREVIEW_ROOM, framePage: 'room' as const, chatLayout: 'side-by-side' as const, sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 2), focused: SIDE_BY_SIDE_KEYS[0] } }
   await act(async () => root.render(<StoreProvider store={store}><MountProvider scope={{ area: 'main', id: 'verdict-test', view }}><TeamRoomPane room={PREVIEW_ROOM} /></MountProvider></StoreProvider>))
   return { store, read, candidates, decide }
 }

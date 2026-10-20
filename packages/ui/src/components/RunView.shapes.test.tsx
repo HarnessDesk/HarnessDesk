@@ -43,7 +43,7 @@ it('keeps answered progress and the blind explanation on the flat step’s secon
   const input = shapeFixture('independent-review')
   const view = mount(<RunView number={1} model={runTimeline(input)} stepsInput={input} selectedRow={null} onSelect={() => {}} />)
   try {
-    expect(view.container.querySelectorAll('[data-slot="timeline-card"]')).toHaveLength(0)
+    expect(view.container.querySelectorAll<HTMLButtonElement>('[aria-label="Recorded cards"] [data-slot="list-row"]')).toHaveLength(0)
     expect(view.container.querySelectorAll('[data-step-row][data-flow-state]:not([data-flow-state="future"])')).toHaveLength(2)
     expect(view.container.textContent).toContain('1 of 3 answered')
     expect(view.container.textContent?.match(/Blind until the round closes/g)).toHaveLength(1)
@@ -72,13 +72,13 @@ it('exposes every recorded card in a selected parallel round with a real selecti
   const input = shapeFixture('comparison'), onSelect = vi.fn()
   const view = mount(<RunInspector input={input} seats={[]} selectedRow="check-2-3" onSelect={onSelect} teamState="wrapped" />)
   try {
-    const choices = view.container.querySelectorAll('[data-slot="timeline-card"]')
+    const choices = view.container.querySelectorAll<HTMLButtonElement>('[aria-label="Recorded cards"] [data-slot="list-row"]')
     expect(choices).toHaveLength(2)
     expect(choices[0]?.textContent).toContain('on Attempt A')
     expect(choices[0]?.textContent).toContain('Passed')
     expect(choices[1]?.textContent).toContain('on Attempt B')
     expect(choices[1]?.textContent).toContain('Failed')
-    act(() => choices[1]!.querySelector<HTMLButtonElement>('button')!.click())
+    act(() => choices[1]!.click())
     expect(onSelect).toHaveBeenCalledWith('check-2-4')
     expect(view.container.querySelectorAll('button')).not.toContainEqual(expect.objectContaining({ textContent: 'Run again…' }))
   } finally { view.close() }
@@ -98,4 +98,42 @@ it('reads the committed investigation answer from the selected card in Details',
     expect(container.querySelector('[data-slot="timeline-document-body"]')?.textContent).toContain('Investigation answer')
     expect(reads).toHaveBeenCalledWith('git/fileAtRevision', { root: '/repo', sha: 'a'.repeat(40), path: 'docs/answer.md' })
   } finally { act(() => root.unmount()) }
+})
+
+
+it('keeps a completed judge’s cross-round candidates, exact revisions and pick evidence selectable', () => {
+  const input = shapeFixture('comparison'), onSelect = vi.fn()
+  const view = mount(<RunInspector input={input} seats={[]} selectedRow="card-3-5" onSelect={onSelect} />)
+  try {
+    const rows = [...view.container.querySelectorAll<HTMLButtonElement>('[aria-label="Compared attempts"] [data-slot="list-row"]')]
+    expect(rows).toHaveLength(2)
+    expect(rows[0]?.textContent).toContain('Attempt A')
+    expect(rows[0]?.textContent).toContain('a'.repeat(40))
+    expect(rows[0]?.textContent).toContain('Picked')
+    expect(rows[1]?.textContent).toContain('Attempt B')
+    expect(rows[1]?.textContent).toContain('b'.repeat(40))
+    expect(rows[1]?.textContent).toContain('Not kept')
+    act(() => rows[1]!.click())
+    expect(onSelect).toHaveBeenCalledWith('card-1-2')
+  } finally { view.close() }
+})
+
+it('keeps judge candidate evidence readable without a selection callback', () => {
+  const view = mount(<RunInspector input={shapeFixture('comparison')} seats={[]} selectedRow="card-3-5" />)
+  try {
+    expect(view.container.querySelector('[aria-label="Compared attempts"]')?.textContent).toContain('Attempt A')
+    expect(view.container.querySelector('[aria-label="Compared attempts"] button')).toBeNull()
+  } finally { view.close() }
+})
+
+
+it('retains a selected attempt’s recorded artifact facts behind an explicit detail door', () => {
+  const view = mount(<RunInspector input={shapeFixture('comparison')} seats={[]} selectedRow="card-1-1" />)
+  try {
+    const button = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Recorded facts')!
+    act(() => button.click())
+    expect(view.container.querySelector('[aria-label="Selected card facts"]')?.textContent).toContain('a'.repeat(40))
+    expect(view.container.querySelector('[aria-label="Selected card facts"]')?.textContent).toContain('shape/attempt-1')
+    expect(view.container.querySelector('[aria-label="Selected card facts"] [data-slot="change-stats"]')?.textContent).toBe('+40−10')
+  } finally { view.close() }
 })

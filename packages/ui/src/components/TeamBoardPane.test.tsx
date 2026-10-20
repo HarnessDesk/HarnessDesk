@@ -547,6 +547,10 @@ it('the claiming harness is pressable straight through to its conversation', asy
     one.textContent?.includes('API migration'),
   )
   if (!holder) throw new Error('no holder control')
+  const face = holder.querySelector('[data-slot="icon-tile"][data-shape="face"]')
+  expect(face, 'the holder must remain a declared identity for the Faces setting').not.toBeNull()
+  expect(face!.getAttribute('data-variant')).toBe('bare')
+  expect(face!.querySelector('svg')).not.toBeNull()
   act(() => holder.click())
   expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
 })
@@ -1729,9 +1733,9 @@ it('lists every job, including completed work awaiting evidence, with Needs you 
   const table = container.querySelector('table')!
   expect(table).not.toBeNull()
   expect([...table.querySelectorAll('tbody tr')].map(row => row.querySelector('td')?.textContent)).toEqual([
-    '#2Blocked jobChoose the targetsrc/api/**Assignee · UnassignedNeeds you · stopped',
-    '#1Recent jobsrc/api/**Assignee · UnassignedTo do',
-    '#3Finished jobsrc/api/**Assignee · —Checking evidence',
+    '#2 Blocked jobChoose the targetsrc/api/**UnassignedNeeds you · stopped',
+    '#1 Recent jobsrc/api/**UnassignedTo do',
+    '#3 Finished jobsrc/api/**—Checking evidence',
   ])
   expect(table.textContent).toContain('Checking evidence')
   expect(table.textContent).toContain('Unassigned')
@@ -1956,3 +1960,47 @@ for (const word of ['#42', '42', 'Implementer', 'Working', 'waiting on you']) {
     expect([...container.querySelectorAll('tbody tr')].map(one => one.getAttribute('data-job'))).toEqual(['42'])
   })
 }
+
+it('draws a compact task title once when its note and assignee repeat it, while preserving the assignee action', async () => {
+  const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(520)
+  const { store } = rig([intent({ title: 'API migration', detail: 'API migration', state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })])
+  try {
+    await render(store)
+    const row = container.querySelector('tr[data-job="1"]')!
+    expect(row.textContent?.split('API migration')).toHaveLength(2)
+    const assignee = row.querySelector<HTMLButtonElement>('button[title="Open API migration\'s conversation"]')!
+    expect(assignee).not.toBeNull()
+    act(() => assignee.click())
+    expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
+  } finally { width.mockRestore() }
+})
+
+for (const view of ['Board', 'List'] as const) it(`uses a bare actual runtime mark for a task assignee in ${view}`, async () => {
+  const { store } = rig([intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })])
+  await render(store)
+  if (view === 'List') await chooseBoardView('List')
+  const holder = [...container.querySelectorAll('button')].find(one => (one.title || one.getAttribute('aria-description') || '').startsWith('Open '))!
+  const face = holder.querySelector('[data-slot="icon-tile"][data-shape="face"]')!
+  expect(face).not.toBeNull()
+  expect(face.getAttribute('data-variant')).toBe('bare')
+  expect(face.querySelector('svg.brand-codex')?.getAttribute('width')).toBe('16')
+})
+
+for (const savedNames of [true, false]) it(`uses stable Seat ordinals and custom names in task rows with saved names ${savedNames}`, async () => {
+  const first = { id: 'first', session: { runtime: 'codex', sessionId: 'c1' }, role: 'writer', agent: { name: 'Implementer' }, seatLabel: 'Model A · High', openedAt: 1, closed: { at: 3, why: 'released' } }
+  const second = { ...first, id: 'second', session: { runtime: 'codex', sessionId: 'c2' }, seatLabel: 'Model A · Low', openedAt: 2, closed: null }
+  const custom = { ...second, id: 'custom', session: { runtime: 'codex', sessionId: 'c3' }, openedAt: 3 }
+  const goal = { goal: { id: ROOM, root: '/repo', state: 'open', revision: 1, origin: { kind: 'person' } }, members: [second, custom], pastMembers: [first] } as unknown as GoalView
+  const { store } = rig([
+    intent({ id: 1, state: 'claimed', claim: { ...second.session, at: 1 } }),
+    intent({ id: 2, title: 'Other task', state: 'claimed', claim: { ...custom.session, at: 1 } }),
+  ], { nicknames: { ...(savedNames ? { 'codex\u0000c1': 'Implementer · Model A · High', 'codex\u0000c2': 'Implementer · Model A · Low' } : {}), 'codex\u0000c3': 'Jane Doe' } }, undefined, goal)
+  await render(store)
+  await chooseBoardView('List')
+  expect(container.querySelector('tr[data-job="1"]')?.textContent).toContain('Implementer 2')
+  expect(container.querySelector('tr[data-job="1"]')?.textContent).not.toContain('Model A · Low')
+  act(() => button('Implementer 2').click())
+  expect(store.openSession).toHaveBeenCalledWith('c2', { runtime: 'codex' })
+  act(() => button('Jane Doe').click())
+  expect(store.openSession).toHaveBeenCalledWith('c3', { runtime: 'codex' })
+})

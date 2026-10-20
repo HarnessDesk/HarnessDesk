@@ -12,6 +12,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: theme })
       await page.goto(`/preview.html?team-record&theme=${theme}`)
       const frame = page.locator(`#team-record-${scene}`)
+      await selectTeamPage(frame, 'receipt')
       const bar = teamBar(frame)
       const title = bar.locator('[data-topbar-title]')
       const heading = frame.locator('[data-slot="goal-receipt"] [data-slot="section-name"]').first()
@@ -49,6 +50,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-record&theme=${theme}`)
     const frame = page.locator('#team-record-wrapped')
+    await selectTeamPage(frame, 'receipt')
     const cost = frame.getByRole('region', { name: 'Cost', exact: true })
     await expect(cost.getByRole('tab')).toHaveCount(3)
     const measure = await frame.evaluate(el => {
@@ -72,12 +74,12 @@ for (const theme of ['light', 'dark'] as const) {
     expect(measure.answerMark).toBe(false)
     expect(measure.answerLeft).toBe(0)
     for (const name of ['Alpha', 'Beta']) {
-      const face = (await members(frame)).locator('[data-slot="list-row"]').filter({ has: page.getByRole('button', { name: `Actions for ${name}`, exact: true }) }).locator('[data-slot="icon-tile"]')
+      const face = (await members(frame)).locator('[data-slot="list-row"]').filter({ has: page.getByRole('button', { name: `Actions for ${name}`, exact: true }) }).locator('[data-slot="list-row-lead"] svg')
       const receiptFaces = frame.locator('[data-slot="goal-receipt"] [data-slot="member-name"]').filter({ hasText: name }).locator('[data-slot="icon-tile"]')
       await expect(receiptFaces).toHaveCount(2)
       for (const one of await receiptFaces.all()) {
-        expect(await one.getAttribute('data-tint')).toBe(await face.getAttribute('data-tint'))
-        expect(await one.locator('svg').innerHTML()).toBe(await face.locator('svg').innerHTML())
+        await expect(one).toHaveAttribute('data-shape', 'face')
+        expect(await one.locator('svg').innerHTML()).toBe(await face.innerHTML())
       }
     }
   })
@@ -87,6 +89,7 @@ for (const theme of ['light', 'dark'] as const) {
     if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
     else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme')
     const frame = page.locator('#team-record-wrapped')
+    await selectTeamPage(frame, 'receipt')
     await expect(frame.getByText('What finished', { exact: true })).toBeVisible()
     const rail = await members(frame)
     await expect(frame.getByRole('button', { name: 'Wrap', exact: true })).toHaveCount(0)
@@ -156,9 +159,12 @@ for (const theme of ['light', 'dark'] as const) {
     await page.keyboard.press('Escape')
     await closeTeamDetails(older)
     await selectTeamPage(older, 'overview')
-    await expect(older.locator('[data-slot="team-overview"]')).toContainText('Gamma')
-    await expect(older.locator('[data-slot="team-overview"]')).toContainText('Conversation not kept')
-    await expect(older.locator('[data-slot="team-overview"]').getByRole('button', { name: 'Gamma', exact: true })).toHaveCount(0)
+    await expect(older.locator('[data-slot="run-workspace"]')).toHaveAttribute('data-view', 'work')
+    const olderSeats = await members(older)
+    const gamma = olderSeats.locator('[data-slot="list-row"]').filter({ has: page.getByRole('button', { name: 'Actions for Gamma', exact: true }) })
+    await expect(gamma).toContainText('Gamma')
+    await expect(gamma).toContainText('Conversation not kept')
+    await expect(gamma.getByRole('button', { name: 'Gamma', exact: true })).toHaveCount(0)
   })
   test(`Wrapped Team: a conversation seated twice is one row, and Seats with no conversation are still listed in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
@@ -174,8 +180,11 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(menu.getByRole('menuitem', { name: /^Open conversation(?:\s|$)/ })).toContainText('Conversation not kept')
       await page.keyboard.press('Escape')
     }
-    await expect((await members(page.locator('#team-record-unlinked')))).not.toContainText('No Agents were kept')
-    await expect((await members(page.locator('#team-record-empty')))).toContainText('No Agents were kept')
+    await expect((await members(page.locator('#team-record-unlinked'))).locator('[data-slot="list-row"]')).toHaveCount(2)
+    const emptySeats = await members(page.locator('#team-record-empty'))
+    await expect(emptySeats.getByRole('button', { name: 'Seats', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    await expect(emptySeats).toContainText('0')
+    await expect(emptySeats.locator('[data-slot="list-row"]')).toHaveCount(0)
     const sidebar = page.locator('#team-record-sidebar-shared')
     await expect(sidebar.getByRole('button', { name: 'Wrapped · 1', exact: true })).toHaveCount(0)
     await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({ hasText: 'Writer conversation' })).toHaveCount(0)
@@ -279,11 +288,13 @@ for (const theme of ['light', 'dark'] as const) {
       expect(await answer.evaluate(el => getComputedStyle(el).overflowWrap)).toBe('anywhere')
     }
   })
-  /* A wrapped Team opens on its Receipt, including one that never had a Run. Its members are reachable from the bar. */
-  test(`Wrapped Team: a Team that never had a Run opens on its Receipt in a narrow pane in ${theme}`, async ({ page }) => {
+  /* A wrapped Team opens Work; its retained Receipt and Seats remain explicit destinations. */
+  test(`Wrapped Team: a Team that never had a Run reaches its Receipt from Work in a narrow pane in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-record&theme=${theme}`)
     const frame = page.locator('#team-record-person')
+    await expect(frame.locator('[data-team-page="overview"]')).toHaveAttribute('aria-selected', 'true')
+    await selectTeamPage(frame, 'receipt')
     await expect(frame.getByText('What finished', { exact: true })).toBeVisible()
     await expect(frame.locator('aside')).toHaveCount(0)
     expect(await frame.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)

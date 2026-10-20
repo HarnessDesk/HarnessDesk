@@ -1,14 +1,12 @@
-import { createRoot } from 'react-dom/client'
+import { useMemo } from 'react'
 import { encodeComparisonMerge } from '../lib/comparison-merge'
 import { GoalWrap } from '../components/GoalWrap'
-import { TeamRoomPane } from '../components/TeamRoomPane'
-import { StoreProvider, PaneProvider } from '../state/context'
-import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
-import { MountProvider } from '../panels/mount'
-import { RunDockProvider } from '../panels/run-dock'
+import { StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
 import { teamWordsFixture } from './team-words-fixture'
+import { TeamFramePreview } from './TeamFramePreview'
+import '../panels/builtins'
 
 /** Real person merge shape: durable handoff receipt, no synthetic review evidence. */
 export const teamWordsRepairFixture = (chosen = 2) => {
@@ -31,18 +29,12 @@ export const teamWordsRepairFixture = (chosen = 2) => {
   return { input, view, store }
 }
 
-/** Mount the production Overview caller as well as Wrap, on a synthetic desk. */
-export const mountTeamWordsRepairPreview = (scene: 'overview' | 'wrap') => {
-  const { view, store } = teamWordsRepairFixture()
-  const node = document.createElement('div')
-  document.getElementById('root')!.replaceChildren(node)
+/** Owned Run selections need the real shell's Details outlet, as on the Team page. */
+export const TeamWordsRepairPreview = ({ scene }: { scene: 'overview' | 'wrap' }) => {
+  const { view, store } = useMemo(() => teamWordsRepairFixture(), [])
   const Theme = () => { useTheme(); return null }
-  const scope = { area: 'main' as const, id: 'repair-preview', view: { kind: 'room' as const, room: view.goal.id } }
-  createRoot(node).render(<StoreProvider store={store}><Theme />{scene === 'wrap'
+  return <StoreProvider store={store}><Theme />{scene === 'wrap'
     ? <GoalWrap view={view} onClose={() => {}} />
-    : <TopBarProvider><RunDockProvider><MountProvider scope={scope}><PaneProvider scope={{ paneId: scope.id, view: scope.view, sessionKey: null }}>
-      <TopBarOutlet owner={scope.id} fallback={{ place: view.goal.sentence, more: () => null }} />
-      <TeamRoomPane room={view.goal.id} />
-    </PaneProvider></MountProvider></RunDockProvider></TopBarProvider>}
-  </StoreProvider>)
+    : <div className="h-screen"><TeamFramePreview room={view.goal.id} /></div>}
+  </StoreProvider>
 }

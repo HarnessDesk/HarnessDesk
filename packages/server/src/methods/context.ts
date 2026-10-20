@@ -522,7 +522,7 @@ export interface HostContext {
      * resolved. A relative one is refused.
      */
     confineRoom(folder: string): Promise<void>
-    /** Captures shell authority only for the project explicitly selected by a redeemed Team start. */
+    /** Captures shell authority only for the project explicitly selected by the person's Team start. */
     admitTeamProject(folder: string): Promise<void>
     /** Opens a folder, which becomes one of the open roots. A relative path is refused. */
     open(path: string): Promise<HostResult<'workspace/open'>>

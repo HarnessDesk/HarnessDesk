@@ -34,7 +34,7 @@ const mount = (seatGoal: AppStore['seatGoal'], props: Partial<GoalCreateProps> =
   vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
   vi.spyOn(store, 'flowCatalog').mockResolvedValue([])
   vi.spyOn(store, 'agentsIn').mockResolvedValue(agents)
-  vi.spyOn(store, 'createGoal').mockResolvedValue(goal)
+  vi.spyOn(store, 'startTeam').mockResolvedValue(goal)
   vi.spyOn(store, 'seatGoal').mockImplementation(seatGoal)
   vi.spyOn(store, 'teamAdd').mockResolvedValue(undefined)
   vi.spyOn(store, 'openGoal').mockImplementation(() => {})
@@ -55,8 +55,9 @@ it('uses the shared New Team dialog with Just a Team selected', async () => {
   mount(vi.fn())
   await act(async () => {})
   expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('New Team')
-  expect(document.querySelector('[data-slot="flow-card"][aria-pressed="true"]')?.textContent).toContain('Just a Team')
-  expect(document.querySelector('[aria-label="Search Flows"]')).not.toBeNull()
+  expect(document.querySelector('[data-slot="selected-flow"]')?.textContent).toContain('Just a Team')
+  expect(document.querySelector('[aria-label="Search Flows"]')).toBeNull()
+  expect([...document.querySelectorAll('button')].some(one => one.textContent === 'Change')).toBe(true)
 })
 
 it('keeps a caller-known project refusal and reports successful reopening', async () => {
@@ -79,6 +80,7 @@ const press = (words: string): void => {
 }
 
 it('creates once and retries only unfinished staffing', async () => {
+  const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {})
   let reviewerAttempts = 0
   const seatGoal = vi.fn(async ({ agent }: { agent: string }) => {
     if (agent === 'reviewer' && reviewerAttempts++ === 0) throw new Error('Reviewer is already busy.')
@@ -91,17 +93,22 @@ it('creates once and retries only unfinished staffing', async () => {
   for (const control of document.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')) act(() => control.click())
   press('Start')
   await act(async () => {})
-  expect(store.createGoal).toHaveBeenCalledTimes(1)
+  expect(store.startTeam).toHaveBeenCalledTimes(1)
   expect(seatGoal).toHaveBeenCalledTimes(2)
   expect(document.body.textContent).toContain('Reviewer is already busy.')
+  const failure = document.querySelector('[role="alert"]')!
+  expect(document.activeElement?.contains(failure)).toBe(true)
+  expect(scroll.mock.contexts).toContain(document.activeElement)
+  expect(scroll).toHaveBeenCalledWith({ block: 'nearest' })
   expect(onClose).not.toHaveBeenCalled()
 
   press('Retry unfinished')
   await act(async () => {})
-  expect(store.createGoal).toHaveBeenCalledTimes(1)
+  expect(store.startTeam).toHaveBeenCalledTimes(1)
   expect(seatGoal).toHaveBeenCalledTimes(3)
   expect(store.openGoal).toHaveBeenCalledWith('g1')
   expect(onClose).toHaveBeenCalled()
+  scroll.mockRestore()
 })
 
 it('validates the one required sentence and creates an unstaffed Goal', async () => {
@@ -110,7 +117,7 @@ it('validates the one required sentence and creates an unstaffed Goal', async ()
   typeSentence('  A small goal  ')
   press('Start')
   await act(async () => {})
-  expect(store.createGoal).toHaveBeenCalledWith({ root: '/repo', sentence: 'A small goal', checkout: 'shared' })
+  expect(store.startTeam).toHaveBeenCalledWith({ root: '/repo', sentence: 'A small goal', checkout: 'shared' })
   expect(store.seatGoal).not.toHaveBeenCalled()
 })
 
@@ -125,7 +132,7 @@ it('retains the task before seating and does not duplicate it when staffing is r
   expect(onClose).not.toHaveBeenCalled()
   press('Retry unfinished')
   await act(async () => {})
-  expect(store.createGoal).toHaveBeenCalledOnce()
+  expect(store.startTeam).toHaveBeenCalledOnce()
   expect(store.teamAdd).toHaveBeenCalledOnce()
   expect(onClose).toHaveBeenCalledOnce()
 })
@@ -140,7 +147,7 @@ it('retries a refused initial task before seating or opening the same Team', asy
   expect(onClose).not.toHaveBeenCalled()
   press('Retry unfinished')
   await act(async () => {})
-  expect(store.createGoal).toHaveBeenCalledOnce()
+  expect(store.startTeam).toHaveBeenCalledOnce()
   expect(store.teamAdd).toHaveBeenCalledTimes(2)
   expect(store.openGoal).toHaveBeenCalledWith('g1')
 })

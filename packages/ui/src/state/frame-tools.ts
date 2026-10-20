@@ -8,6 +8,8 @@ export interface ToolIntent {
   readonly mode: string
   readonly open: boolean
   readonly railOpen?: boolean
+  /** An explicit reveal beside the current tool; a different tool gets priority. */
+  readonly railWithTool?: boolean
   readonly expanded?: boolean
   /** The selected shell belongs to this subject, independently of the shared cache. */
   readonly selectedTerminal?: string
@@ -58,6 +60,7 @@ export const chooseTool = (before: ToolIntent | undefined, tool: WorkTool, mode 
   ...(before?.selectedTerminal ? { selectedTerminal: before.selectedTerminal } : {}),
   ...(before?.beforeEditor ? { beforeEditor: before.beforeEditor } : {}),
   ...(before?.railOpen === undefined ? {} : { railOpen: before.railOpen }),
+  ...(before?.open && before.tool === tool && before.mode === mode && before.railWithTool ? { railWithTool: true } : {}),
   ...(before?.expanded === undefined ? {} : { expanded: toggle && before.open && before.tool === tool && before.mode === mode ? false : before.expanded }),
   tool, mode, open: !(toggle && before?.open && before.tool === tool && before.mode === mode),
 })
@@ -78,13 +81,14 @@ export const readToolIntents = (raw: unknown): Readonly<Record<string, ToolInten
     const rawPrior = record.beforeEditor as Record<string, unknown> | undefined
     const prior = rawPrior && typeof rawPrior === 'object' ? readToolIntents({ prior: {
       tool: rawPrior.tool, mode: rawPrior.mode, open: rawPrior.open,
-      railOpen: rawPrior.railOpen, expanded: rawPrior.expanded,
+      railOpen: rawPrior.railOpen, railWithTool: rawPrior.railWithTool, expanded: rawPrior.expanded,
       selectedTerminal: rawPrior.selectedTerminal,
     } }).prior : undefined
     const beforeEditor = prior && prior.tool !== 'conversation' ? { ...prior, ...(typeof rawPrior?.mount === 'string' ? { mount: rawPrior.mount } : {}) } : undefined
     return tool && validMode && typeof record.mode === 'string' && typeof record.open === 'boolean'
       ? [[key, { tool, mode: record.mode, open,
         ...(typeof record.railOpen === 'boolean' ? { railOpen: record.railOpen } : pureDetails ? { railOpen: record.open } : {}),
+        ...(record.railWithTool === true ? { railWithTool: true } : {}),
         ...(typeof record.expanded === 'boolean' ? { expanded: record.expanded && open } : {}),
         ...(typeof record.selectedTerminal === 'string' ? { selectedTerminal: record.selectedTerminal } : {}),
         ...(beforeEditor ? { beforeEditor } : {}) }]] : []

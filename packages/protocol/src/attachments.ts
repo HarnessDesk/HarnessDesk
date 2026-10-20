@@ -9,9 +9,8 @@ import type { CeilingLevel, SeatId } from './evidence.js'
  * identifier, not an executable spec. Reading a cloned repository's `AGENT.md`
  * and its `skills/` folder starts no process, no network request and no
  * script — it only ever produces the identities and bytes below, which a
- * person reviews before anything is trusted to load. See
- * `docs/superpowers/plans/2026-09-19-agents-memory.md` for the decisions this
- * shape answers to.
+ * person reviews before anything is trusted to load. The contract below
+ * carries identities and source bytes, never execution authority.
  */
 
 export type AttachmentKind = 'skill' | 'mcp' | 'notes'

@@ -8,11 +8,11 @@ for (const theme of ['light', 'dark']) {
       test(`${scene} at ${width} in ${theme}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/preview.html?issue-1675=${scene}&team-start=fix-and-review&theme=${theme}`)
-        if (scene === 'team') await expect(page.getByRole('dialog')).toBeVisible()
+        if (scene === 'team') await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
         else await expect(page.locator('[data-slot="page"]:visible, [data-slot="composer-track"]:visible').first()).toBeVisible()
         await page.evaluate(() => document.fonts.ready)
         await expect.poll(() => page.locator('body').evaluate(body => body.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')
-        if (scene === 'team') await page.getByLabel('Runtime for Writes', { exact: true }).scrollIntoViewIfNeeded()
+        if (scene === 'team') await page.getByRole('button', { name: 'Configure Writes', exact: true }).scrollIntoViewIfNeeded()
         if (scene.startsWith('library')) await expect(page.getByText('code-review', { exact: true }).first()).toBeVisible()
         if (scene === 'library-matrix') {
           await page.getByRole('radio', { name: 'Matrix', exact: true }).click()
@@ -28,16 +28,25 @@ for (const theme of ['light', 'dark']) {
         }
         if (phase === 'before') return
         if (scene === 'team') {
-          const dialog = page.getByRole('dialog')
+          const dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
+          const configure = dialog.getByRole('button', { name: 'Configure Writes', exact: true })
+          await configure.click()
+          const configuration = page.getByRole('group', { name: 'Writes configuration', exact: true })
+          await expect(configuration).toBeVisible()
           for (const field of ['Runtime', 'Model', 'Effort']) {
-            await dialog.getByRole('button', { name: `${field} for Writes`, exact: true }).click()
+            await configuration.getByRole('button', { name: `${field} for Writes`, exact: true }).click()
             await expect(page.getByRole('menu')).toBeVisible()
             if (phase && field === 'Model') await page.screenshot({ path: `/tmp/bugs-1675/frames/team-menu-${theme}-${phase}.png` })
             if (field === 'Model') await expect(page.getByRole('menuitemradio').filter({ hasText: 'Default model' })).toBeVisible()
             await page.keyboard.press('Escape')
             await expect(page.getByRole('menu')).toHaveCount(0)
+            await expect(configuration).toBeVisible()
             await expect(dialog).toBeVisible()
           }
+          await page.keyboard.press('Escape')
+          await expect(configuration).toHaveCount(0)
+          await expect(configure).toBeFocused()
+          await expect(dialog).toBeVisible()
         }
         if (scene === 'model') {
           const track = page.locator('[data-composer-track="model"]:visible').first()

@@ -28,7 +28,7 @@ export const FlowCanvasWorkspace = ({ main, toolbar, rail, onCloseRail }: {
   useLayoutEffect(() => {
     const main = mainElement.current
     const controls = main?.querySelector<HTMLElement>('[data-slot="flow-canvas-toolbar"]')
-    if (!main || !controls) { setToolbarClearance(0); return }
+    if (!main || !controls || controls.dataset.placement === 'bar') { setToolbarClearance(0); return }
     const measure = () => setToolbarClearance(Math.max(0, Math.ceil(
       controls.getBoundingClientRect().bottom - main.getBoundingClientRect().top + main.scrollTop,
     )))

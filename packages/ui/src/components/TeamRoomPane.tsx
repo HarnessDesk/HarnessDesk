@@ -1,5 +1,5 @@
 import { overviewAttention } from '../lib/overview-attention'
-import { InfoCard, SubjectActionsMenu } from '../design'
+import { InfoCard, NativeSelect, SubjectActionsMenu } from '../design'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useId, type ReactNode, type RefObject } from 'react'
 
 import {
@@ -29,7 +29,7 @@ import type { Tint } from '../design'
 import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
 import { goalRunOf, namedGoalRun } from '../lib/goal-run'
-import { teamSeats, hasConversation, seatDisplayName } from '../lib/team-seats'
+import { teamSeats, hasConversation, seatDisplayName, compactTeamSeatName } from '../lib/team-seats'
 import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { teamOverviewOf } from '@harnessdesk/client/views'
 import { clientSnapshot } from '../lib/client-snapshot'
@@ -48,7 +48,6 @@ import { goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
 import { canPlace, forgetMissing, fromStored, MAX_TILES, placeTile, removeTile, wouldReplace as modelWouldReplace, type SideBySideState } from '../lib/side-by-side'
 import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, originHoverWords, originSubject } from '../lib/intake'
-import { isPathInside } from '../lib/paths'
 import { PaneProvider, usePane, useSnapshot, useStore } from '../state/context'
 import { useNeedsYouAnswers } from '../state/needs-you'
 import type { AppSnapshot } from '../state/snapshot'
@@ -89,7 +88,7 @@ import { comparisonMergeOf, type ComparisonMergeReceipt } from '../lib/compariso
 import { sanitizeText } from '../lib/sanitize'
 import { PersonStepDialog } from './PersonStepDialog'
 import { comparisonVerdictOf } from '../lib/comparison-verdict'
-import { ChannelStream, readChannel } from './Channel'
+import { ChannelStream, channelSignalBatches, readChannel } from './Channel'
 import { EMPTY_ROOM_DRAFT, RoomComposer, type RoomComposerDraft, type RoomComposerDraftState, type RoomComposerHandle } from './RoomComposer'
 import { TeamBoardPane } from './TeamBoardPane'
 import { RoomMessagesHeld } from './RoomMessaging'
@@ -118,7 +117,6 @@ import {
   ComposerDock,
   Dot,
   EmptyState,
-  IconTile,
   MemberName,
   Menu,
   MenuItem,
@@ -163,11 +161,11 @@ const AT_THE_FLOOR = { rows: 0, onlyMessages: true } as const
  */
 
 /** Team destinations share the compact body strip below the title and tools. */
-const TeamViewTab = ({tab}:{tab:TopBarTab}) => {
+const TeamViewTab = ({tab, title, waiting = false}:{tab:TopBarTab; title?: string; waiting?: boolean}) => {
   const reason=useId()
   const trigger=<TabsTrigger value={tab.value} data-team-page={tab.value} count={tab.count} disabled={Boolean(tab.disabled)}
-    title={tab.disabled || undefined} aria-describedby={tab.disabled ? reason : undefined}
-    className={tab.disabled ? 'aria-disabled:pointer-events-auto' : undefined} onClick={()=>{if(!tab.disabled)tab.run()}}>{tab.label}</TabsTrigger>
+    title={tab.disabled || title} aria-describedby={tab.disabled ? reason : undefined}
+    className={tab.disabled ? 'aria-disabled:pointer-events-auto' : undefined} onClick={()=>{if(!tab.disabled)tab.run()}}>{waiting && <Dot tone="warning" pulse aria-hidden />}{tab.label}</TabsTrigger>
   return tab.disabled ? <><Tooltip><TooltipTrigger render={trigger}/><TooltipContent>{tab.label} — {tab.disabled}</TooltipContent></Tooltip><span id={reason} className="sr-only">{tab.disabled}</span></> : trigger
 }
 
@@ -322,18 +320,16 @@ export const TeamRoomPane = ({
   const setComposerTrouble = useCallback((message: string | null) => {
     setComposerTroubles(current => ({ ...current, [room]: message }))
   }, [room])
-  /* A wrapped Team opens on its Receipt, with or without a Run: the record is
-     what the person came for, and the page tabs are the way around it. */
-  const opensOnReceipt = record && Boolean(goal?.receipt)
+  // Work is the default; explicit saved destinations, including Receipt and Chat, restore.
   const opensOnAttempts = !record && flowExecution?.document.format === 'agents' && raceRoleId(flowExecution.document.flow) !== null
   const [open, setOpen] = useState<TeamFramePage | 'side-by-side' | SessionKey>(
     () => mount?.view.kind === 'room' && mount.view.chatMember ? mount.view.chatMember
       : mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage === 'room' && (mount.view.chatLayout === 'side-by-side' || mount.view.chatLayout === undefined && grid.tiles.length > 0) ? 'side-by-side' : mount.view.framePage
-        : opensOnReceipt ? 'receipt' : grid.tiles.length > 0 || opensOnAttempts ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room',
+        : mount?.view.kind === 'room' && mount.view.chatLayout ? mount.view.chatLayout === 'side-by-side' ? 'side-by-side' : 'room' : 'overview',
   )
   const chatLayout = useRef(mount?.view.kind === 'room' && mount.view.chatLayout ? mount.view.chatLayout : grid.tiles.length > 0 ? 'side-by-side' : 'thread')
-  const selectedPage = useRef<TeamFramePage>(mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage : opensOnReceipt ? 'receipt' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room')
-  const destination = useRef({ room, chosen: mount?.view.kind === 'room' && mount.view.framePage !== undefined })
+  const selectedPage = useRef<TeamFramePage>(mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage : mount?.view.kind === 'room' && mount.view.chatLayout ? 'room' : 'overview')
+  const destination = useRef({ room, chosen: mount?.view.kind === 'room' && (mount.view.framePage !== undefined || mount.view.chatLayout !== undefined) })
   const changeGrid = useCallback((next: Parameters<typeof setGrid>[0]) => {
     destination.current.chosen = true
     store.setTeamFramePage(room, 'room', 'side-by-side')
@@ -342,7 +338,7 @@ export const TeamRoomPane = ({
   const roomView = mount?.view.kind === 'room' ? mount.view : undefined
   useEffect(() => {
     if (destination.current.room !== room) {
-      const restored = mount?.view.kind === 'room' ? mount.view.framePage : undefined
+      const restored = mount?.view.kind === 'room' ? mount.view.framePage ?? (mount.view.chatLayout ? 'room' : undefined) : undefined
       destination.current = { room, chosen: restored !== undefined }
       chatLayout.current = mount?.view.kind === 'room' && mount.view.chatLayout ? mount.view.chatLayout : grid.tiles.length > 0 ? 'side-by-side' : 'thread'
       if (restored) {
@@ -354,9 +350,9 @@ export const TeamRoomPane = ({
     }
     // Runs are loaded after the Team opens. Apply its default only until the
     // person chooses a destination; a push must not take them away from Chat.
-    if (destination.current.chosen || grid.tiles.length > 0) return
-    const next = opensOnReceipt ? 'receipt' : opensOnAttempts ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'
-    selectedPage.current = next === 'side-by-side' ? 'room' : next
+    if (destination.current.chosen) return
+    const next = 'overview'
+    selectedPage.current = next
     setOpen(next)
   }, [room, flowExecution?.id, record, opensOnAttempts])
   useEffect(() => {
@@ -368,16 +364,17 @@ export const TeamRoomPane = ({
       setOpen(roomView.chatMember)
       return
     }
-    if (roomView.framePage) {
+    if (roomView.framePage || roomView.chatLayout) {
+      const page = roomView.framePage ?? 'room'
       destination.current = { room, chosen: true }
-      selectedPage.current = roomView.framePage
-      setOpen(roomView.framePage === 'room' && (roomView.chatLayout === 'side-by-side' || roomView.chatLayout === undefined && grid.tiles.length > 0)
-        ? 'side-by-side' : roomView.framePage)
+      selectedPage.current = page
+      setOpen(page === 'room' && (roomView.chatLayout === 'side-by-side' || roomView.chatLayout === undefined && grid.tiles.length > 0)
+        ? 'side-by-side' : page)
       return
     }
     destination.current = { room, chosen: false }
-    const next = opensOnReceipt ? 'receipt' : grid.tiles.length > 0 || opensOnAttempts ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'
-    selectedPage.current = next === 'side-by-side' ? 'room' : next
+    const next = 'overview'
+    selectedPage.current = next
     setOpen(next)
   }, [room, roomView?.room, roomView?.chatMember, roomView?.framePage, roomView?.chatLayout,
     roomView?.framePage === 'room' ? grid.tiles.length : 0])
@@ -407,7 +404,7 @@ export const TeamRoomPane = ({
   const [timelineRead, setTimelineRead] = useState(0)
   // What each check of the Run recorded each time it ran: read while the Run is on show, and again when a result lands.
   const detailsVisible = snapshot.workbench.frameTools[`team:${room}`]?.open === true && snapshot.workbench.frameTools[`team:${room}`]?.tool === 'details'
-  const readingRun = open === 'run' || detailsVisible
+  const readingRun = open === 'run' || open === 'overview' || detailsVisible
   const checkAttempts = useCheckAttempts({ execution: timelineRun ?? undefined, evidence: snapshot.boardEvidence.get(room), active: readingRun, nonce: timelineRead })
   const [runHistoryProblem, setRunHistoryProblem] = useState<{ room: string; message: string } | null>(null)
   useEffect(() => {
@@ -459,6 +456,8 @@ export const TeamRoomPane = ({
   const [railTrouble, setRailTrouble] = useState<string | null>(null)
 
   const show = (next: TeamFramePage | 'side-by-side' | SessionKey): void => {
+    const tool = store.getSnapshot().workbench.frameTools[`team:${room}`]
+    if (next !== 'overview' && next !== 'run' && tool?.open && tool.mode === 'run-details' && store.workSubject() === `team:${room}`) store.toggleWorkPanel()
     destination.current.chosen = true
     if (isFramePage(next)) {
       selectedPage.current = next
@@ -474,7 +473,7 @@ export const TeamRoomPane = ({
     setOpen(next)
   }
 
-  const [runFrameView, setRunFrameView] = useState<'timeline' | 'flow'>('timeline')
+  const [recordRequest, setRecordRequest] = useState(0)
   useEffect(() => {
     const request = snapshot.teamFrameRequests[room]
     if (!request || !store.consumeTeamFrame(room, request.serial)) return
@@ -482,7 +481,7 @@ export const TeamRoomPane = ({
     selectedPage.current = request.page
     store.setTeamFramePage(room, request.page)
     setOpen(request.page)
-    if (request.runView) setRunFrameView(request.runView)
+    if (request.runView === 'timeline') setRecordRequest(request.serial)
   }, [room, snapshot.teamFrameRequests, store])
 
   const watch = (key: SessionKey): void => {
@@ -628,20 +627,7 @@ export const TeamRoomPane = ({
      count and changes the room. */
   const sessionCount = snapshot.sessions.size
   const membership = (team?.members ?? []).join(' ')
-  /* Conversations that live in this project, whether or not they have joined —
-     the evidence half of the empty state below. A roster that says zero has to
-     be able to say zero *of what*, and "zero of the four running here" is what
-     tells somebody the room needs staffing rather than that the app is broken. */
   const root = team?.root ?? ''
-  const here = useMemo(
-    () =>
-      root === ''
-        ? 0
-        : [...snapshot.sessions.values()].filter(
-            (one) => isPathInside(one.cwd, root),
-          ).length,
-    [snapshot.sessions, root],
-  )
   useEffect(() => {
     let live = true
     void store
@@ -759,20 +745,26 @@ export const TeamRoomPane = ({
     record: goal?.members.find(one => sessionKey(one.session.runtime, one.session.sessionId) === sessionKey(peer.runtime, peer.sessionId)),
     runtimeName: snapshot.runtimes.find(one => one.id === peer.runtime)?.presentation.name,
   })), [members, goal?.members, snapshot.runtimes])
-  const [report, setReport] = useState<InsightReport | null>(null)
+  const [reportRead, setReportRead] = useState<{ store: typeof store; value: InsightReport } | null>(null)
+  // A pane survives room and connection changes. Only its current owner may supply usage to the Run.
+  const report = reportRead?.store === store && reportRead.value?.goal === room ? reportRead.value : null
   const newestUnreadSeatAt = Math.max(0, ...snapshot.inbox.filter(one => !one.read && one.from && seats.some(seat =>
     seat.record.session.runtime === one.from!.runtime && seat.record.session.sessionId === one.from!.sessionId)).map(one => one.at))
   useEffect(() => { store.markTeamSeen(room, newestUnreadSeatAt) }, [store, room, Boolean(goal), open, goal?.readyAt, flowExecution?.endedAt, newestUnreadSeatAt])
   const closedCards = intents.filter(one => one.state === 'done').map(one => one.id).join(',')
   useEffect(() => {
     let active = true
-    setReport(null)
-    if ((open !== 'overview' && !detailsVisible) || !goal || typeof store.readGoalInsight !== 'function') return
-    const read = () => { void store.readGoalInsight(room).then(answer => { if (active) setReport(answer) }, () => { if (active) setReport(null) }) }
+    if (!readingRun || (!goal && !timelineRun) || typeof store.readGoalInsight !== 'function') return
+    // Keep the last report from this owner during a refresh or failure, just as a standalone Run does.
+    let generation = 0
+    const read = () => {
+      const current = ++generation
+      void store.readGoalInsight(room).then(answer => { if (active && current === generation) setReportRead({ store, value: answer }) }, () => {})
+    }
     read()
-    const timer = flowExecution?.state === 'running' ? window.setInterval(read, 60_000) : null
+    const timer = flowExecution?.state === 'running' || timelineRun?.state === 'running' ? window.setInterval(read, 60_000) : null
     return () => { active = false; if (timer !== null) window.clearInterval(timer) }
-  }, [store, room, open, detailsVisible, Boolean(goal), closedCards, flowExecution?.state])
+  }, [store, room, readingRun, Boolean(goal), Boolean(timelineRun), closedCards, flowExecution?.state, timelineRun?.state, timelineRead])
   useEffect(() => {
     if (flowExecution && typeof store.loadFindingRun === 'function') void store.loadFindingRun(room, flowExecution.id).catch(() => {})
   }, [store, room, flowExecution?.id])
@@ -839,6 +831,10 @@ export const TeamRoomPane = ({
    * roster that says "2 here" and a rail that shows one working agent are two
    * readings of the same list, and they must not be able to disagree.
    */
+  const savedSeatName = (seat: (typeof allSeats)[number]): string => (seat.key ? team?.nicknames?.[seat.key]
+    ?? peers?.find(peer => sessionKey(peer.runtime, peer.sessionId) === seat.key)?.nickname : undefined) ?? seat.name
+  const seatIdentity = (seat: (typeof allSeats)[number]) => [...(goal?.members ?? []), ...(goal?.pastMembers ?? [])].find(one => one.id === seat.record.id)
+  const compactSeatName = (seat: (typeof allSeats)[number]): string => compactTeamSeatName(seat, allSeats, goal, savedSeatName)
   const roster = useMemo(
     () =>
       members.map((peer) => {
@@ -870,7 +866,7 @@ export const TeamRoomPane = ({
         return {
           peer,
           ...(health?.state === 'unavailable' ? { unavailable: health.message } : {}),
-          displayName: seatDisplayName(goal?.members.find(one => sessionKey(one.session.runtime, one.session.sessionId) === key), peer.nickname, runtime?.presentation.name, displayMembers),
+          displayName: compactSeatName(seats.find(seat => seat.key === key)!),
           key,
           runtime,
           here: peer.here,
@@ -1004,6 +1000,15 @@ export const TeamRoomPane = ({
    */
   const needsYou = Boolean(overview.run?.needsYou) || personWaits.length > 0 || goal?.activity === 'needs-you' || flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'
   const attentionRows = overviewAttention(overview, { needsYou, runReason: flowExecution?.reason ? runReasonWords(flowExecution.reason, flowExecution.document.flow.rules) : null, personWaits: personWaits.map(wait => ({summary: wait.waitingOn.label})) })
+  // Compatibility Teams can have a live requester before a durable Seat record arrives.
+  // It is the same request store the Room and each conversation answer.
+  for (const entry of snapshot.approvals) {
+    if (!roster.some(member => member.key === entry.key) && !allSeats.some(seat => seat.key === entry.key)) continue
+    if (attentionRows.some(row => row.kind === 'request' && row.item.sessionKey === entry.key && row.item.approval === entry.approval.id)) continue
+    attentionRows.push({ kind: 'request', item: { kind: entry.approval.type === 'userInput' || entry.approval.type === 'elicitation' ? 'question' : 'approval',
+      seat: null, card: null, summary: 'A request is waiting for your reply', since: entry.approval.requestedAt,
+      sessionKey: entry.key, approval: entry.approval.id } })
+  }
   const runState: { readonly label: string; readonly tone: Tone; readonly pulse: boolean } | null = !goal
     ? null
     : record ? { label: 'Wrapped', tone: 'success', pulse: false }
@@ -1035,14 +1040,19 @@ export const TeamRoomPane = ({
   // PR evidence is shared by every Team page and persistent Details.
   useEffect(() => { void store.loadBoardEvidence(room).catch(() => undefined) }, [store, room])
   const detailsRun = timelineRun ?? flowExecution
-  const pullRequest = runPullRequest(open === 'run' ? timelineRun : flowExecution, snapshot.boardEvidence.get(room))
+  const pullRequest = runPullRequest(open === 'run' || open === 'overview' ? timelineRun : flowExecution, snapshot.boardEvidence.get(room))
   const findingCount = isRecord(goal) && goal?.receipt?.findings
     ? goal.receipt.findings.findings.length
     : snapshot.findings.get(room)?.totals?.all ?? snapshot.findingRuns.get(flowExecution?.id ?? '')?.open
   const toggleSideBySide = () => {
     if (open === 'side-by-side') return show(selectedPage.current)
     if (roster.length === 0) return
-    if (grid.tiles.length === 0) setGrid(roster.slice(0, MAX_TILES).reduce((state, member) => placeTile(state, member.key), grid))
+    if (grid.tiles.length === 0) {
+      const role = opensOnAttempts && flowExecution?.document.format === 'agents' ? raceRoleId(flowExecution.document.flow) : null
+      const attempts = role ? seats.filter(seat => seat.record.role === role && !seat.record.closed) : []
+      const keys = (attempts.length ? attempts.map(seat => seat.key) : roster.map(member => member.key)).slice(0, MAX_TILES)
+      setGrid(keys.reduce((state, key) => placeTile(state, key), grid))
+    }
     show('side-by-side')
   }
   const triggerSourceTitle = triggerControl.view?.definition
@@ -1055,22 +1065,25 @@ export const TeamRoomPane = ({
     ?? (snapshot.workspace?.path === teamRoot ? snapshot.workspace.git?.branch : null)
   const teamChangesRefusal = !teamRoot || !teamBranch || !target?.base || !target.head
     ? 'The Team branch and base are not recorded yet' : undefined
+  const workOpen = open === 'overview' || open === 'run'
+  const pendingReplies = attentionRows.filter(row => row.kind === 'request' && row.item.kind !== 'card').length
+  const chatCount = held + pendingReplies
+  const chatCountTitle = [pendingReplies ? `${pendingReplies} pending ${pendingReplies === 1 ? 'reply' : 'replies'}` : null, held ? `${held} held ${held === 1 ? 'message' : 'messages'}` : null].filter(Boolean).join(' · ') || undefined
   const teamTabs: TopBarTab[] = [
-    { value: 'overview', label: 'Overview', count: attentionRows.length || undefined, run: () => show('overview') },
-    { value: 'run', label: 'Run', count: runs.length || undefined, disabled: !runs.length ? 'This Team has no Run yet' : false, run: () => show('run') },
-    { value: 'board', label: 'Board', count: intents.length, run: () => show('board') },
-    { value: 'room', label: 'Chat', count: held || undefined, run: () => show(chatLayout.current === 'side-by-side' ? 'side-by-side' : 'room') },
-    { value: 'findings', label: 'Findings', count: findingCount, disabled: !goal ? 'This Team has no findings' : false, run: () => show('findings') },
-    ...(triggerKind ? [{ value: 'runs', label: 'Runs', count: runs.length, run: () => { setChosenRun(null); show('runs') } }] : []),
-    ...(goal?.receipt ? [{ value: 'receipt', label: 'Receipt', run: () => show('receipt') }] : []),
+    { value: 'overview', label: 'Work', run: () => show('overview') },
+    { value: 'board', label: 'Tasks', count: intents.length || undefined, run: () => show('board') },
+    { value: 'room', label: 'Chat', count: chatCount || undefined, run: () => show(chatLayout.current === 'side-by-side' ? 'side-by-side' : 'room') },
   ]
   useTopBar(mainOwner, {
     lead: <WindowControls />,
+    compact: { lead: <WindowControls history={false} />, more: close => <><WindowControls menu close={close} /><WorkTools menu close={close} changesRefusal={teamChangesRefusal} /></> },
     place: sanitizeText(title), placeTitle: sanitizeText(fullTitle), state: runState ? <Dot tone={runState.tone} pulse={runState.pulse} title={runState.label} aria-label={runState.label} /> : undefined,
     placeMenu: close => actions.items(close, pullRequest && <MenuItem icon={<PullRequestIcon />} label="Open pull request" onSelect={() => { void openExternal(pullRequest.url); close() }} />),
     tools: <WorkTools changesRefusal={teamChangesRefusal} />,
     terminal: true,
     more: close => <>
+      {(triggerKind || runs.length > 0) && <MenuItem icon={<ClockIcon />} label="Run history" onSelect={() => { setChosenRun(null); show('runs'); close() }} />}
+      {goal?.receipt && <MenuItem icon={<IssueIcon />} label="Receipt" onSelect={() => { show('receipt'); close() }} />}
       <MenuItem icon={<ExpandIcon size={16} />} label="Fill the window" onSelect={() => { store.zoomPanel('main', 'window'); close() }} />
     </>, corner: sidebarPlacement(snapshot) !== 'column',
   }, Boolean(mainOwner))
@@ -1100,16 +1113,21 @@ export const TeamRoomPane = ({
     const stopped = seat.record.closed != null
     const stoppedReason = stopped ? 'This Seat is stopped. Open its conversation to read the kept history.' : undefined
     const refusal = key === null ? 'Conversation not kept' : member?.unavailable
+    const identity = [...(goal?.members ?? []), ...(goal?.pastMembers ?? [])].find(one => one.id === seat.record.id)
+    const nickname = member?.peer.nickname ?? seat.name
+    const name = compactSeatName(seat)
+    const model = member ? seatModelName(member.peer.runtime, member.peer.model) : null
     return {
-      id: seat.record.id, selected: open === key, name: member?.displayName ?? seat.name,
-      mark: <MemberCard entry={member ?? null} side="bottom"><IconTile shape="face" tint={member?.tint ?? 'violet'}>{member?.brand ? <BrandMark brand={member.brand} /> : <AgentIcon />}</IconTile></MemberCard>,
-      detail: member ? [snapshot.runtimes.find(info => info.id === member.peer.runtime)?.presentation.name ?? 'Agent', seatModelName(member.peer.runtime, member.peer.model), member.ceiling ? seatCeilingWords(member.ceiling.ceiling) : null].filter(Boolean).join(' · ') + [
+      id: seat.record.id, selected: open === key, name,
+      detail: model && model !== name ? model : member?.runtime?.presentation.name !== name ? member?.runtime?.presentation.name ?? '' : '',
+      mark: <MemberCard entry={member ?? null} side="bottom">{member?.brand ? <BrandMark brand={member.brand} size={20} /> : <AgentIcon size={20} />}</MemberCard>,
+      context: nickname + ' · ' + (member ? [snapshot.runtimes.find(info => info.id === member.peer.runtime)?.presentation.name ?? 'Agent', seatModelName(member.peer.runtime, member.peer.model), member.ceiling ? seatCeilingWords(member.ceiling.ceiling) : null].filter(Boolean).join(' · ') + [
         !member.canUseBoard ? 'cannot take jobs — tools not reachable' : member.peer.inbound !== 'accept'
           ? member.peer.inbound === 'hold' ? 'messages held' : 'messages refused' : member.onTask ? `#${member.onTask.id} ${member.onTask.title}`
           : member.idleOnBoard && !idleShared ? 'has not used the board' : !member.here ? 'not open — a message opens it' : null,
         member.title && member.title !== member.peer.nickname && (member.title !== member.onTask?.title || member.peer.inbound !== 'accept' || !member.canUseBoard) ? member.title : null,
         !member.here && member.onTask ? 'not open — a message opens it' : null,
-      ].filter(Boolean).map(one => ` · ${one}`).join('') : seat.role ?? 'Recorded Seat',
+      ].filter(Boolean).map(one => ` · ${one}`).join('') : seat.role ?? 'Recorded Seat'),
       state: stopped ? 'Stopped' : member && snapshot.approvals.some(one => one.key === member.key) ? 'Needs you' : member?.busy ? 'Working' : member?.done ? 'Done' : member && !member.here ? 'Not open' : 'Idle',
       open: () => { if (key) show(key) }, watch: () => { if (key) watch(key) },
       message: () => { if (key) { show('room'); setAddressedSeat(key) } },
@@ -1120,9 +1138,9 @@ export const TeamRoomPane = ({
       removeRefusal: stoppedReason ?? (!goal ? 'This compatibility room is read-only' : undefined),
     }
   })
-  const filteredSeats = filter.trim() ? seatRows.filter(one => `${one.name} ${one.detail}`.toLowerCase().includes(filter.trim().toLowerCase())) : seatRows
+  const filteredSeats = filter.trim() ? seatRows.filter(one => `${one.name} ${one.detail} ${one.context ?? ''}`.toLowerCase().includes(filter.trim().toLowerCase())) : seatRows
   useWorkDetails(mainOwner, <ToolBody>
-    <ToolSection label="Run">
+    <ToolSection label="Run" fold defaultOpen value={detailsRun ? ({ running: 'Running', stalled: 'Needs you', settled: 'Done', stopped: 'Stopped' } as const)[detailsRun.state] : 'No Run'}>
       <TeamRunFacts input={detailsInput} number={detailsRun ? runs.findIndex(one => one.id === detailsRun.id) + 1 : 0}
         chooser={runChooser} at={detailsAt}
         continuesNumber={detailsRun?.continues ? runs.findIndex(one => one.id === detailsRun.continues) + 1 || undefined : undefined}
@@ -1131,24 +1149,20 @@ export const TeamRoomPane = ({
         originNote={originStatus ? originHoverWords(originStatus, triggerSourceTitle ?? 'Trigger') : undefined}
         pullRequest={detailsPullRequest} cost={detailsCosts} trigger={triggerKind ? <>{teamTriggerLabel(originStatus, triggerControl.view)}{originStatus && <Text as="span" role="meta" ink="secondary"> · {originHoverWords(originStatus, triggerSourceTitle ?? 'Trigger')}</Text>}{triggerControl.view && <Text as="span" role="meta" title={triggerControl.view.reason ?? undefined}> · {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}</Text>}{triggerControl.view?.reason && <Text as="span" role="meta"> · {triggerControl.view.reason}</Text>}{!detailsInput && originStatus?.url && <Button variant="link" size="inline-link" onClick={() => void openExternal(originStatus.url!)}>Open</Button>}</> : undefined} />
     </ToolSection>
-    <ToolSection label="Seats" action={<Button variant="ghost" size="icon-sm" aria-label="Seat an Agent in this Team"
+    <ToolSection label="Seats" fold defaultOpen={seatRows.length > 0} value={seatRows.length} action={<Button variant="ghost" size="icon-sm" aria-label="Seat an Agent in this Team"
       disabled={record || !goal} title={record ? RECORD_REASON : !goal ? 'This compatibility room is read-only' : undefined}
       onClick={() => setAdding(true)}><PlusIcon /></Button>}>
       {roster.length > 4 && <PanelFilter value={filter} onChange={setFilter} placeholder="Filter Seats" />}
       {idleShared && <Note>None of these agents has used the board yet.</Note>}
-      {peers !== null && allSeats.length === 0 && <EmptyState variant="inline" title={record ? 'No Agents were kept in this Team’s receipt.' : here === 0
-        ? 'No agents in this Team yet, and no conversations in this project either. + starts one and puts it in.'
-        : here === 1 ? 'No agents in this Team yet. One conversation is open in this project — + adds an agent.'
-        : `No agents in this Team yet. ${here} conversations are open in this project — + adds an agent.`} />}
       {seatRows.length > 0 && filteredSeats.length === 0 && <EmptyState variant="inline" title={`No agent here matches “${filter.trim()}”.`} />}
       <SeatList rows={filteredSeats} />
     </ToolSection>
   </ToolBody>, Boolean(mainOwner))
 
   useTopBarView(mainOwner, {
-    view: { content: close => <Menu close={close}>
-      <MenuItem label="Thread" selected={open === 'room'} onSelect={() => { show('room'); close() }} />
-      <MenuItem label="Side by side" selected={open === 'side-by-side'}
+    view: { label: open === 'side-by-side' ? 'Split' : 'Chat', content: close => <Menu close={close}>
+      <MenuItem label="Chat" selected={open === 'room'} onSelect={() => { show('room'); close() }} />
+      <MenuItem label="Split" selected={open === 'side-by-side'}
         disabled={record ? RECORD_REASON : roster.length === 0 ? 'There are no conversations to watch' : false}
         onSelect={() => { if (open !== 'side-by-side') toggleSideBySide(); close() }} />
     </Menu> },
@@ -1160,55 +1174,21 @@ export const TeamRoomPane = ({
     setAddressedSeat(null)
   }, [open, addressedSeat, pendingApproval?.key])
 
-  return (
-    <PaneSurface className={`${styles.pane} h-full`} data-slot="team-room">
-      {actions.dialogs}
-      <PaneTabsRow controls={<WorkViewControlsOutlet owner={mainOwner} />}>
-        <Tabs value={open === 'side-by-side' || singleMember ? 'room' : open}>
-          <TabsList aria-label="Team views" data-look="quiet" className="max-w-full justify-start overflow-x-auto">{teamTabs.map(tab => <TeamViewTab key={tab.value} tab={tab}/>)}</TabsList>
-        </Tabs>
-      </PaneTabsRow>
-      {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
-      {retryCheck && runs.some(one => one.id === retryCheck.run) && <RetryCheck run={retryCheck.run} card={retryCheck.card} onClose={() => setRetryCheck(null)} />}
-
-      {goal ? <GoalHeader view={goal} coveredProblem={flowExecution?.reason ?? timelineRun?.reason} /> : null}
-      {flowExecution?.state === 'stalled' && (open !== 'run' || timelineRun?.id !== flowExecution.id) && <PaneColumn inset="reading"><Button variant="link" size="inline" onClick={() => { setChosenRun(flowExecution.id); show('run') }}>Review stopped Run</Button></PaneColumn>}
-      {flowExecution ? <FlowRunStatus execution={flowExecution} checkRecovery={open !== 'run'} /> : null}
-      {runs.map((execution, index) => {
-        const failure = snapshot.flowStopProblems.get(execution.id)
-        return failure ? <StopRunFailure key={execution.id} number={index + 1} message={failure.message}
-          refusal={record ? RECORD_REASON : null} onRetry={() => setStoppingRun(execution.id)} /> : null
-      })}
-      {railTrouble && <ToolPaneNotice tone="danger"><span role="alert">{railTrouble}</span></ToolPaneNotice>}
-
-      {/* No inset reserved here, on purpose: a standing notice for the room
-          lives inside `RoomComposer`'s own strip, below, over its composer —
-          not above the page tabs or the reading side, which is why nothing in this
-          split has to make room for one. */}
-      <div className={styles.split}>
-        <div className={styles.body} data-slot="room-body">
-          {triggerKind && <div hidden={open !== 'runs'} className={open !== 'runs' ? 'hidden' : 'flex min-h-0 min-w-0 flex-1 flex-col'}>
-            <TeamRuns key={room} runs={runs} findings={snapshot.findingRuns} ledger={snapshot.findings.get(room)} origin={originStatus} trigger={triggerControl}
-              problem={runHistoryProblem?.room === room ? runHistoryProblem.message : runsReviewProblem?.room === room ? runsReviewProblem.text : timelineReadError ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? null}
-              onOpen={id => { setChosenRun(id); show('run') }} onEdit={() => store.openFile(`${goal!.goal.root}/.harnessdesk/triggers.yml`)}
-              onRunVisibility={onRunReviewVisibility} active={open === 'runs'} />
-          </div>}
-          {open === 'receipt' ? (
-            // Its own scroll box, as the Runs and Overview tabs have: the body
-            // clips, so a receipt taller than the pane lost its last lines.
-            <Page width="reading" fill scroll>
-              {goal?.receipt ? (
-                <>
-                  <GoalReceiptCost receipt={goal.receipt}>
-                    {insight => <GoalReceipt receipt={goal.receipt!} root={goal.goal.root} faces={receiptFaces} onOpenFinding={setReceiptFinding} insight={insight} />}
-                  </GoalReceiptCost>
-                  <FindingCarry source={goal} />
-                  {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
-                </>
-              ) : null}
-            </Page>
-          ) : open === 'overview' ? (
-            <TeamOverview attention={attentionRows} uncheckedDone={goal?.uncheckedDone} onBoard={() => show('board')} model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} answers={needsYouAnswers} onWrap={!record && goal?.activity === 'ready-to-wrap' && !wrapDisabled ? () => setWrapping(true) : undefined} onRun={() => { if (triggerKind && flowExecution) setChosenRun(flowExecution.id); show('run') }}
+  const openRecordedCard = (card: number): void => {
+    const execution = flowExecution?.rounds.some(round => round.cards.includes(card)) ? flowExecution
+      : [...runs].reverse().find(run => run.rounds.some(round => round.cards.includes(card)))
+    const timeline = execution === flowExecution ? overviewTimeline : execution ? runTimelineOf(heldClient, execution, {
+      sessions: snapshot.sessions, evidence: snapshot.boardEvidence.get(room), waitingSeats,
+    }) : null
+    const row = timeline?.rows.find(row => row.card === card && ['card', 'person', 'check'].includes(row.kind))
+    if (!execution || !row) { show('board'); return }
+    setChosenRun(execution.id)
+    setSelectedRunRows(was => new Map(was).set(execution.id, row.id))
+    show('overview')
+    store.chooseWorkTool('details', 'run-details')
+  }
+  const workSummary = (
+<TeamOverview pendingInChat onTask={openRecordedCard} onChat={() => { const request = overview.needsYou.find(item => item.kind !== 'card'); show(pendingApproval ? 'room' : request?.sessionKey ?? 'room') }} compact={Boolean(timelineRun)} attention={attentionRows} uncheckedDone={goal?.uncheckedDone} onBoard={() => show('board')} model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} answers={needsYouAnswers} onWrap={!record && goal?.activity === 'ready-to-wrap' && !wrapDisabled ? () => setWrapping(true) : undefined} onRun={() => { if (flowExecution) { setChosenRun(flowExecution.id); setSelectedRunRows(was => new Map(was).set(flowExecution.id, 'run')); store.chooseWorkTool('details', 'run-details') }; show('run') }}
               faces={new Map(seats.map(seat => {
                 const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                 const brand = runtime ? brandForRuntime(runtime) : null
@@ -1229,10 +1209,72 @@ export const TeamRoomPane = ({
               onStop={!record && flowExecution ? () => setStoppingRun(flowExecution.id) : undefined}
               statusLine={(now, includeRunReason) => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason={includeRunReason && flowExecution?.state !== 'stalled'} stoppingSessions={stoppingSessions} />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
-          ) : open === 'runs' ? null : open === 'run' && timelineRun ? (
+  )
+
+  return (
+    <PaneSurface className={`${styles.pane} h-full`} data-slot="team-room">
+      {actions.dialogs}
+      <PaneTabsRow controls={<>
+        {(open === 'board' || open === 'findings') && <span data-slot="task-navigation"><Button variant="ghost" size="sm"
+          disabled={!goal} aria-label={`Findings${findingCount ? ` ${findingCount}` : ''}`} aria-pressed={open === 'findings'}
+          title={!goal ? 'Findings are available for a Team with a goal' : undefined}
+          onClick={() => show('findings')}>
+          Findings{findingCount ? <Text role="meta" numeric>{findingCount}</Text> : null}
+        </Button></span>}
+        {flowExecution?.state === 'stalled' && (!workOpen || timelineRun?.id !== flowExecution.id) && <Button variant="ghost" size="sm"
+          title="Work needs you: review the stopped Run" onClick={() => { setChosenRun(flowExecution.id); show('run') }}>Review stopped Run</Button>}
+        <WorkViewControlsOutlet owner={mainOwner} />
+      </>}>
+        <Tabs value={open === 'side-by-side' || singleMember ? 'room' : open === 'findings' ? 'board' : open === 'run' ? 'overview' : open}>
+          <TabsList aria-label="Team views" data-look="quiet" className="max-w-full justify-start overflow-x-auto">{teamTabs.map(tab => <TeamViewTab key={tab.value} tab={tab} title={tab.value === 'room' ? chatCountTitle : undefined} waiting={tab.value === 'room' && pendingReplies > 0}/>)}</TabsList>
+        </Tabs>
+      </PaneTabsRow>
+      {workOpen && runs.length > 1 && <PaneColumn inset="reading"><NativeSelect aria-label="Choose a Run" value={timelineRun?.id ?? ''} onChange={event => setChosenRun(event.target.value)}>
+        {runs.map((one, index) => <option key={one.id} value={one.id}>Run {index + 1}</option>)}
+      </NativeSelect></PaneColumn>}
+      {(open === 'runs' || open === 'receipt') && <PaneColumn inset="reading"><Button variant="link" size="sm" onClick={() => show('overview')}>Back to Work</Button></PaneColumn>}
+      {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
+      {retryCheck && runs.some(one => one.id === retryCheck.run) && <RetryCheck run={retryCheck.run} card={retryCheck.card} onClose={() => setRetryCheck(null)} />}
+
+      {goal ? <GoalHeader view={goal} coveredProblem={flowExecution?.reason ?? timelineRun?.reason} /> : null}
+      {flowExecution ? <FlowRunStatus execution={flowExecution} checkRecovery={!workOpen} /> : null}
+      {runs.map((execution, index) => {
+        const failure = snapshot.flowStopProblems.get(execution.id)
+        return failure ? <StopRunFailure key={execution.id} number={index + 1} message={failure.message}
+          refusal={record ? RECORD_REASON : null} onRetry={() => setStoppingRun(execution.id)} /> : null
+      })}
+      {railTrouble && <ToolPaneNotice tone="danger"><span role="alert">{railTrouble}</span></ToolPaneNotice>}
+
+      {/* No inset reserved here, on purpose: a standing notice for the room
+          lives inside `RoomComposer`'s own strip, below, over its composer —
+          not above the page tabs or the reading side, which is why nothing in this
+          split has to make room for one. */}
+      <div className={styles.split}>
+        <div className={styles.body} data-slot="room-body">
+          {(triggerKind || open === 'runs') && <div hidden={open !== 'runs'} className={open !== 'runs' ? 'hidden' : 'flex min-h-0 min-w-0 flex-1 flex-col'}>
+            <TeamRuns key={room} runs={runs} findings={snapshot.findingRuns} ledger={snapshot.findings.get(room)} origin={originStatus} trigger={triggerControl}
+              problem={runHistoryProblem?.room === room ? runHistoryProblem.message : runsReviewProblem?.room === room ? runsReviewProblem.text : timelineReadError ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? null}
+              onOpen={id => { setChosenRun(id); show('run') }} onEdit={() => store.openFile(`${goal!.goal.root}/.harnessdesk/triggers.yml`)}
+              onRunVisibility={onRunReviewVisibility} active={open === 'runs'} />
+          </div>}
+          {open === 'receipt' ? (
+            // Its own scroll box, as the Runs and Overview tabs have: the body
+            // clips, so a receipt taller than the pane lost its last lines.
+            <Page width="reading" fill scroll>
+              {goal?.receipt ? (
+                <>
+                  <GoalReceiptCost receipt={goal.receipt}>
+                    {insight => <GoalReceipt receipt={goal.receipt!} root={goal.goal.root} faces={receiptFaces} onOpenFinding={setReceiptFinding} insight={insight} />}
+                  </GoalReceiptCost>
+                  <FindingCarry source={goal} />
+                  {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
+                </>
+              ) : null}
+            </Page>
+          ) : workOpen && !timelineRun ? workSummary : open === 'runs' ? null : workOpen && timelineRun ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              {triggerKind && <PaneColumn inset="reading" page><Button variant="link" size="inline" aria-label="Back to Runs" onClick={() => show('runs')}>Back to Runs</Button></PaneColumn>}
-              <TeamRunView key={timelineRun.id} execution={timelineRun} view={runFrameView} onView={setRunFrameView}
+
+              <TeamRunView key={timelineRun.id} insight={report} execution={timelineRun} unified recordRequest={recordRequest} introduction={timelineRun.id === flowExecution?.id ? workSummary : undefined}
                 waitingSeats={waitingSeats}
                 stopRefusal={record ? RECORD_REASON : undefined}
                 onStop={!record ? () => setStoppingRun(timelineRun.id) : undefined}
@@ -1306,7 +1348,7 @@ export const TeamRoomPane = ({
               paneId={mount?.id ?? 'team-room'}
               memberOf={(key) => {
                 const member = memberOf(key)
-                return member ? { nickname: member.nickname, agent: member.agent, model: member.model ?? undefined } : undefined
+                return member ? { nickname: member.nickname, displayName: roster.find(one => one.key === key)?.displayName, agent: member.agent, model: member.model ?? undefined } : undefined
               }}
               entryOf={(key) => {
                 const entry = roster.find((one) => one.key === key)
@@ -1388,7 +1430,7 @@ export const TeamRoomPane = ({
               )
             })()
           ) : (
-            <Room onMessaging={toggleMessaging} messagingReason={record ? RECORD_REASON : undefined} composerRef={chatComposer} room={room} draftState={roomDraft} trouble={composerTrouble} onTrouble={setComposerTrouble} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} />
+            <Room onOpenCard={openRecordedCard} onMessaging={toggleMessaging} messagingReason={record ? RECORD_REASON : undefined} composerRef={chatComposer} room={room} draftState={roomDraft} trouble={composerTrouble} onTrouble={setComposerTrouble} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} />
           )}
         </div>
       </div>
@@ -1557,6 +1599,7 @@ const RoomLiveLine = ({
   room,
   includeRunReason = false,
   stoppingSessions,
+  suppressWorking = false,
 }: {
   readonly members: readonly Member[]
   readonly snapshot: AppSnapshot
@@ -1572,6 +1615,7 @@ const RoomLiveLine = ({
   readonly includeRunReason?: boolean
   /** Overview already reads these turns as Stopping on its current-step line. */
   readonly stoppingSessions?: ReadonlySet<SessionKey>
+  readonly suppressWorking?: boolean
 }) => {
   const store = useStore()
   const runReason = includeRunReason && flowExecution?.reason ? sentence(runReasonWords(flowExecution.reason, flowExecution.document.flow.rules)) : null
@@ -1684,7 +1728,7 @@ const RoomLiveLine = ({
         </TurnWorkLive>
       )
     }
-    const busy = waiting ? null : members.find((one) => one.busy && !stoppingSessions?.has(one.key)) ?? null
+    const busy = waiting || suppressWorking ? null : members.find((one) => one.busy && !stoppingSessions?.has(one.key)) ?? null
     const subject = waiting ?? busy
     if (!subject) return null
     const session = snapshot.sessions.get(subject.key)
@@ -1704,7 +1748,7 @@ const RoomLiveLine = ({
           {...(elapsed !== null ? { trail: ` · ${formatDuration(elapsed)}` } : {})}
         >
           <MemberName
-            name={subject.peer.nickname}
+            name={subject.displayName ?? subject.peer.nickname}
             tint={subject.tint}
             mark={subject.brand ? <BrandMark brand={subject.brand} size={10} /> : <AgentIcon size={10} />}
           />{' '}
@@ -1716,12 +1760,12 @@ const RoomLiveLine = ({
       <TurnWorkLive
         settled
         data-slot="room-live-line"
-        title={allWaiting.length > 1 ? allWaiting.map((one) => one.peer.nickname).join('\n') : undefined}
+        title={allWaiting.length > 1 ? allWaiting.map((one) => one.displayName ?? one.peer.nickname).join('\n') : undefined}
       >
         <Dot state="limit" pulse />
         <span>
           <MemberName
-            name={subject.peer.nickname}
+            name={subject.displayName ?? subject.peer.nickname}
             tint={subject.tint}
             mark={subject.brand ? <BrandMark brand={subject.brand} size={10} /> : <AgentIcon size={10} />}
           />{' '}
@@ -1794,6 +1838,7 @@ export const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetStat
 }
 
 const Room = ({
+  onOpenCard,
   onMessaging,
   messagingReason,
   room,
@@ -1810,6 +1855,7 @@ const Room = ({
   needsYou,
 }: {
   readonly room: string
+  readonly onOpenCard: (card: number) => void
   readonly onMessaging: () => Promise<void>
   readonly messagingReason?: string
   readonly draftState: RoomComposerDraftState
@@ -1835,8 +1881,8 @@ const Room = ({
   /**
    * The one member (if any) waiting on a person right now — the same fact
    * `TeamRoomPane`'s own header chip pulses for. While it is set, this
-   * member's own `Approvals` takes the composer's slot; answering it, either
-   * way, is what clears it and brings the composer back.
+   * member's own `Approvals` appears in the thread; answering it, either
+   * way, clears the question while the composer remains available.
    */
   readonly pendingApproval: Member | null
   /** For the composer's own budget meter — null off a plain room, or a Goal a person started. */
@@ -1861,37 +1907,12 @@ const Room = ({
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
-  /* The slot the composer and the card share, and whether focus is in it.
-     The card takes the focus only from the composer it replaces — a person
-     typing in the sidebar, the rail's filter or another pane keeps theirs —
-     and it is read at the render the approval arrives in, before the card
-     exists to take anything. Keyed by the approval's own id, so two in a row
-     for the same member are two arrivals. */
-  const slot = useRef<HTMLDivElement>(null)
+  /* An inline question leaves the reader and the composer's caret where
+     they are. Its shortcuts arm only after the person enters the card.
+     Keep the id for the thread's separate unread-request indicator. */
   const pendingId = pendingApproval
     ? snapshot.approvals.find((entry) => entry.key === pendingApproval.key)?.approval.id ?? null
     : null
-  const takeFocus = useMemo(() => {
-    if (pendingId === null) return false
-    const at = typeof document === 'undefined' ? null : document.activeElement
-    return Boolean(at && at !== document.body && slot.current?.contains(at))
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- read once per arrival, on purpose
-  }, [pendingId])
-  /* The approval cleared — answered, either way. Focus goes back to the
-     composer only if the card took it from there and the person has not
-     since put it somewhere else: the card's answer button vanishing leaves
-     it on the page itself, and that is the only case this hands it back. */
-  const tookFocus = useRef(false)
-  const lastApproval = useRef<string | null>(null)
-  useEffect(() => {
-    if (pendingId !== null) tookFocus.current = takeFocus
-    else if (lastApproval.current !== null && tookFocus.current) {
-      tookFocus.current = false
-      const at = document.activeElement
-      if (!at || at === document.body) composer.current?.focus()
-    }
-    lastApproval.current = pendingId
-  }, [pendingId, takeFocus])
 
   const team = snapshot.teams.get(room)
   const entries = team?.channel ?? NO_ENTRIES
@@ -1920,9 +1941,12 @@ const Room = ({
    * read as "3 new messages" above one new row. And a signal — a claim, a
    * completion — is an entry too, so the pill called a claim a message.
    */
-  const rows = useMemo(() => readChannel(entries), [entries])
+  const rows = useMemo(() => readChannel(entries, channelSignalBatches(room, snapshot.flowExecutions.values())), [entries, room, snapshot.flowExecutions])
   const [behind, setBehind] = useState<{ rows: number; onlyMessages: boolean }>(AT_THE_FLOOR)
   const counted = useRef(rows.length)
+  const countedApproval = useRef(pendingId)
+  const [unseenApproval, setUnseenApproval] = useState<string | null>(null)
+  const approvalBehind = pendingId !== null && unseenApproval === pendingId
   useEffect(() => {
     const box = stream.current
     if (!box) return
@@ -1934,7 +1958,11 @@ const Room = ({
          becomes an infinite loop rather than a wasted render. It was one:
          `entries` was a new `[]` per render before `NO_ENTRIES`. */
       setBehind((was) => (was.rows === 0 && was.onlyMessages ? was : AT_THE_FLOOR))
+      setUnseenApproval(null)
     } else {
+      // Requests are drawn after the channel, so a new request can arrive
+      // below the fold without adding a channel row. Keep its own way down.
+      if (pendingId !== countedApproval.current) setUnseenApproval(pendingId)
       /* A row can absorb a later one — a refusal is folded into the delivery
          that followed it — so the derived list can get *shorter* as entries
          arrive. Resync rather than counting a negative. */
@@ -1947,13 +1975,15 @@ const Room = ({
       }
     }
     counted.current = rows.length
-  }, [rows])
+    countedApproval.current = pendingId
+  }, [rows, pendingId])
 
   const toFloor = (): void => {
     const box = stream.current
     if (!box) return
     following.current = true
     box.scrollTop = box.scrollHeight
+    setUnseenApproval(null)
     setBehind((was) => (was.rows === 0 && was.onlyMessages ? was : AT_THE_FLOOR))
   }
 
@@ -2016,7 +2046,10 @@ const Room = ({
             const box = event.currentTarget
             const near = box.scrollHeight - box.scrollTop - box.clientHeight < 64
             following.current = near
-            if (near) setBehind((was) => (was.rows === 0 && was.onlyMessages ? was : AT_THE_FLOOR))
+            if (near) {
+              setBehind((was) => (was.rows === 0 && was.onlyMessages ? was : AT_THE_FLOOR))
+              setUnseenApproval(null)
+            }
           }}
         >
           {/* The reading column, which the transcript one keystroke away is
@@ -2024,13 +2057,15 @@ const Room = ({
               and holding the two apart is what lets the rows be centred on
               the same line as the composer below. */}
           <div className={styles.streamColumn}>
-            {entries.length === 0 ? (
+            {entries.length === 0 ? !pendingApproval && (
               <EmptyState
                 variant="inline" align="start"
                 title={messaging ? <span title="The agents in this room can message each other and you. Signals — a claim, a completion — land here too.">Nothing said yet</span> : 'Nothing said yet. Board-only: agents may claim and signal, but not message. Turn messaging back on in Send to.'}
               />
             ) : (
               <ChannelStream
+                onOpenCard={onOpenCard}
+                displayName={actor => actor.kind === 'agent' ? members.find(member => member.peer.runtime === actor.runtime && member.peer.sessionId === actor.sessionId)?.displayName : undefined}
                 entries={entries}
                 room={room}
                 onTrouble={setTrouble}
@@ -2042,15 +2077,23 @@ const Room = ({
                 identify={identify}
               />
             )}
+            {pendingApproval && <PaneProvider scope={{
+              paneId: `team-room:approval:${pendingApproval.key}`,
+              view: { kind: 'conversation', session: pendingApproval.key }, sessionKey: pendingApproval.key,
+            }}><Approvals placement="docked" requester={{
+              name: pendingApproval.displayName ?? pendingApproval.peer.nickname ?? pendingApproval.title,
+              mark: pendingApproval.brand ? <BrandMark brand={pendingApproval.brand} size={16} /> : <AgentIcon size={16} />,
+              open: () => onShow(pendingApproval.key),
+            }} /></PaneProvider>}
           </div>
         </PaneColumn>
-        {behind.rows > 0 && (
+        {(behind.rows > 0 || approvalBehind) && (
           /* "messages" only when that is all they are. A batch with a claim or
              a completion in it takes the plainer word, because a signal is not
              a message and a pill that says it is teaches the reader to distrust
              the count. */
           <Button type="button" variant="outline" size="chip" className={styles.behind} onClick={toFloor}>
-            {behind.onlyMessages
+            {approvalBehind ? 'Approval waiting' : behind.onlyMessages
               ? behind.rows === 1
                 ? '1 new message'
                 : `${behind.rows} new messages`
@@ -2088,34 +2131,10 @@ const Room = ({
             wrapper rather than a prop: `RoomComposer` draws the shell and
             knows nothing about how wide the pane it sits in is, which is the
             caller's business — exactly as `.streamColumn` is. */}
-        <div ref={slot} className={styles.composerShell}>
-          {pendingApproval && (
-            /* The composer's own slot, taken by whichever member is waiting
-               on a person — the same `Approvals` a conversation's own pane
-               draws, docked: a card in flow where the composer stood, as
-               wide as it, with the thread above left whole and readable. No
-               scrim, no blur, not a dialog — the room is everyone's
-               conversation, and one member's question does not cover it.
-               `team-room:` as the pane id's root is `useIsFocusedPane`'s own
-               exception for this surface (see the per-member column below,
-               which reads the same way): answering an approval here must not
-               depend on bookkeeping meant for a split of panes this page does
-               not have. Answering it, either way, clears `pendingApproval`
-               and brings this composer back, focused — the effect above. */
-            <PaneProvider
-              scope={{
-                paneId: `team-room:approval:${pendingApproval.key}`,
-                view: { kind: 'conversation', session: pendingApproval.key },
-                sessionKey: pendingApproval.key,
-              }}
-            >
-              <Approvals placement="docked" takeFocus={takeFocus} />
-            </PaneProvider>
-          )}
-          {/* Mounted whatever holds the slot, and only hidden under the
-              card (`suspended`): an approval arriving mid-sentence must not
+        <div className={styles.composerShell}>
+          {/* An approval arriving mid-sentence must not
               throw away the words or the audience being written — they are
-              this component's own state, and unmounting it was the loss.
+              this component's own state. The composer remains visible below the request.
               The live line rides in with it (`statusLine`) so the tail over
               the box is one strip, and it stays visible under an approval,
               where it says who is waiting. */}
@@ -2134,8 +2153,7 @@ const Room = ({
             messaging={messaging}
             onMessaging={onMessaging}
             messagingReason={messagingReason}
-            statusLine={<RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />}
-            suspended={pendingApproval !== null}
+            statusLine={suppressWorking => pendingApproval ? null : <RoomLiveLine suppressWorking={suppressWorking} members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />}
             /* The same card the rail and the chat draw, off the same one
                reader. `Open` is the only verb worth offering on a chip: the
                member is already addressed, so Message would be the greyed

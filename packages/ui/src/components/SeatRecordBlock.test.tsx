@@ -7,7 +7,7 @@ import { runtimeId, sessionKey, type Session, type SessionId, type TeamState } f
 import { EVIDENCE_ROOM, PREVIEW_SEAT } from '../preview/evidence-fixture'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { SeatRecordBlock } from './SeatRecordBlock'
+import { SeatRecordBlock, SeatRecordView } from './SeatRecordBlock'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -67,9 +67,16 @@ const mount = async (seatRecord: (runtime: string, sessionId: string) => Promise
   return store
 }
 
+const openDetails = () => act(() => {
+  const toggle = container.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!
+  if (toggle.getAttribute('aria-expanded') === 'false') toggle.click()
+  ;[...container.querySelectorAll('button')].find(one => one.textContent?.includes('Details'))!.click()
+})
+
 it('shows who was seated, on what, told what, where, on which board, and since when', async () => {
   const store = await mount(async () => PREVIEW_SEAT)
   expect(store.seatRecord).toHaveBeenCalledWith('codex', 's1')
+  openDetails()
   const text = container.textContent ?? ''
   expect(text).toContain('Seat record')
   expect(text).toContain('Scout · In HarnessDesk')
@@ -80,7 +87,7 @@ it('shows who was seated, on what, told what, where, on which board, and since w
   expect(text).toContain('~/code/HarnessDesk')
   expect(text).toContain('Checkout hardening')
   expect(text).toContain('Open')
-  expect(container.querySelector('button, input, textarea')).toBeNull()
+  expect(container.querySelector('input, textarea')).toBeNull()
 })
 
 it('a closed seat says how the desk let it go', async () => {
@@ -88,11 +95,14 @@ it('a closed seat says how the desk let it go', async () => {
     ...PREVIEW_SEAT,
     closed: { at: Date.UTC(2026, 8, 18, 15, 0), why: 'deleted' },
   }))
+  expect(container.textContent).toContain('Closed')
+  openDetails()
   expect(container.textContent).toContain('Its conversation was deleted')
 })
 
 it("a seat phase 3 kept for an Agent that said only `ceiling:` is drawn in that order's words", async () => {
   await mount(async () => ({ ...PREVIEW_SEAT, standing: { kind: 'ceiling', level: 'edit' }, ceiling: { level: 'edit', hold: 'asked' } }))
+  openDetails()
   expect(container.textContent).toContain('Edit · its ceiling')
   expect(container.textContent).not.toContain('Read only · asked, not enforced')
 })
@@ -100,6 +110,7 @@ it("a seat phase 3 kept for an Agent that said only `ceiling:` is drawn in that 
 it('a Seat a backup brought says so, and that it says nothing about this conversation here', async () => {
   await mount(async () => ({ ...PREVIEW_SEAT, restored: { at: Date.UTC(2026, 8, 18, 16, 0) } }))
   expect(container.textContent).toContain('From a backup')
+  openDetails()
   expect(container.textContent).toContain('This desk did not keep this seat')
 })
 
@@ -112,5 +123,32 @@ it('a record that cannot be read says so, in the host’s words', async () => {
   await mount(async () => {
     throw new Error('the connection to HarnessDesk was lost')
   })
-  expect(container.textContent).toBe('Its Seat record could not be read: the connection to HarnessDesk was lost')
+  const section = container.querySelector('[data-slot="tool-section"][aria-label="Seat record"]')!
+  expect(section).not.toBeNull()
+  expect(section.querySelector('[data-slot="tool-prose"]')?.textContent).toBe('Its Seat record could not be read: the connection to HarnessDesk was lost')
+  expect(section.querySelector('[data-slot="tool-section-fold"]')?.getAttribute('aria-expanded')).toBe('true')
+})
+
+it('keeps the permission hold in the summary and reveals technical seat facts only on demand', async () => {
+  await mount(async () => PREVIEW_SEAT)
+  expect(container.querySelector('[data-slot="tool-section-fold"]')?.getAttribute('aria-expanded')).toBe('false')
+  expect(container.textContent).toContain('Asked, not held')
+  expect(container.textContent).not.toContain('Passed over')
+  expect(container.textContent).not.toContain('Opened')
+  const details = [...container.querySelectorAll('button')].find(one => one.textContent?.includes('Details'))!
+  expect(details.getAttribute('aria-expanded')).toBe('false')
+  act(() => details.click())
+  expect(container.textContent).toContain('Passed over')
+  expect(container.textContent).toContain('Opened')
+})
+
+it('the content presentation keeps the phase, role and complete record without a second disclosure', async () => {
+  const store = await mount(async () => PREVIEW_SEAT)
+  await act(async () => root.render(<StoreProvider store={store}><SeatRecordView seat={{ ...PREVIEW_SEAT, role: 'reviewer' }} presentation="content" /></StoreProvider>))
+  const facts = container.querySelector('[data-slot="key-value"]')!
+  expect(facts.textContent).toContain('StatusOpen')
+  expect(facts.textContent).toContain('Rolereviewer')
+  expect(facts.textContent).toContain('Checkout')
+  expect(facts.textContent).toContain('Opened')
+  expect(container.querySelector('[data-slot="tool-section"], [data-slot="tool-fold"], [data-slot="summary-list"]')).toBeNull()
 })

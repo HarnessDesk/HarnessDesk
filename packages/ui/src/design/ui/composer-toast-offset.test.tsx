@@ -36,6 +36,7 @@ afterEach(() => {
 it('reports a mounted dock height plus its bottom inset and the gap at app level', () => {
   act(() => root.render(<ComposerDock data-height="120" data-inset="20" />))
   expect(appOffset()).toBe('calc(140px + var(--hd-toast-gap))')
+  expect(document.body.style.getPropertyValue('--hd-composer-clearance')).toBe('140px')
 })
 
 it('uses the taller dock, drops it on unmount, and returns to the gap without composers', () => {
@@ -45,6 +46,7 @@ it('uses the taller dock, drops it on unmount, and returns to the gap without co
   expect(appOffset()).toBe('calc(80px + var(--hd-toast-gap))')
   act(() => root.render(null))
   expect(appOffset()).toBe('var(--hd-toast-gap)')
+  expect(document.body.style.getPropertyValue('--hd-composer-clearance')).toBe('0px')
 })
 
 it('updates resized docks and excludes hidden docks until they show again', () => {

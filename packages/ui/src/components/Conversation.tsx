@@ -562,6 +562,7 @@ export const Conversation = ({
     ? activeFile.slice(session.cwd.length + 1) : activeFile
   useTopBar(pane?.paneId ?? '', {
     lead: <WindowControls />,
+    compact: { lead: <WindowControls history={false} />, more: close => <><WindowControls menu close={close} /><WorkTools menu close={close} draft={!session} /></> },
     place: filePlace ? sanitizeText(filePlace) : <HeaderTitle session={session} />,
     parent: filePlace ? { label: titleOf(session), run: () => store.setWindowMode('conversation') } : undefined,
     state: session ? <Dot tone={STATUS_PILL_TONE[status]} pulse={status === 'running'} title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} /> : undefined,

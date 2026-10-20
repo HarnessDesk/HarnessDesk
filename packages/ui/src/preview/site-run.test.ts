@@ -56,7 +56,6 @@ describe('the site Run', () => {
     try {
       await act(async () => root.render(createElement(StoreProvider, { store: run.store,
         children: createElement(TeamFramePreview, { room: 'overlay-team' }) })))
-      await act(async () => box.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
       await act(async () => button('Stop run…').click())
       await act(async () => button('Stop run').click())
       expect(document.querySelector('[role="alertdialog"]')?.textContent ?? '').toContain('Stopping is not available in this staged Run.')
@@ -198,7 +197,7 @@ describe('the site Run', () => {
     run.dispose()
   })
 
-  it('lets the mounted production Overview answer the staged person step and read both posted review rounds', async () => {
+  it('opens the staged person task directly from Work, answers it and reads both posted review rounds', async () => {
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
     const run = new StagedRun('you')
     const box = document.createElement('div')
@@ -208,11 +207,14 @@ describe('the site Run', () => {
       await act(async () => root.render(createElement(StoreProvider, { store: run.store,
         children: createElement(TeamFramePreview, { room: 'overlay-team' }) })))
       expect(box.querySelector('[data-slot="team-overview"]')).not.toBeNull()
+      await act(async () => button('Open task')!.click())
+      expect(box.querySelector('[data-slot="team-board"]')).toBeNull()
       expect(button('Merged')).toBeDefined()
       await act(async () => button('Merged')!.click())
       expect(run.stage).toBe('done')
       expect(button('Merged')).toBeUndefined()
-      await act(async () => button('Write, review, land')!.click())
+      await act(async () => button('Work')!.click())
+      await act(async () => button('Full record')!.click())
       for (const round of [3, 6]) {
         const data = run.read(), snapshot = run.store.getSnapshot()
         expect(runTimeline({ ...data, sessions: snapshot.sessions, attempts: new Map([...data.attempts].map(([id, value]) => [id, value.attempts])) }).rows.filter(one => one.kind === 'card' && one.round === round && one.publication?.label === 'Posted to #42')).toHaveLength(2)

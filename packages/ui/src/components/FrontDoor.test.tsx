@@ -1,5 +1,6 @@
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { flushSync } from 'react-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { FlowEntry, FlowExecution, FlowPreview, FrontDoorPreview, HostMethodName } from '@harnessdesk/protocol'
@@ -8,6 +9,7 @@ import { StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
 import { FrontDoor } from './FrontDoor'
 import { CONTEST_START_POLICY } from '../lib/contest-start-fixture'
+import { canvasDOM } from '../test/flow-canvas-dom'
 
 /**
  * The front door: choose a file-based shape, read its populated dry run,
@@ -21,7 +23,9 @@ import { CONTEST_START_POLICY } from '../lib/contest-start-fixture'
 let container: HTMLDivElement
 let root: Root
 
-beforeEach(() => {
+beforeEach(async () => {
+  canvasDOM()
+  await import('../design/patterns/FlowCanvas/Engine')
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -29,6 +33,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks(); vi.unstubAllGlobals()
 })
 
 const ENTRY = (id: string, name: string, over: Partial<FlowEntry> = {}): FlowEntry => ({
@@ -76,7 +81,16 @@ const render = (store: AppStore, context: import('@harnessdesk/protocol').StartC
 // the same reason `NewSessionChoice.test.tsx` (itself all `Dialog`) queries
 // `document` rather than the render target.
 const rowFor = (name: string): HTMLButtonElement => {
-  const found = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.startsWith(name))
+  const find = () => [...document.body.querySelectorAll<HTMLButtonElement>('[data-slot="flow-card"]')].find(one => one.textContent?.startsWith(name))
+  if (!find()) {
+    const change = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Change')
+    if (change && !change.disabled) act(() => flushSync(() => change.click()))
+  }
+  if (!find()) {
+    const all = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'All Flows')
+    if (all) act(() => flushSync(() => all.click()))
+  }
+  const found = find()
   if (!found) throw new Error(`no row for “${name}”`)
   return found
 }
@@ -93,6 +107,170 @@ const requestSpy = (store: AppStore, handlers: Partial<Record<HostMethodName, (p
     if (handler) return handler(params)
     return null
   }) as never)
+
+it('shows three quick Flows, then replaces the catalogue with the selected policy and Change', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const entries = ['a', 'b', 'c', 'd', 'e'].map(id => ENTRY(id, `Flow ${id}`))
+  requestSpy(store, { 'flow/catalog': () => entries, 'agent/list': () => [], 'flow/source': () => 'source', 'authoring/start/preview': () => previewOf(emptyFlow('token')) })
+  render(store)
+  await settle()
+  expect(document.querySelectorAll('[data-slot="flow-card"]')).toHaveLength(4)
+  await act(async () => button('All Flows').click())
+  expect(document.querySelectorAll('[data-slot="flow-card"]')).toHaveLength(6)
+  await act(async () => { const card = rowFor('Flow e'); card.focus(); card.click() })
+  expect(document.querySelector('[data-slot="selected-flow"]')?.textContent).toContain('Flow e')
+  expect(document.querySelector('[aria-label="Search Flows"]')).toBeNull()
+  expect(document.querySelectorAll('[data-slot="flow-card"]')).toHaveLength(0)
+  expect(document.activeElement).toBe(button('Change'))
+  await act(async () => button('Change').click())
+  expect(document.querySelector('[aria-label="Search Flows"]')).toBe(document.activeElement)
+  expect(document.querySelectorAll('[data-slot="flow-card"]')).toHaveLength(6)
+  await act(async () => { const keep = button('Keep selected Flow'); keep.focus(); keep.click() })
+  expect(document.querySelector('[aria-label="Search Flows"]')).toBeNull()
+  expect(document.activeElement).toBe(button('Change'))
+  expect(document.querySelector('[data-slot="selected-flow"]')?.textContent).toContain('Flow e')
+})
+
+it('reports a selected Flow as reading until delayed source resolves to its actual graph', async () => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  const policy = TEAM_START_POLICIES.investigation
+  const store = new AppStore('ws://localhost:0/')
+  let release!: (source: string) => void
+  const pending = new Promise<string>(resolve => { release = resolve })
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('investigation', 'Investigation')], 'agent/list': () => [], 'flow/source': () => pending,
+    'authoring/start/preview': params => {
+      const input = params as { source: string; vars: Record<string, string> }
+      const base = emptyFlow('token')
+      return previewOf({ ...base, compiled: { ...base.compiled, document: { format: 'agents', flow: JSON.parse(input.source) } } }, { source: input.source, vars: input.vars })
+    },
+  })
+  render(store)
+  await settle()
+  await act(async () => rowFor('Investigation').click())
+  const selected = document.querySelector('[data-slot="selected-flow"]')!
+  expect(selected.getAttribute('aria-busy')).toBe('true')
+  expect(selected.textContent).toContain('Reading Flow…')
+  expect(selected.textContent).not.toContain('Graph unavailable')
+  await act(async () => release(JSON.stringify(policy)))
+  expect(selected.getAttribute('aria-busy')).not.toBe('true')
+  expect(document.querySelectorAll('[data-slot="flow-graph"] [data-step]')).toHaveLength(policy.roles.length)
+  expect(selected.querySelector('[data-slot="flow-mini-graph"]')).toBeNull()
+  expect(selected.textContent).not.toContain('Reading Flow…')
+})
+
+it.each(['dialog', 'task'])('repairs deferred picker focus loss without taking focus from %s', async target => {
+  const frames = new Map<number, FrameRequestCallback>()
+  let serial = 0
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.set(++serial, callback); return serial })
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { frames.delete(id) })
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, { 'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [], 'flow/source': () => 'source', 'authoring/start/preview': () => previewOf(emptyFlow('token')) })
+  render(store)
+  await settle()
+  await act(async () => { const card = rowFor('Review'); card.focus(); card.click() })
+  const destination = target === 'dialog' ? document.querySelector<HTMLElement>('[role="dialog"]')! : document.querySelector<HTMLTextAreaElement>('textarea')!
+  act(() => destination.focus())
+  // The dialog's focus manager restores its fallback after the selected picker
+  // unmounts. Check the next frame, with a user move still taking precedence.
+  await act(async () => { for (const callback of [...frames.values()]) callback(0); frames.clear() })
+  expect(document.activeElement).toBe(target === 'dialog' ? button('Change') : destination)
+})
+
+it('keeps optional completion and dry-run controls folded without adding another page', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, { 'flow/catalog': () => [], 'agent/list': () => [] })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  render(store)
+  await settle()
+  await act(async () => rowFor('Just a Team').click())
+  const disclosure = button('Completion and dry run')
+  const details = document.getElementById(disclosure.getAttribute('aria-controls')!)!
+  expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+  expect(details.hidden).toBe(true)
+  expect(details.querySelector('[aria-label="Done when · optional"]')).not.toBeNull()
+  expect(button('Dry run').closest('[data-slot="dialog-footer"]')).toBeNull()
+  await act(async () => disclosure.click())
+  expect(details.hidden).toBe(false)
+  expect(disclosure.getAttribute('aria-expanded')).toBe('true')
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+})
+
+it('keeps one pricing notice and warning when the optional dry run is opened', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const warning = 'Confirm the selected provider before starting.'
+  const flow: FlowPreview = { ...emptyFlow('token'), seats: [{ role: 'reviewer', index: 0, agent: 'reviewer', isolate: false, reviews: true, plan: { id: 'reviewer', from: 'prefer', winner: null, blocked: null, ceiling: null, candidates: [] } }], problems: [{ level: 'warning', at: 'roles.reviewer', text: warning }] }
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [],
+    'flow/source': () => JSON.stringify(flow.compiled.document.flow),
+    'authoring/start/preview': () => previewOf(flow),
+  })
+  render(store)
+  await settle()
+  await act(async () => rowFor('Review').click())
+  const notices = () => {
+    const pricing = [...document.querySelectorAll('[data-slot="note"]')].filter(el => el.textContent?.includes('On usage-based pricing'))
+    const warnings = [...document.querySelectorAll('[data-slot="alert"]')].filter(el => el.textContent?.includes(warning))
+    expect(pricing).toHaveLength(1)
+    expect(warnings).toHaveLength(1)
+    for (const el of [...pricing, ...warnings]) expect(el.closest('[hidden]')).toBeNull()
+  }
+  notices()
+  await act(async () => button('Completion and dry run').click())
+  await act(async () => button('Dry run').click())
+  expect(document.querySelector('section[aria-label="Dry run"]')).not.toBeNull()
+  notices()
+})
+
+it.each(['render', 'preview'])('focuses Change after a comparison’s initial %s settles without interrupting another control', async phase => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  for (const editing of ['none', 'task', 'completion', 'disclosure']) {
+    const store = new AppStore('ws://localhost:0/')
+    const policy = TEAM_START_POLICIES.comparison
+    let release!: () => void
+    const pending = new Promise<void>(resolve => { release = resolve })
+    let previews = 0
+    requestSpy(store, {
+      'flow/catalog': () => [ENTRY('comparison', 'Side by side')], 'agent/list': () => [], 'flow/source': () => JSON.stringify(policy),
+      'authoring/shape/render': async params => {
+        if (phase === 'render') await pending
+        return { source: JSON.stringify((params as { policy: unknown }).policy), issues: [] }
+      },
+      'authoring/start/preview': async params => {
+        if (++previews > 1 && phase === 'preview') await pending
+        const input = params as { source: string; vars: Record<string, string> }
+        const base = emptyFlow('token')
+        return previewOf({ ...base, compiled: { ...base.compiled, document: { format: 'agents', flow: JSON.parse(input.source) } } }, { source: input.source, vars: input.vars })
+      },
+    })
+    render(store)
+    await settle()
+    await act(async () => { const card = rowFor('Side by side'); card.focus(); card.click() })
+    // Native browsers drop focus when the initial defaults disable Change.
+    // Model that lost focus explicitly: jsdom leaves disabled buttons focused.
+    act(() => button('Change').blur())
+    let retained: HTMLElement | null = null
+    if (editing === 'task') retained = document.querySelector<HTMLTextAreaElement>('textarea')!
+    if (editing === 'disclosure') retained = button('Completion and dry run')
+    if (editing === 'completion') {
+      act(() => button('Completion and dry run').click())
+      const done = document.querySelector<HTMLInputElement>('[aria-label="Done when · optional"]')!
+      act(() => {
+        done.focus()
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(done, 'A reviewed result')
+        done.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      retained = done
+    }
+    if (retained) act(() => retained!.focus())
+    await act(async () => release())
+    expect(button('Change').disabled).toBe(false)
+    expect(document.activeElement).toBe(retained ?? button('Change'))
+    if (editing === 'completion') expect((retained as HTMLInputElement).value).toBe('A reviewed result')
+    act(() => root.render(<div />))
+    await settle()
+  }
+})
 
 it('keeps the task, Flow picker and plain Team controls in one New Team dialog', async () => {
   const store = new AppStore('ws://localhost:0/')
@@ -124,9 +302,30 @@ it('previews an unsaved Flow source without re-reading its catalogue file', asyn
   await settle()
   expect(spy.mock.calls.some(([method]) => method === 'flow/source')).toBe(false)
   expect(spy.mock.calls.find(([method]) => method === 'authoring/start/preview')?.[1]).toMatchObject({ source })
-  expect(document.querySelector('[data-slot="flow-card"][aria-pressed="true"]')).not.toBeNull()
+  expect(document.querySelector('[data-slot="selected-flow"]')).not.toBeNull()
   await act(async () => button('Start Team').click())
   expect(spy.mock.calls.find(([method]) => method === 'flow/start-goal')?.[1]).toMatchObject({ source, token: 'unsaved-token' })
+})
+
+it('brings a refused Flow start into view and focuses its existing alert', async () => {
+  const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {})
+  const store = new AppStore('ws://localhost:0/')
+  const source = 'version: 2\nname: Review\n'
+  requestSpy(store, {
+    'flow/catalog': () => [], 'agent/list': () => [],
+    'authoring/start/preview': () => previewOf(emptyFlow('token'), { source }),
+    'flow/start-goal': () => { throw new Error('The reviewer is no longer available.') },
+  })
+  act(() => root.render(<StoreProvider store={store}><FrontDoor context={{ kind: 'project', root: '/repo' }} initialSource={source} onClose={() => {}} onStarted={() => {}} /></StoreProvider>))
+  await settle()
+  await act(async () => button('Start Team').click())
+  const failure = document.querySelector('[role="alert"]')!
+  expect(failure.textContent).toContain('The reviewer is no longer available.')
+  expect(document.activeElement?.contains(failure)).toBe(true)
+  expect(scroll.mock.contexts).toContain(document.activeElement)
+  expect(scroll).toHaveBeenCalledWith({ block: 'nearest' })
+  expect(button('Start Team').disabled).toBe(false)
+  scroll.mockRestore()
 })
 
 it('reissues the initial source in StrictMode and ignores the retired preview before starting', async () => {
@@ -145,13 +344,14 @@ it('reissues the initial source in StrictMode and ignores the retired preview be
   act(() => root.render(<StrictMode><StoreProvider store={store}><FrontDoor context={{ kind: 'project', root: '/repo' }} initialSource={source} onClose={() => {}} onStarted={onStarted} /></StoreProvider></StrictMode>))
   await settle()
   expect(previews).toBe(2)
-  expect(document.querySelector('[data-slot="flow-card"][aria-pressed="true"]')?.textContent).toContain('Review')
+  expect(document.querySelector('[data-slot="selected-flow"]')?.textContent).toContain('Review')
   expect(button('Start Team').disabled).toBe(false)
   await act(async () => finishRetired(previewOf(emptyFlow('retired-token'), { source: 'retired source' })))
   expect(store.getSnapshot().frontDoor?.preview?.flow.token).toBe('fresh-token')
   await act(async () => button('Start Team').click())
   expect(spy.mock.calls.find(([method]) => method === 'flow/start-goal')?.[1]).toMatchObject({ source, token: 'fresh-token' })
   expect(onStarted).toHaveBeenCalledExactlyOnceWith(EXECUTION)
+  expect(store.getSnapshot().teamFrameRequests[EXECUTION.goal]).toBeUndefined()
 })
 
 it('starts a legal just-a-team Flow from its source even when the plain prefill is also present', async () => {
@@ -410,7 +610,7 @@ it('Enter opens the focused Flow card', async () => {
   act(() => rowFor('Review').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
   await settle()
   expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('New Team')
-  expect(rowFor('Review').getAttribute('aria-pressed')).toBe('true')
+  expect(document.querySelector('[data-slot="selected-flow"]')?.textContent).toContain('Review')
 })
 
 it('gives the shape search its search glyph and a plain Search placeholder', async () => {
@@ -506,9 +706,9 @@ it.each([['comparison', 'Side by side', 'judge', 'to-judge'], ['mechanical-conte
   }
   expect(check().value).toBe('pnpm test')
   if (id === 'comparison') {
-    expect(document.body.textContent).toContain('Judge · optional')
-    const judge = document.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Judge"]')!
-    expect(judge.textContent).toBe('You')
+    expect(document.body.textContent).toContain('JudgeOptional')
+    const judge = document.querySelector<HTMLButtonElement>('button[aria-label="Configure Judge"]')!
+    expect(judge.textContent).toContain('You')
     expect(store.getSnapshot().frontDoor!.preview!.flow.compiled.document.flow.roles.some(role => role.id === 'judge')).toBe(false)
   }
   const type = async (value: string) => {
@@ -559,7 +759,7 @@ it.each(['render', 'preview'])('holds Flow choices and Details inputs until a po
   act(() => button('2').click())
   await settle()
   expect(button('Start Team').disabled).toBe(true)
-  expect(rowFor('Write and review').disabled).toBe(true)
+  expect(button('Change').disabled).toBe(true)
   const task = document.querySelector<HTMLTextAreaElement>('textarea')!
   expect(task.disabled).toBe(false)
   await act(async () => {
@@ -569,9 +769,9 @@ it.each(['render', 'preview'])('holds Flow choices and Details inputs until a po
   expect(button('Start Team').disabled).toBe(true)
   const ticket = [...document.querySelectorAll<HTMLInputElement>('input')].find(one => one.value === '42')!
   expect(ticket.disabled).toBe(true)
-  expect(document.querySelector('[aria-label="Search Flows"]')).not.toBeNull()
+  expect(document.querySelector('[aria-label="Search Flows"]')).toBeNull()
   await act(async () => release())
-  expect(rowFor('Write and review').disabled).toBe(false)
+  expect(button('Change').disabled).toBe(false)
   expect(ticket.disabled).toBe(false)
   act(() => rowFor('Write and review').click())
   await settle()
@@ -631,11 +831,27 @@ it('retires Start during a policy edit and ignores an older refused render', asy
   expect(document.body.textContent).toContain('A command is required.')
 })
 
+it('Just a Team starts through selected-project admission instead of generic Goal creation', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const team = { goal: { id: 'team-1', revision: 0 }, board: { id: 'team-1', members: [], intents: [] } } as unknown as import('@harnessdesk/protocol').GoalView
+  const spy = requestSpy(store, { 'flow/catalog': () => [], 'agent/list': () => [], 'goal/create': () => team, 'goal/start': () => team })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  vi.spyOn(store, 'teamAdd').mockResolvedValue(undefined)
+  vi.spyOn(store, 'openGoal').mockImplementation(() => {})
+  const { onClose } = render(store, { kind: 'project', root: '/selected-project' }, undefined, 'Inspect the cart')
+  await settle()
+  await act(async () => rowFor('Just a Team').click())
+  await act(async () => button('Start Team').click())
+  expect(spy.mock.calls.find(([method]) => method === 'goal/start')?.[1]).toEqual({ root: '/selected-project', sentence: 'Inspect the cart', checkout: 'shared' })
+  expect(spy.mock.calls.some(([method]) => method === 'goal/create')).toBe(false)
+  expect(onClose).toHaveBeenCalledOnce()
+})
+
 it('Just a Team creates a flow-less Team with the typed completion sentence', async () => {
   const store = new AppStore('ws://localhost:0/')
   const spy = requestSpy(store, { 'flow/catalog': () => [], 'agent/list': () => [] })
   vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
-  const create = vi.spyOn(store, 'createGoal').mockResolvedValue({ goal: { id: 'team-1' } } as import('@harnessdesk/protocol').GoalView)
+  const create = vi.spyOn(store, 'startTeam').mockResolvedValue({ goal: { id: 'team-1' } } as import('@harnessdesk/protocol').GoalView)
   const open = vi.spyOn(store, 'openGoal').mockImplementation(() => {})
   const add = vi.spyOn(store, 'teamAdd').mockResolvedValue(undefined)
   const { onClose } = render(store)
@@ -700,9 +916,10 @@ it('the seed preview follows input defaults, edits and clearing in the front doo
   }
 })
 
-it('review is choice then Start: two clicks, one start call', async () => {
+it('review is choice then Start, and leaves navigation to its caller', async () => {
   const preview = previewOf(emptyFlow('strict-token'))
   const store = new AppStore('ws://localhost:0/')
+  const navigate = vi.spyOn(store, 'requestTeamFrame')
   const spy = requestSpy(store, {
     'flow/catalog': () => [ENTRY('review', 'Review')],
     'agent/list': () => [],
@@ -728,6 +945,7 @@ it('review is choice then Start: two clicks, one start call', async () => {
   expect(starts).toHaveLength(1)
   expect(starts[0]![1]).toMatchObject({ root: '/repo', token: 'strict-token', source: 'version: 2\nname: Review\n' })
   expect(onStarted).toHaveBeenCalledWith(EXECUTION)
+  expect(navigate).not.toHaveBeenCalled()
 })
 
 it('the rendered list follows the catalogue, never a hardcoded set of shapes', async () => {
@@ -782,6 +1000,7 @@ it('validated order sorts shapes first; an unordered shape falls back to name', 
   render(store)
   await settle()
 
+  act(() => button('All Flows').click())
   const names = [...document.body.querySelectorAll('button')]
     .map((one) => one.getAttribute('aria-label'))
     .filter((text): text is string => text === 'First' || text === 'Second' || text === 'Aaa unordered' || text === 'Zzz unordered')
@@ -866,14 +1085,15 @@ it('choosing a different shape clears the old dry run and its token immediately,
   await settle()
 })
 
-it('keeps the Flow picker visible and Every time with the Flow details', async () => {
+it('keeps Change reachable and Every time with the Flow details', async () => {
   const store = new AppStore('ws://localhost:0/')
   requestSpy(store, { 'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [], 'flow/source': () => 'source', 'authoring/start/preview': () => previewOf(emptyFlow('strict-token')) })
   render(store)
   await settle()
   act(() => rowFor('Review').click())
   await settle()
-  expect(document.querySelector('[aria-label="Search Flows"]')).not.toBeNull()
+  expect(button('Change')).toBeDefined()
+  expect(document.querySelector('[aria-label="Search Flows"]')).toBeNull()
   expect(button('Every time…').closest('[data-slot="dialog-footer"]')).toBeNull()
 })
 
@@ -921,7 +1141,7 @@ it('keeps a reused Goal bound to the dry run and redeems the revision it echoes'
   act(() => root.render(<StoreProvider store={store}><FrontDoor context={{ kind: 'project', root: '/repo' }} goal={goal} initialSource="unsaved source" onClose={() => {}} onStarted={() => {}} /></StoreProvider>))
   await settle()
   expect(document.querySelector('[aria-label="Just a Team"]')).toBeNull()
-  expect(document.querySelector('[data-slot="flow-card"][aria-pressed="true"]')?.textContent).toContain('Review')
+  expect(document.querySelector('[data-slot="selected-flow"]')?.textContent).toContain('Review')
   expect(spy.mock.calls.find(([method]) => method === 'authoring/start/preview')?.[1]).toMatchObject({ goal })
   await act(async () => button('Start Team').click())
   expect(spy.mock.calls.find(([method]) => method === 'flow/start-goal')?.[1]).toMatchObject({ goal: echoedGoal })
@@ -1140,6 +1360,65 @@ it('can open a project before its shape catalogue can be read', async () => {
   expect(document.body.textContent).not.toContain('outside every folder and repository opened here')
 })
 
+it.each(['try', 'preview'])('Just a Team reopens a changed checkout after the %s refusal and waits for an explicit retry', async wording => {
+  const store = new AppStore('ws://localhost:0/')
+  const refusal = `The project checkout changed. Open the project folder again, then ${wording} again.`
+  let opened = false
+  let finishOpen!: () => void
+  requestSpy(store, {
+    'flow/catalog': () => [], 'agent/list': () => [], 'worktree/list': () => [],
+    'workspace/open': () => new Promise(resolve => { finishOpen = () => {
+      opened = true
+      resolve({ path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 })
+    } }),
+    'workspace/recent': () => [{ path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 }],
+  })
+  Object.assign(store.getSnapshot(), { agents: ['writer', 'reviewer'].map(id => ({
+    id, origin: 'builtin', path: `/app/agents/${id}/AGENT.md`, digest: 'd', shadows: [], problems: [],
+    definition: { id, name: id === 'writer' ? 'Writer' : 'Reviewer', description: '', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: 'Inspect the work.' },
+  } satisfies import('@harnessdesk/protocol').AgentEntry)) })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  const start = vi.spyOn(store, 'startTeam').mockImplementation(async () => {
+    if (!opened) throw new Error(refusal)
+    return { goal: { id: 'team-1' } } as import('@harnessdesk/protocol').GoalView
+  })
+  const openWorkspace = vi.spyOn(store, 'openWorkspace')
+  const add = vi.spyOn(store, 'teamAdd').mockResolvedValue(undefined)
+  const seat = vi.spyOn(store, 'seatGoal').mockResolvedValue({} as never)
+  const openGoal = vi.spyOn(store, 'openGoal').mockImplementation(() => {})
+  const { onClose } = render(store, { kind: 'project', root: '/work/storefront' }, undefined, 'Inspect the cart')
+  await settle()
+  await act(async () => rowFor('Just a Team').click())
+  const writer = () => document.querySelector<HTMLButtonElement>('[aria-label="Seat Writer"]')!
+  const reviewer = () => document.querySelector<HTMLButtonElement>('[aria-label="Seat Reviewer"]')!
+  await act(async () => writer().click())
+  await act(async () => button('Start Team').click())
+  expect(document.body.textContent).toContain(refusal)
+  expect(start).toHaveBeenCalledOnce()
+  await act(async () => button('Open storefront').click())
+  expect(openWorkspace).toHaveBeenCalledExactlyOnceWith('/work/storefront')
+  expect(button('Start Team').disabled).toBe(true)
+  await act(async () => finishOpen())
+  expect(store.getSnapshot().workspace?.path).toBe('/work/storefront')
+  expect(document.body.textContent).not.toContain(refusal)
+  expect(document.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Inspect the cart')
+  expect(writer().getAttribute('aria-checked')).toBe('true')
+  expect(reviewer().getAttribute('aria-checked')).toBe('false')
+  expect(start).toHaveBeenCalledOnce()
+  expect(add).not.toHaveBeenCalled()
+  expect(seat).not.toHaveBeenCalled()
+  expect(openGoal).not.toHaveBeenCalled()
+  expect(onClose).not.toHaveBeenCalled()
+  expect(button('Start Team').disabled).toBe(false)
+  await act(async () => button('Start Team').click())
+  expect(start).toHaveBeenCalledTimes(2)
+  expect(start).toHaveBeenLastCalledWith({ root: '/work/storefront', sentence: 'Inspect the cart', checkout: 'shared' })
+  expect(add).toHaveBeenCalledExactlyOnceWith('team-1', { title: 'Inspect the cart' })
+  expect(seat).toHaveBeenCalledExactlyOnceWith({ goal: 'team-1', agent: 'writer' })
+  expect(openGoal).toHaveBeenCalledExactlyOnceWith('team-1')
+  expect(onClose).toHaveBeenCalledOnce()
+})
+
 it.each(['catalogue', 'create'])('Just a Team recovers a %s refusal and keeps the form choices', async stage => {
   const store = new AppStore('ws://localhost:0/')
   const refusal = '/work/storefront is outside every folder and repository opened here. Open it first.'
@@ -1158,7 +1437,7 @@ it.each(['catalogue', 'create'])('Just a Team recovers a %s refusal and keeps th
     'workspace/recent': () => [{ path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 }],
   })
   vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
-  const create = vi.spyOn(store, 'createGoal').mockImplementation(async () => {
+  const create = vi.spyOn(store, 'startTeam').mockImplementation(async () => {
     if (!opened) throw new Error(refusal)
     return { goal: { id: 'team-1' } } as import('@harnessdesk/protocol').GoalView
   })
@@ -1223,9 +1502,11 @@ it.each([['alpha', 'beta', false], ['beta', 'beta', false], ['alpha', 'beta', tr
     await act(async () => { accountReads.forEach(resolve => resolve()) })
   }
   expect(document.querySelector<HTMLTextAreaElement>('[aria-label="What should both try?"]')?.value).toBe('Fix the cart total')
-  expect((document.querySelector('[aria-label="Runtime for Attempt A"]') as HTMLButtonElement)?.textContent).toBe(`Agent ${first}`)
-  expect((document.querySelector('[aria-label="Runtime for Attempt B"]') as HTMLButtonElement)?.textContent).toBe(`Agent ${second}`)
-  expect((document.querySelector('[aria-label="Model for Attempt A"]') as HTMLButtonElement)?.disabled).toBe(false)
+  expect(document.querySelector('[aria-label="Configure Attempt A"]')?.textContent).toContain(`Agent ${first}`)
+  expect(document.querySelector('[aria-label="Configure Attempt B"]')?.textContent).toContain(`Agent ${second}`)
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Configure Attempt A"]')!.click())
+  expect(document.querySelector<HTMLButtonElement>('[aria-label="Model for Attempt A"]')?.disabled).toBe(false)
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Configure Attempt A"]')!.click())
   expect(button('Start Team').disabled).toBe(false)
   expect(spy.mock.calls.filter(call => call[0] === 'authoring/start/preview').at(-1)?.[1]).toMatchObject({ vars: { task: 'Fix the cart total' } })
 })
@@ -1251,4 +1532,52 @@ it('keeps placeholder rows visible until the chosen form has loaded and explains
   expect(document.querySelector('[aria-label="Loading Team form"]')).toBeNull()
   expect(button('Start Team').disabled).toBe(true)
   expect(document.body.textContent).toContain('Add a task first')
+})
+
+it.each([
+  ['fallback task', 'x'.repeat(2001), '', 'Keep the task to 2,000 characters.'],
+  ['explicit Done when', 'Inspect the cart', 'x'.repeat(2001), 'Keep Done when to 2,000 characters.'],
+] as const)('points a plain Team’s over-limit %s to the field that needs correction', async (_case, initialTask, initialDone, message) => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, { 'flow/catalog': () => [], 'agent/list': () => [], 'worktree/list': () => [] })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  act(() => root.render(<StoreProvider store={store}><FrontDoor context={{ kind: 'project', root: '/repo' }} initialPlain initialTask={initialTask} initialDone={initialDone} onClose={() => {}} onStarted={() => {}} /></StoreProvider>))
+  await settle()
+  const task = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="What should they do?"]')!
+  const done = document.querySelector<HTMLInputElement>('input[aria-label="Done when · optional"]')!
+  expect(button('Start Team').disabled).toBe(true)
+  expect(document.getElementById('team-start-reason')?.textContent).toBe(message)
+  const invalid = initialDone ? done : task
+  const other = initialDone ? task : done
+  expect(invalid.getAttribute('aria-invalid')).toBe('true')
+  expect(other.getAttribute('aria-invalid')).toBeNull()
+  const field = invalid.closest('[data-slot="form-field"]')!
+  const mark = field.querySelector('[data-slot="issue-mark"]')!
+  expect(mark?.getAttribute('title')).toBe(message)
+  expect(mark.closest('[hidden]')).toBeNull()
+  expect(document.querySelectorAll('[data-slot="issue-mark"]')).toHaveLength(1)
+  if (initialDone) {
+    act(() => button('Completion and dry run').click())
+    expect(document.getElementById('team-start-reason')?.textContent).toBe(message)
+    act(() => button('Completion and dry run').click())
+    expect(mark.closest('[hidden]')).toBeNull()
+  }
+  act(() => {
+    const prototype = initialDone ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype
+    Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(invalid, 'Inspect the cart')
+    invalid.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(button('Start Team').disabled).toBe(false)
+  expect(document.querySelector('[data-slot="issue-mark"]')).toBeNull()
+})
+
+it('allows a long task when a plain Team has a valid explicit Done when', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, { 'flow/catalog': () => [], 'agent/list': () => [], 'worktree/list': () => [] })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  act(() => root.render(<StoreProvider store={store}><FrontDoor context={{ kind: 'project', root: '/repo' }} initialPlain initialTask={'x'.repeat(2001)} initialDone="The cause is documented" onClose={() => {}} onStarted={() => {}} /></StoreProvider>))
+  await settle()
+  expect(button('Start Team').disabled).toBe(false)
+  expect(document.querySelector('[aria-invalid="true"]')).toBeNull()
+  expect(document.querySelector('[data-slot="issue-mark"]')).toBeNull()
 })

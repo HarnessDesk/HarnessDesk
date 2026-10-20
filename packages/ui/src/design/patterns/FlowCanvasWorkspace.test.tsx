@@ -56,3 +56,11 @@ it('reserves the measured toolbar bottom for text content and updates when its c
   expect(main.style.getPropertyValue('--flow-toolbar-clearance')).toBe('0px')
   expect(observer.disconnect).toHaveBeenCalledOnce()
 })
+
+it('a normal-flow toolbar does not reserve its height a second time', () => {
+  act(() => root.render(<design.FlowCanvasWorkspace onCloseRail={() => {}}
+    toolbar={<design.FlowCanvasToolbar placement="bar"><button>File</button></design.FlowCanvasToolbar>}
+    main={<design.FlowCanvasContent>Source</design.FlowCanvasContent>} />))
+  expect(host.querySelector('main')!.style.getPropertyValue('--flow-toolbar-clearance')).toBe('0px')
+  expect(host.querySelector('[data-slot="flow-canvas-toolbar"]')?.getAttribute('data-placement')).toBe('bar')
+})

@@ -3684,7 +3684,7 @@ for (const file of [...cssFiles(), ...tsxFiles()]) {
 }
 
 /**
- * Components the app frame retires (docs/superpowers/specs/2026-10-09-app-frame-design.md,
+ * Components the app frame retires (docs/design.md,
  * Components). Each use in a screen is a page still drawing a part of the
  * frame the shell will own. A burn-down: it reaches zero when the last page
  * moves into main, and a new use fails at once.
@@ -4423,18 +4423,11 @@ export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
   {
     module: 'design/ui/timeline.tsx',
     kind: 'data-geometry',
-    exports: ['Timeline', 'TimelineItem'],
+    exports: ['Timeline'],
     area: 'room',
     reason: 'An ordered execution data view: title-centred rings and incoming rail segments encode recorded progress. Existing Button and Text own selection and typography; the timeline introduces no independent control.',
   },
 
-  {
-    module: 'design/ui/flow-step.tsx',
-    kind: 'data-geometry',
-    exports: ['FlowStepSurface', 'FlowDoingLine'],
-    area: 'room',
-    reason: 'Run-state marks on measured Flow node boxes: the ring, duration badge, seated faces and doing line read execution data rather than introduce a screen control.',
-  },
   {
     module: 'design/ui/chart.tsx',
     kind: 'data-geometry',

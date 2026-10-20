@@ -2,7 +2,8 @@ import { applyLeftColumnActions } from './left-column-actions'
 import { expect, test } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES, WALL_WIDTHS } from './frame-wall-destinations'
-import { openFrame } from './frame-contract-helpers'
+import { openFrame, resolvedPx } from './frame-contract-helpers'
+import { closeFloatingTeamRail, teamSeats } from './team-frame-actions'
 
 // Contract runs measure the preview; the final wall owns images and recordings.
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
@@ -16,7 +17,8 @@ for (const width of [1440, 1100]) {
     await expect(terminal).toBeVisible()
     await expect(page.locator('[data-frame-region="bottom"]')).toBeHidden()
     await expect(right.locator('[data-work-pane-header]')).toHaveCount(1)
-    await expect(page.locator('[data-frame-region="rail"]')).toBeVisible()
+    await expect(page.locator('[data-frame-region="rail"]')).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Toggle rail', exact: true })).toHaveAttribute('aria-pressed', 'false')
     const panel = (await right.boundingBox())!
     const reading = (await main.boundingBox())!
     const top = (await page.locator('[data-frame-region="top"]').boundingBox())!
@@ -133,7 +135,7 @@ for (const theme of WALL_THEMES) {
     await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
     await expect(tools).toBeHidden()
     await expect(bar.getByRole('button', { name: 'More', exact: true })).toHaveCount(1)
-    await destinationPage.getByRole('button', { name: /Code reviewer / }).click()
+    await destinationPage.getByRole('button', { name: 'Code reviewer', exact: true }).click()
     const more = bar.getByRole('button', { name: 'More', exact: true })
     await expect(more).toHaveCount(1)
     await more.focus()
@@ -203,28 +205,27 @@ for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
 }
 
 for (const theme of WALL_THEMES) {
-  test(`B8 Team wide column caps allocated rows and contains names in ${theme}`, async ({ page }) => {
+  test(`B8 Team reading column caps activity and rail rows contain names in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
-    const overview = page.locator('[data-slot="team-overview"]')
-    const seats = overview.locator('[aria-label="Seats"]')
-    const column = overview.locator('[data-slot="page"]')
-    await expect(column).toHaveAttribute('data-width', 'wide')
-    // Seats become a table at 800px; larger windows still cap the wide page.
+    const frame = page.locator('[data-slot="fixed-shell"]')
+    const run = frame.locator('[data-slot="run-view"]')
+    const column = run.locator('[data-slot="run-scroll"] > [data-slot="pane-column"]')
+    const reading = run.locator('[data-slot="run-reading"]')
+    // The unified Run owns a reading measure; Seats live in the canonical rail.
     for (const width of [1100, 1440, 1800, 2200]) {
       await page.setViewportSize({ width, height: 900 })
-      const columnWidth = Math.min((await overview.boundingBox())!.width, FRAME.page.wide + 2 * FRAME.page.gutter)
-      const seatsWidth = columnWidth - 2 * FRAME.page.gutter
-      await expect.poll(async () => (await column.boundingBox())!.width).toBe(columnWidth)
-      await expect.poll(async () => (await seats.boundingBox())!.width).toBe(seatsWidth)
-      const narrow = seatsWidth < 800
-      await expect(overview).toHaveAttribute('data-layout', narrow ? 'narrow' : 'table')
-      await expect(seats.getByRole('table')).toHaveCount(narrow ? 0 : 1)
+      await closeFloatingTeamRail(frame)
+      const cap = await resolvedPx(page, '--hd-column')
+      await expect.poll(async () => {
+        const available = await column.evaluate(node => node.clientWidth - parseFloat(getComputedStyle(node).paddingLeft) - parseFloat(getComputedStyle(node).paddingRight))
+        return (await reading.boundingBox())!.width - Math.min(available, cap)
+      }).toBe(0)
+      const seats = await teamSeats(frame)
       for (const name of ['Alpha', 'Beta']) {
-        const action = seats.getByRole('button', { name: `Open ${name}`, exact: true })
-        await expect(action).toBeVisible()
-        const cell = action.locator(`xpath=ancestor::*[@data-slot="${narrow ? 'list-row-title' : 'table-cell'}"]`)
-        const bounds = (await cell.boundingBox())!
-        const label = (await action.boundingBox())!
+        const row = seats.getByRole('group', { name: new RegExp(`^${name} · `) })
+        await expect(row).toBeVisible()
+        const bounds = (await row.boundingBox())!
+        const label = (await row.locator('[data-slot="list-row-title"]').boundingBox())!
         expect(label.x).toBeGreaterThanOrEqual(bounds.x)
         expect(label.x + label.width).toBeLessThanOrEqual(bounds.x + bounds.width)
       }
@@ -399,17 +400,29 @@ for (const theme of WALL_THEMES) {
       const railToggle = top.getByRole('button', { name: 'Toggle rail', exact: true })
       if (await railToggle.getAttribute('aria-pressed') !== 'true') await railToggle.click()
       const details = page.locator('[data-slot="tool-body"]:visible')
-      // A draft has no session and no plan yet, so its Plan section is not drawn.
-      if (destination === 'draft') await expect(details.getByText('Plan', { exact: true })).toHaveCount(0)
-      else await expect(details.getByText('Plan', { exact: true })).toBeVisible()
+      // Neither fixture has a recorded plan; the populated facts card remains visible.
+      await expect(details.getByRole('region', { name: 'Plan', exact: true })).toHaveCount(0)
+      await expect(details.getByRole('region', { name: destination === 'draft' ? 'Starts in' : 'Conversation', exact: true })).toBeVisible()
+      await expect(details.getByLabel('Conversation facts', { exact: true })).toBeVisible()
       await expect(details.locator('[data-slot="summary-card"]').first()).toHaveAttribute('data-surface', 'panel')
       const firstTool = (await top.locator('[data-work-rail-toggle]').boundingBox())!
       expect(firstTool.width).toBe(FRAME.bar.iconButton)
       const more = (await top.getByRole('button', { name: 'More', exact: true }).boundingBox())!
       expect(more.x + more.width + FRAME.bar.pad).toBe(1440)
-      const keys = details.locator('[data-slot="summary-item"] dt')
+      // Folded Seat records retain their facts, but have no laid-out key column yet.
+      const keys = details.locator('[data-slot="summary-item"] dt:visible')
+      expect(await keys.count()).toBeGreaterThanOrEqual(3)
       const widths = await keys.evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().width)))
       expect(widths).toEqual(widths.map(() => FRAME.summaryKey.panel))
+      if (destination === 'conversation') {
+        const recorded = details.getByRole('button', { name: 'Seat record', exact: true })
+        await expect(recorded).toHaveAttribute('aria-expanded', 'false')
+        await recorded.click()
+        await expect(recorded).toHaveAttribute('aria-expanded', 'true')
+        expect(await keys.count()).toBeGreaterThan(widths.length)
+        const expandedWidths = await keys.evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().width)))
+        expect(expandedWidths).toEqual(expandedWidths.map(() => FRAME.summaryKey.panel))
+      }
     })
   }
 }
@@ -447,12 +460,24 @@ for (const theme of WALL_THEMES) {
     const terminal = page.locator('[data-terminal-id]')
     const terminalId = await terminal.getAttribute('data-terminal-id')
     await expect(terminal).toBeVisible()
-    await expect(rail.getByText('Plan', { exact: true })).toBeVisible()
-    await page.getByRole('button', { name: 'Changes', exact: true }).click()
+    await expect(rail).toBeHidden()
+    const railToggle = page.getByRole('button', { name: 'Toggle rail', exact: true })
+    await railToggle.click()
     await expect(rail).toBeVisible()
+    await expect(rail.getByRole('region', { name: 'Plan', exact: true })).toHaveCount(0)
+    await expect(rail.getByLabel('Conversation facts', { exact: true })).toBeVisible()
+    await expect(terminal).toBeVisible()
+    await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
+    await page.getByRole('button', { name: 'Changes', exact: true }).click()
+    // A new tool takes priority; its rail is revealed deliberately, without losing either resource.
+    await expect(rail).toBeHidden()
     await expect(terminal).toBeHidden()
     await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
-    await page.getByRole('button', { name: 'Toggle rail', exact: true }).click()
+    await railToggle.click()
+    await expect(rail).toBeVisible()
+    await expect(rail.getByLabel('Conversation facts', { exact: true })).toBeVisible()
+    await expect(page.locator('[data-slot="work-tools"]')).toBeVisible()
+    await railToggle.click()
     await expect(rail).toBeHidden()
     await expect(page.locator('[data-slot="work-tools"]')).toBeVisible()
     await page.getByRole('button', { name: 'Terminal', exact: true }).click()

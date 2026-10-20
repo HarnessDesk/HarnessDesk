@@ -197,7 +197,7 @@ export const FindingDetail = ({
               )}
             </Fieldset>
             <Fieldset legend="Raised by">
-              {seat ? <SeatRecordView seat={seat} /> : <Text role="muted">This Seat is unavailable.</Text>}
+              {seat ? <SeatRecordView seat={seat} presentation="content" /> : <Text role="muted">This Seat is unavailable.</Text>}
             </Fieldset>
             {decide && (
               <PersonVerdict

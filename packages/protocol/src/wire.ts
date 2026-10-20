@@ -797,6 +797,8 @@ export interface HostMethods {
   /** Opening any Team page acknowledges its news. newsAt only requests a write; the host owns the stored seen time. */
   'goal/seen': { params: { goal: GoalId; newsAt?: number }; result: GoalView }
   'goal/create': { params: Omit<GoalCreateInput, 'origin'>; result: GoalView }
+  /** The person's plain Team start admits only the project selected in the dialog. */
+  'goal/start': { params: Pick<GoalCreateInput, 'root' | 'sentence' | 'checkout'>; result: GoalView }
   'goal/update': {
     params: { goal: GoalId; revision: number; sentence?: string; dependsOn?: readonly GoalId[] }
     result: GoalView

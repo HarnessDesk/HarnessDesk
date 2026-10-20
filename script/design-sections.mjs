@@ -160,7 +160,7 @@ export const SECTIONS = [
     'retiredComponent',
     'Frame parts a screen still draws',
     'The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame.',
-    'Move the screen onto the shell: register its bar slots with useTopBar, render its body in Page, and let the panel draw its tools (docs/superpowers/specs/2026-10-09-app-frame-design.md). This category is a burn-down: its ceiling may only fall.',
+    'Move the screen onto the shell: register its bar slots with useTopBar, render its body in Page, and let the panel draw its tools (docs/design.md). This category is a burn-down: its ceiling may only fall.',
   ],
   [
     'pageMeasureInScreen',

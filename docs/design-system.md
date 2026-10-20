@@ -264,6 +264,8 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-bar-pad` | `12px` |
 | `--hd-bar-tool-gap` | `4px` |
 | `--hd-rail-inset` | `8px` |
+| `--hd-rail-sheet-fill` | `color-mix(in srgb, rgb(255, 255, 255) 88%, transparent)` |
+| `--hd-rail-sheet-filter` | `blur(12px)` |
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
 | `--hd-page-wide` | `1320px` |
@@ -277,6 +279,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-fade-edge` | `16px` |
 | `--hd-fade` | `linear-gradient(to right, #000 calc(100% - 16px), transparent)` |
 | `--hd-toast-gap` | `16px` |
+| `--hd-composer-clearance` | `0px` |
 | `--hd-toast-bottom` | `16px` |
 | `--hd-composer-min` | `44px` |
 | `--hd-composer-max` | `320px` |
@@ -587,7 +590,7 @@ A table scope owns its density, including list and settings examples. Restating 
 
 ### Panel cards
 
-The right panel is a stack of cards on the left column's ground: a piece of work's facts and actions, each card showing its summary while folded (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md). A card is the main ground on a hairline; its header is one 20px line and each row inside it is 28. On `body`, where the spacing scale it is built from lives.
+The right panel is a stack of cards on the left column's ground: a piece of work's facts and actions, each card showing its summary while folded (docs/design.md). A card is the main ground on a hairline; its header is one 20px line and each row inside it is 28. On `body`, where the spacing scale it is built from lives.
 
 | token | value |
 | --- | --- |
@@ -1167,6 +1170,24 @@ With `description`, the small face stays beside the name while the prose
 sits directly under the name, in that same text column. `meta` is the
 role or other recorded fact beside the name.
 
+### `AgentCatalogue`
+
+`packages/ui/src/design/patterns/AgentCatalogue.tsx`
+
+A responsive catalogue of reusable roles; the host remains the authority for their seats.
+
+### `AgentCatalogueCard`
+
+`packages/ui/src/design/patterns/AgentCatalogue.tsx`
+
+One role, its purpose, and its actual seating result, each with a distinct place.
+
+### `AgentCatalogueSources`
+
+`packages/ui/src/design/patterns/AgentCatalogue.tsx`
+
+Sources and lower-precedence copies stay available without repeating source paragraphs between role cards.
+
 ### `ApprovalReason`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
@@ -1223,12 +1244,10 @@ the safety policy explicit and keeps the portal inside its conversation.
 The warning mark hangs in a gutter; title and body share one text column
 in both placements.
 
-`placement="docked"` is the same question in a composer's slot instead: a
-card in normal flow, as wide as the composer it stands in for, with the
-thread above it left fully readable — no scrim, no blur, no portal, not a
-dialog. A room is where this happens: a member waiting on a person takes
-the room's composer rather than covering the conversation everyone else in
-it is reading. It has exactly one filled act, the plain approve, like any
+`placement="docked"` is the same question as a card in the chat stream:
+no scrim, no blur, no portal, not a dialog. The conversation scrolls the
+whole request while the composer remains available below it. It has
+exactly one filled act, the plain approve, like any
 footer in the app; every other answer is quiet, and its number still works.
 
 ### `BoardCard`
@@ -1740,7 +1759,7 @@ A notice portal contributes only its Banner's height, including in flex main.
 
 `packages/ui/src/design/patterns/FlowCanvas.tsx`
 
-A controlled plan drawing. Give its container a height; Fit only shrinks.
+A controlled plan drawing. Give its container a height; Fit recalculates the viewport between the supplied zoom floor and 100%.
 New drawings start at 100% when they fit, otherwise shrink to the container.
 Edits keep the viewport while any earlier step survives.
 Steps connect by pointer here; the builder dock will add keyboard connection later.
@@ -1775,6 +1794,12 @@ Text and ordered forms reserve the toolbar's own band above the shared page inse
 
 A Flow in a destination or picker: its source, actual shape, earned summary and optional Run count.
 
+### `SelectedFlow`
+
+`packages/ui/src/design/patterns/FlowCards.tsx`
+
+The chosen policy stays inspectable while its full catalogue is folded away.
+
 ### `FlowMiniGraph`
 
 `packages/ui/src/design/patterns/FlowCards.tsx`
@@ -1787,11 +1812,23 @@ A policy thumbnail reads the full canvas's topology, with one fixed viewport and
 
 Flow destinations and New Team pickers share one content-sized, responsive card grid.
 
+### `FlowExample`
+
+`packages/ui/src/design/patterns/FlowExample.tsx`
+
+Explicit local illustration. It never receives a host, admission token or recorded Run.
+
 ### `FlowGraph`
 
 `packages/ui/src/design/patterns/FlowGraph.tsx`
 
 The frozen Flow on the shared read-only canvas, with recorded state and an accessible Steps seam for the Team dock.
+
+### `FlowRoleConfiguration`
+
+`packages/ui/src/design/patterns/FlowGraph.tsx`
+
+Editable seats inside a measured Flow node, with the same header and control edges for every role.
 
 ### `words`
 
@@ -1809,7 +1846,7 @@ A recorded step or Seat state, toned once for the Flow list and main Run Timelin
 
 `packages/ui/src/design/patterns/FlowStepRow.tsx`
 
-A step in the Flow list or Timeline: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
+A step in the Flow list or Timeline: kind and unframed Seat marks, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
 
 ### `MergeDialog`
 
@@ -2165,7 +2202,7 @@ Row actions and portalled menus never activate the record; the title is its keyb
 `packages/ui/src/design/patterns/PaneColumn.tsx`
 
 Tabs under a pane's top bar keep the reading gutter and a small vertical
-step. Tabs yield and scroll; trailing view controls stay on the tabs' row.
+step. Tabs yield and scroll; their current view and action stay beside them.
 
 ### `useComposerHeightVar`
 
@@ -2690,7 +2727,7 @@ The shell tabs and panel actions share one row above the terminal screen.
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
-One card of the right panel (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md).
+One card of the right panel (docs/design.md).
 
 The header is the card's label, a disclosure when it folds, and its `value`
 — the summary a folded card still shows, so a glance down the panel reads
@@ -2761,8 +2798,8 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 4 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
-| `pageMeasureInScreen` | 18 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2045 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `pageMeasureInScreen` | 17 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
+| `screenLayout` | 2038 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
 ## Screens against the standard
 

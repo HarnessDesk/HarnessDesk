@@ -109,14 +109,27 @@ for (const theme of ['light', 'dark'] as const) {
       expect(await page.locator('#flow-graph-blueprint [data-step="write"] [data-behind]').count()).toBe(0)
     })
 
-    test('the kinds keep their own tint, and an Agent is a square tile', async ({ page }) => {
-      const tiles = await page.locator('#flow-graph-blueprint [data-slot="flow-step"]').evaluateAll((steps) => steps.map((step) => {
-        const tile = step.querySelector('[data-slot="icon-tile"]')!
-        return { kind: step.getAttribute('data-kind'), tint: tile.getAttribute('data-tint'), shape: tile.getAttribute('data-shape'), ground: getComputedStyle(tile).backgroundColor }
+    test('each kind keeps its canonical glyph in an unframed neutral mark', async ({ page }) => {
+      const marks = await page.locator('#flow-graph-blueprint [data-slot="flow-step"]').evaluateAll(steps => steps.map(step => {
+        const mark = step.querySelector('[data-slot="flow-node-mark"]')!
+        const kind = step.getAttribute('data-kind')!
+        const glyphs: Record<string, string> = { agent: 'bot', check: 'square-terminal', person: 'user' }
+        const glyph = glyphs[kind]
+        const box = mark.getBoundingClientRect(), style = getComputedStyle(mark)
+        const matrix = new DOMMatrixReadOnly(getComputedStyle(step.closest('.react-flow__viewport')!).transform)
+        return { kind, glyph: Boolean(mark.querySelector(`.lucide-${glyph}`)), framed: Boolean(mark.closest('[data-slot="icon-tile"]') || mark.querySelector('[data-slot="icon-tile"]')),
+          width: box.width / matrix.a, height: box.height / matrix.a, ink: style.color, ground: style.backgroundColor }
       }))
-      expect(Object.fromEntries(tiles.map((tile) => [tile.kind, tile.tint]))).toEqual({ agent: 'violet', check: 'sky', person: 'amber' })
-      expect(new Set(tiles.map((tile) => tile.shape))).toEqual(new Set(['square']))
-      expect(new Set(tiles.map((tile) => tile.ground)).size, 'three kinds, three grounds').toBe(3)
+      expect(marks).toHaveLength(6)
+      expect(new Set(marks.map(mark => mark.kind))).toEqual(new Set(['agent', 'check', 'person']))
+      for (const mark of marks) {
+        expect(mark.glyph, mark.kind).toBe(true)
+        expect(mark.framed, mark.kind).toBe(false)
+        expect(mark.width, mark.kind).toBeCloseTo(32, 5)
+        expect(mark.height, mark.kind).toBeCloseTo(32, 5)
+        expect(mark.ground, mark.kind).toBe('rgba(0, 0, 0, 0)')
+      }
+      expect(new Set(marks.map(mark => mark.ink)).size).toBe(1)
     })
 
     test('cards stand off the canvas, and the blueprint’s lines are not lost on it', async ({ page }) => {
@@ -192,7 +205,7 @@ for (const theme of ['light', 'dark'] as const) {
       expect(await run.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     })
 
-    test('opens centred at 100%, Fit never enlarges, and the Run refuses node edits', async ({ page }) => {
+    test('opens centred at 100%, Fit restores readable scale up to 100%, and the Run refuses node edits', async ({ page }) => {
       const canvas = page.locator('#flow-graph-straight [data-slot="flow-canvas"]')
       const viewport = () => canvas.locator('.react-flow__viewport').evaluate(el => {
         const matrix = new DOMMatrix(getComputedStyle(el).transform)
@@ -213,7 +226,8 @@ for (const theme of ['light', 'dark'] as const) {
       await expect.poll(async () => (await viewport()).zoom).toBeLessThan(1)
       const smaller = (await viewport()).zoom
       await canvas.getByRole('button', { name: 'Fit plan' }).click()
-      expect((await viewport()).zoom).toBeLessThanOrEqual(smaller)
+      await expect.poll(async () => (await viewport()).zoom).toBeGreaterThan(smaller)
+      expect((await viewport()).zoom).toBeLessThanOrEqual(1)
       const step = canvas.locator('.react-flow__node').first()
       const before = await step.getAttribute('style')
       await step.focus()
@@ -223,13 +237,13 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(canvas.locator('.react-flow__node.draggable, .react-flow__handle.connectable')).toHaveCount(0)
     })
 
-    test('the Run View menu offers Flow and its rail reads the current file', async ({ page }) => {
+    test('Work keeps Flow and its full record together, and the rail reads the current file', async ({ page }) => {
       const frame = page.locator('#flow-graph-run')
       const run = frame.locator('[data-slot="run-view"]')
       const details = frame.locator('[data-frame-region="rail"]')
       const railToggle = runBar(frame).getByRole('button', { name: 'Toggle rail', exact: true })
       await expect(runBar(frame)).toBeVisible()
-      await expect(frame.locator('[data-slot="run-workspace"]')).toHaveAttribute('data-view', 'flow')
+      await expect(frame.locator('[data-slot="run-workspace"]')).toHaveAttribute('data-view', 'work')
       await expect(frame.locator('[data-slot="run-flow-head"]')).toHaveClass('sr-only')
       await expect(frame.locator('[data-slot="run-flow-head"]')).toContainText('Build and review')
       await expect(run.locator('[data-slot="flow-step"]')).toHaveCount(4)
@@ -246,10 +260,11 @@ for (const theme of ['light', 'dark'] as const) {
 
       await selectRunView(frame, 'Timeline')
       await expect(run.locator('[aria-label="Run timeline"]')).toBeVisible()
-      await expect(run.locator('[data-slot="run-flow"]')).toHaveCount(0)
+      await expect(run.locator('[data-slot="run-flow"]')).toBeVisible()
       await railToggle.click()
       await expect(details.locator('[aria-label="Team Run facts"]')).toBeVisible()
-      await selectRunView(frame, 'Flow')
+      await run.getByRole('button', { name: 'Recent activity', exact: true }).click()
+      await expect(run.getByRole('list', { name: 'Run timeline', exact: true })).toHaveCount(0)
       await expect(run.locator('[data-slot="run-flow"]')).toBeVisible()
       await expect(details.locator('[aria-label="Team Run facts"]')).toBeVisible()
       await railToggle.click()
@@ -259,8 +274,14 @@ for (const theme of ['light', 'dark'] as const) {
       await railToggle.click()
       const summary = details.locator('[aria-label="Team Run facts"]')
       await expect(summary).toContainText('Build and review')
-      await expect(summary).toContainText('3f9a1c')
-      const open = summary.getByRole('button', { name: 'Flow file', exact: true })
+      const runFacts = details.getByRole('region', { name: 'Run', exact: true })
+      const recordDetails = runFacts.getByRole('button', { name: 'Record details', exact: true })
+      await expect(recordDetails).toHaveAttribute('aria-expanded', 'false')
+      await recordDetails.click()
+      await expect(recordDetails).toHaveAttribute('aria-expanded', 'true')
+      const record = runFacts.locator('[aria-label="Run record details"]')
+      await expect(record).toContainText('3f9a1c')
+      const open = record.getByRole('button', { name: 'Flow file', exact: true })
       await open.click()
       const dialog = page.getByRole('dialog', { name: 'Build and review' })
       await expect(dialog).toContainText('.harnessdesk/flows/build-and-review.yml')

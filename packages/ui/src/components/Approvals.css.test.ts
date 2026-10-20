@@ -40,10 +40,11 @@ describe("an approval's answers in a narrow pane", () => {
     expect(blockAfter('.viewport')).toMatch(/container:\s*hd-approval\s*\/\s*inline-size/)
   })
 
-  it('wrap below 460px and share their lines, with nothing holding them apart', () => {
-    const narrow = blockAfter('@container hd-approval (max-width: 460px)')
+  it('share narrow lines and omit decorative keycaps before any answer can be clipped', () => {
+    const narrow = blockAfter('@container hd-approval (max-width: 560px)')
     expect(narrow).toMatch(/\.footer\s*\{[^}]*flex-wrap:\s*wrap/)
     expect(narrow).toMatch(/\.spacer\s*\{[^}]*display:\s*none/)
     expect(narrow).toMatch(/\.action\s*\{[^}]*flex:\s*1 1 auto/)
+    expect(narrow).toMatch(/\.shortcut\s*\{[^}]*display:\s*none/)
   })
 })

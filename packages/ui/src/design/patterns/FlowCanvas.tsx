@@ -6,7 +6,7 @@ import type { FlowCanvasProps, FlowCanvasStep } from './FlowCanvas/types'
 const Engine = lazy(() => import('./FlowCanvas/Engine')) as typeof import('./FlowCanvas/Engine').default
 
 /**
- * A controlled plan drawing. Give its container a height; Fit only shrinks.
+ * A controlled plan drawing. Give its container a height; Fit recalculates the viewport between the supplied zoom floor and 100%.
  * New drawings start at 100% when they fit, otherwise shrink to the container.
  * Edits keep the viewport while any earlier step survives.
  * Steps connect by pointer here; the builder dock will add keyboard connection later.

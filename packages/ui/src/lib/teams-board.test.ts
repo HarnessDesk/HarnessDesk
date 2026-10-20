@@ -90,3 +90,13 @@ it('does not invent a completed Run for a ready Team with no Flow', () => {
  const manual={...one,execution:null,goal:{...PREVIEW_GOAL,activity:'ready-to-wrap' as const},overview:{...one.overview,run:null}}
  expect(teamBoardItem(manual)).toMatchObject({summary:'Work complete',path:[]})
 })
+
+it('distinguishes the observed attention kind while retaining the complete reason', () => {
+ const waiting=input('needs-you')
+ expect(teamBoardItem(waiting)).toMatchObject({status:'Approval requested',summary:teamListRow(waiting).detail})
+ const stopped=input()
+ const reason='The runtime refused the selected permissions. '.repeat(30)
+ expect(teamBoardItem({...stopped,execution:{...stopped.execution!,state:'stopped',reason}})).toMatchObject({status:'Run stopped',summary:reason})
+ const stalled=input('stalled')
+ expect(teamBoardItem(stalled)).toMatchObject({status:'Run needs attention',summary:stalled.execution!.reason})
+})

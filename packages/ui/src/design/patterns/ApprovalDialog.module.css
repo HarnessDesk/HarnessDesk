@@ -55,18 +55,14 @@
   outline: none;
 }
 
-/* The composer-slot card. The composer's own shell, down to its edge and its
-   shadow, because it stands exactly where that shell stood: same column,
-   same width, in flow at the bottom of the chat, the thread above it left
-   whole. It grows with its question up to a share of the pane and scrolls
-   inside past that, so a long command never pushes the thread off screen. */
+/* An inline request belongs to the chat's scrolling column. Its full footer
+   stays in normal flow rather than competing with the composer for height. */
 .docked {
   --approval-edge-inset: var(--hd-inset-card);
   --approval-text-inset: calc(var(--hd-space-4) + var(--hd-space-2));
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-height: min(50vh, 480px);
   border-radius: var(--hd-radius-lg);
   background: var(--hd-card);
   box-shadow: var(--hd-shadow-xs), inset 0 0 0 var(--hd-border-width) var(--hd-border-emphasis);
@@ -120,6 +116,11 @@
   overflow: visible;
 }
 
+.docked .body {
+  flex: none;
+  overflow: visible;
+}
+
 .reason {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
@@ -162,6 +163,19 @@
   font-family: inherit;
 }
 
+.meta[data-kind='person'] {
+  align-items: center;
+}
+
+.meta[data-kind='person'] .metaValue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-3);
+  font-family: inherit;
+  white-space: normal;
+}
+
 .filePath {
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
@@ -192,6 +206,7 @@
 .footer {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--hd-space-2);
   padding: var(--approval-edge-inset); /* desk: footer 12/16 → overlay 24 or docked 16 all sides (#1363) */
@@ -206,7 +221,7 @@
   margin-inline-start: var(--hd-space-1);
 }
 
-@container hd-approval (max-width: 460px) {
+@container hd-approval (max-width: 560px) {
   .footer {
     flex-wrap: wrap;
   }
@@ -218,5 +233,9 @@
   .action {
     flex: 1 1 auto;
     justify-content: center;
+  }
+
+  .shortcut {
+    display: none;
   }
 }

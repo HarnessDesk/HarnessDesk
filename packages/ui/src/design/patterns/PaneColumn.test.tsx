@@ -2,7 +2,7 @@ import { act, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { PaneColumn, ReadingMeasure, useComposerHeightVar } from './PaneColumn'
+import { PaneColumn, PaneTabsRow, ReadingMeasure, useComposerHeightVar } from './PaneColumn'
 
 /**
  * The column inset four screens shared with no owner: the reading column the
@@ -103,4 +103,17 @@ it('caps and centers a transcript or composer notice on the reading measure', ()
   const measure = container.firstElementChild as HTMLElement
   expect(measure.style.maxWidth).toBe('var(--hd-column)')
   expect(measure.style.marginInline).toBe('auto')
+})
+
+
+it('keeps several contextual controls in the same aligned row beside the pane tabs', () => {
+  act(() => root.render(<PaneTabsRow controls={<><button>Findings</button><button>New task</button></>}>Tasks</PaneTabsRow>))
+  const controls = container.querySelector('[data-pane-tabs-row]')?.lastElementChild as HTMLElement
+  expect(controls.classList.contains('flex')).toBe(true)
+  expect(controls.classList.contains('items-center')).toBe(true)
+  // The group owns the pane's end gutter while tabs yield on the other edge.
+  // Its buttons remain adjacent rather than sharing the free row space.
+  expect(controls.classList.contains('ms-auto')).toBe(true)
+  expect(controls.classList.contains('shrink-0')).toBe(true)
+  expect([...controls.querySelectorAll('button')].map(one => one.textContent)).toEqual(['Findings', 'New task'])
 })

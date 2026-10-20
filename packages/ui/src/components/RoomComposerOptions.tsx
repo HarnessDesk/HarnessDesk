@@ -1,10 +1,11 @@
 import type { ConfigOption } from '@harnessdesk/protocol'
-import { ComposerTrack, Menu, MenuLabel, MenuNote, Popover, Text } from '../design'
+import { ComposerTrack, Menu, MenuItem, MenuNote, Popover, Text } from '../design'
 import { optionsBySlot, type ComposerOptionSlot } from '../lib/composer-slots'
 import { selectedChoice, riskTone } from '../lib/options'
 import { PaneProvider, usePane, useSnapshot } from '../state/context'
-import { ModelControl, ModeControl, MoreControl, PermissionControl } from './ComposerControls'
-import { ModelIcon, ShieldIcon, SlidersIcon, ZapIcon } from './Icons'
+import { ComposerOptionMenu, ModelControl, ModeControl, MoreControl, PermissionControl } from './ComposerControls'
+import { BrandMark } from './BrandIcons'
+import { AgentIcon, ModelIcon, ShieldIcon, SlidersIcon, ZapIcon } from './Icons'
 import type { RoomMember } from './RoomComposer'
 
 const SLOTS = ['permissions', 'mode', 'more', 'model'] as const
@@ -46,7 +47,7 @@ export const RoomComposerOptions = ({ members }: { members: readonly RoomMember[
               fullWidth title={LABELS[slot]} drop="up" align="left"
               tone={slot === 'permissions' ? riskTone(targets.flatMap((target) => target.slots.permissions)) : 'calm'}
               label={<><Icon size={13} /><Text role="row" className="truncate">{summary(slot)}</Text></>}
-             icons="none">
+             icons="all">
               {close => (
                 <Menu close={close}>
                   {targets.length === 0 && <MenuNote>Choose a member to read its settings.</MenuNote>}
@@ -56,18 +57,22 @@ export const RoomComposerOptions = ({ members }: { members: readonly RoomMember[
                         : !session ? 'This member\'s settings are not loaded yet.' : null)
                     return (
                       <div key={member.key} data-option-target={member.key}>
-                        <MenuLabel>{member.peer.nickname} <Text ink="muted">{slots[slot].map(valueOf).join(' · ')}</Text></MenuLabel>
-                        {refusal ? <MenuNote>{refusal}</MenuNote>
-                          : slots[slot].length === 0 ? <MenuNote>This member has no {slot === 'more' ? 'additional' : slot} setting.</MenuNote>
-                            : (
-                              <PaneProvider scope={{
-                                paneId: `${pane?.paneId ?? 'room'}:options:${member.key}`,
-                                view: { kind: 'conversation', session: member.key },
-                                sessionKey: member.key,
-                              }}>
-                                <Control />
-                              </PaneProvider>
-                            )}
+                        {refusal || slots[slot].length === 0 ? <MenuItem
+                          icon={member.brand ? <BrandMark brand={member.brand} size={14} /> : <AgentIcon size={14} />}
+                          label={<span title={member.peer.nickname}>{member.displayName ?? member.peer.nickname}</span>} title={member.peer.nickname}
+                          disabled={refusal ?? `This member has no ${slot === 'more' ? 'additional' : slot} setting.`} onSelect={() => {}} /> :
+                          <PaneProvider scope={{
+                            paneId: `${pane?.paneId ?? 'room'}:options:${member.key}`,
+                            view: { kind: 'conversation', session: member.key },
+                            sessionKey: member.key,
+                          }}>
+                            <ComposerOptionMenu label={member.displayName ?? member.peer.nickname} title={member.peer.nickname}
+                              icon={member.brand ? <BrandMark brand={member.brand} size={14} /> : <AgentIcon size={14} />}
+                              value={slot === 'permissions' || slot === 'mode' ? valueOf(slots[slot][0]!) : slot === 'more' && slots[slot].length > 1 ? `${slots[slot].length} settings` : slots[slot].map(valueOf).join(' · ')}
+                              valueTitle={slots[slot].map(valueOf).join(' · ')}>
+                              <Control />
+                            </ComposerOptionMenu>
+                          </PaneProvider>}
                       </div>
                     )
                   })}

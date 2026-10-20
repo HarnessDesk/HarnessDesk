@@ -42,7 +42,7 @@ for (const theme of ['light', 'dark'] as const) for (const state of ['healthy', 
     await openFrame(page, `frame-wall=library&frame-detail=skill&frame-name=code-review&frame-skill-state=${state}`, theme, 1440)
     const detail = page.locator('[data-slot="skill-page"]')
     for (const label of ['Loaded by', 'Source', 'Files', 'Cost']) await expect(detail.locator(`[data-slot="tool-section"][aria-label="${label}"]`)).toBeVisible()
-    await expect(detail.locator('[aria-label="Update"]')).toHaveCount(0)
+    await expect(detail.getByRole('region', { name: 'Update', exact: true })).toHaveCount(0)
     const banners = detail.locator('[data-slot="alert"]')
     if (state === 'healthy') await expect(banners).toHaveCount(0)
     else {
@@ -62,15 +62,17 @@ for (const theme of ['light', 'dark'] as const) for (const state of ['healthy', 
       await expect(menu.locator('[data-menu-note]')).toHaveText('Alpha would not load this one.')
       await page.keyboard.press('Escape')
     }
-    await expect(detail.locator('[aria-label="Source"]')).toContainText('acme-dev/skills')
-    await expect(detail.locator('[aria-label="Cost"]')).toContainText('Every turn')
+    await detail.getByRole('button', { name: 'Source', exact: true }).click()
+    await expect(detail.getByRole('region', { name: 'Source', exact: true })).toContainText('acme-dev/skills')
+    await detail.getByRole('button', { name: 'Cost', exact: true }).click()
+    await expect(detail.getByRole('region', { name: 'Cost', exact: true })).toContainText('Every turn')
     if (process.env.HD_L3_B_FRAMES) {
       await mkdir(process.env.HD_L3_B_FRAMES, { recursive: true })
       await page.screenshot({ path: `${process.env.HD_L3_B_FRAMES}/skill-page-${state}-${theme}.png`, fullPage: true })
       await detail.evaluate(node => {
         for (let parent = node.parentElement; parent; parent = parent.parentElement) if (parent.scrollHeight > parent.clientHeight) parent.scrollTop = parent.scrollHeight
       })
-      await expect(detail.locator('[aria-label="Cost"]')).toBeVisible()
+      await expect(detail.getByRole('region', { name: 'Cost', exact: true })).toBeVisible()
       await page.screenshot({ path: `${process.env.HD_L3_B_FRAMES}/skill-page-${state}-${theme}-facts.png`, fullPage: true })
     }
     await page.setViewportSize({ width: 720, height: 900 })

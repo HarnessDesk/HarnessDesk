@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { runFixture } from '../preview/run-view-fixture'
+import { shapeFixture } from '../preview/run-shapes-fixture'
 import { RunInspector, type RunInspectorProps } from './RunInspector'
 import type { Evidence, FindingRunState, FlowCheckAttempt, Freshness } from '@harnessdesk/protocol'
 
@@ -34,7 +35,9 @@ it('reads the Run, its frozen base, budget and Seats without inventing absent fa
     seats: [{ id: 'seat-0', name: 'Alpha', override: 'Balanced · Medium', cost: { unit: 'turns', value: 3, estimated: false } }] })
   try {
     for (const text of ['Brief', fixture.execution.brief!, 'Build and review', '3f9a1c', 'Alpha', 'Balanced · Medium', 'origin · main · abc123', 'Started by you', 'rounds', '3 turns']) expect(view.container.textContent).toContain(text)
-    expect(view.container.textContent).toContain('This Run did not record: budget, Seat details, Seat costs.')
+    const base = [...view.container.querySelectorAll('[data-slot="summary-item"]')].find(row => row.querySelector('dt')?.textContent === 'Base')
+    expect(base?.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain('origin · main · abc123')
+    expect(view.container.textContent).not.toContain('This Run did not record:')
   } finally { view.close() }
 })
 it('shows card input and predecessor handoffs, findings and review before its conversation link', () => {
@@ -43,7 +46,7 @@ it('shows card input and predecessor handoffs, findings and review before its co
   const view = render({ input: { ...fixture, cards: fixture.cards.map(card => ({ ...card, dependsOn: card.id === 3 ? [1] : [], detail: card.id === 3 ? 'Review the bounded retry' : null, handoff: card.id === 1 ? 'Added a ceiling' : null })) }, selectedRow: 'card-3-3', seats: [{ id: 'seat-1', name: 'Beta', onOpen }],
     publication: { round: 3, state: 'local', reason: 'Posting is off for this Team.', pr: null, cards: [3] } })
   try {
-    for (const text of ['Input', 'Review the bounded retry', 'Added a ceiling', 'Handoff', 'Findings', 'Cap the attempts.', 'This desk only', 'Posting is off for this Team.', 'Cost']) expect(view.container.textContent).toContain(text)
+    for (const text of ['Input', 'Review the bounded retry', 'Added a ceiling', 'Findings', 'Cap the attempts.', 'This desk only', 'Posting is off for this Team.', 'Cost']) expect(view.container.textContent).toContain(text)
     const buttons = [...view.container.querySelectorAll('button')]
     expect(buttons.at(-1)?.textContent).toBe('Open the conversation')
     act(() => buttons.at(-1)!.click())
@@ -91,7 +94,8 @@ it.each(['card', 'person'] as const)('uses the %s fallback when detail contains 
     detail: card.id === id ? `${completion}\n\n${split}` : null,
   })) }, selectedRow: `${kind}-${id}-${id}` })
   try {
-    expect(view.container.textContent).toContain(kind === 'person' ? 'Answer the review' : 'No input recorded')
+    if (kind === 'person') expect(view.container.textContent).toContain('Answer the review')
+    else expect(view.container.querySelector('[aria-label="Input"]')).toBeNull()
     expect(view.container.textContent).not.toContain('complete_claim')
   } finally { view.close() }
 })
@@ -179,7 +183,7 @@ it.each([
   const view = render({ input: { ...fixture, execution } })
   try {
     const budgets = sectionText(view.container, 'Run')
-    expect(view.container.querySelector('[data-slot=run-recording-gaps]')?.textContent).toContain('budget')
+    expect(view.container.querySelector('[data-slot=run-recording-gaps]')).toBeNull()
     expect(budgets).not.toContain('Budget')
     expect(budgets).not.toContain(' of ')
     expect(budgets).not.toContain('Limit 2')
@@ -203,7 +207,7 @@ it.each([
   { name: 'have not landed', findings: undefined, findingsRead: undefined, shown: READING },
   { name: 'have not landed and are being read', findings: undefined, findingsRead: 'reading' as const, shown: READING },
   { name: 'have not landed and could not be read', findings: undefined, findingsRead: 'failed' as const, shown: UNREAD },
-  { name: 'were all read and there are none', findings: [], findingsRead: undefined, shown: NONE },
+  { name: 'were all read and there are none', findings: [], findingsRead: undefined, shown: '' },
   // None here yet is not none: the rest of them may be on a page still to come, or the read may have failed.
   { name: 'are only partly read and none is here yet', findings: [], findingsRead: 'reading' as const, shown: READING },
   { name: 'could not be read and none is here', findings: [], findingsRead: 'failed' as const, shown: UNREAD },
@@ -235,7 +239,7 @@ it('does not call a card’s findings none while the ones read so far are anothe
   } finally { view.close() }
   const read = render({ input: fixture, selectedRow: 'card-1-1' })
   try {
-    expect(sectionText(read.container, 'Findings')).toContain(NONE)
+    expect(read.container.querySelector('[aria-label="Findings"]')).toBeNull()
     expect(read.container.textContent).not.toContain(READING)
   } finally { read.close() }
 })
@@ -267,7 +271,7 @@ it('does not show another round’s check output as the selected result', () => 
 it('reads a person’s sentence and declared outcomes as inert text', () => {
   const fixture = runFixture('person')
   const view = render({ input: fixture, selectedRow: 'person-4-4' })
-  try { expect(view.container.textContent).toContain('Answer the review'); expect(view.container.textContent).toContain('Approved'); expect(view.container.querySelector('button')).toBeNull() } finally { view.close() }
+  try { expect(view.container.textContent).toContain('Answer the review'); expect(view.container.textContent).toContain('Approved'); expect(view.container.querySelector('button:not([data-slot="tool-section-fold"])')).toBeNull() } finally { view.close() }
 })
 it('reads findings rows and falls back to the Run when the selected card is gone', () => {
   const fixture = runFixture()
@@ -279,7 +283,7 @@ it('reads findings rows and falls back to the Run when the selected card is gone
 it('does not assign a round publication to a card the round record does not name', () => {
  const view=render({input:runFixture(),selectedRow:'card-3-3',publication:{round:3,state:'posted',reason:null,pr:7,cards:[99]}})
  try {
-  expect(sectionText(view.container,'Review')).toContain('No review recorded')
+  expect(view.container.querySelector('[aria-label="Review"]')).toBeNull()
   expect(sectionText(view.container,'Review')).not.toContain('Posted to #7')
  } finally {view.close()}
 })
@@ -414,7 +418,8 @@ it.each([
 })
 
 /** The controls the connected view hands the inspector; none are present unless a caller gives them. */
-const buttonsOf = (container: HTMLElement) => [...container.querySelectorAll('button')].map(one => one.textContent)
+// These lifecycle assertions count actions; recorded-fact disclosures dispatch no work.
+const buttonsOf = (container: HTMLElement) => [...container.querySelectorAll('button:not([data-slot="tool-section-fold"])')].map(one => one.textContent).filter(label => label !== 'Recorded facts')
 
 it('keeps an abandon question and its late refusal with the Run and card it belongs to (#1342)', async () => {
   const fixture = runFixture()
@@ -427,7 +432,7 @@ it('keeps an abandon question and its late refusal with the Run and card it belo
   const button = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === label)!
   const question = () => document.body.querySelector('[role="alertdialog"]')
   try {
-    act(() => view.container.querySelector<HTMLButtonElement>('button')!.click())
+    act(() => view.container.querySelector<HTMLButtonElement>('button:not([data-slot="tool-section-fold"])')!.click())
     act(() => button('Abandon card').click())
     expect(onAbandon).toHaveBeenCalledWith(4)
     const completed = { ...input, cards: input.cards.map(card => card.id === 4 ? { ...card, state: 'done' as const } : card) }
@@ -435,7 +440,7 @@ it('keeps an abandon question and its late refusal with the Run and card it belo
     expect(question()).toBeNull()
     draw(completed, 'card-3-3')
     expect(question()).toBeNull()
-    act(() => view.container.querySelector<HTMLButtonElement>('button')!.click())
+    act(() => view.container.querySelector<HTMLButtonElement>('button:not([data-slot="tool-section-fold"])')!.click())
     expect(question()?.textContent).toContain('Abandon card #3?')
     await act(async () => { refuse(new Error('Late refusal for #4')); await pending.catch(() => {}) })
     expect(question()?.textContent).not.toContain('Late refusal')
@@ -451,7 +456,7 @@ it('offers abandoning a card that has not finished, before its conversation link
   const view = render({ input: fixture, selectedRow: 'card-4-4', seats: [{ id: 'seat-0', name: 'Alpha', onOpen: () => {} }], onAbandon })
   try {
     expect(buttonsOf(view.container)).toEqual(['Abandon card…', 'Open the conversation'])
-    act(() => [...view.container.querySelectorAll('button')][0]!.click())
+    act(() => [...view.container.querySelectorAll('button')].find(button => button.textContent === 'Abandon card…')!.click())
     const dialog = document.body.querySelector('[role="alertdialog"]')
     expect(dialog?.textContent).toContain('Abandon card #4?')
     // The fixture Run's frozen Flow carries the rule `written`, which hands a writer's round to the verify check.
@@ -501,7 +506,7 @@ it('answers a person’s step from its inspector with the words its role declare
     expect(view.container.textContent).toContain('Approved finishes the Run.')
     expect(view.container.textContent).not.toContain('Outcomes')
     expect(buttonsOf(view.container)).toEqual(['Approved'])
-    await act(async () => view.container.querySelector('button')!.click())
+    await act(async () => view.container.querySelector<HTMLButtonElement>('button:not([data-slot="tool-section-fold"])')!.click())
     expect(onAnswer).toHaveBeenCalledWith(4, 'approved', '')
   } finally { view.close() }
 })
@@ -512,7 +517,7 @@ it('keeps a person’s answered step as text, with the answer it was given', () 
   try {
     expect(view.container.textContent).toContain('Outcomes')
     expect(view.container.textContent).toContain('Answer')
-    expect(view.container.querySelector('button')).toBeNull()
+    expect(view.container.querySelector('button:not([data-slot="tool-section-fold"])')).toBeNull()
   } finally { view.close() }
 })
 it('sends a person’s review step to the board', async () => {
@@ -523,7 +528,7 @@ it('sends a person’s review step to the board', async () => {
   const view = render({ input: review, selectedRow: 'person-4-4', onAnswer: vi.fn(), onOpenBoard })
   try {
     expect(buttonsOf(view.container)).toEqual(['Pick an attempt on the board'])
-    await act(async () => view.container.querySelector('button')!.click())
+    await act(async () => view.container.querySelector<HTMLButtonElement>('button:not([data-slot="tool-section-fold"])')!.click())
     expect(onOpenBoard).toHaveBeenCalledOnce()
   } finally { view.close() }
 })
@@ -573,8 +578,8 @@ it('uses flat sections, toned Seat states and canonical panel facts for the Run 
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' } } },
     seats: [{ id: 'seat-0', name: 'Alpha', override: 'Balanced · Medium', cost: { unit: 'turns', value: 3, estimated: false } }] })
   try {
-    expect([...view.container.querySelectorAll('[data-slot="tool-section"]')].map(one => one.getAttribute('aria-label'))).toEqual(['Brief', 'Seats 2', 'Run'])
-    expect(view.container.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-tint')).toBe('violet')
+    expect([...view.container.querySelectorAll('[data-slot="tool-section"]')].map(one => one.getAttribute('aria-label'))).toEqual(['Brief', 'Seats', 'Run'])
+    expect(view.container.querySelector('[data-slot="icon-tile"]')).toBeNull()
     expect(view.container.querySelector('[data-slot="chip"][data-tone="info"]')?.textContent).toBe('Working')
     expect(view.container.querySelector('[data-slot="summary-card"]')).not.toBeNull()
     expect(view.container.querySelector('[data-slot="content-footer"]')).not.toBeNull()
@@ -585,7 +590,7 @@ it('omits the Seats section when the Run recorded no Seat details', () => {
   const view = render({ input: fixture, seats: [] })
   try {
     expect([...view.container.querySelectorAll('[data-slot="tool-section"]')].some(one => /^Seats\b/.test(one.getAttribute('aria-label') ?? ''))).toBe(false)
-    expect(view.container.querySelector('[data-slot="run-recording-gaps"]')?.textContent).toContain('Seat details')
+    expect(view.container.querySelector('[data-slot="run-recording-gaps"]')).toBeNull()
   } finally { view.close() }
 })
 it('gives the observed pull request its state and check counts, and the recorded budgets labelled meters', () => {
@@ -603,8 +608,8 @@ it('gives the observed pull request its state and check counts, and the recorded
     expect(cards.map(one => one.getAttribute('aria-label'))).toEqual(['Brief', 'Pull request #412', 'Run'])
     const pr = cards[1]!
     expect(pr.querySelector('[data-slot="chip"][data-tone="success"]')?.textContent).toBe('Open')
-    expect(pr.querySelector('[data-slot="group-label"] button')?.textContent).toBe('Open')
-    expect(pr.querySelector('[data-slot="code-text"]')?.textContent).toBe('fix/checkout')
+    expect(pr.querySelector('[data-slot="tool-section-actions"] button')?.textContent).toBe('Open')
+    expect(pr.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain('fix/checkout')
     expect(pr.querySelector('[data-slot="text"][data-tone="danger"]')?.textContent).toBe('1 failed')
     expect(pr.querySelector('[data-slot="change-stats"]')).not.toBeNull()
     for (const [label, value, max, reading] of [['Budget', 3, 24, '3 of 24 rounds'], ['Without progress', 1, 3, '1 of 3 rounds']] as const) {
@@ -613,14 +618,14 @@ it('gives the observed pull request its state and check counts, and the recorded
       expect(meter?.getAttribute('aria-valuemax')).toBe(String(max))
       expect(meter?.textContent).toContain(reading)
     }
-    expect(cards[2]!.querySelector('[data-slot="group-label"] button')?.textContent).toBe('Flow file')
+    expect(cards[2]!.querySelector('[data-slot="tool-section-actions"] button')?.textContent).toBe('Flow file')
   } finally { view.close() }
 })
-it('omits unavailable summary facts and names the missing recordings once', () => {
+it('omits unavailable optional summary facts without a missing-field inventory', () => {
   const fixture = runFixture()
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, brief: null, revision: null, base: undefined, findings: undefined } } })
   try {
-    expect(view.container.querySelectorAll('[data-slot="run-recording-gaps"]')).toHaveLength(1)
+    expect(view.container.querySelector('[data-slot="run-recording-gaps"]')).toBeNull()
     expect(view.container.textContent).not.toContain('No brief recorded')
     expect(view.container.textContent).not.toContain('Revision not recorded')
     expect(view.container.textContent).not.toContain('Limit not recorded')
@@ -682,6 +687,67 @@ it.each([null, 'run', 'missing-selection'])('inspectionOnly adds no Summary for 
   try { expect(view.container.textContent).toBe(''); expect(view.container.querySelector('[data-slot="run-inspector"]')).toBeNull() }
   finally { view.close() }
 })
+it.each([
+  ['person', 'Person', 'Approved'],
+  ['verify', 'Check', 'pnpm verify'],
+  ['writer', 'Agent', 'Edit'],
+])('inspects the frozen unreached %s step without inventing a recorded result or answer action', (id, kind, detail) => {
+  const fixture = runFixture('empty')
+  const onAnswer = vi.fn(async () => {}), onAbandon = vi.fn(async () => {})
+  const view = render({ input: fixture, inspectionOnly: true, selectedRow: `step:${id}`, onAnswer, onAbandon, onOpenBoard: vi.fn() })
+  try {
+    const inspector = view.container.querySelector('[data-slot="run-inspector"]')
+    expect(inspector).not.toBeNull()
+    expect(inspector?.textContent).toContain('Not reached')
+    expect(inspector?.textContent).toContain('This step has not opened a round.')
+    expect(inspector?.textContent).toContain(kind)
+    expect(inspector?.textContent).toContain(detail)
+    if (id === 'verify') expect(inspector?.textContent).toContain('600 seconds')
+    expect(view.container.querySelector('[aria-label="Run"]')).toBeNull()
+    expect(view.container.querySelector('[aria-label="Seats"]')).toBeNull()
+    expect(view.container.querySelector('[aria-label="Your answer"]')).toBeNull()
+    expect(view.container.querySelector('[aria-label="Latest result"]')).toBeNull()
+    expect([...view.container.querySelectorAll('button')].map(button => button.getAttribute('data-slot'))).toEqual(['tool-section-fold'])
+    expect(onAnswer).not.toHaveBeenCalled()
+    expect(onAbandon).not.toHaveBeenCalled()
+  } finally { view.close() }
+})
+
+it.each([
+  ['person', 'person', 'Answer the review', 'Your answer'],
+  ['verify', 'running', 'Verify the change', 'Latest result'],
+  ['writer', 'running', 'Answer the review', 'Cost'],
+] as const)('keeps the selected %s step inspectable when its first recorded round arrives', (id, scene, title, section) => {
+  const props = { seats: [], inspectionOnly: true, selectedRow: `step:${id}`, onAnswer: vi.fn(async () => {}), onOpenBoard: vi.fn() }
+  const view = render({ ...props, input: runFixture('empty') })
+  try {
+    expect(view.container.textContent).toContain('Not reached')
+    act(() => view.root.render(<RunInspector {...props} input={runFixture(scene)} />))
+    expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
+    expect(view.container.textContent).toContain(title)
+    expect(view.container.textContent).not.toContain('Not reached')
+    expect(view.container.textContent).not.toContain('This step has not opened a round.')
+    expect(view.container.textContent).toContain(section)
+    expect(view.container.querySelector('[aria-label="Run"]')).toBeNull()
+    expect(view.container.querySelector('[aria-label="Seats"]')).toBeNull()
+    expect(props.onAnswer).not.toHaveBeenCalled()
+  } finally { view.close() }
+})
+
+it('marks the primary recorded card selected when a retained step opens several cards', () => {
+  const onSelect = vi.fn()
+  const view = render({ input: shapeFixture('comparison'), inspectionOnly: true, selectedRow: 'step:competitor', onSelect })
+  try {
+    const cards = view.container.querySelectorAll<HTMLButtonElement>('[aria-label="Recorded cards"] [data-slot="list-row"]')
+    expect(cards).toHaveLength(2)
+    expect(cards[0]!.getAttribute('aria-current')).toBe('true')
+    expect(cards[1]!.getAttribute('aria-current')).toBeNull()
+    expect(onSelect).not.toHaveBeenCalled()
+    act(() => cards[1]!.click())
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith('card-1-2')
+  } finally { view.close() }
+})
+
 it('inspectionOnly retains a valid selected step without another Run or Seats summary', () => {
   const view = render({ inspectionOnly: true, selectedRow: 'person-4-4' })
   try {
@@ -690,4 +756,120 @@ it('inspectionOnly retains a valid selected step without another Run or Seats su
     expect(view.container.querySelector('[data-slot="panel-frame"]')).toBeNull()
     expect(view.container.textContent).not.toContain('This Run did not record:')
   } finally {view.close()}
+})
+
+
+it('keeps selected-card detail flat and omits recorded-empty sections without hiding unknown cost', () => {
+  const fixture = runFixture()
+  const view = render({ input: { ...fixture, findings: [], cards: fixture.cards.map(card => ({ ...card, detail: null, handoff: null, note: null })) }, selectedRow: 'card-3-3' })
+  try {
+    expect(view.container.querySelector('[data-slot="tool-section"] [data-slot="tool-section"]')).toBeNull()
+    for (const empty of ['No input recorded', 'No handoff recorded', 'No findings recorded', 'No review recorded']) expect(view.container.textContent).not.toContain(empty)
+    expect(view.container.textContent).toContain('Not recorded')
+    expect(view.container.querySelector('[aria-label="Cost"]')).toBeNull()
+  } finally { view.close() }
+})
+
+it('shows recorded parallel cards as selectable compact rows with Seat glyphs', () => {
+  const fixture = runFixture()
+  const first = fixture.cards[0]!
+  const input = { ...fixture, execution: { ...fixture.execution, rounds: fixture.execution.rounds.map(round => round.n === 1 ? { ...round, cards: [1, 5] } : round) }, cards: [...fixture.cards, { ...first, id: 5, title: 'Second attempt' }] }
+  const onSelect = vi.fn()
+  const view = render({ input, selectedRow: 'card-1-1', onSelect, faces: new Map([['seat-0', <span data-seat-face="">Seat face</span>]]) })
+  try {
+    const rows = view.container.querySelectorAll('[aria-label="Recorded cards"] [data-slot="list-row"]')
+    expect(rows).toHaveLength(2)
+    expect(view.container.querySelector('[data-slot="timeline-card"]')).toBeNull()
+    expect(rows[0]?.querySelector('[data-seat-face]')).not.toBeNull()
+    expect(rows[0]?.querySelector('[data-slot="icon-tile"]')).toBeNull()
+    act(() => (rows[1] as HTMLButtonElement).click())
+    expect(onSelect).toHaveBeenCalledWith('card-1-5')
+  } finally { view.close() }
+})
+
+
+it('keeps long recorded input behind an explicit disclosure and preserves its whole text', () => {
+  const detail = 'Read the complete recorded task. '.repeat(80)
+  const view = withDetail('card', detail)
+  try {
+    expect(view.container.textContent).not.toContain(detail)
+    const disclosure = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.includes('Read full text'))!
+    act(() => disclosure.click())
+    expect(view.container.textContent).toContain(detail.trim())
+  } finally { view.close() }
+})
+
+
+it('reads a long summary Brief through one disclosure and keeps unknown cost explicit', () => {
+  const fixture = runFixture()
+  const brief = 'Keep this complete sentence available. '.repeat(6)
+  const view = render({ input: { ...fixture, execution: { ...fixture.execution, brief } } })
+  try {
+    const section = view.container.querySelector('[data-slot="tool-section"][aria-label="Brief"]')!
+    const body = section.querySelector<HTMLElement>('[data-slot="tool-section-body"]')!
+    expect(body.hidden).toBe(true)
+    expect(sectionText(view.container, 'Run')).toContain('CostNot recorded')
+    act(() => section.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!.click())
+    expect(body.hidden).toBe(false)
+    expect(body.textContent).toContain(brief)
+    expect(section.querySelector('[data-slot="tool-fold"]')).toBeNull()
+  } finally { view.close() }
+})
+
+
+it('keeps a long observed check location on the canonical path line with complete accessible text', () => {
+  const fixture = runFixture(), cwd = `/workspace/${'nested checkout folder/'.repeat(25)}repo`
+  const input = { ...fixture, evidence: { ...fixture.evidence, cards: fixture.evidence.cards.map(group => ({ ...group, facts: group.facts.map(one => ({ ...one, record: { ...one.record,
+    checkout: { root: '/workspace', cwd, commonDir: '/workspace/.git', head: 'abc123', branch: 'review/demo' } } })) })) } }
+  const view = render({ input, selectedRow: 'check-2-2' })
+  try {
+    const where = view.container.querySelector('[aria-label="Where"]')!
+    expect(where.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain(cwd)
+    expect(where.textContent).not.toContain('Declared folder')
+    expect(where.textContent).not.toContain('Run location not recorded')
+  } finally { view.close() }
+})
+
+it('keeps exact compared-attempt revisions accessible without wrapping them as prose', () => {
+  const view = render({ input: shapeFixture('comparison'), selectedRow: 'card-3-5' })
+  try {
+    const revisions = view.container.querySelectorAll('[aria-label="Compared attempts"] [data-slot="middle-truncate"]')
+    expect(revisions).toHaveLength(2)
+    expect(revisions[0]?.textContent).toContain('a'.repeat(40))
+    expect(revisions[1]?.textContent).toContain('b'.repeat(40))
+  } finally { view.close() }
+})
+
+it('keeps a declared folder separate from an unknown observed Run location', () => {
+  const fixture = runFixture(), cwd = `/workspace/${'declared folder/'.repeat(25)}repo`
+  const document = fixture.execution.document
+  if (document.format !== 'agents') throw new Error('Expected an agents-format fixture')
+  const input = { ...fixture, evidence: null, execution: { ...fixture.execution, document: { ...document, flow: { ...document.flow,
+    roles: document.flow.roles.map(role => role.id === 'verify' && role.kind === 'check' && role.check ? { ...role, check: { ...role.check, cwd } } : role),
+  } } } }
+  const view = render({ input, selectedRow: 'check-2-2' })
+  try {
+    const where = view.container.querySelector('[aria-label="Where"]')!
+    expect(where.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain(cwd)
+    expect(where.textContent).toContain('Declared folder')
+    expect(where.textContent).toContain('Run location not recorded')
+  } finally { view.close() }
+})
+
+
+it('lets every recorded Run information card fold with its summary and actions intact', () => {
+  const view = render({ input: runFixture(), seats: [{ id: 'seat-0', name: 'Alpha' }], flowFile: <button>Open flow</button> })
+  try {
+    const sections = [...view.container.querySelectorAll('[data-slot="tool-section"]')]
+    expect(sections.length).toBeGreaterThan(1)
+    for (const section of sections) {
+      const toggle = section.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!
+      expect(toggle, section.getAttribute('aria-label')!).not.toBeNull()
+      if (toggle.getAttribute('aria-expanded') === 'true') act(() => toggle.click())
+      expect(section.querySelector<HTMLElement>('[data-slot="tool-section-body"]')!.hidden).toBe(true)
+    }
+    const run = view.container.querySelector('[data-slot="tool-section"][aria-label="Run"]')!
+    expect(run.querySelector('[data-slot="tool-section-value"]')?.textContent).toBeTruthy()
+    expect([...run.querySelectorAll('button')].find(one => one.textContent === 'Open flow')?.closest('[data-slot="tool-section-body"]')).toBeNull()
+  } finally { view.close() }
 })

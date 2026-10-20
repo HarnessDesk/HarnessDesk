@@ -216,29 +216,43 @@ test.describe('rule: names', () => {
   })
 
   test('rule: names — content names use 14/500 and one token restores 14/600', async ({ page }) => {
-    await gotoPreview(page)
-    const inline = page.locator('[data-frame-id="goal-roster"] [data-slot="member-name"] [data-role="member"]')
-    const senders = page.locator('[data-frame-id="goal-roster"] [data-channel="message"] [data-role="member"]')
+    // The dedicated specimen mounts the production MemberName even when a
+    // Team opens on Overview, whose rows use the navigation role.
+    await page.goto('/design.html?view=dialog')
+    const names = page.locator('[data-catalog-case="member-name"] [data-role="member"]')
+    await expect(names.first()).toBeVisible()
     for (const theme of ['light', 'dark'] as const) {
+      await page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: theme, exact: true }).click()
       for (const look of ['desk', 'studio'] as const) {
-        await setPreviewDials(page, theme, look)
-        expect(await inline.count()).toBeGreaterThan(0)
-        for (const names of [inline, senders]) {
-          expect(await names.count()).toBeGreaterThan(0)
-          expect(await names.evaluateAll((nodes) => nodes.map((el) => ({
-            size: getComputedStyle(el).fontSize, weight: getComputedStyle(el).fontWeight,
-          })))).toEqual(Array.from({ length: await names.count() }, () => ({ size: '14px', weight: '500' })))
-        }
+        await page.evaluate(value => document.body.setAttribute('data-hd-interface', value), look)
+        expect(await names.count()).toBeGreaterThan(0)
+        expect(await names.evaluateAll(nodes => nodes.map(el => ({
+          size: getComputedStyle(el).fontSize, weight: getComputedStyle(el).fontWeight,
+        })))).toEqual(Array.from({ length: await names.count() }, () => ({ size: '14px', weight: '500' })))
       }
     }
     await page.addStyleTag({ content: 'body { --hd-member-weight: 600; }' })
-    for (const names of [inline, senders]) {
-      expect(await names.evaluateAll((nodes) => nodes.map((el) => getComputedStyle(el).fontWeight)))
-        .toEqual(Array.from({ length: await names.count() }, () => '600'))
-    }
+    expect(await names.evaluateAll(nodes => nodes.map(el => getComputedStyle(el).fontWeight)))
+      .toEqual(Array.from({ length: await names.count() }, () => '600'))
     const after = await namesViolations(page)
-    expect(after.out.some((f) => f.reason === 'role member wants 14/500' && f.weight === 600)).toBe(true)
-    expect(after.out.every((f) => f.role === 'role member')).toBe(true)
+    expect(after.out.some(f => f.reason === 'role member wants 14/500' && f.weight === 600)).toBe(true)
+    expect(after.out.every(f => f.role === 'role member')).toBe(true)
+  })
+
+  test('rule: names — channel senders follow the compact row pair', async ({ page }) => {
+    await page.goto('/design.html?view=channel')
+    const senders = page.locator('[data-channel="message"] [data-slot="channel-sender"] [data-role="row"]')
+    await expect(senders.first()).toBeVisible()
+    for (const theme of ['light', 'dark'] as const) {
+      await page.getByRole('radiogroup', { name: 'Theme', exact: true }).getByRole('radio', { name: theme, exact: true }).click()
+      for (const look of ['desk', 'studio'] as const) {
+        await page.evaluate(value => document.body.setAttribute('data-hd-interface', value), look)
+        expect(await senders.count()).toBeGreaterThan(0)
+        expect(await senders.evaluateAll(nodes => nodes.map(el => ({
+          size: getComputedStyle(el).fontSize, weight: getComputedStyle(el).fontWeight,
+        })))).toEqual(Array.from({ length: await senders.count() }, () => ({ size: '13px', weight: '400' })))
+      }
+    }
   })
 
   test('rule: names — every name role computes its allowed size and weight, in every theme and interface', async ({ page }) => {
@@ -316,21 +330,21 @@ test.describe('rule: names', () => {
     expect(after.out.some((finding) => finding.text === '4096')).toBe(false)
   })
 
-  test('rule: names — the checker reads a mounted Seat title against its subject role', async ({ page }) => {
+  test('rule: names — the checker reads a mounted Seat title against its navigation role', async ({ page }) => {
     await gotoPreview(page)
     for (const theme of ['light','dark'] as const) {
       await setPreviewDials(page,theme,'desk')
       const frame=page.locator('[data-frame-id="goal-roster"]')
       const seats=await teamSeats(frame)
-      const rows=seats.locator('[data-slot="list-row-title"][data-role="subject"]')
+      const rows=seats.locator('[data-slot="list-row-title"][data-role="navigation"]')
       await expect(rows.first()).toBeVisible()
       const before=await namesViolations(page)
       expect(before.out).toEqual([])
       await seats.evaluate(node=>node.setAttribute('data-test-seat-titles',''))
-      const mutation=await page.addStyleTag({content:'[data-test-seat-titles] [data-slot="list-row-title"][data-role="subject"] { font-weight:600 !important; }'})
+      const mutation=await page.addStyleTag({content:'[data-test-seat-titles] [data-slot="list-row-title"][data-role="navigation"] { font-weight:600 !important; }'})
       const after=await namesViolations(page)
       expect(after.out.length).toBeGreaterThan(before.out.length)
-      expect(after.out.some(f=>f.reason.includes('role subject wants 14/400')&&f.weight===600)).toBe(true)
+      expect(after.out.some(f=>f.reason.includes('role navigation wants 13/400')&&f.weight===600)).toBe(true)
       await mutation.evaluate(style=>style.remove())
       await seats.evaluate(node=>node.removeAttribute('data-test-seat-titles'))
       expect((await namesViolations(page)).out).toEqual([])
@@ -338,7 +352,7 @@ test.describe('rule: names', () => {
     }
   })
 
-  test('rule: names — Details draws each Seat name in the subject pair (14/400)', async ({ page }) => {
+  test('rule: names — Details draws each Seat name in the navigation pair (13/400)', async ({ page }) => {
     await gotoPreview(page)
     for (const theme of ['light', 'dark'] as const) {
       for (const look of ['desk', 'studio'] as const) {
@@ -351,7 +365,7 @@ test.describe('rule: names', () => {
           return {text:(el.textContent??'').trim(),role:el.getAttribute('data-role'),size:Math.round(parseFloat(cs.fontSize)),weight:Number(cs.fontWeight)}
         }))
         expect(titles.length, `${theme}/${look}: no member row was found`).toBeGreaterThan(0)
-        for (const title of titles) expect(title, `${theme}/${look}: ${title.text}`).toMatchObject({role:'subject',size:14,weight:400})
+        for (const title of titles) expect(title, `${theme}/${look}: ${title.text}`).toMatchObject({role:'navigation',size:13,weight:400})
         await closeTeamDetails(frame)
       }
     }

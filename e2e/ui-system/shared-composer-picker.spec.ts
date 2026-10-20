@@ -85,7 +85,8 @@ for (const theme of ['light', 'dark'] as const) {
         document.body.append(pickerHost);
         const h = pickerReact.createElement;
         const pickerStore = pickerBridge(pickerSource());
-        const pickerView = { kind: 'room', room: pickerRoom, sideBySide: { tiles: pickerKeys.slice(0, 2), focused: pickerKeys[0] } };
+        const pickerView = { kind: 'room', room: pickerRoom, framePage: 'room', chatLayout: 'side-by-side',
+          sideBySide: { tiles: pickerKeys.slice(0, 2), focused: pickerKeys[0] } };
         const pickerMain = { root: { kind: 'pane', id: 'picker-main', view: pickerView }, focused: 'picker-main', expanded: null };
         Object.assign(pickerStore.getSnapshot(), { layout: pickerMain, workbench: { ...pickerStore.getSnapshot().workbench, main: pickerMain,
           navigation: { current: pickerDestination(pickerView), back: [], forward: [] } } });
@@ -98,7 +99,10 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/preview.html?side-by-side')
     await expect.poll(() => page.evaluate(() => document.body.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')
     const frame = page.locator('[data-picker-settings]')
+    await expect(frame.getByRole('tab', { name: /^Chat/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(frame.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
     const box = frame.locator('[data-shared-composer] [data-slot="composer-text"]')
+    await expect(box).toBeVisible()
     const draft = 'Compare the retry budget. @'
     await box.fill(draft)
     const picker = page.locator('[data-slot="popover-surface"][role="listbox"][data-limit="trigger"][data-anchor]')

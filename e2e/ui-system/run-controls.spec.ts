@@ -24,11 +24,14 @@ for (const theme of ['light', 'dark'] as const) {
   test(`a card that has not finished offers Abandon card… before its conversation link in ${theme}`, async ({ page }) => {
     await open(page, theme)
     const inspector = page.locator('#run-controls-abandon [data-slot="run-inspector"]')
-    expect(await inspector.locator('button').evaluateAll((all) => all.map((one) => one.textContent))).toEqual(['Abandon card…', 'Open the conversation'])
+    await expect(inspector.locator('[data-slot="tool-section-fold"]')).toHaveAttribute('aria-expanded', 'true')
+    await expect(inspector.getByRole('button', { name: 'Recorded facts', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    expect(await inspector.locator('button:not([aria-expanded])').evaluateAll((all) => all.map((one) => one.textContent))).toEqual(['Abandon card…', 'Open the conversation'])
     // The door to a question is an ordinary button; the red belongs on the step that cannot be taken back.
     await expect(inspector.getByRole('button', { name: 'Abandon card…' })).toHaveAttribute('data-variant', 'outline')
-    const [abandon, conversation] = await inspector.locator('button').all()
-    expect((await abandon!.boundingBox())!.y).toBeLessThan((await conversation!.boundingBox())!.y)
+    const abandon = inspector.getByRole('button', { name: 'Abandon card…', exact: true })
+    const conversation = inspector.getByRole('button', { name: 'Open the conversation', exact: true })
+    expect((await abandon.boundingBox())!.y).toBeLessThan((await conversation.boundingBox())!.y)
     expect(await inspector.evaluate((one) => one.scrollWidth <= one.clientWidth + 1)).toBe(true)
   })
 
@@ -43,7 +46,8 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await inspector.evaluate((one) => one.scrollWidth <= one.clientWidth + 1)).toBe(true)
     await capture(inspector, `inspector-person-answer-${theme}.png`)
     const review = page.locator('#run-controls-person-review [data-slot="run-inspector"]')
-    expect(await review.locator('button').evaluateAll((all) => all.map((one) => one.textContent))).toEqual(['Pick an attempt on the board', 'Abandon card…'])
+    await expect(review.locator('[data-slot="tool-section-fold"]')).toHaveAttribute('aria-expanded', 'true')
+    expect(await review.locator('button:not([aria-expanded])').evaluateAll((all) => all.map((one) => one.textContent))).toEqual(['Pick an attempt on the board', 'Abandon card…'])
   })
 
   test(`an unfinished check can be abandoned from its inspector in ${theme}`, async ({ page }) => {

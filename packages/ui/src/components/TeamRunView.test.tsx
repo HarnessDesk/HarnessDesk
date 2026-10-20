@@ -49,13 +49,13 @@ const mount = async (store: AppStore, props: Partial<ComponentProps<typeof TeamR
   const container = document.createElement('div')
   const root = createRoot(container)
   /** Renders the view again with other props, as a Run that moves to another Goal would. */
-  const show = (next: Partial<ComponentProps<typeof TeamRunView>> = {}) => act(async () => root.render(<StoreProvider store={store}><TopBarProvider><WorkViewControlsOutlet owner="" /><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
+  const show = (next: Partial<ComponentProps<typeof TeamRunView>> = {}, nextStore = store) => act(async () => root.render(<StoreProvider store={nextStore}><TopBarProvider><WorkViewControlsOutlet owner="" /><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
     model={runTimeline(fixture)} number={1} selectedRow="card-3-3" onSelect={() => {}} {...props} {...next} /></TopBarProvider></StoreProvider>))
   await show()
   return { container, show, close: () => act(() => root.unmount()) }
 }
 const sectionText = (container: HTMLElement, title: string): string =>
-  [...container.querySelectorAll('section')].find(one => one.textContent?.startsWith(title))?.textContent ?? ''
+  [...container.querySelectorAll('section, [data-slot="summary-item"]')].find(one => one.textContent?.startsWith(title))?.textContent ?? ''
 
 it('totals each recorded Seat once in the standalone Run summary rather than borrowing the Goal total', async () => {
   const store = storeWith(snapshot => ({ runtimes: snapshot.runtimes.map(runtime => ({ ...runtime,
@@ -235,6 +235,89 @@ it('does not show one Goal’s cost under another while the other’s report is 
   } finally { view.close() }
 })
 
+it('uses the room report without its own initial, minute, or retry usage read', async () => {
+  vi.useFakeTimers()
+  const insight = vi.fn().mockResolvedValue(overviewReport())
+  const findings = vi.fn().mockResolvedValue(undefined)
+  const execution = { ...runFixture().execution, state: 'running' as const }
+  const view = await mount(storeWith(() => ({}), { readGoalInsight: insight, loadFindingRun: findings }), {
+    execution, insight: overviewReport(), problem: 'Some reads failed.', onRetry: () => {},
+  })
+  try {
+    expect(costOf(view.container)).not.toContain('Not recorded')
+    expect(insight).not.toHaveBeenCalled()
+    expect(findings).toHaveBeenCalledOnce()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(insight).not.toHaveBeenCalled()
+    expect(findings).toHaveBeenCalledTimes(2)
+    await act(async () => tryAgain(view.container).click())
+    expect(insight).not.toHaveBeenCalled()
+    expect(findings).toHaveBeenCalledTimes(3)
+  } finally { view.close(); vi.useRealTimers() }
+})
+it('keeps a shared pending, failed, or other Goal report unrecorded rather than reading or inventing zero cost', async () => {
+  const insight = vi.fn().mockResolvedValue(overviewReport())
+  const view = await mount(storeWith(() => ({}), { readGoalInsight: insight }), { insight: null })
+  try {
+    expect(costOf(view.container)).toContain('Not recorded')
+    expect(costOf(view.container)).not.toContain('$0.00')
+    await view.show({ insight: { ...overviewReport(), goal: 'other-team' } })
+    expect(costOf(view.container)).toContain('Not recorded')
+    await view.show({ insight: overviewReport() })
+    expect(costOf(view.container)).not.toContain('Not recorded')
+    expect(insight).not.toHaveBeenCalled()
+  } finally { view.close() }
+})
+it('keeps the newest standalone usage report when an older minute read answers later', async () => {
+  vi.useFakeTimers()
+  const report = overviewReport()
+  const newer = { ...report, breakdowns: report.breakdowns.map(part => ({ ...part, rows: part.rows.map(row => ({ ...row,
+    amounts: { ...row.amounts, turns: { ...row.amounts.turns, value: 999 } },
+  })) })) }
+  let finish!: (value: typeof report) => void
+  const insight = vi.fn().mockResolvedValueOnce(report)
+    .mockImplementationOnce(() => new Promise(resolve => { finish = resolve })).mockResolvedValue(newer)
+  const view = await mount(storeWith(() => ({}), { readGoalInsight: insight }), {
+    execution: { ...runFixture().execution, state: 'running' as const },
+  })
+  try {
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(insight).toHaveBeenCalledTimes(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(insight).toHaveBeenCalledTimes(3)
+    expect(costOf(view.container)).toContain('999 turns')
+    await act(async () => finish(report))
+    expect(costOf(view.container)).toContain('999 turns')
+  } finally { view.close(); vi.useRealTimers() }
+})
+it('does not reuse a standalone report after the connection owner changes or accept its late answer', async () => {
+  let finish!: (value: ReturnType<typeof overviewReport>) => void
+  const oldRead = vi.fn().mockResolvedValueOnce(overviewReport()).mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  const nextRead = vi.fn().mockImplementation(() => new Promise(() => {}))
+  const view = await mount(storeWith(() => ({}), { readGoalInsight: oldRead }), { problem: 'Some reads failed.', onRetry: () => {} })
+  try {
+    expect(costOf(view.container)).not.toContain('Not recorded')
+    await act(async () => tryAgain(view.container).click())
+    await view.show({}, storeWith(() => ({}), { readGoalInsight: nextRead }))
+    expect(nextRead).toHaveBeenCalledOnce()
+    expect(costOf(view.container)).toContain('Not recorded')
+    await act(async () => finish(overviewReport()))
+    expect(costOf(view.container)).toContain('Not recorded')
+  } finally { view.close() }
+})
+it('retains its own initial and minute usage reads when mounted without a room report', async () => {
+  vi.useFakeTimers()
+  const insight = vi.fn().mockResolvedValue(overviewReport())
+  const view = await mount(storeWith(() => ({}), { readGoalInsight: insight }), {
+    execution: { ...runFixture().execution, state: 'running' as const },
+  })
+  try {
+    expect(insight).toHaveBeenCalledOnce()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(insight).toHaveBeenCalledTimes(2)
+  } finally { view.close(); vi.useRealTimers() }
+})
+
 const READING = 'Reading findings…'
 const UNREAD = 'Findings could not be read'
 const NONE = 'No findings recorded'
@@ -244,7 +327,8 @@ const read = { totals: { all: 0, open: 0, blocking: 0 } }
 const withFindings = (state: FindingsListState | undefined) =>
   storeWith(() => ({ findings: new Map<string, FindingsListState>(state ? [['overview-team', state]] : []) }))
 const onlySays = (container: HTMLElement, shown: string): void => {
-  expect(sectionText(container, 'Findings')).toContain(shown)
+  if (shown === NONE) expect(sectionText(container, 'Findings')).toBe('')
+  else expect(sectionText(container, 'Findings')).toContain(shown)
   for (const other of [READING, UNREAD, NONE]) if (other !== shown) expect(container.textContent).not.toContain(other)
 }
 // The room reads every finding of the Goal; until that list has landed and is whole, none here is not none.
@@ -299,8 +383,8 @@ it('does not call a card’s findings none while more of them remain to be read'
 
 const flowing = { flow: <p data-testid="the-flow">The drawing</p> }
 const choice = (container: HTMLElement, name: string): { click: () => Promise<void> } => ({click: async () => {
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-slot="page-options"] button[title="View"]')!.click())
-  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === name)!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-slot="page-options"] button[title="Timeline"], [data-slot="page-options"] button[title="Flow"]')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')].find(one => one.textContent === name)!.click())
 }})
 it('gives the Flow the whole pane: the inspector steps aside on the Flow tab and returns with the timeline', async () => {
   const view = await mount(storeWith(), flowing)
@@ -467,5 +551,52 @@ it('omits check retry in a wrapped Team even while its Run still reads running',
     const inspector = view.container.querySelector('[data-slot="run-inspector"]')!
     expect(inspector.textContent).toContain('This Team is wrapped')
     expect([...inspector.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(false)
+  } finally { view.close() }
+})
+
+it('names the current Run view beside Stop and preserves stopping', async () => {
+  const onStop = vi.fn()
+  const view = await mount(storeWith(), { ...flowing, onStop, execution: { ...runFixture('running').execution, state: 'running' } })
+  try {
+    const controls = view.container.querySelector('[data-slot="page-options"]')!
+    const buttons = [...controls.querySelectorAll<HTMLButtonElement>('button')]
+    expect(buttons.map(button => button.textContent)).toEqual(['Timeline', 'Stop run…'])
+    expect(view.container.querySelector('button[title="View"]')).toBeNull()
+    await choice(view.container, 'Flow').click()
+    expect(view.container.querySelector('button[title="Flow"]')).not.toBeNull()
+    act(() => buttons[1]!.click())
+    expect(onStop).toHaveBeenCalledOnce()
+  } finally { view.close() }
+})
+
+it('unifies the recorded Flow and concise recent activity without a Flow or Timeline view picker', async () => {
+  const view = await mount(storeWith(), { drawFlow: true, unified: true, selectedRow: null })
+  try {
+    expect(view.container.querySelector('[data-slot="run-flow"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-presentation="activity"]')).not.toBeNull()
+    expect(view.container.querySelector('[aria-label="Run timeline"]')).toBeNull()
+    expect([...view.container.querySelectorAll('button')].some(button => button.textContent === 'Flow' || button.textContent === 'Timeline')).toBe(false)
+    act(() => [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Full record')!.click())
+    expect(view.container.querySelector('[aria-label="Run timeline"]')).not.toBeNull()
+  } finally { view.close() }
+})
+
+it('reveals a selected older round in the unified full record', async () => {
+  const fixture = runFixture('attempts')
+  const view = await mount(storeWith(), { execution: fixture.execution, model: runTimeline(fixture), unified: true, drawFlow: true, selectedRow: 'card-1-1' })
+  try {
+    const toggle = [...view.container.querySelectorAll('button')].find(button => button.textContent === 'Recent activity')!
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(view.container.querySelector('[data-row="card-1-1"]')).not.toBeNull()
+  } finally { view.close() }
+})
+
+it('opens the exact recorded person card when choosing its Flow step', async () => {
+  const fixture = runFixture('person'), select = vi.fn()
+  const view = await mount(storeWith(), { drawFlow: true, unified: true, execution: fixture.execution, model: runTimeline(fixture), onSelect: select })
+  try {
+    const person = view.container.querySelector<HTMLButtonElement>('button[data-step-row="person"]')!
+    act(() => person.click())
+    expect(select).toHaveBeenCalledWith('person-4-4')
   } finally { view.close() }
 })

@@ -6,10 +6,20 @@ export const runBar = (frame: Locator): Locator => frame.locator('[data-slot="to
 
 export const selectRunView = async (frame: Locator, value: 'Timeline' | 'Flow'): Promise<void> => {
   await closeFloatingTeamRail(frame)
-  await frame.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'View', exact: true }).click()
-  const choice = frame.page().getByRole('menuitem', { name: value, exact: true })
+  const unified = frame.locator('[data-slot="run-workspace"][data-view="work"]')
+  if (await unified.count()) {
+    if (value === 'Timeline') {
+      const expand = frame.getByRole('button', { name: 'Full record', exact: true })
+      if (await expand.isVisible()) await expand.click()
+      await expect(unified.getByRole('list', { name: 'Run timeline', exact: true })).toBeVisible()
+    } else await expect(unified.locator('[data-slot="run-flow"]')).toBeVisible()
+    return
+  }
+  await frame.locator('[data-slot="workbench-main"]').getByRole('button', { name: /^(View|Timeline|Flow)$/ }).click()
+  const choice = frame.page().getByRole('menuitemradio', { name: value, exact: true })
   await expect(choice).toBeVisible()
   await choice.click()
+  await expect(frame.locator('[data-slot="run-workspace"]')).toHaveAttribute('data-view', value.toLowerCase())
 }
 
 export const stopRun = (frame: Locator): Locator => frame.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'Stop run…', exact: true })

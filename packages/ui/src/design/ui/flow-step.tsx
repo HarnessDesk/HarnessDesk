@@ -6,21 +6,24 @@ import { Chip, Text } from '../patterns/Settings'
 import styles from './flow-step.module.css'
 
 /** State marks on a Flow's measured node box. Its geometry belongs to the graph, and its surface to the system. */
-export const FlowStepSurface = ({ state, selected, children, duration, runs, onClick }: {
-  state?: FlowStepState; selected?: boolean; children: ReactNode
+export const FlowStepSurface = ({ state, selected, children, duration, runs, onClick, custom = false }: {
+  state?: FlowStepState; selected?: boolean; children: ReactNode; custom?: boolean
   duration: string | null; runs?: number | null; onClick?: () => void
 }) => (
   <>
-    {(state === 'working' || state === 'waiting') && <span data-slot="flow-ring" data-state={state}
-      className={`absolute -inset-1 rounded-lg ${styles.ring} ${state === 'waiting' ? 'ring-4 ring-(--hd-warning)/20' : 'ring-4 ring-(--hd-accent)/20'}`} />}
+    {(state === 'working' || state === 'waiting') && <span data-slot="flow-ring" data-state={state} aria-hidden="true"
+      className={`absolute inset-0 before:absolute before:-inset-1 before:rounded-lg ${styles.ring} ${state === 'waiting' ? 'before:ring-2 before:ring-(--hd-warning)/20' : 'before:ring-2 before:ring-(--hd-accent)/20'}`} />}
     <Card variant="raised" spacing="compact" onClick={onClick}
-      className={`absolute inset-0 grid grid-cols-[auto_minmax(0,1fr)] grid-rows-[var(--hd-space-8)_auto] content-start items-center gap-y-0 ${onClick ? 'cursor-pointer' : ''} ${selected ? 'outline-2 outline-offset-4 outline-(--hd-border-strong)' : ''} ${
-        state === 'future' ? 'border-dashed' : state === 'working' ? 'border-(--hd-accent) ring-1 ring-(--hd-accent)' : state === 'waiting' ? 'border-(--hd-warning) ring-1 ring-(--hd-warning)' : state === 'done' ? 'border-(--hd-accent)/40' : ''}`}>
-      {children}
+      className={`absolute inset-0 flex flex-col gap-3 p-4 ${onClick ? 'cursor-pointer' : ''} ${selected ? 'outline-2 outline-offset-2 outline-(--hd-border-strong)' : ''} ${
+        state === 'future' ? 'border-dashed' : state === 'working' ? 'border-(--hd-accent)' : state === 'waiting' ? 'border-(--hd-warning)' : state === 'done' ? 'border-(--hd-accent)/40' : ''}`}>
+      <div data-slot="flow-step-content" className={custom ? 'min-h-0 min-w-0 flex-1' : 'grid grid-cols-[auto_minmax(0,1fr)] auto-rows-min items-center gap-x-3 gap-y-2'}>{children}</div>
+      {(state === 'done' || state === 'working' || state === 'waiting' || state === 'blocked' || duration !== null || (runs !== undefined && runs !== null && runs > 1)) &&
+        <div className="mt-auto flex min-w-0 items-center justify-between gap-2">
+          {state === 'done' && <span data-slot="flow-complete" aria-label="Done" className="inline-flex size-4 items-center justify-center rounded-full bg-(--hd-accent) text-(--hd-accent-foreground)"><CheckIcon size={12} /></span>}
+          {(state === 'working' || state === 'waiting' || state === 'blocked') && <span data-slot="flow-state"><Chip size="sm" tone={state === 'waiting' ? 'warning' : state === 'working' ? 'info' : 'neutral'}>{state === 'waiting' ? 'Waiting for you' : state === 'working' ? 'Working' : 'Waiting'}</Chip></span>}
+          {(duration !== null || (runs !== undefined && runs !== null && runs > 1)) && <span data-slot="flow-duration" className="ml-auto"><Text role="meta">{[duration, runs !== undefined && runs !== null && runs > 1 ? `×${runs}` : null].filter(Boolean).join(' · ')}</Text></span>}
+        </div>}
     </Card>
-    {state === 'done' && <span data-slot="flow-complete" className="absolute -right-2 -top-2 inline-flex size-6 items-center justify-center rounded-full bg-(--hd-accent) text-(--hd-accent-foreground) ring-2 ring-(--hd-background)"><CheckIcon size={14} /></span>}
-    {(state === 'working' || state === 'waiting' || state === 'blocked') && <span data-slot="flow-state" className="absolute right-2 top-0 -translate-y-1/2 rounded-md bg-(--hd-background) pointer-events-none"><Chip size="sm" tone={state === 'waiting' ? 'warning' : state === 'working' ? 'info' : 'neutral'}>{state === 'waiting' ? 'Waiting for you' : state === 'working' ? 'Working' : 'Waiting'}</Chip></span>}
-    {(duration !== null || (runs !== undefined && runs !== null && runs > 1)) && <span data-slot="flow-duration" className="absolute bottom-0 left-3 translate-y-1/2 pointer-events-none"><Chip size="sm" tone="neutral">{[duration, runs !== undefined && runs !== null && runs > 1 ? `×${runs}` : null].filter(Boolean).join(' · ')}</Chip></span>}
   </>
 )
 

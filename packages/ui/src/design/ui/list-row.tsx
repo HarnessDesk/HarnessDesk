@@ -170,7 +170,7 @@ const ListRow = ({
       <span
         data-slot="list-row-lead"
         className={cn(
-          'inline-flex shrink-0 items-center gap-2',
+          'inline-flex shrink-0 items-center gap-2 [&>[data-slot=hover-card-trigger]]:inline-flex [&>[data-slot=hover-card-trigger]]:items-center',
           size === 'default' && 'has-[>[data-shape=face]:only-child]:size-(--hd-table-face) has-[>[data-shape=face]:only-child]:rounded-(--hd-table-face-radius) [&>[data-shape=face]]:size-(--hd-table-face) [&>[data-slot=icon-tile]]:size-(--hd-table-face) [&>[data-shape=face]]:rounded-(--hd-table-face-radius)',
         )}
       >

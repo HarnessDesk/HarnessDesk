@@ -1,3 +1,4 @@
+import { RetainedComponentsCoverage } from './coverage-retained-components'
 import { LibraryChangesFixture } from './library-destination-fixture'
 import { Notice, NoticeHost, Input, Text } from '../design'
 import { libraryNoticeResults } from './notice-fixture'
@@ -225,8 +226,8 @@ export const NoticePlacementFrames = () => (
   <>
     <NoticeLayoutFrame id="coverage-notice-narrow-overlay" title="Notice placement — narrow window overlay" options={{ narrow: true }} />
     <NoticeLayoutFrame id="coverage-notice-room-board" title="Notice placement — room board without a composer" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never }} />
-    <NoticeLayoutFrame id="coverage-notice-room-pending-approval" title="Notice placement — room composer hidden by an approval" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, pendingRoomApproval: true }} />
-    <NoticeLayoutFrame id="coverage-notice-room-container-query" title="Notice placement — narrow room rail hides its body" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, stripSurface: true, narrowRoom: true }} />
+    <NoticeLayoutFrame id="coverage-notice-room-pending-approval" title="Notice placement — inline approval with a persistent composer" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, pendingRoomApproval: true }} />
+    <NoticeLayoutFrame id="coverage-notice-room-container-query" title="Notice placement — narrow room with a floating rail" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, stripSurface: true, narrowRoom: true }} />
     <NoticeLayoutFrame id="coverage-notice-folder-gone" title="Notice placement — folder-gone conversation" options={{ folderGone: true }} />
     <NoticeLayoutFrame id="coverage-notice-zoomed-sidebar" title="Notice placement — zoomed sidebar" options={{ zoom: 'sidebar' }} />
     <NoticeLayoutFrame id="coverage-notice-zoomed-dock" title="Notice placement — zoomed dock" options={{ zoom: 'right' }} />
@@ -317,6 +318,7 @@ export const CoverageFrames = () => {
       <Frame id="coverage-library" title="Library — Changes made here">
         <div className="h-[900px]"><LibraryChangesFixture /></div>
       </Frame>
+      <RetainedComponentsCoverage />
       <Frame id="coverage-panel-actions" title="Panel actions context">
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
           <div className="p-4">Panel actions are available here.</div>

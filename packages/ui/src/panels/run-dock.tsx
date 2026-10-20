@@ -35,6 +35,6 @@ export const RunDetailsView = ({ inspectionOnly = true }: { inspectionOnly?: boo
   const contents = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
   const owner = usePane()?.paneId ?? ''
   const content = contents.get(owner)
-  if (!content || !content.inspector.selectedRow || content.inspector.selectedRow === 'run') return null
-  return <RunInspector {...content.inspector} inspectionOnly={inspectionOnly} />
+  if (!content || !content.inspector.selectedRow) return null
+  return <RunInspector {...content.inspector} inspectionOnly={content.inspector.selectedRow === 'run' ? false : inspectionOnly} />
 }

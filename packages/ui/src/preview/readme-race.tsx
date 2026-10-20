@@ -98,7 +98,8 @@ const Themed = ({ children }: { children: ReactNode }) => { useTheme(); return c
 /** The production Team frame, Side by side on both attempts' Browsers. */
 export const RaceFrame = ({ store }: { store: AppStore }) => {
   const tiles = SIDE_BY_SIDE_KEYS.slice(0, 2)
-  const view = { kind: 'room' as const, room: PREVIEW_ROOM, sideBySide: { tiles, focused: tiles[0], modes: Object.fromEntries(tiles.map(key => [key, 'browser' as const])) } }
+  const view = { kind: 'room' as const, room: PREVIEW_ROOM, framePage: 'room' as const, chatLayout: 'side-by-side' as const,
+    sideBySide: { tiles, focused: tiles[0], modes: Object.fromEntries(tiles.map(key => [key, 'browser' as const])) } }
   return <StoreProvider store={store}>
     <MountProvider scope={{ area: 'main', id: 'team-room', view }}>
       <KeyboardHereContext.Provider value={false}>

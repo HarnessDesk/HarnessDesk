@@ -4,6 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { FlowPolicy } from '@harnessdesk/protocol'
 
 import * as design from '../index'
+// The host parser is used only by this test; the renderer never imports it.
+import { parseFlowPolicy } from '../../../../server/dist/src/flow-policy.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -31,6 +33,47 @@ beforeEach(() => {
 })
 afterEach(() => { act(() => root.unmount()); host.remove() })
 
+it('keeps a selected Flow compact with its actual graph, origin and Change action', () => {
+  expect(design.SelectedFlow).toBeTypeOf('function')
+  const change = vi.fn()
+  act(() => root.render(<design.SelectedFlow name={policy.name} origin="Project" policy={policy} onChange={change} />))
+  const summary = host.querySelector('[data-slot="selected-flow"]')!
+  expect(summary.textContent).toContain(policy.name)
+  expect(summary.textContent).toContain('Project')
+  expect(summary.querySelectorAll('[data-step]')).toHaveLength(policy.roles.length)
+  const button = summary.querySelector<HTMLButtonElement>('button')!
+  expect(button.textContent).toBe('Change')
+  act(() => button.click())
+  expect(change).toHaveBeenCalledOnce()
+  act(() => root.render(<design.SelectedFlow name="Just a Team" origin="Built in" empty disabled onChange={change} />))
+  expect(host.querySelector('[data-step]')).toBeNull()
+  expect(host.textContent).toContain('No steps')
+  expect(host.querySelector<HTMLButtonElement>('button')?.disabled).toBe(true)
+})
+
+it('keeps a selected Flow reading state distinct from a settled unavailable graph', () => {
+  const change = vi.fn()
+  act(() => root.render(<design.SelectedFlow name={policy.name} origin="Project" loading onChange={change} />))
+  const selection = host.querySelector('[data-slot="selected-flow"]')!
+  expect(selection.getAttribute('aria-busy')).toBe('true')
+  const thumbnail = selection.querySelector('[data-slot="flow-mini-graph"]')!
+  expect(thumbnail.getAttribute('role')).toBe('status')
+  expect(thumbnail.textContent).toBe('Reading Flow…')
+  expect(selection.textContent).not.toContain('Graph unavailable')
+  expect(selection.querySelector('[data-step]')).toBeNull()
+
+  act(() => root.render(<design.SelectedFlow name={policy.name} origin="Project" policy={policy} onChange={change} />))
+  expect(host.querySelector('[data-slot="selected-flow"]')?.hasAttribute('aria-busy')).toBe(false)
+  expect(host.querySelector('[role="status"]')).toBeNull()
+  expect(host.querySelectorAll('[data-step]')).toHaveLength(policy.roles.length)
+  expect(host.textContent).not.toContain('Graph unavailable')
+
+  act(() => root.render(<design.SelectedFlow name={policy.name} origin="Project" onChange={change} />))
+  expect(host.textContent).toContain('Graph unavailable')
+  expect(host.querySelector('[data-slot="selected-flow"]')?.hasAttribute('aria-busy')).toBe(false)
+  expect(host.querySelector('[data-slot="flow-mini-graph"]')?.className).toBe(thumbnail.className)
+})
+
 it('opens a named selectable card while keeping its origin, complete summary and Run count', () => {
   expect(design.FlowCard).toBeTypeOf('function')
   const open = vi.fn()
@@ -56,7 +99,7 @@ it('refuses disabled cards and distinguishes omitted, zero and singular Run coun
     const card = host.querySelector<HTMLButtonElement>('button')!
     expect(card.disabled).toBe(true)
     expect(card.getAttribute('aria-pressed')).toBe('false')
-    expect(host.querySelector('[data-slot="flow-card-runs"]')?.textContent).toBe(runs === undefined ? undefined : runs === 1 ? '1 matching Run' : '0 matching Runs')
+    expect(host.querySelector('[data-slot="flow-card-runs"]')?.textContent).toBe(runs === undefined || runs === 0 ? undefined : '1 matching Run')
     act(() => card.click())
   }
   expect(open).not.toHaveBeenCalled()
@@ -135,7 +178,7 @@ it('draws every step the same width and gap on one centre line, whatever the lab
   }
   const read = (topology: FlowPolicy) => {
     act(() => root.render(<design.FlowMiniGraph policy={topology} />))
-    const boxes = [...host.querySelectorAll('[data-step] rect')].map(rect => ({
+    const boxes = [...host.querySelectorAll('[data-step] > rect')].map(rect => ({
       x: Number(rect.getAttribute('x')), y: Number(rect.getAttribute('y')), w: Number(rect.getAttribute('width')), h: Number(rect.getAttribute('height')) }))
     const left = Math.min(...boxes.map(box => box.x)), right = Math.max(...boxes.map(box => box.x + box.w))
     return { boxes, centre: (left + right) / 2 }
@@ -168,14 +211,15 @@ const flowOf = (count: number, rules: readonly [string, string][] = [], position
 }
 
 /** What the thumbnail draws, in the viewport's own units: every card and every sampled point of every line, after any fit-scaling. */
-const drawn = (topology: FlowPolicy) => {
-  act(() => root.render(<design.FlowMiniGraph policy={topology} />))
+const drawn = (topology: FlowPolicy, previewSize: 'compact' | 'large' = 'compact') => {
+  act(() => root.render(<design.FlowMiniGraph policy={topology} previewSize={previewSize} />))
   const svg = host.querySelector('svg')!
   const transform = svg.querySelector(':scope > g')!.getAttribute('transform')
   const scale = transform ? Number(/scale\(([\d.]+)\)/.exec(transform)![1]) : 1
-  const fit = (x: number, y: number) => ({ x: 160 + (x - 160) * scale, y: 36 + (y - 36) * scale })
+  const centre = previewSize === 'large' ? { x: 224, y: 40 } : { x: 160, y: 36 }
+  const fit = (x: number, y: number) => ({ x: centre.x + (x - centre.x) * scale, y: centre.y + (y - centre.y) * scale })
   const points: { x: number; y: number }[] = [], boxes: { x: number; y: number; w: number; h: number }[] = []
-  for (const rect of svg.querySelectorAll('[data-step] rect')) {
+  for (const rect of svg.querySelectorAll('[data-step] > rect')) {
     const [x, y, w, h] = ['x', 'y', 'width', 'height'].map(name => Number(rect.getAttribute(name)))
     boxes.push({ x: x!, y: y!, w: w!, h: h! })
     points.push(fit(x!, y!), fit(x! + w!, y! + h!))
@@ -197,12 +241,12 @@ const drawn = (topology: FlowPolicy) => {
       }
     }
   }
-  return { boxes, points, scale, width: svg.querySelector('[data-step] rect')!.getAttribute('width') }
+  return { boxes, points, scale, width: svg.querySelector('[data-step] > rect')!.getAttribute('width') }
 }
-const within = (points: readonly { x: number; y: number }[]) => {
+const within = (points: readonly { x: number; y: number }[], width = 320, height = 72) => {
   for (const point of points) {
-    expect(point.x).toBeGreaterThanOrEqual(0); expect(point.x).toBeLessThanOrEqual(320)
-    expect(point.y).toBeGreaterThanOrEqual(0); expect(point.y).toBeLessThanOrEqual(72)
+    expect(point.x).toBeGreaterThanOrEqual(0); expect(point.x).toBeLessThanOrEqual(width)
+    expect(point.y).toBeGreaterThanOrEqual(0); expect(point.y).toBeLessThanOrEqual(height)
   }
 }
 const apart = (boxes: readonly { x: number; y: number; w: number; h: number }[]) => {
@@ -269,9 +313,61 @@ it('registers the shared Flow patterns with reachable examples and all public sy
   const { CATALOG_ENTRIES } = await import('../catalog/manifest')
   const cards = CATALOG_ENTRIES.find(entry => entry.id === 'pattern.FlowCards')
   expect(cards?.exampleId).toBe('flow-cards')
-  expect(cards?.symbols).toEqual(['FlowCard', 'FlowMiniGraph', 'FlowCardGrid'])
-  expect(cards?.states).toEqual(expect.arrayContaining(['selected', 'disabled', 'empty', 'long-title']))
+  expect(cards?.sizes).toEqual(['compact', 'large'])
+  expect(cards?.symbolAxes?.FlowCardGrid?.size).toEqual(['compact', 'large'])
+  expect(cards?.symbols).toEqual(['FlowCard', 'FlowMiniGraph', 'FlowCardGrid', 'SelectedFlow'])
+  expect(cards?.states).toEqual(expect.arrayContaining(['selected', 'disabled', 'empty', 'long-title', 'loading']))
   const toolbar = CATALOG_ENTRIES.find(entry => entry.id === 'pattern.FlowCanvasToolbar')
   expect(toolbar?.exampleId).toBe('flow-canvas-toolbar')
   expect(toolbar?.symbols).toEqual(['FlowCanvasToolbar'])
+})
+
+it('gives thumbnail roles their canonical agent, person and command marks without losing their names', () => {
+  const kinds: FlowPolicy = {
+    ...policy,
+    roles: [policy.roles[0]!, { id: 'decide', kind: 'person', outcomes: ['approve'] }, { id: 'verify', kind: 'check', check: { run: 'pnpm test', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }],
+    rules: [],
+  }
+  act(() => root.render(<design.FlowMiniGraph policy={kinds} />))
+  expect(host.querySelector('[data-slot="icon-tile"], [data-tint]')).toBeNull()
+  for (const [id, kind, icon] of [['review', 'agent', 'bot'], ['decide', 'person', 'user'], ['verify', 'check', 'square-terminal']]) {
+    const step = host.querySelector(`[data-step="${id}"]`)!
+    expect(step.getAttribute('data-kind')).toBe(kind)
+    expect(step.querySelector(`[data-slot="flow-mini-mark"] .lucide-${icon}`)).not.toBeNull()
+    expect(step.querySelector('[data-slot="flow-mini-label"]')?.textContent).toBe(step.querySelector('title')?.textContent)
+  }
+})
+
+it('offers a roomy gallery poster while leaving the quick picker compact by default', () => {
+  for (const previewSize of [undefined, 'large'] as const) {
+    act(() => root.render(<design.FlowCardGrid size={previewSize}><design.FlowCard previewSize={previewSize} name="Review" origin="Built in" policy={policy} summary="Review the work." onClick={() => {}} /></design.FlowCardGrid>))
+    const size = previewSize ?? 'compact'
+    expect(host.querySelector('[data-slot="flow-card-grid"]')?.getAttribute('data-size')).toBe(size)
+    expect(host.querySelector('[data-slot="flow-card"]')?.getAttribute('data-preview-size')).toBe(size)
+    const graph = host.querySelector('[data-slot="flow-mini-graph"]')!
+    expect(graph.getAttribute('data-preview-size')).toBe(size)
+    expect(graph.getAttribute('viewBox')).toBe(size === 'large' ? '0 0 448 80' : '0 0 320 72')
+    expect(graph.querySelectorAll('[data-step]')).toHaveLength(policy.roles.length)
+    expect(graph.querySelectorAll('[data-slot="flow-mini-mark"] > svg')).toHaveLength(policy.roles.length)
+    expect(graph.querySelector('[data-slot="icon-tile"], [data-tint]')).toBeNull()
+    for (const rect of graph.querySelectorAll('[data-step] > rect')) {
+      expect(Number(rect.getAttribute('height'))).toBe(size === 'large' ? 44 : 24)
+      expect(Number(rect.getAttribute('width'))).toBe(size === 'large' ? 128 : 84)
+    }
+  }
+})
+
+it('keeps all ten shipped gallery policies and their routes inside the roomy poster', () => {
+  const shipped = import.meta.glob('../../../../server/flows/*.yml', { eager: true, query: '?raw', import: 'default' })
+  expect(Object.keys(shipped)).toHaveLength(10)
+  for (const source of Object.values(shipped)) {
+    const parsed = parseFlowPolicy(String(source))
+    expect(parsed.problems.filter(problem => problem.level === 'error')).toEqual([])
+    if (parsed.document?.format !== 'agents') throw new Error('Expected an Agent-routed Flow')
+    const policy = parsed.document.flow
+    const { points, boxes } = drawn(policy, 'large')
+    within(points, 448, 80)
+    apart(boxes)
+    expect(host.querySelectorAll('[data-step]')).toHaveLength(policy.roles.length)
+  }
 })

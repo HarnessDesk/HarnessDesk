@@ -77,6 +77,18 @@ it('a historical Seat’s own identity is shown even though a later session move
   expect(document.body.textContent).toContain('CodeReviewer-v1')
 })
 
+it('shows the raised-by Seat facts directly inside its existing group', async () => {
+  await render(rig(page()).store)
+  const group = [...document.querySelectorAll('[data-slot="fieldset"]')].find(el =>
+    document.getElementById(el.getAttribute('aria-labelledby') ?? '')?.textContent === 'Raised by')!
+  const facts = group.querySelector('[data-slot="key-value"]')!
+  expect(facts).not.toBeNull()
+  expect(facts.closest('[hidden]')).toBeNull()
+  expect(facts.textContent).toContain('fix at aaaaaaa')
+  expect(facts.textContent).toContain('Folder')
+  expect(group.querySelector('[data-slot="tool-section"], [data-slot="tool-fold"]')).toBeNull()
+})
+
 it('a missing Seat says so, and never substitutes a current name', async () => {
   const { store } = rig(page({ seat: null }))
   await render(store)

@@ -177,7 +177,7 @@ it('a named Agent uses the reading page and a return action in its first body ro
 })
 it('a missing focused Agent falls back to the roster and wide measure', () => {
   mount('missing-agent')
-  expect(container.textContent).toContain('Who does the work')
+  expect(container.textContent).toContain('Reusable roles for your Teams.')
   expect(container.querySelector('[data-slot="page"]')?.getAttribute('data-width')).toBe('wide')
 })
 

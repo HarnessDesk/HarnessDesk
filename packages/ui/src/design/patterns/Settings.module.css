@@ -106,7 +106,7 @@
   padding: 0 var(--hd-space-2) 0 var(--hd-space-2);
   border-radius: var(--hd-chip-radius);
   font-size: var(--hd-text-xs);
-  line-height: 1;
+  line-height: var(--hd-line-xs); /* desk: give Chip text its 16px line box without changing the fixed plate dimensions. */
   white-space: nowrap;
 }
 

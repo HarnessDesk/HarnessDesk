@@ -5,9 +5,9 @@ import type {
 } from '@harnessdesk/protocol'
 
 import {
-  ActionError, Banner, BoardMenuButton, Button, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+  ActionError, Banner, Chip, BoardMenuButton, Button, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
   Field, Input, Note, NoteList, Row, Rows, SectionHead, Tabs, TabsList, TabsTrigger, Textarea,
-  ConfirmDialog, FlowCanvasToolbar, FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent, MenuItem, ToolSection, ToolBody, ToolProse, ToolBodyControls, ToolFold, KeyValue, KeyValueRow,
+  ConfirmDialog, FlowCanvasToolbar, FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent, MenuItem, ToolSection, ToolBody, ToolProse, ToolBodyControls, ToolFold,
 } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { shortSha } from '../lib/evidence'
@@ -235,7 +235,7 @@ export const ShapeEditor = ({ root, context, goal, document: initialDocument, in
     if (!activeOwner.current) return
     const mine = ++sequence.current
     try {
-      const rendered = await store.renderShape(emptyShapePolicy())
+      const rendered = await store.renderShape(emptyShapePolicy(page ? 'New Flow' : undefined))
       if (!activeOwner.current || mine !== sequence.current) return
       setLoadingDraft(false)
       if (rendered.issues.length === 0) {
@@ -247,7 +247,7 @@ export const ShapeEditor = ({ root, context, goal, document: initialDocument, in
       setLoadingDraft(false)
       setProblem(error instanceof Error ? error.message : 'A blank draft could not be read.')
     }
-  }, [runDryRun, store])
+  }, [page, runDryRun, store])
 
   // The initial bytes are read once; a retained page resumes its own draft.
   useEffect(() => {
@@ -542,9 +542,6 @@ export const ShapeEditor = ({ root, context, goal, document: initialDocument, in
     const selected = policy?.roles.findIndex(role => role.id === selectedRole) ?? -1
     const selectedIndex = selected >= 0 ? selected : 0
     const role = policy?.roles[selectedIndex]
-    const bindings = role ? (flow?.compiled.bindings ?? []).filter(binding => binding.role === role.id) : []
-    const answers = [...new Set(bindings.flatMap(binding => binding.agent.answers))]
-    const efforts = [...new Set(bindings.flatMap(binding => binding.seats.map(seat => seat.effort).filter((effort): effort is string => Boolean(effort))))]
     const runs = matchingFlowRuns(policy, snapshot.flowExecutions.values()).filter(run => snapshot.goals.get(run.goal)?.goal.root === root)
     const legacy = compiled?.format === 'legacy' && compiled.flow.roles.length > 0
     const canWrite = previewCurrent && policy !== null && !stale && !previewPending && formIssues.length === 0
@@ -562,10 +559,13 @@ export const ShapeEditor = ({ root, context, goal, document: initialDocument, in
         onDelete={() => setDeleting(true)} canWrite={canWrite}
         deleteReason={saveReadPending ? 'The saved Flow is still being read.' : saveConflict ? 'Review the saved file before deleting it.' : !document || document.target.kind !== 'flow' ? 'Save this Flow first.' : document.target.origin === 'builtin' ? 'Built-in Flows cannot be deleted.' : !document.writable ? 'This Flow cannot be changed here.' : false} />
       <FlowCanvasWorkspace onCloseRail={() => setRail(false)} toolbar={
-          <FlowCanvasToolbar actions={<>
+          <FlowCanvasToolbar placement="bar" actions={<>
             <Button size="sm" variant="outline" disabled={!policy || previewPending} onClick={() => { setShowDryRun(true); void runDryRun(sourceRef.current) }}>{previewPending ? 'Checking…' : 'Dry run'}</Button>
+            <Chip size="sm" tone="neutral" title={document?.displayPath ?? 'Unsaved Flow'}>{saveReadPending ? 'Reading…' : saveConflict ? 'Needs review' : !document ? 'Unsaved' : document.source !== source ? 'Modified' : 'Saved'}</Chip>
+            <Button size="sm" variant="outline" disabled={!canWrite || saveReadPending || saveConflict !== null} onClick={() => setShowSave(true)}>Save…</Button>
             <Button size="sm" disabled={!canWrite} onClick={() => onStartTeam?.(sourceRef.current)}>Start a Team</Button>
           </>}>
+            <Button size="sm" variant="ghost" onClick={onClose}>Back to Flows</Button>
             <DropdownMenu icons="none">
               <DropdownMenuTrigger render={<Button size="sm" variant="outline" disabled={!policy}><PlusIcon size={14} />Step</Button>} />
               <DropdownMenuContent align="start">
@@ -590,13 +590,13 @@ export const ShapeEditor = ({ root, context, goal, document: initialDocument, in
               </TabsList>
             </Tabs>
           </FlowCanvasToolbar>} main={<>
+          {saveNotice}
           {loadingDraft && <Note>Reading…</Note>}
           {stale && <Banner tone="warning" title={legacy && document ? 'This Flow uses an earlier format' : 'This source does not parse yet'}>{legacy && document && onUpdate ? <Button size="sm" variant="outline" onClick={onUpdate}>{document.target.origin === 'project' ? 'Update…' : 'Customize…'}</Button> : 'The steps below are the last valid form. Fix the file to save or start this Flow.'}</Banner>}
           {formIssues.length > 0 && <Banner tone="danger" title="This change cannot be saved or started yet"><NoteList>{formIssues.map(issue => <li key={`${issue.at}:${issue.text}`}>{issue.at} — {issue.text} {issue.fix}</li>)}</NoteList></Banner>}
           {problem && <ActionError>{problem}</ActionError>}
           {tab === 'graph' && policy && <FlowCanvasSurface><ShapeGraph policy={policy} selected={selectedRole} selectedRule={selectedRule} canvasOnly
             onSelect={id => { setSelectedRole(id); setSelectedRule(null); if (id) setRail(true) }} onConnect={connect}
-            onAddStep={() => addRole('agent')}
             onRemoveRole={id => { const index = policy.roles.findIndex(role => role.id === id); if (index >= 0) removeRole(index) }}
             onRemoveRule={id => { const index = policy.rules.findIndex(rule => rule.id === id); if (index >= 0) removeRule(index) }}
             onPositions={positions => void editPolicy(withGraphPositions(policy, positions))}
@@ -608,14 +608,21 @@ export const ShapeEditor = ({ root, context, goal, document: initialDocument, in
           {tab === 'source' && <FlowCanvasContent><Field label="Source" hint="The exact file this would write. Unrecognized syntax stays here.">{control => <Textarea {...control} variant="code" rows={24} value={source} onChange={event => editSource(event.target.value)} />}</Field></FlowCanvasContent>}
           {errors.length > 0 && <Banner tone="danger" title="This will not run yet"><NoteList>{errors.map(error => <li key={`${error.at}:${error.text}`}>{error.at} — {error.text}</li>)}</NoteList></Banner>}
         </>} rail={rail ? <ToolBody>
-          <ToolSection label={role ? `Step · ${role.id}` : 'Selected step'}>
-            {role ? <><KeyValue variant="panel"><KeyValueRow label="Role">{role.id}</KeyValueRow>
-              {role.kind === 'agent' && <><KeyValueRow label="Agent">{role.uses.map(id => roster.get(id)?.definition?.name ?? id).join(', ') || 'Choose an Agent'}</KeyValueRow><KeyValueRow label="Effort">{efforts.join(', ') || role.seats.map(seat => seat.effort).filter(Boolean).join(', ') || 'Agent preference'}</KeyValueRow><KeyValueRow label="Answers">{answers.join(', ') || 'Declared by the Agent'}</KeyValueRow><KeyValueRow label="When it pushes">{role.grant === 'read' || role.grant === 'edit' ? 'Cannot push' : 'Follows its grant'}</KeyValueRow></>}
-              </KeyValue><ToolFold label="Edit step">
-              <ShapeStep key={role.id} role={role} agents={[...roster.values()]} runtimes={snapshot.runtimes} onChange={next => { setSelectedRole(next.id); updateRole(selectedIndex, next) }} />
-              <ToolBodyControls><Button size="sm" variant="ghost" disabled={selectedIndex === 0} onClick={() => moveRole(selectedIndex, -1)}>Move up</Button><Button size="sm" variant="ghost" disabled={!policy || selectedIndex === policy.roles.length - 1} onClick={() => moveRole(selectedIndex, 1)}>Move down</Button><Button size="sm" variant="ghost" disabled={!policy || !roleRemovable(policy, role.id)} onClick={() => removeRole(selectedIndex)}>Remove step</Button></ToolBodyControls></ToolFold></> : <ToolProse>Select a step to edit it.</ToolProse>}
+          <ToolSection label={role ? `Step · ${role.id}` : 'Selected step'} fold value={role?.kind === 'person' ? 'Your turn' : role?.kind === 'check' ? 'Check' : role ? 'Agent' : undefined} action={role && <DropdownMenu icons="all">
+            <DropdownMenuTrigger render={<BoardMenuButton aria-label={`Actions for step ${role.id}`} />} />
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem label="Move up" icon={<MoveUpIcon size={14} />} disabled={selectedIndex === 0} onClick={() => moveRole(selectedIndex, -1)} />
+              <DropdownMenuItem label="Move down" icon={<MoveDownIcon size={14} />} disabled={!policy || selectedIndex === policy.roles.length - 1} onClick={() => moveRole(selectedIndex, 1)} />
+              <DropdownMenuSeparator />
+              <DropdownMenuItem label="Remove step" icon={<TrashIcon size={14} />} variant="destructive" disabled={!policy || !roleRemovable(policy, role.id)} onClick={() => removeRole(selectedIndex)} />
+            </DropdownMenuContent>
+          </DropdownMenu>}>
+            {role ? <>
+              <ShapeStep embedded key={role.id} role={role} agents={[...roster.values()]} runtimes={snapshot.runtimes} onChange={next => { setSelectedRole(next.id); updateRole(selectedIndex, next) }} />
+              </> : <ToolProse>Select a step to edit it.</ToolProse>}
           </ToolSection>
-          <ToolSection key={`rules:${selectedRule ?? ''}`} label="Rules" value={policy?.rules.length ?? 0} fold defaultOpen={selectedRule !== null}>
+          <ToolSection key={`advanced:${selectedRule ?? ''}`} label="Flow settings" fold defaultOpen={selectedRule !== null}>
+          <SectionHead level="label" name="Rules" />
             <ToolProse variant="note">Tried in order; the first match fires. A round that matches nothing ends the Run.</ToolProse>
             {policy?.rules.map((rule, index) => <div key={rule.id}><Row title={`${index + 1}. ${rule.id}`} control={
               <DropdownMenu icons="none"><DropdownMenuTrigger render={<BoardMenuButton aria-label={`Rule ${rule.id} actions`} />} /><DropdownMenuContent align="end">
@@ -625,20 +632,19 @@ export const ShapeEditor = ({ root, context, goal, document: initialDocument, in
               </DropdownMenuContent></DropdownMenu>
             } /><ShapeRule rule={rule} policy={policy} onChange={next => updateRule(index, next)} /></div>)}
             {policy?.rules.length === 0 && <ToolProse>No rules yet. The seed round runs, then the Run ends.</ToolProse>}
-          </ToolSection>
-          <ToolSection label="Triggers" fold defaultOpen={false}>
+          <ToolFold label="Triggers">
             {savedFlowId ? <ProjectTriggers key={savedFlowId} root={root} flow={savedFlowId} embedded /> : <ToolProse>Save this Flow before adding a trigger.</ToolProse>}
             <TriggerSettings />
-          </ToolSection>
-          <ToolSection label="Runs" value={countKnown(root) ? runs.length : '—'} fold defaultOpen={false}>
+          </ToolFold>
+          <ToolFold label="Runs">
             <ToolProse variant="note">{countKnown(root) ? 'Loaded Runs with this exact policy; identical copies match too.' : 'The recorded Runs could not all be read yet.'}</ToolProse>
             {runs.length === 0 ? <ToolProse>No recorded Runs loaded for this Flow.</ToolProse> : runs.map(run => <Row key={run.id} title={run.id} desc={run.state} control={<Button size="sm" variant="ghost" onClick={() => store.openGoal(run.goal)}>Open Team</Button>} />)}
-          </ToolSection>
-          <ToolSection label="Source" fold>
+          </ToolFold>
+          <ToolFold label="Source">
             <ToolProse>{saveReadPending ? 'Reading saved Flow…' : document?.displayPath ?? 'Unsaved Flow'}</ToolProse>
-            {saveNotice}
-            <ToolBodyControls><Button size="sm" variant="outline" disabled={!canWrite || saveReadPending || saveConflict !== null} onClick={() => setShowSave(true)}>Save…</Button><Button size="sm" variant="ghost" onClick={() => setTab('source')}>File</Button></ToolBodyControls>
+            <ToolBodyControls><Button size="sm" variant="ghost" onClick={() => setTab('source')}>File</Button></ToolBodyControls>
             {document?.issues.map(issue => <ToolProse key={`${issue.at}:${issue.text}`}>{issue.text} {issue.fix}</ToolProse>)}
+          </ToolFold>
           </ToolSection>
         </ToolBody> : undefined} />
       {active && rename && policy && <Dialog title="Rename Flow" onClose={() => setRename(false)} footer={<><Button disabled={!name.trim()} onClick={() => { void editPolicy({ ...policy, name: name.trim() }); setRename(false) }}>Rename</Button><Button variant="secondary" onClick={() => setRename(false)}>Cancel</Button></>}><Field label="Name">{control => <Input {...control} value={name} onChange={event => setName(event.target.value)} />}</Field></Dialog>}

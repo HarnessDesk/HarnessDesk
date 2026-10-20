@@ -5101,6 +5101,12 @@ export class AppStore {
     return view
   }
 
+  async startTeam(input: HostParams<'goal/start'>): Promise<GoalView> {
+    const view = await this.transport.request('goal/start', input)
+    this.#keepGoal(view)
+    return view
+  }
+
   async updateGoal(
     goal: GoalId,
     revision: number,
@@ -7009,19 +7015,21 @@ export class AppStore {
    * only when it *changes* — a job that has been running since before this
    * window opened would otherwise be invisible until it ended.
    */
-  async refreshTasks(key = this.#snapshot.activeSessionKey): Promise<void> {
-    if (!key) return
+  async refreshTasks(key = this.#snapshot.activeSessionKey): Promise<'loaded' | 'unsupported' | 'failed'> {
+    if (!key) return 'unsupported'
     const runtime = this.#snapshot.runtimes.find((entry) => entry.id === address(key).runtime)
-    if (runtime && !runtime.capabilities.backgroundTasks) return
+    if (runtime && !runtime.capabilities.backgroundTasks) return 'unsupported'
     try {
       const tasks = await this.transport.request('tasks/list', address(key))
       const next = new Map(this.#snapshot.tasks)
       if (tasks.length === 0) next.delete(key)
       else next.set(key, orderTasks(tasks))
       this.#patch({ tasks: next })
+      return 'loaded'
     } catch {
-      // A runtime that cannot answer has nothing to show; leaving the last
-      // known list alone beats blanking a panel because one read failed.
+      // Preserve the held list while letting an optional collection distinguish
+      // a failed read from an authoritative empty result.
+      return 'failed'
     }
   }
 

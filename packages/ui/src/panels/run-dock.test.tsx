@@ -74,8 +74,9 @@ it('selecting Timeline or Flow changes main only, while selecting a row explicit
       flow={<div data-fixture-flow>Recorded Flow</div>} inspector={{input:fixture,seats:[]}} />
   }
   const choose = (label: string) => {
-    act(() => container.querySelector<HTMLButtonElement>('[data-slot="page-options"] button[title="View"]')!.click())
-    act(() => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === label)!.click())
+    const current = container.querySelector('[data-slot="run-workspace"]')?.getAttribute('data-view') === 'flow' ? 'Flow' : 'Timeline'
+    act(() => container.querySelector<HTMLButtonElement>(`[data-slot="page-options"] button[aria-label="${current}"]`)!.click())
+    act(() => [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(one => one.textContent === label)!.click())
   }
   try {
     act(() => root.render(<StoreProvider store={store}><TopBarProvider><RunDockProvider><PaneProvider scope={scope('dock-team')}>
@@ -88,6 +89,32 @@ it('selecting Timeline or Flow changes main only, while selecting a row explicit
     expect(store.getSnapshot().workbench.right).toBe(before)
     act(() => container.querySelector<HTMLButtonElement>('[data-row="card-1-1"] button')!.click())
     expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]).toMatchObject({tool:'details',mode:'run-details',open:true})
+  } finally { act(() => root.unmount()); container.remove() }
+})
+
+it('the explicit Run summary action opens recorded details instead of an empty pane', () => {
+  const store = runDockStore(), source = runFixture()
+  const fixture = { ...source, execution: { ...source.execution, reason: 'Choose the target before continuing.' } }
+  const model = runTimeline(fixture)
+  const container = document.createElement('div'), root = createRoot(container)
+  const Producer = () => {
+    const [selectedRow, onSelect] = useState<string | null>(null)
+    return <RunWorkspace unified model={{ ...model, header: { ...model.header, needsYou: true } }} number={1}
+      selectedRow={selectedRow} onSelect={onSelect} inspector={{ input: fixture, seats: [] }} />
+  }
+  try {
+    act(() => root.render(<StoreProvider store={store}><TopBarProvider><RunDockProvider><PaneProvider scope={scope('dock-team')}>
+      <Producer /><aside><RunDetailsView inspectionOnly /></aside>
+    </PaneProvider></RunDockProvider></TopBarProvider></StoreProvider>))
+    expect(container.querySelector('aside')?.textContent).toBe('')
+    const action = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Review details')!
+    expect(action).toBeDefined()
+    act(() => action.click())
+    expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]).toMatchObject({ tool: 'details', mode: 'run-details', open: true })
+    expect(container.querySelector('aside [aria-label="Team Run facts"]')).not.toBeNull()
+    expect(container.querySelector('aside')?.textContent).toContain('Running')
+    expect(container.querySelector('aside')?.textContent).toContain('Choose the target before continuing.')
+    expect(container.querySelectorAll('[data-slot="run-inspector"]')).toHaveLength(1)
   } finally { act(() => root.unmount()); container.remove() }
 })
 
@@ -130,7 +157,7 @@ it('a stale producer cleanup does not remove a newer owner publication', () => {
   } finally { act(() => root.unmount()); container.remove() }
 })
 
-it.each([null,'run','round-1','step:writer','missing'])('unsupported selection %s adds no duplicate Run summary in tool mode', selectedRow => {
+it.each([null,'run','round-1','step:missing','missing'])('unsupported selection %s adds no duplicate Run summary in tool mode', selectedRow => {
   const fixture = runFixture()
   const container = document.createElement('div'), root = createRoot(container)
   try {
