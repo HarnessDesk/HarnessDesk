@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, screen, session, shell, Tray, webContents } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { readdir, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -634,6 +634,16 @@ const sendShortcut = (name) => {
  */
 const browserEngine = createInlineBrowserEngine({
   allowedProfile: (profile) => host?.browserProfileAllowed(profile) === true,
+  resolveProfile: (partition) => host?.browserProfileForPartition(partition),
+  storedPartitions: async () => {
+    try {
+      return (await readdir(join(app.getPath('sessionData'), 'Partitions'), { withFileTypes: true }))
+        .filter(entry => entry.isDirectory()).map(entry => entry.name)
+    } catch (error) {
+      if (error?.code === 'ENOENT') return []
+      throw error
+    }
+  },
   window: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
   show: async () => {
     await showMainWindow()
@@ -918,6 +928,10 @@ ipcMain.handle('harnessdesk:browser-annotate', async (event, request) => {
 ipcMain.handle('harnessdesk:browser-clear-data', async (event, request) => {
   if (event.sender !== mainWindow?.webContents) {
     throw new Error('Only the desk can clear a browser profile.')
+  }
+  if (request?.all === true) {
+    await browserEngine.clearAllData()
+    return
   }
   const partition = browserEngine.partition(request?.profile ?? null)
   await session.fromPartition(partition).clearStorageData()

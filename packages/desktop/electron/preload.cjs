@@ -154,6 +154,7 @@ contextBridge.exposeInMainWorld('harnessdesk', {
       id,
       name: typeof name === 'string' ? name.slice(0, 200) : '',
     }),
+  clearAllBrowserData: () => ipcRenderer.invoke('harnessdesk:browser-clear-data', { all: true }),
   clearBrowserData: (profile = null) =>
     ipcRenderer.invoke('harnessdesk:browser-clear-data', { profile }),
   /**

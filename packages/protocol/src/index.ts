@@ -7,6 +7,7 @@
 
 export * from './errors.js'
 export * from './ids.js'
+export * from './browser-profile.js'
 export * from './items.js'
 export * from './plan.js'
 export * from './tasks.js'

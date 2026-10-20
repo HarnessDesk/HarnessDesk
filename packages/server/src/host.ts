@@ -20,6 +20,9 @@ import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
+  browserProfileStorageName,
+  sessionBrowserProfile,
+  browserProfileSession,
   deskContextContent,
   approvalId as makeApprovalId,
   FLOW_BOARD_TOOL_NAMES,
@@ -675,12 +678,52 @@ const findingDecisionRefusal = (store: GoalStore, goal: string): string | null =
 }
 
 export class Host {
-  /** Desktop may restore only a persisted, unreleased lane's opaque profile. */
+  /** Desktop restores only a known conversation or a retained legacy lane profile. */
   browserProfileAllowed(profile: string): boolean {
-    return this.#lanes
-      .list()
-      // Profile names are opaque identifiers, not filesystem paths.
-      .some((lane) => Object.is(lane.browserProfile, profile) && lane.state !== 'released')
+    const owner = browserProfileSession(profile)
+    if (owner) {
+      try { return Object.is(this.#sessionBrowserProfile(owner.runtime, owner.sessionId), profile) }
+      catch { return false }
+    }
+    return this.#lanes.list().some(lane => Object.is(lane.browserProfile, profile) && lane.state !== 'released')
+  }
+
+  /** Resolve only known session identities; a digest alone never authorizes a partition. */
+  browserProfileForPartition(partition: string): string | undefined {
+    if (!/^(?:persist:)?hd-session-[a-f0-9]{64}$/.test(partition) || partition.endsWith('\n')) return undefined
+    const storageName = partition.replace(/^persist:/, '').slice('hd-'.length)
+    let owner = this.#sessionIndex.browserProfileOwner(storageName)
+    if (!owner) {
+      const live = this.registry.all().find(record => Object.is(browserProfileStorageName(sessionBrowserProfile(record.runtime, record.session.id)), storageName))
+      owner = live ? { runtime: live.runtime, id: live.session.id } : null
+    }
+    if (!owner) return undefined
+    const profile = sessionBrowserProfile(owner.runtime, owner.id)
+    return this.browserProfileAllowed(profile) ? profile : undefined
+  }
+
+  readonly #browserProfileChecks = new Map<string, { cwd: string; revision: number; until: number; profile: string }>()
+
+  #sessionBrowserProfile(runtime: RuntimeId, id: SessionId): string | undefined {
+    const session = this.registry.get(runtime, id)?.session ??
+      (this.#sessionIndex.isRemoved(runtime, id) ? null : this.#sessionIndex.get(runtime, id))
+    if (!session) return undefined
+    const key = sessionKey(runtime, id), revision = this.#laneStore.revision, now = Date.now()
+    const cached = this.#browserProfileChecks.get(key)
+    if (cached && samePath(cached.cwd, session.cwd) && cached.revision === revision && cached.until > now) return cached.profile
+    const profile = withCanonicalPaths(() => {
+      const cwd = canonicalPath(session.cwd)
+      const matches = this.#lanes.list().filter(lane => lane.cwd !== '' && samePath(canonicalPath(lane.cwd), cwd))
+      if (matches.length > 1) throw new Error('This checkout has conflicting browser lanes.')
+      if (matches[0]?.state === 'released') throw new Error('This lane was released. Open a new isolated Seat.')
+      return sessionBrowserProfile(runtime, id)
+    })
+    // CDP sends repeatedly check the same owner. Lane writes invalidate at
+    // once; a short lifetime also rechecks filesystem aliases without making
+    // every command resolve every retained lane synchronously.
+    if (this.#browserProfileChecks.size >= 512) this.#browserProfileChecks.delete(this.#browserProfileChecks.keys().next().value!)
+    this.#browserProfileChecks.set(key, { cwd: session.cwd, revision, until: now + 1000, profile })
+    return profile
   }
 
   readonly registry = new SessionRegistry()
@@ -2072,21 +2115,12 @@ export class Host {
     })
     this.#extensions = options.extensions ?? null
     this.#extensions?.setShellWorkspaceResolver((scope) => this.#shellWorkspace(scope))
-    this.#extensions?.setBrowserResolver?.((scope) => withCanonicalPaths(() => {
+    this.#extensions?.setBrowserResolver?.((scope) => {
       if (!scope.runtime || !scope.sessionId) return undefined
-      const record = this.registry.get(scope.runtime, scope.sessionId)
-      if (!record) return undefined
-      const cwd = canonicalPath(record.session.cwd)
-      const matches = this.#lanes
-        .list()
-        .filter((lane) => lane.cwd !== '' && samePath(canonicalPath(lane.cwd), cwd))
-      if (matches.length > 1) throw new Error('This checkout has conflicting browser lanes.')
-      const lane = matches[0]
-      if (lane?.state === 'released') {
-        throw new Error('This lane was released. Open a new isolated Seat.')
-      }
-      return lane?.browserProfile ?? 'default'
-    }))
+      const profile = this.#sessionBrowserProfile(scope.runtime, scope.sessionId)
+      if (!profile) throw new Error('Browser tools need a known conversation.')
+      return profile
+    })
     if (this.#extensions) {
       this.#subscriptions.push(
         this.#extensions.subscribe((event) => this.#onExtensionEvent(event)),

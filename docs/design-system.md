@@ -1867,6 +1867,12 @@ A quiet account row closes the column beneath a full-width hairline.
 
 Explorer occupies the same column; its header and foot share the row inset.
 
+### `LeftColumnSeats`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+Seat rows indent their leading column while retaining the parent's end rail.
+
 ### `LibraryMatrix`
 
 `packages/ui/src/design/patterns/LibraryMatrix.tsx`
@@ -1903,6 +1909,12 @@ Keep work and visited pages mounted; only the active main layer is interactive.
 `packages/ui/src/design/patterns/MainDestination.tsx`
 
 Each visited page owns one scroll element for the current project.
+
+### `IssueMark`
+
+`packages/ui/src/design/patterns/Menu.tsx`
+
+A single-line warning or error with an explanation on hover and in the accessible name.
 
 ### `MenuAccountGroup`
 

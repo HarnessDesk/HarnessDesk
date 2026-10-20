@@ -223,7 +223,6 @@ const SIDEBAR_CATALOG_STATES = [
 const fullSidebarStore = previewStore(sidebarGeometryFixture(store.getSnapshot()))
 const SidebarBoard = () => (
   <div className="grid gap-(--hd-space-4)" data-catalog-example="sidebar" data-catalog-variants={SIDEBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIDEBAR_CATALOG_SIZES.join(' ')} data-catalog-states={SIDEBAR_CATALOG_STATES.join(' ')}>
-    <section data-catalog-case="project-team-seat-hierarchy"><SidebarStructureExample /></section>
     <div className="grid gap-(--hd-space-2)" aria-label="Sidebar trailing slot anatomy">
       <SidebarMenu className="list-none">
         <SidebarMenuItem data-catalog-label-case="empty">
@@ -281,6 +280,7 @@ const SidebarBoard = () => (
         </SidebarMenuItem>
       </SidebarMenu>
     </div>
+    <section data-catalog-case="project-team-seat-hierarchy"><SidebarStructureExample /></section>
     <div className="relative h-[48rem] w-[12.5rem] max-w-full overflow-hidden rounded-(--hd-radius) border border-sidebar-border">
       <Mount with={fullSidebarStore}><ProductSidebar
         onOpenSettings={() => {}}

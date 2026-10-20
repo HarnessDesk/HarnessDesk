@@ -38,12 +38,13 @@ import { runSeatCosts } from '../lib/run-cost'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
 import { TeamRuns, teamTriggerLabel, useTeamTrigger } from './TeamRuns'
-import { StopRunDialog, StopRunFailure } from './StopRunDialog'
+import { StopRunFailure } from './StopRunDialog'
+import { useTeamActions } from './TeamActions'
 import { useCheckAttempts } from '../state/check-attempts'
 import { runTimelineOf } from '@harnessdesk/client/views'
 import { runPullRequest } from '../lib/run-timeline'
 import { shortSha } from '../lib/evidence'
-import { goalActions, goalName } from '../lib/goals'
+import { goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
 import { canPlace, forgetMissing, fromStored, MAX_TILES, placeTile, removeTile, wouldReplace as modelWouldReplace, type SideBySideState } from '../lib/side-by-side'
 import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, originHoverWords, originSubject } from '../lib/intake'
@@ -74,7 +75,6 @@ import {
   MoreIcon,
   PlusIcon,
   PullRequestIcon,
-  PencilIcon, RetryIcon, StopIcon,
   ShieldOffIcon,
 } from './Icons'
 import { AddMember } from './AddMember'
@@ -96,14 +96,12 @@ import { RoomMessagesHeld } from './RoomMessaging'
 import { formatDuration } from './TurnTail'
 import { GoalFindings } from './GoalFindings'
 import { GoalHeader } from './GoalHeader'
-import { GoalWrap } from './GoalWrap'
 import { GoalReceipt } from './GoalReceipt'
 import { GoalReceiptCost } from './GoalReceiptCost'
 import { FindingCarry } from './FindingCarry'
 import { FindingDetail } from './FindingDetail'
 import { FlowRunStatus } from './FlowRunStatus'
 import { RetryCheck } from './RetryCheck'
-import { RunAgain } from './RunAgain'
 import { WindowControls } from './WindowControls'
 import {
   SeatList,
@@ -113,7 +111,7 @@ import {
   type SeatListRow,
   type TopBarTab,
   ActionError,
-  Dialog, Field, FormStack, Input, Page, Tabs, TabsList, TabsTrigger, Tooltip, TooltipTrigger, TooltipContent,
+  Page, Tabs, TabsList, TabsTrigger, Tooltip, TooltipTrigger, TooltipContent,
   Bar,
   Button,
   Chip,
@@ -197,18 +195,8 @@ export const TeamRoomPane = ({
   const [addressedSeat, setAddressedSeat] = useState<SessionKey | null>(null)
   const goal = snapshot.goals.get(room)
   const record = isRecord(goal)
-  const [stoppingRun, setStoppingRun] = useState<string | null>(null)
-  const stoppingExecution = stoppingRun ? snapshot.flowExecutions.get(stoppingRun) : null
-  // Only the open Seats recorded by this Run: a Team can also hold another Run's Seats.
-  const stopSeatIds = new Set(stoppingExecution?.rounds.flatMap(round => round.seats) ?? [])
-  const stopSeatNames = new Map(stoppingExecution ? teamSeats(goal, snapshot.teams.get(room), stoppingExecution, 'seat').map(seat => [seat.record.id, seat.name]) : [])
-  const stopSeats = (goal?.members ?? []).filter(seat => !seat.closed && stopSeatIds.has(seat.id)).map(seat => ({
-    id: seat.id,
-    name: stopSeatNames.get(seat.id) ?? 'Agent',
-    interrupt: snapshot.runtimes.find(runtime => runtime.id === seat.session.runtime)?.capabilities.interrupt,
-  }))
-  /** Shared by Overview's Wrap button and the More menu. */
-  const wrapDisabled = goal ? goalActions(goal.goal).disabled || goal.problem !== null : true
+  const actions = useTeamActions(room, { onRunStarted: next => { setChosenRun(next.id); show('run') } })
+  const { wrapDisabled, setWrapping, setStoppingRun, setAgain } = actions
   /**
    * The run this Goal names for itself — its reservation, else the flow that
    * opened it — asked for below when this window has not cached it yet; and
@@ -394,9 +382,8 @@ export const TeamRoomPane = ({
   }, [room, roomView?.room, roomView?.chatMember, roomView?.framePage, roomView?.chatLayout,
     roomView?.framePage === 'room' ? grid.tiles.length : 0])
   const [chosenRun, setChosenRun] = useState<string | null>(null)
-  const [again, setAgain] = useState<FlowExecution | null>(null)
   const [retryCheck, setRetryCheck] = useState<{ run: string; card: number } | null>(null)
-  useEffect(() => { setAgain(null); setRetryCheck(null); setChosenRun(null); setAddressedSeat(null) }, [room])
+  useEffect(() => { setRetryCheck(null); setChosenRun(null); setAddressedSeat(null) }, [room])
   const [selectedRunRows, setSelectedRunRows] = useState<ReadonlyMap<string, string>>(new Map())
   const runs = useMemo(() => [...snapshot.flowExecutions.values()].filter(one => one.goal === room)
     .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0)), [snapshot.flowExecutions, room])
@@ -459,7 +446,6 @@ export const TeamRoomPane = ({
   const [filter, setFilter] = useState('')
   /** The "add an agent" dialog, opened from the roster's own heading. */
   const [adding, setAdding] = useState(false)
-  const [wrapping, setWrapping] = useState(false)
   /** A finding opened from the wrapped Goal's receipt: its full history, read on its own. */
   const [receiptFinding, setReceiptFinding] = useState<string | null>(null)
   /**
@@ -987,14 +973,6 @@ export const TeamRoomPane = ({
      changes is worse than none. */
   const fullTitle = goal ? goalName(goal.goal) : team?.name ?? ''
   const title = fullTitle.match(/^.*?[.!?](?:\s|$)/)?.[0].trim() ?? fullTitle
-  const [renaming, setRenaming] = useState(false)
-  const [rename, setRename] = useState('')
-  const [renameError, setRenameError] = useState<string | null>(null)
-  const renameSubject = async () => {
-    if (!rename.trim() || !goal) return
-    try { await store.updateGoal(goal.goal.id, goal.goal.revision, { sentence: rename.trim() }); setRenaming(false) }
-    catch (cause) { setRenameError(cause instanceof Error ? cause.message : String(cause)) }
-  }
   /**
    * The one member (if any) a runtime is waiting on a person for, in room
    * order — the header's own state chip pulses for this, the room's chat
@@ -1089,13 +1067,7 @@ export const TeamRoomPane = ({
   useTopBar(mainOwner, {
     lead: <WindowControls />,
     place: sanitizeText(title), placeTitle: sanitizeText(fullTitle), state: runState ? <Dot tone={runState.tone} pulse={runState.pulse} title={runState.label} aria-label={runState.label} /> : undefined,
-    placeMenu: close => <>
-      {goal && <MenuItem icon={<PencilIcon />} label="Rename" disabled={record ? RECORD_REASON : false} onSelect={() => { setRename(goal.goal.sentence); setRenameError(null); setRenaming(true); close() }} />}
-      {pullRequest && <MenuItem icon={<PullRequestIcon />} label="Open pull request" onSelect={() => { void openExternal(pullRequest.url); close() }} />}
-      {flowExecution && <MenuItem icon={<RetryIcon />} label="Run again…" disabled={record ? RECORD_REASON : goal?.goal.state !== 'open' ? 'This Team is not open' : false} onSelect={() => { setAgain(flowExecution); close() }} />}
-      {goal?.goal.state !== 'wrapped' && <MenuItem icon={<CommentIcon />} label="Wrap…" disabled={record ? RECORD_REASON : wrapDisabled} onSelect={() => { setWrapping(true); close() }} />}
-      {flowExecution && <MenuItem icon={<StopIcon />} label="Stop run…" disabled={record ? RECORD_REASON : flowExecution.state !== 'running' ? 'This Run is not running' : false} onSelect={() => { setStoppingRun(flowExecution.id); close() }} />}
-    </>,
+    placeMenu: close => actions.items(close, pullRequest && <MenuItem icon={<PullRequestIcon />} label="Open pull request" onSelect={() => { void openExternal(pullRequest.url); close() }} />),
     tools: <WorkTools changesRefusal={teamChangesRefusal} />,
     terminal: true,
     more: close => <>
@@ -1190,24 +1162,13 @@ export const TeamRoomPane = ({
 
   return (
     <PaneSurface className={`${styles.pane} h-full`} data-slot="team-room">
-      {renaming && <Dialog title="Rename Team" onClose={() => setRenaming(false)} footer={<>
-        <Button disabled={!rename.trim()} onClick={() => void renameSubject()}>Rename</Button><Button variant="quiet" onClick={() => setRenaming(false)}>Cancel</Button>
-      </>}><FormStack><Field label="Brief">{control => <Input {...control} value={rename} onChange={event => setRename(event.target.value)} autoFocus
-        onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void renameSubject() } }} />}</Field></FormStack>{renameError && <ActionError>{renameError}</ActionError>}</Dialog>}
+      {actions.dialogs}
       <PaneTabsRow controls={<WorkViewControlsOutlet owner={mainOwner} />}>
         <Tabs value={open === 'side-by-side' || singleMember ? 'room' : open}>
           <TabsList aria-label="Team views" data-look="quiet" className="max-w-full justify-start overflow-x-auto">{teamTabs.map(tab => <TeamViewTab key={tab.value} tab={tab}/>)}</TabsList>
         </Tabs>
       </PaneTabsRow>
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
-      {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
-      {stoppingRun && stoppingExecution?.goal === room ? <StopRunDialog key={stoppingRun} seats={stopSeats}
-        refusal={record ? RECORD_REASON : null}
-        ended={stoppingExecution.state === 'stopped' || stoppingExecution.state === 'settled'}
-        failure={snapshot.flowStopProblems.get(stoppingRun)}
-        onStop={reason => store.stopFlowExecution(stoppingRun, reason)} onClose={() => setStoppingRun(null)} /> : null}
-      {again?.goal === room && goal && <RunAgain key={again.id} execution={again} root={goal.goal.root} sentence={goal.goal.sentence}
-        onClose={() => setAgain(null)} onStarted={next => { setAgain(null); setChosenRun(next.id); show('run'); void store.loadTeamRuns(room) }} />}
       {retryCheck && runs.some(one => one.id === retryCheck.run) && <RetryCheck run={retryCheck.run} card={retryCheck.card} onClose={() => setRetryCheck(null)} />}
 
       {goal ? <GoalHeader view={goal} coveredProblem={flowExecution?.reason ?? timelineRun?.reason} /> : null}

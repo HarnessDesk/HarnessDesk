@@ -1,6 +1,7 @@
 import { destinationOf, readDestinationHistory, type DestinationHistory } from './destinations'
 import { FRAME } from '../design/frame'
 import { supportsFixedTool, toolOf, chooseTool, readToolIntents, type ToolIntent } from './frame-tools'
+import { browserProfileSession, sessionBrowserProfile, splitSessionKey } from '@harnessdesk/protocol'
 import type { UiArea } from '@harnessdesk/protocol'
 
 import {
@@ -1344,7 +1345,7 @@ export const readWorkbench = (raw: unknown, windowHeight = 900): Workbench | nul
     }
   }
 
-  return {
+  const workbench: Workbench = {
     navigation: readDestinationHistory(record['navigation'], navigationFor(main).current),
     frameTools: readToolIntents(record.frameTools), toolOwners, frameSubjects,
     sidebar: readDock('sidebar', record['sidebar'], windowHeight),
@@ -1354,6 +1355,24 @@ export const readWorkbench = (raw: unknown, windowHeight = 900): Workbench | nul
     zoom: readZoom(record['zoom']),
     focus: typeof record['focus'] === 'string' ? record['focus'] : null,
   }
+  return isolateSessionBrowserProfiles(workbench)
+}
+
+/** Run again after legacy panels are rehomed and their conversation owners are assigned. */
+export const isolateSessionBrowserProfiles = (before: Workbench): Workbench => {
+  let workbench = before
+  // Preserve saved pages, while old shared/lane cookies stay out of a
+  // conversation's new partition. Never assign a shared login to a session.
+  for (const entry of mountedViews(workbench)) {
+    const view = entry.mounted.view
+    if (view.kind !== 'browser' || (view.profile && browserProfileSession(view.profile))) continue
+    const owner = workbench.toolOwners[entry.mounted.id]
+    const scope = owner ? workbench.frameSubjects[owner]?.view : undefined
+    if (scope?.kind !== 'conversation' || !scope.session) continue
+    const { runtime, id } = splitSessionKey(scope.session)
+    workbench = replaceView(workbench, entry.mounted.id, { ...view, profile: sessionBrowserProfile(runtime, id) })
+  }
+  return workbench
 }
 
 /**

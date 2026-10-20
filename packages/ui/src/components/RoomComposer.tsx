@@ -36,6 +36,7 @@ import {
   ComposerText,
   ComposerTools,
   Button,
+  IssueMark,
   Text,
   TurnWorkLive,
 } from '../design'
@@ -733,10 +734,11 @@ export const RoomComposer = ({
                      right now at the end of the row. Two facts, two places —
                      joined by a middle dot they truncate each other, and the
                      half that survives is whichever happened to be shorter. */
-                  hint={one.unavailable ?? one.title ?? one.peer.model ?? undefined}
-                  disabled={one.unavailable}
+                  hint={one.unavailable ? undefined : one.title ?? one.peer.model ?? undefined}
+                  disabled={Boolean(one.unavailable)}
+                  title={one.unavailable ?? undefined}
                   value={
-                    !one.canUseBoard ? (
+                    one.unavailable ? <IssueMark message={one.unavailable} /> : !one.canUseBoard ? (
                       <Text role="meta" tone="warning">no tools</Text>
                     ) : one.busy ? (
                       'working'

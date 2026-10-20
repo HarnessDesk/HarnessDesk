@@ -191,6 +191,7 @@ export const Sidebar = ({
         now={now}
         suppressSelection={activeDestination !== null}
         searching={searchQuery.length > 0}
+        filter={searchQuery}
         searchEmptyState={searchQuery && !snapshot.historyLoading ? (
           <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
             {' '}

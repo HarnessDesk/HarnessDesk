@@ -36,6 +36,7 @@ export const worktreeMethods = {
     return ctx.worktrees.create(root, {
       name: params.name,
       ...(params.base ? { base: params.base } : {}),
+      ...(params.fromDefault ? { fromDefault: true } : {}),
     })
   },
 

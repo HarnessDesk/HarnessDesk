@@ -130,13 +130,13 @@ export const LaneSettings = ({ root }: { readonly root?: string }) => {
           )}
         />
         <Row
-          title="Isolated browser profiles"
-          desc="Keep cookies and local storage separate for each retained lane."
+          title="Legacy lane browser profiles"
+          desc="Reserve profiles for older lane integrations. Each session always has its own browser cookies and storage."
           control={(
             <Switch
               checked={stored.browserProfile}
               onCheckedChange={(checked) => void apply('browserProfile', { browserProfile: checked })}
-              aria-label="Isolated browser profiles"
+              aria-label="Legacy lane browser profiles"
               {...described('browserProfile')}
             />
           )}

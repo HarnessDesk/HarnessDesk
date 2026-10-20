@@ -5,11 +5,17 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.5.4 — 2026-10-20
 
-Agents that cannot start now say exactly what is missing from the moment a
-desk opens, Antigravity holds a second Google account, the Library keeps your
-place, and toasts move out of the way of the composer.
+Development sessions start in their own worktree and branch, agents that cannot
+start say exactly what is missing from the moment a desk opens, Antigravity
+holds a second Google account, the Library keeps your place, and toasts move out
+of the way of the composer.
+
+- **New development sessions start in their own worktree and branch.** Local remains an explicit choice; an opened linked worktree or repository subfolder keeps its selected location. Each session keeps its own browser tabs and sign-ins, even when sessions share a checkout, and updating a PR refuses a different branch. Team sidebar rows now expose their actions on right-click.
+- **A Team's seats are listed under it in the sidebar again**, and a conversation that is working shows a spinner.
+- **Flow card diagrams line up, and the Run view reads cleaner.** Every step in a card's diagram is the same width on one centre line with centred labels (a Flow whose cards were moved still draws whole), a step waiting on you no longer shows "0ms", and a long revision in a Run's facts is shortened in the middle instead of running out of its column.
+- **A conversation keeps its name after a live refresh**, in the command palette and every other session list, and an unavailable runtime or a model route you cannot use keeps its menu row at a steady height. An agent that declares its own mode options now has the chosen mode applied to the right option.
 
 ## 0.5.3 — 2026-10-18
 

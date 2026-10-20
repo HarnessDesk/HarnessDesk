@@ -27,7 +27,8 @@ import { FlowCanvas, FLOW_CANVAS_CARD_WIDTH, FLOW_CANVAS_RUN_CARD_HEIGHT, type F
 const durationOf = (run: FlowStepRun | undefined, now: number): string | null => {
   if (!run || run.durationMs === null) return null
   const elapsed = run.since !== null && (run.state === 'working' || run.state === 'waiting') ? Math.max(0, now - run.since) : 0
-  return formatDuration(run.durationMs + elapsed)
+  const total = run.durationMs + elapsed
+  return total > 0 ? formatDuration(total) : null
 }
 const statusOf = (run: FlowStepRun): string => ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Needs you', blocked: 'Waiting', stopping: 'Stopping', stopped: 'Stopped' })[run.state]
 

@@ -1,5 +1,5 @@
 import { supportsFixedTool } from '../state/frame-tools'
-import { sessionKey, type SessionKey } from '@harnessdesk/protocol'
+import { sessionBrowserProfile, splitSessionKey, sessionKey, type SessionKey } from '@harnessdesk/protocol'
 import type { AppSnapshot } from '../state/snapshot'
 import { browserView, panes } from '../state/layout'
 import { findView, mountedViews, removeAt, viewAt, type Workbench } from '../state/workbench'
@@ -11,7 +11,7 @@ export interface BrowserTileMount {
 }
 export const browserProfileKey = (profile: string | null): string => profile ?? 'default'
 
-/** One live guest per profile, even when two tiles share the ordinary browser. */
+/** One live guest per profile, even when two tiles display the same conversation. */
 export class BrowserTileRegistry {
   readonly #claims = new Map<string, BrowserTileMount[]>()
   mount(profile: string | null, mount: BrowserTileMount, publish: (owners: ReadonlyMap<string, BrowserTileMount>) => void): () => void {
@@ -31,7 +31,7 @@ export class BrowserTileRegistry {
   }
 }
 
-/** The host resolves browser scope by the Seat's checkout, never by a selected agent. */
+/** Each conversation owns a profile; lane membership only refuses released or unknown lanes. */
 export function seatBrowserProfile(snapshot: AppSnapshot, key: SessionKey): string | null | undefined {
   if (snapshot.lanePreferences === null) return undefined
   const seats = [...snapshot.goals.values()].flatMap(goal => goal.members)
@@ -40,8 +40,10 @@ export function seatBrowserProfile(snapshot: AppSnapshot, key: SessionKey): stri
   const cwd = seat?.checkout.cwd ?? snapshot.sessions.get(key)?.cwd
   if (!cwd) return undefined
   const lane = snapshot.lanes.find(one => one.cwd === cwd)
-  if (lane) return lane.state === 'released' ? undefined : lane.browserProfile
-  return seat?.board && snapshot.goals.get(seat.board)?.goal.checkout === 'isolated' ? undefined : null
+  if (lane?.state === 'released') return undefined
+  if (!lane && seat?.board && snapshot.goals.get(seat.board)?.goal.checkout === 'isolated') return undefined
+  const { runtime, id } = splitSessionKey(key)
+  return sessionBrowserProfile(runtime, id)
 }
 
 export function browserMount(snapshot: AppSnapshot, profile: string | null) {

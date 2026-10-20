@@ -1805,8 +1805,8 @@ export interface HostMethods {
    */
   'worktree/list': { params: { readonly root: string }; result: readonly Worktree[] }
   'worktree/create': {
-    /** `base` is the commit-ish the new branch starts from; HEAD when absent. */
-    params: { readonly root: string; readonly name: string; readonly base?: string }
+    /** `base` wins; otherwise `fromDefault` uses the known default branch, or HEAD for a local repository without one. */
+    params: { readonly root: string; readonly name: string; readonly base?: string; readonly fromDefault?: boolean }
     result: Worktree
   }
   'worktree/changes': { params: { readonly path: string }; result: WorktreeChanges }
