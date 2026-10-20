@@ -381,9 +381,9 @@ export const ChannelStream = ({
         row.kind === 'notice' ? (
           <ChannelNotice
             key={row.entry.id}
-            about={actorName(row.entry.about, snapshot)}
+            about={sanitizeText(actorName(row.entry.about, snapshot))}
             cause={row.entry.cause}
-            text={row.entry.text}
+            text={sanitizeText(row.entry.text)}
             at={timeOf(row.entry.at)}
           />
         ) : row.kind === 'signal' ? (

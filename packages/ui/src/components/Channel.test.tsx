@@ -675,6 +675,26 @@ it('uses actor ownership for direction while preserving safe rich content and qu
   expect(activity.hasAttribute('data-own')).toBe(false)
 })
 
+it.each([true, false])('sanitizes notice names and runtime words while retaining literal markup (nickname: %s)', async named => {
+  const { store } = rig()
+  const entries: TeamEntry[] = [{
+    id: 'unsafe-notice', at: 100, kind: 'notice', cause: 'limit',
+    about: { kind: 'agent', runtime: runtimeId('codex'), sessionId: 'c1',
+      title: '\u001b[31mTask <retry>\u001b[0m\u0000',
+      ...(named ? { nickname: '\u001b]0;hidden title\u0007Builder <lead>' } : {}),
+    },
+    text: '\u001b[33mWait & retry\u001b[0m\u0000\u001b]8;;https://example.com\u001b\\ <img src=x onerror=alert(1)>\u001b]8;;\u001b\\',
+  }]
+  await render(store, entries)
+  const notice = container.querySelector('[data-channel="notice"]')!
+  expect(notice.textContent).toContain(named ? 'Builder <lead> (Task <retry>)' : 'Task <retry> (Codex)')
+  expect(notice.textContent).toContain('Wait & retry <img src=x onerror=alert(1)>')
+  expect(notice.textContent).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/)
+  expect(notice.textContent).not.toContain('hidden title')
+  expect(notice.textContent).not.toContain('&lt;')
+  expect(notice.querySelector('img, script, lead, retry')).toBeNull()
+})
+
 it('draws your face at the cost of anyone else’s row — no subscription of its own', async () => {
   // Every row already subscribes once, for the theme its Markdown is drawn in;
   // what is pinned is that your face adds nothing on top of that, so a row of
