@@ -16,7 +16,7 @@ for (const theme of ['light', 'dark'] as const) test(`a command keeps its text i
     })
     for (const part of geometry) for (const overflow of Object.values(part)) expect(overflow).toBeLessThanOrEqual(1)
     const plate = command.locator('..')
-    const copy = plate.getByRole('button', { name: 'Copy this command', exact: true })
+    const copy = plate.getByRole('button', { name: 'Copy the command for Review the checkout', exact: true })
     const box = (await copy.boundingBox())!
     const bounds = (await plate.boundingBox())!
     expect(box.x).toBeGreaterThanOrEqual(bounds.x)
