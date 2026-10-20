@@ -13,6 +13,10 @@ const body = (selector: string): string => {
 }
 
 describe('a conversation opened from the Team', () => {
+  it('contains its absolute approval overlay below the Team destinations', () => {
+    expect(body('.columnBody')).toMatch(/position:\s*relative/)
+    expect(body('.columnBody')).toMatch(/overflow:\s*hidden/)
+  })
   it('carries its identity through the one Team bar and preserves scoped member actions', () => {
     expect(source).toContain('header={false}')
     expect(source).toContain('teamMenuOwner={mainOwner}')
@@ -60,8 +64,8 @@ describe('Seats and responsive tools', () => {
     expect(source).not.toContain('data-slot="team-members"')
     expect(seats).toContain('title={`Actions for ${one.name}`}')
   })
-  it('keeps complete member work sentences in wrapping shared subtitles', () => {
-    expect(seats).toContain('wrapSubtitle')
+  it('wraps only refusal sentences while compact Seat facts keep their line', () => {
+    expect(seats).toContain('wrapSubtitle={Boolean(one.refusal)}')
     expect(seats).toContain('{one.detail}')
     expect(seats).not.toContain('truncate')
   })
@@ -72,9 +76,9 @@ describe('Seats and responsive tools', () => {
     expect(barSource).toContain('data-topbar="tools"')
   })
 })
-it('keeps member face tiles in Seats rather than collapsing a header roster', () => {
+it('keeps the selected Agent glyph unframed in Seats with member information on hover', () => {
   expect(source).toContain('mark: <MemberCard')
-  expect(source).toContain('<IconTile shape="face"')
+  expect(source).toContain('side="bottom">{member?.brand ? <BrandMark brand={member.brand} size={20} /> : <AgentIcon size={20} />}</MemberCard>')
   expect(css).not.toContain('.barFacts')
 })
 it('updates a destination once through the canonical click handler', () => {

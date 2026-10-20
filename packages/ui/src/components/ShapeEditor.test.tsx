@@ -891,6 +891,12 @@ it('offers the same editor as a page with canvas tools and a current-source New 
   act(() => root.render(<StoreProvider store={store}><DestinationPageScope owner="flows" active><ShapeEditor root="/repo" context={{ kind: 'project', root: '/repo' }} presentation="page" onClose={vi.fn()} onStarted={vi.fn()} onStartTeam={onStartTeam} /></DestinationPageScope></StoreProvider>))
   await settle()
   expect(document.querySelector('[role="dialog"]')).toBeNull()
+  expect(button('Back to Flows')).toBeTruthy()
+  expect(document.querySelector('[data-slot="flow-canvas-toolbar"]')?.getAttribute('data-placement')).toBe('bar')
+  expect(document.querySelector('[aria-label="Flow actions"]')?.textContent).toContain('Save…')
+  expect(document.querySelector('input')?.value).toBe('review')
+  expect(document.querySelector('input')?.closest('[hidden]')).toBeNull()
+  expect([...document.querySelectorAll('button')].some(one => one.textContent === 'Edit step')).toBe(false)
   expect(button('Step')).toBeTruthy()
   expect(button('Rule')).toBeTruthy()
   expect(button('Undo').disabled).toBe(true)
@@ -901,6 +907,7 @@ it('offers the same editor as a page with canvas tools and a current-source New 
   expect(button('Undo').disabled).toBe(false)
   const edited = (spy.mock.calls.filter(call => call[0] === 'authoring/shape/render').at(-1)![1] as { policy: FlowPolicy }).policy
   expect(edited.roles.at(-1)?.kind).toBe('agent')
+  expect(edited.name).toBe('New Flow')
   act(() => button('Start a Team').click())
   expect(onStartTeam).toHaveBeenCalledWith(JSON.stringify(edited))
   act(() => button('Undo').click())
@@ -995,7 +1002,7 @@ it('page rules keep first-match precedence editable through each rule’s move a
   const spy = fakeHost(store)
   act(() => root.render(<StoreProvider store={store}><DestinationPageScope owner="flows" active><ShapeEditor root="/repo" context={{ kind: 'project', root: '/repo' }} presentation="page" initialSource={JSON.stringify(policy)} onClose={vi.fn()} onStarted={vi.fn()} /></DestinationPageScope></StoreProvider>))
   await settle()
-  const rules = document.querySelector<HTMLElement>('section[aria-label="Rules"][data-slot="tool-section"]')!
+  const rules = document.querySelector<HTMLElement>('section[aria-label="Flow settings"][data-slot="tool-section"]')!
   expect(rules.textContent).toContain('first match fires')
   act(() => rules.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!.click())
   act(() => byAriaLabel('Rule first actions').click())
@@ -1054,9 +1061,9 @@ it('an older save readback cannot replace the document adopted by a newer duplic
   await settle()
   act(() => button('Save').click())
   await settle()
-  expect(document.querySelector('section[aria-label="Source"]')?.textContent).toContain('race-copy.yml')
+  expect(document.querySelector('[aria-label="Flow actions"] [title]')?.getAttribute('title')).toContain('race-copy.yml')
   await act(async () => first({ ...fixture.document, digest: 'first-save' }))
-  expect(document.querySelector('section[aria-label="Source"]')?.textContent).toContain('race-copy.yml')
+  expect(document.querySelector('[aria-label="Flow actions"] [title]')?.getAttribute('title')).toContain('race-copy.yml')
 })
 
 it('Undo after two overlapping policy edits removes only the most recent edit', async () => {

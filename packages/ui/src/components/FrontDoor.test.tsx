@@ -9,6 +9,7 @@ import { StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
 import { FrontDoor } from './FrontDoor'
 import { CONTEST_START_POLICY } from '../lib/contest-start-fixture'
+import { canvasDOM } from '../test/flow-canvas-dom'
 
 /**
  * The front door: choose a file-based shape, read its populated dry run,
@@ -22,7 +23,9 @@ import { CONTEST_START_POLICY } from '../lib/contest-start-fixture'
 let container: HTMLDivElement
 let root: Root
 
-beforeEach(() => {
+beforeEach(async () => {
+  canvasDOM()
+  await import('../design/patterns/FlowCanvas/Engine')
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -30,6 +33,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks(); vi.unstubAllGlobals()
 })
 
 const ENTRY = (id: string, name: string, over: Partial<FlowEntry> = {}): FlowEntry => ({
@@ -150,7 +154,8 @@ it('reports a selected Flow as reading until delayed source resolves to its actu
   expect(selected.textContent).not.toContain('Graph unavailable')
   await act(async () => release(JSON.stringify(policy)))
   expect(selected.getAttribute('aria-busy')).not.toBe('true')
-  expect(selected.querySelectorAll('[data-step]')).toHaveLength(policy.roles.length)
+  expect(document.querySelectorAll('[data-slot="flow-graph"] [data-step]')).toHaveLength(policy.roles.length)
+  expect(selected.querySelector('[data-slot="flow-mini-graph"]')).toBeNull()
   expect(selected.textContent).not.toContain('Reading Flow…')
 })
 
@@ -302,6 +307,7 @@ it('reissues the initial source in StrictMode and ignores the retired preview be
   await act(async () => button('Start Team').click())
   expect(spy.mock.calls.find(([method]) => method === 'flow/start-goal')?.[1]).toMatchObject({ source, token: 'fresh-token' })
   expect(onStarted).toHaveBeenCalledExactlyOnceWith(EXECUTION)
+  expect(store.getSnapshot().teamFrameRequests[EXECUTION.goal]).toMatchObject({ page: 'run', runView: 'flow' })
 })
 
 it('starts a legal just-a-team Flow from its source even when the plain prefill is also present', async () => {

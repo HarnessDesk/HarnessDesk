@@ -42,7 +42,7 @@ export interface TopBarProps {
   readonly tab?: string
   readonly inspectFirst?: boolean
   readonly verb?: TopBarAction
-  readonly view?: { readonly disabled?: string | false; readonly narrowed?: boolean; readonly content: (close: () => void) => ReactNode }
+  readonly view?: { readonly label?: string; readonly disabled?: string | false; readonly narrowed?: boolean; readonly content: (close: () => void) => ReactNode }
   readonly tools?: ReactNode
   /** Standing panel width; closed and floating panels reserve no column. */
   readonly rightColumnWidth?: number | string

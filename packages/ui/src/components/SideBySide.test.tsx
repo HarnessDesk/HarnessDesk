@@ -53,7 +53,7 @@ afterEach(() => {
 const keys = [sessionKey('codex', 'one'), sessionKey('claude', 'two'), sessionKey('cursor', 'three')] as SessionKey[]
 const fourKeys = [...keys, sessionKey('codex', 'four')]
 const nicknames = ['Alpha', 'Beta', 'Gamma']
-const members = new Map(keys.map((key, index) => [key, { nickname: nicknames[index]!, agent: `Agent ${index + 1}`, model: `Model ${index + 1}` }]))
+const members = new Map<SessionKey, { nickname: string; displayName?: string; agent?: string; model?: string }>(keys.map((key, index) => [key, { nickname: nicknames[index]!, agent: `Agent ${index + 1}`, model: `Model ${index + 1}` }]))
 const entries = new Map(keys.map((key, index) => [key, {
   key,
   peer: { nickname: nicknames[index], runtime: 'codex', inbound: 'accept' },
@@ -148,7 +148,7 @@ it('renders one line with a tile badge, identity, state dot, globe and more menu
   const first = document.querySelector<HTMLElement>('[data-slot="side-by-side-tile"]')!
   const header = first.querySelector('header')!
   expect(header.querySelector('[data-slot="icon-tile"] svg')).not.toBeNull()
-  const name = text(header, 'Agent 1')
+  const name = text(header, 'Alpha')
   expect(name.dataset.role).toBe('row')
   expect(name.className).toMatch(/truncate/)
   expect(text(header, 'Model 1').dataset.role).toBe('meta')
@@ -666,4 +666,17 @@ it('keeps an attempt letter attached to its Seat when the grid order changes', (
     const header = container.querySelectorAll('[data-slot="side-by-side-tile"] header')[1]!
     expect(header.querySelector('[title="Attempt A"]')?.textContent).toBe('A')
   } finally { entries.set(keys[0]!, previous) }
+})
+
+it('keeps stable compact role ordinals in narrow tabs and tile headings with full identities on hover', () => {
+  const before = keys.slice(0, 2).map(key => members.get(key)!)
+  try {
+    for (const [index, key] of keys.slice(0, 2).entries()) members.set(key, { ...before[index]!, displayName: `Implementer ${index + 1}`, nickname: `Implementer · Test agent · very-long-model-${index + 1} · high` })
+    mount(baseState(), { width: 400 })
+    const tabs = [...container.querySelectorAll('[role="tablist"] [role="tab"]')]
+    expect(tabs.map(tab => tab.textContent)).toEqual(['Implementer 1', 'Implementer 2'])
+    expect(tabs[0]?.getAttribute('title')).toBe(members.get(keys[0]!)!.nickname)
+    expect(container.querySelector('[data-slot="side-by-side-tile"] header')?.textContent).toContain('Implementer 1')
+    expect(container.querySelector('[aria-label="Implementer 2 actions"]')).not.toBeNull()
+  } finally { for (const [index, key] of keys.slice(0, 2).entries()) members.set(key, before[index]!) }
 })

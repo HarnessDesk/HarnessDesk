@@ -42,16 +42,14 @@ const row = (): HTMLElement => {
   return found as HTMLElement
 }
 
-it('a message is a transcript item with the sender’s identity tile for a face', () => {
-  render(<ChannelMessage from="Reviewer" brand="codex" tint="green" at="03:35 PM" state="delivered" text="Looks right." />)
+it('a message uses a plain runtime glyph and keeps the full sender name on hover', () => {
+  render(<ChannelMessage from="Reviewer" fromTitle="Reviewer · Scripted agent · long model selection" brand="codex" tint="green" at="03:35 PM" state="delivered" text="Looks right." />)
   expect(row().dataset.slot).toBe('turn-item')
-  const tile = row().querySelector('[data-slot="icon-tile"]')
-  expect(tile?.getAttribute('data-tint')).toBe('green')
-  expect(tile?.getAttribute('aria-hidden')).toBe('true')
-  // A face, so it takes the shape chosen for faces rather than the tile's own corner.
-  expect(tile?.className).toContain('rounded-(--hd-face-radius)')
+  expect(row().querySelector('[data-slot="icon-tile"]')?.getAttribute('data-variant')).toBe('bare')
+  expect(row().querySelector('[data-slot="icon-tile"] svg')).not.toBeNull()
   // The name is a member's, said in words beside the face.
-  expect(row().querySelector('[data-slot="text"][data-role="member"]')?.textContent).toBe('Reviewer')
+  expect(row().querySelector('[data-slot="text"][data-role="row"]')?.textContent).toBe('Reviewer')
+  expect(row().querySelector('[data-slot="text"][data-role="row"]')?.getAttribute('title')).toBe('Reviewer · Scripted agent · long model selection')
 })
 
 it('reads the attribution as one run at the left: name, who it reached, when, how it went', () => {
@@ -159,7 +157,7 @@ it('a signal is the light register of a transcript item, and keeps the face colu
   expect(rhythmOf(row())).not.toBe(signalRhythm)
 })
 
-it('puts a signal’s time at the end of its sentence, not on a right edge', () => {
+it('keeps a signal timestamp separate from its compact activity sentence', () => {
   // These sentences wrap to three lines. A floated column put the time beside
   // the *first* of them, on an edge nothing else in the room lines up with.
   render(
@@ -169,16 +167,17 @@ it('puts a signal’s time at the end of its sentence, not on a right edge', () 
       at="03:31 PM"
     />,
   )
-  const sentence = container.querySelector('[data-channel="signal"] > div > [data-slot="text"]')
-  expect(sentence?.textContent?.endsWith('03:31 PM')).toBe(true)
+  const sentence = container.querySelector('[data-slot="channel-event-head"] > [data-slot="text"]')
+  expect(sentence?.textContent).not.toContain('03:31 PM')
+  expect(container.querySelector('[data-slot="channel-event-head"]')?.lastElementChild?.textContent).toBe('03:31 PM')
 })
 
 it('keeps a signal’s report under its sentence, folded when long', () => {
   // Joined into the sentence, a completion's report made every signal a slab.
   const report = 'PR #1559 updated; all 12 findings have committed repair claims. '.repeat(4)
   render(<ChannelSignal by="Implementer" said="completed #3 — Answer review round 1" detail={report} at="03:34 PM" />)
-  const sentence = container.querySelector('[data-channel="signal"] > div > [data-slot="text"]')
-  expect(sentence?.textContent?.endsWith('03:34 PM')).toBe(true)
+  const sentence = container.querySelector('[data-slot="channel-event-head"] > [data-slot="text"]')
+  expect(container.querySelector('[data-slot="channel-event-head"]')?.lastElementChild?.textContent).toBe('03:34 PM')
   expect(sentence?.textContent).not.toContain('repair claims')
   const detail = container.querySelector('[data-slot="signal-detail"]')!
   expect(detail.textContent).toContain('repair claims')
@@ -214,9 +213,8 @@ it('draws a face of the caller’s own in the face’s place, on no tint', () =>
   // The control first: a person without one gets initials on the sender tint.
   render(<ChannelMessage from="You" at="10:02" text="ship it" state="delivered" />)
   const plain = row().querySelector('[data-slot="icon-tile"]')
-  expect(plain?.textContent).toBe('Y')
-  expect(plain?.querySelector('[data-slot="monogram"]')).not.toBeNull()
-  expect(plain?.getAttribute('data-tint')).toBe('blue')
+  expect(plain?.querySelector('svg')).not.toBeNull()
+  expect(plain?.getAttribute('data-variant')).toBe('bare')
 
   render(<ChannelMessage from="You" at="10:02" text="ship it" state="delivered" face={<img data-face="" alt="" />} />)
   const tile = row().querySelector('[data-slot="icon-tile"]')
@@ -242,4 +240,16 @@ it('offers "Show more" only when nine rendered lines do not hold the message, an
     scrollHeight.mockRestore()
     clientHeight.mockRestore()
   }
+})
+
+it('reserves the sender and timestamp while a long recipient list gives up its own width', () => {
+  render(<ChannelMessage from="You" to="3 agents" toTitle="Reviewer with a long model name, Builder with a long model name, Auditor" at="03:35 PM" state="delivered" text="Check the result." />)
+  const sender = row().querySelector('[data-slot="channel-sender"]')!
+  expect(sender.textContent).toBe('You')
+  expect(sender.className).toContain('shrink-0')
+  const recipient = row().querySelector('[data-channel-recipient]')!
+  expect(recipient.textContent).toBe('to 3 agents')
+  expect(recipient.getAttribute('title')).toContain('Reviewer with a long model name')
+  expect(recipient.getAttribute('aria-label')).toContain('Auditor')
+  expect(row().querySelector('[data-slot="meta-list"]')?.className).toContain('shrink-0')
 })

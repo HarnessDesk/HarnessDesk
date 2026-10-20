@@ -74,7 +74,7 @@ for (const theme of ['light', 'dark'] as const) {
     const frame=page.locator('#run-view-team')
     const header = teamBar(frame)
     const tabs = [
-      ['overview','Overview','1'], ['run','Run','1'], ['board','Board','4'], ['room','Chat',null], ['findings','Findings',null],
+      ['overview','Work',null], ['board','Tasks','4'], ['room','Chat',null],
     ] as const
     for (const width of [1440, 720, 1440]) {
       await page.setViewportSize({ width, height: 900 })

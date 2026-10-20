@@ -17,7 +17,7 @@ for (const theme of ['light', 'dark'] as const) {
     const viewport = (await board.boundingBox())!
     expect(bounds.x).toBeGreaterThanOrEqual(viewport.x)
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.x + viewport.width)
-    await expect(page.getByRole('tab', { name: 'Board 3', exact: true })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Tasks 3', exact: true })).toBeVisible()
     for (const rail of await board.getByRole('button', { name: /0 — Open column/ }).all()) {
       await rail.focus()
       await page.keyboard.press('Enter')

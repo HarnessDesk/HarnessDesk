@@ -16,9 +16,20 @@ export const closeFloatingTeamRail = async (frame: Locator): Promise<void> => {
 /** Select the real destination without prescribing a content fixture's width. */
 export const selectTeamDestination = async (frame: Locator, value: string): Promise<void> => {
   await closeFloatingTeamRail(frame)
-  const tab = frame.locator(`[data-team-page="${value}"]:visible`)
+  if (value === 'runs' || value === 'receipt') {
+    await teamBar(frame).getByRole('button', { name: 'More', exact: true }).click()
+    await frame.page().getByRole('menuitem', { name: value === 'runs' ? 'Run history' : 'Receipt', exact: true }).click()
+    return
+  }
+  const primary = value === 'run' || value === 'work' ? 'overview' : value === 'findings' ? 'board' : value
+  const tab = frame.locator(`[data-team-page="${primary}"]:visible`)
   await tab.click()
   await expect(tab).toHaveAttribute('aria-selected', 'true')
+  if (value === 'board' || value === 'findings') {
+    const local = frame.getByRole('tablist', { name: 'Task views', exact: true }).getByRole('tab', { name: value === 'board' ? 'Board' : /^Findings(?:\s|$)/, exact: value === 'board' })
+    await local.click()
+    await expect(local).toHaveAttribute('aria-selected', 'true')
+  }
 }
 
 export const selectTeamPage = async (frame: Locator, value: string): Promise<void> => {

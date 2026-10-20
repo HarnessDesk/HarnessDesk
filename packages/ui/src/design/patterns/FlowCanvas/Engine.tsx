@@ -12,7 +12,6 @@ import { Text } from '../Settings'
 import { FlowBaton, FlowRouteLabel } from '../../ui/flow-step'
 import { StepCard } from './StepCard'
 import { FLOW_CANVAS_CARD_WIDTH } from './geometry'
-import { FLOW_GAP } from '../../../lib/flow-layout'
 import type { FlowCanvasStep, FlowCanvasNodeProps, FlowCanvasProps, FlowCanvasEdgeChange, FlowCanvasEdge } from './types'
 import { forwardNodeChanges } from './changes'
 import { selectionMatches } from './selection'
@@ -78,7 +77,8 @@ const Rule = (props: EdgeProps<EngineEdge>) => {
 const nodeTypes = { step: Step }
 const edgeTypes = { rule: Rule }
 
-const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configuredReadOnly = false, inert = false, positionOnly = false, showControls = true, title, actions, label = 'Flow plan', className, NodeComponent, onNodesChange, onEdgesChange, onConnect, onSelectionChange }: FlowCanvasProps<Data>) => {
+const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configuredReadOnly = false, minZoom: configuredMinZoom = MIN_ZOOM, inert = false, positionOnly = false, showControls = true, title, actions, label = 'Flow plan', className, NodeComponent, onNodesChange, onEdgesChange, onConnect, onSelectionChange }: FlowCanvasProps<Data>) => {
+  const minimumZoom = Number.isFinite(configuredMinZoom) ? Math.max(MIN_ZOOM, Math.min(1, configuredMinZoom)) : MIN_ZOOM
   const readOnly = configuredReadOnly || inert
   const toolbarOnTop = readOnly && Boolean(title || actions)
   const [measurements, setMeasurements] = useState<ReadonlyMap<string, { width: number; height: number }>>(new Map())
@@ -198,8 +198,12 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
           return right > left && box.left < right && box.right > left
             && box.top < sourceBox.centerY && box.bottom > sourceBox.centerY
         })
-        needsRail = Math.abs(sourceBox.centerY - targetBox.centerY) >= GRID || gap <= FLOW_GAP || gap <= 0
-          || blocked || (edge.label?.length ?? 0) > 8 || groupSize > 1
+        // An ordinary layout gap is usable road, including when the two
+        // cards differ in height. Only detour when the route or its complete
+        // label needs more clearance than the gap provides.
+        const labelWidth = edge.label ? edge.label.length * 8 + 24 : 0
+        needsRail = Math.abs(sourceBox.centerY - targetBox.centerY) >= GRID || gap <= 0
+          || blocked || labelWidth > gap || groupSize > 1 || Boolean(edge.loop)
       }
       return { edge, index, source, target, sourceBox, targetBox, groupSize, groupIndex, needsRail, railY: undefined as number | undefined, labelX: undefined as number | undefined }
     })
@@ -375,9 +379,9 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
   }, [flow, engineEdges])
   const navigationInset = toolbarOnTop && !inert && showControls && width < 608 ? GRID * 4 : 0
   const fittedViewport = useCallback((zoom: number) => {
-    const viewport = getViewportForBounds(planBounds(), width, Math.max(1, height - navigationInset), MIN_ZOOM, zoom, 0.12)
+    const viewport = getViewportForBounds(planBounds(), width, Math.max(1, height - navigationInset), minimumZoom, Math.max(minimumZoom, zoom), 0.12)
     return { ...viewport, y: viewport.y + navigationInset }
-  }, [planBounds, width, height, navigationInset])
+  }, [planBounds, width, height, navigationInset, minimumZoom])
   useEffect(() => {
     if (!initialized || !width || !height) return
     const previous = centredIds.current
@@ -385,9 +389,9 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
     const resized = centredSize.current.width !== width || centredSize.current.height !== height
     centredIds.current = new Set(nodes.map(node => node.id))
     centredSize.current = { width, height }
-    if (!replaced && !resized) return
+    if (!replaced && !resized && flow.getZoom() >= minimumZoom) return
     const bounds = planBounds()
-    const currentZoom = replaced ? 1 : Math.min(1, flow.getZoom())
+    const currentZoom = replaced ? 1 : Math.max(minimumZoom, Math.min(1, flow.getZoom()))
     if (bounds.width * currentZoom > width || bounds.height * currentZoom > height - navigationInset) {
       void flow.setViewport(fittedViewport(currentZoom))
     } else if (replaced || resized) {
@@ -395,7 +399,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
       void flow.setViewport({ x: (width - bounds.width * currentZoom) / 2 - bounds.x * currentZoom,
         y: navigationInset + (height - navigationInset - bounds.height * currentZoom) / 2 - bounds.y * currentZoom, zoom: currentZoom })
     }
-  }, [initialized, width, height, flow, nodeIdSignature, planBounds, fittedViewport, navigationInset])
+  }, [initialized, width, height, flow, nodeIdSignature, planBounds, fittedViewport, navigationInset, minimumZoom])
   const changeNodes = (changes: NodeChange<EngineNode>[]) => {
     // Measurements belong to the interaction engine, not the saved document.
     const dimensions = changes.filter(change => change.type === 'dimensions' && change.dimensions)
@@ -537,7 +541,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
         onSelectionChange={inert ? undefined : selectionChanged}
         nodesDraggable={!readOnly && tool === 'select'} nodesConnectable={!readOnly && !positionOnly && tool === 'select'} nodesFocusable={!inert} edgesFocusable={!inert} elementsSelectable={!inert}
         edgesReconnectable={false} deleteKeyCode={null} panOnDrag={inert ? false : readOnly || tool === 'hand' ? true : [1, 2]} selectionOnDrag={!readOnly && tool === 'select'}
-        minZoom={MIN_ZOOM} maxZoom={2} defaultViewport={{ x: 0, y: 0, zoom: 1 }} zoomOnDoubleClick={false}
+        minZoom={minimumZoom} maxZoom={2} defaultViewport={{ x: 0, y: 0, zoom: 1 }} zoomOnDoubleClick={false}
         zoomOnScroll={!readOnly && !positionOnly} preventScrolling={!readOnly && !positionOnly}
         zoomOnPinch={!inert && !positionOnly} ariaLabelConfig={ariaLabelConfig}>
         {edges.some(edge => edge.current) && batonPath && <EdgeLabelRenderer><FlowBaton path={batonPath} /></EdgeLabelRenderer>}
@@ -550,7 +554,7 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
           </>}
           <Button variant="ghost" size="icon" aria-label="Zoom out" title="Zoom out" onClick={() => void flow.zoomOut()}><ZoomOutIcon /></Button>
           <Button variant="ghost" size="icon" aria-label="Zoom in" title="Zoom in" onClick={() => void flow.zoomIn()}><ZoomInIcon /></Button>
-          <Button variant="ghost" size="icon" aria-label="Fit plan" title="Fit to the canvas" onClick={() => void flow.setViewport(fittedViewport(Math.min(1, flow.getZoom())))}><CanvasFitIcon /></Button>
+          <Button variant="ghost" size="icon" aria-label={minimumZoom > MIN_ZOOM ? "Center plan" : "Fit plan"} title={minimumZoom > MIN_ZOOM ? "Center the plan; pan to see every step" : "Fit to the canvas"} onClick={() => void flow.setViewport(fittedViewport(1))}><CanvasFitIcon /></Button>
           {actions}
         </Panel>}
         {showControls && !inert && minimapLayout && <MiniMap position={minimapLayout.position} style={{ width: minimapLayout.width, height: minimapLayout.height, left: minimapLayout.left - MINIMAP_INSET, top: minimapLayout.top - MINIMAP_INSET, right: 'auto', bottom: 'auto' }} nodeColor="var(--hd-muted)" nodeStrokeColor="var(--hd-border)" maskColor="var(--hd-muted)" maskStrokeColor="var(--hd-border)" nodeBorderRadius={4} />}

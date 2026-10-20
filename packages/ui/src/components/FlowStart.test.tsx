@@ -12,13 +12,16 @@ import { FlowStart, type FlowChoice } from './FlowStart'
 import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
 import { withAttemptCheck } from '../lib/team-start'
 import { CONTEST_START_POLICY } from '../lib/contest-start-fixture'
+import { canvasDOM } from '../test/flow-canvas-dom'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
 let root: Root
 
-beforeEach(() => {
+beforeEach(async () => {
+  canvasDOM()
+  await import('../design/patterns/FlowCanvas/Engine')
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -26,6 +29,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks(); vi.unstubAllGlobals()
 })
 
 const AGENT = (id: string, name: string): AgentEntry => ({
@@ -109,6 +113,8 @@ it('shows one compact role configuration with its resolved model and instruction
     preview: { ...emptyPreview(), seats: [writer] }, roster: new Map([['builder', AGENT('builder', 'Builder instructions')]]), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {},
   }} /></StoreProvider>))
   expect(container.querySelectorAll('[aria-label="Configure Writes"]')).toHaveLength(1)
+  expect(container.querySelector('[data-step="fixer"] [aria-label="Configure Writes"]')).not.toBeNull()
+  expect(container.querySelectorAll('[data-slot="flow-graph"]')).toHaveLength(1)
   expect(container.querySelector('[aria-label="Configure Writes"]')?.textContent).toContain('Gamma · Large model')
   expect(container.textContent).toContain('Builder instructions')
   expect(document.querySelector('[aria-label="Runtime for Writes"]')).toBeNull()

@@ -67,9 +67,12 @@ const mount = async (seatRecord: (runtime: string, sessionId: string) => Promise
   return store
 }
 
+const openDetails = () => act(() => [...container.querySelectorAll('button')].find(one => one.textContent?.includes('Details'))!.click())
+
 it('shows who was seated, on what, told what, where, on which board, and since when', async () => {
   const store = await mount(async () => PREVIEW_SEAT)
   expect(store.seatRecord).toHaveBeenCalledWith('codex', 's1')
+  openDetails()
   const text = container.textContent ?? ''
   expect(text).toContain('Seat record')
   expect(text).toContain('Scout · In HarnessDesk')
@@ -80,7 +83,7 @@ it('shows who was seated, on what, told what, where, on which board, and since w
   expect(text).toContain('~/code/HarnessDesk')
   expect(text).toContain('Checkout hardening')
   expect(text).toContain('Open')
-  expect(container.querySelector('button, input, textarea')).toBeNull()
+  expect(container.querySelector('input, textarea')).toBeNull()
 })
 
 it('a closed seat says how the desk let it go', async () => {
@@ -88,11 +91,14 @@ it('a closed seat says how the desk let it go', async () => {
     ...PREVIEW_SEAT,
     closed: { at: Date.UTC(2026, 8, 18, 15, 0), why: 'deleted' },
   }))
+  expect(container.textContent).toContain('Closed')
+  openDetails()
   expect(container.textContent).toContain('Its conversation was deleted')
 })
 
 it("a seat phase 3 kept for an Agent that said only `ceiling:` is drawn in that order's words", async () => {
   await mount(async () => ({ ...PREVIEW_SEAT, standing: { kind: 'ceiling', level: 'edit' }, ceiling: { level: 'edit', hold: 'asked' } }))
+  openDetails()
   expect(container.textContent).toContain('Edit · its ceiling')
   expect(container.textContent).not.toContain('Read only · asked, not enforced')
 })
@@ -100,6 +106,7 @@ it("a seat phase 3 kept for an Agent that said only `ceiling:` is drawn in that 
 it('a Seat a backup brought says so, and that it says nothing about this conversation here', async () => {
   await mount(async () => ({ ...PREVIEW_SEAT, restored: { at: Date.UTC(2026, 8, 18, 16, 0) } }))
   expect(container.textContent).toContain('From a backup')
+  openDetails()
   expect(container.textContent).toContain('This desk did not keep this seat')
 })
 
@@ -113,4 +120,16 @@ it('a record that cannot be read says so, in the host’s words', async () => {
     throw new Error('the connection to HarnessDesk was lost')
   })
   expect(container.textContent).toBe('Its Seat record could not be read: the connection to HarnessDesk was lost')
+})
+
+it('keeps the permission hold in the summary and reveals technical seat facts only on demand', async () => {
+  await mount(async () => PREVIEW_SEAT)
+  expect(container.textContent).toContain('Asked, not held')
+  expect(container.textContent).not.toContain('Passed over')
+  expect(container.textContent).not.toContain('Opened')
+  const details = [...container.querySelectorAll('button')].find(one => one.textContent?.includes('Details'))!
+  expect(details.getAttribute('aria-expanded')).toBe('false')
+  act(() => details.click())
+  expect(container.textContent).toContain('Passed over')
+  expect(container.textContent).toContain('Opened')
 })

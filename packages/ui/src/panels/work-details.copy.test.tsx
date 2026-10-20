@@ -21,6 +21,6 @@ it('labels the displayed identity as Runtime until the seated Agent’s name is 
     name = 'Code reviewer'
     draw()
     expect(host.querySelector('dt')?.textContent).toBe('Agent')
-    expect(host.querySelector('dd')?.textContent).toBe('Code reviewer')
+    expect(host.querySelector('dd .sr-only')?.textContent).toBe('Code reviewer')
   } finally { act(() => root.unmount()); host.remove(); name = null }
 })

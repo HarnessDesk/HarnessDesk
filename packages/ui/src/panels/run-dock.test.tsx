@@ -74,8 +74,9 @@ it('selecting Timeline or Flow changes main only, while selecting a row explicit
       flow={<div data-fixture-flow>Recorded Flow</div>} inspector={{input:fixture,seats:[]}} />
   }
   const choose = (label: string) => {
-    act(() => container.querySelector<HTMLButtonElement>('[data-slot="page-options"] button[title="View"]')!.click())
-    act(() => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === label)!.click())
+    const current = container.querySelector('[data-slot="run-workspace"]')?.getAttribute('data-view') === 'flow' ? 'Flow' : 'Timeline'
+    act(() => container.querySelector<HTMLButtonElement>(`[data-slot="page-options"] button[aria-label="${current}"]`)!.click())
+    act(() => [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(one => one.textContent === label)!.click())
   }
   try {
     act(() => root.render(<StoreProvider store={store}><TopBarProvider><RunDockProvider><PaneProvider scope={scope('dock-team')}>

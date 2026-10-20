@@ -1,5 +1,5 @@
 import { expectTitleRoom } from './title-contract'
-import { closeFloatingTeamRail } from './team-frame-actions'
+import { closeFloatingTeamRail, selectTeamDestination } from './team-frame-actions'
 import { expect, type Locator, type Page } from '@playwright/test'
 export interface FrameActions {
   readonly inspectFirst?: boolean
@@ -42,10 +42,8 @@ export const selectFrameTab = async (page: Page, value: string): Promise<void> =
   if (await page.locator('[data-page-destination]:visible').count()) await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
   else await expectTitleRoom(bar.locator('[data-topbar-title]'))
   await settleFrameBar(bar)
-  const tab = page.locator(`[data-team-page="${value}"]:visible`)
-  if (await tab.count()) {
-    await tab.click()
-    await expect(tab).toHaveAttribute('aria-selected', 'true')
+  if (await page.getByRole('tablist', { name: 'Team views', exact: true }).count()) {
+    await selectTeamDestination(page.locator('body'), value)
     return
   }
   const choice = pageChoiceFor(value)
@@ -58,15 +56,20 @@ export const applyFrameActions = async (page: Page, actions: FrameActions): Prom
   if (actions.viewChoice || actions.inspectFirst) await closeFloatingTeamRail(page.locator('body'))
   if (actions.tab) await selectFrameTab(page, actions.tab)
   if (actions.viewChoice) {
-    await page.locator('[data-slot="page-options"]:visible').getByRole('button', { name: 'View', exact: true }).click()
-    const choice = page.getByRole('menuitem', { name: actions.viewChoice, exact: true })
-      .or(page.getByRole('menuitemradio', { name: actions.viewChoice, exact: true }))
-      .or(page.getByRole('switch').filter({ has: page.getByText(actions.viewChoice, { exact: true }) }))
-    await expect(choice).toHaveCount(1)
-    await choice.click()
-    // Every view choice closes its menu. Capture the chosen view after that
-    // transition; supplemental frames capture the menu as a separate state.
-    await expect(page.getByRole('menu')).toHaveCount(0)
+    const unified = page.locator('[data-slot="run-workspace"][data-view="work"]:visible')
+    if (actions.viewChoice === 'Flow' && await unified.count()) {
+      await expect(unified.locator('[data-slot="run-flow"]')).toBeVisible()
+    } else {
+      await page.locator('[data-slot="page-options"]:visible').getByRole('button', { name: /^(View|Thread|Side by side|Board|List|All|Open|Blocking|Running)$/ }).click()
+      const choice = page.getByRole('menuitem', { name: actions.viewChoice, exact: true })
+        .or(page.getByRole('menuitemradio', { name: actions.viewChoice, exact: true }))
+        .or(page.getByRole('switch').filter({ has: page.getByText(actions.viewChoice, { exact: true }) }))
+      await expect(choice).toHaveCount(1)
+      await choice.click()
+      // Every view choice closes its menu. Capture the chosen view after that
+      // transition; supplemental frames capture the menu as a separate state.
+      await expect(page.getByRole('menu')).toHaveCount(0)
+    }
   }
   if (actions.inspectFirst) await page.locator('[data-slot="workbench-main"] [data-row][data-kind="card"]').first().click()
   if (actions.tool === 'details' || actions.tool === 'activity') {

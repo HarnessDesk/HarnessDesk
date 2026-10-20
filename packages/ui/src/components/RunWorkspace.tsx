@@ -21,15 +21,15 @@ export const RunWorkspace = ({ inspector, ...view }: WorkspaceProps) => {
   useTopBarView(owner, {
     verb: { label: 'Stop run…', disabled: view.stopRefusal ?? (inspector.input.execution.state !== 'running'
       ? 'This Run is not running' : !view.onStop ? 'Stopping this Run is unavailable here' : false), run: () => view.onStop?.() },
-    view: { content: close => <Menu close={close}>
-      <MenuItem label="Timeline" onSelect={() => { selectView('timeline'); close() }} />
-      <MenuItem label="Flow" disabled={!view.flow && 'The recorded Flow is unavailable'} onSelect={() => { selectView('flow'); close() }} />
+    view: view.unified ? undefined : { label: tab === 'flow' ? 'Flow' : 'Timeline', content: close => <Menu close={close}>
+      <MenuItem label="Timeline" selected={tab === 'timeline'} onSelect={() => { selectView('timeline'); close() }} />
+      <MenuItem label="Flow" selected={tab === 'flow'} disabled={!view.flow && 'The recorded Flow is unavailable'} onSelect={() => { selectView('flow'); close() }} />
     </Menu> },
   })
   useLayoutEffect(() => dock?.publish(owner, { inspector: { ...inspector, selectedRow: view.selectedRow, onSelect: view.onSelect, doing: view.doing } }),
     [dock, owner, inspector, view.selectedRow, view.onSelect, view.doing])
   const { summary } = runSeatCosts(inspector.input.execution, inspector.seats)
-  return <div data-slot="run-workspace" data-view={tab} className={styles.workspace}>
+  return <div data-slot="run-workspace" data-view={view.unified ? 'work' : tab} className={styles.workspace}>
     <RunView {...view} execution={inspector.input.execution} cost={summary === null ? 'Cost not recorded' : `Seat cost ${summary}`}
       view={tab} onView={selectView} stepsInput={inspector.input} attemptsRead={inspector.attemptsRead} faceTints={inspector.faceTints}
       onSelect={id => { view.onSelect(id); if (owner) store.chooseWorkTool('details', 'run-details') }}

@@ -1,3 +1,4 @@
+import { selectFrameTab } from './frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { FRAME } from '../../packages/ui/src/design/frame'
@@ -23,7 +24,7 @@ test('FIX9 kept history remains readable after reopening', async ({ page }) => {
   for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`FIX9 wrapped findings use the receipt and ask nothing of a person [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=team-receipt&frame-fix9-findings=1', 1280, theme)
-    await page.getByRole('tab', { name: 'Findings 5', exact: true }).click()
+    await selectFrameTab(page, 'findings')
     const pane = page.getByRole('region', { name: 'Findings', exact: true })
     await expect(pane.getByRole('button', { name: /Advisory finding/ })).toHaveCount(4)
     await expect(pane.locator('[aria-label="Findings summary"]')).toContainText('Open4Blocking0All5')
@@ -39,10 +40,10 @@ test('FIX9 kept history remains readable after reopening', async ({ page }) => {
 
 test('FIX9 stopped Team keeps its Researcher and explains round counts', async ({ page }) => {
   await openFrame(page, 'frame-wall=team&frame-fix9-stop=1')
-  await page.getByRole('tab', { name: 'Run 1', exact: true }).click()
+  await selectFrameTab(page, 'run')
   await page.getByRole('button', { name: 'Stop run…', exact: true }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Stop run', exact: true }).click()
-  await page.getByRole('tab', { name: 'Overview', exact: true }).click()
+  await selectFrameTab(page, 'overview')
   const agents = page.locator('[data-slot="team-overview"]')
   await expect(agents).not.toContainText('No agents')
   await expect(agents).toContainText('Researcher')
@@ -208,5 +209,6 @@ test('FIX9 spend grouping uses sentence case', async ({ page }) => {
 
 test('FIX9 unavailable Findings names its refusal without an internal noun', async ({ page }) => {
   await openFrame(page, 'frame-wall=team&frame-fix9-no-findings=1')
-  await expect(page.getByRole('tab', { name: 'Findings 3', exact: true })).toHaveAttribute('title', 'This Team has no findings')
+  await selectFrameTab(page, 'board')
+  await expect(page.getByRole('tablist', { name: 'Task views', exact: true }).getByRole('tab', { name: /^Findings/ })).toBeDisabled()
 })

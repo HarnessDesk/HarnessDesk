@@ -1,3 +1,4 @@
+import { teamSeats } from './team-frame-actions'
 import { expect, test } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 
@@ -10,17 +11,18 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-frame=member-chat&theme=${theme}`)
 
-    const overview = page.getByRole('tab', { name: 'Overview 1' })
+    const overview = page.getByRole('tab', { name: 'Work', exact: true })
+    const frame = page.locator('[data-frame-id="team-frame"]')
     const back = page.getByRole('button', { name: 'Back', exact: true })
     await overview.click()
-    await page.getByRole('button', { name: 'Open Beta' }).click()
+    await (await teamSeats(frame)).getByRole('group', { name: /Beta/ }).click()
     await expect(page.getByRole('tab', { name: 'Chat', exact: true })).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByText('The request helper makes one attempt. I am tracing where transient failures are returned.')).toBeVisible()
     await expect(back).toBeEnabled()
 
     await back.click()
     await expect(overview).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByRole('button', { name: 'Open Beta' })).toBeVisible()
+    await expect((await teamSeats(frame)).getByRole('group', { name: /Beta/ })).toBeVisible()
   })
 
   test(`Team start names the automatic role result in ${theme}`, async ({ page }) => {

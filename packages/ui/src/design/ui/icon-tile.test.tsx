@@ -92,3 +92,10 @@ it('an empty identity uses the shared neutral ring without a coloured fill', () 
   expect(markup).toContain('bg-transparent')
   expect(markup).not.toContain('bg-(--hd-neutral-dim)')
 })
+
+it('bare glyphs keep the shared icon geometry without painting an identity plate', () => {
+  const tile = renderToStaticMarkup(<IconTile variant="bare" shape="face"><svg /></IconTile>)
+  expect(tile).toContain('data-variant="bare"')
+  expect(tile).not.toContain('bg-')
+  expect(tile).toContain('size-8')
+})

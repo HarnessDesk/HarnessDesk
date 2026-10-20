@@ -6,10 +6,13 @@ import { StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
 import { RaceStart } from './RaceStart'
 import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
+import { canvasDOM } from '../test/flow-canvas-dom'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 it('takes /race through New Team with its task and ordinary preview token, then opens the Team', async () => {
+  canvasDOM()
+  await import('../design/patterns/FlowCanvas/Engine')
   const store = new AppStore('ws://localhost:0/')
   const open = vi.spyOn(store, 'openGoal').mockImplementation(() => {})
   const close = vi.fn()
@@ -56,7 +59,10 @@ it('takes /race through New Team with its task and ordinary preview token, then 
     expect(chosen().roles.some(role => role.id === 'judge')).toBe(false)
     expect(chosen().roles.find(role => role.id === 'referee')).toMatchObject({ review: true })
     await chooseJudge('alpha')
-    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Configure Judge"]')!.click())
+    if (!document.querySelector('[aria-label="Judge configuration"]')) {
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Configure Judge"]')!.click())
+    }
+    await act(async () => document.querySelector('[aria-label="Judge configuration"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
     expect(document.querySelector('[aria-label="Judge configuration"]')).toBeNull()
     const start = [...document.querySelectorAll('button')].find(one => one.textContent === 'Start Team')!
     expect(start.disabled).toBe(false)
@@ -65,5 +71,5 @@ it('takes /race through New Team with its task and ordinary preview token, then 
     expect((request.mock.calls.find(call => call[0] === 'flow/start-goal')![1] as { source: string }).source).toBe((request.mock.calls.filter(call => call[0] === 'authoring/start/preview').at(-1)![1] as { source: string }).source)
     expect(open).toHaveBeenCalledWith('race-team')
     expect(close).toHaveBeenCalledOnce()
-  } finally { act(() => root.unmount()); container.remove() }
+  } finally { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
 })

@@ -20,6 +20,7 @@ const mount = async (search: string, node: () => React.ReactNode) => {
 it('races two Seats Side by side and reaches the judge’s pick', async () => {
   const { container, done } = await mount('?readme-race', () => <ReadmeRace />)
   try {
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Chat')!.click())
     expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
     expect(container.textContent).not.toContain('Picked')
     await act(async () => { window.dispatchEvent(new CustomEvent('readme-race-stage', { detail: 3 })) })

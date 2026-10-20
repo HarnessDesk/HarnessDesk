@@ -1,3 +1,4 @@
+import { selectFrameTab } from './frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 
@@ -32,10 +33,10 @@ const openFrame = async (page: Page, query: string, theme: 'light' | 'dark' = 'l
   for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`FIX10 stopped Team agrees while its waiting turn finishes [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=team&frame-fix10-stop=1', theme)
-    await page.getByRole('tab', { name: 'Run 1', exact: true }).click()
+    await selectFrameTab(page, 'run')
     await page.getByRole('button', { name: 'Stop run…', exact: true }).click()
     await page.getByRole('alertdialog').getByRole('button', { name: 'Stop run', exact: true }).click()
-    await page.getByRole('tab', { name: 'Overview', exact: true }).click()
+    await selectFrameTab(page, 'overview')
     const room = page.getByRole('button', { name: 'Room Retry the checkout call', exact: true })
     await expect(room).toHaveAttribute('title', /Stopping/)
     await expect(room).not.toHaveAttribute('title', /Working/)

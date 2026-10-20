@@ -11,6 +11,8 @@ export interface SeatListRow {
   readonly name: string
   readonly mark?: ReactNode
   readonly detail: string
+  /** The complete Seat identity and current work, available without expanding the row. */
+  readonly context?: string
   readonly state: string
   readonly open: () => void
   readonly watch: () => void
@@ -25,9 +27,9 @@ export interface SeatListRow {
   readonly mutationRefusal?: string
 }
 export const SeatList = ({ rows }: { rows: readonly SeatListRow[] }) => <ListRows>{rows.map(one => <ListRow
-  key={one.id} selected={one.selected} interactive={!one.refusal} onClick={event => {
+  key={one.id} size="sm" role="group" aria-label={`${one.context ?? one.name} · ${one.state}`} selected={one.selected} interactive={!one.refusal} onClick={event => {
     if (!one.refusal && !(event.target as Element).closest('button')) one.open()
-  }} title={<span title={one.refusal}>{one.name}</span>} wrapSubtitle subtitle={<Text role="meta">{one.detail}{one.refusal ? ` · ${one.refusal}` : ''}</Text>} lead={one.mark}
+  }} title={<span title={one.refusal ?? one.context ?? one.name}>{one.name}</span>} wrapSubtitle={Boolean(one.refusal)} subtitle={<Text role="meta">{one.detail}{one.refusal ? ` · ${one.refusal}` : ''}</Text>} lead={one.mark}
   trail={<><Chip tone="neutral">{one.state}</Chip><Popover title={`Actions for ${one.name}`} label={<MoreIcon />} icons="all">
     {close => <Menu close={close}>
       <MenuItem icon={<SessionIcon size={16} />} label="Open conversation" disabled={one.refusal} onSelect={() => { one.open(); close() }} />

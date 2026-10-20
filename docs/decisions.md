@@ -3030,8 +3030,7 @@ box and the layout's exported gaps, rather than treating the 176×68 layout box
 as the rendered card. A Run supplies its state slot, with `flow-overlay`'s vocabulary;
 failed and skipped are also available to a caller with those recorded facts.
 The first drawing is centred at 100% when it fits; a narrow container shrinks
-it to fit. Edits keep the viewport while any earlier step survives. Fit can
-shrink, never enlarge it.
+it to fit. Edits keep the viewport while any earlier step survives. Explicit Fit recalculates the viewport up to 100%; automatic resize keeps the current zoom when the drawing still fits.
 Read-only plans retain selection and navigation but have no edit affordances.
 Keyboard connection belongs to the builder dock and will arrive in a later
 change; it is not part of this pattern.
@@ -3920,3 +3919,23 @@ The dry run already computed, for each seat whose Agent declares skills or MCP s
 The line is a rendering of facts the host already decided (`FlowPreviewSeat.attachments`), not a second decision: it adds no problem, removes none, and touches neither `startable` nor the Start button, wherever the seats section is rendered — the Start dialog, the dry-run report on a Flow page, a trigger’s preview and a saved Run again. A declaration of kind `notes` is neither skill nor server and stays out of the line entirely.
 
 **Rule:** a seat's attachment facts sit under that seat; the problems list still decides whether Start is allowed.
+
+
+## A Team opens on its recorded Work — 2026-10-19
+
+The owner found that Overview, Run, Flow and Timeline hid one story behind too
+many choices. Work now opens with the Run's frozen graph and recent activity;
+Full record expands history in place. Tasks groups Board and Findings without
+changing their ledger or actions, and Chat retains Thread and Side by side.
+An explicit saved destination still restores. Run history and Receipt remain
+secondary destinations, and a compact chooser selects a historical Run.
+
+Approvals and questions belong in Chat or their own conversation, backed by
+one request store. Work keeps one aggregate link; Chat carries the pending
+count and warning light. A Team approval names its requester and links their
+conversation. The composer stays visible below the card, retaining its draft
+and recipients. Requests sit at the end of the scrolling Chat thread, so all
+actions scroll with the conversation and cannot be clipped in a second dock. Human
+task decisions remain marked in the graph with the existing task and inspector
+answer actions. The selected Agent's actual glyph identifies each Seat without
+a surrounding coloured tile, and generated duplicate role names keep ordinals.

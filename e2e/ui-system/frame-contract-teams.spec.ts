@@ -99,7 +99,7 @@ test('E5 Team row enters work and keeps room navigation separate from page histo
   await expect(page.locator('[data-page-destination="teams"]')).toBeVisible()
   await page.keyboard.press('Meta+]')
   await expect(page.locator('[data-slot="team-room"]')).toBeVisible()
-  await expect(page.locator('[data-team-page="findings"]')).toBeVisible()
+  await expect(page.getByRole('tablist', { name: 'Task views', exact: true }).getByRole('tab', { name: /^Findings/ })).toBeVisible()
 })
 for (const theme of ['light', 'dark'] as const) test(`E5 Teams body choices survive page history and New Team opens the existing dialog ${theme}`, async ({ page }) => {
   await openFrame(page, 'frame-wall=teams', theme)

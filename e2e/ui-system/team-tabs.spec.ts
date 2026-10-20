@@ -1,3 +1,4 @@
+import { selectTeamPage } from './team-frame-actions'
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
@@ -9,7 +10,8 @@ for (const theme of ['light', 'dark'] as const) {
       await page.goto(`/preview.html?comparison-verdict=combined&theme=${theme}`)
       const frame = page.locator('[data-frame-id="comparison-combined"]')
       const tabs = frame.getByRole('tablist', { name: 'Team views', exact: true })
-      const view = frame.getByRole('button', { name: 'View', exact: true })
+      await selectTeamPage(frame, 'room')
+      const view = frame.getByRole('button', { name: /^(Thread|Side by side)$/ })
       const tiles = frame.locator('[data-slot="side-by-side-tile"]')
       await expect(tiles).toHaveCount(2)
       await page.evaluate(() => document.fonts.ready)
@@ -31,19 +33,19 @@ for (const theme of ['light', 'dark'] as const) {
       expect.soft(tabBox.x - room.x).toBe(gutter)
       expect.soft(room.x + room.width - viewBox.x - viewBox.width).toBe(gutter)
       expect.soft(await tabs.evaluate(node => getComputedStyle(node).overflowX)).toBe('auto')
-      if (width === 360) expect.soft(await tabs.evaluate(node => node.scrollWidth)).toBeGreaterThan(await tabs.evaluate(node => node.clientWidth))
+      await expect(tabs.getByRole('tab')).toHaveCount(3)
       // Every destination stays reachable even when the strip must scroll.
-      await frame.locator('[data-team-page="findings"]').focus()
-      await page.keyboard.press('Enter')
-      await expect(frame.locator('[data-team-page="findings"]')).toHaveAttribute('data-active', '')
+      await selectTeamPage(frame, 'findings')
+      await expect(frame.getByRole('tablist', { name: 'Task views', exact: true }).getByRole('tab', { name: /^Findings/ })).toHaveAttribute('aria-selected', 'true')
     })
   }
 
-  test(`Team Chat and Overview preview frames in ${theme}`, async ({ page }) => {
+  test(`Team Chat and Work preview frames in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?comparison-verdict=combined&theme=${theme}`)
     const frame = page.locator('[data-frame-id="comparison-combined"]')
+    await selectTeamPage(frame, 'room')
     await expect(frame.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
     const directory = process.env.TEAM_TABS_SHOTS_DIR
     for (const tab of ['room', 'overview']) {

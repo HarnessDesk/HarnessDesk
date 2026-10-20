@@ -104,10 +104,10 @@ export const PaneColumn = forwardRef<HTMLDivElement, PaneColumnProps>(
 PaneColumn.displayName = 'PaneColumn'
 
 /** Tabs under a pane's top bar keep the reading gutter and a small vertical
- * step. Tabs yield and scroll; trailing view controls stay on the tabs' row. */
+ * step. Tabs yield and scroll; their current view and action stay beside them. */
 export const PaneTabsRow = ({ children, controls }: { readonly children: ReactNode; readonly controls?: ReactNode }) => (
   <PaneColumn inset="reading" className="flex shrink-0 items-start gap-2" data-pane-tabs-row="">
-    <div className="min-w-0 flex-1">{children}</div>
+    <div className="min-w-0">{children}</div>
     {controls != null && <div className="shrink-0">{controls}</div>}
   </PaneColumn>
 )

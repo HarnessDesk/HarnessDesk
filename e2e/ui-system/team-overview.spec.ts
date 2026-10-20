@@ -286,7 +286,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(overview.locator('[data-unchecked-done]')).toHaveText('141 cards finished without a checkOpen BoardWrap')
     await expect(overview.locator('[aria-label="Needs you"]')).toHaveCount(0)
     await expect(frame.locator('[data-team-page="overview"] [data-slot="switcher-count"], [data-team-page="overview"] [data-slot="tabs-count"]')).toHaveCount(0)
-    await expect(frame.locator('[data-team-page="overview"]')).toHaveText('Overview')
+    await expect(frame.locator('[data-team-page="overview"]')).toHaveText('Work')
     await expect(overview.getByRole('button',{name:'Wrap',exact:true})).toBeVisible()
     const row = overview.locator('[data-unchecked-done]')
     const textBox = (await row.locator('[data-slot="list-row-title"]').boundingBox())!
@@ -301,14 +301,16 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(frame.locator('[data-team-page="board"]')).toHaveAttribute('data-active','')
   })
 
-  test(`Overview count equals its rendered attention rows in ${theme}`, async ({page}) => {
+  test(`Work keeps attention readable without a duplicate navigation count in ${theme}`, async ({page}) => {
     await page.goto(`/preview.html?team-overview&theme=${theme}`)
     for (const scene of ['needs-you','stalled','unrouted','findings-and-posting']) {
       const frame=page.locator(`#team-overview-live-${scene}`)
       const rows=frame.locator('[data-slot="team-overview"] [aria-label="Needs you"] [data-slot="list-row"]')
       await expect(rows.first()).toBeVisible()
       const count=await rows.count()
-      await expect(frame.locator('[data-team-page="overview"]')).toContainText(String(count))
+      expect(count).toBeGreaterThan(0)
+      await expect(frame.locator('[data-team-page="overview"]')).toHaveText('Work')
+      await expect(frame.locator('[data-team-page="overview"] [data-slot="tabs-count"]')).toHaveCount(0)
     }
   })
 }

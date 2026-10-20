@@ -122,7 +122,7 @@ for (const theme of WALL_THEMES) {
   test(`Findings body keeps its count agreement and decision refusal in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme, 720)
     await selectFrameTab(page, 'findings')
-    await expect(page.locator('[data-team-page="findings"]:visible')).toContainText('3')
+    await expect(page.getByRole('tablist', { name: 'Task views', exact: true }).getByRole('tab', { name: /^Findings/ })).toContainText('3')
     const summary = page.locator('[aria-label="Findings summary"]')
     await expect(summary).toBeVisible()
     expect(await summary.locator('[data-slot="summary-item"]').evaluateAll(nodes => nodes.map(node => [

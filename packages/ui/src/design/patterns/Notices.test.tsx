@@ -12,7 +12,7 @@ const { toast } = vi.hoisted(() => {
 })
 vi.mock('../ui/toast', () => ({ toast }))
 
-import { ComposerNotice, InboxList, InboxPanel, NoticeCard, NoticeStrip, showProgress, showToast, type NoticeMessage } from './Notices'
+import { ComposerTail, ComposerNotice, InboxList, InboxPanel, NoticeCard, NoticeStrip, showProgress, showToast, type NoticeMessage } from './Notices'
 
 let host: HTMLDivElement
 let root: Root
@@ -272,4 +272,11 @@ it('routes a completed Library write through success with its single action and 
   const onSelect = vi.fn()
   showToast({ tone: 'success', title: 'Saved 3 skills', action: { label: 'View changes', onSelect } })
   expect(toast.success).toHaveBeenCalledWith('Saved 3 skills', { action: { label: 'View changes', onClick: onSelect } })
+})
+
+
+it('offers a plain composer tail without applying the tinted child strip policy', () => {
+ act(() => root.render(<ComposerTail variant="plain"><span>2 agents working · Sends after their turns</span></ComposerTail>))
+ expect(host.querySelector('[data-slot="composer-tail"]')?.getAttribute('data-variant')).toBe('plain')
+ expect(noticeCss).toContain(".tail[data-slot='composer-tail']:not([data-variant='plain']) > *")
 })

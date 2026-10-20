@@ -68,9 +68,9 @@ it('the narrow pane close control hides seeded inspection and original selection
   expect(container.querySelector('[data-preview-tool-placement="floating"] [data-slot="run-inspector"]')?.textContent).toContain('Attempt 2')
 })
 
-it('the standalone Run puts its View choice in the body under the subject bar', async () => {
+it('the standalone Run names its current Timeline choice in the body under the subject bar', async () => {
   const container = await mount(<RunInspectorExample scene="check" />)
-  const view = container.querySelector<HTMLButtonElement>('button[aria-label="View"]')
+  const view = container.querySelector<HTMLButtonElement>('button[aria-label="Timeline"]')
   expect(view).not.toBeNull()
   expect(view?.closest('[data-slot="top-bar"]')).toBeNull()
   expect(view?.closest('[data-slot="workbench-main"]')).not.toBeNull()

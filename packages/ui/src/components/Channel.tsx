@@ -1,6 +1,8 @@
 import { useMemo, type ReactNode } from 'react'
 
+import { sessionKey } from '@harnessdesk/protocol'
 import type {
+  FlowExecution,
   TeamActor,
   TeamEntry,
   TeamMessage,
@@ -10,11 +12,12 @@ import type {
 
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
-import { Chip, Separator } from '../design'
+import { Button, Chip, Separator } from '../design'
 import { ChannelMessage, ChannelNotice, ChannelSignal } from '../design'
 import { type Brand, brandForRuntime } from '../lib/brands'
 import { Markdown } from './Markdown'
 import { Face } from '../design'
+import { sanitizeText } from '../lib/sanitize'
 
 /**
  * The channel: what the conversations on one board said, in order.
@@ -62,11 +65,6 @@ const SIGNAL_WORD: Record<string, string> = {
 }
 
 
-/** Identity tints, in the order senders first speak. The user always holds blue. */
-const TINTS = ['violet', 'green', 'amber', 'teal', 'rose'] as const
-
-type Tint = (typeof TINTS)[number] | 'blue'
-
 /** One sender, stable across their messages — the conversation, not the agent. */
 const senderKey = (actor: TeamActor): string =>
   actor.kind === 'user' ? 'user' : actor.kind === 'flow' ? `flow\u0000${actor.name}` : actor.kind === 'trigger' ? `trigger\u0000${actor.trigger}` : `${actor.runtime}\u0000${actor.sessionId}`
@@ -102,10 +100,30 @@ export const nameSome = (names: readonly string[]): string =>
  * broadcast to three agents — three stored rows, one drawn row — read as three
  * new messages, and a claim signal read as a message.
  */
+export type ChannelSignalBatch = { readonly key: string; readonly flow: string }
+
+/** Card identity in a frozen execution round is the only evidence of a batch. */
+export const channelSignalBatches = (room: string, executions: Iterable<FlowExecution>): ReadonlyMap<number, ChannelSignalBatch> => {
+  const batches = new Map<number, ChannelSignalBatch>()
+  const ambiguous = new Set<number>()
+  for (const execution of executions) {
+    if (execution.goal !== room) continue
+    for (const round of execution.rounds) for (const card of round.cards) {
+      const batch = { key: `${execution.id}:${round.n}`, flow: execution.document.flow.name }
+      const previous = batches.get(card)
+      if (previous && previous.key !== batch.key) ambiguous.add(card)
+      else batches.set(card, batch)
+    }
+  }
+  for (const card of ambiguous) batches.delete(card)
+  return batches
+}
+
 export const readChannel = (
   channel: readonly TeamEntry[],
+  signalBatches: ReadonlyMap<number, ChannelSignalBatch> = new Map(),
 ): readonly (
-  | { readonly kind: 'signal'; readonly entry: TeamSignal }
+  | { readonly kind: 'signal'; readonly entry: TeamSignal; readonly entries?: readonly TeamSignal[] }
   | { readonly kind: 'notice'; readonly entry: TeamNotice }
   | {
       readonly kind: 'message'
@@ -114,6 +132,7 @@ export const readChannel = (
       readonly refusedFirst?: string
       /** Everyone one broadcast reached, when the host stored a row each. */
       readonly reached?: readonly string[]
+      readonly recipients?: readonly NonNullable<TeamMessage['to']>[]
       /** Outcomes among those recipients that differ from this row's own. */
       readonly outcomes?: readonly { readonly state: string; readonly names: readonly string[] }[]
     }
@@ -130,6 +149,7 @@ export const readChannel = (
   // having sent the message twice. The exception is the news; the words are
   // not news the second time.
   const fanout = new Map<string, string[]>()
+  const recipients = new Map<string, NonNullable<TeamMessage['to']>[]>()
   const merged = new Set<string>()
   /** The outcomes a row stands in for, other than its own. */
   const otherOutcomes = new Map<string, { state: string; names: string[] }[]>()
@@ -164,6 +184,7 @@ export const readChannel = (
     const nameOf = (copy: TeamMessage): string => copy.to?.nickname ?? copy.to?.title ?? ''
     // Everyone it went to, in the order the host stored them.
     fanout.set(head.id, copies.map(nameOf))
+    recipients.set(head.id, copies.flatMap(copy => copy.to ? [copy.to] : []))
     /* The reason is part of the outcome, not a decoration on it. Two copies
        both `refused` — one because the conversation had closed, one because
        the send itself failed — are two different pieces of news, and keying
@@ -209,7 +230,7 @@ export const readChannel = (
   })
 
   const rows: (
-    | { kind: 'signal'; entry: TeamSignal }
+    | { kind: 'signal'; entry: TeamSignal; entries?: readonly TeamSignal[] }
     | { kind: 'notice'; entry: TeamNotice }
     | {
         kind: 'message'
@@ -217,6 +238,7 @@ export const readChannel = (
         grouped: boolean
         refusedFirst?: string
         reached?: readonly string[]
+        recipients?: readonly NonNullable<TeamMessage['to']>[]
         outcomes?: readonly {
           readonly state: string
           readonly names: readonly string[]
@@ -228,7 +250,16 @@ export const readChannel = (
 
   for (const entry of channel) {
     if (entry.kind === 'signal') {
-      rows.push({ kind: 'signal', entry })
+      const previous = rows.at(-1)
+      const batch = signalBatches.get(entry.intent)
+      const previousBatch = previous?.kind === 'signal' ? signalBatches.get(previous.entry.intent) : undefined
+      if (entry.signal === 'added' && entry.by.kind === 'flow' && !entry.detail &&
+        previous?.kind === 'signal' && previous.entry.signal === 'added' && previous.entry.by.kind === 'flow' && !previous.entry.detail &&
+        batch && previousBatch?.key === batch.key && batch.flow === entry.by.name && previousBatch.flow === previous.entry.by.name &&
+        senderKey(entry.by) === senderKey(previous.entry.by) && dayOf(entry.at) === dayOf(previous.entry.at) && entry.at >= (previous.entries?.at(-1)?.at ?? previous.entry.at) &&
+        !(previous.entries ?? [previous.entry]).some(one => one.intent === entry.intent)) {
+        rows[rows.length - 1] = { ...previous, entries: [...(previous.entries ?? [previous.entry]), entry] }
+      } else rows.push({ kind: 'signal', entry })
       // A signal between two messages ends the run: something happened in
       // between, so the next message introduces itself again.
       last = null
@@ -261,7 +292,7 @@ export const readChannel = (
       entry,
       grouped,
       ...(reason !== undefined ? { refusedFirst: reason } : {}),
-      ...(reached ? { reached } : {}),
+      ...(reached ? { reached, recipients: recipients.get(entry.id) } : {}),
       ...(otherOutcomes.get(entry.id) ? { outcomes: otherOutcomes.get(entry.id) } : {}),
     })
     last = { key, at: entry.at }
@@ -293,9 +324,13 @@ export const ChannelStream = ({
   room,
   onTrouble,
   identify,
+  onOpenCard,
+  displayName,
 }: {
   readonly entries: readonly TeamEntry[]
   readonly room: string
+  readonly onOpenCard?: (card: number) => void
+  readonly displayName?: (actor: TeamActor) => string | undefined
   readonly onTrouble: (message: string | null) => void
   /**
    * Hangs something off a message's face and author name — a name card, where
@@ -311,22 +346,25 @@ export const ChannelStream = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const rows = useMemo(() => readChannel(entries), [entries])
-
-  /* A sender's colour is assigned in the order they first speak on this board,
-     so it is stable for as long as the channel is and identical for everyone
-     reading it. The user always holds blue. */
-  const tints = useMemo(() => {
-    const out = new Map<string, (typeof TINTS)[number] | 'blue'>()
-    let next = 0
-    for (const entry of entries) {
-      const who = entry.kind === 'signal' ? entry.by : entry.kind === 'notice' ? entry.about : entry.from
-      const key = senderKey(who)
-      if (out.has(key)) continue
-      out.set(key, who.kind === 'user' ? 'blue' : (TINTS[next++ % TINTS.length] as (typeof TINTS)[number]))
-    }
-    return out
-  }, [entries])
+  const batches = useMemo(() => channelSignalBatches(room, snapshot.flowExecutions.values()), [room, snapshot.flowExecutions])
+  const rows = useMemo(() => readChannel(entries, batches), [entries, batches])
+  const compactName = (actor: TeamActor): string => sanitizeText(displayName?.(actor) ?? actorName(actor, snapshot))
+  const recipientName = (target: NonNullable<TeamMessage['to']>): string => sanitizeText(displayName?.({ kind: 'agent', ...target }) ?? target.nickname ?? target.title)
+  const audience = (entry: TeamMessage, targets?: readonly NonNullable<TeamMessage['to']>[]): { to: string; toTitle: string } => {
+    if (!entry.to) return { to: 'Everyone', toTitle: 'Everyone in this Team' }
+    if (!targets) return { to: recipientName(entry.to), toTitle: sanitizeText(entry.to.nickname ?? entry.to.title) }
+    const sender = entry.from.kind === 'agent' ? sessionKey(entry.from.runtime, entry.from.sessionId) : null
+    const members = (snapshot.teams.get(room)?.members ?? []).filter(key => key !== sender)
+    const reached = new Set(targets.map(target => sessionKey(target.runtime, target.sessionId)))
+    const everyone = members.length > 0 && reached.size === members.length && members.every(key => reached.has(key))
+    return { to: everyone ? 'Everyone' : `${reached.size} agents`, toTitle: targets.map(target => sanitizeText(target.nickname ?? target.title)).join(', ') }
+  }
+  const cardLink = (entry: TeamSignal): ReactNode => {
+    const title = sanitizeText(entry.title)
+    const label = `Open task #${entry.intent}: ${title}`
+    return onOpenCard ? <Button key={entry.id} variant="link" size="inline" title={title} aria-label={label} onClick={() => onOpenCard(entry.intent)}>#{entry.intent}</Button>
+      : <span key={entry.id} title={title} aria-label={`Task #${entry.intent}: ${title}`}>#{entry.intent}</span>
+  }
 
   const setTrouble = onTrouble
   const nodes = (() => {
@@ -351,15 +389,17 @@ export const ChannelStream = ({
         ) : row.kind === 'signal' ? (
           <ChannelSignal
             key={row.entry.id}
-            by={actorName(row.entry.by, snapshot)}
-            said={`${SIGNAL_WORD[row.entry.signal] ?? row.entry.signal} #${row.entry.intent} — ${row.entry.title}`}
-            detail={row.entry.detail || undefined}
-            at={timeOf(row.entry.at)}
+            by={compactName(row.entry.by)}
+            byTitle={sanitizeText(actorName(row.entry.by, snapshot))}
+            said={row.entries ? <>added {row.entries.length} tasks · {row.entries.map((entry, index) => <span key={entry.id}>{index > 0 && ', '}{cardLink(entry)}</span>)}</> : <>{SIGNAL_WORD[row.entry.signal] ?? row.entry.signal} {cardLink(row.entry)}</>}
+            detail={row.entry.detail ? sanitizeText(row.entry.detail) : undefined}
+            at={row.entries && timeOf(row.entries.at(-1)!.at) !== timeOf(row.entry.at) ? `${timeOf(row.entry.at)}–${timeOf(row.entries.at(-1)!.at)}` : timeOf(row.entry.at)}
           />
         ) : (
           <ChannelMessage
             key={row.entry.id}
-            from={actorName(row.entry.from, snapshot)}
+            from={compactName(row.entry.from)}
+            fromTitle={sanitizeText(actorName(row.entry.from, snapshot))}
             at={timeOf(row.entry.at)}
             {...(identify
               ? { identify: (node: ReactNode) => identify(row.entry.from, node) }
@@ -372,7 +412,6 @@ export const ChannelStream = ({
             body={<Markdown text={row.entry.batch ? row.entry.batch.template : row.entry.text} chat />}
             state={row.entry.state}
             grouped={row.grouped}
-            tint={tints.get(senderKey(row.entry.from)) ?? 'blue'}
             {...(brandOf(row.entry.from, snapshot) ? { brand: brandOf(row.entry.from, snapshot) as Brand } : {})}
             /* You, in the face the seat wears. It fills the row's tile, so it
                takes the tile's size and corner — drawn from
@@ -382,11 +421,7 @@ export const ChannelStream = ({
                you: right on a desk of one, and the assumption to revisit the
                day a room holds two people. */
             {...(row.entry.from.kind === 'user' ? { face: <Face avatar={snapshot.profile.avatar} /> } : {})}
-            {...(row.reached
-              ? { to: nameSome(row.reached) }
-              : row.entry.to
-                ? { to: row.entry.to.nickname ?? row.entry.to.title }
-                : {})}
+            {...audience(row.entry, row.recipients)}
             {...(row.entry.reason ? { reason: row.entry.reason } : {})}
             {...(row.refusedFirst !== undefined ? { refusedFirst: row.refusedFirst } : {})}
             {...(row.outcomes ? { outcomes: row.outcomes } : {})}

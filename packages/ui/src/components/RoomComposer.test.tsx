@@ -449,7 +449,7 @@ it('a recipient mid-turn is said before the send, not after', () => {
   act(() => press('Enter'))
   act(() => type('when you are free'))
 
-  expect(container.textContent).toContain('Opus is working — this waits for the turn to end')
+  expect(container.textContent).toContain('1 agent working · Sends after their turn')
   /* The conversation's own weight for a message a turn is ahead of. It is not
      disabled: the message will be sent, and saying "later" is not saying no. */
   expect(send().dataset['when']).toBe('later')
@@ -463,8 +463,8 @@ it('a broadcast that reaches most of the room now does not claim to wait', () =>
   /* One of three is mid-turn. Two get it now, so the coin is a send — and the
      line says which copy is held rather than claiming the message waits. */
   expect(send().dataset['when']).toBe('now')
-  expect(container.textContent).toContain('Opus is working — that copy waits')
-  expect(container.textContent).toContain('The rest go now')
+  expect(container.textContent).toContain('1 agent working · Their copy sends after the turn')
+  expect(container.textContent).toContain('The rest send now')
 })
 
 it('every recipient working is the whole message waiting', () => {
@@ -472,7 +472,7 @@ it('every recipient working is the whole message waiting', () => {
   act(() => type('when you are both free'))
 
   expect(send().dataset['when']).toBe('later')
-  expect(container.textContent).toContain('Opus, GPT are working — this waits for the turns to end')
+  expect(container.textContent).toContain('2 agents working · Sends after their turns')
 })
 
 it('the box empties before the host answers, so a second press sends nothing', async () => {
@@ -969,4 +969,22 @@ it('a wrapped record refuses Hold with the record reason ahead of any caller rea
   expect(store.teamPost).not.toHaveBeenCalled()
   expect(box().disabled).toBe(true)
   expect(JSON.stringify([...view.goals])).toBe(before)
+})
+
+it('uses canonical display names in mentions, chips and audience while retaining full-name search and target identity', async () => {
+  const raw = 'Implementer · Test agent · selection-1 · high'
+  const seats = [member(peer('codex', 'one', raw), { displayName: 'Implementer 1' }), member(peer('codex', 'two', 'Implementer · Test agent · selection-2 · high'), { displayName: 'Implementer 2' })]
+  const { store } = rig(seats)
+  act(() => type('@selection-1'))
+  expect(menu()?.textContent).toContain('Implementer 1')
+  expect(menu()?.textContent).not.toContain('Implementer 2')
+  act(() => press('Enter'))
+  expect(chips()).toEqual(['Implementer 1'])
+  expect(anchor().textContent).toContain('Implementer 1')
+  expect(anchor().title).toContain(raw)
+  expect(container.querySelector('[data-slot="composer-chip"] [title]')?.getAttribute('title')).toBe(raw)
+  act(() => type('Review the change.'))
+  act(() => press('Enter'))
+  await act(async () => {})
+  expect(store.teamPost).toHaveBeenCalledWith(ROOM, 'Review the change.', { runtime: 'codex', sessionId: 'one' })
 })

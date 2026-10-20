@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type { Approval, ApprovalOption } from '@harnessdesk/protocol'
 
@@ -23,6 +23,7 @@ import {
   type ApprovalDialogAction,
 } from '../design'
 import styles from './Approvals.module.css'
+import { sanitizeText } from '../lib/sanitize'
 
 /** The glyph for an answer: yes, yes-and-keep-saying-yes, no. */
 const INTENT_ICON = {
@@ -191,9 +192,10 @@ const UserInputBody = ({
  * replaced — and then a key already on its way from that sentence is not an
  * answer (`TYPED_THROUGH_MS`).
  */
-export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
+export const Approvals = ({ placement = 'overlay', takeFocus = false, requester }: {
+  requester?: { name: string; mark?: ReactNode; open: () => void }
   placement?: 'overlay' | 'docked'
-  /** Docked only: the person was in the composer this card replaces, so it takes the focus. */
+  /** Docked only: the person was in the composer below this card, so it takes the focus. */
   takeFocus?: boolean
 } = {}) => {
   const store = useStore()
@@ -361,6 +363,7 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
       actions={actions}
       placement={placement}
     >
+          {requester && <ApprovalMeta label={requester.mark ?? 'From'} kind="person"><Text>{sanitizeText(requester.name)}</Text><Button variant="link" size="inline-link" onClick={requester.open}>Open conversation</Button></ApprovalMeta>}
           {approval.type === 'command' && (
             <CommandBody
               approval={approval}

@@ -401,8 +401,12 @@ it('draft and conversation keep the fixed browser door and More in the shell', (
 it('folder facts remain readable in Details when the shell title folds', () => {
   render(rig(session()).store)
   const facts = container.querySelector('[aria-label="Conversation facts"]')!
-  expect(facts.textContent).toContain('Folderrepo')
-  expect(facts.querySelector('[title="/repo"]')?.textContent).toBe('repo')
+  const folder = [...facts.querySelectorAll('[data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Folder')!
+  const path = folder.querySelector('[data-slot="middle-truncate"]')!
+  expect(path.querySelector('.sr-only')?.textContent).toBe('/repo')
+  expect(path.querySelector('[data-part="tail"]')?.textContent).toBe('/repo')
+  expect(path.className).toContain('whitespace-nowrap')
+  expect(path.className).toContain('overflow-hidden')
   expect(container.querySelector('header [aria-label="Conversation status"]')).toBeNull()
 })
 
@@ -461,8 +465,11 @@ it('puts the reason where the composer would be, in the agent’s own words', ()
 
   expect(container.textContent).toContain('folder is gone')
   expect(container.textContent).toContain('Codex cannot open this conversation: its folder no longer exists (')
-  expect(container.textContent).not.toContain('/repo')
-  expect(container.querySelector('[title="/repo"] .sr-only')?.textContent).toBe('repo')
+  const refusal = [...container.querySelectorAll('[data-slot="alert-description"]')].find(one => one.textContent?.includes('folder no longer exists'))!
+  expect(refusal.textContent).not.toContain('/repo')
+  expect(refusal.querySelector('[title="/repo"] .sr-only')?.textContent).toBe('repo')
+  const folderFact = [...container.querySelectorAll('[data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Folder')!
+  expect(folderFact.querySelector('.sr-only')?.textContent).toBe('/repo')
   expect(container.textContent).toContain('Open a copy in another folder')
   expect(container.textContent).toContain('Archive')
   // Nothing to type into: there is nowhere for it to go.
@@ -499,14 +506,26 @@ it('a plain conversation’s header is unchanged, and asks nothing about an Agen
 
 it('Details reports the recorded held or asked ceiling, and leaves unknown facts unknown', () => {
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'reviewer', ceiling: { level: 'read', hold: 'held' }, ceilingNote: 'Read-only sandbox; anything past it asks you' } })).store)
-  const facts = () => container.querySelector('[aria-label="Conversation facts"]')?.textContent
-  expect(facts()).toContain('Read only')
-  expect(facts()).toContain('Held: Read-only sandbox')
+  const facts = () => container.querySelector('[aria-label="Conversation facts"]')!
+  const ceiling = () => [...facts().querySelectorAll('[data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Ceiling')
+  const details = () => [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Conversation"] button')].find(one => one.textContent?.trim() === 'Details')!
+  expect(ceiling()?.textContent).toContain('Read')
+  expect(ceiling()?.textContent).toContain('Held')
+  expect(ceiling()?.textContent).not.toContain('Asked')
+  expect(ceiling()?.querySelector('[title*="Read-only sandbox"]')).not.toBeNull()
+  expect(details().getAttribute('aria-expanded')).toBe('false')
+  expect(container.textContent).not.toContain('Read-only sandbox')
+  act(() => details().click())
+  expect(container.textContent).toContain('Held: Read-only sandbox')
   expect(container.querySelector('header [data-ceiling]')).toBeNull()
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'writer', ceiling: { level: 'edit', hold: 'asked' } } })).store)
-  expect(facts()).toContain('Edit · asked, not enforced')
+  expect(ceiling()?.textContent).toContain('Edit')
+  expect(ceiling()?.textContent).toContain('Asked, not held')
+  expect(ceiling()?.querySelector('[title*="Asked, not held"]')).not.toBeNull()
+  if (details().getAttribute('aria-expanded') === 'false') act(() => details().click())
+  expect(container.textContent).toContain("The desk's own tools still refuse anything above it.")
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6' } })).store)
-  expect(facts()).not.toContain('Ceiling')
+  expect(ceiling()).toBeUndefined()
   expect(container.textContent).toContain('Permission level not reported for this conversation.')
 })
 
@@ -856,9 +875,12 @@ it('Details renders the latest recorded plan states and respects an explicit cle
   expect(plan.textContent).toContain('Review <script>unsafe()</script> changes')
   expect(plan.textContent).not.toContain('\u001b')
   render(rig(session({ turns: [old, { ...latest, plan: [] }] })).store)
-  const cleared = container.querySelector('[data-slot="tool-body"] [aria-label="Plan"]')!
+  const cleared = container.querySelector('[data-slot="tool-body"]')!
+  expect(cleared.querySelector('[aria-label="Plan"]')).toBeNull()
   expect(cleared.querySelector('[data-slot="checklist"]')).toBeNull()
-  expect(cleared.textContent).toContain('No plan yet.')
+  expect(cleared.textContent).not.toContain('Old plan')
+  expect(cleared.textContent).not.toContain('Finished step')
+  expect(cleared.textContent).not.toContain('Next step')
 })
 
 it('leaves no ceiling wrapper on the plain conversation path', () => {
@@ -1212,9 +1234,16 @@ it('omits legacy history-source copy for multiple accounts', () => {
 it('draft Details names the folder with its full path on hover (#1720)', () => {
   render(rig(null, new Map(), { workspace: { path: '/work/long/project/first-run-1720', name: 'first-run-1720' } as AppSnapshot['workspace'] }).store, null)
   const facts = container.querySelector('[aria-label="Conversation facts"]')!
-  expect(facts.textContent).toContain('first-run-1720')
-  expect(facts.textContent).not.toContain('/work/')
-  expect(facts.querySelector('[title="/work/long/project/first-run-1720"]')?.textContent).toBe('first-run-1720')
+  const folder = [...facts.querySelectorAll('[data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Folder')!
+  const path = folder.querySelector<HTMLElement>('[data-slot="middle-truncate"]')!
+  expect(path.querySelector('.sr-only')?.textContent).toBe('/work/long/project/first-run-1720')
+  expect(path.querySelector('[data-part="tail"]')?.textContent).toBe('/first-run-1720')
+  expect(path.querySelector('[data-part="head"]')?.className).toContain('truncate')
+  expect(path.className).toContain('whitespace-nowrap')
+  const head = path.querySelector('[data-part="head"]')!
+  Object.defineProperties(head, { scrollWidth: { configurable: true, value: 300 }, clientWidth: { configurable: true, value: 120 } })
+  act(() => path.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+  expect(path.title).toBe('/work/long/project/first-run-1720')
   expect(container.textContent).not.toContain('reported for this draft')
   expect(container.querySelector('[aria-label="Plan"]')).toBeNull()
 })

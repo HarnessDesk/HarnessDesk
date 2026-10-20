@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import { type FlowCheckAttempt, type InsightReport, type SessionKey, type TeamSignal } from '@harnessdesk/protocol'
-import { useSnapshot, useStore } from '../state/context'
+import { useSnapshot, useStore, usePane } from '../state/context'
 import { runtimeTint } from '../lib/accounts'
 import { hasConversation, teamSeats } from '../lib/team-seats'
 import { teamSeatCost } from '../lib/team-overview'
@@ -43,6 +43,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
 }) => {
   waitingSeats ??= new Set()
   const store = useStore()
+  const owner = usePane()?.paneId
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(execution.goal)
   const team = snapshot.teams.get(execution.goal)
@@ -82,11 +83,13 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
   const selectedStep = view.selectedRow?.startsWith('step:') ? view.selectedRow.slice(5) : stepForRow(execution, view.model.rows, view.selectedRow)
   const stepRows = rowsForStep(execution, view.model.rows, selectedStep)
   const faceTints = new Map(seats.filter(hasConversation).map(seat => [seat.record.id, runtimeTint(snapshot.runtimes.find(info => info.id === seat.record.session.runtime))]))
-  const flow = drawFlow ? <RunFlow execution={execution} root={goal?.goal.root ?? null} seats={goal?.members ?? []}
+  const flow = drawFlow ? <RunFlow inline={view.unified} execution={execution} root={goal?.goal.root ?? null} seats={goal?.members ?? []}
     cards={cards} sessions={snapshot.sessions} waitingSeats={waitingSeats} attempts={attempts ? new Map([...attempts].map(([id, history]) => [id, { attempts: history, complete: attemptsRead !== 'failed' && !incompleteAttempts?.has(id) }])) : undefined} selectedStep={selectedStep} onSelectStep={id => {
       const rows = rowsForStep(execution, view.model.rows, id)
       const latest = [...rows].reverse().find(id => view.model.rows.find(row => row.id === id)?.kind === 'round')
-      view.onSelect(latest ?? `step:${id}`)
+      const person = [...rows].reverse().find(rowId => view.model.rows.find(row => row.id === rowId)?.kind === 'person')
+      view.onSelect(person ?? latest ?? `step:${id}`)
+      if (person && owner) store.chooseWorkTool('details', 'run-details')
     }} faces={view.faces} faceTints={faceTints} doing={view.doing} /> : view.flow
   return <RunWorkspace {...view} home={snapshot.home} seatNames={new Map(seats.map(seat => [seat.record.id, { name: seat.name,
     detail: goal?.receipt?.members?.find(member => member.seat === seat.record.id)?.seatLabel ?? goal?.members.find(record => record.id === seat.record.id)?.seatLabel ?? null }]))} flow={flow} selectedRows={stepRows} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{

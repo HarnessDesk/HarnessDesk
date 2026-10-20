@@ -1,6 +1,6 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'chips' | 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'document' | 'summary' | 'start' | 'end' | 'bare'
-export type CatalogSize = 'stack' | 'default' | 'wrap' | 'xs' | 'sm' | 'control' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-label' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
+export type CatalogVariant = 'bar' | 'chips' | 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'document' | 'summary' | 'start' | 'end' | 'bare'
+export type CatalogSize = 'stack' | 'default' | 'wrap' | 'xs' | 'sm' | 'control' | 'lg' | 'compact' | 'large' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-label' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
 type CatalogSymbolAxes = Readonly<Record<string, {
@@ -168,7 +168,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'spark', 'stepper', 'timeline', 'timeline-cards', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'TerminalShellTabs', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
-  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
+  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowExample', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
   'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
   'SettingsRowMenu', 'HeaderStatusGroup', 'SelectionAction',
 ])
@@ -231,7 +231,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   field: ['default'],
   'group-label': ['default'],
   'hover-card': ['default'],
-  'icon-tile': ['default'],
+  'icon-tile': ['default', 'bare'],
   input: ['default', 'quiet', 'bare', 'filled', 'chrome', 'code'],
   'input-group': ['default'],
   'key-value': ['default', 'panel', 'summary'],
@@ -287,13 +287,14 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   InspectorPanel: ['default'],
   ConversationEmptyState: ['default'],
   TurnWork: ['default'],
-  Notices: ['default'],
+  Notices: ['default', 'plain'],
   Checklist: ['default'],
   timeline: ['default'],
   'timeline-cards': ['default'],
+  FlowExample: ['default'],
   FlowGraph: ['default'],
   FlowCards: ['default'],
-  FlowCanvasToolbar: ['default'],
+  FlowCanvasToolbar: ['default', 'bar'],
   FlowCanvasWorkspace: ['default'],
   FlowCanvas: ['light', 'dark'],
   FlowStepRow: ['default'],
@@ -420,6 +421,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
   timeline: ['default', 'active', 'inactive', 'success', 'warning', 'error'],
   'timeline-cards': ['default', 'selected', 'populated'],
+  FlowExample: ['default', 'working', 'needs-you', 'success', 'disabled'],
   FlowGraph: ['default', 'empty', 'working', 'needs-you', 'loading', 'error'],
   FlowCards: ['default', 'selected', 'disabled', 'empty', 'long-title', 'unknown', 'loading'],
   FlowCanvasToolbar: ['default', 'disabled'],
@@ -451,6 +453,7 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
   Object.keys(VARIANTS).map((name) => [name, DEFAULT_SIZE]),
 )
 Object.assign(SIZES, {
+  FlowCards: ['compact', 'large'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
@@ -521,6 +524,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
   Notices: 'packages/ui/src/components/Notices.tsx',
   Checklist: 'packages/ui/src/components/TaskPanel.tsx',
+  FlowExample: 'packages/ui/src/components/FlowsWindow.tsx',
   FlowGraph: 'packages/ui/src/components/RunFlow.tsx',
   FlowCards: 'packages/ui/src/components/FlowsWindow.tsx',
   FlowCanvasToolbar: 'packages/ui/src/components/ShapeEditor.tsx',
@@ -572,6 +576,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   ApprovalDialog: 'packages/ui/src/design/explorer/boards.tsx',
   Notices: 'packages/ui/src/design/explorer/boards.tsx',
   Checklist: 'packages/ui/src/design/explorer/boards.tsx',
+  FlowExample: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FlowGraph: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FlowCards: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FlowCanvasToolbar: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -682,6 +687,7 @@ const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
   'card': { 'Card': { 'variant': ['default', 'muted', 'flush', 'plate', 'raised'] }, 'CardViewport': { 'size': ['editor', 'lines'] } },
   'dropdown-menu': { 'DropdownMenuItem': { 'variant': ['default', 'destructive'] } },
   'empty-state': { 'EmptyState': { 'variant': ['panel', 'inline', 'row'] } },
+  'icon-tile': { 'IconTile': { 'variant': ['default', 'bare'] } },
   'key-value': { 'KeyValue': { 'variant': ['default', 'panel'] }, 'KeyValueRow': { 'variant': ['default', 'panel'] } },
   'list-row': { 'ListRow': { 'size': ['sm', 'default'] }, 'ListRows': { 'size': ['sm', 'default'] } },
   'progress': { 'Progress': { 'size': ['xs', 'sm', 'default'] } },
@@ -714,7 +720,8 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'FlowCards': ['FlowCard', 'FlowMiniGraph', 'FlowCardGrid', 'SelectedFlow'],
   'FlowCanvasToolbar': ['FlowCanvasToolbar'],
   'FlowCanvasWorkspace': ['FlowCanvasWorkspace', 'FlowCanvasSurface', 'FlowCanvasContent'],
-  'FlowGraph': ['FlowGraph'],
+  'FlowExample': ['FlowExample'],
+  'FlowGraph': ['FlowGraph', 'FlowRoleConfiguration'],
   'FlowStepRow': ['FlowStepRow', 'RunStateChip'],
   'GitComparisonDialogs': ['DiffRangeDialog', 'MergeDialog'],
   'HeaderStatusGroup': ['HeaderStatusGroup', 'HeaderStatusReading', 'useHeaderStatusGroup'],
@@ -757,8 +764,9 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
 }
 
 const PATTERN_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
+  'FlowCards': { 'FlowCardGrid': { 'size': ['compact', 'large'] } },
   'Menu': { 'MenuLabel': { 'size': ['default', 'compact'] } },
-  'Notices': { 'InboxPanel': { 'size': ['icon-sm', 'icon-xs'] } },
+  'Notices': { 'ComposerTail': { 'variant': ['default', 'plain'] }, 'InboxPanel': { 'size': ['icon-sm', 'icon-xs'] } },
   'Settings': { 'AccountMark': { 'size': ['sm', 'lg', 'dot', 'row', 'menu'] }, 'Chip': { 'size': ['default', 'sm'], 'variant': ['default', 'outline', 'quiet'] }, 'CodeText': { 'size': ['default', 'inherit'] }, 'Dot': { 'variant': ['default', 'navigation', 'presence'] }, 'Search': { 'size': ['default', 'compact', 'bare'] } },
   'ToolBody': { 'ToolProse': { 'variant': ['prose', 'note'] } },
 }
@@ -931,6 +939,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
   ['Checklist', 'checklist', 'A runtime plan: steps to do, under way and done'],
   ['FlowCanvas', 'flow-canvas', 'A lazy, controlled plan canvas: pan, zoom, selection, edits and read-only Run state slots'],
+  ['FlowExample', 'flow-example', 'Local finite policy illustrations with explicit playback and person pauses'],
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
   ['FlowCards', 'flow-cards', 'Flow destination and picker cards with faithful policy thumbnails, source and earned summary'],
   ['FlowCanvasWorkspace', 'flow-canvas-workspace', 'Shared editable canvas, floating tools and responsive card rail'],

@@ -58,23 +58,27 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 
-  test(`a comparison opens on its tiles with Overview one tab away in ${theme}`, async ({ page }) => {
+  test(`a comparison opens on Work and preserves its tiles in Chat in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?race-entry=tiles&theme=${theme}`)
+    await expect(page.getByRole('tab', { name: 'Work', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('[data-slot="team-overview"]')).toBeVisible()
+    await page.getByRole('tab', { name: /^Chat/ }).click()
     await expect(page.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
     await expect(page.locator('[data-slot="team-overview"]')).toHaveCount(0)
     if (process.env.HD_FRAMES_DIR) await page.screenshot({ path: path.join(process.env.HD_FRAMES_DIR, `tiles-${theme}.png`) })
-    await page.getByRole('tab', { name: /^Overview/ }).click()
+    await page.getByRole('tab', { name: 'Work', exact: true }).click()
     await expect(page.locator('[data-slot="team-overview"]')).toBeVisible()
   })
 
   test(`a comparison keeps a removed tile off the grid when returning to Chat in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?race-entry=tiles&theme=${theme}`)
     const tiles = page.locator('[data-slot="side-by-side-tile"]')
+    await page.getByRole('tab', { name: /^Chat/ }).click()
     await expect(tiles).toHaveCount(2)
     await tiles.last().getByRole('button', { name: / actions$/ }).click()
     await page.getByRole('menuitem', { name: 'Take off the grid', exact: true }).click()
     await expect(tiles).toHaveCount(1)
-    await page.getByRole('tab', { name: /^Overview/ }).click()
+    await page.getByRole('tab', { name: 'Work', exact: true }).click()
     await expect(page.locator('[data-slot="team-overview"]')).toBeVisible()
     await page.getByRole('tab', { name: /^Chat/ }).click()
     await expect(tiles).toHaveCount(1)

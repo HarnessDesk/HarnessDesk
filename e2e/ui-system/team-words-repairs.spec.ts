@@ -15,7 +15,7 @@ for (const theme of ['light', 'dark']) for (const scene of ['overview', 'wrap'] 
         ? /#1.*Kept\n#2.*Not kept/ : /#1.*Not kept\n#2.*Merged/)
       await expect(page.getByRole('combobox', { name: 'Disposition for #2 · Improve the session store' })).toHaveValue(before ? 'dropped' : 'finished')
     } else {
-      await page.getByRole('tab', { name: 'Overview', exact: true }).click()
+      await page.getByRole('tab', { name: 'Work', exact: true }).click()
       const overview = page.locator('[data-slot="team-overview"]')
       await expect(overview).toBeVisible()
       await expect(overview).toContainText(before ? '2 attempts' : '2 attempts · Referee picked')

@@ -9,14 +9,15 @@ import type { FlowStepRun } from '../../lib/flow-overlay'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const model = flowModel(runFixture().execution.document.flow)
 const run: FlowStepRun = { state: 'done', runs: 2, durationMs: 840_000, since: null, line: 'published', seats: ['seat-0'] }
-it('keeps kind, outcome, face tint and trailing recorded facts together in a selectable row', () => {
+it('keeps kind, outcome, plain runtime marks and trailing recorded facts together in a selectable row', () => {
   const container = document.createElement('div')
   const root = createRoot(container)
   const select = vi.fn()
   try {
     act(() => root.render(<FlowStepRow step={model.steps[0]!} run={run} subtitle="Round 1" selected onSelect={select}
       faces={new Map([['seat-0', <span>Runtime face</span>]])} faceTints={new Map([['seat-0', 'teal']])} />))
-    expect(container.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-tint')).toBe('teal')
+    expect(container.querySelector('[data-slot="icon-tile"]')).toBeNull()
+    expect(container.querySelector('[data-slot="flow-row-mark"]')?.getAttribute('aria-label')).toBe('1 seat')
     expect(container.textContent).toContain('Runtime face')
     expect(container.querySelector('[data-slot="chip"][data-tint="violet"]')?.textContent).toBe('Agent')
     expect(container.querySelector('[data-slot="chip"][data-tone="success"]')?.textContent).toBe('Published')
@@ -32,7 +33,8 @@ it('keeps unavailable check time and counts unknown, and a future step quiet', (
   const root = createRoot(container)
   try {
     act(() => root.render(<FlowStepRow step={model.steps[1]!} run={{ ...run, runs: null, durationMs: null, seats: [], line: 'pass' }} />))
-    expect(container.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-tint')).toBe('sky')
+    expect(container.querySelector('[data-slot="icon-tile"]')).toBeNull()
+    expect(container.querySelector('[data-slot="flow-row-mark"] .lucide-square-terminal')).not.toBeNull()
     expect(container.querySelector('[title="Time not recorded"]')).not.toBeNull()
     expect(container.querySelector('[title="Run count unavailable"]')).not.toBeNull()
     act(() => root.render(<FlowStepRow step={model.steps[3]!} run={{ ...run, state: 'future', runs: 0, seats: [] }} />))
@@ -97,5 +99,18 @@ it('qualifies advancing Timeline time and keeps a stopped duration fixed', () =>
     act(() => root.render(<FlowStepRow timeline step={model.steps[0]!} run={{ ...run, state: 'stopped', since: 1000 }} now={1_000_000} />))
     expect(container.querySelector('[data-slot="run-time"]')?.textContent).toBe('14m')
     expect(container.textContent).not.toContain('so far')
+  } finally { act(() => root.unmount()) }
+})
+
+it('keeps every recorded seat mark unframed and announces the multi-seat count', () => {
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<FlowStepRow step={model.steps[0]!} run={{ ...run, seats: ['one', 'two'] }}
+      faces={new Map([['one', <span>First runtime</span>], ['two', <span>Second runtime</span>]])} />))
+    const mark = container.querySelector('[data-slot="flow-row-mark"]')!
+    expect(mark.getAttribute('aria-label')).toBe('2 seats')
+    expect(mark.textContent).toContain('First runtime')
+    expect(mark.textContent).toContain('Second runtime')
+    expect(mark.querySelector('[data-slot="icon-tile"], [data-tint]')).toBeNull()
   } finally { act(() => root.unmount()) }
 })

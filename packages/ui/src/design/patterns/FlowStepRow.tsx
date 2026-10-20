@@ -6,8 +6,6 @@ import type { FlowStepRun } from '../../lib/flow-overlay'
 import type { FlowStep, StepKind } from '../../lib/flow-model'
 import { sanitizeHtml, sanitizeText } from '../../lib/sanitize'
 import { ROLE_KIND_WORDS } from '../../lib/shapes'
-import { AvatarStack } from '../ui/avatar-stack'
-import { IconTile } from '../ui/icon-tile'
 import { ListRow } from '../ui/list-row'
 import { TimelineItem } from '../ui/timeline'
 import type { Tint, Tone } from '../ui/tone'
@@ -39,8 +37,9 @@ export const RunStateChip = ({ state }: { state: string }) => <Chip tone={toneOf
 const stateOf = (run: FlowStepRun): string => run.state === 'done' && run.line ? wordOf(words(run.line))
   : ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Waiting for you', blocked: 'Waiting for evidence', stopping: 'Stopping', stopped: 'Stopped' })[run.state]
 
-/** A step in the Flow list or Timeline: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection. */
-export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, now = Date.now(), onSelect, tabIndex, timeline = false, seatNames, repeated = false, roundGroup, rowId, rowKind }: {
+/** A step in the Flow list or Timeline: kind and unframed Seat marks, a recorded state, and trailing time and run count. The caller owns its earned second line and selection. */
+export const FlowStepRow = ({ step, run, subtitle, selected, faces, now = Date.now(), onSelect, tabIndex, timeline = false, seatNames, repeated = false, roundGroup, rowId, rowKind, activity = false }: {
+  activity?: boolean
   rowId?: string
   rowKind?: string
   roundGroup?: number
@@ -61,6 +60,13 @@ export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, n
   const seats = step.kind === 'agent' ? run?.seats : undefined
   const elapsed = run?.since != null && (run.state === 'working' || run.state === 'waiting') ? Math.max(0, now - run.since) : 0
   const duration = run?.durationMs == null ? null : formatDuration(run.durationMs + elapsed)
+  if (activity) return <ListRow data-row={rowId} data-kind={rowKind} data-step-row={step.id} data-flow-state={run?.state} data-presentation="activity"
+    as={onSelect ? 'button' : 'div'} interactive={Boolean(onSelect)} selected={selected} size="sm" density="compact"
+    onClick={onSelect ? () => onSelect(step.id) : undefined}
+    lead={seats?.[0] ? faces?.get(seats[0]) ?? <Mark size={16} /> : <Mark size={16} />}
+    title={sanitizeText(step.name)} wrapTitle
+    subtitle={<>{run && <Text role="meta" tone={toneOf(stateOf(run))}>{stateOf(run)}</Text>}{subtitle && <>{run && ' · '}{subtitle}</>}</>} wrapSubtitle
+    trail={duration ? <Text role="meta" numeric title={run?.state === 'working' || run?.state === 'waiting' ? 'Elapsed so far' : 'Elapsed'}>{duration}</Text> : undefined} />
   if (timeline) {
     const state = !run || run.state === 'future' ? 'pending' : run.state === 'done' ? toneOf(stateOf(run)) === 'danger' ? 'danger' : toneOf(stateOf(run)) === 'warning' ? 'warning' : 'done' : run.state === 'working' ? 'active' : run.state === 'waiting' || run.state === 'blocked' ? 'warning' : 'pending'
     const meta = [run?.state === 'future' ? null : subtitle, run?.seats.map(id => seatNames?.get(id)?.name ?? wordOf(id)).join(', '),
@@ -75,11 +81,10 @@ export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, n
     tabIndex={tabIndex}
     as={onSelect ? 'button' : 'div'} interactive={Boolean(onSelect)} selected={selected}
     onClick={onSelect ? () => onSelect(step.id) : undefined}
-    lead={seats?.length ? seats.length > 1
-      ? <span data-slot="flow-faces"><AvatarStack size="stack" aria-label={`${seats.length} seats`} max={seats.length}
-        members={seats.map(id => ({ id, tint: faceTints?.get(id) ?? 'violet', mark: faces?.get(id) ?? <AgentIcon /> }))} /></span>
-      : <span data-slot="flow-faces"><IconTile shape="face" size="default" tint={faceTints?.get(seats[0]!) ?? 'violet'}>{faces?.get(seats[0]!) ?? <AgentIcon />}</IconTile></span>
-      : <IconTile shape={step.kind === 'check' ? 'square' : 'face'} tint={tint}><Mark /></IconTile>}
+    lead={<span data-slot="flow-row-mark" className="inline-flex h-8 min-w-8 shrink-0 items-center justify-center gap-1 text-(--hd-muted-foreground) [&_svg]:size-5 [&_svg]:shrink-0"
+      role={seats?.length ? 'img' : undefined} aria-label={seats?.length ? `${seats.length} ${seats.length === 1 ? 'seat' : 'seats'}` : undefined} aria-hidden={seats?.length ? undefined : true}>
+      {seats?.length ? seats.map(id => <span key={id} className="inline-flex size-5 shrink-0 items-center justify-center">{faces?.get(id) ?? <AgentIcon size={20} />}</span>) : <Mark size={20} />}
+    </span>}
     title={<span className="flex min-w-0 flex-wrap items-center gap-2"><span className="min-w-0 truncate" title={sanitizeText(step.name)}>{sanitizeText(step.name)}</span><Chip size="sm" tint={tint} variant={selected ? 'outline' : 'default'} emphasis={selected}>{ROLE_KIND_WORDS[step.kind]}</Chip></span>}
     subtitle={subtitle} wrapSubtitle
     trail={run ? <span className="flex flex-col items-end gap-1">

@@ -55,7 +55,7 @@ const mount = async (store: AppStore, props: Partial<ComponentProps<typeof TeamR
   return { container, show, close: () => act(() => root.unmount()) }
 }
 const sectionText = (container: HTMLElement, title: string): string =>
-  [...container.querySelectorAll('section')].find(one => one.textContent?.startsWith(title))?.textContent ?? ''
+  [...container.querySelectorAll('section, [data-slot="summary-item"]')].find(one => one.textContent?.startsWith(title))?.textContent ?? ''
 
 it('totals each recorded Seat once in the standalone Run summary rather than borrowing the Goal total', async () => {
   const store = storeWith(snapshot => ({ runtimes: snapshot.runtimes.map(runtime => ({ ...runtime,
@@ -244,7 +244,8 @@ const read = { totals: { all: 0, open: 0, blocking: 0 } }
 const withFindings = (state: FindingsListState | undefined) =>
   storeWith(() => ({ findings: new Map<string, FindingsListState>(state ? [['overview-team', state]] : []) }))
 const onlySays = (container: HTMLElement, shown: string): void => {
-  expect(sectionText(container, 'Findings')).toContain(shown)
+  if (shown === NONE) expect(sectionText(container, 'Findings')).toBe('')
+  else expect(sectionText(container, 'Findings')).toContain(shown)
   for (const other of [READING, UNREAD, NONE]) if (other !== shown) expect(container.textContent).not.toContain(other)
 }
 // The room reads every finding of the Goal; until that list has landed and is whole, none here is not none.
@@ -299,8 +300,8 @@ it('does not call a card’s findings none while more of them remain to be read'
 
 const flowing = { flow: <p data-testid="the-flow">The drawing</p> }
 const choice = (container: HTMLElement, name: string): { click: () => Promise<void> } => ({click: async () => {
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-slot="page-options"] button[title="View"]')!.click())
-  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === name)!.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-slot="page-options"] button[title="Timeline"], [data-slot="page-options"] button[title="Flow"]')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')].find(one => one.textContent === name)!.click())
 }})
 it('gives the Flow the whole pane: the inspector steps aside on the Flow tab and returns with the timeline', async () => {
   const view = await mount(storeWith(), flowing)
@@ -467,5 +468,52 @@ it('omits check retry in a wrapped Team even while its Run still reads running',
     const inspector = view.container.querySelector('[data-slot="run-inspector"]')!
     expect(inspector.textContent).toContain('This Team is wrapped')
     expect([...inspector.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(false)
+  } finally { view.close() }
+})
+
+it('names the current Run view beside Stop and preserves stopping', async () => {
+  const onStop = vi.fn()
+  const view = await mount(storeWith(), { ...flowing, onStop, execution: { ...runFixture('running').execution, state: 'running' } })
+  try {
+    const controls = view.container.querySelector('[data-slot="page-options"]')!
+    const buttons = [...controls.querySelectorAll<HTMLButtonElement>('button')]
+    expect(buttons.map(button => button.textContent)).toEqual(['Timeline', 'Stop run…'])
+    expect(view.container.querySelector('button[title="View"]')).toBeNull()
+    await choice(view.container, 'Flow').click()
+    expect(view.container.querySelector('button[title="Flow"]')).not.toBeNull()
+    act(() => buttons[1]!.click())
+    expect(onStop).toHaveBeenCalledOnce()
+  } finally { view.close() }
+})
+
+it('unifies the recorded Flow and concise recent activity without a Flow or Timeline view picker', async () => {
+  const view = await mount(storeWith(), { drawFlow: true, unified: true, selectedRow: null })
+  try {
+    expect(view.container.querySelector('[data-slot="run-flow"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-presentation="activity"]')).not.toBeNull()
+    expect(view.container.querySelector('[aria-label="Run timeline"]')).toBeNull()
+    expect([...view.container.querySelectorAll('button')].some(button => button.textContent === 'Flow' || button.textContent === 'Timeline')).toBe(false)
+    act(() => [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Full record')!.click())
+    expect(view.container.querySelector('[aria-label="Run timeline"]')).not.toBeNull()
+  } finally { view.close() }
+})
+
+it('reveals a selected older round in the unified full record', async () => {
+  const fixture = runFixture('attempts')
+  const view = await mount(storeWith(), { execution: fixture.execution, model: runTimeline(fixture), unified: true, drawFlow: true, selectedRow: 'card-1-1' })
+  try {
+    const toggle = [...view.container.querySelectorAll('button')].find(button => button.textContent === 'Recent activity')!
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(view.container.querySelector('[data-row="card-1-1"]')).not.toBeNull()
+  } finally { view.close() }
+})
+
+it('opens the exact recorded person card when choosing its Flow step', async () => {
+  const fixture = runFixture('person'), select = vi.fn()
+  const view = await mount(storeWith(), { drawFlow: true, unified: true, execution: fixture.execution, model: runTimeline(fixture), onSelect: select })
+  try {
+    const person = view.container.querySelector<HTMLButtonElement>('button[data-step-row="person"]')!
+    act(() => person.click())
+    expect(select).toHaveBeenCalledWith('person-4-4')
   } finally { view.close() }
 })

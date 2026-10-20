@@ -227,7 +227,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
           if (mine !== sequence.current) return
           setReadingAccounts(false)
         }
-        if (entry.kind === 'draft' && suppliedSource === undefined && !draft) throw new Error('This unsaved Flow has no source to check.')
+        if (entry.kind === 'draft' && suppliedSource === undefined && !draft) throw new Error('This draft Flow has no source to check.')
         let text = suppliedSource ?? draft?.source ?? await store.flowSource(root, entry.id, entry.origin)
         if (mine !== sequence.current) return
         setSource(text)
@@ -292,7 +292,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     if (initialSource !== undefined) {
       initialTried.current = true
       const match = entries?.find(one => one.id === initial?.id && (initial?.origin === undefined || one.origin === initial.origin))
-      void choose(match ?? { kind: initial ? 'saved' : 'draft', id: initial?.id ?? '', origin: initial?.origin ?? 'project', name: 'Unsaved Flow' }, initialSource)
+      void choose(match ?? { kind: initial ? 'saved' : 'draft', id: initial?.id ?? '', origin: initial?.origin ?? 'project', name: 'Draft Flow' }, initialSource)
     } else if (initial && entries && !chosen) {
       initialTried.current = true
       const match = entries.find(one => one.id === initial.id && (initial.origin === undefined || one.origin === initial.origin))
@@ -408,6 +408,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
       })
       if (chosen?.kind === 'saved') recordShapeStart(chosen.id)
       onStarted(execution)
+      store.requestTeamFrame(execution.goal, 'run', 'flow')
     } catch (error) {
       setStarting(false)
       setStartProblem(error instanceof Error ? error.message : 'The desk did not start this.')
@@ -521,8 +522,9 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
           }} />}
         </Field>
         {!pickerOpen && (chosen || plainTeam) && <div ref={selectedRef}><SelectedFlow name={plainTeam ? 'Just a Team' : chosen!.name}
-          origin={plainTeam || chosen?.origin === 'builtin' ? 'Built in' : chosen?.kind === 'draft' ? 'Unsaved' : chosen?.origin === 'project' ? project : 'Personal'}
+          origin={plainTeam || chosen?.origin === 'builtin' ? 'Built in' : chosen?.kind === 'draft' ? 'Draft' : chosen?.origin === 'project' ? project : 'Personal'}
           policy={compiled?.format === 'agents' ? compiled.flow : undefined} empty={plainTeam}
+          showGraph={plainTeam || !flow}
           loading={!plainTeam && initializingChoice && !compiled && !problem}
           disabled={locked || policyPending || readingAccounts} onChange={changeFlow} /></div>}
         {!pickerOpen && unlisted !== null && <Banner tone="danger" title="These Flows could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
@@ -549,7 +551,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
           {unlisted !== null && <Banner tone="danger" title="These Flows could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
           {entries === null && !unlisted && <div aria-label="Loading Flows" aria-busy="true"><Rows><Row title="Reading Flows…" /><Row title="Reading project choices…" /></Rows></div>}
           {completeCatalog ? <>{group('This project', sections.project)}{group('Most used', sections.most)}{group('More Flows', sections.more)}</> : <FlowCardGrid>{cards.map(flowCard)}{showPlain && plainCard}</FlowCardGrid>}
-          {draftCard && <FlowCardGrid><FlowCard name={draftCard.name} aria-label={draftCard.name} origin="Unsaved" policy={compiled?.format === 'agents' ? compiled.flow : undefined} summary={compiled?.format === 'agents' ? compiled.flow.summary ?? compiled.flow.description ?? '' : ''} selected disabled={locked || policyPending || readingAccounts} onClick={() => {}} /></FlowCardGrid>}
+          {draftCard && <FlowCardGrid><FlowCard name={draftCard.name} aria-label={draftCard.name} origin="Draft" policy={compiled?.format === 'agents' ? compiled.flow : undefined} summary={compiled?.format === 'agents' ? compiled.flow.summary ?? compiled.flow.description ?? '' : ''} selected disabled={locked || policyPending || readingAccounts} onClick={() => {}} /></FlowCardGrid>}
           {completeCatalog && showPlain && <FlowCardGrid>{plainCard}</FlowCardGrid>}
           {!completeCatalog && eligible.length > cards.length && <div><Button variant="quiet" size="sm" onClick={() => setAllFlows(true)}>All Flows</Button></div>}
           {query && cards.length === 0 && !showPlain && <Note>No matching Flows.</Note>}

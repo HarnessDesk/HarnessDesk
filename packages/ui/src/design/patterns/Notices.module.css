@@ -154,7 +154,7 @@
   display: contents;
 }
 
-.tail[data-slot='composer-tail'] > * {
+.tail[data-slot='composer-tail']:not([data-variant='plain']) > * {
   min-height: var(--hd-control-h);
   padding: var(--hd-inset-row);
   border-radius: var(--hd-radius);

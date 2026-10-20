@@ -4,7 +4,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import {
   sessionKey,
+  runtimeId,
   wrapContext,
+  type FlowExecution,
   type RuntimeId,
   type RuntimeInfo,
   type Session,
@@ -14,7 +16,7 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { ChannelStream, nameSome, readChannel } from './Channel'
+import { ChannelStream, channelSignalBatches, nameSome, readChannel } from './Channel'
 
 /**
  * The channel: what the board's traffic looks like once it is read rather
@@ -199,7 +201,8 @@ it('names the trigger, not the person at the keyboard, for a card its own run op
   })
   await render(store)
 
-  expect(container.textContent).toContain('The trigger triage-issue added #3 — Do this work')
+  expect(container.textContent).toContain('The trigger triage-issue added #3')
+  expect(container.querySelector('[aria-label="Task #3: Do this work"]')?.getAttribute('title')).toBe('Do this work')
   expect(container.textContent).not.toContain('You added')
 })
 
@@ -367,7 +370,8 @@ it('a broadcast stored per recipient is one row, naming everyone it reached', as
   await render(store)
 
   expect(container.textContent?.match(/ship it when green/g)).toHaveLength(1)
-  expect(container.textContent).toContain('API migration, Auth refactor')
+  expect(container.querySelector('[data-channel-recipient]')?.getAttribute('title')).toBe('API migration, Auth refactor')
+  expect(container.querySelector('[data-channel-recipient]')?.textContent).toBe('to 2 agents')
 })
 
 it('a broadcast to three with one laggard is one row, naming the laggard', async () => {
@@ -402,7 +406,8 @@ it('a broadcast to three with one laggard is one row, naming the laggard', async
   // Once. Not once per recipient, and not once per outcome.
   expect(container.textContent?.match(/who is free\?/g)).toHaveLength(1)
   // Everyone it went to is in the header, in the order the host stored them.
-  expect(container.textContent).toContain('GPT, Haiku, Gemini')
+  expect(container.querySelector('[data-channel-recipient]')?.getAttribute('aria-label')).toBe('To GPT, Haiku, Gemini')
+  expect(container.querySelector('[data-channel-recipient]')?.textContent).toBe('to 3 agents')
   // And the one it has not reached yet is named, with what became of it.
   expect(container.textContent).toContain('queued')
   const chips = [...container.querySelectorAll('*')].filter(
@@ -445,7 +450,8 @@ it('a broadcast that half landed is one row, and says which half', async () => {
   // The words once; the failure named. Both recipients are in the header, and
   // the one that refused is called out under it with the host's reason.
   expect(container.textContent?.match(/ship it when green/g)).toHaveLength(1)
-  expect(container.textContent).toContain('API migration, Auth refactor')
+  expect(container.querySelector('[data-channel-recipient]')?.getAttribute('title')).toBe('API migration, Auth refactor')
+  expect(container.querySelector('[data-channel-recipient]')?.textContent).toBe('to 2 agents')
   expect(container.textContent).toContain('refused')
   expect(container.textContent).toContain('Auth refactor')
 })
@@ -610,7 +616,8 @@ it('a hand-out stored per member is one row, showing the template and naming eve
   // said, and the names are who it reached.
   expect(container.textContent).toContain('Take card #{{card}} — {{title}}.')
   expect(container.textContent).not.toContain('Take card #1')
-  expect(container.textContent).toContain('API migration, Auth refactor')
+  expect(container.querySelector('[data-channel-recipient]')?.getAttribute('title')).toBe('API migration, Auth refactor')
+  expect(container.querySelector('[data-channel-recipient]')?.textContent).toBe('to 2 agents')
 })
 
 it('a fan-out to many names three and counts the rest', () => {
@@ -680,4 +687,73 @@ it('names Flow-created cards and host-run checks, and writes each Seat fact once
   expect(container.textContent).toContain('The Flow Side by side completed #3')
   expect(container.textContent).not.toContain('You added')
   expect(container.textContent).not.toContain('(Implementer)')
+})
+
+it('groups adjacent Flow additions only when their recorded round proves the same batch', () => {
+  const added = (id: number, at: number): TeamEntry => ({ kind: 'signal', id: `a${id}`, at, by: { kind: 'flow', name: 'Compare' }, signal: 'added', intent: id, title: `Compare the long task ${id}`, detail: null })
+  const batches = new Map([[1, { key: 'run:1', flow: 'Compare' }], [2, { key: 'run:1', flow: 'Compare' }], [3, { key: 'run:2', flow: 'Compare' }]])
+  const rows = readChannel([added(1, 100), added(2, 105), added(3, 105)], batches)
+  expect(rows).toHaveLength(2)
+  expect(rows[0]?.kind === 'signal' ? rows[0].entries?.map(one => one.intent) : []).toEqual([1, 2])
+  expect(rows[1]?.entry.id).toBe('a3')
+  expect(readChannel([added(1, 100), added(2, 100)])).toHaveLength(2)
+  const message: TeamEntry = { kind: 'message', id: 'between', at: 103, from: { kind: 'user' }, text: 'Wait', state: 'delivered', reason: null }
+  expect(readChannel([added(1, 100), message, added(2, 105)], batches).map(one => one.entry.id)).toEqual(['a1', 'between', 'a2'])
+  expect(readChannel([added(1, 100), { ...added(2, 105), detail: 'A distinct report' } as TeamEntry], batches)).toHaveLength(2)
+})
+
+it('renders a proven batch once and keeps each exact task title and opening action', async () => {
+  const { store } = rig()
+  const execution = { id: 'execution', goal: 'room-1', document: { flow: { name: 'Compare' } }, rounds: [{ n: 1, cards: [1, 2] }] } as unknown as FlowExecution
+  Object.assign(store.getSnapshot(), { flowExecutions: new Map([[execution.id, execution]]) })
+  const title = 'Compare two approaches with an unusually long descriptive task name'
+  const entries: TeamEntry[] = [1, 2].map(intent => ({ kind: 'signal', id: `added-${intent}`, at: 100 + intent, by: { kind: 'flow', name: 'Compare' }, signal: 'added', intent, title, detail: null }))
+  const open = vi.fn()
+  await act(async () => root.render(<StoreProvider store={store}><ChannelStream entries={entries} room="room-1" onTrouble={() => {}} onOpenCard={open} /></StoreProvider>))
+  expect(container.querySelectorAll('[data-channel="signal"]')).toHaveLength(1)
+  expect(container.textContent).toContain('added 2 tasks')
+  expect(container.textContent).not.toContain(title)
+  const links = [...container.querySelectorAll<HTMLButtonElement>('[aria-label^="Open task"]')]
+  expect(links.map(one => one.getAttribute('aria-label'))).toEqual([`Open task #1: ${title}`, `Open task #2: ${title}`])
+  expect(links.map(one => one.title)).toEqual([title, title])
+  act(() => { links[0]!.click(); links[1]!.click() })
+  expect(open.mock.calls).toEqual([[1], [2]])
+  expect(channelSignalBatches('another-room', [execution]).size).toBe(0)
+  const another = { ...execution, id: 'another-execution' }
+  expect(channelSignalBatches('room-1', [execution, another]).size).toBe(0)
+})
+
+it('retains a legitimate custom name with separators unless the caller provides a structured display name', async () => {
+  const { store } = rig()
+  const entries: TeamEntry[] = [{ kind: 'message', id: 'custom-name', at: 100, from: { kind: 'agent', runtime: runtimeId('codex'), sessionId: 'c1', title: 'API migration', nickname: 'Design · lead' }, text: 'Review complete', state: 'delivered', reason: null }]
+  await render(store, entries)
+  const name = () => container.querySelector('[data-channel="message"] [data-role="row"]')!
+  expect(name().textContent).toBe('Design · lead (API migration)')
+  expect(name().getAttribute('title')).toBe('Design · lead (API migration)')
+  await act(async () => root.render(<StoreProvider store={store}><ChannelStream entries={entries} room="room-1" onTrouble={() => {}} displayName={() => 'Design lead'} /></StoreProvider>))
+  expect(name().textContent).toBe('Design lead')
+  expect(name().getAttribute('title')).toBe('Design · lead (API migration)')
+})
+
+it('applies structured names to agent recipients and summarizes only a proven full-roster broadcast as Everyone', async () => {
+  const { store } = rig({ members: [sessionKey('codex', 'c1'), sessionKey('claude', 'k1')] })
+  const from = { kind: 'agent' as const, runtime: runtimeId('codex'), sessionId: 'c1', title: 'API migration', nickname: 'Custom · full sender' }
+  const target = { runtime: runtimeId('claude'), sessionId: 'k1', title: 'Auth refactor', nickname: 'Reviewer · custom long model name' }
+  const entries: TeamEntry[] = [{ kind: 'message', id: 'agent-message', at: 100, from, to: target, text: '**Check this** before committing.', state: 'delivered', reason: null }]
+  const displayName = (actor: import('@harnessdesk/protocol').TeamActor) => actor.kind === 'agent' ? actor.sessionId === 'c1' ? 'Builder' : 'Reviewer' : undefined
+  await act(async () => root.render(<StoreProvider store={store}><ChannelStream entries={entries} room="room-1" onTrouble={() => {}} displayName={displayName} /></StoreProvider>))
+  expect(container.querySelector('[data-channel-recipient]')?.textContent).toBe('to Reviewer')
+  expect(container.querySelector('[data-channel-recipient]')?.getAttribute('title')).toBe(target.nickname)
+  expect(container.querySelector('[data-slot="channel-sender"]')?.textContent).toBe('Builder')
+  expect(container.querySelector('strong')?.textContent).toBe('Check this')
+  const broadcast: TeamEntry[] = [
+    { kind: 'message', id: 'all-1', at: 200, from: { kind: 'user' }, to: { runtime: runtimeId('codex'), sessionId: 'c1', title: 'API migration' }, text: 'Run the checks.', state: 'delivered' },
+    { kind: 'message', id: 'all-2', at: 200, from: { kind: 'user' }, to: target, text: 'Run the checks.', state: 'refused', reason: 'Conversation closed.' },
+  ]
+  await render(store, broadcast)
+  expect(container.querySelector('[data-channel-recipient]')?.textContent).toBe('to Everyone')
+  expect(container.querySelector('[data-channel-recipient]')?.getAttribute('aria-label')).toContain(target.nickname)
+  expect(container.textContent?.match(/Run the checks\./g)).toHaveLength(1)
+  expect(container.textContent).toContain('refused')
+  expect(container.textContent).toContain('Conversation closed.')
 })
