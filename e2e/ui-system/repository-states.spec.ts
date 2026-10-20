@@ -19,7 +19,8 @@ for (const theme of ['light', 'dark']) {
     await dialog.getByRole('textbox').fill('Start the storefront')
     await dialog.getByRole('button', { name: /^Commit/ }).click()
     await expect(dialog).toHaveCount(0)
-    await page.getByRole('button', { name: 'storefront', exact: true }).click()
+    // A committed repository starts the draft in its own new worktree, so the trigger now says so.
+    await page.getByRole('button', { name: 'New worktree', exact: true }).click()
     await expect(page.getByRole('menuitemradio', { name: /^New worktree/ })).toBeEnabled()
   })
 

@@ -617,6 +617,8 @@ export const FrameWall = () => {
       }) as typeof next.transport.request
     }
     if (destination === 'draft' && query.get('frame-composer-labels') === '1') {
+      // A plain folder: no repository facts reads as "checking Git" and widens the row.
+      Object.assign(snapshot, snapshot.workspace ? { workspace: { ...snapshot.workspace, repo: null } } : {})
       Object.assign(snapshot, { draftOptions: [
         { id: 'sandbox', type: 'select', category: '_permissions', label: 'Sandbox', currentValue: 'workspace', choices: [
           { value: 'read', label: 'Read only' }, { value: 'workspace', label: 'Workspace' },
@@ -650,7 +652,12 @@ export const FrameWall = () => {
         ] },
         ...(fullComposerRow ? [{ id: 'format', type: 'boolean' as const, category: 'other' as const, label: 'Summary format', currentValue: true }] : []),
       ]
-      if (destination === 'draft') Object.assign(snapshot, { draftOptions: composerValues })
+      // These frames measure the toolbar for a plain folder; a workspace with no
+      // repository facts at all reads as "checking Git" and widens the row.
+      if (destination === 'draft') Object.assign(snapshot, {
+        draftOptions: composerValues,
+        ...(snapshot.workspace ? { workspace: { ...snapshot.workspace, repo: null } } : {}),
+      })
       else {
         const session = snapshot.sessions.get(PREVIEW_SESSION_KEY)
         if (session) Object.assign(snapshot, { sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, { ...session, options: composerValues }) })

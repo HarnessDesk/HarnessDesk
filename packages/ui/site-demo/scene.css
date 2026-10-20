@@ -2,7 +2,6 @@
 .site-scene {
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior: contain;
   contain: layout paint;
   background: var(--hd-background);
   color: var(--hd-foreground);
@@ -98,3 +97,5 @@
 }
 .site-scene[data-site-scene="tour-flows"] [data-slot="flow-mini-graph"] [data-step][data-flow-pending] { opacity: 0; transform: scale(0.94); }
 .site-scene[data-site-scene="tour-flows"] [data-slot="flow-mini-graph"] [data-edge][data-flow-pending] { opacity: 0; }
+/* The sidebar is there to be seen. `inert` (set by SceneBody) keeps the keyboard out; this closes the gap before it is set. */
+.site-scene [data-left-column] { pointer-events: none; }

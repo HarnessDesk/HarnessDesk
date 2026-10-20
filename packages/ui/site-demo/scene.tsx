@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { StoreProvider } from '../src/state/context'
 import { useTheme } from '../src/state/theme'
 import { dashboardData, DashboardScene } from './dashboard'
 import { isDashboardScene, SCENES, type SceneName } from './scenes'
 import { PageSceneBody, usePageStore, type PageSceneName } from './pages'
 import { RaceScene } from './race'
+import { withRealNamesAlways } from './real-names'
 import { useFlowsLoop } from './flows-loop'
 import { raceStore } from '../src/preview/readme-race'
 import { BoardShowcase, boardShowcaseStore, RunShowcase } from './showcase'
@@ -30,6 +31,18 @@ const SceneBody = ({ name, reduced, store, children }: { name: SceneName; reduce
   const scene = SCENES[name]
   // Visibility governs timers only. This scene has no playback timer; local
   // controls and scrolling remain available even before the parent is ready.
+  // The sidebar is shown, not used: `inert` stops the pointer and the keyboard alike, and the column
+  // sets it itself when hidden, so a render that clears it is put back. Only this scene is watched.
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const scene = root.current
+    if (!scene) return
+    const seal = () => scene.querySelectorAll('[data-left-column]').forEach(column => { if (!column.hasAttribute('inert')) column.setAttribute('inert', '') })
+    seal()
+    const watch = new MutationObserver(seal)
+    watch.observe(scene, { subtree: true, childList: true, attributes: true, attributeFilter: ['inert'] })
+    return () => watch.disconnect()
+  }, [])
   useEffect(() => {
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => window.parent.postMessage({ type: 'hdDemoReady' }, '*'))
@@ -45,7 +58,7 @@ const SceneBody = ({ name, reduced, store, children }: { name: SceneName; reduce
     window.addEventListener('message', receive)
     return () => window.removeEventListener('message', receive)
   }, [store])
-  return <div data-site-scene={name} data-scene-motion={reduced ? 'reduce' : 'interactive'}
+  return <div ref={root} data-site-scene={name} data-scene-motion={reduced ? 'reduce' : 'interactive'}
     className="site-scene" style={{ width: scene.width, height: scene.height }}>
     {children}
   </div>
@@ -66,7 +79,7 @@ const Page = ({ name, theme, motion }: { name: PageSceneName; theme: 'light' | '
 }
 
 const Race = ({ theme, motion }: { theme: 'light' | 'dark'; motion?: 'reduce' }) => {
-  const store = useMemo(() => raceStore(theme), [])
+  const store = useMemo(() => withRealNamesAlways(raceStore(theme)), [])
   const reduced = useReduced(motion)
   return <StoreProvider store={store}><SceneBody name="hero-race" reduced={reduced} store={store}><RaceScene store={store} motion={reduced ? 'reduce' : undefined} /></SceneBody></StoreProvider>
 }

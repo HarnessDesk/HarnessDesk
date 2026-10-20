@@ -45,7 +45,7 @@ for (const theme of ['light', 'dark'] as const) {
 
   test(`a repository recovers its worktree control without opening that control in ${theme}`, async ({ page }) => {
     await open(page, theme, 'repository')
-    const control = page.getByTitle('Starts in project, on main', { exact: true })
+    const control = page.getByTitle('Starts in a new worktree on its own branch, made when you send', { exact: true })
     await expect(control).toBeVisible()
     await control.click()
     await expect(page.getByRole('menuitemradio', { name: 'New worktree…', exact: true })).toBeVisible()

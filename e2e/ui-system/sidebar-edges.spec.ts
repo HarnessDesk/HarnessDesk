@@ -480,7 +480,7 @@ test('real session and Team rows preserve full facts and one priority slot', asy
   expect(await session.locator('[data-slot="sidebar-menu-button"]').getAttribute('title')).toContain('Worktree')
   await expect(room.locator('[data-left-mark]')).toHaveAttribute('aria-label', 'Needs you')
   expect(await team.getAttribute('title')).toContain('1 held message')
-  await expect(room.locator('[data-slot="sidebar-menu-action"]')).toHaveCount(0)
+  await expect(room.locator('[data-slot="sidebar-menu-action"]')).toHaveCount(1)
   await expect(sidebar.locator('[data-nested="true"]')).toHaveCount(0)
   for (const width of [200, 260, 320]) {
     await sidebar.locator('..').evaluate((node, value) => { (node as HTMLElement).style.width = `${value + 2}px` }, width)
@@ -500,12 +500,11 @@ test('real session and Team rows preserve full facts and one priority slot', asy
         if (mode === 'hover') await opener.hover()
         else { await page.keyboard.press('Shift'); await opener.evaluate(node => (node as HTMLElement).focus({ preventScroll: true })) }
         expect(await box(label)).toEqual(before)
-        if (row === session) {
-          await expect(row.locator('[data-left-mark]')).toBeHidden()
-          const action = row.locator('[data-slot="sidebar-menu-action"]')
-          await expect(action).toBeVisible()
-          expect(await box(action)).toEqual(await box(row.locator('[data-left-trailing]')))
-        } else await expect(row.locator('[data-left-mark]')).toBeVisible()
+        // A Team row, like a session row, trades its priority mark for its actions button (#1810).
+        await expect(row.locator('[data-left-mark]')).toBeHidden()
+        const action = row.locator('[data-slot="sidebar-menu-action"]')
+        await expect(action).toBeVisible()
+        expect(await box(action)).toEqual(await box(row.locator('[data-left-trailing]')))
       }
     }
   }
@@ -558,7 +557,8 @@ test('nested board and flat Team keep trailing marks on their own label line', a
   }
 
   await expect(productRoom).toHaveCount(1)
-  await expect(productRoom.locator('[data-slot="sidebar-menu-action"], [data-nested="true"]')).toHaveCount(0)
+  await expect(productRoom.locator('[data-nested="true"]')).toHaveCount(0)
+  await expect(productRoom.locator('[data-slot="sidebar-menu-action"]')).toHaveCount(1)
   const button = productRoom.locator('[data-slot="sidebar-menu-button"]')
   const mark = productRoom.locator('[data-left-mark]')
   for (const mode of ['rest', 'hover'] as const) {
@@ -638,7 +638,8 @@ test('real waiting Team keeps the priority mark and all held-message facts at ev
     for (const mode of ['hover', 'focus'] as const) {
       if (mode === 'hover') await team.hover()
       else await team.focus()
-      await expect(row.locator('[data-left-mark]')).toBeVisible()
+      await expect(row.locator('[data-left-mark]')).toBeHidden()
+      await expect(row.locator('[data-slot="sidebar-menu-action"]')).toBeVisible()
       expect(await box(label)).toEqual(before)
       expect(await team.getAttribute('title')).toBe(title)
     }
@@ -741,7 +742,8 @@ test('540px window floats the real sidebar with aligned headers and a Needs you 
   expect(bounds.height).toBe(FRAME.rail.rowHeight)
   expect(target.x + target.width).toBeLessThanOrEqual(bounds.x + bounds.width)
   await button.hover()
-  await expect(mark).toBeVisible()
+  await expect(mark).toBeHidden()
+  await expect(button.locator('..').locator('[data-slot="sidebar-menu-action"]')).toBeVisible()
   expect(await box(label)).toEqual(before)
   expect(await sidebar.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
 })
@@ -805,8 +807,8 @@ for (const theme of ['light', 'dark'] as const) {
       for (const mode of ['hover', 'focus'] as const) {
         if (mode === 'hover') await button.hover()
         else await button.focus()
-        await expect(row.locator('[data-left-mark]')).toBeVisible()
-        await expect(row.locator('[data-slot="sidebar-menu-action"]')).toHaveCount(0)
+        await expect(row.locator('[data-left-mark]')).toBeHidden()
+        await expect(row.locator('[data-slot="sidebar-menu-action"]')).toBeVisible()
         expect(await box(label)).toEqual(before)
       }
     }

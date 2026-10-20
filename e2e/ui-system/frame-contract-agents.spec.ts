@@ -66,7 +66,7 @@ for (const width of [1440, 720]) test(`E4 Agents column opens draft session and 
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
   await reveal()
-  await (await revealPreviewConversation(column, 'Worktree Management')).click()
+  await (await revealPreviewConversation(column, 'Add fixtures for the refund path before extending the checkout matrix')).click()
   await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
