@@ -78,7 +78,7 @@ import { BoardListFrames } from './frames-board-list'
 import { FinishedBoardFrames } from './frames-finished-board'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamFramePreview } from './TeamFramePreview'
-import { ApprovalDialog, ApprovalReason, NativeSelect, PaneColumn } from '../design'
+import { ApprovalDialog, ApprovalReason, EmptyState, NativeSelect, PaneColumn, ToolSection } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { SignInMode } from '../components/SignInMode'
@@ -1244,6 +1244,13 @@ const FindingsPreview = () => {
 
 const siteSceneParam = new URLSearchParams(window.location.search).get('site-scene') ?? ''
 const siteScene = isSceneName(siteSceneParam) ? siteSceneParam : null
+/** A stable native specimen for guides mutation tests; empty optional app cards stay omitted. */
+const GuidesFixPreview = () => {
+  useTheme()
+  return <div data-frame-id="guides-fix" className="p-4">
+    <ToolSection label="Background tasks"><EmptyState tight title="Nothing to list" description="This runtime keeps no background task list." /></ToolSection>
+  </div>
+}
 /* Guides draw over every route: each `Frame` is a page of its own, and a
    route without frames is one page. Alt+G steps through the modes. */
 const PreviewGuides = () => {
@@ -1270,7 +1277,8 @@ createRoot(container).render(
     <SceneSteps />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
+        {new URLSearchParams(window.location.search).has('guides-fix') ? <GuidesFixPreview />
+          : new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
           : new URLSearchParams(window.location.search).has('flows-page')
             ? <FlowsDestinationFixture />

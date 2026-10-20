@@ -1,12 +1,12 @@
 import { selectTeamPage } from './team-frame-actions'
 import { expect, test } from '@playwright/test'
 
-/** The Run owns its refusal; the other Team destinations lead there. */
+/** Overview and Run keep the refusal; Board and Chat lead back to it. */
 {
 
   for (const [themeItem, theme] of (['light', 'dark']).entries()) {
 
-    for (const [item0, name] of (['Overview', 'Board', 'Chat', 'Run']).entries()) test(`a stopped Team keeps its full reason on Run and a recovery link on the other pages [item ${[themeItem].join('-')}] [item ${[item0].join('-')}]`, async ({ page }, info) => {
+    for (const [item0, name] of (['Overview', 'Board', 'Chat', 'Run']).entries()) test(`a stopped Team keeps its full reason on Overview and Run, with a recovery link on Board and Chat [item ${[themeItem].join('-')}] [item ${[item0].join('-')}]`, async ({ page }, info) => {
       await page.goto('/design.html?view=group')
       await page.evaluate(async () => { await document.fonts.ready })
       const wrap = page.locator('[data-testid="group-run-stalled-on-a-seat"]')
@@ -15,7 +15,7 @@ import { expect, test } from '@playwright/test'
       await expect(wrap.locator('[data-topbar="state"] [aria-label="Needs you"]')).toBeVisible()
       await page.evaluate(value => { document.body.toggleAttribute('data-hd-dark-theme', value === 'dark'); document.documentElement.style.colorScheme = value }, theme)
       await selectTeamPage(wrap, { Overview: 'overview', Board: 'board', Chat: 'room', Run: 'run' }[name]!)
-      if (name === 'Run') {
+      if (name === 'Run' || name === 'Overview') {
         const reason = wrap.locator('[data-slot="run-need"]')
         await expect(reason).toContainText('The Seat for card #1 could not be opened')
         await expect(reason).toContainText('card #2 was not started either')

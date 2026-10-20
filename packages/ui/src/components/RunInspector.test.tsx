@@ -687,6 +687,67 @@ it.each([null, 'run', 'missing-selection'])('inspectionOnly adds no Summary for 
   try { expect(view.container.textContent).toBe(''); expect(view.container.querySelector('[data-slot="run-inspector"]')).toBeNull() }
   finally { view.close() }
 })
+it.each([
+  ['person', 'Person', 'Approved'],
+  ['verify', 'Check', 'pnpm verify'],
+  ['writer', 'Agent', 'Edit'],
+])('inspects the frozen unreached %s step without inventing a recorded result or answer action', (id, kind, detail) => {
+  const fixture = runFixture('empty')
+  const onAnswer = vi.fn(async () => {}), onAbandon = vi.fn(async () => {})
+  const view = render({ input: fixture, inspectionOnly: true, selectedRow: `step:${id}`, onAnswer, onAbandon, onOpenBoard: vi.fn() })
+  try {
+    const inspector = view.container.querySelector('[data-slot="run-inspector"]')
+    expect(inspector).not.toBeNull()
+    expect(inspector?.textContent).toContain('Not reached')
+    expect(inspector?.textContent).toContain('This step has not opened a round.')
+    expect(inspector?.textContent).toContain(kind)
+    expect(inspector?.textContent).toContain(detail)
+    if (id === 'verify') expect(inspector?.textContent).toContain('600 seconds')
+    expect(view.container.querySelector('[aria-label="Run"]')).toBeNull()
+    expect(view.container.querySelector('[aria-label="Seats"]')).toBeNull()
+    expect(view.container.querySelector('[aria-label="Your answer"]')).toBeNull()
+    expect(view.container.querySelector('[aria-label="Latest result"]')).toBeNull()
+    expect([...view.container.querySelectorAll('button')].map(button => button.getAttribute('data-slot'))).toEqual(['tool-section-fold'])
+    expect(onAnswer).not.toHaveBeenCalled()
+    expect(onAbandon).not.toHaveBeenCalled()
+  } finally { view.close() }
+})
+
+it.each([
+  ['person', 'person', 'Answer the review', 'Your answer'],
+  ['verify', 'running', 'Verify the change', 'Latest result'],
+  ['writer', 'running', 'Answer the review', 'Cost'],
+] as const)('keeps the selected %s step inspectable when its first recorded round arrives', (id, scene, title, section) => {
+  const props = { seats: [], inspectionOnly: true, selectedRow: `step:${id}`, onAnswer: vi.fn(async () => {}), onOpenBoard: vi.fn() }
+  const view = render({ ...props, input: runFixture('empty') })
+  try {
+    expect(view.container.textContent).toContain('Not reached')
+    act(() => view.root.render(<RunInspector {...props} input={runFixture(scene)} />))
+    expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
+    expect(view.container.textContent).toContain(title)
+    expect(view.container.textContent).not.toContain('Not reached')
+    expect(view.container.textContent).not.toContain('This step has not opened a round.')
+    expect(view.container.textContent).toContain(section)
+    expect(view.container.querySelector('[aria-label="Run"]')).toBeNull()
+    expect(view.container.querySelector('[aria-label="Seats"]')).toBeNull()
+    expect(props.onAnswer).not.toHaveBeenCalled()
+  } finally { view.close() }
+})
+
+it('marks the primary recorded card selected when a retained step opens several cards', () => {
+  const onSelect = vi.fn()
+  const view = render({ input: shapeFixture('comparison'), inspectionOnly: true, selectedRow: 'step:competitor', onSelect })
+  try {
+    const cards = view.container.querySelectorAll<HTMLButtonElement>('[aria-label="Recorded cards"] [data-slot="list-row"]')
+    expect(cards).toHaveLength(2)
+    expect(cards[0]!.getAttribute('aria-current')).toBe('true')
+    expect(cards[1]!.getAttribute('aria-current')).toBeNull()
+    expect(onSelect).not.toHaveBeenCalled()
+    act(() => cards[1]!.click())
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith('card-1-2')
+  } finally { view.close() }
+})
+
 it('inspectionOnly retains a valid selected step without another Run or Seats summary', () => {
   const view = render({ inspectionOnly: true, selectedRow: 'person-4-4' })
   try {

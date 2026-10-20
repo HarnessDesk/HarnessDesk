@@ -639,7 +639,7 @@ test.describe('preview coverage', () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto(`/preview.html?run-shapes=${scene}`)
       await page.locator('#run-shapes-frame [data-step-row][data-row="card-1-1"] button').click()
-      if (scene === 'comparison') await expect(page.locator('[data-slot="run-inspector"] [data-slot="timeline-card"]')).toHaveCount(2)
+      if (scene === 'comparison') await expect(page.locator('[data-slot="run-inspector"]').getByRole('region', { name: 'Recorded cards', exact: true }).locator('[data-slot="list-row"]')).toHaveCount(2)
       else await expect(page.locator('[data-slot="timeline-document-body"]')).toContainText('Investigation answer')
       for (const component of (await collectCoverage(page)).covered) covered.add(component)
     })

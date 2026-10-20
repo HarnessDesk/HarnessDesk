@@ -39,7 +39,7 @@ export const SECTIONS: readonly Section[] = [
       { id: 'conversation-left-open', title: 'With the sidebar', query: 'frame-wall=conversation', steps: [left] },
       { id: 'draft', title: 'A new draft', query: 'frame-wall=draft' },
       { id: 'conversation-details', title: 'Details panel', query: 'frame-wall=conversation', steps: [rail] },
-      { id: 'conversation-details-no-background', title: 'Details, no background list', query: 'frame-wall=conversation&frame-no-background=1', steps: [rail, { scroll: '[data-slot="empty-state"]' }] },
+      { id: 'conversation-details-no-background', title: 'Details, no background list', query: 'frame-wall=conversation&frame-no-background=1', steps: [rail] },
       { id: 'conversation-changes', title: 'Changes panel', query: 'frame-wall=conversation', steps: [tool('changes')] },
       { id: 'conversation-browser', title: 'Browser panel', query: 'frame-wall=conversation', steps: [tool('browser')] },
       { id: 'conversation-git', title: 'Git panel', query: 'frame-wall=conversation&frame-tool=git' },

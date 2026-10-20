@@ -380,7 +380,7 @@ until another conversation activation. A working Seat shows its claimed card
 number, when it holds one, and a spinner; idle Seats have no trailing mark.
 Needs you takes priority over New or Failed, then the spinner. The hover title
 keeps runtime, model, card title and state. A Seat without an open conversation
-opens its Team on Overview; other Seats open their conversation.
+opens its Team on Work; other Seats open their conversation.
 Wrapped Teams and their conversations leave the sidebar and remain on **Teams**.
 Teams whose project folder is gone stay hidden from the ordinary list.
 
@@ -754,7 +754,7 @@ by what their labels carry:
   turn's fold reads the sentences back as its receipt rather than a tally.
 
 A seated Agent’s brief starts as one closed **Agent brief** row in its
-conversation and in Side by side. Opening it shows the headings, lists and
+conversation and in Split. Opening it shows the headings, lists and
 full standing order; other housekeeping notices stay on their plain rows.
 A completed turn keeps its work summary in neutral ink even when a sub-step
 failed; the count remains visible and each step keeps its own result in details.
@@ -1185,12 +1185,14 @@ shape of every agent's and person's face, square or round. The sentence is
 there because the label cannot say that an account's ring and a thing's tile
 keep their own shape.
 
-**Agents** is a top-level window of its own, opened from the sidebar or ⌘K: the
-open project's own Agents, yours, and the ones that ship. Its overview names
-the folder each section reads; each row is an Agent's name and what it is for,
-with its ceiling and the seat it would take here, or *Can't seat here* and why.
-A row opens the Agent's page, and *On this Mac* on that page is where this
-machine's seats for it are chosen. A legacy or missing ceiling flag leads to
+**Agents** is a top-level page, opened from the sidebar or ⌘K: the
+open project's own Agents, yours, and the ones that ship. Its cards separate
+each role's name and purpose from the runtime and seating facts; full source
+paths and shadowed copies live in **Sources and precedence**. A card opens the
+Agent's page, and **On this Mac** on that page is where this machine's seats
+for it are chosen. **Choose runtime…** changes its primary preference;
+**Add a seat…** opens the runtime/model form whose action is **Add seat**.
+These preferences do not add that Agent to a Team. A legacy or missing ceiling flag leads to
 that page's **Ceiling → Update…** action. Its dialog offers only compatible
 choices, previews the exact one-line file diff, and requires an author-controlled
 write; a changed file is refused. Built-ins must be customized first. See
@@ -1462,7 +1464,7 @@ Workspaces › a project › Provenance controls capture on this machine. It sta
 
 Projects list active Goals alongside loose conversations; completed work stays
 on the Teams page. A running Goal names its activity on hover; a waiting row
-carries the Needs you dot. These signals describe activity, not an evidence verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
+carries the Needs you dot. These signals describe activity, not an evidence verdict. Opening a Goal shows Work, Tasks and Chat; its Seats are in Details.
 Membership comes from its open Seats. Releasing a Seat closes that membership
 record without deleting the conversation or checkout.
 Finishing a Run keeps its Seats listed and their conversations available for
@@ -1472,7 +1474,7 @@ minutes without outstanding work; the process stops once the runtime is unused.
 Opening or messaging it reconnects to the same conversation. Runtimes without
 both capabilities keep their processes as before.
 
-**New session → A Goal** asks what finishes the work, then optionally seats
+**New Team… → Just a Team** asks what finishes the work, then optionally seats
 Agents. The ordinary conversation path is unchanged: Enter and Command-N still
 start a plain conversation immediately. “Give this to…” assigns a loose
 same-project conversation through a durable Seat; stale or busy choices are
@@ -1511,9 +1513,11 @@ selecting an older step reveals its recorded row. There is no Flow/Timeline
 picker on this page. A compact Run chooser selects historical executions, whose
 record stays separate from current Team attention. Run history and Receipt are
 secondary destinations in More. Tasks keeps Board and Findings as local views,
-including their ledger filters and actions. Chat keeps Thread and Side by side.
+including their ledger filters and actions. Chat's layout choice is **Chat** or **Split**.
 The primary tabs scroll when space is short. Seats and membership controls live
-in Details and the sidebar.
+in Details and the sidebar. The Seats header's plus action is labelled
+**Seat an Agent in this Team** and opens the Agent picker; **Seat Agent** records
+the Team's durable Seat before sending its order.
 
 In a comparison, the recorded pick adds **Picked** and **Not kept** to the
 competitor headers. The decision card above the shared composer quotes the
@@ -1533,14 +1537,14 @@ keeps the question open. A recorded person choice says **You picked A**. No
 recorded selected attempt means no decision card.
 
 A conflict-free merge records its revision, resulting commit, destination and
-time in the person step's handoff. Side by side then shows that receipt in the
+time in the person step's handoff. Split then shows that receipt in the
 same tab body, with elapsed time, agents, recorded cost when known, each attempt,
 checks and judge. **Show the attempts** restores the tiles; **Race again** opens
 the existing Run-again form. A merge with conflicts leaves the person step
 unanswered. The receipt makes no branch retention promise and offers no Undo
 merge action.
 
-With two or more Seats visible, Side by side has one ordinary composer centred
+With two or more Seats visible, Split has one ordinary composer centred
 over the bottom of the grid. **To: Both** reaches the visible Seats; **A** or **B**
 chooses one. `@A` and `@B`, or member names, update that same audience. The quiet
 **Waits for their turns** hint appears while either Seat is working. Chat keeps
@@ -1573,9 +1577,10 @@ and storage, including conversations in the same checkout or branch. Its browser
 tools and pane use that same profile. Closing one conversation's browser leaves
 other conversations' pages alone.
 
-A wrapped Team opens on **Work** and keeps **Receipt** in More, with its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
-and adding an Agent; Board omits its unclaimed count, and members show name and
-role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where members open from the bar. The Team’s Agents list keeps the same
+A wrapped Team opens on **Work** and keeps **Receipt** in More. The header says **Wrapped** once and draws no Wrap control or reason line. Split and seating another Agent are disabled with the wrapped-Team reason.
+It opens there with or without a Run, including in a narrow pane, where the rail
+toggle brings back its Seats. The same compact Seat rows keep name, model,
+recorded state and conversation actions. The Team’s Seats list keeps the same
 conversations, the Seats without one together in a single list. Older receipts
 use a Seat's kept answer to find its conversation; a Seat without one keeps **Conversation not kept** in its hover title, and a receipt whose every Seat lacks one lists them
 all rather than saying no Agents were kept. A conversation seated more than
@@ -1638,7 +1643,7 @@ same card holds the machine-wide pause and daily cap. A saved trigger stays
 disarmed until it is committed and explicitly armed. See
 [multi-agent.md](multi-agent.md#9-intake-bounded-work-a-project-can-open-on-its-own).
 
-**New session → A flow** shows the same dry run FlowStart always has: every
+**New Team… → a Flow → Completion and dry run → Dry run** shows every
 seat a role would open, every candidate this machine tried and why each was
 passed over, the effective ceiling each seat would hold, every check command
 verbatim with its checkout and timeout, and the plain rule list a round
@@ -1711,13 +1716,13 @@ needed, such as **Add a task first** or **Checking the seats and inputs…**.
 At narrow widths, the New session explanation and action stack consistently
 while the chosen Flow loads, keeping the footer in place.
 
-A comparison's Work summary counts its recorded attempts (for example,
-**2 attempts · Referee picked**) instead of presenting routing rounds as
-progress. An unrecorded pick is not claimed; a person's pick says **You picked**.
+A completed comparison's Split receipt keeps each recorded attempt, identifying
+the merged change and the attempt not kept. Routing rounds remain separate in
+Work's record. An unrecorded pick is not claimed; a person's pick says **You picked**.
 
 Starting a comparison opens **Work**, with the frozen Flow and recent recorded
-activity together. Its **Side by side** tiles remain directly available in
-Chat. A saved page choice is preserved when revisiting a Team.
+activity together. Its attempt tiles remain directly available through
+**Chat → Split**. A saved page choice is preserved when revisiting a Team.
 
 In Side by side and Mechanical contest, **Check each attempt with** starts
 with the project's declared test command when one is available. It can be
@@ -1728,11 +1733,11 @@ contest, without a check round.
 
 If the project is outside every open workspace, the refusal offers **Open**
 followed by the project name. Opening it keeps the form and refreshes the dry run so
-**Start** can proceed once its requirements are met.
+**Start Team** can proceed once its requirements are met.
 **Just a Team** keeps that recovery action too, along with the task, completion
 sentence and checkout choice already entered.
 
-The form reads the identical strict dry run before **Start**: every Seat must
+The form reads the identical strict dry run before **Start Team**: every Seat must
 *hold* its ceiling here, so a runtime that can only be asked shows its exact
 refusal and fix beside its row rather than starting under a weaker policy.
 Automatic skips preferences that cannot enforce the required access. An edit
@@ -1753,7 +1758,7 @@ the same canvas and ordered editor described above. A Flow need not be saved
 to start a Team. Source or input edits immediately retire the earlier dry-run
 token, and a late answer cannot enable Start for older bytes.
 
-**Every time…**, on a chosen shape or an Agent's own page, hands off to
+**Every time…** in the chosen Flow's Details, or **Run automatically…** in an Agent page's More menu, hands off to
 Intake: the source, its fields, the Goal grouping and budget, saved to the
 working tree and disarmed. *Saved. Commit this file before arming* is the
 whole of what a save does — the existing Triggers section's own preview and
@@ -1931,21 +1936,16 @@ to 128 KiB and never read the working file. A Run that makes a committed answer
 instead of a pull request says so in its header and carries no earlier Run's
 pull-request link.
 
-Run details and Steps live in the app’s dock, with the same tabs, move,
-expand and hide controls as the conversation’s inspectors. The title-bar’s
-right-panel control puts them away and brings them back. Run details keeps
-the brief, Seats, recorded pull request and two-column Run facts; unavailable
-facts are omitted and named together once. Selecting a timeline row keeps
-its recorded detail and actions in that dock. Choosing Flow brings Steps
-forward: taken rounds and steps not reached, with selection lighting the
-corresponding node, including a step the Run has not reached.
-Leaving Run puts away a dock containing only Run views, or returns a mixed
-dock to its earlier tab and visibility. A saved mixed dock restores without
-Run tabs until a Run opens. Returning to Run keeps it visible when the dock
-would cover it; selecting a timeline row or Details explicitly opens it.
-Tabs closed during a visit stay closed when focus returns to that pane.
+The Team's Details rail keeps folded **Run** and **Seats** sections; **Toggle rail**
+puts them away and brings them back. Run shows state, Flow, progress and elapsed
+time, with less frequent facts in **Record details**. Unavailable costs remain
+explicit. Selecting a timeline row opens its recorded detail and actions in a
+Details inspector. Graph selection and the full record keep the corresponding
+node and round selected, including steps the Run has not reached. There is no
+separate Steps dock: Work's **Full record** opens the recorded rounds, while the
+graph retains its accessible Steps and Rules alternative without extra tab stops.
 
-The Run header, Overview strip and Findings summary show the Run's
+The Run record, Work's summary and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:
 **Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
 **Not posted** when posting is on for a bound pull request, or **This desk only**.
@@ -1956,8 +1956,10 @@ Posting is enabled only for the host's waiting item or stamped earlier-round
 preview; earlier rounds require confirmation. A refusal stays visible, and
 changed findings refresh the reads. Nothing posts without a press.
 
-When a Run needs the person, one need card above Timeline and Flow keeps its
-reason and at most two existing next actions. The End row stays selectable
+When a Run needs the person, one need card keeps its reason and at most two
+existing next actions. On unified Work it follows the Flow and precedes Recent
+activity, sharing the activity column's edges. Standalone Run views keep it
+above Timeline or Flow. The End row stays selectable
 without repeating that reason or its actions. Other ended Runs keep their
 reason, time and next actions together in one End summary. Status and aggregate
 publication stay in the Run header. Finished work offers **Wrap**;
@@ -1973,7 +1975,8 @@ first names the saved Flow and inputs being read, then the fresh seat and
 input check; Start keeps the current reason beside it until that check finishes.
 **Start** creates a fresh Run on the same Team and records which Run it continues; both
 stay in the chooser beside the Run’s name. This starts from the seed step.
-The Flow name and digest in the header open the frozen Flow tab. Check
+Work always shows the frozen Flow; **Flow file** in Details → Record details
+opens the current catalogue copy. Check
 commands in the Flow drawing, Steps list, Timeline and inspector shorten the
 home folder to `~`; their hover titles keep the full command.
 
@@ -1985,24 +1988,22 @@ there cannot restart the earlier work. Preview and Start refuse another
 successor from that earlier Run, even when its successor has ended. Continue
 from the newer Run instead.
 
-The header's switch shows the Run as a **Timeline** or as its **Flow**. The
-Flow tab draws the frozen Flow on the same canvas as the shape editor’s graph.
-The canvas fills the page below the Run header, with a 24 px margin on every
-side. It opens centred at 100% when the drawing fits; a smaller pane shrinks
-it. Pan and zoom explore the path. Fit recalculates the view up to 100%, so a previously reduced plan can become readable again.
-Zoom out, zoom in, Fit and **Open the file** share its top-right controls;
+Standalone Run surfaces retain **Timeline** and **Flow** views. Their Flow
+view draws the frozen policy on the same canvas as the shape editor's graph.
+Unified Work uses that canvas in a finite-height viewport above its pending
+actions and recorded activity. It opens centred at 100% when the drawing fits;
+a smaller pane shrinks it. Pan and zoom explore the path. Fit recalculates
+the view up to 100%, so a previously reduced plan can become readable again.
+Zoom out, zoom in and Fit share its top-right controls;
 **The path this Run took** sits at the top left, and the minimap, where a clear
 spot is left, never covers it. The minimap appears only when steps extend beyond
 the viewport after panning or zooming. Nodes cannot be moved or edited. The accessible
-Steps and Rules list retains state and selection. While the Team’s Steps dock
-is open on its Steps tab, the list lives in the dock at every width, so the
-drawing keeps the whole pane. Outside the dock, and while it is put away,
-showing another tab or off the screen, narrow panes scroll the fitted drawing
-and the list together, and wide panes retain the text alternative without adding
-invisible keyboard stops. A Run that needs you keeps its banner above the
-drawing, on the drawing's left edge, and the drawing keeps the rest of the pane.
-**Open the file** reads the Flow's file as it is now, in a window you can only
-read; the Run keeps the revision it started with.
+Steps and Rules list retains state and selection. Unified Work keeps that list
+as its text alternative at every width; **Full record** exposes the round rows
+in the same page scroll owner. Standalone Flow views can show the list below a
+fitted drawing in a narrow pane. The text alternative adds no invisible keyboard
+stops. The file action in Details reads the Flow's current catalogue file in a
+read-only dialog; the Run keeps the revision it started with.
 
 A check that finished, or that the desk interrupted, can be run again from its
 row or its inspector while the Run is running or stalled. It asks first and
@@ -2016,12 +2017,12 @@ A card that has not finished offers **Abandon card…** in its inspector. The
 question says first what the rule after the card's role will do: open the next
 round, end the Run without a next step, wait for the round's other cards, or
 nothing when the Run is not running; a claimed card names who holds it. A
-person's step is answered there with the same controls as the Overview. If the
+person's step is answered there with the same controls as its task. If the
 host reports that the card is missing, its explanation replaces the question
 and its abandonment action. The question belongs to that Run and card, closes
 when the card finishes, and offers **Stop the run instead** while the Run is running.
 
-**Stop run…** appears in the running Run's header and its Overview strip.
+**Stop run…** appears in Work's action row and the Team's title actions when eligible.
 The question says first that the Run stops now and no further step starts,
 then lists its open Seats: an Agent that can be interrupted stops now; one
 that cannot stops when its current turn ends. Interruption is best effort;
@@ -2030,7 +2031,7 @@ and limited to 4,096 characters. Cards, findings and recorded cost are kept,
 and the timeline reads **Stopped by you**. A claimed card in an ended Run
 reads **Stopping** while its Seat finishes the current turn, then quiet
 **Stopped**. Its time stops at the Run’s end, with no running clock; the
-Overview’s current step and the card’s inspector read the same state.
+Work's current step and the card's inspector read the same state.
 If the Run resumes, its live cards show Working and their clocks run again;
 a later stop fixes their time at that stop.
 **Abandon card…** still releases that card on the board without starting

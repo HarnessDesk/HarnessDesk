@@ -328,13 +328,22 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     if (!pickerOpen && !initializingChoice && !policyPending && !readingAccounts && selectionRequested.current) {
       const change = selectedRef.current?.querySelector<HTMLButtonElement>('button')
       if (!change || change.disabled) return
-      const active = document.activeElement
-      // A removed/disabled picker can leave focus on the document or dialog.
-      // Any other focused element belongs to the person's current interaction.
-      const abandoned = !active || active === document.body || active === document.documentElement ||
-        active.getAttribute('role') === 'dialog' || active.hasAttribute('data-base-ui-focus-guard')
-      if (abandoned || active === change) change.focus()
-      selectionRequested.current = false
+      const restore = (): void => {
+        const active = document.activeElement
+        // A removed/disabled picker can leave focus on the document or dialog.
+        // Any other focused element belongs to the person's current interaction.
+        const abandoned = !active || active === document.body || active === document.documentElement ||
+          active.getAttribute('role') === 'dialog' || active.hasAttribute('data-base-ui-focus-guard')
+        if (abandoned || active === change) change.focus()
+        else selectionRequested.current = false
+      }
+      restore()
+      if (!selectionRequested.current) return
+      // The dialog can restore its fallback after this effect when the picker
+      // disappears. Repair that deferred fallback before paint, checking again
+      // that the person has not moved into another control in the meantime.
+      const frame = window.requestAnimationFrame(() => { restore(); selectionRequested.current = false })
+      return () => window.cancelAnimationFrame(frame)
     }
   }, [pickerOpen, initializingChoice, policyPending, readingAccounts])
 
@@ -586,7 +595,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
           {control => <Input {...control} aria-label="Done when · optional" value={sentence} disabled={locked} onChange={event => { setSentence(event.target.value); onDoneChange?.(event.target.value); setPlainDryRun(false) }} />}
         </Field>
         <div><Button variant="secondary" size="sm" disabled={starting || openingProject || policyPending || readingAccounts || (!plainTeam && !source)} onClick={dryRun}>Dry run</Button></div>
-        {!plainTeam && dryRunOpen && compiled?.format === 'agents' && flow && <section aria-label="Dry run"><SectionHead level="label" name="Dry run" />{!preview && <Note role="status">Checking the seats and inputs…</Note>}<FlowPreviewReport preview={flow} flow={compiled.flow} roster={roster} vars={vars} warnings={flow.problems.filter(one => one.level === 'warning')} /></section>}
+        {!plainTeam && dryRunOpen && compiled?.format === 'agents' && flow && <section aria-label="Dry run"><SectionHead level="label" name="Dry run" />{!preview && <Note role="status">Checking the seats and inputs…</Note>}<FlowPreviewReport preview={flow} flow={compiled.flow} roster={roster} vars={vars} warnings={flow.problems.filter(one => one.level === 'warning')} includeNotices={false} /></section>}
         {plainTeam && plainDryRun && <Note role="status">No fixed steps. The Team opens with a board and chat{selectedAgents.size ? ` and ${selectedAgents.size} selected Agent${selectedAgents.size === 1 ? '' : 's'}` : ''}. {isolated ? 'New Seats use isolated checkouts.' : 'Seats share the project checkout.'}</Note>}
         </div></section>}
         {plainTeam && callerProblem && !startProblem && callerProblem !== unlisted && failure(callerProblem)}

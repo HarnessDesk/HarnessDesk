@@ -159,6 +159,24 @@ it('reports a selected Flow as reading until delayed source resolves to its actu
   expect(selected.textContent).not.toContain('Reading Flow…')
 })
 
+it.each(['dialog', 'task'])('repairs deferred picker focus loss without taking focus from %s', async target => {
+  const frames = new Map<number, FrameRequestCallback>()
+  let serial = 0
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.set(++serial, callback); return serial })
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { frames.delete(id) })
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, { 'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [], 'flow/source': () => 'source', 'authoring/start/preview': () => previewOf(emptyFlow('token')) })
+  render(store)
+  await settle()
+  await act(async () => { const card = rowFor('Review'); card.focus(); card.click() })
+  const destination = target === 'dialog' ? document.querySelector<HTMLElement>('[role="dialog"]')! : document.querySelector<HTMLTextAreaElement>('textarea')!
+  act(() => destination.focus())
+  // The dialog's focus manager restores its fallback after the selected picker
+  // unmounts. Check the next frame, with a user move still taking precedence.
+  await act(async () => { for (const callback of [...frames.values()]) callback(0); frames.clear() })
+  expect(document.activeElement).toBe(target === 'dialog' ? button('Change') : destination)
+})
+
 it('keeps optional completion and dry-run controls folded without adding another page', async () => {
   const store = new AppStore('ws://localhost:0/')
   requestSpy(store, { 'flow/catalog': () => [], 'agent/list': () => [] })
@@ -176,6 +194,32 @@ it('keeps optional completion and dry-run controls folded without adding another
   expect(details.hidden).toBe(false)
   expect(disclosure.getAttribute('aria-expanded')).toBe('true')
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+})
+
+it('keeps one pricing notice and warning when the optional dry run is opened', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const warning = 'Confirm the selected provider before starting.'
+  const flow: FlowPreview = { ...emptyFlow('token'), seats: [{ role: 'reviewer', index: 0, agent: 'reviewer', isolate: false, reviews: true, plan: { id: 'reviewer', from: 'prefer', winner: null, blocked: null, ceiling: null, candidates: [] } }], problems: [{ level: 'warning', at: 'roles.reviewer', text: warning }] }
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [],
+    'flow/source': () => JSON.stringify(flow.compiled.document.flow),
+    'authoring/start/preview': () => previewOf(flow),
+  })
+  render(store)
+  await settle()
+  await act(async () => rowFor('Review').click())
+  const notices = () => {
+    const pricing = [...document.querySelectorAll('[data-slot="note"]')].filter(el => el.textContent?.includes('On usage-based pricing'))
+    const warnings = [...document.querySelectorAll('[data-slot="alert"]')].filter(el => el.textContent?.includes(warning))
+    expect(pricing).toHaveLength(1)
+    expect(warnings).toHaveLength(1)
+    for (const el of [...pricing, ...warnings]) expect(el.closest('[hidden]')).toBeNull()
+  }
+  notices()
+  await act(async () => button('Completion and dry run').click())
+  await act(async () => button('Dry run').click())
+  expect(document.querySelector('section[aria-label="Dry run"]')).not.toBeNull()
+  notices()
 })
 
 it.each(['render', 'preview'])('focuses Change after a comparison’s initial %s settles without interrupting another control', async phase => {

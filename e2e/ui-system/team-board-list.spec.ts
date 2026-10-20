@@ -149,7 +149,7 @@ for (const theme of ['light', 'dark'] as const) {
     }
     await page.keyboard.press('Escape')
     await page.setViewportSize({ width: 560, height: 900 })
-    await expect(pane.locator('[data-job="4"] td').first()).toContainText('Assignee · Jane Doe')
+    await expect(pane.locator('[data-job="4"] td').first().getByRole('button', { name: "Open Jane Doe's conversation", exact: true })).toBeVisible()
     await pane.getByRole('button', { name: 'View: columns and sort', exact: true }).click()
     const narrowMenu = page.getByRole('menu')
     await expect(narrowMenu.getByRole('switch', { name: 'Assignee' })).toBeDisabled()

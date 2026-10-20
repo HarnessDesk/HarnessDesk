@@ -53,6 +53,8 @@ import { Button, SummaryList, SummaryItem, Chip, CodeText, MiddleTruncate, FormS
 import { commandShown } from '../lib/projects'
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
+import { flowModel } from '../lib/flow-model'
+import { ROLE_KIND_WORDS } from '../lib/shapes'
 import { lifecycleWords } from '../lib/findings'
 import { reviewPublication } from '../lib/review-publication'
 import { ReviewPublicationActions, type ReviewActionsTarget } from './ReviewPublicationActions'
@@ -102,11 +104,17 @@ const detailWords = (detail: string | null | undefined): string | null => {
   return parts.join('') || null
 }
 
-/** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
+/** Frozen step declarations and recorded detail; no transcript copies or guessed results. */
 export const RunInspector = ({ inspectionOnly = false, home, teamState, input, selectedRow, onSelect, doing, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const model = runTimeline(input)
+  const stepId = selectedRow?.startsWith('step:') ? selectedRow.slice(5) : null
+  const declaredRole = execution.document.flow.roles.find(one => one.id === stepId)
+  const latestStepRound = declaredRole ? execution.rounds.filter(one => one.role === declaredRole.id).sort((a, b) => b.n - a.n)[0] : undefined
+  // Keep a selected future step attached to its first/newest recorded card as
+  // the Run advances, without changing the person's retained step selection.
   const selected = model.rows.find(row => row.id === selectedRow)
+    ?? (latestStepRound ? model.rows.find(row => row.round === latestStepRound.n && ['card', 'check', 'person'].includes(row.kind)) : undefined)
   const round = execution.rounds.find(one => one.n === selected?.round)
   const card = cards.find(one => one.id === selected?.card)
   const duration = selected?.durationMs ?? (selected?.working && selected.since !== null ? Math.max(0, Date.now() - selected.since) : null)
@@ -124,6 +132,23 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
   const abandon = onAbandon && card
     ? <div><AbandonCard key={JSON.stringify([execution.id, card.id])} execution={execution} cards={cards} card={card} holder={seat?.name} onAbandon={onAbandon} onStop={onStop} /></div>
     : null
+  // Until a selected step has a recorded card, inspect its frozen declaration
+  // without presenting planned answers as live actions.
+  if (declaredRole && !selected) {
+    const step = flowModel(execution.document.flow, { home }).steps.find(one => one.id === declaredRole.id)!
+    return <div data-slot="run-inspector">
+      <ToolSection key={selectedRow} label={sanitizeText(step.name)} fold value={latestStepRound ? 'No card recorded' : 'Not reached'}><FormStack spacing="section">
+        <ToolProse>{latestStepRound ? 'This round has no recorded card yet.' : 'This step has not opened a round.'}</ToolProse>
+        <SummaryList surface="panel">
+          <SummaryItem label="Kind">{ROLE_KIND_WORDS[step.kind]}</SummaryItem>
+          {declaredRole.kind === 'person' && declaredRole.outcomes.length > 0 && <SummaryItem label="Outcomes">{declaredRole.outcomes.map(wordOf).map(sanitizeText).join(' · ')}</SummaryItem>}
+          {declaredRole.kind === 'agent' && <SummaryItem label="Requested ceiling">{sanitizeText(step.line)}</SummaryItem>}
+          {declaredRole.kind === 'check' && declaredRole.check && <SummaryItem label="Limit">{declaredRole.check.timeout} seconds</SummaryItem>}
+        </SummaryList>
+        {declaredRole.kind === 'check' && declaredRole.check && <Section title="Command"><CodeText block wrap title={sanitizeText(declaredRole.check.run)}>{sanitizeText(commandShown(declaredRole.check.run, home))}</CodeText></Section>}
+      </FormStack></ToolSection>
+    </div>
+  }
   let body: ReactNode
   if (selected?.kind === 'check' && card && role?.kind === 'check' && role.check) {
     const check = role.check
@@ -193,12 +218,12 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
     return <RunSummary input={input} selectedRow={null} seats={seats} faces={faces} faceTints={faceTints} pullRequest={pullRequest} flowFile={flowFile} />
   }
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
-    <ToolSection key={selectedRow} label={sanitizeText(title)} fold value={selected?.status ? sanitizeText(selected.status) : undefined}><FormStack spacing="section">
+    <ToolSection key={selected?.id ?? selectedRow} label={sanitizeText(title)} fold value={selected?.status ? sanitizeText(selected.status) : undefined}><FormStack spacing="section">
       {card && selected?.status && <ToolProse>{sanitizeText(selected.status)}</ToolProse>}
       {round && <Section title={`Round ${round.n}`}><Words>{model.rows.find(row => row.kind === 'round' && row.round === round.n)?.detail ?? 'Progress not recorded'}</Words></Section>}
       {round && onSelect && round.cards.length > 1 && <Section title="Recorded cards"><ListRows>
         {model.rows.filter(row => row.round === round.n && ['card', 'check', 'person'].includes(row.kind)).map(row => <ListRow key={row.id}
-          as="button" size="sm" density="compact" interactive selected={row.id === selectedRow} onClick={() => onSelect(row.id)}
+          as="button" size="sm" density="compact" interactive selected={row.id === selected?.id} onClick={() => onSelect(row.id)}
           lead={row.kind === 'person' ? <UserIcon /> : row.kind === 'check' ? <CheckIcon /> : row.seat ? faces?.get(row.seat) ?? <AgentIcon /> : <AgentIcon />}
           title={sanitizeText(row.attempt ?? row.title)} wrapTitle
           subtitle={row.on ? `on ${sanitizeText(row.on)}` : row.change ? <CodeText>{sanitizeText(row.change.revision.slice(0, 12))}</CodeText> : undefined} wrapSubtitle

@@ -1,6 +1,7 @@
 import { runBar } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import { framedTableFixture } from './git-table-fixture'
+import { selectTeamDestination } from './team-frame-actions'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`framed tables keep interior detail and footer padding (${theme})`, async ({ page }) => {
@@ -195,7 +196,9 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     const rail = team.locator('[data-work-rail-toggle]')
     if (await rail.getAttribute('aria-pressed') !== 'true') await rail.click()
     await expect(team.locator('[data-slot="summary-card"][data-surface="panel"]').first()).toBeVisible()
-    await expect(page.locator('[data-frame-id="goal-roster"] [data-slot="composer-tail"]')).toBeAttached()
+    const roster = page.locator('[data-frame-id="goal-roster"]')
+    await selectTeamDestination(roster, 'room')
+    await expect(roster.locator('[data-slot="composer-tail"]')).toBeVisible()
     await expect(page.locator('[data-slot=approval-dialog-scope] [role=dialog]')).toBeVisible()
     await expect(page.locator('[data-slot="agent-card-band"]').filter({ hasText: 'The context budget is nearly full.' })).toBeVisible()
     const bareControl = page.locator('[data-slot="row"]').filter({ hasText: 'Choose a folder' })
@@ -309,14 +312,20 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     const frame = page.locator('#run-inspector-run')
     const inspector = frame.locator('[data-slot="run-inspector"]')
     await expect(inspector).toBeVisible()
+    const brief = inspector.getByRole('region', { name: 'Brief', exact: true })
+    await brief.getByRole('button', { name: 'Brief', exact: true }).click()
+    await expect(brief.locator('[data-slot="tool-prose"]')).toBeVisible()
     const edges = await inspector.evaluate(element => {
-      const title = element.querySelector('[data-slot="tool-section"] [data-slot="group-label"] [data-slot="text"]')!
-      const prose = element.querySelector('[data-slot="tool-prose"] [data-slot="text"]')!
-      const fact = element.querySelector('[data-slot="summary-item"] dt')!
+      const title = element.querySelector('[aria-label="Brief"] [data-slot="tool-section-fold"]')!
+      const prose = element.querySelector('[aria-label="Brief"] [data-slot="tool-prose"] [data-slot="text"]')!
+      const fact = element.querySelector('[aria-label="Run"] [data-slot="summary-item"] dt')!
       // Measured from the card's own content edge: inside its border, every line stands on one 12.
-      const card = element.querySelector('[data-slot="tool-section"]')!
-      const origin = card.getBoundingClientRect().left + parseFloat(getComputedStyle(card).borderLeftWidth)
-      return [title, fact, prose].map(node => node.getBoundingClientRect().left - origin)
+      // The fold's whole target starts there; its chevron precedes its text.
+      return [title, fact, prose].map(node => {
+        const card = node.closest('[data-slot="tool-section"]')!
+        const origin = card.getBoundingClientRect().left + parseFloat(getComputedStyle(card).borderLeftWidth)
+        return node.getBoundingClientRect().left - origin
+      })
     })
     expect(edges).toEqual([12, 12, 12])
     await expect(runBar(frame)).toBeVisible()

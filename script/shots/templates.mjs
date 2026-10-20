@@ -72,7 +72,7 @@ try {
       if (template === 'fix-and-review') {
         const branch = page.locator('[aria-label="Conversation facts"] [data-slot="summary-item"]')
           .filter({ has: page.locator('dt', { hasText: /^Branch$/ }) }).locator('[data-slot="middle-truncate"]')
-        const details = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Details', exact: true })
+        const details = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Toggle rail', exact: true })
         const openedDetails = !(await branch.isVisible())
         if (openedDetails) await details.click()
         await expect(branch).toBeVisible()
@@ -91,14 +91,25 @@ try {
       await expect(newTeam).toBeVisible()
       await photograph('01-new-team')
       const name = contest ? 'Mechanical contest' : template === 'comparison' ? 'Side by side' : 'Write and review'
+      // Search reveals the complete catalogue, including templates outside
+      // the three quick choices offered when the dialog first opens.
+      await newTeam.getByRole('searchbox', { name: 'Search Flows', exact: true }).fill(name)
       await newTeam.getByRole('button', { name, exact: true }).click()
       // The first dry run can still be installing the project's suggested
-      // check when the task field appears. Wait for its editable Seat controls,
-      // buttons that open a menu of runtimes.
-      await expect(newTeam.getByRole('button', { name: /^Runtime for / }).first()).toBeEnabled({ timeout: 30000 })
+      // check when the task field appears. Open the visible role control;
+      // its runtime and model pickers live inside that configuration.
+      const primaryRole = template === 'comparison' || contest ? 'Attempt A' : 'Writes'
+      const configurePrimary = newTeam.getByRole('button', { name: `Configure ${primaryRole}`, exact: true })
+      await expect(configurePrimary).toBeEnabled({ timeout: 30000 })
+      await configurePrimary.click()
+      const primaryConfiguration = page.getByRole('group', { name: `${primaryRole} configuration`, exact: true })
+      await expect(primaryConfiguration.getByRole('button', { name: `Runtime for ${primaryRole}`, exact: true })).toBeVisible()
+      await expect(primaryConfiguration.getByRole('button', { name: `Model for ${primaryRole}`, exact: true })).toBeVisible()
+      await configurePrimary.click()
       const task = template === 'comparison' || contest ? TEMPLATE_TASK : `${TEMPLATE_TASK} for review`
       await newTeam.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).fill(task)
       if (template === 'comparison' || contest) {
+        await newTeam.getByRole('button', { name: 'Details', exact: true }).click()
         const command = newTeam.getByRole('textbox', { name: 'Check each attempt with', exact: true })
         await expect(command).toHaveValue('pnpm test')
         const chosenCheck = contest ? (checkMode === 'skipped' ? '' : 'pnpm test') : TEMPLATE_CHECK
@@ -106,17 +117,29 @@ try {
         await expect(command).toHaveValue(chosenCheck)
       }
       await expect(newTeam.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled({ timeout: 30000 }).catch(async error => { throw new Error(`${error.message}\n${template}: ${await newTeam.innerText()}`) })
-      await expect(newTeam.getByRole('button', { name: /^Model for / }).first()).toBeVisible()
       await newTeam.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).scrollIntoViewIfNeeded()
       await photograph('02-task')
-      await newTeam.getByRole('button', { name: 'Details', exact: true }).click()
+      const details = newTeam.getByRole('button', { name: 'Details', exact: true })
+      if (await details.getAttribute('aria-expanded') !== 'true') await details.click()
       if (!contest) {
         // The rig names the `codex-review` runtime "Scripted reviewer".
-        const reviewer = newTeam.getByRole('button', { name: template === 'comparison' ? 'Runtime for Judge' : 'Runtime for Reviews', exact: true })
+        const reviewRole = template === 'comparison' ? 'Judge' : 'Reviews'
+        const configureReviewer = newTeam.getByRole('button', { name: `Configure ${reviewRole}`, exact: true })
+        await configureReviewer.click()
+        const reviewConfiguration = page.getByRole('group', { name: `${reviewRole} configuration`, exact: true })
+        const reviewer = reviewConfiguration.getByRole('button', { name: `Runtime for ${reviewRole}`, exact: true })
         await reviewer.click()
         await page.getByRole('menuitemradio', { name: 'Scripted reviewer', exact: true }).click()
+        // Enabling the optional Judge moves its control from Details into
+        // the graph, so inspect the newly rendered role configuration.
+        await expect(configureReviewer).toContainText('Scripted reviewer')
+        if (await configureReviewer.getAttribute('aria-expanded') !== 'true') await configureReviewer.click()
         await expect(reviewer).toHaveText('Scripted reviewer')
+        await expect(reviewConfiguration.getByRole('button', { name: `Model for ${reviewRole}`, exact: true })).toBeVisible()
+        await configureReviewer.click()
       }
+      const completion = newTeam.getByRole('region', { name: 'Completion and dry run', exact: true })
+      await completion.getByRole('button', { name: 'Completion and dry run', exact: true }).click()
       await newTeam.getByRole('button', { name: 'Dry run', exact: true }).click()
       const dryRun = newTeam.getByRole('region', { name: 'Dry run', exact: true })
       await expect(dryRun).toBeVisible()
@@ -159,20 +182,47 @@ try {
         return { view, execution }
       }
       const tab = async name => {
-        const value = ({ Overview: 'overview', Run: 'run', Board: 'board', Chat: 'room' })[name]
+        const value = ({ Overview: 'overview', Run: 'overview', Board: 'board', Chat: 'room' })[name]
         assert.ok(value, `unknown Team destination ${name}`)
         const direct = page.locator(`[data-slot="workbench-main"] [data-team-page="${value}"]:visible`)
         await direct.click()
         await expect(direct).toHaveAttribute('aria-selected', 'true')
       }
       const runView = async name => {
-        await page.locator('[data-slot="workbench-main"]:visible').getByRole('button', { name: 'View', exact: true }).click()
-        await page.getByRole('menuitem', { name, exact: true }).click()
+        const work = page.locator('[data-slot="run-workspace"][data-view="work"]')
+        await expect(work).toBeVisible()
+        if (name === 'Timeline') {
+          const fullRecord = work.getByRole('button', { name: 'Full record', exact: true })
+          if (await fullRecord.isVisible()) await fullRecord.click()
+          await expect(work.getByRole('list', { name: 'Run timeline', exact: true })).toBeVisible()
+        } else await expect(work.locator('[data-slot="run-flow"]')).toBeVisible()
       }
       const chatView = async name => {
         await tab('Chat')
-        await page.locator('[data-slot="workbench-main"]:visible').getByRole('button', { name: 'View', exact: true }).click()
-        await page.getByRole('menuitemradio', { name, exact: true }).click()
+        await page.locator('[data-slot="workbench-main"]:visible').getByRole('button', { name: /^(Chat|Split)$/ }).click()
+        await page.getByRole('menuitemradio', { name: name === 'Side by side' ? 'Split' : 'Chat', exact: true }).click()
+      }
+      const completedSeats = async expected => {
+        const toggle = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Toggle rail', exact: true })
+        const opened = await toggle.getAttribute('aria-pressed') !== 'true'
+        if (opened) await toggle.click()
+        const seats = page.locator('[data-frame-region="rail"] section[aria-label="Seats"]')
+        const fold = seats.getByRole('button', { name: 'Seats', exact: true })
+        if (await fold.getAttribute('aria-expanded') !== 'true') await fold.click()
+        const done = seats.locator('[data-slot="chip"]').filter({ hasText: /^Done$/ })
+        await expect(done.first()).toBeVisible({ timeout: 30000 })
+        if (expected !== undefined) await expect(done).toHaveCount(expected)
+        // The canonical Seats rail owns this fold now; Work does not repeat
+        // a second Seat table or a separate completed-seat disclosure.
+        await fold.click()
+        await expect(fold).toHaveAttribute('aria-expanded', 'false')
+        await expect(done.first()).toBeHidden()
+        await fold.click()
+        await expect(fold).toHaveAttribute('aria-expanded', 'true')
+        await expect(done.first()).toBeVisible()
+        const runFacts = page.locator('[data-frame-region="rail"] [aria-label="Team Run facts"]')
+        await expect(runFacts.locator('[data-slot="summary-item"]').filter({ has: page.locator('dt', { hasText: /^State$/ }) })).toContainText('Settled')
+        if (opened) await toggle.click()
       }
       const boardTitle = title => page.getByRole('heading', { level: 4, name: new RegExp(`^#\\d+ ${title}$`) })
       const boardColumn = name => page.locator('[data-slot="board-column"]').filter({ has: page.getByRole('heading', { level: 3, name, exact: true }) })
@@ -258,9 +308,7 @@ try {
         await page.getByRole('menuitem', { name: 'Answer merged', exact: true }).click()
         await observe((cards, execution) => execution.state === 'settled' && cards.every(one => one.state === 'done'), 'contest completed')
         await tab('Overview')
-        const overview = page.locator('[data-slot="team-overview"]')
-        await overview.getByRole('button', { name: '2 done', exact: true }).click()
-        await expect(overview.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
+        await completedSeats(2)
         await page.waitForFunction(goal => window.__hdStore.getSnapshot().goals.get(goal)?.activity !== 'working', run.goal)
         // A finished Team stays in the sidebar, marked, until it is wrapped (#1675 D5).
         await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toBeVisible({ timeout: 30000 })
@@ -325,7 +373,7 @@ try {
         await chatView('Side by side')
         // Comparisons keep the Judge off the attempt grid. Its conversation
         // remains reachable through the Seats actions in Details.
-        const details = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Details', exact: true })
+        const details = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Toggle rail', exact: true })
         const judgeActions = page.getByRole('button', { name: 'Actions for Judge', exact: true })
         const openedDetails = !(await judgeActions.isVisible())
         if (openedDetails) await details.click()
@@ -344,8 +392,8 @@ try {
         await page.getByRole('button', { name: 'Merge A into main', exact: true }).click()
         await expect(page.getByRole('dialog', { name: 'Merge into main', exact: true })).toBeVisible()
         await photograph('12-merge')
-        await expect(page.getByRole('dialog').getByRole('combobox', { name: 'What to merge', exact: true })).toHaveValue(diffs[0].fact.to)
-        await page.getByRole('dialog').getByRole('button', { name: 'Merge', exact: true }).click()
+        await expect(page.getByRole('dialog', { name: 'Merge into main', exact: true }).getByRole('combobox', { name: 'What to merge', exact: true })).toHaveValue(diffs[0].fact.to)
+        await page.getByRole('dialog', { name: 'Merge into main', exact: true }).getByRole('button', { name: 'Merge', exact: true }).click()
         await expect(page.getByRole('dialog', { name: 'Merge into main', exact: true })).toHaveCount(0)
         rig.git('merge-base', '--is-ancestor', diffs[0].fact.to, 'main')
         assert.equal(readFileSync(join(rig.repo, 'rig-attempt.txt'), 'utf8'), readFileSync(join(diffs[0].checkout.cwd, 'rig-attempt.txt'), 'utf8'), 'the person merged the judged content')
@@ -383,21 +431,31 @@ try {
       }
       await observe((cards, execution) => execution.state === 'settled' && cards.every(one => one.state === 'done'), 'template completed')
       await tab('Overview')
-      const overview = page.locator('[data-slot="team-overview"]')
-      const done = overview.getByRole('button', { name: /^\d+ done$/, exact: true })
-      // Completed Seats stay folded until the person asks to see them.
-      if (await done.getAttribute('aria-expanded') !== 'true') await done.click()
-      await expect(done).toHaveAttribute('aria-expanded', 'true')
-      await expect(overview.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
-      await expect(page.getByRole('status').filter({ hasText: 'this run is complete.' })).toBeVisible()
+      await completedSeats()
+      await expect(page.locator('[data-slot="run-ending"]')).toContainText('Nothing waits.')
       await expect(page.getByText('Needs you', { exact: true })).toHaveCount(0)
       await expect(page.getByText('Not confirmed', { exact: true })).toHaveCount(0)
       if (template === 'fix-and-review') {
         const comments = JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).comments
         assert.equal(comments?.length ?? 0, 0, 'review before publication stays local')
       }
-      // A comparison counts its attempts rather than its routing rounds (#1675 D7).
-      await expect(page.getByText(template === 'comparison' ? /^2 attempts( · (Referee|You) picked)?$/ : 'Completed rounds 3 of 7', { exact: true })).toBeVisible()
+      // The completed comparison retains both attempt records, separately
+      // from its routing rounds; ordinary Runs keep their progress in Details.
+      if (template === 'comparison') {
+        await chatView('Side by side')
+        const summary = page.locator('[data-slot="comparison-summary"]')
+        await expect(summary).toBeVisible()
+        await expect(summary.locator('[data-slot="row"]')).toHaveCount(2)
+        await expect(summary).toContainText('merged into main')
+        await expect(summary).toContainText('not kept')
+        await tab('Overview')
+      } else {
+        const toggle = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Toggle rail', exact: true })
+        const opened = await toggle.getAttribute('aria-pressed') !== 'true'
+        if (opened) await toggle.click()
+        await expect(page.locator('[aria-label="Team Run facts"] [data-slot="summary-item"]').filter({ has: page.locator('dt', { hasText: /^Progress$/ }) })).toContainText('Round 3 of 7')
+        if (opened) await toggle.click()
+      }
       // The board settles before the final turn/activity event reaches the
       // sidebar. Capture the finished Goal only once both surfaces agree.
       await page.waitForFunction(({ goal, run }) => {

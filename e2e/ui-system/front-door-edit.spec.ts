@@ -25,11 +25,11 @@ test('New Team starts an edit-only writer automatically and asks the person to p
     await page.waitForFunction(() => window.__hdStore?.getSnapshot().status === 'open')
     await page.getByRole('button', { name: 'More ways to start', exact: true }).click()
     await page.getByRole('menuitem', { name: /^New Team/ }).click()
-    const dialog = page.getByRole('dialog')
+    const dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
     await dialog.getByRole('button', { name: /^Write and review/ }).click()
     await page.getByRole('textbox', { name: 'What should they do?', exact: true }).fill('Repair checkout retry for review')
     const configureWriter = dialog.getByRole('button', { name: 'Configure Writes', exact: true })
-    const writer = page.getByRole('button', { name: 'Runtime for Writes', exact: true })
+    const writer = page.getByRole('group', { name: 'Writes configuration', exact: true }).getByRole('button', { name: 'Runtime for Writes', exact: true })
     await expect(configureWriter).toBeEnabled()
     await expect(configureWriter).toContainText('Scripted writer')
     await configureWriter.click()
@@ -101,7 +101,7 @@ test('the edit-first preview records the former blocked grant and the runnable f
   for (const before of [true, false]) {
     for (const theme of ['light', 'dark']) {
       await page.goto(`/front-door-edit.html?theme=${theme}${before ? '&before' : ''}`)
-      const dialog = page.getByRole('dialog')
+      const dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
       if (before) await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeDisabled()
       else await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled()
       if (before) await expect(dialog).toContainText('Runtime Alpha cannot enforce publishing changes.')
@@ -109,7 +109,7 @@ test('the edit-first preview records the former blocked grant and the runnable f
         const configureWriter = dialog.getByRole('button', { name: 'Configure Writes', exact: true })
         await expect(configureWriter).toContainText('Runtime Alpha')
         await configureWriter.click()
-        await expect(page.getByRole('button', { name: 'Runtime for Writes', exact: true })).toHaveText('Automatic · Runtime Alpha')
+        await expect(page.getByRole('group', { name: 'Writes configuration', exact: true }).getByRole('button', { name: 'Runtime for Writes', exact: true })).toHaveText('Automatic · Runtime Alpha')
         await configureWriter.click()
       }
       if (frameDir) {
@@ -118,7 +118,7 @@ test('the edit-first preview records the former blocked grant and the runnable f
         if (!before) {
           const configureWriter = dialog.getByRole('button', { name: 'Configure Writes', exact: true })
           await configureWriter.click()
-          await page.getByRole('button', { name: 'Runtime for Writes' }).click()
+          await page.getByRole('group', { name: 'Writes configuration', exact: true }).getByRole('button', { name: 'Runtime for Writes', exact: true }).click()
           await page.getByRole('menuitemradio', { name: 'Runtime Beta', exact: true }).click()
           await expect(dialog).toContainText('Runtime Beta cannot enforce editing and local commits without publishing.')
           await expect(dialog.getByRole('button', { name: 'Use Runtime Alpha', exact: true })).toBeVisible()

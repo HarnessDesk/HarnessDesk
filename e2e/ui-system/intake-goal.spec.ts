@@ -6,11 +6,10 @@ import { closeTeamDetails, selectTeamPage, teamDetails } from './team-frame-acti
  * own page — both mounted from the real preview harness, against the real
  * `TriggerSettings` and `TeamRoomPane` modules the app renders.
  *
- * A trigger Goal's page puts nothing between its one-row header and the
- * conversation. Where it came from is in Details; what the run is doing is
- * the header's one state chip; what it waits
- * on, or why it stopped, is the thread's one live line; a member's approval
- * takes the composer's slot; and the budget is the composer's footer strip.
+ * A trigger Team opens Work. Chat carries its live wait or stop reason and
+ * keeps the budget beside the persistent composer. A member's approval is an
+ * attributable request in the stream, with the same request in its session;
+ * the Chat badge keeps it discoverable while another page is selected.
  */
 
 const triggerFrame = (page: Page): Locator => page.locator('section', { has: page.locator('h2', { hasText: 'Goal — opened by a trigger' }) })
@@ -123,24 +122,57 @@ test('a held message and a held action each read Needs you, and the live line na
   await expect(liveLine(frame)).toContainText('held for your review')
 
   await scene(page, 'held-action')
+  await showChat(frame)
   await expect(stateChip(frame)).toHaveAttribute('aria-label', 'Needs you')
   await expect(liveLine(frame)).toContainText('An action is held for your approval.')
 })
 
-test('a member’s approval takes the composer’s slot in flow, answers only from the card, and gives the composer back', async ({ page }) => {
+test('an agent approval shares its session request, keeps the Chat draft, and answers exactly once from the card', async ({ page }) => {
+  // Observe the synthetic frame's real responder, without changing its kept
+  // request or the production Approvals handler.
+  await page.route('**/src/preview/main.tsx*', async route => {
+    const response = await route.fetch(), source = await response.text()
+    const responder = /respondToApproval:\s*async\s*\(key,\s*id\)\s*=>\s*\{/g
+    expect([...source.matchAll(responder)]).toHaveLength(1)
+    await route.fulfill({ response, body: source.replace(responder, `respondToApproval: async (key, id, answer) => {
+      window.__intakeAnswers ??= [];
+      window.__intakeAnswers.push({ key, id, answer });`) })
+  })
   await page.goto('/preview.html')
   const frame = triggerFrame(page)
   await scene(page, 'approval')
+  const chat = frame.locator('[data-team-page="room"]')
+  await expect(chat).toHaveAttribute('title', '1 pending reply')
+  await expect(chat.locator('[data-slot="dot"][data-pulse]')).toHaveCount(1)
   await showChat(frame)
   const card = frame.locator('[data-slot="approval-card"]')
   await expect(card).toBeVisible()
   await expect(stateChip(frame)).toHaveAttribute('aria-label', 'Needs you')
-  await expect(liveLine(frame)).toContainText('is waiting for your approval')
-  // Not a dialog, no scrim, and the composer is only hidden under it.
+  await expect(card.locator('[data-slot="approval-meta"][data-kind="person"]')).toContainText('From')
+  await expect(card.locator('[data-slot="approval-code"]')).toHaveText('pnpm test')
+  // Inline requests preserve the visible composer; the request itself names
+  // its source, so another paragraph saying it is waiting is unnecessary.
   await expect(frame.locator('[role="dialog"], [data-slot="dialog-overlay"]')).toHaveCount(0)
-  await expect(frame.locator('textarea')).toBeHidden()
-  // The footer strip stays under the card.
+  const composer = frame.locator('[data-slot="composer"] textarea')
+  await expect(composer).toBeVisible()
+  await composer.fill('Keep this draft ')
+  await card.hover()
+  await expect(composer).toBeFocused()
+  await page.keyboard.press('1')
+  await expect(composer).toHaveValue('Keep this draft 1')
+  await expect(card).toBeVisible()
   await expect(budget(frame)).toContainText('left')
+  const answers = () => page.evaluate(() => (window as unknown as { __intakeAnswers?: unknown[] }).__intakeAnswers ?? [])
+  expect(await answers()).toEqual([])
+
+  await card.getByRole('button', { name: 'Open conversation', exact: true }).click()
+  const sessionRequest = frame.locator('[data-slot="approval-dialog-scope"] [role="dialog"]')
+  await expect(sessionRequest).toBeVisible()
+  await expect(sessionRequest.locator('[data-slot="approval-code"]')).toHaveText('pnpm test')
+  expect(await answers()).toEqual([])
+  await showChat(frame)
+  await expect(card).toBeVisible()
+  await expect(composer).toHaveValue('Keep this draft 1')
 
   // A 1 typed in another field is that field's.
   const filter = page.getByRole('searchbox', { name: 'Filter this list', exact: true }).first()
@@ -149,11 +181,21 @@ test('a member’s approval takes the composer’s slot in flow, answers only fr
   await expect(filter).toHaveValue('1')
   await expect(card).toBeVisible()
   await filter.fill('')
-  // In the card, it answers.
-  await card.locator('h2').click()
+  // The same digit is an answer only after deliberately focusing the card.
+  await card.focus()
+  await expect(card).toBeFocused()
   await page.keyboard.press('1')
   await expect(card).toHaveCount(0)
-  await expect(frame.locator('textarea')).toBeVisible()
+  await expect.poll(answers).toEqual([{ key: 'codex\u0000c1', id: 'preview-approval', answer: { type: 'option', optionId: 'yes' } }])
+  await expect(composer).toBeVisible()
+  await expect(composer).toHaveValue('Keep this draft 1')
+  await expect(chat).toHaveText('Chat')
+  await expect(chat.locator('[data-slot="dot"][data-pulse]')).toHaveCount(0)
+  await expect(stateChip(frame)).toHaveAttribute('aria-label', 'Running')
+  await composer.focus()
+  await page.keyboard.press('1')
+  await expect(composer).toHaveValue('Keep this draft 11')
+  expect(await answers()).toHaveLength(1)
 })
 
 test('a question that timed out and a budget stop each name their exact reason, with partial work kept', async ({ page }) => {
@@ -165,6 +207,7 @@ test('a question that timed out and a budget stop each name their exact reason, 
   await expect(liveLine(frame)).toContainText('nobody answered in time')
 
   await scene(page, 'stopped')
+  await showChat(frame)
   // A real host pairs every budget stop with a person-kind wait of its own,
   // so the header reads Needs you and the live line shows that wait's
   // sentence — the stop's own detail appears exactly once inside it, never
@@ -177,6 +220,7 @@ test('a question that timed out and a budget stop each name their exact reason, 
   await expect(budget(frame)).toContainText('left')
 
   await scene(page, 'unknown-budget')
+  await showChat(frame)
   await expect(budget(frame)).toContainText('Spend unknown')
   await expect(budget(frame)).not.toContainText('left')
 })
@@ -190,7 +234,9 @@ const overflow = (node: Locator) => node.evaluate((root) => {
 })
 /* A sentence arrives whole: nothing on the line is cut by its own box. */
 const clipped = (node: Locator) => node.evaluate((root) =>
-  [root, ...root.querySelectorAll<HTMLElement>('*')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent ?? ''))
+  [root, ...root.querySelectorAll<HTMLElement>('*')].filter((el) =>
+    el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && !el.closest('.sr-only, [hidden]')
+    && el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent ?? ''))
 
 /**
  * One test per layout, so each has a time budget of its own. They were a
@@ -217,12 +263,15 @@ for (const width of [1280, 640]) {
         const header = frame.locator('[data-slot="top-bar"]')
         await expect(header).toBeVisible()
         expect(await overflow(header), `header at ${width}px, ${colorScheme}, ${name}`).toBeLessThanOrEqual(1)
-        await expect(liveLine(frame)).toBeVisible()
-        expect(await clipped(liveLine(frame)), `live line at ${width}px, ${colorScheme}, ${name}`).toEqual([])
+        if (name === 'stopped') {
+          await expect(liveLine(frame)).toBeVisible()
+          expect(await clipped(liveLine(frame)), `live line at ${width}px, ${colorScheme}, ${name}`).toEqual([])
+        }
         expect(await clipped(budget(frame)), `budget at ${width}px, ${colorScheme}, ${name}`).toEqual([])
         if (name === 'approval') {
           const card = frame.locator('[data-slot="approval-card"]')
           await expect(card).toBeVisible()
+          await expect(frame.locator('[data-slot="composer"] textarea')).toBeVisible()
           expect(await overflow(card), `approval at ${width}px, ${colorScheme}`).toBeLessThanOrEqual(1)
         }
       }

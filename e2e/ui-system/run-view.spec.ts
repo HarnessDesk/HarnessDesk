@@ -216,7 +216,7 @@ for (const theme of ['light', 'dark'] as const) {
     const flow = page.locator('#run-view-live-polish-flow')
     const raw = 'PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check'
     const shown = 'PATH=/usr/bin:~/bin node ~/tools/land.mjs --check'
-    for (const selector of ['[data-step="verify"]', '[data-step-row="verify"]']) {
+    for (const selector of ['[data-slot="run-flow"] [data-step="verify"]', '[data-slot="run-flow"] [data-step-row="verify"]']) {
       await expect(flow.locator(selector)).toContainText(shown)
       await expect(flow.locator(selector).locator('[title]').filter({ hasText: shown })).toHaveAttribute('title', raw)
     }
@@ -234,7 +234,7 @@ for (const theme of ['light', 'dark'] as const) {
   test(`seat ceiling words appear in the Team rail and Flow step in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?run-view&theme=${theme}`)
     const flow = page.locator('#run-view-live-polish-flow')
-    await expect(flow.locator('[data-step-row="writer"]')).toContainText('Edit · asked, not enforced')
+    await expect(flow.locator('[data-slot="run-flow"] [data-step-row="writer"]')).toContainText('Edit · asked, not enforced')
     const ceiling = flow.locator('[data-step="writer"] [data-role="meta"]')
     expect(await ceiling.evaluate(el => ({ clipped: el.scrollWidth > el.clientWidth + 1,
       outside: el.getBoundingClientRect().bottom > el.closest('[data-slot="flow-step"]')!.getBoundingClientRect().bottom })))
@@ -244,8 +244,8 @@ for (const theme of ['light', 'dark'] as const) {
       .toHaveAttribute('title', 'Changes nothing: it reads, searches and reports.')
     const team = page.locator('#run-view-live-polish-team')
     const members = await teamSeats(team)
-    await expect(members.locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Alpha',exact:true})})).toContainText('Edit · asked, not enforced')
-    await expect(members.locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Beta',exact:true})})).toContainText('Read only')
+    await expect(members.locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Alpha',exact:true})})).toHaveAccessibleName(/Edit · asked, not enforced/)
+    await expect(members.locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Beta',exact:true})})).toHaveAccessibleName(/Read only/)
   })
 }
 

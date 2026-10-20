@@ -131,7 +131,7 @@ it('a stale producer cleanup does not remove a newer owner publication', () => {
   } finally { act(() => root.unmount()); container.remove() }
 })
 
-it.each([null,'run','round-1','step:writer','missing'])('unsupported selection %s adds no duplicate Run summary in tool mode', selectedRow => {
+it.each([null,'run','round-1','step:missing','missing'])('unsupported selection %s adds no duplicate Run summary in tool mode', selectedRow => {
   const fixture = runFixture()
   const container = document.createElement('div'), root = createRoot(container)
   try {

@@ -1,4 +1,4 @@
-import { selectRunView } from './run-frame-actions'
+import { closeRunInspector, selectRunView } from './run-frame-actions'
 import { selectTeamDestination, selectTeamPage } from './team-frame-actions'
 import { closeFloatingTeamRail } from './team-frame-actions'
 import { expect, test, type Page, type Locator } from '@playwright/test'
@@ -62,7 +62,7 @@ for (const theme of ['light', 'dark'] as const) {
       const pane = await run(page, theme)
       const deltas = await pane.locator('[data-slot="flow-step"]').evaluateAll(steps => steps.map(step => {
         const card = step.querySelector('[data-slot="card"]:not([data-behind])')!
-        const lead = card.firstElementChild!.getBoundingClientRect()
+        const lead = card.querySelector('[data-slot="flow-node-mark"]')!.getBoundingClientRect()
         const title = card.querySelector('[data-role="row"]')!
         const range = document.createRange()
         range.selectNodeContents(title)
@@ -125,21 +125,33 @@ for (const theme of ['light', 'dark'] as const) {
       })
     }
 
-    test('a narrow Run reaches the last Step and Rules by wheel and restores the wide view', async ({ page }) => {
+    test('a narrow Work view reaches the full record and last Step by wheel and restores the wide drawing', async ({ page }) => {
       const pane = await run(page, theme)
+      await pane.scrollIntoViewIfNeeded()
+      const graph = pane.locator('[data-slot="flow-graph"]')
+      const wideZoom = await zoomOf(graph.locator('[data-slot="flow-canvas"]'))
       await page.setViewportSize({ width: 390, height: 900 })
       await nodesInCanvas(pane)
       await closeFloatingTeamRail(page.locator('body'))
       const scroll = pane.locator('[data-slot="run-scroll"]')
-      const graph = pane.locator('[data-slot="flow-graph"]')
-      const row = graph.locator('[data-step-row="you"]')
+      const narrowZoom = await zoomOf(graph.locator('[data-slot="flow-canvas"]'))
+      expect(narrowZoom).toBeLessThan(wideZoom)
+      // Work keeps one finite drawing; its Steps and Rules remain the text
+      // alternative rather than a second visible record below the graph.
+      await expect(graph.locator('[data-slot="flow-list"]')).toHaveAttribute('data-placement', 'dock')
+      await expect(graph.locator('section[aria-label="Rules"]')).toHaveCount(1)
+      expect(await graph.locator('[data-slot="flow-list"] button').evaluateAll(buttons => buttons.filter(button => (button as HTMLButtonElement).tabIndex >= 0).length)).toBe(0)
+      await pane.getByRole('button', { name: 'Full record', exact: true }).click()
+      const record = pane.getByRole('list', { name: 'Run timeline', exact: true })
+      await expect(record).toBeVisible()
+      const row = record.locator('[data-step-row="you"]')
       await expect.poll(() => row.evaluate(el => el.getBoundingClientRect().width)).toBeGreaterThan(200)
       const box = (await scroll.boundingBox())!
       await page.mouse.move(box.x + box.width / 2, box.y + box.height - 30)
       await page.mouse.wheel(0, 1600)
       await expect.poll(() => scroll.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1)).toBe(true)
-      await expect(graph.locator('section[aria-label="Rules"]')).toBeInViewport()
-      // Rules can fill the scroll area at the end; wheel back to reach the last Step.
+      // The final recorded/future step must be reached through the page's
+      // actual scroll owner, rather than the clipped text alternative.
       const above = await row.evaluate(el => el.closest('[data-slot="run-scroll"]')!.getBoundingClientRect().top - el.getBoundingClientRect().top)
       if (above > 0) await page.mouse.wheel(0, -(above + 16))
       await expect(row).toBeInViewport()
@@ -147,18 +159,25 @@ for (const theme of ['light', 'dark'] as const) {
         const rect = el.getBoundingClientRect(), clip = el.closest('[data-slot="run-scroll"]')!.getBoundingClientRect()
         return rect.top >= clip.top && rect.bottom <= clip.bottom
       })).toBe(true)
-      expect(await row.evaluate(el => (el as HTMLButtonElement).tabIndex)).toBe(0)
-      await row.click()
+      const select = row.getByRole('button')
+      await select.focus()
+      await expect(select).toBeFocused()
+      await select.press('Enter')
       await expect(row).toHaveAttribute('aria-current', 'true')
-      await expect(graph.locator('[data-slot="flow-list"]')).toHaveAttribute('data-placement', 'below')
-      // The native drawing reserves its model extent plus the real controls.
-      // Selecting inspection must retain that minimum and every contained node.
-      await expect.poll(() => graph.locator('[data-slot="flow-drawing"]').evaluate(el =>
-        el.getBoundingClientRect().height >= Number.parseFloat(getComputedStyle(el).minHeight),
-      )).toBe(true)
+      const inspection = pane.locator('[data-slot="run-inspector"]')
+      await expect(inspection.getByRole('region', { name: 'You', exact: true })).toBeVisible()
+      await expect(inspection).toContainText('Not reached')
+      await expect(inspection).toContainText('This step has not opened a round.')
+      await expect(inspection).toContainText('Merged · Dropped')
+      await expect(inspection.getByRole('region', { name: 'Your answer', exact: true })).toHaveCount(0)
+      await closeRunInspector(pane)
+      await expect(graph.locator('[data-slot="flow-list"]')).toHaveAttribute('data-placement', 'dock')
+      await expect.poll(() => graph.locator('[data-slot="flow-drawing"]').evaluate(el => el.getBoundingClientRect().height)).toBe(360)
       await nodesInCanvas(pane)
       await page.setViewportSize({ width: 1440, height: 900 })
-      await expect.poll(() => row.evaluate(el => (el as HTMLButtonElement).tabIndex)).toBe(-1)
+      await expect.poll(() => zoomOf(graph.locator('[data-slot="flow-canvas"]'))).toBeGreaterThan(narrowZoom)
+      await nodesInCanvas(pane)
+      expect(await graph.locator('[data-slot="flow-list"] button').evaluateAll(buttons => buttons.filter(button => (button as HTMLButtonElement).tabIndex >= 0).length)).toBe(0)
     })
 
     test('a narrow Run reserves room for its title and navigation tools', async ({ page }) => {
@@ -248,7 +267,7 @@ for (const theme of ['light', 'dark'] as const) {
 
     {
 
-      for (const [item0, width] of ([1280, 720, 390]).entries()) test(`the need banner heads the Flow tab, above the drawing and on its left edge [item ${[item0].join('-')}]`, async ({ page }) => {
+      for (const [item0, width] of ([1280, 720, 390]).entries()) test(`the need banner follows Flow, aligns with the activity column, and its action is reachable by wheel [item ${[item0].join('-')}]`, async ({ page }) => {
 
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/preview.html?run-view&theme=${theme}`)
@@ -256,6 +275,8 @@ for (const theme of ['light', 'dark'] as const) {
         if (width === 390) await selectTeamDestination(rig, 'run')
         else await selectTeamPage(rig, 'run')
         await selectRunView(rig, 'Flow')
+        await rig.scrollIntoViewIfNeeded()
+        await closeFloatingTeamRail(page.locator('body'))
         const need = rig.locator('[data-slot="run-need"]')
         const canvas = rig.locator('[data-slot="flow-canvas"]')
         await expect(canvas.locator('.react-flow__node').first()).toBeVisible()
@@ -269,11 +290,18 @@ for (const theme of ['light', 'dark'] as const) {
         const banner = (await need.boundingBox())!
         const card = (await need.locator('> *').first().boundingBox())!
         const drawn = (await canvas.boundingBox())!
+        const activity = (await rig.locator('[data-slot="run-reading"]').boundingBox())!
         expect.soft(card.width, `banner card at ${width}px`).toBeGreaterThan(200)
-        expect.soft(Math.abs(banner.x - drawn.x), `banner left edge at ${width}px`).toBeLessThan(1.5)
-        expect.soft(Math.abs(banner.width - drawn.width), `banner width at ${width}px`).toBeLessThan(1.5)
-        expect.soft(banner.y + banner.height, `banner above the drawing at ${width}px`).toBeLessThanOrEqual(drawn.y + 0.5)
+        expect.soft(Math.abs(banner.x - activity.x), `banner left edge at ${width}px`).toBeLessThan(1.5)
+        expect.soft(Math.abs(banner.width - activity.width), `banner width at ${width}px`).toBeLessThan(1.5)
+        expect.soft(drawn.y + drawn.height, `Flow above the banner at ${width}px`).toBeLessThanOrEqual(banner.y + 0.5)
+        expect.soft(banner.y + banner.height, `banner before activity at ${width}px`).toBeLessThanOrEqual(activity.y + 0.5)
         expect.soft(drawn.height, `drawing at ${width}px`).toBeGreaterThan(width < 600 ? 100 : 200)
+        const scroll = rig.locator('[data-slot="run-scroll"]')
+        const box = (await scroll.boundingBox())!
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height - 30)
+        await page.mouse.wheel(0, 1600)
+        await expect.poll(() => scroll.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1)).toBe(true)
         const door = need.getByRole('button').first()
         await expect.soft(door, `banner action at ${width}px`).toBeInViewport()
 
@@ -291,12 +319,16 @@ for (const theme of ['light', 'dark'] as const) {
       await pane.screenshot({ path: `${folder}/run-${theme}.png` })
       await page.setViewportSize({ width: 390, height: 900 })
       await nodesInCanvas(pane)
+      await closeFloatingTeamRail(page.locator('body'))
       await pane.screenshot({ path: `${folder}/run-narrow-${theme}.png` })
+      await pane.getByRole('button', { name: 'Full record', exact: true }).click()
+      const record = pane.getByRole('list', { name: 'Run timeline', exact: true })
+      await expect(record).toBeVisible()
       const scroll = pane.locator('[data-slot="run-scroll"]')
       const box = (await scroll.boundingBox())!
       await page.mouse.move(box.x + box.width / 2, box.y + box.height - 30)
       await page.mouse.wheel(0, 1600)
-      await expect(pane.locator('[data-step-row="you"]')).toBeInViewport()
+      await expect(record.locator('[data-step-row="you"]')).toBeInViewport()
       await pane.screenshot({ path: `${folder}/run-narrow-scrolled-${theme}.png` })
       await page.setViewportSize({ width: 1440, height: 900 })
       await page.goto(`/preview.html?shape-graph&theme=${theme}`)

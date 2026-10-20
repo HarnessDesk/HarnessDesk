@@ -15,6 +15,11 @@ for (const theme of WALL_THEMES) {
       const body = page.locator('[data-frame-region="rail"] [data-slot="tool-body"]:visible')
       await expect(body).toBeVisible()
       if (state === 'armed') {
+        const facts = body.getByRole('region', { name: 'Starts in', exact: true })
+        const details = facts.getByRole('button', { name: 'Details', exact: true })
+        await expect(details).toHaveAttribute('aria-expanded', 'false')
+        await details.click()
+        await expect(details).toHaveAttribute('aria-expanded', 'true')
         await expect(body).toContainText('Source folder; the worktree is made when the message goes')
         await expect(body).toContainText('harnessdesk/checkout-retry')
       } else {
@@ -22,7 +27,8 @@ for (const theme of WALL_THEMES) {
         const plan = body.locator('[data-slot="checklist-item"]')
         if (state === 'cleared') {
           await expect(plan).toHaveCount(0)
-          await expect(body).toContainText('No plan yet.')
+          await expect(body.getByRole('region', { name: 'Plan', exact: true })).toHaveCount(0)
+          await expect(body).not.toContainText('No plan yet.')
         } else {
           await expect(plan).toHaveCount(3)
           expect(await plan.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-state'))))
@@ -49,13 +55,26 @@ for (const theme of WALL_THEMES) {
       await expect.poll(async () => (await rail.boundingBox())!.y).toBe(FRAME.bar.height + FRAME.rail.inset)
       const box = (await rail.boundingBox())!
       expect(box.x + box.width).toBe(720 - FRAME.rail.inset)
-      expect(box.y + box.height).toBe(900 - FRAME.rail.inset)
+      const limit = await rail.evaluate((node, inset) => {
+        const main = node.closest('[data-slot="fixed-shell"]')!.querySelector('[data-frame-region="main"]')!.getBoundingClientRect()
+        const clearance = Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-composer-clearance')) || 0
+        return main.bottom - Math.max(clearance, inset)
+      }, FRAME.rail.inset)
+      // The sheet fits its content and caps its bottom above the measured
+      // composer; short cards do not stretch down to the window edge.
+      expect(box.y + box.height).toBeLessThanOrEqual(limit)
+      expect(box.height).toBeGreaterThan(0)
       expect(box.width).toBe(FRAME.infoCard.width)
       expect(await main.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await expect(body).toBeVisible()
       await page.screenshot({ path: `output/frame-wall/B3-details-${state}-720-${theme}.png` })
       if (state === 'active') {
         await expect(body.locator('[data-slot="tool-scroll"]')).toHaveCount(1)
+        const subagents = body.getByRole('region', { name: 'Sub-agents', exact: true })
+        const reveal = subagents.getByRole('button', { name: 'Sub-agents', exact: true })
+        await expect(reveal).toHaveAttribute('aria-expanded', 'false')
+        await reveal.click()
+        await expect(reveal).toHaveAttribute('aria-expanded', 'true')
         const reviewer = body.getByText('Recovery reviewer', { exact: true })
         await reviewer.scrollIntoViewIfNeeded()
         await expect(reviewer).toBeInViewport()

@@ -130,7 +130,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(canvas(page).locator('.react-flow__edge')).toHaveCount(7)
       await expect.poll(async () => (await viewport(canvas(page))).zoom).toBe(1)
     })
-    test('opens centred at 100%, pans, zooms, and Fit only shrinks', async ({ page }) => {
+    test('opens centred at 100%, pans, zooms, and Fit restores a readable scale while resize shrinks', async ({ page }) => {
       const surface = canvas(page)
       await expect.poll(() => surface.evaluate(root => {
         const box = root.getBoundingClientRect(), nodes = [...root.querySelectorAll('.react-flow__node')].map(el => el.getBoundingClientRect())
@@ -153,7 +153,9 @@ for (const theme of ['light', 'dark'] as const) {
       await expect.poll(async () => (await viewport(surface)).zoom).toBeLessThan(fitted)
       const small = (await viewport(surface)).zoom
       await surface.getByRole('button', { name: 'Fit plan' }).click()
-      await expect.poll(async () => (await viewport(surface)).zoom).toBeCloseTo(small, 5)
+      await expect.poll(async () => (await viewport(surface)).zoom).toBeCloseTo(fitted, 5)
+      expect((await viewport(surface)).zoom).toBeGreaterThan(small)
+      expect((await viewport(surface)).zoom).toBeLessThanOrEqual(1)
       const previous = (await viewport(surface)).zoom
       await page.setViewportSize({ width: 720, height: 900 })
       await surface.getByRole('button', { name: 'Fit plan' }).click()
