@@ -51,6 +51,7 @@ import {
   BannerAction,
   Button,
   EmptyState,
+  IconTile,
   PaneColumn,
   Menu,
   MenuItem,
@@ -1020,7 +1021,7 @@ const IntentCard = ({
     : placement?.column === 'needs' ? placement.why : null
   const visibleOutcome = intent.state === 'done' && !reason ? intent.outcome : null
   const brand = runtime ? brandForRuntime(runtime) : null
-  const face = assignee ? brand ? <BrandMark brand={brand} size={16} /> : <AgentIcon size={16} /> : null
+  const face = assignee ? <IconTile variant="bare" shape="face" size="navigation">{brand ? <BrandMark brand={brand} size={16} /> : <AgentIcon size={16} />}</IconTile> : null
 
   return (
     <>

@@ -547,6 +547,10 @@ it('the claiming harness is pressable straight through to its conversation', asy
     one.textContent?.includes('API migration'),
   )
   if (!holder) throw new Error('no holder control')
+  const face = holder.querySelector('[data-slot="icon-tile"][data-shape="face"]')
+  expect(face, 'the holder must remain a declared identity for the Faces setting').not.toBeNull()
+  expect(face!.getAttribute('data-variant')).toBe('bare')
+  expect(face!.querySelector('svg')).not.toBeNull()
   act(() => holder.click())
   expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
 })
@@ -1976,8 +1980,10 @@ for (const view of ['Board', 'List'] as const) it(`uses a bare actual runtime ma
   await render(store)
   if (view === 'List') await chooseBoardView('List')
   const holder = [...container.querySelectorAll('button')].find(one => (one.title || one.getAttribute('aria-description') || '').startsWith('Open '))!
-  expect(holder.querySelector('[data-slot="icon-tile"]')).toBeNull()
-  expect(holder.querySelector('svg.brand-codex')?.getAttribute('width')).toBe('16')
+  const face = holder.querySelector('[data-slot="icon-tile"][data-shape="face"]')!
+  expect(face).not.toBeNull()
+  expect(face.getAttribute('data-variant')).toBe('bare')
+  expect(face.querySelector('svg.brand-codex')?.getAttribute('width')).toBe('16')
 })
 
 for (const savedNames of [true, false]) it(`uses stable Seat ordinals and custom names in task rows with saved names ${savedNames}`, async () => {
