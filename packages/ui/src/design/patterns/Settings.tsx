@@ -593,6 +593,8 @@ export const Segmented = <T extends string>({
     {options.map((option) => (
       <RadioGroupItem
         key={option.value}
+        /* Preserve the Segmented marker used by shot probes and recorded guides. */
+        data-slot="toggle-group-item"
         variant="choice"
         nativeButton
         render={<Button type="button" variant="ghost" size="pattern" className="disabled:opacity-100" />}

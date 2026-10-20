@@ -143,6 +143,9 @@ it('arrows select the focused segment and skip refused answers, with one tab sto
   }
   await act(async () => root.render(<Choice />))
   const radios = () => [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+  const recordedOptions = [...container.querySelectorAll('[data-slot="toggle-group-item"]')]
+  expect(recordedOptions.length).toBeGreaterThan(0)
+  expect(recordedOptions).toEqual(radios())
   const selected = () => radios().find(radio => radio.getAttribute('aria-checked') === 'true')!
   act(() => selected().focus())
   for (const [key, answer] of [['ArrowRight', 'Year'], ['ArrowLeft', 'Week'], ['ArrowUp', 'Day'], ['ArrowDown', 'Week'], ['Home', 'Week'], ['End', 'Week']] as const) {
