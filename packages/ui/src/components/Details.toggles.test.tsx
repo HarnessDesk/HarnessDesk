@@ -2,9 +2,11 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
+import { itemId, turnId } from '@harnessdesk/protocol'
+import { PREVIEW_SESSION_KEY, previewStore } from '../preview/harness'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
-import { ChangesView, TrajectoryView } from './Details'
+import { AgentsView, ChangesView, TrajectoryView } from './Details'
 
 /**
  * Staged preserves its boolean filter; Timed preserves its All/Timed choice.
@@ -84,4 +86,25 @@ it('puts the export glyph on the Details toolbar edge', () => {
   )
   expect(exportButton).not.toBeNull()
   expect(exportButton?.className).toContain('me-(--edge-pull)')
+})
+
+it('keeps sub-agent filters absent until there are actual delegated members', () => {
+  act(() => root.render(<StoreProvider store={store}><AgentsView /></StoreProvider>))
+  expect(container.querySelector('[aria-label="Filter sub-agents"]')).toBeNull()
+  expect(container.querySelector('[aria-label="Export this session as Markdown"]')).toBeNull()
+})
+
+it('retains sub-agent filtering when a delegation has real members', async () => {
+  const seed = previewStore().getSnapshot()
+  const session = { ...seed.sessions.get(PREVIEW_SESSION_KEY)!, turns: [{
+    id: turnId('delegated'), status: 'completed' as const, items: [{
+      id: itemId('delegation'), type: 'subagent' as const, action: 'spawn' as const, status: 'completed' as const, prompt: null,
+      members: [{ sessionId: 'child', nickname: 'Reviewer', state: 'completed', openable: false }],
+    }],
+  }] }
+  const populated = previewStore({ ...seed, sessions: new Map([[PREVIEW_SESSION_KEY, session]]) })
+  populated.seatRecord = async () => null
+  await act(async () => root.render(<StoreProvider store={populated}><AgentsView /></StoreProvider>))
+  expect(container.querySelector('[aria-label="Filter sub-agents"]')).not.toBeNull()
+  expect(container.textContent).toContain('Reviewer')
 })

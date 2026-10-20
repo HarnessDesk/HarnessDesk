@@ -35,7 +35,7 @@ export const WorkspaceRecoveryPreview = () => {
       const workspace = { path: ROOT, name: 'storefront', lastOpenedAt: 1 }
       if (method === 'workspace/open') { opened = true; return workspace }
       if (method === 'workspace/recent') return opened ? [workspace] : []
-      if (method === 'goal/create' && !opened) throw new Error(refusal)
+      if (method === 'goal/start' && !opened) throw new Error(refusal)
       if (method === 'authoring/start/preview') {
         if (!opened) throw new Error(refusal)
         return {

@@ -53,10 +53,16 @@ test('a finished Team whose project is gone stays hidden', async ({ page }) => {
 
 test('Most used earns its section from recorded starts', async ({ page }) => {
   await page.goto(`${preview}?scene=shapes`)
+  const dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
+  // Quick choices lead into the complete, grouped catalogue; usage sections
+  // are a contract of that catalogue rather than the initial spotlight.
+  await expect(dialog.getByRole('button', { name: 'Write and review', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'All Flows', exact: true }).click()
   await expect(page.getByRole('region', { name: 'Most used', exact: true })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'More Flows', exact: true }).getByRole('button', { name: 'Write and review', exact: true })).toBeVisible()
   await page.evaluate(() => localStorage.setItem('hd-team-shape-starts', JSON.stringify({ comparison: 1 })))
   await page.reload()
+  await dialog.getByRole('button', { name: 'All Flows', exact: true }).click()
   const most = page.getByRole('region', { name: 'Most used', exact: true })
   await expect(most.getByRole('button', { name: 'Side by side', exact: true })).toBeVisible()
   await expect(most.getByRole('button')).toHaveCount(1)

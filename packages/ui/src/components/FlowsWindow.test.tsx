@@ -8,6 +8,7 @@ import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { DestinationPageScope } from '../panels/destination-page'
 import { emptyShapePolicy } from '../lib/shapes'
 import { FlowsWindow } from './FlowsWindow'
+import * as frontDoor from './FrontDoor'
 import { PREVIEW_GOAL } from '../preview/goal-fixture'
 import type { AppSnapshot, AppStore } from '../state/store'
 import { triggerProjectView } from '../preview/intake-fixture'
@@ -40,6 +41,11 @@ it('lists the real catalogue plus Just a Team, opens an origin-bound Flow and cr
   const button = (text: string) => [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes(text))!
   expect(button('Just a Team')).toBeDefined()
   await act(async () => button('Review a change').click())
+  expect(open).not.toHaveBeenCalled()
+  expect(container.querySelector('section[aria-label="Review a change"]')).not.toBeNull()
+  expect(document.body.textContent).toContain('Example')
+  const edit = [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Edit Flow')!
+  await act(async () => edit.click())
   expect(open).toHaveBeenCalledWith('/work/demo', 'review', 'builtin')
   await act(async () => button('New Flow').click())
   expect(create).toHaveBeenCalledWith('/work/demo')
@@ -133,4 +139,101 @@ it('names the Flows page once in its body and keeps the shell bar for tools', as
   expect(heading?.textContent).toBe('Flows')
   expect(heading?.closest('[data-slot="page"]')).not.toBeNull()
   expect(container.querySelector('[data-topbar-title]')).toBeNull()
+})
+
+
+it('keeps catalogue inspection local until Start Team is requested', async () => {
+  const { store } = await mount()
+  const preview = vi.spyOn(store, 'previewFrontDoor')
+  const source = vi.spyOn(store, 'flowSource')
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Review a change"]')!.click())
+  expect(source).not.toHaveBeenCalled()
+  expect(preview).not.toHaveBeenCalled()
+  expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Start Team')).toBe(true)
+  const search = container.querySelector<HTMLInputElement>('input[aria-label="Search Flows"]')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'missing')
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(container.querySelector('section[aria-label="Review a change"]')).toBeNull()
+})
+
+it('inspects custom earlier-format entries and keeps broken entries disabled', async () => {
+  await mount(store => {
+    vi.spyOn(store, 'flowCatalog').mockResolvedValue([
+      { ...entry('custom', 'user'), name: 'Custom path', policy: null },
+      { ...entry('broken', 'project'), name: 'Broken path', problem: 'Cannot parse this Flow' },
+    ])
+  })
+  const broken = container.querySelector<HTMLButtonElement>('button[aria-label="Open Broken path"]')!
+  expect(broken.disabled).toBe(true)
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Custom path"]')!.click())
+  expect(container.textContent).toContain('This earlier Flow format has no drawable policy')
+  expect(container.textContent).toContain('Edit Flow')
+})
+
+
+it('passes the selected catalogue identity to the existing Team launch contract', async () => {
+  const launch = vi.spyOn(frontDoor, 'FrontDoor').mockImplementation(() => <div data-test-launch="" />)
+  await mount()
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Review a change"]')!.click())
+  expect(launch).not.toHaveBeenCalled()
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Start Team')!.click())
+  expect(launch.mock.calls.at(-1)?.[0]).toMatchObject({ context: { kind: 'project', root: '/work/demo' }, initial: { id: 'review', origin: 'builtin' } })
+})
+
+
+it('puts the selected example before the gallery and focuses its detail region', async () => {
+  await mount()
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Review a change"]')!.click())
+  const detail = container.querySelector<HTMLElement>('section[aria-label="Review a change"]')!
+  const gallery = container.querySelector('[data-slot="flow-card-grid"]')!
+  expect(detail.compareDocumentPosition(gallery) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(document.activeElement).toBe(detail)
+})
+
+it('preserves example playback across unrelated host snapshots', async () => {
+  const { store } = await mount(store => {
+    vi.spyOn(store, 'flowCatalog').mockResolvedValue([{ ...entry('review', 'builtin'), policy: {
+      ...emptyShapePolicy(), seed: { role: 'work', title: 'Task' },
+      roles: [{ id: 'work', kind: 'agent', grant: 'read', isolate: false, uses: [], seats: [], independentOf: [] }],
+    } }])
+  })
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Review a change"]')!.click())
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Play')!.click())
+  expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Pause')).toBe(true)
+  await act(async () => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspace: { path: '/work/demo', name: 'Demo', lastOpenedAt: 2 } })
+  })
+  expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Pause')).toBe(true)
+})
+
+it.each(['changed', 'broken'] as const)('resolves the selected identity against a delayed %s catalogue refresh', async state => {
+  const { store, catalog } = await mount()
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Review a change"]')!.click())
+  let release!: (entries: readonly FlowEntry[]) => void
+  const pending = new Promise<readonly FlowEntry[]>(resolve => { release = resolve })
+  catalog.mockImplementation(() => pending)
+  await act(async () => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspaces: [
+      { path: '/work/demo', name: 'Demo', lastOpenedAt: 1 },
+      { path: '/work/other', name: 'Other', lastOpenedAt: 2 },
+    ] })
+  })
+  expect(container.querySelector('section[aria-label="Review a change"]')).toBeNull()
+  expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Start Team')).toBe(false)
+  const fresh = { ...entry('review', 'builtin'), name: 'Updated Flow', policy: { ...emptyShapePolicy(), roles: [{ id: 'updated_person', kind: 'person' as const, outcomes: ['done'] }], seed: { role: 'updated_person', title: 'Updated task' } }, ...(state === 'broken' ? { problem: 'The changed source cannot be parsed', policy: null } : {}) }
+  await act(async () => release([fresh]))
+  const detail = container.querySelector<HTMLElement>('section[aria-label="Updated Flow"]')!
+  expect(detail).not.toBeNull()
+  const start = [...detail.querySelectorAll('button')].find(button => button.textContent === 'Start Team')!
+  if (state === 'broken') {
+    expect(start.disabled).toBe(true)
+    expect(detail.textContent).toContain('The changed source cannot be parsed')
+    expect(detail.querySelector('[data-slot="flow-example"]')).toBeNull()
+  } else {
+    expect(start.disabled).toBe(false)
+    expect(detail.textContent).toContain('Updated person')
+    expect(detail.textContent).not.toContain('Example step: Review')
+  }
 })

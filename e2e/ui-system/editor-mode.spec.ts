@@ -1,20 +1,22 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openFrame } from './frame-contract-helpers'
+import { closeFloatingTeamRail } from './team-frame-actions'
 
-const showEditorAtNarrowWidth = async (page: Page, width: number) => {
-  if (width >= 1000) return
+const showEditorMain = async (page: Page) => {
+  // Placement follows the available main space, not just the window width:
+  // at 1100 the sidebar and Conversation tool can also leave a floating rail.
+  const shell = page.locator('[data-slot="fixed-shell"]:visible')
   const pane = page.locator('[data-frame-region="right"]:visible')
   const closePane = pane.getByRole('button', { name: 'Close pane', exact: true })
-  if (await closePane.isVisible()) await closePane.click()
+  if (await shell.getAttribute('data-panel-floats') === 'true' && await closePane.isVisible()) await closePane.click()
   const drawer = page.getByRole('dialog', { name: 'Sidebar', exact: true })
   if (await drawer.isVisible()) await drawer.getByRole('button', { name: 'Hide sidebar', exact: true }).click()
   await expect(page.locator('[data-slot="editor-main"]')).toBeVisible()
-  const rail = page.locator('[data-frame-region="rail"]')
-  const railToggle = page.getByRole('button', { name: 'Toggle rail', exact: true })
-  await expect(railToggle).toBeVisible()
-  if (await railToggle.getAttribute('aria-expanded') === 'true') await railToggle.click()
-  await expect(railToggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(rail).toBeHidden()
+  await closeFloatingTeamRail(page.locator('body'))
+  if (await shell.getAttribute('data-rail-floats') === 'true') {
+    await expect(shell).toHaveAttribute('data-rail-open', 'false')
+    await expect(page.locator('[data-frame-region="rail"]')).toBeHidden()
+  }
 }
 
 for (const theme of ['light', 'dark'] as const) {
@@ -141,7 +143,7 @@ for (const theme of ['light', 'dark'] as const) {
     test(`an undone edit stays clean after deletion at ${width} in ${theme}`, async ({ page }, testInfo) => {
       await page.clock.install()
       await openFrame(page, 'frame-wall=conversation&frame-editor-mode=source', theme, width)
-      await showEditorAtNarrowWidth(page, width)
+      await showEditorMain(page)
       const main = page.locator('[data-slot="editor-main"]'), editor = main.locator('.cm-content')
       await main.getByRole('button', { name: 'Unsaved · Save ⌘S', exact: true }).click()
       await expect(main.locator('[data-slot="file-tab-unsaved"]')).toHaveCount(0)
@@ -169,7 +171,7 @@ for (const theme of ['light', 'dark'] as const) {
     test(`clean deletion and deleted-draft Reload stay missing across polls at ${width} in ${theme}`, async ({ page }, testInfo) => {
       await page.clock.install()
       await openFrame(page, 'frame-wall=conversation&frame-editor-mode=source', theme, width)
-      await showEditorAtNarrowWidth(page, width)
+      await showEditorMain(page)
       const main = page.locator('[data-slot="editor-main"]')
       await main.getByRole('button', { name: 'Unsaved · Save ⌘S', exact: true }).click()
       await expect(main.locator('[data-slot="file-tab-unsaved"]')).toHaveCount(0)
@@ -185,7 +187,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.screenshot({ path: testInfo.outputPath(`editor-clean-deletion-${width}-${theme}.png`) })
 
       await openFrame(page, 'frame-wall=conversation&frame-editor-mode=source', theme, width)
-      await showEditorAtNarrowWidth(page, width)
+      await showEditorMain(page)
       await expect(main.locator('.cm-content')).toContainText('retryPayment')
       await remove()
       await page.clock.fastForward(3100)
@@ -200,11 +202,11 @@ for (const theme of ['light', 'dark'] as const) {
     test(`an admitted alias retains Changed letters and editable HEAD comparison at ${width} in ${theme}`, async ({ page }, testInfo) => {
       await openFrame(page, 'frame-wall=conversation&frame-editor-mode=alias', theme, width)
       const main = page.locator('[data-slot="editor-main"]')
-      await showEditorAtNarrowWidth(page, width)
+      await showEditorMain(page)
       if (width < 1000) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
       await expect(page.getByRole('radio', { name: 'Changed 4', exact: true })).toBeChecked()
       await expect(page.locator('[aria-label="auth.ts: modified"]')).toBeVisible()
-      await showEditorAtNarrowWidth(page, width)
+      await showEditorMain(page)
       await main.getByRole('radio', { name: /^Changes/ }).click()
       await expect(main.locator('.cm-deletedChunk')).toContainText('token.length > 8')
       await expect(main.locator('.cm-content')).toHaveAttribute('contenteditable', 'true')

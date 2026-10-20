@@ -409,6 +409,10 @@ const goalValidators = {
     root: atMost(4096, isFilled), cwd: optional(atMost(4096, isFilled)), sentence: goalSentence,
     checkout: optional(literalUnion('shared', 'isolated')), dependsOn: optional(goalDependencies),
   }),
+  'goal/start': goalShape({
+    root: atMost(4096, isFilled), sentence: goalSentence,
+    checkout: optional(literalUnion('shared', 'isolated')),
+  }),
   'goal/update': goalShape({
     goal: goalId, revision: goalInteger(0), sentence: optional(goalSentence), dependsOn: optional(goalDependencies),
   }),

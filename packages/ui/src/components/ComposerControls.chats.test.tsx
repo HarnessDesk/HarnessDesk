@@ -21,8 +21,10 @@ it('lists No folder first and clears a chosen folder and worktree when selected'
   expect(items[0]?.textContent).toBe('No folder')
   await act(async () => items[0]!.click())
   expect(store.getSnapshot().workspace).toBeNull()
-  const noFolder = host.querySelector<HTMLButtonElement>('button[title="Starts in /data/chats"]')!
-  expect(noFolder?.textContent).toContain('No folder')
+  await vi.waitFor(() => {
+    const noFolder = host.querySelector<HTMLButtonElement>('button[title="Starts in /data/chats"]')
+    expect(noFolder?.textContent).toContain('No folder')
+  })
   expect(host.textContent).not.toContain('/data/chats')
   expect(host.textContent).not.toContain('worktree')
 })

@@ -42,7 +42,7 @@ export const ApprovalCode = ({ className, ...props }: ComponentProps<'pre'>) => 
  */
 export const ApprovalMeta = ({ label, kind = 'code', className, children, ...props }: ComponentProps<'div'> & {
   label: ReactNode
-  kind?: 'code' | 'folder'
+  kind?: 'code' | 'folder' | 'person'
 }) => (
   <div data-slot="approval-meta" data-kind={kind} className={`${styles.meta} ${className ?? ''}`} {...props}>
     <span className={styles.metaLabel}>{label}</span>
@@ -77,12 +77,10 @@ export const ApprovalChoiceHint = ({ className, ...props }: ComponentProps<'span
  * The warning mark hangs in a gutter; title and body share one text column
  * in both placements.
  *
- * `placement="docked"` is the same question in a composer's slot instead: a
- * card in normal flow, as wide as the composer it stands in for, with the
- * thread above it left fully readable — no scrim, no blur, no portal, not a
- * dialog. A room is where this happens: a member waiting on a person takes
- * the room's composer rather than covering the conversation everyone else in
- * it is reading. It has exactly one filled act, the plain approve, like any
+ * `placement="docked"` is the same question as a card in the chat stream:
+ * no scrim, no blur, no portal, not a dialog. The conversation scrolls the
+ * whole request while the composer remains available below it. It has
+ * exactly one filled act, the plain approve, like any
  * footer in the app; every other answer is quiet, and its number still works.
  */
 export const ApprovalDialog = forwardRef<HTMLDivElement, {

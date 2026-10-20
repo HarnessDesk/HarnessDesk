@@ -10,13 +10,12 @@ const body = (selector: string): string => {
 }
 
 describe('New Team seat controls', () => {
-  it('ellipsizes a long selected agent name while its control carries the full title', () => {
-    expect(source).toContain('className={styles.agentSelect}')
-    expect(source).toContain('title={selectedRuntime?.presentation.name ?? automaticName ?? undefined}')
-    expect(source).toContain('<Popover fullWidth')
-    expect(source).toContain('<Text role="row" truncate>')
-    expect(body('.roleControls')).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
-    expect(body('.agentSelect')).toMatch(/grid-column:\s*1\s*\/\s*-1/)
+  it('ellipsizes the runtime and model summary while its configuration control carries the full title', () => {
+    expect(source).toContain('<Popover fullWidth aria-label={`Configure ${label}`} title={summary}')
+    expect(source).toContain('<Text role="row" truncate>{summary}</Text>')
+    // A bounded control can shrink with its Row; shared Text owns the ellipsis.
+    expect(body('.roleControls')).toMatch(/min-width:\s*0/)
+    expect(body('.roleControls')).toMatch(/max-width:\s*100%/)
   })
 
   it('keeps the review chip at the standard gap from its label', () => {

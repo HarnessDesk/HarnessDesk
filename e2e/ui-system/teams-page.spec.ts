@@ -55,7 +55,9 @@ for (const theme of ['light','dark'] as const) {
    expect(await node.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
   }
   const reason=board.locator('[data-team-row="team-0"] [data-slot="team-detail"]')
-  await expect(reason).toContainText('choose whether to keep the original payment method')
+  await expect(reason.locator('[data-slot="issue-mark"]')).toHaveAccessibleName(/choose whether to keep the original payment method/)
+  await expect(reason.locator('[data-slot="issue-mark"]')).toHaveAttribute('title', /choose whether to keep the original payment method/)
+  await expect(reason).not.toContainText('choose whether to keep the original payment method')
   await expect(reason).toHaveCSS('white-space','normal')
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
  })

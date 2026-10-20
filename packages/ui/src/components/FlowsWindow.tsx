@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
-import type { FlowOrigin } from '@harnessdesk/protocol'
-import { ActionError, Button, Dialog, EmptyState, Field, FlowCard, FlowCardGrid, MenuItem, NativeSelect, Note, Page, PageOptions } from '../design'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { FlowEntry, FlowOrigin } from '@harnessdesk/protocol'
+import { ActionError, Button, Dialog, EmptyState, Field, FlowCard, FlowCardGrid, FlowExample, MenuItem, NativeSelect, Note, Page, SectionHead, PageOptions } from '../design'
 import { DestinationBar, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { runsForPolicy, useFlowCatalogue, useFlowRunCoverage } from '../lib/flow-catalogue'
+import { flowModel } from '../lib/flow-model'
 import { FrontDoor } from './FrontDoor'
 import { ProjectTriggers } from './ProjectTriggers'
 import { TriggerSettings } from './TriggerSettings'
@@ -16,10 +17,20 @@ export const FlowsWindow = ({ onOpen, onNew }: {
   const active = useDestinationActive(), store = useStore(), snapshot = useSnapshot()
   const { rows, roots, loading, problems } = useFlowCatalogue(active)
   const [origin, setOrigin] = useState('all'), [query, setQuery] = useState(''), [newTeam, setNewTeam] = useState(false)
+  const [selection, setSelected] = useState<{ root: string; id: string; origin: FlowOrigin } | null>(null)
+  const selected = rows.find(row => row.root === selection?.root && row.entry.id === selection.id && row.entry.origin === selection.origin) ?? null
+  const detailRef = useRef<HTMLElement>(null)
+  const exampleModel = useMemo(() => selected?.entry.policy ? flowModel(selected.entry.policy) : null, [selected?.entry.policy])
+  useEffect(() => {
+    if (!selected) return
+    detailRef.current?.focus({ preventScroll: true })
+    detailRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [selection])
+  const [startFlow, setStartFlow] = useState<{ root: string; entry: FlowEntry } | null>(null)
   const [triggersOpen, setTriggersOpen] = useState(false)
   const [triggerRoot, setTriggerRoot] = useState<string | null>(null)
   const countKnown = useFlowRunCoverage(active)
-  useEffect(() => { if (!active) { setNewTeam(false); setTriggersOpen(false); setTriggerRoot(null) } }, [active])
+  useEffect(() => { if (!active) { setNewTeam(false); setSelected(null); setStartFlow(null); setTriggersOpen(false); setTriggerRoot(null) } }, [active])
   const selectedRoot = roots.find(root => root === origin) ?? roots[0] ?? null
   const currentTriggerRoot = roots.find(root => root === triggerRoot) ?? selectedRoot
   const words = query.trim().toLocaleLowerCase()
@@ -33,21 +44,30 @@ export const FlowsWindow = ({ onOpen, onNew }: {
     <DestinationBar place="Flows" more={close => <MenuItem label="Manage triggers…" icon={<ClockIcon size={16} />} onSelect={() => { setTriggerRoot(selectedRoot); setTriggersOpen(true); close() }} />} />
     <Page width="wide">
       <PageOptions title="Flows" action={{ label: 'New Flow', disabled: !selectedRoot && 'Open a project folder to build a Flow.', run: () => { if (selectedRoot) onNew(selectedRoot) } }}
-        choices={[{ id: 'origin', label: 'Flow origin', value: origin, items: [{ value: 'all', label: 'All origins' }, { value: 'builtin', label: 'Built in' }, ...roots.map(root => ({ value: root, label: projectName(root) }))], change: setOrigin }]}
-        search={{ label: 'Search Flows', value: query, change: setQuery }} />
+        choices={[{ id: 'origin', label: 'Flow origin', value: origin, items: [{ value: 'all', label: 'All origins' }, { value: 'builtin', label: 'Built in' }, ...roots.map(root => ({ value: root, label: projectName(root) }))], change: value => { setOrigin(value); setSelected(null) } }]}
+        search={{ label: 'Search Flows', value: query, change: value => { setQuery(value); setSelected(null) } }} />
       {problems.map(problem => <ActionError key={problem}>{problem}</ActionError>)}
       {loading && <Note>Reading Flows…</Note>}
       {!roots.length && <Note>Open a project folder to build or start a Flow.</Note>}
-      <FlowCardGrid>
-        {plain && <FlowCard name="Just a Team" origin="Built in" empty policy={null} summary="Work together without prescribed steps." runs={countKnown() ? [...snapshot.goals.values()].filter(goal => goal.goal.origin.kind === 'person' && ![...snapshot.flowExecutions.values()].some(run => run.goal === goal.goal.id)).length : null} disabled={!selectedRoot} onClick={() => setNewTeam(true)} />}
-        {visible.map(({ root, entry }) => <FlowCard key={JSON.stringify([root, entry.origin, entry.id])} name={entry.name}
+      {selected && <section ref={detailRef} tabIndex={-1} aria-label={selected.entry.name}>
+        <SectionHead name={selected.entry.name} action={<>
+            <Button variant="outline" size="sm" disabled={!selectedRoot || !!selected.entry.problem} onClick={() => { if (selected.entry.problem) return; setStartFlow({ root: selected.entry.origin === 'project' ? selected.root : selectedRoot ?? selected.root, entry: selected.entry }) }}>Start Team</Button>
+            <Button variant="outline" size="sm" onClick={() => onOpen(selected.root, selected.entry.id, selected.entry.origin)}>Edit Flow</Button>
+            <Button variant="outline" size="sm" onClick={() => setSelected(null)}>Close</Button>
+        </>} />
+        {selected.entry.problem ? <ActionError>{selected.entry.problem}</ActionError> : exampleModel ? <FlowExample key={JSON.stringify([selected.root, selected.entry.origin, selected.entry.id])} model={exampleModel} rounds={selected.entry.policy?.budget?.rounds ?? 3} /> : <Note>This earlier Flow format has no drawable policy. Edit Flow to inspect its source.</Note>}
+      </section>}
+      <FlowCardGrid size="large">
+        {plain && <FlowCard previewSize="large" name="Just a Team" origin="Built in" empty policy={null} summary="Work together without prescribed steps." runs={countKnown() ? [...snapshot.goals.values()].filter(goal => goal.goal.origin.kind === 'person' && ![...snapshot.flowExecutions.values()].some(run => run.goal === goal.goal.id)).length : null} disabled={!selectedRoot} onClick={() => setNewTeam(true)} />}
+        {visible.map(({ root, entry }) => <FlowCard previewSize="large" key={JSON.stringify([root, entry.origin, entry.id])} name={entry.name}
           origin={entry.origin === 'builtin' ? 'Built in' : entry.origin === 'user' ? 'Yours' : projectName(root)} policy={entry.policy}
           summary={entry.problem ?? entry.summary ?? entry.description ?? 'The seed round runs, then the Team finishes.'}
           runs={countKnown(entry.origin === 'project' ? root : undefined) ? runsForPolicy(entry.policy, [...snapshot.flowExecutions.values()].filter(run => entry.origin !== 'project' || snapshot.goals.get(run.goal)?.goal.root === root)) : null}
-          disabled={!!entry.problem} onClick={() => onOpen(root, entry.id, entry.origin)} />)}
+          disabled={!!entry.problem} selected={selected?.root === root && selected.entry.id === entry.id && selected.entry.origin === entry.origin} onClick={() => setSelected({ root, id: entry.id, origin: entry.origin })} />)}
       </FlowCardGrid>
       {!loading && visible.length === 0 && !plain && <EmptyState variant="inline" title="No matching Flows" />}
     </Page>
+    {active && startFlow && <FrontDoor context={{ kind: 'project', root: startFlow.root }} initial={{ id: startFlow.entry.id, origin: startFlow.entry.origin }} onClose={() => setStartFlow(null)} onStarted={execution => { setStartFlow(null); store.openGoal(execution.goal) }} />}
     {active && newTeam && selectedRoot && <FrontDoor context={{ kind: 'project', root: selectedRoot }} initialPlain onClose={() => setNewTeam(false)} onStarted={execution => { setNewTeam(false); store.openGoal(execution.goal) }} />}
     {active && triggersOpen && <Dialog title="Triggers" size="lg" onClose={() => setTriggersOpen(false)} footer={<Button variant="default" onClick={() => setTriggersOpen(false)}>Close</Button>}>
       {currentTriggerRoot && <>

@@ -1,6 +1,6 @@
 import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
-import { Button } from '../design'
+import { Button, MenuItem } from '../design'
 import { useSidebarHistory } from '../lib/use-sidebar-history'
 import { ArrowLeftIcon, ArrowRightIcon, SidebarIcon } from './Icons'
 import styles from './WindowControls.module.css'
@@ -16,7 +16,7 @@ import styles from './WindowControls.module.css'
  *
  * When the standing sidebar's own history folds, main carries the arrows alone.
  */
-export const WindowControls = ({ sidebarRow = false, history = true }: { sidebarRow?: boolean; history?: boolean } = {}) => {
+export const WindowControls = ({ sidebarRow = false, history = true, menu = false, close }: { sidebarRow?: boolean; history?: boolean; menu?: boolean; close?: () => void } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const settings = snapshot.workbench.navigation.current.kind === 'settings'
@@ -26,6 +26,10 @@ export const WindowControls = ({ sidebarRow = false, history = true }: { sidebar
   if (!sidebarRow && placement === 'column' && !historyInMain) return null
   const historyOnly = !sidebarRow && placement === 'column'
   const navigation = history && !settings
+  if (menu) return navigation ? <>
+    <MenuItem icon={<ArrowLeftIcon size={16} />} label="Back" disabled={!snapshot.navCanBack} onSelect={() => { void store.navigateBack(); close?.() }} />
+    <MenuItem icon={<ArrowRightIcon size={16} />} label="Forward" disabled={!snapshot.navCanForward} onSelect={() => { void store.navigateForward(); close?.() }} />
+  </> : null
   return (
     <span className={styles.group}>
       {!historyOnly && <Button

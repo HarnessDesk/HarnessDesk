@@ -1,3 +1,4 @@
+import { teamSeats } from './team-frame-actions'
 import { expect, test } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 
@@ -10,17 +11,18 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-frame=member-chat&theme=${theme}`)
 
-    const overview = page.getByRole('tab', { name: 'Overview 1' })
+    const overview = page.getByRole('tab', { name: 'Work', exact: true })
+    const frame = page.locator('[data-frame-id="team-frame"]')
     const back = page.getByRole('button', { name: 'Back', exact: true })
     await overview.click()
-    await page.getByRole('button', { name: 'Open Beta' }).click()
+    await (await teamSeats(frame)).getByRole('group', { name: /Beta/ }).click()
     await expect(page.getByRole('tab', { name: 'Chat', exact: true })).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByText('The request helper makes one attempt. I am tracing where transient failures are returned.')).toBeVisible()
     await expect(back).toBeEnabled()
 
     await back.click()
     await expect(overview).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByRole('button', { name: 'Open Beta' })).toBeVisible()
+    await expect((await teamSeats(frame)).getByRole('group', { name: /Beta/ })).toBeVisible()
   })
 
   test(`Team start names the automatic role result in ${theme}`, async ({ page }) => {
@@ -29,15 +31,35 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-start=fix-and-review&theme=${theme}`)
 
-    const writes = page.getByRole('button', { name: 'Runtime for Writes' })
-    const reviews = page.getByRole('button', { name: 'Runtime for Reviews' })
+    const writes = page.getByRole('button', { name: 'Configure Writes', exact: true })
+    const reviews = page.getByRole('button', { name: 'Configure Reviews', exact: true })
     await expect(writes).toHaveAttribute('aria-expanded', 'false')
-    await expect(writes).toHaveText('Automatic · Nothing can run')
+    await expect(writes).toHaveText('Nothing can run')
     await expect(reviews).toHaveAttribute('aria-expanded', 'false')
-    await expect(reviews).toHaveText('Automatic · Nothing can run')
+    await expect(reviews).toHaveText('Nothing can run')
+    await expect(page.getByRole('button', { name: 'Runtime for Writes', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Model for Writes', exact: true })).toHaveCount(0)
+    const writerBounds = await writes.boundingBox()
+    const reviewerBounds = await reviews.boundingBox()
+    const writerCard = await page.locator('.react-flow__node').filter({ has: writes }).boundingBox()
+    const reviewerCard = await page.locator('.react-flow__node').filter({ has: reviews }).boundingBox()
+    expect(writerBounds).not.toBeNull()
+    expect(reviewerBounds).not.toBeNull()
+    expect(writerCard).not.toBeNull()
+    expect(reviewerCard).not.toBeNull()
+    // Parallel graph cards share a row; each control starts at the same inset inside its card.
+    expect(Math.abs(writerCard!.y - reviewerCard!.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs(writerCard!.width - reviewerCard!.width)).toBeLessThanOrEqual(1)
+    expect(Math.abs(writerCard!.height - reviewerCard!.height)).toBeLessThanOrEqual(1)
+    expect(Math.abs(writerBounds!.x - writerCard!.x - (reviewerBounds!.x - reviewerCard!.x))).toBeLessThanOrEqual(1)
+    expect(Math.abs(writerBounds!.width - reviewerBounds!.width)).toBeLessThanOrEqual(1)
+    expect(Math.abs(writerBounds!.height - reviewerBounds!.height)).toBeLessThanOrEqual(1)
     const roles = page.getByRole('region', { name: 'Who does what' })
-    await expect(roles.getByText('Runtime 2 is not added to HarnessDesk', { exact: true })).toBeVisible()
-    await expect(roles.getByText('Runtime 3 is signed out', { exact: true })).toBeVisible()
+    for (const reason of ['Runtime 2 is not added to HarnessDesk', 'Runtime 3 is signed out']) {
+      const issue = roles.getByRole('img', { name: reason, exact: true })
+      await expect(issue).toBeVisible()
+      await expect(issue).toHaveAttribute('title', reason)
+    }
   })
 
   test(`Team board folds empty columns and scrolls when expanded at 1280 in ${theme}`, async ({ page }) => {

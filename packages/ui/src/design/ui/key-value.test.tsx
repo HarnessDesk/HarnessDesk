@@ -211,3 +211,11 @@ it('stands its facts on the row edge only when asked', () => {
   expect(inset!.className).toContain('px-(--hd-inset-row)')
   expect(flush!.className).not.toContain('px-(--hd-inset-row)')
 })
+
+it('panel pairs inherit their compact grammar and bound long names without dropping the accessible value', () => {
+  const name = 'Review assistant with a very long model and reasoning selection'
+  const list = draw(<KeyValue variant="panel"><KeyValueRow label="Agent" kind="name">{name}</KeyValueRow></KeyValue>)
+  expect(list.className).toContain('var(--summary-key)')
+  expect(list.querySelector('[data-slot="key-value-row"]')?.getAttribute('data-variant')).toBe('panel')
+  expect(list.querySelector('[data-slot="middle-truncate"] .sr-only')?.textContent).toBe(name)
+})

@@ -185,13 +185,14 @@ test('single-screen pattern accounting names the settings, agent roster and room
   const agentRoster = path.join(repoRoot, 'packages/ui/src/components/AgentRoster.tsx')
   const agentPage = path.join(repoRoot, 'packages/ui/src/components/AgentPage.tsx')
   assert.equal(singleScreenAreaOf([agentsWindow, agentRoster, agentPage]), 'agentroster')
-  // Agents.tsx (a session's own delegated sub-agents, in the right-dock
-  // inspector) is a different screen and must stay out of that family — it
-  // does, but not by keeping its own name: its one real importer is
-  // Details.tsx, which is itself unhosted, so the closure folds it (and
-  // Activity.tsx, and Trajectory.tsx) into `details` instead.
+  // A session's delegated sub-agents are composed only by the canonical
+  // Details inspector. The resting rail no longer imports this inspector
+  // for a presence query, so it belongs to Details rather than the roster.
+  // Pin the actual value-import edge as well as the resulting family.
   const agentsInspector = path.join(repoRoot, 'packages/ui/src/components/Agents.tsx')
-  assert.equal(screenAreaOf(agentsInspector), 'details')
+  const details = path.join(repoRoot, 'packages/ui/src/components/Details.tsx')
+  assert.deepEqual(importersByFile.get(agentsInspector), [details])
+  assert.equal(singleScreenAreaOf([agentsInspector, details]), 'details')
   assert.notEqual(screenAreaOf(agentsInspector), 'agentroster')
 
   const teamRoomPane = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
@@ -1642,15 +1643,14 @@ test('a named exemption that matches nothing is reported, so the list cannot out
 
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
   const expected = new Map([
-    ['design/ui/timeline.tsx', ['Timeline', 'TimelineItem']],
-    ['design/ui/flow-step.tsx', ['FlowStepSurface', 'FlowDoingLine']],
+    ['design/ui/timeline.tsx', ['Timeline']],
     ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
     ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
     ['design/ui/delta.tsx', ['Delta']],
     ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
     ['design/adapters/terminal.ts', ['terminalAppearance']],
   ])
-  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 23)
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 20)
   assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
   for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
     if (entry.kind === 'data-geometry') {
@@ -1695,7 +1695,8 @@ test('a single-area export is exempt only when its module, its name and its area
   assert.equal(isSingleAreaPrimitiveExempt(terminal, 'terminalAppearance', 'terminalpane'), true)
   assert.equal(isSingleAreaPrimitiveExempt(terminal, 'terminalAppearance', 'usage'), false)
   const flow = path.join(repoRoot, 'packages/ui/src/design/ui/flow-step.tsx')
-  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowStepSurface', 'room'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowStepSurface', 'room'), false)
+  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowDoingLine', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowStepSurface', 'settings'), false)
   assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowFaces', 'room'), false)
   // These are shared through FlowCanvas now, so keeping an exemption would be stale.
@@ -4507,10 +4508,10 @@ test('an arbitrary Tailwind property or an inline style object that writes its o
 })
 
 
-test('timeline geometry exemption is confined to its two data-view exports and current consumer area', () => {
+test('timeline geometry exemption excludes its now-shared item and retains only the single-area rail', () => {
   const module = path.join(repoRoot, 'packages/ui/src/design/ui/timeline.tsx')
   assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'room'), true)
-  assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineItem', 'room'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineItem', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineAction', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'settings'), false)
   const other = path.join(repoRoot, 'packages/ui/src/design/ui/button.tsx')
@@ -4535,7 +4536,7 @@ test('round-card geometry exemption names only its recorded-data slots in the ro
   assert.equal(staleSingleAreaPrimitiveExemptions([entry], () => undefined).length, 5)
 })
 /**
- * The frame work's burn-downs (docs/superpowers/specs/2026-10-09-app-frame-design.md):
+ * The frame work's burn-downs (docs/design.md):
  * frame parts a screen still draws, page measures a screen sets itself, and
  * layout written in a screen. Each only falls.
  */

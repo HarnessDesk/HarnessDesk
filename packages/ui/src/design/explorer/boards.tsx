@@ -928,6 +928,9 @@ const LegacyNoticeHosts = () => {
           </ComposerTail>
         </div>
       </Case>
+      <Case label="composer tail: plain queue status without a tinted strip">
+        <ComposerTail variant="plain"><Text role="meta">2 agents working · Sends after their turns</Text></ComposerTail>
+      </Case>
       <Case label="composer: an Agent asks, and the strip sharing the stack">
         <div style={{ width: 'min(var(--hd-column), 100%)' }}>
           <ComposerNoticeStack>

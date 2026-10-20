@@ -106,12 +106,13 @@ for (const theme of ['light', 'dark'] as const) {
   test(`Flow Steps keeps its Rules rail label ${theme}`, async ({ page }) => {
     await openFrame(page, 'flows-page=draft', theme)
     await page.getByRole('group', { name: 'Flow tools', exact: true }).getByRole('tab', { name: 'Steps', exact: true }).click()
-    // Development's canvas page keeps Rules in its rail. The older editor's
-    // SectionHead belongs to the dialog form, where either level is a legend.
-    const rules = page.getByRole('complementary', { name: 'Flow details', exact: true }).getByRole('region', { name: 'Rules', exact: true })
-    const label = rules.locator('[data-slot="group-label"]')
+    const rules = page.getByRole('complementary', { name: 'Flow details', exact: true }).getByRole('region', { name: 'Flow settings', exact: true })
+    await rules.getByRole('button', { name: 'Flow settings', exact: true }).click()
+    const label = rules.locator('[data-slot="section-name"], [data-section-name]').filter({ hasText: /^Rules$/ })
+    await expect(label).toHaveCount(1)
     await expect(label).toHaveCSS('font-size', '13px')
-    await expect(rules.getByRole('heading')).toHaveCount(0)
+    await expect(label).toHaveAttribute('data-level', 'label')
+    await expect(label).not.toHaveAttribute('data-role', 'section')
     await mkdir('output/frames/s2', { recursive: true })
     await page.screenshot({ path: `output/frames/s2/after-flow-steps-${theme}.png` })
   })

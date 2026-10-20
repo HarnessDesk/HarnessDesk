@@ -103,7 +103,7 @@ export const SideBySide = ({
   /** Takes an update, so two chords before a render both land. */
   onChange: Dispatch<SetStateAction<SideBySideState>>
   paneId: string
-  memberOf: (key: SessionKey) => { readonly nickname: string; readonly agent?: string; readonly model?: string } | undefined
+  memberOf: (key: SessionKey) => { readonly nickname: string; readonly displayName?: string; readonly agent?: string; readonly model?: string } | undefined
   entryOf: (key: SessionKey) => TileEntry | null
   onOpenMember: (key: SessionKey) => void
   conversationProps: ConversationProps
@@ -312,8 +312,8 @@ export const SideBySide = ({
           <Tabs value={state.focused ?? state.tiles[0] ?? ''} onValueChange={(next) => focus(next as SessionKey)}>
             <TabsList aria-label="Side by side tiles">
               {state.tiles.map((key) => (
-                <TabsTrigger key={key} value={key}>
-                  {memberOf(key)?.nickname ?? 'Member'}
+                <TabsTrigger key={key} value={key} title={memberOf(key)?.nickname}>
+                  {memberOf(key)?.displayName ?? memberOf(key)?.nickname ?? 'Member'}
                   {/* The tab is all a narrow room shows of a member it is not
                       showing, so a member waiting on the person says so here. */}
                   {entryOf(key)?.waitingForYou && <Dot tone="warning" aria-label="waiting for you" />}
@@ -328,7 +328,7 @@ export const SideBySide = ({
           const member = memberOf(key)
           const entry = entryOf(key)
           const letter = entry?.label ?? String.fromCharCode(65 + state.tiles.indexOf(key))
-          const nickname = member?.nickname ?? 'Member'
+          const nickname = member?.displayName ?? member?.nickname ?? 'Member'
           const isFocused = state.focused === key
           const isExpanded = state.expanded === key
           const isHidden = !shown.shown.includes(key)
@@ -363,7 +363,7 @@ export const SideBySide = ({
                         {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
                       </IconTile>
                     </span>
-                    <Text role="row" className={styles.nickname} truncate title={member?.agent ?? nickname}>{member?.agent ?? nickname}</Text>
+                    <Text role="row" className={styles.nickname} truncate title={member?.nickname ?? nickname}>{nickname}</Text>
                     {model && <Text role="meta" className={styles.model} truncate>{model}</Text>}
                   </span>
                 ))}

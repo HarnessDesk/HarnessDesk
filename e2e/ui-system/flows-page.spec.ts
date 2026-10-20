@@ -18,7 +18,7 @@ for (const theme of ['light', 'dark'] as const) {
     await column.getByRole('button', { name: 'New Flow', exact: true }).click()
     await expect(page.getByRole('region', { name: 'Shape graph', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(0)
-    await expect(bar.locator('[data-topbar-title]')).toContainText('Your own shape')
+    await expect(bar.locator('[data-topbar-title]')).toHaveText('New Flow')
   })
 
   test(`builds, edits, saves and starts the current Flow entirely from its page · ${theme}`, async ({ page }, testInfo) => {
@@ -32,25 +32,26 @@ for (const theme of ['light', 'dark'] as const) {
     await tools(page).getByRole('button', { name: 'Step', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Check', exact: true }).click()
     const step = page.getByRole('region', { name: 'Step · check', exact: true })
-    await step.getByRole('button', { name: 'Edit step', exact: true }).click()
     await step.getByRole('textbox', { name: 'Run', exact: true }).fill('node --version')
     await step.getByRole('textbox', { name: 'Step name', exact: true }).fill('validate-step')
     await expect(page.locator('.react-flow__node[data-id="validate-step"]')).toBeVisible()
 
     await tools(page).getByRole('button', { name: 'Rule', exact: true }).click()
-    const rules = page.getByRole('region', { name: 'Rules', exact: true })
+    const rules = page.getByRole('region', { name: 'Flow settings', exact: true })
+    await expect(rules.getByRole('button', { name: 'Flow settings', exact: true })).toHaveAttribute('aria-expanded', 'true')
     await rules.getByRole('combobox', { name: 'Opens', exact: true }).selectOption('validate-step')
     await rules.getByRole('textbox', { name: 'Card title', exact: true }).fill('Check the edited draft')
     await expect(page.locator('.react-flow__edge[data-id="review-rule"]')).toBeAttached()
 
-    await page.getByRole('region', { name: 'Source', exact: true }).getByRole('button', { name: 'Save…', exact: true }).click()
-    const save = page.getByRole('dialog', { name: 'Save this shape', exact: true })
+    await page.locator('[data-slot="flow-canvas-toolbar"]').getByRole('button', { name: 'Save…', exact: true }).click()
+    const save = page.getByRole('dialog', { name: 'Save Flow', exact: true })
     await save.getByRole('textbox', { name: 'File name', exact: true }).fill('browser-flow')
     await expect(save).toContainText('node --version')
     await expect(frame(page)).not.toHaveAttribute('data-flow-saved-source')
     await save.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(save).toBeHidden()
-    await expect(page.getByRole('region', { name: 'Source', exact: true })).toContainText('browser-flow.yml')
+    await rules.getByRole('button', { name: 'Source', exact: true }).click()
+    await expect(rules.locator('[data-slot="tool-fold"]').filter({ has: page.getByRole('button', { name: 'Source', exact: true }) })).toContainText('browser-flow.yml')
 
     await tools(page).getByRole('tab', { name: 'File', exact: true }).click()
     const savedSource = await sourceField(page).inputValue()
@@ -75,8 +76,13 @@ for (const theme of ['light', 'dark'] as const) {
 
     await page.getByRole('button', { name: 'Start a Team', exact: true }).click()
     const team = page.getByRole('dialog', { name: 'New Team', exact: true })
-    await expect(team.getByRole('button', { name: 'Browser Flow edited after saving', exact: true })).toBeVisible()
+    await expect(team.getByRole('region', { name: 'Selected Flow', exact: true })).toContainText('Browser Flow edited after saving')
+    await expect(team.getByRole('button', { name: 'Change', exact: true })).toBeVisible()
+    await expect(team.getByRole('searchbox', { name: 'Search Flows', exact: true })).toHaveCount(0)
     await team.getByRole('textbox', { name: 'What should they do?', exact: true }).fill('Verify this synthetic Flow')
+    const completion = team.getByRole('button', { name: 'Completion and dry run', exact: true })
+    await expect(completion).toHaveAttribute('aria-expanded', 'false')
+    await completion.click()
     await team.getByRole('textbox', { name: 'Done when · optional', exact: true }).fill('The local preview is accepted')
     await expect(team.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled()
     await team.getByRole('button', { name: 'Start Team', exact: true }).click()
@@ -115,3 +121,56 @@ test('a narrow Flow page floats its rail and keeps every canvas toolbar control 
   await page.getByRole('menuitem', { name: 'Person', exact: true }).click()
   await expect(page.locator('.react-flow__node[data-id="person"]')).toBeAttached()
 })
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Flow example pauses and resumes the real ring paint and relay in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: 'no-preference' })
+    await page.goto(`/preview.html?flows-page&theme=${theme}`)
+    await page.getByRole('button', { name: 'Open Write and review', exact: true }).click()
+    const example = page.locator('[data-slot="flow-example"]')
+    // Step once so both the current card and a declared transition have motion.
+    await example.getByRole('button', { name: 'Next', exact: true }).click()
+    const ring = example.locator('[data-slot="flow-ring"]')
+    const baton = example.locator('[data-slot="flow-baton"]')
+    await expect(ring).toHaveCount(1)
+    await expect(baton).toHaveCount(1)
+    const states = () => example.evaluate(root => ({
+      ring: getComputedStyle(root.querySelector('[data-slot="flow-ring"]')!, '::before').animationPlayState,
+      relay: getComputedStyle(root.querySelector('[data-slot="flow-baton"]')!).animationPlayState,
+    }))
+    await expect.poll(states).toEqual({ ring: 'paused', relay: 'paused' })
+    await example.getByRole('button', { name: 'Play', exact: true }).click()
+    await expect.poll(states).toEqual({ ring: 'running', relay: 'running' })
+    await example.getByRole('button', { name: 'Pause', exact: true }).click()
+    await expect.poll(states).toEqual({ ring: 'paused', relay: 'paused' })
+    const held = await example.evaluate(async root => {
+      const animations = [...root.querySelectorAll('[data-slot="flow-ring"], [data-slot="flow-baton"]')]
+        .flatMap(node => node.getAnimations({ subtree: true }))
+      await Promise.all(animations.map(animation => animation.ready))
+      const before = animations.map(animation => animation.currentTime)
+      await new Promise(requestAnimationFrame)
+      await new Promise(requestAnimationFrame)
+      return { count: animations.length, states: animations.map(animation => animation.playState),
+        before, after: animations.map(animation => animation.currentTime) }
+    })
+    expect(held.count).toBe(2)
+    expect(held.states).toEqual(['paused', 'paused'])
+    expect(held.after).toEqual(held.before)
+    await example.getByRole('button', { name: 'Play', exact: true }).click()
+    await expect.poll(states).toEqual({ ring: 'running', relay: 'running' })
+    await example.getByRole('button', { name: 'Pause', exact: true }).click()
+
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await expect(example.getByRole('button', { name: 'Play', exact: true })).toBeDisabled()
+    await expect(example).toContainText('Use Next with reduced motion.')
+    expect(await example.evaluate(root => ({
+      ring: getComputedStyle(root.querySelector('[data-slot="flow-ring"]')!, '::before').animationName,
+      relay: getComputedStyle(root.querySelector('[data-slot="flow-baton"]')!).animationName,
+      active: [...root.querySelectorAll('[data-slot="flow-ring"], [data-slot="flow-baton"]')]
+        .flatMap(node => node.getAnimations({ subtree: true })).length,
+    }))).toEqual({ ring: 'none', relay: 'none', active: 0 })
+    await example.getByRole('button', { name: 'Next', exact: true }).click()
+    await expect(example).toHaveAttribute('data-playing', 'false')
+    await expect(example).toContainText('Use Next with reduced motion.')
+  })
+}

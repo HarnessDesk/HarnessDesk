@@ -6,8 +6,6 @@ import {
   agentName,
   bySection,
   firstReason,
-  originWords,
-  projectName,
   seatTaken,
 } from '../lib/agents'
 import { shortPath } from '../lib/paths'
@@ -18,22 +16,11 @@ import { AgentFace } from './AgentFace'
 import { AgentNew } from './AgentNew'
 import { AgentPage } from './AgentPage'
 import { CeilingChip } from './CeilingChip'
-import { Button, Chip, EmptyState, MiddleTruncate, Note, PageExplanation, PageOptions, Row, RowButton, RowValue, Rows, Section } from '../design'
+import { AgentCatalogue, AgentCatalogueCard, AgentCatalogueSources, Button, Chip, EmptyState, MiddleTruncate, Note, PageExplanation, PageOptions, Row, RowButton, RowValue, Rows, Section } from '../design'
 
-/**
- * The Agents window's overview: who does the work.
- *
- * Three sections, in the order precedence reads them — this project's own,
- * yours, and the ones that ship — each footnoted with the folder it is read
- * from, because the file is the truth and the page says which file. A row is
- * an Agent's name and what it is for, with its ceiling and the seat it would
- * take here at the right. One that cannot be seated here stays, with *Can't
- * seat here* and the first reason. A copy another tier shadows is listed
- * where it lives, in the same idiom Settings › Plugins lists a superseded
- * plugin — a quiet word and a sentence, at full ink. A file that will not parse is a row whose line says why.
- */
-
+/** Reusable roles in precedence order; source files and shadowed copies remain inspectable in one disclosure. */
 const ORDER: readonly AgentOrigin[] = ['project', 'user', 'builtin']
+const SOURCE_LABEL: Readonly<Record<AgentOrigin, string>> = { project: 'Project', user: 'Yours', builtin: 'Built in' }
 
 const EMPTY: Readonly<Record<AgentOrigin, string>> = {
   project: 'No Agents in this project',
@@ -69,14 +56,21 @@ export const AgentsRosterSection = ({
   readonly onFocus: (id: string | null) => void
 }) => {
   const snapshot = useSnapshot()
+  const store = useStore()
   const { active } = useDestinationPage()
   const open = focus, setOpen = onFocus
   const [creating, setCreating] = useState(false)
+  const [query, setQuery] = useState('')
+  const [originFilter, setOriginFilter] = useState('all')
   useEffect(() => { if (!active) setCreating(false) }, [active])
 
   const agents = snapshot.agents ?? []
-  const project = projectName(snapshot.workspace)
-  const sections = bySection(agents)
+  const needle = query.trim().toLocaleLowerCase()
+  const scopedOrigin = snapshot.workspace || originFilter !== 'project' ? originFilter : 'all'
+  const visible = agents.filter(entry => (scopedOrigin === 'all' || entry.origin === scopedOrigin) &&
+    (!needle || [entry.id, agentName(entry), entry.definition?.description, seatTaken(snapshot.agentPlans.get(entry.id))?.label,
+      snapshot.agentPlans.has(entry.id) ? firstReason(snapshot.agentPlans.get(entry.id)!, snapshot.runtimes) : null].filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)))
+  const sections = bySection(visible)
   const opened = open ? agents.find((one) => one.id === open) : undefined
   // The folder is named only for the roster on screen. While the one read for the workspace open before is still shown
   // (the new load in flight, or failed), the open workspace's folder would name files these rows were not read from.
@@ -98,74 +92,39 @@ export const AgentsRosterSection = ({
   return (
     <>
       <DestinationBar place="Agents" />
-      <PageOptions title="Agents" action={{ label: 'New Agent…', run: () => setCreating(true) }} />
-      <PageExplanation>Who does the work: a brief, the most it may do, and the seats it prefers.</PageExplanation>
+      <PageOptions title="Agents" action={{ label: 'New Agent…', run: () => setCreating(true) }}
+        choices={[{ id: 'origin', label: 'Agent origin', value: scopedOrigin,
+          items: [{ value: 'all', label: 'All origins' }, ...(snapshot.workspace ? [{ value: 'project', label: 'Project' }] : []),
+            { value: 'user', label: 'Yours' }, { value: 'builtin', label: 'Built in' }], change: setOriginFilter }]}
+        search={{ label: 'Search Agents', value: query, change: setQuery }} />
+      <PageExplanation>Reusable roles for your Teams.</PageExplanation>
       <AuthoringPendingSection />
-      {ORDER.filter((origin) => origin !== 'project' || snapshot.workspace !== null).map((origin) => {
-        const heading = originWords(origin, project)
-        const rows = sections[origin]
-        /* Every copy a winner shadows, in the section of the tier it lives in:
-           listed and marked, never hidden. */
-        const shadowed = agents.flatMap((winner) =>
-          winner.shadows.filter((one) => one.origin === origin).map((one) => ({ winner, path: one.path })),
-        )
-        const ceilingCounts = new Map<string, number>()
-        for (const entry of rows) {
-          if (!entry.definition) continue
-          const plan = snapshot.agentPlans.get(entry.id)
-          if (!plan || !seatTaken(plan)) continue
-          const ceiling = plan.ceiling ?? { level: entry.definition.ceiling, hold: 'asked' as const }
-          const key = `${ceiling.level}:${ceiling.hold}`
-          ceilingCounts.set(key, (ceilingCounts.get(key) ?? 0) + 1)
-        }
-        const mostCommon = [...ceilingCounts].sort((left, right) => right[1] - left[1])
-        const sharedCeiling = mostCommon[0] && mostCommon[0][1] > 1 && mostCommon[0][1] > (mostCommon[1]?.[1] ?? 0)
-          ? mostCommon[0][0]
-          : null
-        return (
-          <Section level="heading" key={origin} title={heading}>
-            <Rows>
-              {rows.length === 0 && shadowed.length === 0 && <EmptyState variant="row" title={EMPTY[origin]} />}
-              {rows.map((entry) => {
-                const plan = snapshot.agentPlans.get(entry.id)
-                const candidate = seatTaken(plan)
-                const ceiling = entry.definition
-                  ? plan?.ceiling ?? { level: entry.definition.ceiling, hold: 'asked' as const }
-                  : null
-                const hideCeiling = Boolean(sharedCeiling && plan && candidate && ceiling && `${ceiling.level}:${ceiling.hold}` === sharedCeiling)
-                return <AgentRow
-                  key={entry.id}
-                  entry={entry}
-                  hideCeiling={hideCeiling}
-                  onOpen={() => {
-                    setOpen(entry.id)
-                  }}
-                />
-              })}
-              {shadowed.map(({ winner, path }) => (
-                <Row
-                  key={path}
-                  reserveChevronSlot
-                  kind="record"
-                  face={<AgentFace entry={winner} />}
-                  title={agentName(winner)}
-                  desc={`Shadowed by ${winner.origin === 'user' ? 'yours' : `the one in ${project ?? 'this project'}`}, which does the same job. This copy is not used.`}
-                  /* A copy that is not used, said as a fact rather than a
-                     warning — the way a superseded plugin's row says it. */
-                  control={<Chip tone="neutral">Shadowed</Chip>}
-                />
-              ))}
-            </Rows>
-            <Note
-              ink="muted"
-              inset="row"
-              {...((origin === 'project' && projectFolder) || (origin === 'user' && snapshot.stateDir) ? { layout: 'inline' as const } : {})}
-            >
+      {visible.length === 0 && (needle || scopedOrigin !== 'all')
+        ? <EmptyState title="No matching Agents" description="Try another search or origin." />
+        : ORDER.filter(origin => (origin !== 'project' || snapshot.workspace !== null) && (scopedOrigin === 'all' || scopedOrigin === origin))
+          .filter(origin => !needle || sections[origin].length > 0).map(origin => (
+            <Section level="heading" key={origin} title={SOURCE_LABEL[origin]}>
+              {sections[origin].length === 0
+                ? <EmptyState variant="row" title={EMPTY[origin]} />
+                : <AgentCatalogue>{sections[origin].map(entry => <RosterCard key={entry.id} entry={entry} onOpen={() => setOpen(entry.id)} />)}</AgentCatalogue>}
+            </Section>
+          ))}
+      {snapshot.agentPlansFailed && <Note tone="warn">Seats could not be checked. <Button variant="ghost" size="sm" onClick={() => void store.loadAgents()}>Retry</Button></Note>}
+      <AgentCatalogueSources>
+        <Note>Project Agents come first, then yours, then built in. Copies with the same ID use that order.</Note>
+        {ORDER.filter(origin => origin !== 'project' || snapshot.workspace !== null).map(origin => {
+          const shadowed = agents.flatMap(winner => winner.shadows.filter(one => one.origin === origin).map(one => ({ winner, path: one.path })))
+          return <Section level="heading" key={origin} title={`Sources: ${SOURCE_LABEL[origin]}`}>
+            <Note ink="muted" inset="row" {...((origin === 'project' && projectFolder) || (origin === 'user' && snapshot.stateDir) ? { layout: 'inline' as const } : {})}>
               {footnote(origin, origin === 'user' ? snapshot.stateDir : projectFolder, snapshot.home)}
             </Note>
+            {shadowed.length > 0 && <Rows>{shadowed.map(({ winner, path }) => <Row key={path}
+              reserveChevronSlot kind="record" face={<AgentFace entry={winner} />} title={agentName(winner)}
+              desc={`Shadowed by ${winner.origin === 'user' ? 'yours' : 'the project copy'}. This copy is not used.`}
+              control={<Chip tone="neutral">Shadowed</Chip>} />)}</Rows>}
           </Section>
-        )
-      })}
+        })}
+      </AgentCatalogueSources>
       {active && creating && (
         <AgentNew
           root={projectRootOf(snapshot.workspace) ?? undefined}
@@ -178,6 +137,26 @@ export const AgentsRosterSection = ({
       )}
     </>
   )
+}
+
+/** The catalogue keeps seating facts separate from the role's own purpose. */
+const RosterCard = ({ entry, onOpen }: { readonly entry: AgentEntry; readonly onOpen: () => void }) => {
+  const snapshot = useSnapshot()
+  const definition = entry.definition
+  const plan = snapshot.agentPlans.get(entry.id)
+  const seat = seatTaken(plan)
+  const invalid = !definition
+  const parseProblem = entry.problems.find(one => one.level === 'error')
+  const problem = invalid
+    ? parseProblem ? `${parseProblem.at} — ${parseProblem.text}` : 'Its file could not be read.'
+    : plan && !seat ? firstReason(plan, snapshot.runtimes) ?? 'Its seats could not be read.' : null
+  const status = invalid ? 'Will not parse'
+    : !plan ? snapshot.agentPlansFailed ? 'Seats not checked' : 'Checking seats…'
+      : !seat ? "Can't seat here" : null
+  return <AgentCatalogueCard name={agentName(entry)} description={definition?.description ?? 'Open this Agent to inspect its file.'}
+    face={<AgentFace entry={entry} />} runtime={seat?.label} status={status} problem={problem} broken={invalid}
+    ceiling={definition && seat ? <CeilingChip ceiling={plan?.ceiling ?? { level: definition.ceiling, hold: 'asked' }} /> : undefined}
+    onOpen={onOpen} />
 }
 
 /** One Agent in force, or one whose file will not parse — each a way into its page. */

@@ -9,7 +9,7 @@ import { flowOverlayRig } from './flow-overlay-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 installTopBarTestLayout()
-it('uses the real shell with a Team rail independent of its tool pane', async () => {
+it('uses the real shell with a retained Team rail that yields to a tool until revealed', async () => {
   const host = document.createElement('div'); document.body.append(host)
   const root = createRoot(host), store = overviewTeamStore()
   store.setWindowSize(1440, 900)
@@ -18,13 +18,15 @@ it('uses the real shell with a Team rail independent of its tool pane', async ()
     const shell = host.querySelector('[data-slot="fixed-shell"]')!
     expect(shell).not.toBeNull()
     expect(shell.getAttribute('data-rail-open')).toBe('true')
-    expect(shell.querySelector('[data-frame-region="rail"] [data-slot="tool-section"]')).not.toBeNull()
+    const record = shell.querySelector('[data-frame-region="rail"] [data-slot="tool-section"]')
+    expect(record).not.toBeNull()
     await act(async () => store.chooseWorkTool('changes'))
     expect(shell.getAttribute('data-right-open')).toBe('true')
-    expect(shell.getAttribute('data-rail-open')).toBe('true')
-    await act(async () => store.toggleWorkRail())
     expect(shell.getAttribute('data-rail-open')).toBe('false')
+    await act(async () => store.toggleWorkRail())
+    expect(shell.getAttribute('data-rail-open')).toBe('true')
     expect(shell.getAttribute('data-right-open')).toBe('true')
+    expect(shell.querySelector('[data-frame-region="rail"] [data-slot="tool-section"]')).toBe(record)
   } finally { act(() => root.unmount()); host.remove() }
 })
 

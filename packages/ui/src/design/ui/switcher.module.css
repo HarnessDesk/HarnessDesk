@@ -16,7 +16,7 @@
 
 /* Quiet: words with no track, the open one on the muted fill. The top bar's
    tabs, where a boxed track was one more object in a row of controls
-   (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md). */
+   (docs/design.md). */
 .track.track[data-look='quiet'] { padding: 0; gap: var(--hd-space-0-5); background: transparent; }
 .track[data-look='quiet'] .item.item { height: var(--hd-control-h); padding: 0 var(--hd-space-2); font-weight: var(--hd-weight-normal); }
 .track[data-look='quiet'] .item.item:hover { color: var(--hd-foreground); }

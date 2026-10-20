@@ -11,6 +11,10 @@ export const goalMethods = {
   'goal/read': async (ctx, params) => goalViewForWire(await ctx.goals.view(params.goal)),
   'goal/seen': async (ctx, params) => goalViewForWire(await ctx.goals.seen(params.goal, params.newsAt)),
   'goal/create': async (ctx, params) => goalViewForWire(await ctx.goals.create(params)),
+  'goal/start': async (ctx, params) => {
+    await ctx.workspaces.admitTeamProject(params.root)
+    return goalViewForWire(await ctx.goals.create(params))
+  },
   'goal/update': async (ctx, params) => goalViewForWire(await ctx.goals.update(params.goal, params.revision, {
     ...(params.sentence === undefined ? {} : { sentence: params.sentence }),
     ...(params.dependsOn === undefined ? {} : { dependsOn: params.dependsOn }),

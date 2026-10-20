@@ -9,14 +9,13 @@
 }
 
 .roleControls {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)); /* desk: agent on its own row, model and effort share the second, so none truncates */
+  display: flex; /* desk: one role configuration trigger replaces the expanded control grid */
+  flex-direction: column;
   gap: var(--hd-space-2);
   min-width: 0;
   width: 19em;
   max-width: 100%;
 }
-.agentSelect { min-width: 0; grid-column: 1 / -1; }
 .roleTitle {
   display: inline-flex;
   align-items: center;

@@ -3858,12 +3858,12 @@ export class Host {
   async #teamProjectIdentity(folder: string): Promise<ShellProjectIdentity> {
     await this.#confineRoom(folder)
     const real = await realpath(folder)
-    if (!(await stat(real)).isDirectory()) throw new Error('Choose a project folder, then preview again.')
+    if (!(await stat(real)).isDirectory()) throw new Error('Choose a project folder, then try again.')
     const selected = this.#state.state.workspaces.find(entry => samePath(entry.path, folder))
     if (selected && isShellProjectIdentity(selected.shellIdentity) &&
       (typeof selected.realPath !== 'string' || !samePath(selected.realPath, real) ||
         !await shellProjectUnchanged(selected.realPath, selected.shellIdentity))) {
-      throw new Error('The project checkout changed. Open the project folder again, then preview again.')
+      throw new Error('The project checkout changed. Open the project folder again, then try again.')
     }
     // An existing identity must still agree. Starting a Team never silently
     // replaces a captured boundary that changed since the person opened it.

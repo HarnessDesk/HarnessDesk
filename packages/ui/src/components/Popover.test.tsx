@@ -1,8 +1,8 @@
-import { act, type ComponentType, type ReactNode } from 'react'
+import { act, useState, type ComponentType, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { Menu, MenuItem, Popover, buttonVariants, dismissOverlays } from '../design'
+import { Dialog, Menu, MenuItem, Popover, buttonVariants, dismissOverlays } from '../design'
 
 /**
  * The popover's contract, exercised through the DOM. Chiefly: a menu is not a
@@ -28,10 +28,10 @@ afterEach(() => {
   container.remove()
 })
 
-const render = (): void => {
+const render = (focusableWhenDisabled = false): void => {
   act(() => {
     root.render(
-      <Popover label="Menu" title="Conversation">
+      <Popover label="Menu" title="Conversation" focusableWhenDisabled={focusableWhenDisabled}>
         {close => <Menu close={close}><MenuItem label="Compact now" onSelect={close} /></Menu>}
       </Popover>,
     )
@@ -51,6 +51,39 @@ const click = (el: Element): void => {
 }
 
 describe('Popover', () => {
+  it('can keep a temporarily disabled trigger focusable without allowing its popup to open', () => {
+    act(() => root.render(<Popover label="Runtime" disabled focusableWhenDisabled>{() => <span>Choices</span>}</Popover>))
+    expect(trigger().disabled).toBe(false)
+    expect(trigger().getAttribute('aria-disabled')).toBe('true')
+    act(() => trigger().focus())
+    expect(document.activeElement).toBe(trigger())
+    click(trigger())
+    act(() => trigger().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+    expect(trigger().getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
+  })
+
+  it('retains native disabled behavior unless focusability is explicitly requested', () => {
+    act(() => root.render(<Popover label="Runtime" disabled>{() => <span>Choices</span>}</Popover>))
+    expect(trigger().disabled).toBe(true)
+    expect(trigger().getAttribute('aria-disabled')).toBe('true')
+    act(() => trigger().focus())
+    expect(document.activeElement).not.toBe(trigger())
+  })
+
+  it('can return focus on Escape while its caller temporarily disables configuration', () => {
+    const draw = (disabled: boolean) => act(() => root.render(<Popover label="Runtime" disabled={disabled} focusableWhenDisabled>
+      {() => <button>Choose model</button>}
+    </Popover>))
+    draw(false)
+    click(trigger())
+    act(() => document.querySelector<HTMLButtonElement>('[data-slot="popover-popup"] button')!.focus())
+    draw(true)
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
+    expect(document.activeElement).toBe(trigger())
+  })
+
   it('accepts a stable accessible name while retaining its visible audience and description', () => {
     act(() => root.render(<Popover aria-label="Send to" label={<span>Everyone</span>} title="This message reaches everyone in the Team">{() => null}</Popover>))
     expect(trigger().getAttribute('aria-label')).toBe('Send to')
@@ -184,10 +217,10 @@ describe('Popover', () => {
     elsewhere.remove()
   })
 
-  it('dismissed without an explicit focus handoff, it leaves focus off its trigger', () => {
+  it.each([false, true])('dismissed without an explicit focus handoff, it leaves focus off its trigger (focusable: %s)', focusableWhenDisabled => {
     /* A window owns its own focus entry. Menu cleanup must not focus the
        trigger behind that window. */
-    render()
+    render(focusableWhenDisabled)
     click(trigger())
     const row = document.querySelector('[data-slot="popover-popup"] button') as HTMLButtonElement
     act(() => row.focus())
@@ -326,4 +359,49 @@ it('aligns a trailing icon trigger to the row text column', () => {
   const button = trigger()
   expect(button.className).toContain('me-(--edge-pull)')
   expect(button.style.getPropertyValue('--edge-pull')).toBe('calc((var(--hd-btn-h-sm) - 13px) / -2)')
+})
+
+
+it('returns a busy nested model picker to its trigger so Escape closes configuration before its dialog', async () => {
+  let dialogClosed = false
+  const Team = () => {
+    const [busy, setBusy] = useState(false)
+    return <Dialog title="New Team" onClose={() => { dialogClosed = true }}>
+      <Popover label="Configure runtime" disabled={busy} focusableWhenDisabled>
+        {() => <Popover label="Model" disabled={busy} focusableWhenDisabled>
+          {close => <Menu close={close}><MenuItem label="Choose fast model" onSelect={() => {
+            setBusy(true)
+            // Model the native modal guard taking focus during menu teardown;
+            // jsdom does not reproduce that browser focus handoff itself.
+            document.querySelector<HTMLElement>('[data-slot="dialog-content"]')!.focus()
+            close()
+          }} /></Menu>}
+        </Popover>}
+      </Popover>
+    </Dialog>
+  }
+  await act(async () => root.render(<Team />))
+  const named = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === text)!
+  click(named('Configure runtime'))
+  click(named('Model'))
+  const model = named('Model')
+  const choice = named('Choose fast model')
+  await act(async () => {
+    choice.focus(); choice.click()
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
+  expect(model.getAttribute('aria-disabled')).toBe('true')
+  expect(document.activeElement).toBe(model)
+  act(() => model.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
+  expect(dialogClosed).toBe(false)
+})
+
+it('a focusable disabled popover never steals focus from another control on close', async () => {
+  act(() => root.render(<Popover label="Runtime" focusableWhenDisabled>{close => <button onClick={close}>Choose model</button>}</Popover>))
+  click(trigger())
+  const choice = document.querySelector<HTMLButtonElement>('[data-slot="popover-popup"] button')!
+  const next = container.appendChild(document.createElement('button'))
+  await act(async () => { choice.click(); next.focus() })
+  expect(document.activeElement).toBe(next)
 })

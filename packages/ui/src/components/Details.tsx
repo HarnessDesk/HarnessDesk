@@ -8,7 +8,7 @@ import { useActiveSession, usePane, useSessionKey, useSnapshot, useStore } from 
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
 import { inView } from '../lib/git-view'
 import { Activity } from './Activity'
-import { Agents } from './Agents'
+import { Agents, hasSessionAgents } from './Agents'
 import { SeatRecordBlock } from './SeatRecordBlock'
 import { FileIcon, ReviewIcon } from './Icons'
 import { Button, ListRowDetail, ToolBodyControls, ToolBodySections, ToolFooterSuppressed, ToolSection, Switch, Tabs, TabsList, TabsTrigger } from '../design'
@@ -205,19 +205,22 @@ export const TrajectoryView = ({ initialFilter = 'all' }: { initialFilter?: 'all
   )
 }
 
-export const TrajectoryCard = () => {
+export const TrajectoryCard = ({ hideEmpty = false }: { hideEmpty?: boolean }) => {
   const session = useActiveSession()
+  if (hideEmpty && session?.itemsLoaded && !session.turns.some(turn => turn.items.length > 0 || turn.durationMs != null || turn.status !== 'completed')) return null
   return <ToolSection label="Trajectory" value={trajectorySummary(session?.turns ?? []) || 'No timing yet'} fold defaultOpen={false}>
     <ToolBodySections><ToolFooterSuppressed><TrajectoryView /></ToolFooterSuppressed></ToolBodySections>
   </ToolSection>
 }
 
-export const AgentsView = () => {
+export const AgentsView = ({ includeSeat = true }: { readonly includeSeat?: boolean }) => {
+  const session = useActiveSession()
+  const hasAgents = hasSessionAgents(session)
   const [query, setQuery] = useState('')
   const [foot, onFoot] = useFoot()
   return (
-    <InspectorFrame find="Filter sub-agents" query={query} onQuery={setQuery} foot={foot}>
-      <SeatRecordBlock />
+    <InspectorFrame find="Filter sub-agents" query={query} onQuery={setQuery} foot={foot} showControls={hasAgents}>
+      {includeSeat && <SeatRecordBlock />}
       <Agents query={query} onFoot={onFoot} />
     </InspectorFrame>
   )

@@ -15,8 +15,8 @@ import { expect, test, type Page } from '@playwright/test'
  * it asks three things of what is on screen:
  *
  *   1. Every declared face computes `--hd-face-radius` (or `-lg`), and is
- *      filled solid, except a notice's face, which keeps its tone's wash: it is
- *      translucent by design, so it is held to the wash its tone paints.
+ *      filled solid, except a notice's face, which keeps its tone's wash, and
+ *      an explicit bare glyph, which must keep a transparent ground.
  *   2. Every tile that holds an agent's mark is a face, an account's ring, or
  *      a named exception. A tile drawn in a fixed square or round that holds an
  *      agent is the next one a review would have found.
@@ -61,7 +61,7 @@ const PAGES: readonly { readonly name: string; readonly url: string; readonly re
       { what: 'a notice carrying an agent’s face', frame: 'conversation-composer', selector: ':not([data-slot])[data-tone][data-shape="face"]' },
       { what: 'a board card’s holder', frame: 'board-populated', selector: '[data-slot="icon-tile"][data-shape="face"]' },
       { what: 'Trajectory’s Events-filter rows', frame: 'panel-activity', selector: '[data-slot="icon-tile"][data-shape="face"]' },
-      { what: 'a channel’s senders', frame: 'room-channel-grouping', selector: '[data-slot="icon-tile"][data-shape="face"]' },
+      { what: 'a channel’s bare sender glyphs', frame: 'room-channel-grouping', selector: '[data-slot="icon-tile"][data-shape="face"][data-variant="bare"]' },
       { what: 'a person’s face in a channel', frame: 'room-channel-grouping', selector: 'span[data-shape="face"]:not([data-slot])' },
       { what: 'the seat’s face', frame: 'sidebar-column', selector: 'span[data-shape="face"]' },
       { what: 'the setup survey’s runtime faces', frame: 'setup-survey', selector: '[data-slot="icon-tile"][data-shape="face"]' },
@@ -171,6 +171,14 @@ const faceReport = (page: Page, exceptions: Excused) =>
         if (cs.backgroundColor !== wash || (alpha !== undefined && Number(alpha) === 0)) {
           findings.push({ rule: 'ground', where: where(el), slot: slot(el), detail: `${cs.backgroundColor}, its tone paints ${wash}` })
         }
+      } else if (el.matches('[data-slot="icon-tile"][data-variant="bare"]')) {
+        // Bare is a declared glyph variant, not an exemption from the ground
+        // contract. A plate or wash changes that variant just as transparency
+        // changes a filled identity tile; both must be caught.
+        const alpha = cs.backgroundColor.match(/^rgba\(.*,\s*([\d.]+)\)$/)?.[1]
+        if (cs.backgroundColor !== 'transparent' && Number(alpha) !== 0) {
+          findings.push({ rule: 'glyph-ground', where: where(el), slot: slot(el), detail: cs.backgroundColor })
+        }
       } else if (!/^rgb\(/.test(cs.backgroundColor)) {
         findings.push({ rule: 'solid', where: where(el), slot: slot(el), detail: cs.backgroundColor })
       }
@@ -245,6 +253,21 @@ test.describe('rule: faces', () => {
     expect(after.findings.some((f) => f.rule === 'solid' && f.where === 'goal-roster')).toBe(true)
   })
 
+  test('rule: faces — the checker catches a bare sender glyph painted with a plate or wash', async ({ page }) => {
+    const spec = PAGES[0]!
+    await open(page, spec.url, spec.ready)
+    const glyph = '[data-frame-id="room-channel-grouping"] [data-slot="icon-tile"][data-shape="face"][data-variant="bare"]'
+    await expect(page.locator(glyph).first()).toBeVisible()
+    expect((await faceReport(page, NOT_SOMEONE)).findings).toEqual([])
+    for (const ground of ['rgb(52, 88, 240)', 'rgba(52, 88, 240, 0.1)']) {
+      const style = await page.addStyleTag({ content: `${glyph} { background-color: ${ground} !important; }` })
+      const after = await faceReport(page, NOT_SOMEONE)
+      expect(after.findings.some(f => f.rule === 'glyph-ground' && f.where === 'room-channel-grouping'), ground).toBe(true)
+      await style.evaluate(el => el.remove())
+    }
+    expect((await faceReport(page, NOT_SOMEONE)).findings).toEqual([])
+  })
+
   test('rule: faces — the checker catches a notice’s face that lost its ground', async ({ page }) => {
     const spec = PAGES[0]!
     await open(page, spec.url, spec.ready)
@@ -299,6 +322,20 @@ test('rule: faces — table corners are scoped to the family lead', async ({ pag
   expect((await faceReport(page, [])).findings).toEqual([])
   await page.locator('[data-slot="list-row-lead"]').evaluate(el => el.removeAttribute('data-slot'))
   expect((await faceReport(page, [])).findings.filter(f => f.rule === 'corner')).toHaveLength(1)
+})
+
+test('rule: faces — bare glyphs and filled identities keep independent ground contracts', async ({ page }) => {
+  await page.setContent(`<style>
+    body { --hd-face-radius:6px; --hd-face-radius-lg:10px; }
+    [data-shape=face] { display:block;width:32px;height:32px;border-radius:6px; }
+    [data-variant=default] { background:rgb(240,240,240); }
+  </style><span id="filled" data-slot="icon-tile" data-shape="face" data-variant="default"></span>
+  <span id="glyph" data-slot="icon-tile" data-shape="face" data-variant="bare"></span>`)
+  expect((await faceReport(page, [])).findings).toEqual([])
+  await page.locator('#filled').evaluate(el => { (el as HTMLElement).style.backgroundColor = 'transparent' })
+  expect((await faceReport(page, [])).findings.map(f => f.rule)).toEqual(['solid'])
+  await page.locator('#glyph').evaluate(el => { (el as HTMLElement).style.backgroundColor = 'rgb(240,240,240)' })
+  expect((await faceReport(page, [])).findings.map(f => f.rule)).toEqual(['solid', 'glyph-ground'])
 })
 
 

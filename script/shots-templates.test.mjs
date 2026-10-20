@@ -18,6 +18,16 @@ test('template journeys assert the persistent New Team and its explicit dry run 
   assert.match(journey, /newTeam\.getByRole\('button', \{ name: 'Start Team', exact: true \}\)\.click\(\)/)
   assert.match(journey, /expect\(newTeam\)\.toHaveCount\(0, \{ timeout: 30000 \}\)/)
   assert.doesNotMatch(journey, /name: 'Start', exact: true|name, exact: true \}\)\)\.toHaveCount/)
+  const search = journey.indexOf("await newTeam.getByRole('searchbox', { name: 'Search Flows', exact: true }).fill(name)")
+  const choose = journey.indexOf("await newTeam.getByRole('button', { name, exact: true }).click()")
+  assert.ok(search >= 0 && choose > search, 'template selection searches the full catalogue before choosing a card outside the quick choices')
+  assert.doesNotMatch(journey, /newTeam\.getByRole\('button', \{ name: \/\^Runtime for /, 'runtime pickers are reached through Configure, not searched while folded')
+  const configure = journey.indexOf('await configurePrimary.click()')
+  const model = journey.indexOf('await expect(primaryConfiguration.getByRole')
+  assert.ok(configure >= 0 && model > configure, 'the actual role configuration is opened before runtime/model inspection')
+  const completion = journey.indexOf("await completion.getByRole('button', { name: 'Completion and dry run', exact: true }).click()")
+  const dryRun = journey.indexOf("await newTeam.getByRole('button', { name: 'Dry run', exact: true }).click()")
+  assert.ok(completion >= 0 && dryRun > completion, 'the completion disclosure opens before pressing Dry run')
 })
 
 test('the template rig restores only a legacy project record and keeps all transport local', { timeout: 60000 }, async t => {

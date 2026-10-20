@@ -99,7 +99,8 @@ it('shows unavailable members with their reason without rendering mutable contro
   const target = [...document.querySelectorAll<HTMLElement>('[data-option-target]')].find((node) => node.dataset.optionTarget === keys[1])!
   expect(target.textContent).toContain('Beta')
   expect(target.textContent).toContain('Agent is unavailable')
-  expect(target.querySelector('button')).toBeNull()
+  expect(target.querySelector('button')?.getAttribute('aria-disabled')).toBe('true')
+  expect(target.querySelector('[data-composer-track]')).toBeNull()
 })
 
 it('existing controls pass a nonactive pane session to the option mutation', () => {
@@ -120,4 +121,47 @@ it('offers the target runtime presets and applies one only to the target session
   expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Alpha setup')
   click(row)
   expect(store.applyPreset).toHaveBeenCalledExactlyOnceWith(preset, keys[1])
+})
+
+it('shows each stable compact seat name and its current value in one menu row, targeting the exact session', () => {
+  const { store } = rig(options('two'))
+  const seats = members.map((member, index) => ({ ...member, displayName: `Implementer ${index + 1}`, peer: { ...member.peer, nickname: `Implementer · Test agent · a-very-long-model-selection-${index + 1} · high` } }))
+  mount(store, seats)
+  click(container.querySelector('[data-composer-track="model"] button')!)
+  const targets = [...document.querySelectorAll<HTMLElement>('[data-option-target]')]
+  expect(targets.map(target => target.querySelector('[role="menuitem"]')?.textContent)).toEqual(['Implementer 1First', 'Implementer 2Second'])
+  expect(targets[1]?.querySelector('[title]')?.getAttribute('title')).toBe(seats[1]!.peer.nickname)
+  expect(targets[1]?.textContent?.match(/Second/g)).toHaveLength(1)
+  click(targets[1]!.querySelector('button')!)
+  click([...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.trim() === 'First')!)
+  expect(store.setOption).toHaveBeenCalledExactlyOnceWith('model', 'one', keys[1])
+})
+
+it('keeps a declared confirmation in the member submenu before changing that exact session', () => {
+  const choice: ConfigOption = { id: 'extra', category: '_custom', label: 'Extra', type: 'boolean', currentValue: false, confirm: { title: 'Enable Extra?', body: 'This changes what this session may use.', action: 'Enable' } }
+  const { store } = rig([choice])
+  mount(store)
+  click(container.querySelector('[data-composer-track="more"] button')!)
+  const target = [...document.querySelectorAll<HTMLElement>('[data-option-target]')].find(one => one.dataset.optionTarget === keys[1])!
+  click(target.querySelector('button')!)
+  click(document.querySelector('[role="switch"]')!)
+  expect(store.setOption).not.toHaveBeenCalled()
+  const dialog = document.querySelector('[role="alertdialog"]')!
+  expect(dialog).not.toBeNull()
+  expect(dialog.textContent).toContain('Enable Extra?')
+  click([...dialog.querySelectorAll('button')].find(one => one.textContent === 'Enable')!)
+  expect(store.setOption).toHaveBeenCalledExactlyOnceWith('extra', true, keys[1])
+})
+
+it('summarizes a permission row by its primary setting while retaining every declared choice inside', () => {
+  const declarations = ['Workspace write', 'Agent decides', 'You'].map((label, index) => ({ ...select(`permission-${index}`, '_permissions'), choices: [{ value: 'one', label }] }))
+  const { store } = rig(declarations)
+  mount(store)
+  click(container.querySelector('[data-composer-track="permissions"] button')!)
+  const target = [...document.querySelectorAll<HTMLElement>('[data-option-target]')].find(one => one.dataset.optionTarget === keys[1])!
+  expect(target.querySelector('[role="menuitem"]')?.textContent).toBe('BetaWorkspace write')
+  expect([...target.querySelectorAll('[title]')].map(one => one.getAttribute('title'))).toContain('Workspace write · Agent decides · You')
+  click(target.querySelector('button')!)
+  expect(document.body.textContent).toContain('Agent decides')
+  expect(document.body.textContent).toContain('You')
 })

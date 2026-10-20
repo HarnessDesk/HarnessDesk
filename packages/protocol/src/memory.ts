@@ -8,9 +8,7 @@ import type { Sha, SeatRecord } from './evidence.js'
  *
  * A citation is a person-carried reference, never a second message bus: the
  * text is a claim, not a new fact, and none of this grants a tool, moves an
- * evidence column, or lets deleted history authorize new dispatch. See
- * `docs/superpowers/plans/2026-09-19-agents-memory.md` (phase 12) for the
- * decisions this shape answers to.
+ * evidence column, or lets deleted history authorize new dispatch.
  */
 
 /** The exact bytes a citation retained, plus the historical context around them at the moment they were captured. */

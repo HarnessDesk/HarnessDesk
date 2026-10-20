@@ -60,6 +60,7 @@ it.each([
   expect(row.className).toContain('items-center')
   expect(row.className).not.toContain('items-start')
   expect(row.className).toContain('px-(--hd-table-edge)')
+  expect(row.className).toContain('border-0')
   const mark = row.querySelector<HTMLElement>('[data-slot="inspector-row-mark"]')!
   expect(mark.className).toContain('size-(--hd-table-face)')
   expect(mark.className).not.toContain('mt-px')

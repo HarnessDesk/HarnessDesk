@@ -162,10 +162,8 @@
 /* The handle straddles the column edge: a 9px target for a 1px line, which is
    the difference between a resize and a fight. */
 .headGrip {
-  position: absolute;
   top: 0;
   right: -5px;
-  width: 9px;
   height: 100%;
   cursor: col-resize;
   touch-action: none;
@@ -319,7 +317,6 @@
 }
 
 .detailHandle {
-  position: absolute;
   top: -3px;
   left: 0;
   right: 0;

@@ -64,18 +64,22 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720] 
     const dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
     await expect(dialog.getByRole('button', { name: 'Write and review', exact: true })).toBeVisible()
     const pickerWidth = (await dialog.boundingBox())!.width
-    const labels = ['Cancel', 'Dry run', 'Start Team']
+    const labels = ['Cancel', 'Start Team']
     expect((await footerMetrics(dialog)).buttons.map(button => button.label)).toEqual(labels)
-    await expect(dialog.getByRole('button', { name: 'Dry run', exact: true })).toBeDisabled()
+    await expect(dialog.getByRole('button', { name: 'Dry run', exact: true })).toBeHidden()
     await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeDisabled()
     expect(await inspectActionFooter(dialog)).toBe(pickerWidth)
 
     const task = dialog.getByRole('textbox', { name: 'What should they do?', exact: true })
     await task.fill('Fix the checkout retry and verify the change.')
     await dialog.getByRole('button', { name: 'Write and review', exact: true }).click()
-    await expect(dialog.getByRole('button', { name: 'Write and review', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(dialog.getByRole('region', { name: 'Selected Flow', exact: true })).toContainText('Write and review')
+    await expect(dialog.getByRole('button', { name: 'Write and review', exact: true })).toHaveCount(0)
     await expect(task).toHaveValue('Fix the checkout retry and verify the change.')
-    await expect(dialog.getByRole('region', { name: 'Flow', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('region', { name: 'Flow', exact: true })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: 'Completion and dry run', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    await expect(dialog.getByRole('button', { name: 'Dry run', exact: true })).toBeHidden()
+    await dialog.getByRole('button', { name: 'Completion and dry run', exact: true }).click()
     await expect(dialog.getByRole('button', { name: 'Dry run', exact: true })).toBeEnabled()
     await dialog.getByRole('button', { name: 'Dry run', exact: true }).click()
     await expect(dialog.getByRole('region', { name: 'Dry run', exact: true })).toBeVisible()
@@ -83,8 +87,10 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720] 
     expect(await inspectActionFooter(dialog)).toBe(pickerWidth)
     await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled()
 
+    await dialog.getByRole('button', { name: 'Change', exact: true }).click()
+    await dialog.getByRole('searchbox', { name: 'Search Flows', exact: true }).fill('Investigation')
     await dialog.getByRole('button', { name: 'Investigation', exact: true }).click()
-    await expect(dialog.getByRole('button', { name: 'Investigation', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(dialog.getByRole('region', { name: 'Selected Flow', exact: true })).toContainText('Investigation')
     await expect(task).toHaveValue('Fix the checkout retry and verify the change.')
     expect(await inspectActionFooter(dialog)).toBe(pickerWidth)
     await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toHaveCount(1)
@@ -108,25 +114,35 @@ test(`R10.39 Flow cards use the approved selection and graph colours at ${width}
   await expect(dialog.locator('[data-slot="flow-card"][data-selected]')).toHaveCount(0)
   const selected = dialog.getByRole('button', { name: 'Write and review', exact: true })
   await selected.click()
+  await expect(dialog.getByRole('region', { name: 'Selected Flow', exact: true })).toContainText('Write and review')
+  // The configured Flow below owns the drawing after selection; the picker thumbnail returns with Change.
+  const configured = dialog.getByRole('region', { name: 'Who does what', exact: true }).locator('[data-slot="flow-graph"]')
+  await expect(configured).toBeVisible()
+  await expect(configured.locator('[data-slot="flow-step"]')).toHaveCount(3)
+  await dialog.getByRole('button', { name: 'Change', exact: true }).click()
   await expect(selected).toHaveAttribute('data-selected', 'true')
   await expect(selected).toBeEnabled()
   const active = await resolveToken(page, '--hd-active')
   const hover = await resolveToken(page, '--hd-hover')
   const border = await resolveToken(page, '--hd-border-strong')
   const accent = await resolveToken(page, '--hd-accent')
-  const muted = await resolveToken(page, '--hd-muted')
+  const background = await resolveToken(page, '--hd-background')
   const ink = await resolveToken(page, '--hd-foreground')
   const card = await selected.evaluate(node => ({
     background: getComputedStyle(node).backgroundColor,
     border: getComputedStyle(node).borderColor,
-    steps: [...node.querySelectorAll('[data-step] rect')].map(step => ({ fill: getComputedStyle(step).fill, border: getComputedStyle(step).stroke })),
+    // Only a step's direct rect paints its plate; canonical kind glyphs also
+    // contain rects, whose unfilled geometry must keep the glyph's own ink.
+    steps: [...node.querySelectorAll('[data-step] > rect')].map(step => {
+      const style = getComputedStyle(step)
+      return { fill: style.fill, border: style.stroke, opacity: style.opacity, fillOpacity: style.fillOpacity, strokeOpacity: style.strokeOpacity }
+    }),
     labels: [...node.querySelectorAll('[data-slot="flow-mini-label"]')].map(label => getComputedStyle(label).color),
   }))
   expect(card.background).toBe(active)
   expect(card.border).toBe(accent)
-  expect(card.steps.length).toBeGreaterThan(0)
-  expect(card.steps.every(step => step.fill === muted && step.border === border)).toBe(true)
-  expect(card.labels.every(label => label === ink)).toBe(true)
+  expect(card.steps).toEqual(Array(3).fill({ fill: background, border, opacity: '1', fillOpacity: '1', strokeOpacity: '1' }))
+  expect(card.labels).toEqual(Array(3).fill(ink))
   const hovered = page.getByRole('button', { name: 'Side by side', exact: true })
   await expect(hovered).toBeEnabled()
   await hovered.hover()
@@ -167,7 +183,7 @@ test('R10.38 every preview dialog keeps its named width and shared action footer
   const teamWidth = await inspectActionFooter(dialog)
   await dialog.getByRole('button', { name: 'Write and review', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
-  await expect(dialog.getByRole('button', { name: 'Write and review', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(dialog.getByRole('region', { name: 'Selected Flow', exact: true })).toContainText('Write and review')
   expect(await inspectActionFooter(dialog)).toBe(teamWidth)
 
   await page.goto('/preview.html?theme=light')
@@ -227,8 +243,9 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720] 
     await expect(dialog.locator('[data-slot="dialog-head"] [data-slot="icon-tile"]')).toHaveCount(0)
     await expect(dialog.getByRole('button', { name: 'Back', exact: true })).toHaveCount(0)
     await expect(dialog.locator('[data-slot="dialog-footer-navigation"]').getByRole('button', { name: /^New session/ })).toBeVisible()
-    await expect(dialog.getByRole('region', { name: 'Flow', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('region', { name: 'Flow', exact: true })).toHaveCount(0)
+    await expect(dialog.getByRole('region', { name: 'Selected Flow', exact: true })).toBeVisible()
     await expect(dialog.locator('[data-slot="dialog-body-prelude"]')).toHaveCount(0)
-    await expect(dialog.getByRole('button', { name: 'Change', exact: true })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: 'Change', exact: true })).toBeEnabled()
   })
 }

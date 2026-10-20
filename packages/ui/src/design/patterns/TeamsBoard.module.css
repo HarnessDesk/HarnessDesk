@@ -1,8 +1,10 @@
 .toolbar {
+ container: teams-toolbar / inline-size;
  display: flex;
  flex-direction: column;
  gap: var(--hd-page-stack);
 }
+.purpose { margin: 0; }
 .filters {
  display: flex;
  flex-wrap: wrap;
@@ -29,8 +31,18 @@
  gap: var(--hd-space-2);
  margin: 0 0 var(--hd-space-3);
 }
+.heading > :last-child { margin-inline-start: auto; }
 .cards { display: flex; flex-direction: column; gap: var(--hd-space-2); }
 .cards[hidden] { display: none; }
+.title {
+ display: -webkit-box;
+ -webkit-box-orient: vertical;
+ -webkit-line-clamp: 2;
+ white-space: normal;
+ overflow: hidden;
+ overflow-wrap: anywhere;
+}
+.status { display: inline-flex; align-items: center; gap: var(--hd-space-1-5); }
 .path { margin-block: var(--hd-space-1); }
 .facts { display: flex; align-items: center; justify-content: end; gap: var(--hd-space-1); margin-inline-start: auto; min-width: 0; }
 .facts > :last-child { flex-shrink: 0; }
@@ -41,4 +53,8 @@
 /* A fixed set of states must stay in reading order, never become two plus one. */
 @container (max-width: 760px) {
  .column { grid-column: 1 / -1; }
+}
+@container teams-toolbar (max-width: 420px) {
+ .filters { flex-direction: column; align-items: stretch; }
+ .toolbar .search { width: 100%; margin-inline-start: 0; }
 }

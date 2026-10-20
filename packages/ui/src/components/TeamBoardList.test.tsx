@@ -39,7 +39,7 @@ it('compact jobs group by their observed state, with Needs you first', () => {
   try {
     act(() => root.render(<TeamBoardList compact grouped intents={jobs} placed={new Map([[1, { column: 'working', why: null }], [2, { column: 'needs', why: 'Choose' }]])} renderRow={(job, columns) => { expect(columns.has('state')).toBe(false); return <TableRow key={job.id}><TableCell>{job.title}</TableCell></TableRow> }} />))
     expect(container.querySelector('table')?.getAttribute('data-hd-table')).toBe('compact')
-    expect([...container.querySelectorAll('[data-state-group]')].map(el => el.textContent)).toEqual(['Needs you', 'Working'])
+    expect([...container.querySelectorAll('[data-state-group]')].map(el => el.textContent)).toEqual(['Needs you 1', 'Working 1'])
   } finally { act(() => root.unmount()); container.remove() }
 })
 
@@ -51,7 +51,22 @@ for (const title of ['Checking current evidence', 'Evidence unavailable']) it(`c
   try {
     act(() => root.render(<TeamBoardList compact grouped intents={[job]} placed={new Map()} unplacedTitle={title}
       renderRow={intent => <TableRow key={intent.id}><TableCell>{intent.title}</TableCell></TableRow>} />))
-    expect(container.querySelector('[data-state-group="unknown"] h3')?.textContent).toBe(title)
+    expect(container.querySelector('[data-state-group="unknown"] h3')?.textContent).toBe(`${title} 1`)
     expect(container.querySelector('tbody tr:last-child')?.textContent).toBe('Finished job')
+  } finally { act(() => root.unmount()); container.remove() }
+})
+
+it('keeps the task toolbar quiet and omits empty state filters until they are selected', () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const job = { id: 1, title: 'Build', updatedAt: 1 } as Intent
+  try {
+    act(() => root.render(<TeamBoardList compact grouped intents={[job]} placed={new Map([[1, { column: 'working', why: null }]])}
+      renderRow={intent => <TableRow key={intent.id}><TableCell>{intent.title}</TableCell></TableRow>} />))
+    expect(container.querySelector('[role="tablist"]')?.getAttribute('data-look')).toBe('quiet')
+    expect([...container.querySelectorAll('[role="tab"]')].map(one => one.textContent)).toEqual(['All 1', 'Working 1'])
+    expect(container.querySelector('thead')?.classList.contains('sr-only')).toBe(true)
+    expect(container.textContent).not.toContain('Needs you first, then the most recent')
   } finally { act(() => root.unmount()); container.remove() }
 })

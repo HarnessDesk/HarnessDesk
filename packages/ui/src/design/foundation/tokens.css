@@ -512,6 +512,9 @@ body {
   /* The sidebar's own row indent — `PaneColumn`'s `rail` inset. It is no
      longer the bar's edge: rows keep their tighter gutter under a roomier bar. */
   --hd-rail-inset: var(--hd-space-2);
+  /* A revealed rail is real glass over the work, not an opaque canvas plate. */
+  --hd-rail-sheet-fill: color-mix(in srgb, var(--hd-background) 88%, transparent);
+  --hd-rail-sheet-filter: blur(12px);
   /* And where a label lands once a control has been composed: that inset, the
      control's own padding, and the hairline it reserves whether or not it
      paints one. A thing with no box of its own — a wordmark, a page title, a
@@ -550,6 +553,8 @@ body {
 
   /* Floating results clear a visible composer, or keep this gap off the window. */
   --hd-toast-gap: var(--hd-space-4);
+  /* Visible composer docks publish their measured clearance for floating UI. */
+  --hd-composer-clearance: 0px;
   /* Where a toast's bottom edge stands: the gap alone, until a visible composer
      dock publishes its clearance over it (inline on body, design/ui/composer-toast-offset). */
   --hd-toast-bottom: var(--hd-toast-gap);
@@ -1639,7 +1644,7 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
 /* --- panel cards ------------------------------------------------------------
    The right panel is a stack of cards on the left column's ground: a piece of
    work's facts and actions, each card showing its summary while folded
-   (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md). A card is
+   (docs/design.md). A card is
    the main ground on a hairline; its header is one 20px line and each row
    inside it is 28. On `body`, where the spacing scale it is built from lives.
 */

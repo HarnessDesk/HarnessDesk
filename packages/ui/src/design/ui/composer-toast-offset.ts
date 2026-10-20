@@ -18,6 +18,10 @@ const publish = (): void => {
   const value = clearance > 0
     ? `calc(${clearance}px + var(--hd-toast-gap))`
     : 'var(--hd-toast-gap)'
+  const measured = `${clearance}px`
+  if (document.body.style.getPropertyValue('--hd-composer-clearance') !== measured) {
+    document.body.style.setProperty('--hd-composer-clearance', measured)
+  }
   // Tokens live on body. Write only when changed so observing an ancestor's
   // style (including this one) cannot create a mutation-observer feedback loop.
   if (document.body.style.getPropertyValue('--hd-toast-bottom') !== value) {

@@ -2140,16 +2140,17 @@ class PreviewStore {
    * error boundary. A real implementation, even a small one, is the fix —
    * the same shape the real `Store.loadAudit` returns, never the floor.
    */
-  refreshTasks = async (key: SessionKey | null = this.#snapshot.activeSessionKey): Promise<void> => {
-    if (!key) return
+  refreshTasks = async (key: SessionKey | null = this.#snapshot.activeSessionKey): Promise<'loaded' | 'unsupported'> => {
+    if (!key) return 'unsupported'
     const address = splitSessionKey(key)
     const runtime = this.#snapshot.runtimes.find(one => one.id === address.runtime)
-    if (runtime && !runtime.capabilities.backgroundTasks) return
+    if (runtime && !runtime.capabilities.backgroundTasks) return 'unsupported'
     const tasks = await this.transport.request('tasks/list', { runtime: address.runtime, sessionId: address.id }) as readonly BackgroundTask[]
     const next = new Map(this.#snapshot.tasks)
     if (tasks.length === 0) next.delete(key)
     else next.set(key, orderTasks(tasks))
     this.patch({ tasks: next })
+    return 'loaded'
   }
   readWorkDiff = async (_root: string, _from: string, _to: string): Promise<{ diff: string }> => ({ diff: DOCUMENT_DIFF })
   loadAudit = async (): Promise<readonly AuditRow[]> => AUDIT_ROWS

@@ -1,12 +1,17 @@
 /* Motion follows the graph's data curve; colour and cadence follow the foundation. */
 .ring {
-  animation: breathe calc(var(--hd-duration-pulse) * 2) ease-in-out infinite;
   pointer-events: none;
 }
-.ring {
+/* The glow paints outside its card; its unpainted carrier keeps the card's
+   measured box, just as a shadow does, without becoming overflowing content. */
+.ring::before {
+  content: '';
+  animation: breathe calc(var(--hd-duration-pulse) * 2) ease-in-out infinite;
+}
+.ring::before {
   box-shadow: 0 0 var(--hd-space-8) color-mix(in srgb, var(--hd-accent) 18%, transparent);
 }
-.ring[data-state="waiting"] {
+.ring[data-state="waiting"]::before {
   box-shadow: 0 0 var(--hd-space-8) color-mix(in srgb, var(--hd-warning) 18%, transparent);
 }
 .route [data-slot="chip"][data-variant="outline"][data-emphasis] {
@@ -35,6 +40,6 @@
   100% { offset-distance: 100%; opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ring, .baton { animation: none; }
+  .ring::before, .baton { animation: none; }
   .baton { offset-distance: 88%; }
 }

@@ -1,3 +1,4 @@
+import { flowModel } from '../../lib/flow-model'
 import { PagePreview } from '../../preview/page-preview'
 import { InfoCardBody, SubjectActionsMenu } from '..'
 import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
@@ -19,11 +20,12 @@ import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { ShapeGraphBoard } from '../../preview/frames-shape-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
+import { AgentCatalogueBoard } from '../../preview/frames-agent-catalogue'
 import { BoardCardExample } from './board-card-example'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
 import { MainDestination, DestinationBody, Page, TopBar, TopBarToolButton } from '..'
-import { FlowCard, FlowCardGrid, FlowCanvas, FlowCanvasToolbar, FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent } from '..'
+import { FlowExample, FlowCard, FlowCardGrid, SelectedFlow, FlowCanvas, FlowCanvasToolbar, FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent } from '..'
 import { GlobeIcon, SquareMenuIcon, FilePlusIcon, PencilIcon, StopIcon, ExpandIcon, ResetIcon } from '../../components/Icons'
 
 const MAINDESTINATION_CATALOG_VARIANTS = ['light', 'dark'] as const
@@ -302,7 +304,7 @@ const TABS_CATALOG_VARIANTS = ['default', 'line', 'section'] as const
 const TABS_CATALOG_SIZES = ['default'] as const
 const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 
-const ICON_TILE_CATALOG_VARIANTS = ['default'] as const
+const ICON_TILE_CATALOG_VARIANTS = ['default', 'bare'] as const
 const ICON_TILE_CATALOG_SIZES = ['navigation', 'stack', 'xs', 'sm', 'default', 'lg'] as const
 const ICON_TILE_CATALOG_STATES = ['default', 'hover', 'selected'] as const
 const ICON_TILE_CATALOG_SHAPE = ['square', 'round', 'face'] as const
@@ -731,6 +733,7 @@ const TileBoard = () => (
         ))}
       </Case>
       <Case label="identity badge — bottom-right; attention reserves top-right">
+        <IconTile variant="bare" shape="face" title="Plain runtime glyph"><AgentIcon /></IconTile>
         {ICON_TILE_CATALOG_SIZES.map(size => <IconTile key={size} size={size} shape="face" tint="blue" badge="↳"><AgentIcon /></IconTile>)}
         <IconTile size="sm" shape="face" tint="violet" badge="AL"><AgentIcon /></IconTile>
         <AvatarStack members={[{ id: 'writer', name: 'Writer', mark: <AgentIcon />, badge: '↳', tint: 'blue' }, { id: 'reviewer', name: 'Reviewer', mark: <AgentIcon />, badge: '↳', tint: 'rose' }]} />
@@ -859,8 +862,15 @@ const KeyValueBoard = () => (
       </Case>
       <Case label="compact panel facts">
         <KeyValue variant="panel" className="w-full" data-catalog-variant="panel">
-          <KeyValueRow variant="panel" label="Branch">main</KeyValueRow>
-          <KeyValueRow variant="panel" label="Status">Ready</KeyValueRow>
+          <KeyValueRow label="Branch" kind="path">feature/a-long-checkout-name</KeyValueRow>
+          <KeyValueRow label="Status">Ready</KeyValueRow>
+        </KeyValue>
+      </Case>
+      <Case label="compact panel with a long identity">
+        <KeyValue variant="panel" className="w-full">
+          <KeyValueRow label="Agent" kind="name">Code reviewer with a long descriptive model selection</KeyValueRow>
+          <KeyValueRow label="Branch" kind="path">feature/a-long-checkout-name</KeyValueRow>
+          <KeyValueRow label="Status">Ready</KeyValueRow>
         </KeyValue>
       </Case>
       <Case label="progress, as a reading">
@@ -3134,9 +3144,9 @@ export const SeatListBoard = () => {
 }
 
 const FLOWCARDS_CATALOG_VARIANTS = ['default'] as const
-const FLOWCARDS_CATALOG_SIZES = ['default'] as const
-const FLOWCARDS_CATALOG_STATES = ['default', 'selected', 'disabled', 'empty', 'long-title', 'unknown'] as const
-const FLOWCANVASTOOLBAR_CATALOG_VARIANTS = ['default'] as const
+const FLOWCARDS_CATALOG_SIZES = ['compact', 'large'] as const
+const FLOWCARDS_CATALOG_STATES = ['default', 'selected', 'disabled', 'empty', 'long-title', 'unknown', 'loading'] as const
+const FLOWCANVASTOOLBAR_CATALOG_VARIANTS = ['default', 'bar'] as const
 const FLOWCANVASTOOLBAR_CATALOG_SIZES = ['default'] as const
 const FLOWCANVASTOOLBAR_CATALOG_STATES = ['default', 'disabled'] as const
 const FLOW_CARD_EXAMPLE_POLICY: FlowPolicy = {
@@ -3164,7 +3174,19 @@ const FlowCardsBoard = () => {
         <FlowCard name="Earlier format" origin="Yours" summary="Open the source to inspect its steps." runs={null} onClick={() => {}} />
       </FlowCardGrid>
     </Specimen>
+    <Specimen measure="wide" caption="Gallery: larger role marks and more room around the policy poster">
+      <FlowCardGrid size="large">
+        <FlowCard previewSize="large" name="Review and fix" origin="Built in" policy={FLOW_CARD_EXAMPLE_POLICY} summary="Review and Fix repeat up to three rounds." runs={4} onClick={() => setSelected('review')} />
+        <FlowCard previewSize="large" name="Just a Team" origin="Built in" empty summary="Agents take jobs from the shared board." runs={0} onClick={() => setSelected('plain')} />
+      </FlowCardGrid>
+    </Specimen>
     <Rule>A thumbnail reads the policy's roles and rules. A Team with no policy has no steps; its card never invents a path.</Rule>
+    <Specimen measure="wide" caption="Selected Flow: the actual policy remains visible while the catalog is folded away">
+      <SelectedFlow name="Review and fix" origin="Built in" policy={FLOW_CARD_EXAMPLE_POLICY} onChange={() => setSelected('review')} />
+    </Specimen>
+    <Specimen measure="wide" caption="Selected Flow: reading the policy keeps the thumbnail space and announces progress">
+      <SelectedFlow name="Review and fix" origin="Built in" loading onChange={() => setSelected('review')} />
+    </Specimen>
   </div>
 }
 const FlowCanvasToolbarBoard = () => {
@@ -3186,6 +3208,12 @@ const FlowCanvasToolbarBoard = () => {
       </div>
     </Specimen>
     <Text role="meta" aria-live="polite">{view} · {notice}</Text>
+    <Specimen measure="wide" caption="The editor bar stays above the canvas and wraps as one surface">
+      <FlowCanvasToolbar placement="bar" actions={<><Button size="sm" variant="outline" onClick={() => setNotice('Save preview requested')}>Save…</Button><Button size="sm" onClick={() => setNotice('Team start requested')}>Start a Team</Button></>}>
+        <Button variant="ghost" size="sm" onClick={() => setNotice('Back requested')}>Back to Flows</Button>
+        <Button variant="outline" size="sm" onClick={() => setNotice('Step requested')}><PlusIcon />Step</Button>
+      </FlowCanvasToolbar>
+    </Specimen>
     <Rule>The gap between plates passes pointer input to the canvas. At narrow widths the plates wrap and actions stay at the right edge.</Rule>
   </div>
 }
@@ -3208,6 +3236,7 @@ const FlowCanvasWorkspaceBoard = () => {
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'flow-canvas-workspace', title: 'Flow canvas workspace', about: 'The shared canvas and its responsive card rail, below the shell bar.', render: () => <FlowCanvasWorkspaceBoard /> },
+  { id: 'flow-example', title: 'Flow example', about: 'Local finite playback of declared routes; no host work starts.', render: () => <Specimen measure="wide" caption="A repair loop and person handoff, with manual or automatic stepping"><FlowExample model={flowModel(FLOW_CARD_EXAMPLE_POLICY)} rounds={7} /></Specimen> },
   { id: 'flow-cards', title: 'Flow cards', about: 'Policy thumbnails, source chips, complete summaries and selection in the destination and picker.', render: () => <FlowCardsBoard /> },
   { id: 'flow-canvas-toolbar', title: 'Flow canvas toolbar', about: 'Two floating groups leave the canvas available between controls.', render: () => <FlowCanvasToolbarBoard /> },
   {id:'sign-in-rail',title:'Sign-in rail',about:'The first-run navigation boundary.',render:() => <SignInRailBoard />},
@@ -3446,6 +3475,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Teams on the desk',
     about: 'Attention first, settled work folded, and recorded usage in its own unit.',
     render: TeamsPageBoard,
+  },
+  {
+    id: 'agent-catalogue',
+    title: 'Agent catalogue',
+    about: 'Reusable roles with their purpose and observed seats, source precedence, and the production catalogue in its loading, empty and failed states.',
+    render: AgentCatalogueBoard,
   },
   {
     id: 'board-card',

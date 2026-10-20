@@ -19,17 +19,20 @@ export interface PageOption {
  * uses the page role on the content edge, with the primary choice and verb
  * on the right. Search and secondary choices follow at the page stack gap;
  * long titles and menu choices wrap within the page. */
-export const PageOptions = ({ title, choices = [], search, read, action, children }: {
+export const PageOptions = ({ title, choices = [], search, read, action, actionLast = false, children }: {
   /** A standalone page names itself in the content column beside its own controls. */
   readonly title?: string
   readonly children?: ReactNode
   readonly choices?: readonly PageOption[]
   readonly search?: { readonly label: string; readonly value: string; readonly change: (value: string) => void }
+  /** Context controls choose a view before acting on it. */
+  readonly actionLast?: boolean
   readonly read?: ReactNode
   readonly action?: { readonly label: string; readonly icon?: ReactNode; readonly disabled?: boolean | string; readonly run: () => void }
 }) => {
+  const verb = action && <Button variant="outline" size="control" aria-label={action.label} disabled={Boolean(action.disabled)} title={typeof action.disabled === 'string' ? action.disabled : undefined} onClick={action.run}>{action.icon}{action.label}</Button>
   const controls = (items: readonly PageOption[], primary = true, filters = true) => <div data-slot={title ? undefined : 'page-options'} data-page-controls className={styles.options}>
-  {primary && action && <Button variant="outline" size="control" aria-label={action.label} disabled={Boolean(action.disabled)} title={typeof action.disabled === 'string' ? action.disabled : undefined} onClick={action.run}>{action.icon}{action.label}</Button>}
+  {primary && !actionLast && verb}
   {items.map(choice => {
     const current = choice.items.find(item => item.value === choice.value)
     return choice.mode === 'menu'
@@ -49,6 +52,7 @@ export const PageOptions = ({ title, choices = [], search, read, action, childre
   {filters && search && <Search label={search.label} placeholder={search.label} value={search.value} onChange={search.change} />}
   {filters && read && <Text role="meta">{read}</Text>}
   {primary && children}
+  {primary && actionLast && verb}
 </div>
   return title ? <div data-slot="page-options" className={styles.group}>
     <div data-page-head className={styles.head}>

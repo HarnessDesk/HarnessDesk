@@ -16,27 +16,59 @@ const staged = new Map<string, string[]>()
 
 for (const theme of ['light', 'dark'] as const) {
 
-  for (const [item0, shape] of (['comparison', 'fix-and-review']).entries()) test(`New Team role controls centre on their complete copy in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+  for (const [item0, shape] of (['comparison', 'fix-and-review']).entries()) test(`New Team graph seats keep aligned role headers and full-width controls in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/design.html?view=team-start`)
     await page.getByRole('button', { name: shape === 'comparison' ? 'Side by side' : 'Write and review', exact: true }).click()
     const dialog = page.getByRole('dialog').last()
     await expect(dialog.getByLabel(shape === 'comparison' ? 'What should both try?' : 'What should they do?')).toBeVisible()
-    let rows = dialog.locator('section[aria-label="Who does what"] [data-slot="row"]')
-    await expect(rows).toHaveCount(2)
-    if (shape === 'comparison') {
-      const judge = dialog.locator('[data-slot="row"]').filter({ has: page.getByText('Judge · optional', { exact: true }) })
-      await expect(judge).toHaveCount(1)
-      await expect(judge.getByRole('button', { name: 'Runtime for Judge', exact: true })).toBeVisible()
-      rows = rows.or(judge)
-      await expect(rows).toHaveCount(3)
+    const seats = dialog.locator('section[aria-label="Who does what"] [data-slot="team-role-seat"]')
+    await expect(seats).toHaveCount(2)
+    for (const seat of await seats.all()) {
+      await expect(seat).toBeVisible()
+      const mark = seat.locator('[data-slot="team-role-mark"]')
+      const header = mark.locator('..')
+      const title = header.locator('[data-slot="text"][data-role="row"]')
+      const control = seat.getByRole('button', { name: /^Configure / })
+      await expect(control).toHaveCount(1)
+      await expect(control).toBeVisible()
+      await expect(seat.getByRole('button', { name: /^Runtime for / })).toHaveCount(0)
+      const seatBox = (await seat.boundingBox())!
+      const headerBox = (await header.boundingBox())!
+      const markBox = (await mark.boundingBox())!
+      const titleBox = (await title.boundingBox())!
+      const controlBox = (await control.boundingBox())!
+      // Graph seats stack their complete header, instructions and control.
+      // Measure that real anatomy: one shared width, and a centred identity
+      // line, rather than the retired settings row's side-by-side centre.
+      expect(Math.abs(markBox.y + markBox.height / 2 - titleBox.y - titleBox.height / 2)).toBeLessThanOrEqual(1.5)
+      for (const box of [headerBox, controlBox]) {
+        expect(Math.abs(box.x - seatBox.x)).toBeLessThanOrEqual(1)
+        expect(Math.abs(box.x + box.width - seatBox.x - seatBox.width)).toBeLessThanOrEqual(1)
+      }
+      expect(controlBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height)
+      expect(controlBox.y + controlBox.height).toBeLessThanOrEqual(seatBox.y + seatBox.height + 1)
     }
-    for (const row of await rows.all()) {
-      // Shared Row centres the whole copy block, including an earned refusal
-      // sentence. Measuring only its first line falsely nudges the controls.
-      const label = (await row.locator('[data-slot="row-title"]').locator('..').boundingBox())!
-      const control = (await row.locator('[data-slot="row-ctl"]').boundingBox())!
+    if (shape === 'comparison') {
+      const details = dialog.locator('[data-flow-details]')
+      const judge = details.locator('[data-slot="row"]').filter({ has: page.getByRole('button', { name: 'Configure Judge', exact: true, includeHidden: true }) })
+      await expect(judge).toHaveCount(1)
+      await expect(judge).toBeHidden()
+      const disclosure = dialog.getByRole('button', { name: 'Details', exact: true })
+      await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+      await disclosure.click()
+      await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+      await expect(judge).toBeVisible()
+      await expect(judge.getByText('Optional', { exact: true })).toBeVisible()
+      await expect(judge.getByRole('button', { name: 'Configure Judge', exact: true })).toBeVisible()
+      await expect(seats.or(judge)).toHaveCount(3)
+      // The optional Judge remains a settings row in Details,
+      // whose control still centres on its complete copy block.
+      const label = (await judge.locator('[data-slot="row-title"]').locator('..').boundingBox())!
+      const control = (await judge.locator('[data-slot="row-ctl"]').boundingBox())!
       expect(Math.abs(label.y + label.height / 2 - control.y - control.height / 2)).toBeLessThan(10)
+      await expect(judge.getByRole('button', { name: /^Configure / })).toHaveCount(1)
+      await expect(judge.getByRole('button', { name: /^Runtime for / })).toHaveCount(0)
     }
     expect(await dialog.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false)
 

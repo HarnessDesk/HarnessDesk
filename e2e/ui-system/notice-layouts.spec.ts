@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { selectTeamDestination } from './team-frame-actions'
 
 test.use({ colorScheme: process.env.NOTICE_FRAME_THEME === 'dark' ? 'dark' : 'light', deviceScaleFactor: 2, viewport: { width: 1440, height: 900 } })
 
@@ -11,10 +12,6 @@ const showMain = async (frame: Locator): Promise<void> => {
   await expect(frame.locator('[data-frame-region="main"]')).toBeVisible()
 }
 
-const chooseDestination = async (_page: Page, frame: Locator, name: string) => {
-  const tab = frame.getByRole('tab', { name: new RegExp(`^${name}`) })
-  await tab.click()
-}
 
 const expectOneNotice = async (frame: Locator, surface: 'composer' | 'strip'): Promise<void> => {
   await expect(frame.locator('[data-slot="composer-notice"], [data-slot="notice-strip"]')).toHaveCount(1)
@@ -24,7 +21,7 @@ const expectOneNotice = async (frame: Locator, surface: 'composer' | 'strip'): P
 test('real Workbench and Panes put each notice in one mounted outlet', async ({ page }) => {
   await page.goto('/preview.html?notice-placement')
   const room = layout(page, 'coverage-notice-room-board')
-  await chooseDestination(page, room, 'Board')
+  await selectTeamDestination(room, 'board')
   const narrow = layout(page, 'coverage-notice-narrow-overlay')
   await expectOneNotice(narrow, 'strip')
   await expect(narrow.locator('[data-frame-region="right"] [data-slot="notice-strip"]')).toHaveCount(1)
@@ -56,10 +53,13 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
   await expectOneNotice(layout(page, 'coverage-notice-narrow-overlay'), 'composer')
   await expectOneNotice(room, 'strip')
   const pendingRoom = layout(page, 'coverage-notice-room-pending-approval')
-  await expectOneNotice(pendingRoom, 'strip')
-  const pendingStrip = pendingRoom.locator('[data-slot="notice-strip"]')
+  await selectTeamDestination(pendingRoom, 'room')
+  await expect(pendingRoom.locator('[data-slot="composer"]')).toBeVisible()
+  await expect(pendingRoom.locator('[data-slot="approval-card"]')).toBeVisible()
+  await expectOneNotice(pendingRoom, 'composer')
+  const pendingStrip = pendingRoom.locator('[data-slot="composer-notice"]')
   await expect(pendingStrip.locator('xpath=ancestor::*[@hidden]')).toHaveCount(0)
-  await expect(pendingRoom.locator('[data-slot="workbench-notice-fallback"][data-area="main"] [data-slot="notice-strip"]')).toHaveCount(1)
+  await expect(pendingRoom.locator('[data-slot="workbench-notice-fallback"][data-area="main"] [data-slot="notice-strip"]')).toHaveCount(0)
 
   await expectOneNotice(layout(page, 'coverage-notice-folder-gone'), 'strip')
   await expectOneNotice(layout(page, 'coverage-notice-zoomed-sidebar'), 'composer')
@@ -92,6 +92,7 @@ test('a narrow room keeps its composer notice visible when widened', async ({ pa
   const frame = layout(page, 'coverage-notice-room-container-query')
   await frame.scrollIntoViewIfNeeded()
   await showMain(frame)
+  await selectTeamDestination(frame, 'room')
   const body = frame.locator('[data-slot="room-body"]')
   const visibleNoticeCount = (): Promise<number> => frame.locator('[data-slot="composer-notice"], [data-slot="notice-strip"]').evaluateAll((nodes) =>
     nodes.filter((node) => node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && node.getClientRects().length > 0).length,

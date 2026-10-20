@@ -2,12 +2,12 @@ import { useId, useCallback, useEffect, useRef, useState, type ReactNode } from 
 
 import { runtimeId, DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowAgentRole, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem, type FlowRunOptions, type FlowSeat, type ModelInfo, type SeatCandidate } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Button, Chip, CodeText, DisclosureChevron, Field, Input, NativeSelect, Menu, MenuItem, Popover, Note, NoteList, Rows, Row, SectionHead, Segmented, Switch, Text, Textarea } from '../design'
+import { ActionError, Banner, Button, Chip, CodeText, DisclosureChevron, Field, FlowGraph, FlowRoleConfiguration, Input, NativeSelect, Menu, MenuItem, Popover, Note, NoteList, Rows, Row, SectionHead, Segmented, Switch, Text, Textarea } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
 import { boundInputValues } from '../lib/shapes'
 import { supportsAttemptCheck, supportsComparisonJudge, withAttemptCheck, withComparisonJudge, withReviewHandoff } from '../lib/team-start'
 import { evidenceGuardsWords, messagingWords } from '../lib/flows'
-import { stepName } from '../lib/flow-model'
+import { flowModel, stepName } from '../lib/flow-model'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon, AlertIcon, CaretIcon, CheckIcon } from './Icons'
@@ -451,14 +451,29 @@ const seedTitleOf = (flow: FlowPolicy, vars: Readonly<Record<string, string>>): 
   flow.seed.title.replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (_slot, name: string) =>
     vars[name]?.trim() ? vars[name]! : flow.inputs.find(input => input.id === name)?.label ?? name)
 
+/** Facts that qualify starting a Run stay visible even when its technical report is folded. */
+const FlowPreviewNotices = ({ preview, warnings }: {
+  readonly preview: FlowPreview
+  readonly warnings: readonly FlowProblem[]
+}) => <>
+  {preview.seats.length > 0 && <Note tone="warn">
+    On usage-based pricing, charges include each Agent’s work throughout the Run, beyond opening its Seat.
+  </Note>}
+  {warnings.length > 0 && <Banner tone="warning" title="Worth reading first">
+    <NoteList>{warnings.map(one => <li key={`${one.at}-${one.text}`}><code>{one.at}</code> — {one.text}</li>)}</NoteList>
+  </Banner>}
+</>
+
 export const FlowPreviewReport = ({
-  preview, flow, warnings, roster, vars = {},
+  preview, flow, warnings, roster, vars = {}, includeNotices = true,
 }: {
   readonly preview: FlowPreview
   readonly flow: FlowPolicy | null
   readonly warnings: readonly FlowProblem[]
   readonly vars?: Readonly<Record<string, string>>
   readonly roster: ReadonlyMap<string, AgentEntry>
+  /** A parent may keep start qualifications outside its folded technical report. */
+  readonly includeNotices?: boolean
 }) => (
   <>
     <FlowPreviewSeats preview={preview} roster={roster} />
@@ -513,25 +528,7 @@ export const FlowPreviewReport = ({
       )
     })()}
 
-    {preview.seats.length > 0 && (
-      <Note tone="warn">
-        That is what opening them costs. Each seat then keeps working inside its one turn — one round trip
-        per step, for as long as the flow runs — so on usage-based pricing the run costs more than the
-        seating.
-      </Note>
-    )}
-
-    {warnings.length > 0 && (
-      <Banner tone="warning" title="Worth reading first">
-        <NoteList>
-          {warnings.map((one) => (
-            <li key={`${one.at}-${one.text}`}>
-              <code>{one.at}</code> — {one.text}
-            </li>
-          ))}
-        </NoteList>
-      </Banner>
-    )}
+    {includeNotices && <FlowPreviewNotices preview={preview} warnings={warnings} />}
   </>
 )
 
@@ -691,43 +688,67 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
     else onPolicy(withComparisonJudge(flow, template, next ?? null))
   }
   const judgeAlternative = judgeOn ? alternativeFor(judgePreview) : undefined
+  const instructionName = (seat: FlowPreviewSeat): string => {
+    const agent = seat.agent ? roster.get(seat.agent) : undefined
+    return agent ? agentName(agent) : seat.agent ?? 'No instructions'
+  }
+  const instructionControl = (seat: FlowPreviewSeat): ReactNode => {
+    const role = flow.roles.find(one => one.id === seat.role)
+    if (role?.kind !== 'agent') return null
+    const slots = preview.seats.filter(one => one.role === role.id).sort((a, b) => a.index - b.index)
+    return <NativeSelect aria-label={`Instructions for ${role.id} ${seat.index + 1}`} disabled={disabled} value={seat.agent ?? ''} onChange={event => {
+      editRole({ ...role, uses: slots.map(one => one.index === seat.index ? event.target.value : one.agent ?? role.uses[0] ?? ''), count: undefined })
+    }}>
+      {seat.agent && !roster.has(seat.agent) && <option value={seat.agent}>{seat.agent}</option>}
+      {[...roster.values()].filter(one => one.definition).map(one => <option key={one.id} value={one.id}>{agentName(one)}</option>)}
+    </NativeSelect>
+  }
+  const seatContent = (seat: FlowPreviewSeat) => {
+    const role = flow.roles.find(one => one.id === seat.role)
+    if (role?.kind !== 'agent') return null
+    const configured = role.seats[seat.index] ?? role.seats[0]
+    const automatic = seatTaken(seat.plan)
+    const picked = configured ?? automatic?.seat
+    const automaticName = automatic
+      ? snapshot.runtimes.find(one => one.id === automatic.seat.runtime)?.presentation.name ?? automatic.runtimeName
+      : null
+    const label = role.id === flow.seed.role && hasReviewLoop ? 'Writes' : role.id === 'reviewer' ? 'Reviews' : role.id === 'competitor' ? `Attempt ${String.fromCharCode(65 + seat.index)}` : role.id === 'judge' ? 'Judge' : stepName(role.id)
+    const repeatsInReviewLoop = seat.reviews && flow.rules.some(rule => rule.on === seat.role && rule.then.role === flow.seed.role)
+    const alternative = alternativeFor(seat)
+    return {
+      key: `${role.id}-${seat.index}`,
+      title: label,
+      mark: picked ? <RuntimeMark runtime={snapshot.runtimes.find(one => one.id === picked.runtime) ?? { id: picked.runtime, presentation: { name: 'Selected runtime' } }} size={16} /> : <AgentIcon size={16} />,
+      instructions: instructionName(seat),
+      badge: repeatsInReviewLoop ? <Chip tone="neutral" size="sm" title="Each review round starts with a fresh session.">Fresh each round</Chip> : undefined,
+      control: <>
+        <TeamSeatControls label={label} optional={hasJudge && role.id === 'judge'} seat={configured} automaticSeat={automatic?.seat} automaticName={automaticName} instructions={instructionControl(seat)} disabled={disabled} onChange={next => { if (hasJudge && role.id === 'judge') chooseJudge(next); else if (next) chooseSeat(seat, next) }} />
+        {alternative && <Button variant="secondary" size="sm" disabled={disabled} onClick={() => chooseSeat(seat, { runtime: alternative.id })}>Use {alternative.presentation.name}</Button>}
+      </>,
+      problem: !seatTaken(seat.plan) ? firstReason(seat.plan, snapshot.runtimes) : null,
+    }
+
+  }
+  const model = flowModel(flow)
+  const roleContent = new Map(model.steps.filter(step => step.kind === 'agent').map(step => [step.id,
+    <FlowRoleConfiguration label={`${step.name} agents`} seats={preview.seats.filter(seat => seat.role === step.id).flatMap(seat => {
+      const content = seatContent(seat)
+      return content ? [content] : []
+    }).concat(hasJudge && step.id === 'judge' && !judgePreview ? [{
+      key: 'judge-pending', title: 'Judge', mark: <AgentIcon size={16} />, instructions: 'Reading agents…', badge: undefined,
+      control: <TeamSeatControls label="Judge" optional seat={judgeSeat} automaticName={null} disabled={disabled} onChange={chooseJudge} />, problem: null,
+    }] : [])} />,
+  ]))
+  const mostSeats = Math.max(1, ...model.steps.map(step => preview.seats.filter(seat => seat.role === step.id).length))
+  // A shared measured height keeps parallel roles aligned and leaves each seat editable.
+  const cardHeight = Math.max(180, 32 + mostSeats * 100)
   return <div className={styles.flow}>
-    <section aria-label="Who does what">
-      <SectionHead level="label" name="Who does what" />
-      <Rows>{preview.seats.map(seat => {
-        const role = flow.roles.find(one => one.id === seat.role)
-        if (role?.kind !== 'agent' || (hasJudge && role.id === 'judge')) return null
-        const configured = role.seats[seat.index] ?? role.seats[0]
-        const automatic = seatTaken(seat.plan)
-        const picked = configured ?? automatic?.seat
-        const automaticName = automatic
-          ? snapshot.runtimes.find(one => one.id === automatic.seat.runtime)?.presentation.name ?? automatic.runtimeName
-          : null
-        const label = role.id === flow.seed.role && hasReviewLoop ? 'Writes' : role.id === 'reviewer' ? 'Reviews' : role.id === 'competitor' ? `Attempt ${String.fromCharCode(65 + seat.index)}` : role.id === 'judge' ? 'Judge' : stepName(role.id)
-        const repeatsInReviewLoop = seat.reviews && flow.rules.some(rule => rule.on === seat.role && rule.then.role === flow.seed.role)
-        const alternative = alternativeFor(seat)
-        return <Row key={`${role.id}-${seat.index}`} title={<span className={styles.roleTitle}>{label}{repeatsInReviewLoop && <Chip tone="neutral" size="sm">Fresh each round</Chip>}</span>} desc={!seatTaken(seat.plan) ? firstReason(seat.plan, snapshot.runtimes) ?? undefined : undefined}
-          mark={picked ? <RuntimeMark runtime={snapshot.runtimes.find(one => one.id === picked.runtime) ?? { id: picked.runtime, presentation: { name: 'Selected runtime' } }} size={16} /> : <AgentIcon size={16} />}
-          control={<div className={styles.roleControls}>
-            <TeamSeatControls label={label} seat={configured} automaticSeat={automatic?.seat} automaticName={automaticName} disabled={disabled} onChange={next => { if (next) chooseSeat(seat, next) }} />
-            {alternative && <Button variant="secondary" size="sm" disabled={disabled} onClick={() => chooseSeat(seat, { runtime: alternative.id })}>Use {alternative.presentation.name}</Button>}
-          </div>} />
-      })}</Rows>
+    <FlowPreviewNotices preview={preview} warnings={preview.problems.filter(one => one.level === 'warning')} />
+    <section aria-label="Who does what" className={styles.flow}>
+      <FlowGraph key={JSON.stringify(model.steps.map(step => step.id))} model={model} stepContent={roleContent} cardHeight={cardHeight} listPlacement="summary" showControls title="Who does what" />
     </section>
-    {hasReviewOptions && <div className={styles.options}>
-      <Field label="Review rounds, at most">{() => <Segmented label="Review rounds, at most" value={String(Math.max(1, Math.min(3, Math.floor(((flow.budget?.rounds ?? 7) - 1) / 2))))} options={['1', '2', '3'].map(value => ({ value, label: value, disabled }))} onChange={value => onPolicy({ ...flow, budget: { rounds: Number(value) * 2 + 1, withoutProgress: flow.budget?.withoutProgress ?? 2 } })} />}</Field>
-      <Field label="When the review approves">{() => <Segmented label="When the review approves" value={flow.roles.find(one => one.id === 'referee')?.kind === 'agent' ? 'merge' : 'wait'} options={[{ value: 'merge', label: 'Merge it', disabled }, { value: 'wait', label: 'Wait for me', disabled }]} onChange={value => onPolicy(withReviewHandoff(flow, value))} />}</Field>
-    </div>}
-    {hasJudge && <Rows><Row title="Judge · optional" desc={judgeOn && judgePreview && !judgeAutomatic ? firstReason(judgePreview.plan, snapshot.runtimes) ?? undefined : undefined} control={<div className={styles.roleControls}>
-      <TeamSeatControls label="Judge" optional seat={judgeSeat}
-        automaticName={null}
-        disabled={disabled} onChange={chooseJudge} />
-      {judgeAlternative && <Button variant="secondary" size="sm" disabled={disabled} onClick={() => chooseJudge({ runtime: judgeAlternative.id })}>Use {judgeAlternative.presentation.name}</Button>}
-    </div>} /></Rows>}
-    {hasAttemptCheck && (hasJudge
-      ? <Field label="Check each attempt with" hint={checkHint}>{checkControl}</Field>
-      : <Rows><Row title={<label htmlFor={checkId}>Check each attempt with</label>} desc={<span id={`${checkId}-hint`}>{checkHint}</span>} control={checkControl({ id: checkId, 'aria-describedby': `${checkId}-hint` })} /></Rows>)}
     {flow.roles.filter(role => role.kind === 'check' && (!hasAttemptCheck || role.id !== 'verify')).map(role => role.kind === 'check' && <Field key={role.id} label={`Check · ${role.id}`}>{control => <Input {...control} disabled={editingDisabled} value={role.check.run} onChange={event => onPolicy({ ...flow, roles: flow.roles.map(one => one.id === role.id ? { ...role, check: { ...role.check, run: event.target.value } } : one) })} />}</Field>)}
+    <FlowInputFields flow={{ ...flow, inputs: flow.inputs.filter(input => input.id !== primary && !boundInputValues(flow).has(input.id)) }} scope="team-start" vars={vars} disabled={disabled} onChange={onVar} onReadingChange={onReadingChange} />
     {done}
     <div className={styles.flow}>
       <Button className="self-start" variant="quiet" size="inline-link" aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen(open => !open)}>
@@ -735,20 +756,21 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
         <Text as="span" role="muted">Details</Text>
       </Button>
       <div id={detailsId} data-flow-details hidden={!detailsOpen} className={detailsOpen ? styles.flow : undefined}>
+    {hasReviewOptions && <div className={styles.options}>
+      <Field label="Review rounds, at most">{() => <Segmented label="Review rounds, at most" value={String(Math.max(1, Math.min(3, Math.floor(((flow.budget?.rounds ?? 7) - 1) / 2))))} options={['1', '2', '3'].map(value => ({ value, label: value, disabled }))} onChange={value => onPolicy({ ...flow, budget: { rounds: Number(value) * 2 + 1, withoutProgress: flow.budget?.withoutProgress ?? 2 } })} />}</Field>
+      <Field label="When the review approves">{() => <Segmented label="When the review approves" value={flow.roles.find(one => one.id === 'referee')?.kind === 'agent' ? 'merge' : 'wait'} options={[{ value: 'merge', label: 'Merge it', disabled }, { value: 'wait', label: 'Wait for me', disabled }]} onChange={value => onPolicy(withReviewHandoff(flow, value))} />}</Field>
+    </div>}
+    {hasJudge && !judgeOn && <Rows><Row title={<span className={styles.roleTitle}>Judge<Chip tone="neutral" size="sm">Optional</Chip>{judgePreview && <Text as="span" role="meta">{instructionName(judgePreview)}</Text>}</span>} desc={judgeOn && judgePreview && !judgeAutomatic ? firstReason(judgePreview.plan, snapshot.runtimes) ?? undefined : undefined} control={<div className={styles.roleControls}>
+      <TeamSeatControls label="Judge" optional seat={judgeSeat}
+        automaticName={null} instructions={judgePreview ? instructionControl(judgePreview) : undefined}
+        disabled={disabled} onChange={chooseJudge} />
+      {judgeAlternative && <Button variant="secondary" size="sm" disabled={disabled} onClick={() => chooseJudge({ runtime: judgeAlternative.id })}>Use {judgeAlternative.presentation.name}</Button>}
+    </div>} /></Rows>}
+    {hasAttemptCheck && (hasJudge
+      ? <Field label="Check each attempt with" hint={checkHint}>{checkControl}</Field>
+      : <Rows><Row title={<label htmlFor={checkId}>Check each attempt with</label>} desc={<span id={`${checkId}-hint`}>{checkHint}</span>} control={checkControl({ id: checkId, 'aria-describedby': `${checkId}-hint` })} /></Rows>)}
       {details}
-      <Rows>{preview.seats.map(seat => {
-        const role = flow.roles.find(one => one.id === seat.role)
-        if (role?.kind !== 'agent') return null
-        const slots = preview.seats.filter(one => one.role === role.id).sort((a, b) => a.index - b.index)
-        return <Row key={`${role.id}-${seat.index}`} title={`Instructions · ${role.id}${slots.length > 1 ? ` ${seat.index + 1}` : ''}`} control={<NativeSelect aria-label={`Instructions for ${role.id} ${seat.index + 1}`} disabled={disabled} value={seat.agent ?? ''} onChange={event => {
-          editRole({ ...role, uses: slots.map(one => one.index === seat.index ? event.target.value : one.agent ?? role.uses[0] ?? ''), count: undefined })
-        }}>
-          {seat.agent && !roster.has(seat.agent) && <option value={seat.agent}>{seat.agent}</option>}
-          {[...roster.values()].filter(one => one.definition).map(one => <option key={one.id} value={one.id}>{agentName(one)}</option>)}
-        </NativeSelect>} />
-      })}</Rows>
-      <FlowInputFields flow={{ ...flow, inputs: flow.inputs.filter(input => input.id !== primary && !boundInputValues(flow).has(input.id)) }} scope="team-start" vars={vars} disabled={disabled} onChange={onVar} onReadingChange={onReadingChange} />
-      <FlowPreviewReport preview={preview} flow={flow} warnings={preview.problems.filter(one => one.level === 'warning')} roster={roster} vars={vars} />
+      <FlowPreviewReport preview={preview} flow={flow} warnings={preview.problems.filter(one => one.level === 'warning')} roster={roster} vars={vars} includeNotices={false} />
       </div>
     </div>
   </div>
@@ -757,14 +779,14 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
 const TeamSeatPicker = ({ label, title, value, choices, disabled, onChange }: {
   readonly label: string; readonly title?: string; readonly value: string; readonly choices: readonly { value: string; label: string }[]
   readonly disabled?: boolean; readonly onChange: (value: string) => void
-}) => <Popover fullWidth aria-label={label} title={title ?? label} disabled={disabled} align="left"
+}) => <Popover fullWidth aria-label={label} title={title ?? label} disabled={disabled} focusableWhenDisabled align="left"
   triggerVariant={{ variant: 'outline', size: 'sm' }}
   label={<><Text role="row" truncate>{choices.find(one => one.value === value)?.label ?? value}</Text><CaretIcon size={13} /></>}>
   {close => <Menu close={close}>{choices.map(choice => <MenuItem key={choice.value}
     label={choice.label} selected={choice.value === value} onSelect={() => onChange(choice.value)} />)}</Menu>}
 </Popover>
 
-const TeamSeatControls = ({ label, seat, automaticSeat, automaticName, disabled, optional, onChange }: { readonly label: string; readonly seat?: FlowSeat; readonly automaticSeat?: FlowSeat; readonly automaticName: string | null; readonly disabled?: boolean; readonly optional?: boolean; readonly onChange: (seat: FlowSeat | undefined) => void }) => {
+const TeamSeatControls = ({ label, seat, automaticSeat, automaticName, instructions, disabled, optional, onChange }: { readonly label: string; readonly seat?: FlowSeat; readonly automaticSeat?: FlowSeat; readonly automaticName: string | null; readonly instructions?: ReactNode; readonly disabled?: boolean; readonly optional?: boolean; readonly onChange: (seat: FlowSeat | undefined) => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const effectiveSeat = seat ?? automaticSeat
@@ -783,18 +805,30 @@ const TeamSeatControls = ({ label, seat, automaticSeat, automaticName, disabled,
     ...(seat && !snapshot.runtimes.some(one => one.id === seat.runtime) ? [{ value: seat.runtime, label: 'Selected runtime' }] : []),
     ...snapshot.runtimes.map(one => ({ value: one.id, label: one.presentation.name })),
   ]
-  return <>
-    <div className={styles.agentSelect}><TeamSeatPicker label={`Runtime for ${label}`} title={selectedRuntime?.presentation.name ?? automaticName ?? undefined} disabled={disabled} value={seat?.runtime ?? ''} choices={agentChoices}
-      onChange={value => onChange(value ? { runtime: value } : undefined)} /></div>
-    {(!optional || seat) && <><TeamSeatPicker label={`Model for ${label}`} disabled={disabled || !effectiveSeat} value={seat?.model ?? ''}
-      choices={[{ value: '', label: 'Default model' },
-        ...(seat?.model && !models.some(one => one.id === seat.model) ? [{ value: seat.model, label: seat.model }] : []),
-        ...models.filter(one => !one.hidden).map(one => ({ value: one.id, label: one.displayName }))]}
-      onChange={value => effectiveSeat && onChange({ ...effectiveSeat, model: value || undefined, effort: undefined })} />
-    <TeamSeatPicker label={`Effort for ${label}`} disabled={disabled || !effectiveSeat || !model?.reasoningLevels.length} value={seat?.effort ?? ''}
-      choices={[{ value: '', label: 'Default effort' },
-        ...(seat?.effort && !model?.reasoningLevels.some(one => one.id === seat.effort) ? [{ value: seat.effort, label: seat.effort }] : []),
-        ...(model?.reasoningLevels.map(one => ({ value: one.id, label: one.label })) ?? [])]}
-      onChange={value => effectiveSeat && onChange({ ...effectiveSeat, effort: value || undefined })} /></>}
-  </>
+  const runtimeName = selectedRuntime?.presentation.name ?? automaticName ?? (seat ? 'Selected runtime' : optional ? 'You' : 'Nothing can run')
+  const modelName = effectiveSeat?.model ? models.find(one => one.id === effectiveSeat.model)?.displayName ?? effectiveSeat.model : model?.displayName
+  const summary = [runtimeName, modelName].filter(Boolean).join(' · ')
+  return <Popover fullWidth aria-label={`Configure ${label}`} title={summary} disabled={disabled} focusableWhenDisabled align="left" panelWidth="wide"
+    triggerVariant={{ variant: 'outline', size: 'sm' }}
+    label={<><Text role="row" truncate>{summary}</Text><CaretIcon size={13} /></>}>
+    {() => <div role="group" aria-label={`${label} configuration`}>
+      <Rows>
+        <Row title="Runtime" control={<TeamSeatPicker label={`Runtime for ${label}`} title={selectedRuntime?.presentation.name ?? automaticName ?? undefined} disabled={disabled} value={seat?.runtime ?? ''} choices={agentChoices}
+          onChange={value => onChange(value ? { runtime: value } : undefined)} />} />
+        {effectiveSeat && <>
+          <Row title="Model" control={<TeamSeatPicker label={`Model for ${label}`} disabled={disabled} value={effectiveSeat.model ?? ''}
+            choices={[{ value: '', label: 'Default model' },
+              ...(effectiveSeat.model && !models.some(one => one.id === effectiveSeat.model) ? [{ value: effectiveSeat.model, label: effectiveSeat.model }] : []),
+              ...models.filter(one => !one.hidden).map(one => ({ value: one.id, label: one.displayName }))]}
+            onChange={value => onChange({ ...effectiveSeat, model: value || undefined, effort: undefined })} />} />
+          {(!!model?.reasoningLevels.length || effectiveSeat.effort) && <Row title="Effort" control={<TeamSeatPicker label={`Effort for ${label}`} disabled={disabled} value={effectiveSeat.effort ?? ''}
+            choices={[{ value: '', label: 'Default effort' },
+              ...(effectiveSeat.effort && !model?.reasoningLevels.some(one => one.id === effectiveSeat.effort) ? [{ value: effectiveSeat.effort, label: effectiveSeat.effort }] : []),
+              ...(model?.reasoningLevels.map(one => ({ value: one.id, label: one.label })) ?? [])]}
+            onChange={value => onChange({ ...effectiveSeat, effort: value || undefined })} />} />}
+        </>}
+        {instructions && <Row title="Instructions" control={instructions} />}
+      </Rows>
+    </div>}
+  </Popover>
 }

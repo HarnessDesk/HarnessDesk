@@ -122,7 +122,10 @@ for (const theme of WALL_THEMES) {
   test(`Findings body keeps its count agreement and decision refusal in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme, 720)
     await selectFrameTab(page, 'findings')
-    await expect(page.locator('[data-team-page="findings"]:visible')).toContainText('3')
+    const findings = page.locator('[data-slot="task-navigation"]').getByRole('button', { name: /^Findings(?:\s|$)/ })
+    await expect(findings).toBeVisible()
+    await expect(findings).toHaveAttribute('aria-pressed', 'true')
+    await expect(findings).toContainText('3')
     const summary = page.locator('[aria-label="Findings summary"]')
     await expect(summary).toBeVisible()
     expect(await summary.locator('[data-slot="summary-item"]').evaluateAll(nodes => nodes.map(node => [
@@ -147,7 +150,8 @@ for (const theme of WALL_THEMES) {
       const rail = page.locator('[data-frame-region="rail"]:visible')
       if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
       await expect(rail).toBeVisible()
-      expect(await rail.locator('[data-slot="tool-section"]').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')))).toEqual(['Conversation', 'Plan', 'Background tasks', 'Trajectory'])
+      expect(await rail.locator('[data-slot="tool-section"]').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')))).toEqual(['Conversation', 'Seat record', 'Background tasks', 'Trajectory'])
+      await expect(rail.getByRole('region', { name: 'Seat record', exact: true }).getByRole('button', { name: 'Seat record', exact: true })).toHaveAttribute('aria-expanded', 'false')
       await expect(rail.getByRole('region', { name: 'Background tasks', exact: true })).toContainText('Review the checkout')
       await expect(rail.getByRole('region', { name: 'Trajectory', exact: true }).locator('[data-slot="tool-section-fold"]')).toHaveAttribute('aria-expanded', 'false')
       await expect(rail.getByRole('region', { name: 'Events', exact: true })).toHaveCount(0)

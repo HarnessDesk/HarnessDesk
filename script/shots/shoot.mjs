@@ -1532,16 +1532,16 @@ rules:
         const composer = tiles.length === 1 ? tiles[0].querySelector('[data-slot="composer"] textarea') : document.querySelector('button[aria-label="Send to"]')
         return Boolean(composer && composer.getBoundingClientRect().height > 0)
       })()`)
-      if (!ready) throw new Error('room: Side by side and its visible composer are not on screen')
+      if (!ready) throw new Error('room: Split and its visible composer are not on screen')
     }, run: async () => {
       await stageRoom()
       await cdp.eval(`${STORE}.openTeamRoom(${q(roomId)}); true`)
       // Opening a Team restores its selected page; explicitly choose Chat
       // through its body tab and Chat's body layout choice for this scene.
       if (!await press({ selector: '[data-slot="workbench-main"] [role="tab"][data-team-page="room"]' }, { stable: true })) throw new Error('room: Chat is not reachable')
-      await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[data-slot="workbench-main"] [data-slot="page-options"] button[aria-label="View"]'))`), Boolean)
-      if (!await press({ selector: '[data-slot="workbench-main"] [data-slot="page-options"] button[aria-label="View"]' }, { stable: true })) throw new Error('room: Chat view choice is not reachable')
-      await waitForSnapshot(() => cdp.eval(`[...document.querySelectorAll('[role="menuitemradio"]')].some(one => one.textContent.trim() === 'Side by side')`), Boolean).catch(async (error) => {
+      await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[data-slot="workbench-main"] [data-slot="page-options"] button:is([aria-label="Chat"], [aria-label="Split"])'))`), Boolean)
+      if (!await press({ selector: '[data-slot="workbench-main"] [data-slot="page-options"] button:is([aria-label="Chat"], [aria-label="Split"])' }, { stable: true })) throw new Error('room: Chat layout choice is not reachable')
+      await waitForSnapshot(() => cdp.eval(`[...document.querySelectorAll('[role="menuitemradio"]')].some(one => one.textContent.trim() === 'Split')`), Boolean).catch(async (error) => {
           const controls = await cdp.json(`(() => ({
             bars: [...document.querySelectorAll('[data-slot="top-bar"]')].map(bar => ({ text: bar.innerText, height: bar.getBoundingClientRect().height, hidden: Boolean(bar.closest('[inert], [aria-hidden="true"]')) })),
             menus: [...document.querySelectorAll('[role="menu"]')].map(menu => ({ text: menu.innerText, height: menu.getBoundingClientRect().height })),
@@ -1550,7 +1550,7 @@ rules:
           writeFileSync(`${OUT}/room-controls-unready.png`, Buffer.from(shot.data, 'base64'))
           throw new Error(`${error.message}; room controls: ${JSON.stringify(controls)}`)
         })
-      if (!await press({ text: 'Side by side' }, { stable: true })) throw new Error('room: Side by side is not reachable')
+      if (!await press({ text: 'Split' }, { stable: true })) throw new Error('room: Split is not reachable')
       await waitForSnapshot(() => cdp.eval(`(() => {
         const grid = document.querySelector('[data-slot="side-by-side-grid"]')
         if (!grid) return false
@@ -1635,6 +1635,7 @@ rules:
         Boolean,
       )
       if (!(await fill('What should they do?', 'Add 502 to the retryable status set'))) throw new Error('no Task field in the front door')
+      if (!(await clickScrolled('Completion and dry run', picker))) throw new Error('no Completion and dry run disclosure in the front door')
       if (!(await fill('Done when · optional', 'Ship it once every specialist approves'))) {
         throw new Error('no sentence field in the front door')
       }
@@ -2687,10 +2688,15 @@ rules:
 
   Object.assign(SCENES, {
     /** The top-level Agents window: three sections and the project's reviewer shadowing the one that ships. */
-    'settings-agents': { leaveOverlay: true, expect: 'Shadowed by the one in storefront', run: async () => {
+    'settings-agents': { leaveOverlay: true, expect: 'Shadowed by the project copy. This copy is not used.', run: async () => {
       await openStorefront()
       if (!(await click('Agents'))) throw new Error('no Agents row in the sidebar')
       await sleep(1400)
+      const sourcesOpen = await cdp.eval(`document.querySelector('[data-page-destination="agents"]:not([hidden]) [data-slot="agent-catalogue-sources"] button')?.getAttribute('aria-expanded') ?? null`)
+      if (sourcesOpen === null) throw new Error('no Sources and precedence disclosure in the Agents catalogue')
+      if (sourcesOpen !== 'true' && !(await clickScrolled('Sources and precedence', '[data-page-destination="agents"]:not([hidden])'))) {
+        throw new Error('could not open Sources and precedence in the Agents catalogue')
+      }
       await cdp.eval(`(() => {
         const dialog = document.querySelector('[data-page-destination="agents"]:not([hidden])')
         const scroller = [dialog, ...(dialog?.querySelectorAll('*') ?? [])]
@@ -2704,7 +2710,7 @@ rules:
     }, verify: async () => {
       await waitForSnapshot(() => cdp.eval(`(() => {
         const row = [...document.querySelectorAll('[data-page-destination="agents"]:not([hidden]) [data-slot="row-desc"]')]
-          .find(node => node.textContent.startsWith('Shadowed by the one in storefront'))
+          .find(node => node.textContent === 'Shadowed by the project copy. This copy is not used.')
         const box = row?.getBoundingClientRect()
         return Boolean(box?.width && box?.height && box.top >= 0 && box.bottom <= innerHeight)
       })()`), Boolean)
@@ -2819,14 +2825,16 @@ rules:
       await sleep(700)
     } },
 
-    /** A room's +: the project's Agents first, each with the seat it would take there. */
-    'add-member-agents': { leaveOverlay: true, expect: 'Who joins', run: async () => {
+    /** The Team rail's +: the project's Agents first, each with the seat it would take there. */
+    'add-member-agents': { leaveOverlay: true, expect: 'Seat an Agent in this Goal', run: async () => {
       await clearAgentScenes()
       await stageRoom()
       await cdp.eval(`${STORE}.openTeamRoom(${q(roomId)}); true`)
       await sleep(1500)
-      if (!(await click('Add an agent to the room'))) throw new Error('no + on the room’s roster')
-      await sleep(1800)
+      const railOpen = await cdp.eval(`document.querySelector('[data-work-rail-toggle]')?.getAttribute('aria-pressed') ?? null`)
+      if (railOpen === 'false' && !(await click('Toggle rail'))) throw new Error('could not reveal the Team rail')
+      if (!(await click('Seat an Agent in this Team'))) throw new Error('no Seat an Agent action in the Team rail')
+      await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[role="dialog"][aria-label="Seat an Agent in this Goal"]'))`), Boolean)
     } },
   })
   /**
@@ -3031,10 +3039,20 @@ rules:
   }
 
   const seatRecordSays = async () => {
-    const text = await cdp.eval(`document.querySelector('[aria-label="Seat record"]')?.textContent ?? ''`)
-    for (const words of ['Code reviewer', 'In storefront', 'Read · asked']) {
+    const text = await cdp.eval(`document.querySelector('[data-frame-region="right"] [data-slot="tool-section"][aria-label="Seat record"]')?.innerText ?? ''`)
+    for (const words of ['Code reviewer', 'In storefront', 'Read only · asked, not enforced']) {
       if (!text.includes(words)) throw new Error(`the Seat record does not say ${q(words)}: ${q(text)}`)
     }
+  }
+
+  /** The recorded facts live behind the same two disclosures a person opens. */
+  const revealSeatRecord = async () => {
+    const scope = '[data-frame-region="right"] [data-slot="tool-section"][aria-label="Seat record"]'
+    await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector(${q(scope)}))`), Boolean)
+    const open = await cdp.eval(`document.querySelector(${q(`${scope} [data-slot="tool-section-fold"]`)})?.getAttribute('aria-expanded') ?? null`)
+    if (open !== 'true' && !(await clickScrolled('Seat record', scope))) throw new Error('could not reveal the Seat record')
+    const details = await cdp.eval(`document.querySelector(${q(`${scope} [data-slot="tool-fold"] button`)})?.getAttribute('aria-expanded') ?? null`)
+    if (details !== 'true' && !(await clickScrolled('Details', scope))) throw new Error('could not reveal the Seat record details')
   }
 
   SCENES['seat-record'] = {
@@ -3047,6 +3065,7 @@ rules:
       writeFileSync(join(HOME, 'seat-record-scene.json'), `${JSON.stringify({ key })}\n`)
       await cdp.eval(`${STORE}.openDetailsTab('agents'); true`)
       await sleep(2500)
+      await revealSeatRecord()
     },
     verify: seatRecordSays,
   }
@@ -3080,6 +3099,7 @@ rules:
       await cdp.eval(`${STORE}.openSession(${q(sessionId)}, { runtime: ${q(runtime)} })`, 120_000)
       await cdp.eval(`${STORE}.openDetailsTab('agents'); true`)
       await sleep(2500)
+      await revealSeatRecord()
     },
     verify: seatRecordSays,
   }

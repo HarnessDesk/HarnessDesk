@@ -32,11 +32,13 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(unread).not.toContainText('No findings recorded')
     }
     await expect(page.locator('#run-inspector-card [data-slot="run-inspector"]')).toContainText('Cap the attempts.')
-    // A Run that recorded no budget says so; it never borrows a limit it was not given.
+    // Missing optional facts do not grow a wall of gaps or invent a budget.
     for (const kind of ['empty', 'pending', 'failed', 'team']) {
       const summary = page.locator(`#run-inspector-${kind} [data-slot="run-inspector"]`)
-      await expect(summary.locator('[data-slot="run-recording-gaps"]')).toContainText('This Run did not record:')
-      await expect(summary.locator('[data-slot="run-recording-gaps"]')).toContainText('budget')
+      await expect(summary.getByRole('region', { name: 'Run', exact: true })).toBeVisible()
+      await expect(summary.locator('[data-slot="run-recording-gaps"]')).toHaveCount(0)
+      await expect(summary.getByRole('progressbar', { name: 'Budget', exact: true })).toHaveCount(0)
+      await expect(summary.getByRole('progressbar', { name: 'Without progress', exact: true })).toHaveCount(0)
       await expect(summary).not.toContainText(/Rounds: \d+ of \d+/)
     }
     const a = await timeline.boundingBox()

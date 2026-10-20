@@ -176,6 +176,20 @@ it('bounds a single filling face while keeping compound leads free to compose', 
   expect(lead.className).toContain('has-[>[data-shape=face]:only-child]:size-(--hd-table-face)')
 })
 
+it('centres a bare glyph inside a direct hover trigger without its inline baseline gap', () => {
+  const host = document.createElement('div')
+  host.innerHTML = renderToStaticMarkup(<ListRow size="sm" title="Alpha" subtitle="Working"
+    lead={<span data-slot="hover-card-trigger"><svg width="20" height="20" /></span>} />)
+  const lead = host.querySelector('[data-slot="list-row-lead"]')!
+  // The row already centres the lead's box. Its direct hover trigger must
+  // centre the glyph too, rather than adding a text descender below an SVG.
+  expect(lead.className).toContain('[&>[data-slot=hover-card-trigger]]:inline-flex')
+  expect(lead.className).toContain('[&>[data-slot=hover-card-trigger]]:items-center')
+  // Compound leads retain their own layout; no descendant-wide display rule.
+  expect(lead.className).not.toContain('[&_*]:inline-flex')
+  expect(lead.className).not.toContain('[&_*]:flex')
+})
+
 it('opts a record into compact density without making it a navigation row', () => {
   const markup = renderToStaticMarkup(<ListRow density="compact" title="Review" subtitle="4 checks" />)
   expect(markup).toContain('data-hd-table="compact"')

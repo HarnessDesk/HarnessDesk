@@ -66,11 +66,30 @@ it('opening a card opens the Team once so the host can mark it seen',async()=>{
  expect(open).toHaveBeenCalledOnce()
  expect(open).toHaveBeenCalledWith('overview-team')
 })
-it('shows complete waiting reasons in the attention column',async()=>{
+it('shows a concise waiting status with the complete reason on its shared issue mark',async()=>{
  await mount('needs-you')
  const detail=container.querySelector('[aria-label="Needs you"] [data-slot="team-detail"]')!
- expect(detail.textContent).toContain('choose whether to keep the original payment method')
- expect(detail.getAttribute('title')).toContain('choose whether')
+ expect(detail.textContent).toBe('Approval requested')
+ expect(detail.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toContain('choose whether to keep the original payment method')
+ expect(detail.querySelector('[data-slot="issue-mark"]')?.getAttribute('aria-label')).toContain('choose whether')
+})
+it('keeps an entire long refusal searchable and opens its exact Team from the compact card',async()=>{
+ const base=overviewTeamStore('stalled')
+ const execution=base.getSnapshot().flowExecutions.get('overview-run')!
+ const reason='The requested seat could not start with these permissions. '.repeat(30)+'Wait for workspace-lock-release.'
+ base.patch({flowExecutions:new Map([[execution.id,{...execution,reason}]])})
+ const open=vi.fn()
+ const store=new Proxy(base,{get(target,key){return key==='openTeamRoom'?open:Reflect.get(target,key)}}) as AppStore
+ await act(async()=>root.render(<StoreProvider store={store}><PageScope><TestPage/></PageScope></StoreProvider>))
+ const card=container.querySelector<HTMLButtonElement>('[data-team-row="overview-team"]')!
+ expect(card.textContent).toContain('Run needs attention')
+ expect(card.textContent).not.toContain('workspace-lock-release')
+ expect(card.querySelector('[data-slot="issue-mark"]')?.getAttribute('aria-label')).toBe(reason)
+ const search=container.querySelector<HTMLInputElement>('input[aria-label="Search Teams"]')!
+ await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(search,'workspace-lock-release');search.dispatchEvent(new Event('input',{bubbles:true}))})
+ expect(container.querySelector('[data-team-row="overview-team"]')).not.toBeNull()
+ await act(async()=>card.click())
+ expect(open.mock.calls).toEqual([['overview-team']])
 })
 it('searches all columns and filters by the projects actually held on the desk',async()=>{
  const {teamsPageStore}=await import('../preview/teams-page-fixture')
@@ -110,7 +129,7 @@ it('moves a Team to Needs you only after publication is confirmed',async()=>{
  const review:FindingRunView={run:execution.id,goal:execution.goal,publication:'local',rounds:[{round:2,state:'local',reason:null,pr:7,cards:[2,3]}],boundPr:{repo:'acme/widgets',pr:7},reason:'The review is waiting to be posted.',
   round:2,finished:2,total:2,embargoed:false,open:0,blocking:0,ceilingStop:false,stamp:'read-1',reviewersFinished:null,reviewersTotal:null,pendingExceptions:[],repair:null,unbound:null,undecidable:null}
  await act(async()=>base.patch({findingRuns:new Map([[execution.id,review]])}))
- expect(container.querySelector('[aria-label="Needs you"] [data-team-row]')?.textContent).toContain(review.reason)
+ expect(container.querySelector('[aria-label="Needs you"] [data-slot="issue-mark"]')?.getAttribute('aria-label')).toBe(review.reason)
 })
 
 type Snapshot=ReturnType<AppStore['getSnapshot']>
