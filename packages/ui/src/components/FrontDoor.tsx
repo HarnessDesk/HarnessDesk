@@ -328,7 +328,12 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     if (!pickerOpen && !initializingChoice && !policyPending && !readingAccounts && selectionRequested.current) {
       const change = selectedRef.current?.querySelector<HTMLButtonElement>('button')
       if (!change || change.disabled) return
-      change.focus()
+      const active = document.activeElement
+      // A removed/disabled picker can leave focus on the document or dialog.
+      // Any other focused element belongs to the person's current interaction.
+      const abandoned = !active || active === document.body || active === document.documentElement ||
+        active.getAttribute('role') === 'dialog' || active.hasAttribute('data-base-ui-focus-guard')
+      if (abandoned || active === change) change.focus()
       selectionRequested.current = false
     }
   }, [pickerOpen, initializingChoice, policyPending, readingAccounts])
@@ -500,8 +505,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     >
       <FormStack>
         <Field label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'}>
-          {control => <Textarea {...control} aria-label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'} autoFocus value={task} disabled={locked || readingAccounts} onFocus={() => { selectionRequested.current = false }} onChange={event => {
-            selectionRequested.current = false
+          {control => <Textarea {...control} aria-label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'} autoFocus value={task} disabled={locked || readingAccounts} onChange={event => {
             const next = event.target.value
             taskRef.current = next; setTask(next); onTaskChange?.(next); setPlainDryRun(false)
             if (primary && !plainTeam) {
@@ -519,6 +523,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
         {!pickerOpen && (chosen || plainTeam) && <div ref={selectedRef}><SelectedFlow name={plainTeam ? 'Just a Team' : chosen!.name}
           origin={plainTeam || chosen?.origin === 'builtin' ? 'Built in' : chosen?.kind === 'draft' ? 'Unsaved' : chosen?.origin === 'project' ? project : 'Personal'}
           policy={compiled?.format === 'agents' ? compiled.flow : undefined} empty={plainTeam}
+          loading={!plainTeam && initializingChoice && !compiled && !problem}
           disabled={locked || policyPending || readingAccounts} onChange={changeFlow} /></div>}
         {!pickerOpen && unlisted !== null && <Banner tone="danger" title="These Flows could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
         {pickerOpen && <section className={styles.picker} aria-label="Flow" ref={pickerRef} onFocusCapture={event => {
@@ -537,7 +542,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
           }
         }}>
           <SectionHead level="label" name="Flow" action={<>
-            {(chosen || plainTeam) && <Button variant="outline" size="sm" onClick={() => setPickerOpen(false)}>Keep selected Flow</Button>}
+            {(chosen || plainTeam) && <Button variant="outline" size="sm" onClick={() => { selectionRequested.current = true; setPickerOpen(false) }}>Keep selected Flow</Button>}
             <Button variant="outline" size="sm" disabled={locked || policyPending || readingAccounts} onClick={() => { store.openDestination({ kind: 'flows', root, id: null, origin: null, start: { context, ...(goal ? { goal } : {}), task, done: sentence } }); onClose() }}>Build your own</Button>
           </>} />
           <Search label="Search Flows" placeholder="Search Flows…" value={query} onChange={value => { setQuery(value); setActiveCard(0) }} />

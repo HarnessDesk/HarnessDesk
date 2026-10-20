@@ -421,7 +421,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   timeline: ['default', 'active', 'inactive', 'success', 'warning', 'error'],
   'timeline-cards': ['default', 'selected', 'populated'],
   FlowGraph: ['default', 'empty', 'working', 'needs-you', 'loading', 'error'],
-  FlowCards: ['default', 'selected', 'disabled', 'empty', 'long-title', 'unknown'],
+  FlowCards: ['default', 'selected', 'disabled', 'empty', 'long-title', 'unknown', 'loading'],
   FlowCanvasToolbar: ['default', 'disabled'],
   FlowCanvasWorkspace: ['default', 'disabled'],
   FlowCanvas: ['editing', 'disabled', 'running', 'selected'],

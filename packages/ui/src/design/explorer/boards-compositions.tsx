@@ -3135,7 +3135,7 @@ export const SeatListBoard = () => {
 
 const FLOWCARDS_CATALOG_VARIANTS = ['default'] as const
 const FLOWCARDS_CATALOG_SIZES = ['default'] as const
-const FLOWCARDS_CATALOG_STATES = ['default', 'selected', 'disabled', 'empty', 'long-title', 'unknown'] as const
+const FLOWCARDS_CATALOG_STATES = ['default', 'selected', 'disabled', 'empty', 'long-title', 'unknown', 'loading'] as const
 const FLOWCANVASTOOLBAR_CATALOG_VARIANTS = ['default'] as const
 const FLOWCANVASTOOLBAR_CATALOG_SIZES = ['default'] as const
 const FLOWCANVASTOOLBAR_CATALOG_STATES = ['default', 'disabled'] as const
@@ -3167,6 +3167,9 @@ const FlowCardsBoard = () => {
     <Rule>A thumbnail reads the policy's roles and rules. A Team with no policy has no steps; its card never invents a path.</Rule>
     <Specimen measure="wide" caption="Selected Flow: the actual policy remains visible while the catalog is folded away">
       <SelectedFlow name="Review and fix" origin="Built in" policy={FLOW_CARD_EXAMPLE_POLICY} onChange={() => setSelected('review')} />
+    </Specimen>
+    <Specimen measure="wide" caption="Selected Flow: reading the policy keeps the thumbnail space and announces progress">
+      <SelectedFlow name="Review and fix" origin="Built in" loading onChange={() => setSelected('review')} />
     </Specimen>
   </div>
 }

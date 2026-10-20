@@ -48,7 +48,7 @@ HarnessDesk 使用仓库的假代理 rig。它证明真实 UI、预检、项目�
 
 - 首次显示三个常用或项目 Flow，加 Just a Team；完整目录保留在 All Flows 和搜索中。选中后，目录收为名称、真实策略缩略图和 Change，不再占据角色配置上方的大块空间。
 - 每个角色只保留一个显示实际 runtime/model 的 Configure 入口；指令预设留在角色名称旁，模型、effort 和指令在同一弹层中调整。自动选择的固定 model/effort 与实际策略保持一致，过期 effort 仍可清除。
-- 任务、Flow、成员和 Start 留在同一个对话框内。可选完成条件与 dry run 收起；Flow 的额外输入始终显示，避免把执行必需信息藏进 Details。切换 Flow 保留任务与各自草稿；选择后等默认策略与预检完成再把焦点交给 Change，期间继续编辑任务会取消焦点转移。
+- 任务、Flow、成员和 Start 留在同一个对话框内。可选完成条件与 dry run 收起；Flow 的额外输入始终显示，避免把执行必需信息藏进 Details。切换 Flow 保留任务与各自草稿；选择后等默认策略与预检完成再把焦点交给 Change，期间继续编辑任务、完成条件或操作其他控件会保留当前焦点；Keep selected Flow 返回 Change。源文件读取期间明确显示 Reading Flow…，不把尚未读完误报为 Graph unavailable。
 - 预设 Agent 页面顶部直接提供 Choose runtime 与 Customize。Choose runtime 复用已有本机偏好写入与并发保护，保留后备列表；内建 Agent 文件保持只读。
 
 桌面复验：选择 Side by side 后，实际策略图随“由我选择、无自动 Judge”的配置更新。rig 的第二个候选因权限能力不足被拒绝，角色行直接提供 Use Codex。应用建议后，Start Team 成功创建 Run、两个隔离 Seat 与两张已分配任务卡。它证明从紧凑表单到实际 Team 的执行链路，未声称假代理完成了开发任务。
@@ -65,13 +65,13 @@ HarnessDesk 使用仓库的假代理 rig。它证明真实 UI、预检、项目�
 
 - `pnpm build` 成功。
 - `node --test packages/server/dist/test/goal-start.test.js packages/server/dist/test/flow-methods.test.js packages/server/dist/test/flow-preview.test.js`：50 项通过。
-- FrontDoor、GoalCreate、FlowStart、AgentPage、FlowCards、team-start、store.goal 和 store.front-door：8 个文件，219 项通过。
+- FrontDoor、GoalCreate、FlowStart、AgentPage、FlowCards、team-start、store.goal 和 store.front-door：8 个文件，221 项通过。
 - 桌面复验：同一记住的项目成功创建普通团队、打开所选 Seat 并显示任务卡；人为改变可丢弃项目的 Git checkout identity 后，启动仍被拒绝，错误自动进入视口并获得焦点；恢复 fixture 后，Write and review 的同提供方阻断信息明确显示原因。
 - `pnpm check:push --base origin/development`：所选架构、设计、类型检查、protocol 和 retention 检查通过；server 测试中的 flow-resumed-work 在批量运行时超时。该文件单独重跑 1/1 通过。此次完整 check:push 的退出码仍为 1，不能记为全绿；规划器跳过的广泛依赖和浏览器套件也不算通过。
 
 - 最终 `pnpm check:push --base origin/development --fast` 成功；它明确跳过 Node/UI/browser 测试，不能替代上面单独执行的测试。新共享组件已注册到目录，生成文档和设计审计通过；布局历史基线减少 2 项，严格项保持零。
 
-浏览器回归文件同步更新了折叠目录、键盘焦点和四种布局组合的断言；本次通过 CUA 实际走查同一页面，未将未执行的 Playwright 套件记为通过。[PR #1813](https://github.com/HarnessDesk/HarnessDesk/pull/1813) 的首轮本地 reviewer 提出两项 low：快捷目录不应优先推荐损坏或旧格式 Flow，以及 decisions 应解释普通 Team 的项目准入。两者均修复：快捷推荐只取当前可读格式，完整目录仍保留错误；架构决策补记 renderer-only 的普通 Team 路径。新增回归先失败再通过。最终审核结果随 PR 记录。
+浏览器回归文件同步更新了折叠目录、键盘焦点和四种布局组合的断言；本次通过 CUA 实际走查同一页面，未将未执行的 Playwright 套件记为通过。[PR #1813](https://github.com/HarnessDesk/HarnessDesk/pull/1813) 的首轮本地 reviewer 提出两项 low：快捷目录不应优先推荐损坏或旧格式 Flow，以及 decisions 应解释普通 Team 的项目准入。两者均修复：快捷推荐只取当前可读格式，完整目录仍保留错误；架构决策补记 renderer-only 的普通 Team 路径。新增回归先失败再通过。第二轮的两项 low（Keep selected Flow 焦点与图形加载状态）也已复现并修复；独立交叉检查另补充了完成条件编辑时的焦点保护。最终审核结果随 PR 记录。
 
 
 ## 可检查的界面证据

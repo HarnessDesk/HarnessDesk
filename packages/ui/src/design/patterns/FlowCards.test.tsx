@@ -49,6 +49,29 @@ it('keeps a selected Flow compact with its actual graph, origin and Change actio
   expect(host.querySelector<HTMLButtonElement>('button')?.disabled).toBe(true)
 })
 
+it('keeps a selected Flow reading state distinct from a settled unavailable graph', () => {
+  const change = vi.fn()
+  act(() => root.render(<design.SelectedFlow name={policy.name} origin="Project" loading onChange={change} />))
+  const selection = host.querySelector('[data-slot="selected-flow"]')!
+  expect(selection.getAttribute('aria-busy')).toBe('true')
+  const thumbnail = selection.querySelector('[data-slot="flow-mini-graph"]')!
+  expect(thumbnail.getAttribute('role')).toBe('status')
+  expect(thumbnail.textContent).toBe('Reading Flow…')
+  expect(selection.textContent).not.toContain('Graph unavailable')
+  expect(selection.querySelector('[data-step]')).toBeNull()
+
+  act(() => root.render(<design.SelectedFlow name={policy.name} origin="Project" policy={policy} onChange={change} />))
+  expect(host.querySelector('[data-slot="selected-flow"]')?.hasAttribute('aria-busy')).toBe(false)
+  expect(host.querySelector('[role="status"]')).toBeNull()
+  expect(host.querySelectorAll('[data-step]')).toHaveLength(policy.roles.length)
+  expect(host.textContent).not.toContain('Graph unavailable')
+
+  act(() => root.render(<design.SelectedFlow name={policy.name} origin="Project" onChange={change} />))
+  expect(host.textContent).toContain('Graph unavailable')
+  expect(host.querySelector('[data-slot="selected-flow"]')?.hasAttribute('aria-busy')).toBe(false)
+  expect(host.querySelector('[data-slot="flow-mini-graph"]')?.className).toBe(thumbnail.className)
+})
+
 it('opens a named selectable card while keeping its origin, complete summary and Run count', () => {
   expect(design.FlowCard).toBeTypeOf('function')
   const open = vi.fn()
@@ -288,7 +311,7 @@ it('registers the shared Flow patterns with reachable examples and all public sy
   const cards = CATALOG_ENTRIES.find(entry => entry.id === 'pattern.FlowCards')
   expect(cards?.exampleId).toBe('flow-cards')
   expect(cards?.symbols).toEqual(['FlowCard', 'FlowMiniGraph', 'FlowCardGrid', 'SelectedFlow'])
-  expect(cards?.states).toEqual(expect.arrayContaining(['selected', 'disabled', 'empty', 'long-title']))
+  expect(cards?.states).toEqual(expect.arrayContaining(['selected', 'disabled', 'empty', 'long-title', 'loading']))
   const toolbar = CATALOG_ENTRIES.find(entry => entry.id === 'pattern.FlowCanvasToolbar')
   expect(toolbar?.exampleId).toBe('flow-canvas-toolbar')
   expect(toolbar?.symbols).toEqual(['FlowCanvasToolbar'])

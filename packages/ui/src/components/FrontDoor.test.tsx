@@ -113,7 +113,7 @@ it('shows three quick Flows, then replaces the catalogue with the selected polic
   expect(document.querySelectorAll('[data-slot="flow-card"]')).toHaveLength(4)
   await act(async () => button('All Flows').click())
   expect(document.querySelectorAll('[data-slot="flow-card"]')).toHaveLength(6)
-  await act(async () => rowFor('Flow e').click())
+  await act(async () => { const card = rowFor('Flow e'); card.focus(); card.click() })
   expect(document.querySelector('[data-slot="selected-flow"]')?.textContent).toContain('Flow e')
   expect(document.querySelector('[aria-label="Search Flows"]')).toBeNull()
   expect(document.querySelectorAll('[data-slot="flow-card"]')).toHaveLength(0)
@@ -121,6 +121,37 @@ it('shows three quick Flows, then replaces the catalogue with the selected polic
   await act(async () => button('Change').click())
   expect(document.querySelector('[aria-label="Search Flows"]')).toBe(document.activeElement)
   expect(document.querySelectorAll('[data-slot="flow-card"]')).toHaveLength(6)
+  await act(async () => { const keep = button('Keep selected Flow'); keep.focus(); keep.click() })
+  expect(document.querySelector('[aria-label="Search Flows"]')).toBeNull()
+  expect(document.activeElement).toBe(button('Change'))
+  expect(document.querySelector('[data-slot="selected-flow"]')?.textContent).toContain('Flow e')
+})
+
+it('reports a selected Flow as reading until delayed source resolves to its actual graph', async () => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  const policy = TEAM_START_POLICIES.investigation
+  const store = new AppStore('ws://localhost:0/')
+  let release!: (source: string) => void
+  const pending = new Promise<string>(resolve => { release = resolve })
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('investigation', 'Investigation')], 'agent/list': () => [], 'flow/source': () => pending,
+    'authoring/start/preview': params => {
+      const input = params as { source: string; vars: Record<string, string> }
+      const base = emptyFlow('token')
+      return previewOf({ ...base, compiled: { ...base.compiled, document: { format: 'agents', flow: JSON.parse(input.source) } } }, { source: input.source, vars: input.vars })
+    },
+  })
+  render(store)
+  await settle()
+  await act(async () => rowFor('Investigation').click())
+  const selected = document.querySelector('[data-slot="selected-flow"]')!
+  expect(selected.getAttribute('aria-busy')).toBe('true')
+  expect(selected.textContent).toContain('Reading Flow…')
+  expect(selected.textContent).not.toContain('Graph unavailable')
+  await act(async () => release(JSON.stringify(policy)))
+  expect(selected.getAttribute('aria-busy')).not.toBe('true')
+  expect(selected.querySelectorAll('[data-step]')).toHaveLength(policy.roles.length)
+  expect(selected.textContent).not.toContain('Reading Flow…')
 })
 
 it('keeps optional completion and dry-run controls folded without adding another page', async () => {
@@ -142,9 +173,9 @@ it('keeps optional completion and dry-run controls folded without adding another
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
 })
 
-it.each(['render', 'preview'])('focuses Change after a comparison’s initial %s settles without interrupting task editing', async phase => {
+it.each(['render', 'preview'])('focuses Change after a comparison’s initial %s settles without interrupting another control', async phase => {
   const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
-  for (const editing of [false, true]) {
+  for (const editing of ['none', 'task', 'completion', 'disclosure']) {
     const store = new AppStore('ws://localhost:0/')
     const policy = TEAM_START_POLICIES.comparison
     let release!: () => void
@@ -169,11 +200,24 @@ it.each(['render', 'preview'])('focuses Change after a comparison’s initial %s
     // Native browsers drop focus when the initial defaults disable Change.
     // Model that lost focus explicitly: jsdom leaves disabled buttons focused.
     act(() => button('Change').blur())
-    const task = document.querySelector<HTMLTextAreaElement>('textarea')!
-    if (editing) act(() => task.focus())
+    let retained: HTMLElement | null = null
+    if (editing === 'task') retained = document.querySelector<HTMLTextAreaElement>('textarea')!
+    if (editing === 'disclosure') retained = button('Completion and dry run')
+    if (editing === 'completion') {
+      act(() => button('Completion and dry run').click())
+      const done = document.querySelector<HTMLInputElement>('[aria-label="Done when · optional"]')!
+      act(() => {
+        done.focus()
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(done, 'A reviewed result')
+        done.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      retained = done
+    }
+    if (retained) act(() => retained!.focus())
     await act(async () => release())
     expect(button('Change').disabled).toBe(false)
-    expect(document.activeElement).toBe(editing ? task : button('Change'))
+    expect(document.activeElement).toBe(retained ?? button('Change'))
+    if (editing === 'completion') expect((retained as HTMLInputElement).value).toBe('A reviewed result')
     act(() => root.render(<div />))
     await settle()
   }
