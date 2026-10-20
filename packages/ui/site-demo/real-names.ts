@@ -9,7 +9,7 @@ import type { AppSnapshot, AppStore } from '../src/state/store'
 const NAMES: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bAlpha\b/g, 'Codex'], [/\bBeta\b/g, 'Claude Code'], [/\bGamma\b/g, 'Cursor'], [/\bDelta\b/g, 'Codex 2'],
   [/\bAssistant A\b/g, 'Codex'], [/\bAssistant B\b/g, 'Claude Code'], [/\bAssistant C\b/g, 'Cursor'], [/\bAssistant D\b/g, 'Codex 2'],
-  [/\bModel A\b/g, 'Sol'], [/\bModel B\b/g, 'Opus'], [/\bModel C\b/g, 'Auto'], [/\bModel D\b/g, 'Sol'],
+  [/\bModel A\b/g, 'Sol'], [/\bModel B\b/g, 'Opus'], [/\bModel C\b/g, 'Auto'], [/\bModel D\b/g, 'Sol High'],
 ]
 const rename = (text: string) => NAMES.reduce((value, [pattern, name]) => value.replace(pattern, name), text)
 export const renamed = <T,>(value: T, seen = new WeakMap<object, unknown>()): T => {
