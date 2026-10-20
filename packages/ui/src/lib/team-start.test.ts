@@ -3,13 +3,23 @@ import { expect, it } from 'vitest'
 import type { FlowEntry, FlowPolicy } from '@harnessdesk/protocol'
 import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
 import { CONTEST_START_POLICY } from './contest-start-fixture'
-import { withReviewHandoff, pickerSections, shapeSummary, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from './team-start'
+import { withReviewHandoff, pickerSections, quickFlowChoices, shapeSummary, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from './team-start'
 
 const entry = (id: string, over: Partial<FlowEntry> = {}): FlowEntry => ({
   id, name: id, origin: 'builtin', path: `${id}.yml`, description: 'First sentence. More details.',
   format: 'agents', problem: null, shadows: [], ...over,
 })
 const shapes = ['review', 'investigation', 'comparison', 'alignment', 'independent-review', 'fix-and-review'].map(id => entry(id))
+
+it('bounds quick Flow choices to three project, recent and common options without losing the full catalogue', () => {
+  const project = entry('local', { origin: 'project' })
+  expect(quickFlowChoices(shapes, {}).map(one => one.id)).toEqual(['fix-and-review', 'comparison', 'independent-review'])
+  const entries = [...shapes, project]
+  expect(quickFlowChoices(entries, { alignment: 8 }).map(one => one.id)).toEqual(['local', 'alignment', 'fix-and-review'])
+  expect(new Set(quickFlowChoices(entries, { 'fix-and-review': 2 }).map(one => one.id)).size).toBe(3)
+  expect(pickerSections(entries, {}, '').project).toContain(project)
+  expect(pickerSections(entries, {}, '').more).toHaveLength(shapes.length)
+})
 
 it('leaves a project comparison with a renamed person destination intact', () => {
   const base = TEAM_START_POLICIES.comparison

@@ -18,6 +18,13 @@
   text-align: left;
 }
 .card[data-selected] { border-color: var(--hd-accent); }
+.selection { display: flex; flex-direction: column; gap: var(--hd-space-2); min-width: 0; padding: var(--hd-space-3); border: var(--hd-border-width) solid var(--hd-border-strong); border-radius: var(--hd-radius); background: var(--hd-background); }
+.selectionHead { display: flex; align-items: center; justify-content: space-between; gap: var(--hd-space-3); min-width: 0; }
+.selectionName { display: flex; align-items: center; gap: var(--hd-space-2); min-width: 0; }
+.selectionName > :first-child { min-width: 0; }
+.selectionName > :last-child { flex-shrink: 0; }
+.selectionHead > button { flex-shrink: 0; }
+.selectionGraph { width: min(100%, calc(var(--hd-space-16) * 6)); align-self: center; }
 .head { display: flex; align-items: center; justify-content: space-between; gap: var(--hd-space-2); min-width: 0; }
 .head > :first-child { min-width: 0; }
 .head > :last-child { max-width: 50%; }

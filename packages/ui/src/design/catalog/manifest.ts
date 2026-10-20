@@ -711,7 +711,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'DockPanel': ['DockDropEdge', 'DockDropTarget', 'DockPanel', 'DockPanelActions', 'DockPanelBar', 'DockPanelBody', 'DockPanelTab', 'DockPanelTabs', 'FixedPanelBody', 'FixedPanelFrame', 'FixedToolLayer', 'PaneSurface', 'PanelSeam', 'RailSection', 'WorkbenchCanvas', 'WorkbenchRail', 'WorkbenchScrim'],
   'FixedShell': ['FixedShell', 'ShellNoticeHost'],
   'FlowCanvas': ['FLOW_CANVAS_CARD_WIDTH', 'FLOW_CANVAS_RUN_CARD_HEIGHT', 'FlowCanvas'],
-  'FlowCards': ['FlowCard', 'FlowMiniGraph', 'FlowCardGrid'],
+  'FlowCards': ['FlowCard', 'FlowMiniGraph', 'FlowCardGrid', 'SelectedFlow'],
   'FlowCanvasToolbar': ['FlowCanvasToolbar'],
   'FlowCanvasWorkspace': ['FlowCanvasWorkspace', 'FlowCanvasSurface', 'FlowCanvasContent'],
   'FlowGraph': ['FlowGraph'],

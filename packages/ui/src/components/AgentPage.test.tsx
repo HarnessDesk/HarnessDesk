@@ -7,9 +7,11 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import {
+  SEAT_PREFERENCE_LIMIT,
   runtimeId,
   sessionKey,
   type AgentEntry,
+  type FlowSeat,
   type MachineSeating,
   type ModelInfo,
   type RuntimeInfo,
@@ -398,6 +400,7 @@ it('customizes a built-in into yours or the project’s, then opens the copy', a
 
 it.each([
   ['judge', 'Customize…'],
+  ['judge', 'Choose runtime…'],
   ['judge', 'Add a seat…'],
   ['scout', 'Remove…'],
 ] as const)('dismisses %s %s on page deactivation and keeps it closed on return', async (id, action) => {
@@ -825,6 +828,181 @@ it('adds a seat chosen in words to the end of this Mac’s list', async () => {
     [{ runtime: 'claude-code', model: 'opus-5', effort: 'high' }],
     null,
   )
+})
+
+const CHOICE_RUNTIMES = ['runtime-a', 'runtime-b'].map((id, index) => ({
+  id: runtimeId(id), capabilities: {}, presentation: { name: `Runtime ${index + 1}` },
+}) as unknown as RuntimeInfo)
+const CHOICE_MODELS: readonly ModelInfo[] = [{
+  id: 'model-a', displayName: 'Model A', reasoningLevels: [{ id: 'high', label: 'High' }],
+  thinking: 'optional', supportsImages: false,
+}]
+const fieldValue = (label: string): string => {
+  const tag = [...document.body.querySelectorAll('label')].find(one => one.textContent === label)!
+  return (document.getElementById(tag.htmlFor) as HTMLSelectElement).value
+}
+const renderChoicePage = (snapshot: AppSnapshot, overrides: Record<string, unknown> = {}) => {
+  const store = storeFor(snapshot, { modelsFor: vi.fn(async () => CHOICE_MODELS), ...overrides })
+  act(() => root.render(<StoreProvider store={store}><AgentTestScope><AgentPage entry={ROSTER[2]!} onBack={() => {}} /></AgentTestScope></StoreProvider>))
+  return store
+}
+
+it('offers runtime choice and customization directly without duplicating customization in More', async () => {
+  mount({ focus: 'judge' })
+  const actions = [...container.querySelectorAll('button')].map(one => one.textContent?.trim())
+  expect(actions).toContain('Choose runtime…')
+  expect(actions).toContain('Customize…')
+  act(() => document.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  await settle()
+  expect([...document.querySelectorAll('[role="menuitem"]')].some(one => one.textContent?.trim() === 'Customize…')).toBe(false)
+})
+
+it('primary runtime choice prefills the first local seat and replaces it while preserving later fallbacks', async () => {
+  const seats: readonly FlowSeat[] = [
+    { runtime: 'runtime-a', model: 'model-a', effort: 'high', thinking: true },
+    { runtime: 'runtime-b', model: 'fallback-b' },
+    { runtime: 'runtime-a', effort: 'low' },
+  ]
+  const snapshot = { ...snapshotFor({ ...SEATING, entries: [{ id: 'judge', seats }] }), runtimes: CHOICE_RUNTIMES, activeRuntime: runtimeId('runtime-b') }
+  const store = renderChoicePage(snapshot)
+  await act(async () => button('Choose runtime…').click())
+  expect(fieldValue('Runtime')).toBe('runtime-a')
+  expect(fieldValue('Model')).toBe('model-a')
+  expect(fieldValue('Effort')).toBe('high')
+  expect(document.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true')
+  choose('Runtime', 'runtime-b')
+  await settle()
+  await act(async () => button('Save choice').click())
+  expect(store.setSeating).toHaveBeenCalledWith('judge', [{ runtime: 'runtime-b' }, seats[1], seats[2]], seats)
+  expect(store.customizeAgent).not.toHaveBeenCalled()
+  expect(store.previewAgentEdit).not.toHaveBeenCalled()
+})
+
+it('primary runtime choice uses the actual winning preset seat and creates a local override', async () => {
+  const winning = { runtime: 'runtime-b', model: 'model-a', effort: 'high', thinking: false }
+  const snapshot = { ...snapshotFor({ ...SEATING, entries: [] }), runtimes: CHOICE_RUNTIMES,
+    agentPlans: new Map([['judge', { ...PLANS.get('judge')!, winner: 1, candidates: [
+      candidate('runtime-a', 'Runtime 1', 'passed'),
+      candidate('runtime-b', 'Runtime 2 · Model A · High', 'taken', { seat: winning }),
+    ] }]]) }
+  const store = renderChoicePage(snapshot)
+  await act(async () => button('Choose runtime…').click())
+  expect(fieldValue('Runtime')).toBe('runtime-b')
+  expect(fieldValue('Model')).toBe('model-a')
+  expect(fieldValue('Effort')).toBe('high')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('on this Mac only')
+  await act(async () => button('Save choice').click())
+  expect(store.setSeating).toHaveBeenCalledWith('judge', [winning], null)
+  expect(store.customizeAgent).not.toHaveBeenCalled()
+})
+
+it.each(['runtime-a', 'runtime-b'])('primary runtime choice falls back to an available active runtime when active is %s', async active => {
+  const snapshot = { ...snapshotFor({ ...SEATING, entries: [] }), runtimes: CHOICE_RUNTIMES,
+    activeRuntime: runtimeId(active), agentPlans: new Map(),
+    healthByRuntime: { 'runtime-a': { state: 'unavailable' as const, reason: 'notInstalled' as const, message: 'Not installed' }, 'runtime-b': { state: 'ready' as const } },
+  }
+  renderChoicePage(snapshot)
+  await act(async () => button('Choose runtime…').click())
+  expect(fieldValue('Runtime')).toBe('runtime-b')
+})
+
+it('primary runtime choice freezes the compared local list and keeps a concurrent-edit refusal visible', async () => {
+  const original = [{ runtime: 'runtime-a' }, { runtime: 'runtime-b' }]
+  const current = [{ runtime: 'runtime-b', model: 'newer-choice' }]
+  let snapshot = { ...snapshotFor({ ...SEATING, entries: [{ id: 'judge', seats: original }] }), runtimes: CHOICE_RUNTIMES }
+  const listeners = new Set<() => void>()
+  const message = 'The choices changed in another window; nothing was saved.'
+  const store = renderChoicePage(snapshot, {
+    getSnapshot: () => snapshot,
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    setSeating: vi.fn(async (_id: string, _seats: readonly FlowSeat[] | null, expected: readonly FlowSeat[] | null) => {
+      if (JSON.stringify(expected) !== JSON.stringify(current)) throw new Error(message)
+    }),
+  })
+  await act(async () => button('Choose runtime…').click())
+  vi.mocked(store.loadSeating).mockClear()
+  await act(async () => {
+    snapshot = { ...snapshot, seating: { ...SEATING, entries: [{ id: 'judge', seats: current }] } }
+    for (const listener of listeners) listener()
+  })
+  choose('Runtime', 'runtime-b')
+  await settle()
+  await act(async () => button('Save choice').click())
+  expect(store.setSeating).toHaveBeenCalledWith('judge', [{ runtime: 'runtime-b' }, original[1]], original)
+  expect(store.loadSeating).toHaveBeenCalledOnce()
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain(message)
+})
+
+it('primary runtime replacement works at the preference cap while fallback append stays disabled', async () => {
+  const seats = Array.from({ length: SEAT_PREFERENCE_LIMIT }, () => ({ runtime: 'runtime-a' }))
+  const store = renderChoicePage({ ...snapshotFor({ ...SEATING, entries: [{ id: 'judge', seats }] }), runtimes: CHOICE_RUNTIMES })
+  expect(button('Add a seat…').disabled).toBe(true)
+  expect(button('Choose runtime…').disabled).toBe(false)
+  await act(async () => button('Choose runtime…').click())
+  choose('Runtime', 'runtime-b')
+  await settle()
+  await act(async () => button('Save choice').click())
+  expect(store.setSeating).toHaveBeenCalledWith('judge', [{ runtime: 'runtime-b' }, ...seats.slice(1)], seats)
+})
+
+it('primary runtime choice cannot overwrite an unreadable local file', () => {
+  const store = renderChoicePage({ ...snapshotFor({ ...SEATING, entries: [], problems: [{ id: null, at: '', text: 'Cannot read choices' }] }), runtimes: CHOICE_RUNTIMES })
+  expect(button('Choose runtime…').disabled).toBe(true)
+  expect(button('Choose runtime…').title).toContain('cannot be read')
+  act(() => button('Choose runtime…').click())
+  expect(store.setSeating).not.toHaveBeenCalled()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('primary runtime choice shows model-read failures and recovers when another runtime is selected', async () => {
+  const seats = [{ runtime: 'runtime-a' }]
+  const store = renderChoicePage({ ...snapshotFor({ ...SEATING, entries: [{ id: 'judge', seats }] }), runtimes: CHOICE_RUNTIMES }, {
+    modelsFor: vi.fn(async (runtime: string) => {
+      if (runtime === 'runtime-a') throw new Error('Models could not be read.')
+      return CHOICE_MODELS
+    }),
+  })
+  await act(async () => button('Choose runtime…').click())
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Models could not be read.')
+  expect(button('Save choice').disabled).toBe(true)
+  choose('Runtime', 'runtime-b')
+  await settle()
+  expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Models could not be read.')
+  await act(async () => button('Save choice').click())
+  expect(store.setSeating).toHaveBeenCalledWith('judge', [{ runtime: 'runtime-b' }], seats)
+})
+
+it('primary runtime choice retains an unavailable saved model until the person chooses its replacement', async () => {
+  const seats = [{ runtime: 'runtime-a', model: 'retired-model', effort: 'high' }]
+  const store = renderChoicePage({ ...snapshotFor({ ...SEATING, entries: [{ id: 'judge', seats }] }), runtimes: CHOICE_RUNTIMES })
+  await act(async () => button('Choose runtime…').click())
+  expect(fieldValue('Model')).toBe('retired-model')
+  expect(button('Save choice').disabled).toBe(true)
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('This model is unavailable.')
+  choose('Model', 'model-a')
+  await settle()
+  await act(async () => button('Save choice').click())
+  expect(store.setSeating).toHaveBeenCalledWith('judge', [{ runtime: 'runtime-a', model: 'model-a' }], seats)
+})
+
+it('primary runtime choice cannot preserve an over-cap local preference list', () => {
+  const seats = Array.from({ length: SEAT_PREFERENCE_LIMIT + 1 }, () => ({ runtime: 'runtime-a' }))
+  renderChoicePage({ ...snapshotFor({ ...SEATING, entries: [{ id: 'judge', seats }] }), runtimes: CHOICE_RUNTIMES })
+  expect(button('Choose runtime…').disabled).toBe(true)
+  expect(button('Choose runtime…').title).toContain(`at most ${SEAT_PREFERENCE_LIMIT}`)
+})
+
+it('primary runtime choice can clear saved effort after the runtime stops offering effort levels', async () => {
+  const seats = [{ runtime: 'runtime-a', model: 'model-a', effort: 'retired-effort' }]
+  const store = renderChoicePage({ ...snapshotFor({ ...SEATING, entries: [{ id: 'judge', seats }] }), runtimes: CHOICE_RUNTIMES }, {
+    modelsFor: vi.fn(async () => [{ ...CHOICE_MODELS[0]!, reasoningLevels: [] }]),
+  })
+  await act(async () => button('Choose runtime…').click())
+  expect(button('Save choice').disabled).toBe(true)
+  expect(fieldValue('Effort')).toBe('retired-effort')
+  choose('Effort', '')
+  await act(async () => button('Save choice').click())
+  expect(store.setSeating).toHaveBeenCalledWith('judge', [{ runtime: 'runtime-a', model: 'model-a' }], seats)
 })
 
 it('an entry this Mac cannot read says where and why; a file that will not read is not written over from here', () => {

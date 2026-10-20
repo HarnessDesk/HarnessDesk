@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import type { AgentEntry, AttachmentDeclaration, CeilingLevel, FlowSeat, SeatPlan } from '@harnessdesk/protocol'
+import type { AgentEntry, AttachmentDeclaration, CeilingLevel, FlowSeat, SeatPlan, SeatReason } from '@harnessdesk/protocol'
 
 import { CHANGED_PREVIEW, FlowPreviews, LEGACY_START, type FlowPreviewPort } from '../src/flow-preview.js'
 import { rig as consentRig } from './fixtures/intake-consent.js'
@@ -423,7 +423,32 @@ rules:
   assert.equal(reviewer.candidates[1]?.reason?.kind, 'unheld')
   const refusal = preview.problems.find((problem) => problem.at === 'roles.reviewer.seat[0]' && problem.level === 'error')
   assert.ok(refusal)
+  assert.match(refusal.text, /codex uses the same provider as the writer/)
   assert.match(refusal.text, /claude-code cannot enforce read-only access\. Choose another agent that supports this access\./)
+})
+
+test('a refused seat explains account and runtime availability in the blocking problem', async () => {
+  const state = rig()
+  const reasons: readonly SeatReason[] = [
+    { kind: 'signedOut' },
+    { kind: 'unavailable', detail: 'The runtime exited before it was ready.' },
+  ]
+  const port: FlowPreviewPort = {
+    ...state.port,
+    previewAgent: async (_root, agent) => ({
+      id: agent, from: 'prefer', winner: null, blocked: null, ceiling: null,
+      candidates: reasons.map((reason, index) => ({
+        seat: { runtime: `candidate-${index}` }, label: `Candidate ${index}`, runtimeName: `Candidate ${index}`,
+        state: 'passed', reason, fix: null,
+      })),
+    }),
+  }
+  const preview = await new FlowPreviews(port).preview('/repo', FLOW)
+  assert.equal(preview.token, null)
+  const refusal = preview.problems.find(problem => problem.at === 'roles.author.seat[0]' && problem.level === 'error')
+  assert.ok(refusal)
+  assert.match(refusal.text, /Candidate 0 is signed out/)
+  assert.match(refusal.text, /Candidate 1 is unavailable: The runtime exited before it was ready\./)
 })
 
 test('independence follows the final fallback winner through a chain of roles', async () => {

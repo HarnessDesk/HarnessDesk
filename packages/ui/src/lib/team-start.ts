@@ -102,6 +102,17 @@ export const pickerSections = (entries: readonly FlowEntry[], starts: Readonly<R
   return { project: project.filter(matches), most: most.filter(matches), more: other.filter(one => !most.includes(one)).filter(matches) }
 }
 
+/** A small front door; the searchable catalogue remains the complete source of choices. */
+export const quickFlowChoices = (entries: readonly FlowEntry[], starts: Readonly<Record<string, number>>): readonly FlowEntry[] => {
+  const sections = pickerSections(entries, starts, '')
+  const candidates = [
+    ...sections.project.slice(0, 1), ...sections.most.slice(0, 2),
+    ...FRESH.flatMap(id => entries.filter(entry => entry.id === id && entry.origin !== 'project')),
+    ...sections.project, ...sections.more,
+  ]
+  return candidates.filter((entry, index) => candidates.findIndex(one => one.id === entry.id && one.origin === entry.origin) === index).slice(0, 3)
+}
+
 /** Keep the edit-first publication handoff when the review option is toggled. */
 export const withReviewHandoff = (flow: FlowPolicy, value: string): FlowPolicy => {
   const editFirst = flow.roles.some(role => role.id === flow.seed.role && role.kind === 'agent' && role.grant === 'edit')

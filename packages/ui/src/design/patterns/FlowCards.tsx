@@ -40,6 +40,22 @@ export const FlowCard = ({ name, origin, policy, empty, summary, runs, selected 
   </Button>
 }
 
+/** The chosen policy stays inspectable while its full catalogue is folded away. */
+export const SelectedFlow = ({ name, origin, policy, empty, disabled, onChange }: {
+  readonly name: string
+  readonly origin: string
+  readonly policy?: FlowPolicy | null
+  readonly empty?: boolean
+  readonly disabled?: boolean
+  readonly onChange: () => void
+}) => <section data-slot="selected-flow" aria-label="Selected Flow" className={styles.selection}>
+  <div className={styles.selectionHead}>
+    <div className={styles.selectionName}><Text as="span" role="subject" truncate title={name}>{name}</Text><Chip size="sm" tone="neutral">{origin}</Chip></div>
+    <Button variant="outline" size="sm" disabled={disabled} onClick={onChange}>Change</Button>
+  </div>
+  <div className={styles.selectionGraph}><FlowMiniGraph policy={policy} empty={empty} /></div>
+</section>
+
 /** A policy thumbnail reads the full canvas's topology, with one fixed viewport and unscaled, end-truncated role labels. */
 export const FlowMiniGraph = ({ policy, empty = false }: { readonly policy?: FlowPolicy | null; readonly empty?: boolean }) => {
   const model = useMemo(() => policy ? flowModel(policy) : null, [policy])

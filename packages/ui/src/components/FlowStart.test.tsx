@@ -99,9 +99,108 @@ const renderTeam = async (flow: FlowPolicy, seats: readonly FlowPreviewSeat[], r
   })
 }
 
+it('shows one compact role configuration with its resolved model and instructions', async () => {
+  const policy = TEAM_START_POLICIES['fix-and-review']
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview,
+    runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } } as never] })
+  vi.mocked(theStore.modelsFor).mockResolvedValue([{ id: 'large', displayName: 'Large model', isDefault: true, hidden: false, reasoningLevels: [], supportsImages: false }])
+  const writer = { ...seat('fixer', false), agent: 'builder' }
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: policy, template: policy,
+    preview: { ...emptyPreview(), seats: [writer] }, roster: new Map([['builder', AGENT('builder', 'Builder instructions')]]), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {},
+  }} /></StoreProvider>))
+  expect(container.querySelectorAll('[aria-label="Configure Writes"]')).toHaveLength(1)
+  expect(container.querySelector('[aria-label="Configure Writes"]')?.textContent).toContain('Gamma · Large model')
+  expect(container.textContent).toContain('Builder instructions')
+  expect(document.querySelector('[aria-label="Runtime for Writes"]')).toBeNull()
+  expect(document.querySelector('[aria-label="Model for Writes"]')).toBeNull()
+  expect(document.querySelector('[aria-label="Effort for Writes"]')).toBeNull()
+})
+
+it('edits the exact role policy from its local configuration and preserves automatic picks until changed', async () => {
+  const template = TEAM_START_POLICIES['fix-and-review']
+  let current: FlowPolicy = template
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview,
+    runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } }, { id: 'delta', presentation: { name: 'Delta' } }] as never })
+  vi.mocked(theStore.modelsFor).mockResolvedValue([{ id: 'large', displayName: 'Large model', isDefault: true, hidden: false, reasoningLevels: [{ id: 'high', label: 'High' }], supportsImages: false }])
+  const onPolicy = vi.fn((policy: FlowPolicy) => { current = policy; paint() })
+  const paint = () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: current, template,
+    preview: { ...emptyPreview(), seats: [{ ...seat('fixer', false), agent: 'builder' }] }, roster: new Map([['builder', AGENT('builder', 'Builder')], ['tester', AGENT('tester', 'Test writer')]]), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy,
+  }} /></StoreProvider>)
+  await act(async () => paint())
+  const configure = container.querySelector<HTMLButtonElement>('[aria-label="Configure Writes"]')!
+  await act(async () => configure.click())
+  expect(onPolicy).not.toHaveBeenCalled()
+  const pick = async (label: string, words: string) => {
+    await act(async () => document.querySelector<HTMLButtonElement>(`[aria-label="${label} for Writes"]`)!.click())
+    await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(one => one.textContent === words)!.click())
+  }
+  await pick('Model', 'Large model')
+  expect(current.roles.find(role => role.id === 'fixer')).toMatchObject({ seats: [{ runtime: 'gamma', model: 'large' }] })
+  await pick('Effort', 'High')
+  expect(current.roles.find(role => role.id === 'fixer')).toMatchObject({ seats: [{ runtime: 'gamma', model: 'large', effort: 'high' }] })
+  const instructions = document.querySelector<HTMLSelectElement>('[aria-label="Instructions for fixer 1"]')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(instructions, 'tester')
+    instructions.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(current.roles.find(role => role.id === 'fixer')).toMatchObject({ uses: ['tester'], seats: [{ runtime: 'gamma', model: 'large', effort: 'high' }] })
+  await pick('Runtime', 'Delta')
+  expect(current.roles.find(role => role.id === 'fixer')).toMatchObject({ uses: ['tester'], seats: [{ runtime: 'delta' }] })
+})
+
+it('shows pinned model and effort from the automatic winner without making the role explicit', async () => {
+  const policy = TEAM_START_POLICIES['fix-and-review']
+  const writer = seat('fixer', false)
+  const pinned = { runtime: 'gamma', model: 'pinned', effort: 'high' }
+  const onPolicy = vi.fn()
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview,
+    runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } } as never] })
+  vi.mocked(theStore.modelsFor).mockResolvedValue([
+    { id: 'default', displayName: 'Default catalog model', isDefault: true, hidden: false, reasoningLevels: [], supportsImages: false },
+    { id: 'pinned', displayName: 'Pinned model', hidden: false, reasoningLevels: [{ id: 'high', label: 'High' }], supportsImages: false },
+  ])
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: policy, template: policy,
+    preview: { ...emptyPreview(), seats: [{ ...writer, plan: { ...writer.plan, candidates: [candidate({ seat: pinned, state: 'taken', reason: null })] } }] },
+    roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy,
+  }} /></StoreProvider>))
+  expect(container.querySelector('[aria-label="Configure Writes"]')?.textContent).toContain('Gamma · Pinned model')
+  await openConfiguration('Writes')
+  expect(document.querySelector('[aria-label="Model for Writes"]')?.textContent).toBe('Pinned model')
+  expect(document.querySelector('[aria-label="Effort for Writes"]')?.textContent).toBe('High')
+  expect(onPolicy).not.toHaveBeenCalled()
+  expect(policy.roles.find(role => role.id === 'fixer')).toMatchObject({ seats: [] })
+})
+
+it('keeps a saved effort available to clear after a model stops offering effort levels', async () => {
+  const base = TEAM_START_POLICIES['fix-and-review']
+  const policy: FlowPolicy = { ...base, roles: base.roles.map(role => role.id === 'fixer' && role.kind === 'agent'
+    ? { ...role, seats: [{ runtime: 'gamma', model: 'plain', effort: 'retired' }] } : role) }
+  const onPolicy = vi.fn()
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview,
+    runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } } as never] })
+  vi.mocked(theStore.modelsFor).mockResolvedValue([{ id: 'plain', displayName: 'Plain model', isDefault: true, hidden: false, reasoningLevels: [], supportsImages: false }])
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: policy, template: policy,
+    preview: { ...emptyPreview(), seats: [seat('fixer', false)] }, roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy,
+  }} /></StoreProvider>))
+  await openConfiguration('Writes')
+  const effort = document.querySelector<HTMLButtonElement>('[aria-label="Effort for Writes"]')
+  expect(effort).not.toBeNull()
+  expect(effort?.textContent).toBe('retired')
+  await act(async () => effort!.click())
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(one => one.textContent === 'Default effort')!.click())
+  expect(onPolicy.mock.lastCall?.[0].roles.find((role: FlowPolicy['roles'][number]) => role.id === 'fixer')).toMatchObject({ seats: [{ runtime: 'gamma', model: 'plain', effort: undefined }] })
+})
+
+
+const openConfiguration = async (label: string): Promise<void> => {
+  if (document.querySelector(`[aria-label="${label} configuration"]`)) return
+  await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="Configure ${label}"]`)!.click())
+}
+
 it('gives the selected agent name a tooltip in the seat controls', async () => {
   await renderTeam(TEAM_START_POLICIES.comparison, [seat('judge', true)], [{ id: 'gamma', presentation: { name: 'Gamma' } } as never])
-  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Judge"]')?.title).toBe('Gamma')
+  await openConfiguration('Judge')
+  expect(document.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Judge"]')?.title).toBe('Gamma')
 })
 
 it('shows what Automatic resolves to, or that no agent can run', async () => {
@@ -119,10 +218,10 @@ it('shows what Automatic resolves to, or that no agent can run', async () => {
   }
   await renderTeam(TEAM_START_POLICIES['fix-and-review'], [resolved, unavailable], [{ id: 'codex', presentation: { name: 'Codex' } } as never])
 
-  const writes = container.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Writes"]')!
-  const reviews = container.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Reviews"]')!
-  expect(writes.textContent).toBe('Automatic · Codex')
-  expect(reviews.textContent).toBe('Automatic · Nothing can run')
+  const writes = container.querySelector<HTMLButtonElement>('button[aria-label="Configure Writes"]')!
+  const reviews = container.querySelector<HTMLButtonElement>('button[aria-label="Configure Reviews"]')!
+  expect(writes.textContent).toBe('Codex')
+  expect(reviews.textContent).toBe('Nothing can run')
 })
 
 it('marks a reviewer that returns to the seed role as fresh each round', async () => {
@@ -163,7 +262,8 @@ it.each([false, true])('keeps the attempt check editable when empty, including a
   expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toBeUndefined()
   expect(container.textContent).toContain('Leave empty to let the judge read the attempts directly.')
   const judge = async () => {
-    const select = container.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Judge"]')!
+    await openConfiguration('Judge')
+    const select = document.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Judge"]')!
     const name = current.roles.some(role => role.id === 'judge') ? 'You' : 'Gamma'
     await act(async () => select.click())
     const choice = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(one => one.textContent === name)!
@@ -202,7 +302,7 @@ it('keeps a saved custom check’s success and incoming guards through clearing,
     { id: 'to-judge', on: 'verify', when: success, then: { role: 'judge', title: 'Pick the best attempt' } },
     ...base.rules.filter(rule => rule.on === 'judge'),
   ] }
-  let current = template
+  let current: FlowPolicy = template
   const theStore = store({ entries: [], source: () => '', preview: emptyPreview, runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } } as never] })
   const onPolicy = (flow: FlowPolicy) => { current = flow; paint() }
   const paint = () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: current, template, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>)
@@ -214,7 +314,8 @@ it('keeps a saved custom check’s success and incoming guards through clearing,
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
   const toggle = async () => {
-    const select = container.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Judge"]')!
+    await openConfiguration('Judge')
+    const select = document.querySelector<HTMLButtonElement>('button[aria-label="Runtime for Judge"]')!
     const name = current.roles.some(role => role.id === 'judge') ? 'You' : 'Gamma'
     await act(async () => select.click())
     const choice = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(one => one.textContent === name)!
@@ -265,11 +366,13 @@ it('keeps a mechanically checked review on its declared path to a person', () =>
   expect(onPolicy).not.toHaveBeenCalled()
 })
 
-it('holds Details variables while a compact form is disabled', () => {
+it('keeps required extra variables visible and disabled while a compact form is locked', () => {
   const flow = { ...TEAM_START_POLICIES['fix-and-review'], inputs: [{ id: 'ticket', label: 'Ticket', default: '42' }] }
   const theStore = store({ entries: [], source: () => '', preview: emptyPreview, runtimes: [{ id: 'gamma', presentation: { name: 'Gamma' } } as never] })
   act(() => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow, template: flow, preview: emptyPreview(), roster: new Map(), vars: { ticket: '42' }, disabled: true, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {} }} /></StoreProvider>))
-  expect(container.querySelector<HTMLInputElement>('input')!.disabled).toBe(true)
+  const input = container.querySelector<HTMLInputElement>('input')!
+  expect(input.disabled).toBe(true)
+  expect(input.closest('[hidden]')).toBeNull()
 })
 
 const render = (theStore: AppStore, onChange: (choice: FlowChoice | null) => void) => {
@@ -986,7 +1089,7 @@ it('explains an edit refusal next to Writes and offers a compatible runtime', as
     { id: 'beta', presentation: { name: 'Runtime Beta' }, ceilings: { edit: { settings: [], how: 'Workspace guard' } } } as never,
   ])
   expect(container.textContent).toContain('Runtime Alpha cannot enforce editing and local commits without publishing. Choose another runtime that supports this access.')
-  expect(container.querySelector('button[aria-label="Runtime for Writes"]')).not.toBeNull()
+  expect(container.querySelector('button[aria-label="Configure Writes"]')).not.toBeNull()
   expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Use Runtime Beta')).toBe(true)
 })
 
@@ -1004,8 +1107,9 @@ it('loads the automatic runtime models and offers menu choices before an agent i
     roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {},
   }} /></StoreProvider>))
   expect(theStore.modelsFor).toHaveBeenCalledWith('gamma')
+  await openConfiguration('Writes')
   for (const label of ['Runtime', 'Model', 'Effort']) {
-    const trigger = container.querySelector<HTMLButtonElement>(`button[aria-label="${label} for Writes"]`)!
+    const trigger = document.querySelector<HTMLButtonElement>(`button[aria-label="${label} for Writes"]`)!
     expect(trigger).not.toBeNull()
     expect(trigger.disabled).toBe(false)
     await act(async () => trigger.click())
@@ -1015,5 +1119,9 @@ it('loads the automatic runtime models and offers menu choices before an agent i
     if (label === 'Effort') expect(menu.textContent).toContain('High')
     await act(async () => menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
     expect(document.body.querySelector('[role="menu"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Writes configuration"]')).not.toBeNull()
   }
+  await act(async () => document.querySelector('[aria-label="Writes configuration"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(document.querySelector('[aria-label="Writes configuration"]')).toBeNull()
+  expect(document.activeElement).toBe(container.querySelector('[aria-label="Configure Writes"]'))
 })

@@ -5101,6 +5101,12 @@ export class AppStore {
     return view
   }
 
+  async startTeam(input: HostParams<'goal/start'>): Promise<GoalView> {
+    const view = await this.transport.request('goal/start', input)
+    this.#keepGoal(view)
+    return view
+  }
+
   async updateGoal(
     goal: GoalId,
     revision: number,

@@ -31,6 +31,24 @@ beforeEach(() => {
 })
 afterEach(() => { act(() => root.unmount()); host.remove() })
 
+it('keeps a selected Flow compact with its actual graph, origin and Change action', () => {
+  expect(design.SelectedFlow).toBeTypeOf('function')
+  const change = vi.fn()
+  act(() => root.render(<design.SelectedFlow name={policy.name} origin="Project" policy={policy} onChange={change} />))
+  const summary = host.querySelector('[data-slot="selected-flow"]')!
+  expect(summary.textContent).toContain(policy.name)
+  expect(summary.textContent).toContain('Project')
+  expect(summary.querySelectorAll('[data-step]')).toHaveLength(policy.roles.length)
+  const button = summary.querySelector<HTMLButtonElement>('button')!
+  expect(button.textContent).toBe('Change')
+  act(() => button.click())
+  expect(change).toHaveBeenCalledOnce()
+  act(() => root.render(<design.SelectedFlow name="Just a Team" origin="Built in" empty disabled onChange={change} />))
+  expect(host.querySelector('[data-step]')).toBeNull()
+  expect(host.textContent).toContain('No steps')
+  expect(host.querySelector<HTMLButtonElement>('button')?.disabled).toBe(true)
+})
+
 it('opens a named selectable card while keeping its origin, complete summary and Run count', () => {
   expect(design.FlowCard).toBeTypeOf('function')
   const open = vi.fn()
@@ -269,7 +287,7 @@ it('registers the shared Flow patterns with reachable examples and all public sy
   const { CATALOG_ENTRIES } = await import('../catalog/manifest')
   const cards = CATALOG_ENTRIES.find(entry => entry.id === 'pattern.FlowCards')
   expect(cards?.exampleId).toBe('flow-cards')
-  expect(cards?.symbols).toEqual(['FlowCard', 'FlowMiniGraph', 'FlowCardGrid'])
+  expect(cards?.symbols).toEqual(['FlowCard', 'FlowMiniGraph', 'FlowCardGrid', 'SelectedFlow'])
   expect(cards?.states).toEqual(expect.arrayContaining(['selected', 'disabled', 'empty', 'long-title']))
   const toolbar = CATALOG_ENTRIES.find(entry => entry.id === 'pattern.FlowCanvasToolbar')
   expect(toolbar?.exampleId).toBe('flow-canvas-toolbar')

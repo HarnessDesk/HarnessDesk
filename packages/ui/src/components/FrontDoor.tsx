@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import type { AgentEntry, FlowEntry, FlowExecution, FlowPolicy, GoalView, StartContext } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Button, Checkbox, Chip, Dialog, Field, Fieldset, FlowCard, FlowCardGrid, FormStack, Input, Note, Row, Rows, SectionHead, Search, Text, Textarea } from '../design'
-import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary, supportsAttemptCheck, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from '../lib/team-start'
+import { ActionError, Banner, Button, Checkbox, Chip, Dialog, DisclosureChevron, Field, Fieldset, FlowCard, FlowCardGrid, FormStack, Input, Note, Row, Rows, SectionHead, Search, SelectedFlow, Text, Textarea } from '../design'
+import { pickerSections, quickFlowChoices, readShapeStarts, recordShapeStart, shapeSummary, supportsAttemptCheck, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from '../lib/team-start'
 import { agentName, inForce } from '../lib/agents'
 import styles from './FrontDoor.module.css'
 import { raceRoleId } from '../lib/flows'
@@ -85,8 +85,14 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   const [callerProblem, setCallerProblem] = useState(projectProblem ?? null)
   const [roster, setRoster] = useState<ReadonlyMap<string, AgentEntry>>(new Map())
   const [query, setQuery] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(!initialPlain || initialSource !== undefined)
+  const [allFlows, setAllFlows] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(!!initialDone)
+  const advancedId = useId()
   const [activeCard, setActiveCard] = useState(0)
   const pickerRef = useRef<HTMLDivElement>(null)
+  const selectedRef = useRef<HTMLDivElement>(null)
+  const selectionRequested = useRef(false)
   const [starts] = useState(readShapeStarts)
   const [task, setTask] = useState(initialTask)
   const taskRef = useRef(initialTask)
@@ -113,6 +119,12 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   const [problem, setProblem] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
   const [startProblem, setStartProblem] = useState<string | null>(null)
+  const startFailureRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!startProblem) return
+    startFailureRef.current?.focus({ preventScroll: true })
+    startFailureRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [startProblem])
   const sequence = useRef(0)
   const initialTried = useRef(false)
 
@@ -177,6 +189,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
       if (created || starting) return
       if (chosen && source) drafts.current.set(choiceKey(chosen), { source, vars, template: templates.current })
       setPlainTeam(false)
+      setPickerOpen(false)
       sequence.current += 1
       const mine = sequence.current
       // Retires the shape just left behind before its own file is even
@@ -295,11 +308,20 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
 
   const eligible = entries === null ? [] : sortShapes(entries.filter((entry) => acceptsContext(entry, context.kind)))
   const sections = pickerSections(eligible, starts, query)
-  const cards = [...sections.project, ...sections.most, ...sections.more]
+  const completeCatalog = allFlows || !!query.trim()
+  const cards = completeCatalog ? [...sections.project, ...sections.most, ...sections.more] : quickFlowChoices(eligible, starts)
   const showPlain = context.kind === 'project' && !goal && (!query.trim() || 'Just a Team A shared board for several agents; no fixed steps.'.toLowerCase().includes(query.toLowerCase()))
   const draftCard = chosen && (chosen.kind === 'draft' || !eligible.some(entry => entry.id === chosen.id && entry.origin === chosen.origin)) ? chosen : null
   const cardCount = cards.length + (showPlain ? 1 : 0) + (draftCard ? 1 : 0)
   const pickerCards = (): HTMLButtonElement[] => [...pickerRef.current?.querySelectorAll<HTMLButtonElement>('[data-slot="flow-card"]') ?? []]
+  const changeFlow = (): void => { setAllFlows(true); setQuery(''); setPickerOpen(true) }
+  useEffect(() => {
+    if (pickerOpen && (chosen || plainTeam)) pickerRef.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
+    else if (!pickerOpen && selectionRequested.current) {
+      selectedRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+      selectionRequested.current = false
+    }
+  }, [pickerOpen])
 
   const preview = snapshot.frontDoor?.preview ?? null
   const flow = (preview ?? displayPreview)?.flow ?? null
@@ -329,6 +351,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     store.openFrontDoor(context, goal)
     setChosen(null)
     setPlainTeam(true)
+    setPickerOpen(false)
     setBriefReading(false)
     setPolicyPending(false)
     setReadingAccounts(false)
@@ -384,7 +407,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     let team = created
     try {
       if (!team) {
-        team = await store.createGoal({ root, sentence: plainWords, checkout: isolated ? 'isolated' : 'shared' })
+        team = await store.startTeam({ root, sentence: plainWords, checkout: isolated ? 'isolated' : 'shared' })
         setCreated(team)
       }
       if (task.trim() && !taskAdded) {
@@ -432,14 +455,16 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   const failure = (text: string) => recovery(text)
     ? <Banner tone="danger" role="alert" actions={recovery(text)}>{text}</Banner>
     : <ActionError>{text}</ActionError>
-  const group = (name: string, list: readonly FlowEntry[]) => list.length > 0 && <section className={styles.section} aria-label={name}>
-    <SectionHead level="label" name={name} />
-    <FlowCardGrid>{list.map(entry => <FlowCard key={`${entry.origin}-${entry.id}`} name={entry.name}
+  const flowCard = (entry: FlowEntry) => <FlowCard key={`${entry.origin}-${entry.id}`} name={entry.name}
       aria-label={entry.name} title={entry.description ?? entry.name}
       origin={entry.origin === 'project' ? project : entry.origin === 'builtin' ? 'Built in' : 'Personal'}
       policy={chosen?.kind === 'saved' && chosen.id === entry.id && chosen.origin === entry.origin && compiled?.format === 'agents' ? compiled.flow : entry.policy}
       summary={entry.problem ?? shapeSummary(entry)} selected={chosen?.kind === 'saved' && chosen.id === entry.id && chosen.origin === entry.origin}
-      disabled={starting || policyPending || readingAccounts || !!created} onClick={() => void choose(entry)} />)}</FlowCardGrid>
+      disabled={starting || policyPending || readingAccounts || !!created} onClick={() => { selectionRequested.current = true; void choose(entry) }} />
+  const plainCard = <FlowCard empty name="Just a Team" aria-label="Just a Team" origin="Built in" summary="A shared board for several agents; no fixed steps." selected={plainTeam} disabled={starting || !!created || policyPending || readingAccounts} onClick={() => { selectionRequested.current = true; choosePlainTeam() }} />
+  const group = (name: string, list: readonly FlowEntry[]) => list.length > 0 && <section className={styles.section} aria-label={name}>
+    <SectionHead level="label" name={name} />
+    <FlowCardGrid>{list.map(flowCard)}</FlowCardGrid>
   </section>
   const locked = starting || !!created
   const reason = plainTeam
@@ -453,10 +478,9 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
 
   return (
     <Dialog title="New Team" titleAside={<Chip tone="neutral">{project}</Chip>}
-      size="wide" tall onClose={onClose}
+      size="wide" onClose={onClose}
       footer={<>
         <Button variant="default" aria-describedby={reason ? 'team-start-reason' : undefined} disabled={!canStart} onClick={() => void (plainTeam ? submitPlain() : start())}>{starting ? 'Starting…' : created ? 'Retry unfinished' : 'Start Team'}</Button>
-        <Button variant="secondary" disabled={starting || openingProject || policyPending || readingAccounts || (!plainTeam && !source)} onClick={dryRun}>Dry run</Button>
         <Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button>
       </>}
       footerAside={reason && <Note id="team-start-reason" role="status">{reason}</Note>}
@@ -479,7 +503,12 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
             else if (!plainTeam && compiled?.format === 'agents') void editPolicy({ ...compiled.flow, seed: { ...compiled.flow.seed, title: next } })
           }} />}
         </Field>
-        <section className={styles.picker} aria-label="Flow" ref={pickerRef} onFocusCapture={event => {
+        {!pickerOpen && (chosen || plainTeam) && <div ref={selectedRef}><SelectedFlow name={plainTeam ? 'Just a Team' : chosen!.name}
+          origin={plainTeam || chosen?.origin === 'builtin' ? 'Built in' : chosen?.kind === 'draft' ? 'Unsaved' : chosen?.origin === 'project' ? project : 'Personal'}
+          policy={compiled?.format === 'agents' ? compiled.flow : undefined} empty={plainTeam}
+          disabled={locked || policyPending || readingAccounts} onChange={changeFlow} /></div>}
+        {!pickerOpen && unlisted !== null && <Banner tone="danger" title="These Flows could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
+        {pickerOpen && <section className={styles.picker} aria-label="Flow" ref={pickerRef} onFocusCapture={event => {
           const index = pickerCards().indexOf(event.target as HTMLButtonElement)
           if (index >= 0) setActiveCard(index)
         }} onKeyDown={event => {
@@ -494,17 +523,19 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
             event.preventDefault(); event.target.click()
           }
         }}>
-          <SectionHead level="label" name="Flow" action={<Button variant="outline" size="sm" disabled={locked || policyPending || readingAccounts} onClick={() => { store.openDestination({ kind: 'flows', root, id: null, origin: null, start: { context, ...(goal ? { goal } : {}), task, done: sentence } }); onClose() }}>Build your own</Button>} />
+          <SectionHead level="label" name="Flow" action={<>
+            {(chosen || plainTeam) && <Button variant="outline" size="sm" onClick={() => setPickerOpen(false)}>Keep selected Flow</Button>}
+            <Button variant="outline" size="sm" disabled={locked || policyPending || readingAccounts} onClick={() => { store.openDestination({ kind: 'flows', root, id: null, origin: null, start: { context, ...(goal ? { goal } : {}), task, done: sentence } }); onClose() }}>Build your own</Button>
+          </>} />
           <Search label="Search Flows" placeholder="Search Flows…" value={query} onChange={value => { setQuery(value); setActiveCard(0) }} />
           {unlisted !== null && <Banner tone="danger" title="These Flows could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
           {entries === null && !unlisted && <div aria-label="Loading Flows" aria-busy="true"><Rows><Row title="Reading Flows…" /><Row title="Reading project choices…" /></Rows></div>}
-          {group('This project', sections.project)}
-          {group('Most used', sections.most)}
-          {group('More Flows', sections.more)}
+          {completeCatalog ? <>{group('This project', sections.project)}{group('Most used', sections.most)}{group('More Flows', sections.more)}</> : <FlowCardGrid>{cards.map(flowCard)}{showPlain && plainCard}</FlowCardGrid>}
           {draftCard && <FlowCardGrid><FlowCard name={draftCard.name} aria-label={draftCard.name} origin="Unsaved" policy={compiled?.format === 'agents' ? compiled.flow : undefined} summary={compiled?.format === 'agents' ? compiled.flow.summary ?? compiled.flow.description ?? '' : ''} selected disabled={locked || policyPending || readingAccounts} onClick={() => {}} /></FlowCardGrid>}
-          {showPlain && <FlowCardGrid><FlowCard empty name="Just a Team" aria-label="Just a Team" origin="Built in" summary="A shared board for several agents; no fixed steps." selected={plainTeam} disabled={locked || policyPending || readingAccounts} onClick={choosePlainTeam} /></FlowCardGrid>}
+          {completeCatalog && showPlain && <FlowCardGrid>{plainCard}</FlowCardGrid>}
+          {!completeCatalog && eligible.length > cards.length && <div><Button variant="quiet" size="sm" onClick={() => setAllFlows(true)}>All Flows</Button></div>}
           {query && cards.length === 0 && !showPlain && <Note>No matching Flows.</Note>}
-        </section>
+        </section>}
         {chosen && <>
           {!flow && !problem && <section aria-label="Loading Team form" aria-busy="true"><Rows>
             {(chosen.id === 'comparison' ? ['Attempt A', 'Attempt B'] : ['Agents', 'Options']).map(label => <Row key={label} title={label} control={<Input aria-label={`${label} loading`} disabled placeholder="…" />} />)}
@@ -527,13 +558,18 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
           }} />} />)}</Rows>{plainAgents.length === 0 && <Note>Add work or seat an Agent after this Team is created.</Note>}</Fieldset>
           <Rows><Row title="Use an isolated checkout" desc="New Seats get retained worktrees, ports and browser profiles." control={<Checkbox checked={isolated} disabled={locked} aria-label="Use an isolated checkout" onCheckedChange={next => { setIsolated(next === true); setPlainDryRun(false) }} />} /></Rows>
         </>}
+        {(chosen || plainTeam) && <section className={styles.section} aria-label="Completion and dry run">
+        <div><Button variant="quiet" size="inline-link" aria-expanded={advancedOpen} aria-controls={advancedId} onClick={() => setAdvancedOpen(open => !open)}><DisclosureChevron open={advancedOpen} size="sm" />Completion and dry run</Button></div>
+        <div id={advancedId} className={advancedOpen ? styles.section : undefined} hidden={!advancedOpen}>
         <Field label="Done when · optional" error={(plainTeam ? plainWords.length : sentence.trim().length) > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
           {control => <Input {...control} aria-label="Done when · optional" value={sentence} disabled={locked} onChange={event => { setSentence(event.target.value); onDoneChange?.(event.target.value); setPlainDryRun(false) }} />}
         </Field>
+        <div><Button variant="secondary" size="sm" disabled={starting || openingProject || policyPending || readingAccounts || (!plainTeam && !source)} onClick={dryRun}>Dry run</Button></div>
         {!plainTeam && dryRunOpen && compiled?.format === 'agents' && flow && <section aria-label="Dry run"><SectionHead level="label" name="Dry run" />{!preview && <Note role="status">Checking the seats and inputs…</Note>}<FlowPreviewReport preview={flow} flow={compiled.flow} roster={roster} vars={vars} warnings={flow.problems.filter(one => one.level === 'warning')} /></section>}
         {plainTeam && plainDryRun && <Note role="status">No fixed steps. The Team opens with a board and chat{selectedAgents.size ? ` and ${selectedAgents.size} selected Agent${selectedAgents.size === 1 ? '' : 's'}` : ''}. {isolated ? 'New Seats use isolated checkouts.' : 'Seats share the project checkout.'}</Note>}
+        </div></section>}
         {plainTeam && callerProblem && !startProblem && callerProblem !== unlisted && failure(callerProblem)}
-        {startProblem && failure(startProblem)}
+        {startProblem && <div ref={startFailureRef} tabIndex={-1}>{failure(startProblem)}</div>}
       </FormStack>
       {everyTime && chosen && <TriggerCreate root={root} opens={{ flow: chosen.id }} onClose={() => setEveryTime(false)} onSaved={() => setEveryTime(false)} />}
     </Dialog>

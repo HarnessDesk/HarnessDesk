@@ -23,7 +23,7 @@ import { BoardCardExample } from './board-card-example'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
 import { MainDestination, DestinationBody, Page, TopBar, TopBarToolButton } from '..'
-import { FlowCard, FlowCardGrid, FlowCanvas, FlowCanvasToolbar, FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent } from '..'
+import { FlowCard, FlowCardGrid, SelectedFlow, FlowCanvas, FlowCanvasToolbar, FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent } from '..'
 import { GlobeIcon, SquareMenuIcon, FilePlusIcon, PencilIcon, StopIcon, ExpandIcon, ResetIcon } from '../../components/Icons'
 
 const MAINDESTINATION_CATALOG_VARIANTS = ['light', 'dark'] as const
@@ -3165,6 +3165,9 @@ const FlowCardsBoard = () => {
       </FlowCardGrid>
     </Specimen>
     <Rule>A thumbnail reads the policy's roles and rules. A Team with no policy has no steps; its card never invents a path.</Rule>
+    <Specimen measure="wide" caption="Selected Flow: the actual policy remains visible while the catalog is folded away">
+      <SelectedFlow name="Review and fix" origin="Built in" policy={FLOW_CARD_EXAMPLE_POLICY} onChange={() => setSelected('review')} />
+    </Specimen>
   </div>
 }
 const FlowCanvasToolbarBoard = () => {

@@ -1775,6 +1775,12 @@ Text and ordered forms reserve the toolbar's own band above the shared page inse
 
 A Flow in a destination or picker: its source, actual shape, earned summary and optional Run count.
 
+### `SelectedFlow`
+
+`packages/ui/src/design/patterns/FlowCards.tsx`
+
+The chosen policy stays inspectable while its full catalogue is folded away.
+
 ### `FlowMiniGraph`
 
 `packages/ui/src/design/patterns/FlowCards.tsx`
@@ -2762,7 +2768,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 4 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 18 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2045 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2043 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
 ## Screens against the standard
 
