@@ -389,3 +389,12 @@ it('uses the same disclosure on every metadata aside card and keeps update probl
   expect(card('Files')?.querySelector<HTMLElement>('[data-slot="tool-section-body"]')?.hidden).toBe(true)
   expect(card('Cost')?.querySelector<HTMLElement>('[data-slot="tool-section-body"]')?.hidden).toBe(true)
 })
+
+
+it('omits a confirmed empty Loaded by card while keeping unread files and update failures visible', async () => {
+  await mount([skill({ reach: [], update: [update('unreachable', { reason: 'No response.' })] })], 'review', null)
+  expect(card('Loaded by')).toBeNull()
+  expect(card('Files')?.querySelector('[data-slot="tool-section-value"]')?.textContent).toBe('Not read')
+  expect(card('Files')?.textContent).toContain('No file list to read')
+  expect(card('Update')?.textContent).toContain('Could not check: No response.')
+})

@@ -123,7 +123,7 @@ Design: own messages use the existing right-hand user bubble; Agent messages ret
 - [x] Reuse the canonical user Bubble for own Channel messages, retain recipients/timestamps/grouping/status, and cap readable text widths.
 - [x] Add consistent folding across Work, Run/step/Seat metadata, SkillPage asides and the Flow editor inspector; preserve warnings/loading/failure/retry, full controls and explicit unknown costs.
 - [x] Implement measured composer clearance and subject-local tool/rail priority; retain exact resources and restoration. Fix the requester relationship label for assistive technology.
-- [ ] Verify all combined changes in both themes and narrow/wide geometry, including long labels, empty/error/full rails, Details plus manual rail reveal, own/grouped/Agent-directed messages and persistent composer.
+- [x] Verify all combined changes in both themes and narrow/wide geometry, including long labels, empty/error/full rails, Details plus manual rail reveal, own/grouped/Agent-directed messages and persistent composer.
 - [ ] Run focused source contracts, full UI/typecheck/build/design gates and hosted visual alignment specs; do not record a browser discovery as a passed execution or loosen geometry baselines.
 - [ ] Publish final source and inspected synthetic frames, update PR evidence and request review without merging.
 

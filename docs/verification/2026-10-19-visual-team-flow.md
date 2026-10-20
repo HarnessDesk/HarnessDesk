@@ -71,3 +71,7 @@ CI 上原有三个真实图形配置用例曾接近或超过 5 秒默认测试�
 新增审批来源的 From 无障碍关系文本，图标不会使其消失。可选 Judge 继续由 Details 明确进入；相应浏览器测试迁移到实际图形节点的 Configure 控件，并保留严格对齐与可达性断言，没有更新几何基线。
 
 当前验证：UI 类型检查、实际 Vite 构建、严格设计审计和 pnpm check:push --base origin/development --fast 均通过。该命令显式跳过的 Node 与 browser 套件不计入通过。新轮完整 UI 与 hosted browser alignment 结果待本节追加。
+
+新轮复核还补充了 SkillPage 的空 Loaded by 集合省略；读取中和保留的失败仍显示。测试先红后绿，SkillPage 48 项通过。输入框 No folder 测试保留原精确标题和内容断言，等待异步渲染完成，避免仅在完整套件负载下读取旧 DOM。合并后的三组守卫测试 53 项通过。
+
+公开新增帧位于不可变截图提交 [35a55e46f074](https://github.com/HarnessDesk/HarnessDesk/tree/35a55e46f0743df0c6e9234bbccd039377503c44/pr-1813/visual-team-flow)，均来自隔离 rig，已逐张检查。

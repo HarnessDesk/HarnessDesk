@@ -4,9 +4,13 @@ for (const theme of ['light', 'dark'] as const) test(`a completed person choice 
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?comparison-verdict=person-merged&theme=${theme}`)
   const frame = page.locator('[data-frame-id="comparison-person-merged"]')
+  // Teams enter Work by default. Choose Chat to inspect the fixture's saved
+  // split layout rather than assuming the attempt grid is the landing page.
+  await frame.getByRole('tab', { name: 'Chat', exact: true }).click()
   const tiles = frame.locator('[data-slot="side-by-side-tile"]')
-  await expect(tiles.nth(0).locator(':scope > header')).toContainText('Picked')
-  await expect(tiles.nth(1).locator(':scope > header')).toContainText('Not kept')
+  await expect(tiles).toHaveCount(2)
+  await expect(tiles.nth(0).locator(':scope > [data-slot="bar"][data-rule="bottom"]')).toContainText('Picked')
+  await expect(tiles.nth(1).locator(':scope > [data-slot="bar"][data-rule="bottom"]')).toContainText('Not kept')
   await expect(frame.getByRole('button', { name: 'Pick an attempt…' })).toHaveCount(0)
   const decision = frame.locator('[data-slot="comparison-decision"]')
   await expect(decision).toContainText('You picked A')

@@ -215,7 +215,7 @@ export const SkillPage = ({ entry, columns, hosts, cwd, usage, home, onBack, onC
           </>}
           {update.status === 'unreachable' && <ToolProse variant="note">Could not check: {update.reason}</ToolProse>}
         </ToolSection>}
-        <ToolSection label="Loaded by" fold value={`${entry.reach.filter(one => one.state === 'reaches').length} of ${entry.reach.length}`}>
+        {(entry.reach.length > 0 || rereading || declined.length > 0) && <ToolSection label="Loaded by" fold value={`${entry.reach.filter(one => one.state === 'reaches').length} of ${entry.reach.length}`}>
           {entry.reach.map(reach => {
             const column = columns.find(one => one.id === reach.runtime)
             const switchable = reach.basis === 'reported' && reach.toggleable !== false && (reach.state === 'reaches' || reach.state === 'off')
@@ -237,7 +237,7 @@ export const SkillPage = ({ entry, columns, hosts, cwd, usage, home, onBack, onC
           {entry.reach.some(one => one.basis === 'scanned') && <ToolProse variant="note">{entry.reach.every(one => one.basis === 'scanned')
             ? 'Read from disk against this build’s table of where each runtime looks — the runtimes themselves were not asked.'
             : 'Some rows are what the runtime itself reported; the rest are read from disk.'}</ToolProse>}
-        </ToolSection>
+        </ToolSection>}
         <ToolSection label="Source" fold defaultOpen={false} value={origins.length > 0 ? `${origins.length} ${origins.length === 1 ? 'origin' : 'origins'}` : 'This Mac'}>
           {origins.length === 0 ? <Row density="compact" title="This Mac" /> : origins.map(origin => <div key={JSON.stringify(origin)}>
             <Row density="compact" title={<CodeText>{libraryRepository(origin)}</CodeText>} />
