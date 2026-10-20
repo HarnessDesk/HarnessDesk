@@ -63,7 +63,9 @@ export const FlowStepRow = ({ step, run, subtitle, selected, faces, now = Date.n
   if (activity) return <ListRow data-row={rowId} data-kind={rowKind} data-step-row={step.id} data-flow-state={run?.state} data-presentation="activity"
     as={onSelect ? 'button' : 'div'} interactive={Boolean(onSelect)} selected={selected} size="sm" density="compact"
     onClick={onSelect ? () => onSelect(step.id) : undefined}
-    lead={seats?.[0] ? faces?.get(seats[0]) ?? <Mark size={16} /> : <Mark size={16} />}
+    lead={<span data-slot="flow-activity-mark" className="inline-flex size-4 shrink-0 items-center justify-center">
+      {seats?.[0] ? faces?.get(seats[0]) ?? <Mark size={16} /> : <Mark size={16} />}
+    </span>}
     title={sanitizeText(step.name)} wrapTitle
     subtitle={<>{run && <Text role="meta" tone={toneOf(stateOf(run))}>{stateOf(run)}</Text>}{subtitle && <>{run && ' · '}{subtitle}</>}</>} wrapSubtitle
     trail={duration ? <Text role="meta" numeric title={run?.state === 'working' || run?.state === 'waiting' ? 'Elapsed so far' : 'Elapsed'}>{duration}</Text> : undefined} />

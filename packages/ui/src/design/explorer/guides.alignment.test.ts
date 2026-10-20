@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { missesOf } from './guides'
 
-const placed = (el: Element, left: number, kind: 'container' | 'control' = 'container') => ({
+const placed = (el: Element, left: number, kind: 'container' | 'control' | 'text' = 'container') => ({
   el, r: new DOMRect(left, 0, 100, 24), kind,
 })
 const frame = (border = 1) => {
@@ -15,9 +15,28 @@ const frame = (border = 1) => {
   })
   return { outer: placed(el, 100), inner }
 }
-afterEach(() => document.body.replaceChildren())
+afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren() })
 
 describe('guide alignment around drawn borders', () => {
+  it('measures the inner text column of a padded wrapper without hiding a shifted wrapper and text', () => {
+    const wrapper = document.createElement('div'), plate = document.createElement('span'), text = document.createElement('span')
+    text.dataset['slot'] = 'text'
+    plate.style.paddingLeft = '3px'
+    plate.append(text); wrapper.append(plate); document.body.append(wrapper)
+    const outside = Array.from({ length: 3 }, () => { const el = document.createElement('div'); document.body.append(el); return placed(el, 100, 'container') })
+    const outer = placed(wrapper, 97, 'container'), words = placed(text, 100, 'text')
+    vi.spyOn(plate, 'getBoundingClientRect').mockReturnValue(outer.r)
+    expect(missesOf([...outside, outer, words], { x: [100] })).toEqual([])
+    wrapper.style.backgroundColor = 'red'
+    expect(missesOf([...outside, outer, words], { x: [100] }).map(one => one.box.el)).toContain(wrapper)
+    wrapper.style.backgroundColor = 'transparent'
+    wrapper.style.backgroundImage = 'linear-gradient(red, blue)'
+    expect(missesOf([...outside, outer, words], { x: [100] }).map(one => one.box.el)).toContain(wrapper)
+    wrapper.style.backgroundImage = 'none'
+    const shifted = { ...outer, r: new DOMRect(98, 0, 100, 24) }, movedWords = { ...words, r: new DOMRect(101, 0, 100, 24) }
+    vi.mocked(plate.getBoundingClientRect).mockReturnValue(shifted.r)
+    expect(missesOf([...outside, shifted, movedWords], { x: [100] }).map(one => one.box.el)).toContain(text)
+  })
   it('keeps a descendant container on the exact inside of its ancestor’s drawn border', () => {
     const one = frame()
     expect(missesOf([one.outer, ...one.inner], { x: [100] })).toEqual([])

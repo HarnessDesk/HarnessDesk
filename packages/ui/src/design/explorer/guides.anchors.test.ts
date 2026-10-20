@@ -15,6 +15,50 @@ const endGroup = (right: number, width: number) => {
 afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren() })
 
 describe('CSS anchored guide ownership', () => {
+  it('keeps an end anchor on its declared parent content edge, but diagnoses a one-pixel shift', () => {
+    const group = endGroup(188, 40)
+    const parent = group.el.parentElement!
+    ;(parent as HTMLElement).style.paddingRight = '12px'
+    vi.spyOn(parent, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 200, 24))
+    const owner = box(parent, 0, 200)
+    const peers = [0, 1, 2].map(() => { const el = document.createElement('div'); document.body.append(el); return box(el, 189, 40) })
+    expect(missesOf([...peers, owner, group], railsOf([...peers, owner, group]))).toEqual([])
+    const shifted = { ...group, r: new DOMRect(147, 0, 40, 24) }
+    expect(missesOf([...peers, owner, shifted], railsOf([...peers, owner, shifted])).map(one => one.box.el)).toEqual([group.el])
+  })
+
+  it('keeps a parent and its exact-content-end child shifted together visible against independent page peers', () => {
+    const group = endGroup(189, 40)
+    const parent = group.el.parentElement!
+    ;(parent as HTMLElement).style.paddingRight = '12px'
+    vi.spyOn(parent, 'getBoundingClientRect').mockReturnValue(new DOMRect(1, 0, 200, 24))
+    const owner = box(parent, 1, 200)
+    const peers = [0, 1, 2].map(() => { const el = document.createElement('div'); document.body.append(el); return box(el, 0, 188) })
+    expect(missesOf([...peers, owner, group], railsOf([...peers, owner, group])).map(one => one.box.el)).toContain(parent)
+    // An uncollected parent cannot lend its otherwise-unmeasured authority.
+    expect(missesOf([...peers, group], railsOf([...peers, group])).map(one => one.box.el)).toEqual([group.el])
+  })
+
+  it('measures the borrowed parent’s right edge when only its width and the child’s end move one pixel', () => {
+    const groups = [0, 1, 2, 3].flatMap(index => {
+      const group = endGroup(index === 3 ? 189 : 188, 40)
+      const parent = group.el.parentElement!
+      ;(parent as HTMLElement).style.paddingRight = '12px'
+      const owner = box(parent, 0, index === 3 ? 201 : 200)
+      vi.spyOn(parent, 'getBoundingClientRect').mockReturnValue(owner.r)
+      return [owner, group]
+    })
+    expect(missesOf(groups, railsOf(groups)).map(one => one.box.el)).toEqual([groups[6]!.el])
+  })
+
+  it('does not compare a short inner label’s start with its end anchor’s outside edge', () => {
+    const group = endGroup(200, 80)
+    const child = document.createElement('span')
+    group.el.append(child)
+    const peers = [0, 1, 2].map(() => { const el = document.createElement('div'); document.body.append(el); return box(el, 200) })
+    const boxes = [group, ...peers, box(child, 197, 3, 'text')]
+    expect(missesOf(boxes, railsOf(boxes))).toEqual([])
+  })
   it('does not let a display-none growing sibling hide a real one-pixel shift', () => {
     const group = endGroup(131, 30)
     ;(group.el.previousElementSibling as HTMLElement).style.display = 'none'
@@ -83,6 +127,18 @@ describe.each(['header', 'radiogroup', 'tablist', 'toolbar'])('semantic %s guide
     const pages = [0, 1, 2].map(() => { const el = document.createElement('div'); document.body.append(el); return box(el, 100) })
     const boxes = [...pages, box(title, 102, 40, role === 'header' ? 'text' : 'control')]
     expect(missesOf(boxes, railsOf(boxes))).toEqual([])
+  })
+
+  it.each(['first', 'last'] as const)('keeps a %s control on the declared group inset, but diagnoses a one-pixel shift', edge => {
+    const band = header()
+    band.style.padding = '1px'
+    const child = document.createElement('button')
+    band.append(child)
+    const peers = [0, 1, 2].map(() => { const el = document.createElement('div'); document.body.append(el); return box(el, edge === 'first' ? 0 : 100, edge === 'first' ? 100 : 300) })
+    const control = box(child, edge === 'first' ? 1 : 359, 40, 'control')
+    expect(missesOf([...peers, control], railsOf([...peers, control]))).toEqual([])
+    const shifted = { ...control, r: new DOMRect(edge === 'first' ? 2 : 358, 0, 40, 24) }
+    expect(missesOf([...peers, shifted], railsOf([...peers, shifted])).map(one => one.box.el)).toEqual([child])
   })
 
   it('preserves a one-pixel shift against three independent inner header peers', () => {

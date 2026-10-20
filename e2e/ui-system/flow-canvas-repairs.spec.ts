@@ -363,6 +363,31 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`recent activity keeps one text column across retained faces and check glyphs in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
+    await page.goto(`/preview.html?frame-wall=team-run-recorded&theme=${theme}`)
+    const rows = page.locator('[data-presentation="activity"]')
+    await expect(rows).toHaveCount(3)
+    for (const width of [1440, 720]) {
+      await page.setViewportSize({ width, height: 900 })
+      const columns = await rows.evaluateAll(nodes => nodes.map(row => {
+        const content = row.querySelector('[data-slot="list-row-content"]')!.getBoundingClientRect()
+        const title = row.querySelector('[data-slot="list-row-title"]')!.getBoundingClientRect()
+        const subtitle = row.querySelector('[data-slot="list-row-subtitle"]')!.getBoundingClientRect()
+        const mark = row.querySelector('[data-slot="flow-activity-mark"]')!.getBoundingClientRect()
+        const glyph = row.querySelector('[data-slot="flow-activity-mark"] svg')!.getBoundingClientRect()
+        return { left: content.left, title: title.left, subtitle: subtitle.left, markWidth: mark.width,
+          glyphWidth: glyph.width, vertical: Math.abs((glyph.top + glyph.bottom - content.top - content.bottom) / 2) }
+      }))
+      expect(Math.max(...columns.map(one => one.left)) - Math.min(...columns.map(one => one.left)), `${width}px activity text column`).toBeLessThan(1.5)
+      expect(columns.map(one => one.markWidth)).toEqual([16, 16, 16])
+      expect(new Set(columns.map(one => one.glyphWidth))).toEqual(new Set([13, 16]))
+      for (const column of columns) {
+        expect(column.title).toBe(column.subtitle)
+        expect(column.vertical).toBeLessThan(1.5)
+      }
+    }
+  })
   test(`route chips retain their compact plate and show every outcome without clipping in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
     for (const scene of ['equivalent', 'not-reached', 'repeated']) {

@@ -9,6 +9,26 @@ import type { FlowStepRun } from '../../lib/flow-overlay'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const model = flowModel(runFixture().execution.document.flow)
 const run: FlowStepRun = { state: 'done', runs: 2, durationMs: 840_000, since: null, line: 'published', seats: ['seat-0'] }
+it('reserves one activity mark column for retained faces and kind glyphs without resizing either', () => {
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<>
+      <FlowStepRow activity step={model.steps[0]!} run={run}
+        faces={new Map([['seat-0', <svg data-retained-face="" width="13" height="13" />]])} />
+      <FlowStepRow activity step={model.steps[1]!} run={{ ...run, seats: [], line: 'pass' }} />
+    </>))
+    const marks = [...container.querySelectorAll('[data-slot="flow-activity-mark"]')]
+    expect(marks).toHaveLength(2)
+    for (const mark of marks) {
+      expect(mark.className).toContain('size-4')
+      expect(mark.className).toContain('items-center')
+      expect(mark.className).toContain('justify-center')
+      expect(mark.querySelector('[data-slot="icon-tile"]')).toBeNull()
+    }
+    expect(marks[0]!.querySelector('svg')?.getAttribute('width')).toBe('13')
+    expect(marks[1]!.querySelector('svg')?.getAttribute('width')).toBe('16')
+  } finally { act(() => root.unmount()) }
+})
 it('keeps kind, outcome, plain runtime marks and trailing recorded facts together in a selectable row', () => {
   const container = document.createElement('div')
   const root = createRoot(container)

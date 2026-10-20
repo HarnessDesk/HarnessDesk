@@ -63,6 +63,7 @@ describe('MessageFooter', () => {
   it('renders its own slot', () => {
     const markup = renderToStaticMarkup(<MessageFooter align="end">10:41 AM</MessageFooter>)
     expect(markup).toContain('data-slot="message-footer"')
+    expect(markup).toContain('data-edge-pull-slot=""')
     expect(markup).toContain('10:41 AM')
   })
 })

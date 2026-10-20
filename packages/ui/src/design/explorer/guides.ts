@@ -46,7 +46,7 @@ const LAYERS: Record<GuidesMode, readonly Layer[]> = {
 /** What counts as a thing placed on the page. */
 const PLACED = [
   '[data-slot]', 'h1', 'h2', 'h3', 'h4', 'button', 'a[href]', 'input', 'textarea', 'select',
-  '[role="menuitem"]', '[role="tab"]', '[data-menu-row]', 'img', 'svg',
+  '[role="menuitem"]', '[role="tab"]', '[role="img"]', '[data-menu-row]', 'img', 'svg',
 ].join(',')
 const CONTROL = 'button, a[href], input, textarea, select, [role="switch"], [role="checkbox"], [role="tab"], [data-slot$="trigger"], [data-menu-row]'
 const TEXT = 'h1, h2, h3, h4, [data-slot="text"], [data-slot="row-title"], [data-slot="label"], [data-slot$="title"], [data-slot$="description"]'
@@ -92,9 +92,16 @@ const readPalette = (): Palette => {
 const visible = (r: DOMRect) => r.width > 1.5 && r.height > 1.5
 const meets = (a: DOMRect, b: DOMRect) => a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom
 const round = (n: number) => Math.round(n * 2) / 2
+const paintedColor = (color: string) => Boolean(color) && color !== 'transparent'
+  && !/rgba\([^)]*,\s*0(?:\.0+)?\s*\)$/.test(color) && !/\/\s*0(?:\.0+)?\s*\)$/.test(color)
+const paintsBox = (style: CSSStyleDeclaration) => paintedColor(style.backgroundColor)
+  || Boolean(style.backgroundImage && style.backgroundImage !== 'none')
+  || Boolean(style.boxShadow && style.boxShadow !== 'none')
+  || ['left', 'right', 'top', 'bottom'].some(side => (parseFloat(style.getPropertyValue(`border-${side}-width`)) || 0) > 0
+    && !['none', 'hidden'].includes(style.getPropertyValue(`border-${side}-style`)) && paintedColor(style.getPropertyValue(`border-${side}-color`)))
 
 const kindOf = (el: Element): Box['kind'] =>
-  el.matches('svg, img') ? 'glyph' : el.matches(CONTROL) ? 'control' : el.matches(TEXT) ? 'text' : 'container'
+  el.matches('svg, img, [role="img"]') ? 'glyph' : el.matches(CONTROL) ? 'control' : el.matches(TEXT) ? 'text' : 'container'
 
 /** An element is on the page only where every clipping ancestor lets it be. */
 const shown = (el: Element, r: DOMRect, root: Element) => {
@@ -107,10 +114,11 @@ const shown = (el: Element, r: DOMRect, root: Element) => {
   return true
 }
 
-const collect = (root: Element, view: DOMRect): Box[] => {
+export const collect = (root: Element, view: DOMRect): Box[] => {
   const out: Box[] = []
   for (const el of root.querySelectorAll(PLACED)) {
-    if (el.closest('svg') && el.tagName.toLowerCase() !== 'svg') continue
+    const image = el.closest('svg, [role="img"]')
+    if (image && image !== el) continue
     // The preview's own caption names the page; it is not on it.
     if (el.closest('[data-preview-caption]')) continue
     const r = el.getBoundingClientRect()
@@ -166,7 +174,7 @@ const nearest = (value: number, rails: number[]) => {
 type Miss = { box: Box; at: number; rail: number }
 export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
   const out: Miss[] = []
-  const borders = new Map<Element, number>()
+  const borders = new Map<Element, Map<'left' | 'right', number>>()
   const styles = new Map<Element, CSSStyleDeclaration>()
   const styleOf = (el: Element) => {
     let style = styles.get(el)
@@ -271,17 +279,21 @@ export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
     columnScopes.set(rail, internal ? scope : null)
     return internal ? scope : null
   }
-  const drawnLeftBorder = (el: Element): number => {
-    const known = borders.get(el)
+  const drawnBorder = (el: Element, side: 'left' | 'right'): number => {
+    const known = borders.get(el)?.get(side)
     if (known !== undefined) return known
     const style = styleOf(el)
-    const color = style.borderLeftColor
+    const color = style.getPropertyValue(`border-${side}-color`)
     const transparent = color === 'transparent' || /rgba\([^)]*,\s*0\)$/.test(color) || /\/\s*0\)$/.test(color)
-    const width = style.borderLeftStyle === 'none' || style.borderLeftStyle === 'hidden' || transparent
-      ? 0 : parseFloat(style.borderLeftWidth) || 0
-    borders.set(el, width)
+    const line = style.getPropertyValue(`border-${side}-style`)
+    const width = line === 'none' || line === 'hidden' || transparent
+      ? 0 : parseFloat(style.getPropertyValue(`border-${side}-width`)) || 0
+    const cache = borders.get(el) ?? new Map<'left' | 'right', number>()
+    cache.set(side, width)
+    borders.set(el, cache)
     return width
   }
+  const drawnLeftBorder = (el: Element) => drawnBorder(el, 'left')
   const ownsBorderInset = (box: Box, at: number, rail: number): boolean => {
     if (box.kind !== 'container' || at !== box.r.left) return false
     const border = drawnLeftBorder(box.el)
@@ -295,12 +307,50 @@ export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
     return owners.length >= RAIL_MIN && owners.every(owner => frames.some(frame => frame.el !== owner.el && frame.el.contains(owner.el)))
   }
   const sitsInsideBorder = (box: Box, at: number, rail: number): boolean => {
-    if (box.kind !== 'container' || at !== box.r.left) return false
+    if (box.kind !== 'container') return false
+    const side = at === box.r.left ? 'left' : at === box.r.right ? 'right' : null
+    if (!side) return false
     for (let parent = box.el.parentElement; parent; parent = parent.parentElement) {
-      const border = drawnLeftBorder(parent)
+      const border = drawnBorder(parent, side)
       if (!border) continue
       const r = rects.get(parent) ?? parent.getBoundingClientRect()
-      if (rail === round(r.left) && round(at) === round(r.left + border)) return true
+      if (side === 'left' ? rail === round(r.left) && round(at) === round(r.left + border)
+        : rail === round(r.right) && round(at) === round(r.right - border)) return true
+    }
+    return false
+  }
+  const atContentEdge = (el: Element, at: number, side: 'left' | 'right'): boolean => {
+    const r = rects.get(el) ?? el.getBoundingClientRect()
+    const style = styleOf(el)
+    const layoutWidth = (el as HTMLElement).offsetWidth
+    const scale = layoutWidth > 0 ? r.width / layoutWidth : 1
+    const inset = side === 'left'
+      ? (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.borderLeftWidth) || 0)
+      : (parseFloat(style.paddingRight) || 0) + (parseFloat(style.borderRightWidth) || 0)
+    return Math.abs(at - (side === 'left' ? r.left + inset * scale : r.right - inset * scale)) <= ON_RAIL
+  }
+  const borrowedEnds = new Set<Element>()
+  for (const box of boxes) {
+    if (box.kind === 'glyph') continue
+    const anchor = endAnchorOf(box.el)
+    if (anchor === box.el && anchor.parentElement && rects.has(anchor.parentElement) && atContentEdge(anchor.parentElement, box.r.right, 'right')) borrowedEnds.add(anchor.parentElement)
+  }
+  const ownsInsetContent = (box: Box, rail: number): boolean => {
+    if (box.kind !== 'container' || paintsBox(styleOf(box.el))) return false
+    let at = box.el, inset = 0
+    while (at.children.length === 1) {
+      const child = at.children[0]!
+      if (child.matches(CONTROL)) return false
+      const parentRect = rects.get(at) ?? at.getBoundingClientRect()
+      const childRect = rects.get(child) ?? child.getBoundingClientRect()
+      const layoutWidth = (at as HTMLElement).offsetWidth
+      const scale = layoutWidth > 0 ? parentRect.width / layoutWidth : 1
+      const style = styleOf(at)
+      const padding = ((parseFloat(style.paddingLeft) || 0) + (parseFloat(style.borderLeftWidth) || 0)) * scale
+      if (Math.abs(childRect.left - parentRect.left - padding) > ON_RAIL) return false
+      inset += padding
+      if (rects.has(child) && kindOf(child) === 'text') return inset > 0 && round(childRect.left) === rail
+      at = child
     }
     return false
   }
@@ -312,11 +362,14 @@ export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
     const columnsRect = columns ? rects.get(columns) ?? columns.getBoundingClientRect() : null
     const realm = realmOf(box.el)
     const anchor = endAnchorOf(box.el)
-    const anchorRect = anchor ? rects.get(anchor) ?? anchor.getBoundingClientRect() : null
     const controls = controlGroupOf(box.el)
     const controlsRect = controls ? rects.get(controls) ?? controls.getBoundingClientRect() : null
-    const edges = anchor === box.el ? [box.r.right] : box.kind === 'control' ? [box.r.left, box.r.right] : [box.r.left]
+    const edges = anchor === box.el ? [box.r.right] : box.kind === 'control' || borrowedEnds.has(box.el) ? [box.r.left, box.r.right] : [box.r.left]
     for (const at of edges) {
+      // A flex-end item is positioned by its parent's content end. The
+      // declared padding is not a near miss against an unrelated column;
+      // moving it a pixel away still goes through the ordinary rail check.
+      if (anchor === box.el && anchor.parentElement && rects.has(anchor.parentElement) && atContentEdge(anchor.parentElement, at, 'right')) continue
       const rail = nearest(at, rails.x.filter(one => {
         const scope = columnScopeOf(one)
         if (scope && !scope.contains(box.el)) return false
@@ -337,7 +390,7 @@ export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
         // An intrinsic item pushed after a growing flex sibling is anchored
         // at its end. Its variable text starts belong to that item, rather
         // than lending rails to other end-aligned labels of different widths.
-        if (anchor && anchorRect && anchor !== box.el && one !== round(anchorRect.right)
+        if (anchor && anchor !== box.el
           && localCount(one, anchor) < RAIL_MIN) return false
         // A shrink-wrapped group made only of controls owns their internal
         // spacing. Its own outer box still participates in page alignment.
@@ -346,8 +399,15 @@ export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
         return true
       }))
       if (rail === null) continue
+      // A composite's first/last control occupies its declared content
+      // inset, while the composite's outside edge remains a page rail.
+      if (box.kind === 'control' && header && header !== box.el && headerRect && (
+        at === box.r.left && rail === round(headerRect.left) && atContentEdge(header, at, 'left')
+        || at === box.r.right && rail === round(headerRect.right) && atContentEdge(header, at, 'right')
+      )) continue
       const off = Math.abs(rail - at)
-      if (off > ON_RAIL && off <= NEAR_MISS && !ownsBorderInset(box, at, rail) && !sitsInsideBorder(box, at, rail)) out.push({ box, at, rail })
+      if (off > ON_RAIL && off <= NEAR_MISS && !ownsBorderInset(box, at, rail) && !sitsInsideBorder(box, at, rail)
+        && !(at === box.r.left && ownsInsetContent(box, rail))) out.push({ box, at, rail })
     }
   }
   return out
@@ -360,12 +420,14 @@ export const missesOf = (boxes: Box[], rails: { x: number[] }): Miss[] => {
  * the painted card around the slot is still measured on its own.
  */
 export const pulledInSlot = (kid: Element, el: Element, k: Pick<DOMRect, 'left' | 'right' | 'bottom'>, r: Pick<DOMRect, 'left' | 'right' | 'bottom'>) => {
-  if (!el.matches('[data-slot="row-ctl"], [data-edge-pull-slot]')) return false
   const pulled = kid.closest('[style*="--edge-pull"]')
   if (!pulled || !el.contains(pulled)) return false
+  const slot = pulled.closest('[data-slot="row-ctl"], [data-edge-pull-slot]')
+  if (!slot || !el.contains(slot)) return false
   // Each margin's pull is allowed on its own edge only: a control pulled to
   // the end has not earned room past the start.
   const style = getComputedStyle(pulled)
+  if (slot !== el && (kid !== pulled || pulled.textContent?.trim() || !pulled.querySelector('svg, img') || paintsBox(style))) return false
   const right = Math.max(0, -parseFloat(style.marginRight) || 0)
   const left = Math.max(0, -parseFloat(style.marginLeft) || 0)
   return right + left > 0 && k.right <= r.right + right + 1 && k.left >= r.left - left - 1 && k.bottom <= r.bottom + 1
@@ -384,7 +446,13 @@ const sticksOut = (el: Element, r: DOMRect) => {
     if (!visible(k)) continue
     if (pulledInSlot(kid, el, k, r)) continue
     if (k.right > r.right + 1 || k.left < r.left - 1 || k.bottom > r.bottom + 1) {
-      if (!kid.checkVisibility || kid.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return true
+      if (kid.checkVisibility && !kid.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue
+      let painted = !['hidden', 'collapse'].includes(getComputedStyle(kid).visibility)
+      for (let at: Element | null = kid; at; at = at.parentElement) {
+        const style = getComputedStyle(at)
+        if (style.display === 'none' || style.opacity !== '' && Number(style.opacity) === 0) { painted = false; break }
+      }
+      if (painted) return true
     }
   }
   return false
@@ -426,7 +494,7 @@ const touchesFrame = (el: Element, r: DOMRect, root: Element) => {
   const sides = frameSides(el, r, root)
   return sides.left || sides.right
 }
-const spillsOf = (boxes: Box[], page: DOMRect, root: Element): Spill[] => {
+export const spillsOf = (boxes: Box[], page: DOMRect, root: Element): Spill[] => {
   const out: Spill[] = []
   for (const { el, r } of boxes) {
     if (!(el instanceof HTMLElement)) continue
