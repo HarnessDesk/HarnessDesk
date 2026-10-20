@@ -37,6 +37,7 @@ import { SiteRunPreview } from '../../site-demo/run-demo'
 import { SiteScene } from '../../site-demo/scene'
 import { isSceneName } from '../../site-demo/scenes'
 import { TeamRecordFrames } from './frames-team-record'
+import { TeamWordsRepairPreview } from './team-words-repairs-fixture'
 import { TeamsPageFrames } from './frames-teams-page'
 import { CliInstallFrame } from './frames-cli-install'
 import { StrictMode, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
@@ -1296,6 +1297,8 @@ createRoot(container).render(
           ? <TeamStartFrames />
           : new URLSearchParams(window.location.search).has('tile-browsers')
           ? <TileBrowserFrames />
+          : new URLSearchParams(window.location.search).has('team-words-repairs')
+          ? <TeamWordsRepairPreview scene={new URLSearchParams(window.location.search).get('team-words-repairs') === 'wrap' ? 'wrap' : 'overview'} />
           : new URLSearchParams(window.location.search).has('shape-graph')
           ? <ShapeGraphFrames />
           : new URLSearchParams(window.location.search).has('header-status')
