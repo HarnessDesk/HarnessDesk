@@ -275,6 +275,41 @@ describe('where a draft starts', () => {
     expect(calls('session/create')[0]).toMatchObject({ options: { cwd: REPO.path } })
   })
 
+  it('restores the automatic default when allocation fails before a checkout exists', async () => {
+    refused['worktree/create'] = 'Disk unavailable'
+    store.newDraft()
+    expect(await store.queue([{ type: 'text', text: 'Fix a bug' }])).toBe(false)
+    expect(store.getSnapshot().draftPlace).toBeNull()
+    expect(calls('session/create')).toHaveLength(0)
+    delete refused['worktree/create']
+    answers['worktree/create'] = { ...LISTED.tree }
+    answers['session/create'] = conversation('allocated-retry', TREE)
+    expect(await store.queue([{ type: 'text', text: 'Retry the fix' }])).toBe(true)
+    expect(store.getSnapshot().sessions.get(sessionKey(AGENT, 'allocated-retry'))?.cwd).toBe(TREE)
+  })
+
+  it('keeps an explicitly armed worktree when its allocation fails', async () => {
+    refused['worktree/create'] = 'Disk unavailable'
+    await store.armWorktree(REPO.path, 'chosen-worktree', 'main')
+    const place = store.getSnapshot().draftPlace
+    expect(await store.queue([{ type: 'text', text: 'Fix a bug' }])).toBe(false)
+    expect(store.getSnapshot().draftPlace).toBe(place)
+  })
+
+  it('does not clear a newer place choice when an automatic allocation fails', async () => {
+    let fail!: (error: Error) => void
+    answers['worktree/create'] = () => new Promise((_resolve, reject) => { fail = reject })
+    store.newDraft()
+    const sending = store.queue([{ type: 'text', text: 'Fix a bug' }])
+    // First send awaits draft preparation before allocating.
+    await Promise.resolve()
+    store.startDraftIn(null)
+    const selected = store.getSnapshot().draftPlace
+    fail(new Error('Disk unavailable'))
+    expect(await sending).toBe(false)
+    expect(store.getSnapshot().draftPlace).toBe(selected)
+  })
+
   it('reuses an automatically created checkout after the runtime fails to start', async () => {
     answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/session-fixture', head: 'abc', isMain: false, managed: true }
     refused['session/create'] = 'Runtime unavailable'

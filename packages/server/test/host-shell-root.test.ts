@@ -756,6 +756,7 @@ test('browser tools isolate sessions sharing a checkout and include the runtime 
     assert.equal(host.browserProfileAllowed(profile!), true)
   }
   assert.equal(resolveBrowser(scopes[0]!), profiles[0], 'a repeated tool invocation returns the same profile')
+  assert.equal(host.browserProfileForPartition(`persist:hd-${browserProfileStorageName(profiles[0]!)}`), profiles[0], 'a live session not yet indexed still resolves through the fallback')
   const otherRuntime = { runtime: 'other-runtime' as typeof agent.info.id, sessionId: scopes[0]!.sessionId }
   host.registry.upsert({ ...host.registry.get(scopes[0]!.runtime, scopes[0]!.sessionId)!.session, runtime: otherRuntime.runtime }, null)
   assert.notEqual(resolveBrowser(otherRuntime), profiles[0], 'runtime accounts may reuse a session id')
@@ -774,6 +775,12 @@ test('desktop can restore a known session profile from the durable index before 
   const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: base } })
   const profile = sessionBrowserProfile(session.runtime, session.id)
   assert.equal(host.browserProfileAllowed(profile), true)
+  const liveScans = t.mock.method(host.registry, 'all')
+  for (let n = 0; n < 3; n++) {
+    assert.equal(host.browserProfileForPartition(`persist:hd-${browserProfileStorageName(profile)}`), profile)
+  }
+  assert.equal(liveScans.mock.callCount(), 0, 'indexed profiles never hash and scan all live records')
+  liveScans.mock.restore()
   await host.dispose()
   const reopened = new Host({ ...options, state: new StateStore(join(base, 'state.json')) })
   t.after(() => reopened.dispose())

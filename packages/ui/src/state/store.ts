@@ -2825,11 +2825,20 @@ export class AppStore {
         }
       }
       if (worktree !== undefined && workspace) {
+        const attemptedPlace = this.#snapshot.draftPlace
         const created = await this.transport.request('worktree/create', {
           root: workspace,
           name: worktree,
           ...(options.base ? { base: options.base } : {}),
           ...(fromDefault ? { fromDefault: true } : {}),
+        }).catch((error: unknown) => {
+          // Failed allocation made no usable checkout. Restore only this
+          // automatic choice; a newer or explicitly armed place belongs to
+          // the person. Successful allocations still survive runtime refusal.
+          if (attemptedPlace?.kind === 'worktree' && attemptedPlace.fromDefault &&
+            attemptedPlace.root === workspace && attemptedPlace.name === worktree &&
+            this.#snapshot.draftPlace === attemptedPlace) this.#patch({ draftPlace: null })
+          throw error
         })
         cwd = created.path
         options.onCheckout?.(created)

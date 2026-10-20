@@ -692,8 +692,11 @@ export class Host {
   browserProfileForPartition(partition: string): string | undefined {
     if (!/^(?:persist:)?hd-session-[a-f0-9]{64}$/.test(partition) || partition.endsWith('\n')) return undefined
     const storageName = partition.replace(/^persist:/, '').slice('hd-'.length)
-    const live = this.registry.all().find(record => Object.is(browserProfileStorageName(sessionBrowserProfile(record.runtime, record.session.id)), storageName))
-    const owner = live ? { runtime: live.runtime, id: live.session.id } : this.#sessionIndex.browserProfileOwner(storageName)
+    let owner = this.#sessionIndex.browserProfileOwner(storageName)
+    if (!owner) {
+      const live = this.registry.all().find(record => Object.is(browserProfileStorageName(sessionBrowserProfile(record.runtime, record.session.id)), storageName))
+      owner = live ? { runtime: live.runtime, id: live.session.id } : null
+    }
     if (!owner) return undefined
     const profile = sessionBrowserProfile(owner.runtime, owner.id)
     return this.browserProfileAllowed(profile) ? profile : undefined
