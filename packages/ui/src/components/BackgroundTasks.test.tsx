@@ -164,7 +164,7 @@ describe('BackgroundTasksView', () => {
       running('t1', 'Watch the tests', { command: 'pnpm test --watch' }),
       running('t2', 'Serve the site', { command: 'pnpm dev' }),
     ])
-    const names = [...container.querySelectorAll('[data-slot="code-block-command"] button')].map((one) =>
+    const names = [...container.querySelectorAll('[data-slot="code-block"] button')].map((one) =>
       one.getAttribute('aria-label'),
     )
     expect(names).toEqual(['Copy the command for Watch the tests', 'Copy the command for Serve the site'])
