@@ -90,5 +90,5 @@ export const TopBarOutlet = ({ owner, fallback, rightColumnWidth }: { owner: str
   const base = current?.base ?? fallback
   return <TopBar {...base} rightColumnWidth={rightColumnWidth ?? base.rightColumnWidth} verb={base.verb}
     view={undefined}
-    more={close => <>{base.more(close)}{current?.more?.(close)}{base.terminal && <TerminalMenuItem close={close} />}</>} extraMore={current?.view?.more} />
+    more={(close, compact) => <>{base.more(close)}{current?.more?.(close)}{base.terminal && !compact && <TerminalMenuItem close={close} />}</>} extraMore={current?.view?.more} />
 }

@@ -1078,7 +1078,15 @@ it.each(['judge', 'reviewer'].flatMap(roleId => [{ repeated: false, disabled: fa
   await act(async () => { root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{
     flow, template: flow, disabled, preview: { ...emptyPreview(), seats: repeated ? [refused, { ...refused, index: 1 }] : [refused] }, roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy,
   }} /></StoreProvider>) })
-  expect(container.textContent).toContain('Runtime Alpha can be asked to stay read-only here but cannot be held to it. Choose another runtime, or start from /race.')
+  const refusal = 'Runtime Alpha can be asked to stay read-only here but cannot be held to it. Choose another runtime, or start from /race.'
+  const issues = container.querySelectorAll('[data-slot="team-role-seat"] [data-slot="issue-mark"]')
+  expect(issues).toHaveLength(repeated ? 2 : 1)
+  for (const issue of issues) {
+    expect(issue.getAttribute('role')).toBe('img')
+    expect(issue.getAttribute('aria-label')).toBe(refusal)
+    expect(issue.getAttribute('title')).toBe(refusal)
+    expect(issue.textContent).toBe('')
+  }
   const use = [...container.querySelectorAll('button')].find(button => button.textContent === 'Use Runtime Beta')!
   if (!offered) { expect(use).toBeUndefined(); return }
   expect(use).toBeTruthy()

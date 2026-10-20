@@ -2680,12 +2680,11 @@ it('a key on the room’s own thread, outside the card, does not answer it eithe
 
 /**
  * An approval arriving mid-sentence neither throws the sentence away nor
- * lets the next keystroke of it answer a command nobody has read. Focus moves
- * to the card only because it was in the composer the card replaced, a digit
- * typed straight after is still the sentence's, and answering puts the
- * person back in the composer with every word where it was.
+ * lets the next keystroke of it answer a command nobody has read. The card
+ * arrives in the thread while the composer keeps its caret and selection;
+ * only deliberately entering the card arms its numbered answers.
  */
-it('an approval arriving mid-sentence keeps the draft, swallows the keystroke in flight, and returns to the composer', async () => {
+it('an approval arriving mid-sentence keeps the draft, caret and scroll position without arming its shortcuts', async () => {
   const { store, respondToApproval, raise } = triggerRig([])
   await render(store)
   await act(async () => row('Chat').click())
@@ -2694,15 +2693,22 @@ it('an approval arriving mid-sentence keeps the draft, swallows the keystroke in
   const box = container.querySelector<HTMLTextAreaElement>('textarea')!
   act(() => box.focus())
   act(() => type(box, 'half a thought about step 3'))
-  raise(PENDING)
-  await act(async () => {})
+  box.setSelectionRange(5, 12)
+  const stream = container.querySelector<HTMLDivElement>('[data-slot="room-stream"]')!
+  Object.defineProperty(stream, 'scrollHeight', { value: 1000, configurable: true })
+  Object.defineProperty(stream, 'clientHeight', { value: 400, configurable: true })
+  stream.scrollTop = 120
+  act(() => stream.dispatchEvent(new Event('scroll', { bubbles: true })))
+  await act(async () => raise(PENDING))
 
   const card = container.querySelector<HTMLElement>('[data-slot="approval-card"]')!
-  expect(document.activeElement, 'focus was in the composer, so it follows the slot').toBe(card)
-  press(card, '3')
-  expect(respondToApproval, 'a digit already on its way is not an answer').not.toHaveBeenCalled()
+  expect(document.activeElement, 'the inline card does not interrupt typing').toBe(box)
+  expect([box.selectionStart, box.selectionEnd]).toEqual([5, 12])
+  expect(stream.scrollTop).toBe(120)
+  for (const key of ['1', '2', '3', 'Escape']) press(box, key)
+  expect(respondToApproval, 'composer keys remain text editing, not answers').not.toHaveBeenCalled()
 
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 650)) })
+  act(() => card.focus())
   press(card, '1')
   expect(respondToApproval).toHaveBeenCalledWith(sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId: 'yes' })
   await act(async () => {})
@@ -2711,7 +2717,7 @@ it('an approval arriving mid-sentence keeps the draft, swallows the keystroke in
   expect(back).toBe(box)
   expect(back.value).toBe('half a thought about step 3')
   expect(back.closest('[hidden]')).toBeNull()
-  expect(document.activeElement).toBe(back)
+  expect(stream.scrollTop).toBe(120)
 })
 
 /**
@@ -2738,11 +2744,10 @@ it.each(['input', 'textarea', 'contenteditable'])('a key typed in a %s inside th
 })
 
 /**
- * The card hands focus back to the composer only if the person left it where
- * the card put it. Moving on — to another field, another pane — is a choice,
- * and the answer vanishing must not undo it.
+ * Moving on — to another field, another pane — is a choice, and the answer
+ * vanishing must not undo it.
  */
-it('gives focus back to the composer only if the person has not moved it since', async () => {
+it('keeps focus in another field when an inline approval clears', async () => {
   const { store, raise } = triggerRig([])
   await render(store)
   await act(async () => row('Chat').click())
@@ -2750,11 +2755,8 @@ it('gives focus back to the composer only if the person has not moved it since',
 
   const box = container.querySelector<HTMLTextAreaElement>('textarea')!
   act(() => box.focus())
-  raise(PENDING)
-  await act(async () => {})
-  expect(document.activeElement, 'the card took it from the composer').toBe(
-    container.querySelector('[data-slot="approval-card"]'),
-  )
+  await act(async () => raise(PENDING))
+  expect(document.activeElement, 'the composer keeps its caret on arrival').toBe(box)
 
   const input = elsewhere()
   const allow = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="approval-choices"] button')].find((one) => one.textContent?.startsWith('Yes1'))!

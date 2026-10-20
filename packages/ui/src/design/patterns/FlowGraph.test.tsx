@@ -511,19 +511,28 @@ it('a summary keeps its measured drawing height and a hidden accessible alternat
 
 it('keeps each role seat instructions, runtime control and refusal in one configuration group', async () => {
   const configure = vi.fn()
+  const recover = vi.fn()
   await act(async () => root.render(<FlowRoleConfiguration label="Writer agents" seats={[
     { key: 'writer-0', title: 'Writes', mark: <span>Agent mark</span>, instructions: 'Implementation notes',
-      control: <button onClick={configure}>Configure runtime</button>, problem: 'This runtime is signed out.', badge: <span>Fresh each round</span> },
+      control: <><button onClick={configure}>Configure runtime</button><button onClick={recover}>Use Runtime Beta</button></>, problem: 'This runtime is signed out.', badge: <span>Fresh each round</span> },
   ]} />))
   const group = container.querySelector('[data-slot="team-role-configuration"]')!
   expect(group.getAttribute('aria-label')).toBe('Writer agents')
   const seat = group.querySelector('[data-slot="team-role-seat"]')!
   expect(seat.textContent).toContain('Writes')
   expect(seat.textContent).toContain('Implementation notes')
-  expect(seat.textContent).toContain('This runtime is signed out.')
+  const issues = seat.querySelectorAll('[data-slot="issue-mark"]')
+  expect(issues).toHaveLength(1)
+  expect(issues[0]?.getAttribute('role')).toBe('img')
+  expect(issues[0]?.getAttribute('aria-label')).toBe('This runtime is signed out.')
+  expect(issues[0]?.getAttribute('title')).toBe('This runtime is signed out.')
+  expect(seat.textContent).not.toContain('This runtime is signed out.')
   expect(seat.querySelector('[title="Implementation notes"]')).not.toBeNull()
   act(() => seat.querySelector('button')!.click())
   expect(configure).toHaveBeenCalledOnce()
+  const recovery = [...seat.querySelectorAll('button')].find(button => button.textContent === 'Use Runtime Beta')!
+  act(() => recovery.click())
+  expect(recover).toHaveBeenCalledOnce()
 })
 
 it('keeps configuration contents readable on a large graph while ordinary Run graphs still fit', async () => {

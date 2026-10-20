@@ -62,11 +62,14 @@ for (const theme of ['light', 'dark'] as const) {
     await page.keyboard.press('Escape')
     await expect(header.locator('[data-topbar-title]').getByRole('button')).toBeFocused()
     await selectTeamPage(team, 'room')
-    // This fixture is waiting for approval: its existing permission boundary
-    // suspends the composer. The frame contract proves Send to at this width
-    // in the running fixture where the person can compose.
+    // A pending request stays in the stream while the Team composer remains available.
     await expect(team.getByRole('heading', { name: 'Grant additional access?', exact: true })).toBeVisible()
-    await expect(team.getByRole('button', { name: 'Send to', exact: true })).toHaveCount(0)
+    const audience = team.getByRole('button', { name: 'Send to', exact: true })
+    await expect(audience).toHaveCount(1)
+    await expect(audience).toBeVisible()
+    await expect(audience).toBeEnabled()
+    await expect(team.locator('textarea')).toBeVisible()
+    await expect(team.locator('textarea')).toBeEnabled()
     await selectTeamPage(team, 'findings')
     await expect(team.locator('[data-slot="tool-pane"][aria-label="Findings"]')).toBeVisible()
     expect(await team.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
@@ -157,23 +160,33 @@ for (const theme of ['light', 'dark'] as const) {
 
     })
   }
-  test(`Team frame: narrow members preserve faces and wrap work sentences in ${theme}`, async ({ page }, testInfo) => {
+  test(`Team frame: narrow members preserve faces and bounded compact labels in ${theme}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 720, height: 760 })
     await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' })
     await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
     const members = await teamSeats(page.locator('[data-frame-id="team-frame"]'))
     await expect(members.locator('[data-slot="list-row-lead"] svg')).toHaveCount(2)
     for (const face of await members.locator('[data-slot="list-row-lead"] svg').all()) expect((await face.boundingBox())!.width).toBe(20)
-    const subtitles = members.locator('[data-slot="list-row-subtitle"]')
-    await expect(subtitles.first()).toBeVisible()
-    await testInfo.attach('Seat subtitle geometry', { body: JSON.stringify(await subtitles.evaluateAll(nodes => nodes.map(node => ({ text: node.textContent, wrap: node.hasAttribute('data-wrap-subtitle'), style: getComputedStyle(node).whiteSpace, visible: node.getClientRects().length > 0, width: node.getBoundingClientRect().width })))), contentType: 'application/json' })
-    for (const subtitle of await subtitles.all()) {
-      const style = await subtitle.evaluate(node => {
-        const computed = getComputedStyle(node)
-        return { space: computed.whiteSpace, overflow: computed.textOverflow }
-      })
-      expect(style).toEqual({ space: 'normal', overflow: 'clip' })
+    const rows = members.locator('[data-slot="list-row"]')
+    const titles = rows.locator('[data-slot="list-row-title"]')
+    await expect(titles).toHaveText(['Alpha', 'Beta'])
+    // This fixture records no model. Only Beta earns a separate runtime label;
+    // Alpha already carries that identity in its visible name.
+    await expect(rows.nth(0)).toHaveAttribute('aria-label', /Writer conversation/)
+    await expect(rows.nth(1)).toHaveAttribute('aria-label', /Reviewer conversation/)
+    const runtimeLabel = rows.nth(1).locator('[data-slot="list-row-subtitle"]')
+    await expect(runtimeLabel).toHaveText('Alpha')
+    await expect(runtimeLabel).toBeVisible()
+    const labels = members.locator('[data-slot="list-row-title"], [data-slot="list-row-subtitle"]:visible')
+    await testInfo.attach('Seat label geometry', { body: JSON.stringify(await labels.evaluateAll(nodes => nodes.map(node => ({ text: node.textContent, width: node.getBoundingClientRect().width, overflow: node.scrollWidth > node.clientWidth })))), contentType: 'application/json' })
+    for (const label of await labels.all()) {
+      await expect(label).toBeVisible()
+      expect(await label.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+      const box = (await label.boundingBox())!, bounds = (await members.boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(bounds.x)
+      expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width)
     }
+    expect(await members.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
     await captureFrame(page, `after-members-720-${theme}`)
   })
 }
@@ -280,8 +293,20 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-frame=needs-you&theme=${theme}`)
-    await expect(page.locator('[data-slot="team-overview"]').getByRole('button', { name: 'Answer in the conversation', exact: true })).toBeVisible()
+    const team = page.locator('[data-frame-id="team-frame"]')
+    const work = team.locator('[data-slot="team-overview"]')
+    await expect(work.getByText('1 request needs your reply', { exact: true })).toBeVisible()
+    const openChat = work.getByRole('button', { name: 'Open Chat', exact: true })
+    await expect(openChat).toHaveCount(1)
+    await expect(openChat).toBeVisible()
     await captureFrame(page, `after-frame-1440-${theme}`)
+    await openChat.click()
+    await expect(team.locator('[data-team-page="room"]:visible')).toHaveAttribute('aria-selected', 'true')
+    const approval = team.locator('[data-slot="approval-card"]')
+    await expect(approval).toHaveCount(1)
+    await expect(approval.getByRole('heading', { name: 'Grant additional access?', exact: true })).toBeVisible()
+    await expect(approval.locator('[data-slot="approval-meta"][data-kind="person"]')).toContainText('Beta')
+    await expect(approval.locator('[data-slot="approval-reason"]')).toHaveText('Beta asks to edit the checkout file before retrying the payment; choose whether to keep the original payment method so this review can continue.')
   })
 }
 

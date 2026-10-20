@@ -1070,6 +1070,7 @@ export const TeamRoomPane = ({
   ]
   useTopBar(mainOwner, {
     lead: <WindowControls />,
+    compact: { lead: <WindowControls history={false} />, more: close => <><WindowControls menu close={close} /><WorkTools menu close={close} changesRefusal={teamChangesRefusal} /></> },
     place: sanitizeText(title), placeTitle: sanitizeText(fullTitle), state: runState ? <Dot tone={runState.tone} pulse={runState.pulse} title={runState.label} aria-label={runState.label} /> : undefined,
     placeMenu: close => actions.items(close, pullRequest && <MenuItem icon={<PullRequestIcon />} label="Open pull request" onSelect={() => { void openExternal(pullRequest.url); close() }} />),
     tools: <WorkTools changesRefusal={teamChangesRefusal} />,
@@ -1874,8 +1875,8 @@ const Room = ({
   /**
    * The one member (if any) waiting on a person right now — the same fact
    * `TeamRoomPane`'s own header chip pulses for. While it is set, this
-   * member's own `Approvals` takes the composer's slot; answering it, either
-   * way, is what clears it and brings the composer back.
+   * member's own `Approvals` appears in the thread; answering it, either
+   * way, clears the question while the composer remains available.
    */
   readonly pendingApproval: Member | null
   /** For the composer's own budget meter — null off a plain room, or a Goal a person started. */
@@ -1900,37 +1901,12 @@ const Room = ({
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
-  /* The slot the composer and the card share, and whether focus is in it.
-     The card takes the focus only from the composer it replaces — a person
-     typing in the sidebar, the rail's filter or another pane keeps theirs —
-     and it is read at the render the approval arrives in, before the card
-     exists to take anything. Keyed by the approval's own id, so two in a row
-     for the same member are two arrivals. */
-  const slot = useRef<HTMLDivElement>(null)
+  /* An inline question leaves the reader and the composer's caret where
+     they are. Its shortcuts arm only after the person enters the card.
+     Keep the id for the thread's separate unread-request indicator. */
   const pendingId = pendingApproval
     ? snapshot.approvals.find((entry) => entry.key === pendingApproval.key)?.approval.id ?? null
     : null
-  const takeFocus = useMemo(() => {
-    if (pendingId === null) return false
-    const at = typeof document === 'undefined' ? null : document.activeElement
-    return Boolean(at && at !== document.body && slot.current?.contains(at))
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- read once per arrival, on purpose
-  }, [pendingId])
-  /* The approval cleared — answered, either way. Focus goes back to the
-     composer only if the card took it from there and the person has not
-     since put it somewhere else: the card's answer button vanishing leaves
-     it on the page itself, and that is the only case this hands it back. */
-  const tookFocus = useRef(false)
-  const lastApproval = useRef<string | null>(null)
-  useEffect(() => {
-    if (pendingId !== null) tookFocus.current = takeFocus
-    else if (lastApproval.current !== null && tookFocus.current) {
-      tookFocus.current = false
-      const at = document.activeElement
-      if (!at || at === document.body) composer.current?.focus()
-    }
-    lastApproval.current = pendingId
-  }, [pendingId, takeFocus])
 
   const team = snapshot.teams.get(room)
   const entries = team?.channel ?? NO_ENTRIES
@@ -2098,7 +2074,7 @@ const Room = ({
             {pendingApproval && <PaneProvider scope={{
               paneId: `team-room:approval:${pendingApproval.key}`,
               view: { kind: 'conversation', session: pendingApproval.key }, sessionKey: pendingApproval.key,
-            }}><Approvals placement="docked" takeFocus={takeFocus} requester={{
+            }}><Approvals placement="docked" requester={{
               name: pendingApproval.displayName ?? pendingApproval.peer.nickname ?? pendingApproval.title,
               mark: pendingApproval.brand ? <BrandMark brand={pendingApproval.brand} size={16} /> : <AgentIcon size={16} />,
               open: () => onShow(pendingApproval.key),
@@ -2149,7 +2125,7 @@ const Room = ({
             wrapper rather than a prop: `RoomComposer` draws the shell and
             knows nothing about how wide the pane it sits in is, which is the
             caller's business — exactly as `.streamColumn` is. */}
-        <div ref={slot} className={styles.composerShell}>
+        <div className={styles.composerShell}>
           {/* An approval arriving mid-sentence must not
               throw away the words or the audience being written — they are
               this component's own state. The composer remains visible below the request.

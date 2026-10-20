@@ -98,3 +98,11 @@ Hosted browser 先执行于 50d45bc51。旧完成结果预览需要先切到 Cha
 额外复审在 50d45bc51 上确认共享气泡、审批、FlowCanvas、浮动 rail 与玻璃材质没有新增缺陷，但覆盖仅 87/125 个要求文件，不能记录为完整无问题审查。指出的剩余旧 Chat 布局测试和 publication-words 的 Judge 入口已迁移；普通 Team 的长任务误指 Done when 的提示已修正，三个新增回归与 FrontDoor 60 项通过，类型检查通过。
 
 alignment census 首轮 87 项通过，104 个 board 用例在测量前因同一目录清单缺少新增 Flow example 而失败。未测量的 board 使 afterAll 的“fixed”信息无效，本轮没有据此修改对齐基线。补全清单后执行完整重跑，再决定是否存在真实几何变化。
+
+新一轮完整 UI（含三个表单提示回归）677 个文件、8,599 项通过，214.78 秒；类型检查、构建和最终快速门禁通过。新增四组浏览器验证中 team-bar 四项通过；team-tabs 揭示 360px 的真实标题宽度为零，正在共享 TopBar 修复，未放宽严格标题断言。
+
+alignment census 补全目录后的完整重跑在 9899bd575 通过：192 项（run [39383094074](https://github.com/HarnessDesk/HarnessDesk/actions/runs/39383094074)），覆盖新增 Flow example，未修改 alignment-census.json。后续发现的窄顶栏问题独立修复，最终源再执行该测量。
+
+360px 的真实窄窗口修复：栏内标题从 0 恢复到 216.34px，data-fold=1，页面无横向溢出；直接保留 sidebar、标题与 More。More 含原 Back/Forward、rail、Terminal、Changes（原禁用原因）、Browser、Files、Run history 和窗口动作。折叠 rail 动作实际打开信息栏并把焦点交回 More。保持菜单打开时放大到 1440px，data-fold 回到 0，原工具恢复且菜单继续可用；深色也实际检查。
+
+独立静态复核还指出 compact 属性移除后折叠状态未复位，已在正宽与零宽两种情形先红后绿修正。内联审批的新旧焦点回归先红后绿，真实模态的聚焦/恢复测试仍通过。图中 Runtime 3 的拒绝现在只显示共享 issue mark，完整消息保留在 title 和无障碍名称中；CUA 选择 Use Runtime 1 后标记消失，Judge 显示 Runtime 1。

@@ -64,3 +64,61 @@ test('the same fixed slots survive publications without tabs, views or worded ve
     expect(host.querySelector('[data-topbar="tools"] button')?.getAttribute('aria-label')).toBe('Changes')
   }
 })
+
+test('protects the measured long-title floor by moving crowded controls to More, then restores them when widened', async () => {
+  let width = 302
+  const bounds = HTMLElement.prototype.getBoundingClientRect
+  const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.matches('[data-slot="top-bar"]')) return new DOMRect(0, 0, width, 40)
+    if (this.matches('[data-topbar-title]')) return new DOMRect(0, 0, this.style.position === 'fixed' ? 420 : 180, 28)
+    if (this.matches('[data-topbar-full-lead]')) return new DOMRect(0, 0, 84, 28)
+    if (this.matches('[data-topbar-full-tools]')) return new DOMRect(0, 0, 160, 28)
+    if (this.matches('[data-topbar="more"]')) return new DOMRect(0, 0, 28, 28)
+    return bounds.call(this)
+  })
+  const terminal = vi.fn()
+  try {
+    render({ place: 'A long comparison title that keeps its measured floor', lead: <button>Wide navigation</button>, tools: <button>Terminal door</button>,
+      compact: { lead: <button>Sidebar</button>, more: close => <MenuItem icon={<span />} label="Terminal" onSelect={() => { terminal(); close() }} /> } })
+    const row = host.querySelector<HTMLElement>('[data-slot="top-bar"]')!
+    expect(row.getAttribute('data-fold')).toBe('1')
+    expect(row.style.getPropertyValue('--topbar-title-floor')).toBe('180px')
+    expect(host.querySelector('[data-topbar-full-tools]')?.hasAttribute('hidden')).toBe(true)
+    expect(host.querySelector('[data-topbar-full-lead]')?.hasAttribute('hidden')).toBe(true)
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent === 'Terminal')!.click())
+    expect(terminal).toHaveBeenCalledOnce()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    width = 900
+    act(() => window.dispatchEvent(new Event('resize')))
+    expect(row.getAttribute('data-fold')).toBe('0')
+    expect(host.querySelector('[data-topbar-full-tools]')?.hasAttribute('hidden')).toBe(false)
+    expect(host.querySelector('[data-topbar-full-lead]')?.hasAttribute('hidden')).toBe(false)
+    expect(host.querySelector('[data-topbar-compact-lead]')?.hasAttribute('hidden')).toBe(true)
+  } finally { measure.mockRestore() }
+})
+
+for (const afterWidth of [302, 0]) test(`restores the full controls when compact support is removed at width ${afterWidth}`, () => {
+  let width = 302
+  const bounds = HTMLElement.prototype.getBoundingClientRect
+  const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.matches('[data-slot="top-bar"]')) return new DOMRect(0, 0, width, 40)
+    if (this.matches('[data-topbar-title]')) return new DOMRect(0, 0, 420, 28)
+    if (this.matches('[data-topbar-full-lead]')) return new DOMRect(0, 0, 84, 28)
+    if (this.matches('[data-topbar-full-tools]')) return new DOMRect(0, 0, 160, 28)
+    return bounds.call(this)
+  })
+  try {
+    const tools = <button>Terminal door</button>
+    render({ tools, compact: { lead: <button>Sidebar</button>, more: close => <MenuItem label="Terminal" onSelect={close} /> } })
+    const row = host.querySelector('[data-slot="top-bar"]')!
+    expect(row.getAttribute('data-fold')).toBe('1')
+    expect(host.querySelector('[data-topbar-full-tools]')?.hasAttribute('hidden')).toBe(true)
+    width = afterWidth
+    render({ tools })
+    expect(row.getAttribute('data-fold')).toBe('0')
+    expect(host.querySelector('[data-topbar-full-tools]')?.hasAttribute('hidden')).toBe(false)
+    expect(host.querySelector('[data-topbar-compact-lead]')).toBeNull()
+    expect(host.querySelector('[data-topbar="more"] button')).toBeNull()
+  } finally { measure.mockRestore() }
+})

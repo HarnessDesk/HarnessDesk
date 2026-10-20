@@ -4,7 +4,10 @@
 .fixed { display: flex; align-items: center; flex: none; gap: var(--hd-bar-gap); }
 .fixed:empty { display: none; }
 .place { display: flex; align-items: center; gap: var(--hd-bar-gap); flex: 0 1 auto; min-width: 0; }
-.title { display: flex; align-items: center; gap: var(--hd-bar-gap); flex: 0 1 auto; width: max-content; min-width: 0; max-width: var(--hd-bar-title-max); }
+.title { display: flex; align-items: center; gap: var(--hd-bar-gap); flex: 0 1 auto; width: max-content; min-width: var(--topbar-title-floor, var(--hd-space-0)); max-width: var(--hd-bar-title-max); }
+.fixed[hidden] { display: none; }
+.lead:has(> [data-topbar-full-lead]:not([hidden]):empty), .lead:has(> [data-topbar-compact-lead]:not([hidden]):empty) { display: none; }
+.toolDoors { gap: var(--hd-bar-tool-gap); }
 .placeMenu { display: inline-flex; align-items: center; gap: var(--hd-space-1); min-width: 0; }
 .placeMenu > svg { flex: none; color: var(--hd-secondary-foreground); }
 /* A title that opens a menu is a ghost button; its padding stands out into the

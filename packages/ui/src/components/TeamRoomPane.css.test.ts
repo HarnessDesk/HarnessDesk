@@ -33,7 +33,9 @@ describe('the canonical Team row', () => {
   it('keeps the title intrinsic and places state before it', () => {
     expect(barCss).toContain('width: max-content')
     expect(barCss).toContain('max-width: var(--hd-bar-title-max)')
-    expect(barSource.indexOf('data-topbar="state"')).toBeLessThan(barSource.indexOf('data-topbar-title'))
+    expect(barCss).toContain('min-width: var(--topbar-title-floor, var(--hd-space-0))')
+    const renderedBar = barSource.slice(barSource.indexOf('return <Bar as="header"'))
+    expect(renderedBar).toMatch(/<div data-topbar="state"[\s\S]*<div data-topbar-title/)
   })
   it('moves Team destinations into the body and keeps their markers', () => {
     expect(barSource).not.toContain('<TabsList')
@@ -69,11 +71,19 @@ describe('Seats and responsive tools', () => {
     expect(seats).toContain('{one.detail}')
     expect(seats).not.toContain('truncate')
   })
-  it('uses the shared measured fold and leaves the four fixed tool doors standing', () => {
+  it('lets the shared bar measure its fold and preserve navigation and tool actions in More', () => {
     expect(source).not.toContain('useNarrowLayout<HTMLElement>(608)')
-    expect(barSource).not.toContain('new ResizeObserver(measure)')
-    expect(barSource).toContain('data-fold="0"')
+    expect(source).not.toContain('--topbar-title-floor')
+    expect(source).not.toContain('--hd-bar-title-min')
+    expect(barSource).toContain('new ResizeObserver(measure)')
+    expect(barSource).toContain("data-fold={folded ? '1' : '0'}")
+    expect(barSource).toContain("Math.min(intrinsicWidth(title), metric('--hd-bar-title-min', FRAME.bar.titleMin))")
+    expect(barSource).toContain('setFolded(minimum > width)')
     expect(barSource).toContain('data-topbar="tools"')
+    expect(barSource).toContain('data-topbar-full-tools hidden={folded}')
+    expect(barSource).toContain('folded && props.compact?.more(close)')
+    expect(source).toContain('compact: { lead: <WindowControls history={false} />')
+    expect(source).toContain('<WindowControls menu close={close} /><WorkTools menu close={close} changesRefusal={teamChangesRefusal} />')
   })
 })
 it('keeps the selected Agent glyph unframed in Seats with member information on hover', () => {

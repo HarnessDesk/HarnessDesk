@@ -1,5 +1,5 @@
 import { expectTitleRoom } from './title-contract'
-import { closeFloatingTeamRail, selectTeamDestination } from './team-frame-actions'
+import { closeFloatingTeamRail, selectTeamDestination, toggleTeamRail } from './team-frame-actions'
 import { expect, type Locator, type Page } from '@playwright/test'
 export interface FrameActions {
   readonly inspectFirst?: boolean
@@ -60,7 +60,7 @@ export const applyFrameActions = async (page: Page, actions: FrameActions): Prom
     if (actions.viewChoice === 'Flow' && await unified.count()) {
       await expect(unified.locator('[data-slot="run-flow"]')).toBeVisible()
     } else {
-      await page.locator('[data-slot="page-options"]:visible').getByRole('button', { name: /^(View|Thread|Side by side|Board|List|All|Open|Blocking|Running)$/ }).click()
+      await page.locator('[data-slot="page-options"]:visible').getByRole('button', { name: /^(View|Chat|Split|Board|List|All|Open|Blocking|Running)$/ }).click()
       const choice = page.getByRole('menuitem', { name: actions.viewChoice, exact: true })
         .or(page.getByRole('menuitemradio', { name: actions.viewChoice, exact: true }))
         .or(page.getByRole('switch').filter({ has: page.getByText(actions.viewChoice, { exact: true }) }))
@@ -74,8 +74,18 @@ export const applyFrameActions = async (page: Page, actions: FrameActions): Prom
   if (actions.inspectFirst) await page.locator('[data-slot="workbench-main"] [data-row][data-kind="card"]').first().click()
   if (actions.tool === 'details' || actions.tool === 'activity') {
     const rail = page.locator('[data-work-rail-toggle]')
-    if (await rail.getAttribute('aria-pressed') !== 'true') await rail.click()
-  } else if (actions.tool) await page.locator(`[data-work-tool="${actions.tool}"]`).click()
+    if (await rail.getAttribute('aria-pressed') !== 'true') await toggleTeamRail(page.locator('body'))
+  } else if (actions.tool) {
+    const direct = page.locator(`[data-work-tool="${actions.tool}"]`)
+    if (await direct.isVisible()) await direct.click()
+    else {
+      await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
+      const action = page.getByRole('menuitemradio', { name: actions.tool === 'browser' ? 'Browser' : 'Changes', exact: true })
+      await expect(action).toHaveCount(1)
+      await action.click()
+      await expect(action).toBeHidden()
+    }
+  }
   if (actions.holdMessages) {
     await page.getByRole('button', { name: 'Send to', exact: true }).click()
     await page.getByRole('switch', { name: 'Board-only', exact: true }).click()

@@ -19,6 +19,7 @@ import { EmptyState } from '../ui/empty-state'
 import { ListRows } from '../ui/list-row'
 import { FLOW_STEP_KINDS, FlowStepRow, words } from './FlowStepRow'
 import { Chip, Row, RowButton, Rows, SectionHead, Text } from './Settings'
+import { IssueMark } from './Menu'
 import { FlowCanvas, FLOW_CANVAS_CARD_WIDTH, FLOW_CANVAS_RUN_CARD_HEIGHT, type FlowCanvasNodeProps } from './FlowCanvas'
 
 
@@ -227,7 +228,7 @@ export const FlowRoleConfiguration = ({ label, seats }: {
       </div>
       <Text role="meta" truncate title={seat.instructions}>{seat.instructions}</Text>
       <div className="flex w-full min-w-0 flex-col gap-1">{seat.control}</div>
-      {seat.problem && <Text role="meta">{seat.problem}</Text>}
+      {seat.problem && <IssueMark message={seat.problem} />}
     </div>)}
   </div>
 )

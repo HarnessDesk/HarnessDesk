@@ -108,7 +108,7 @@ PaneColumn.displayName = 'PaneColumn'
 export const PaneTabsRow = ({ children, controls }: { readonly children: ReactNode; readonly controls?: ReactNode }) => (
   <PaneColumn inset="reading" className="flex shrink-0 items-start gap-2" data-pane-tabs-row="">
     <div className="min-w-0">{children}</div>
-    {controls != null && <div className="flex shrink-0 items-center gap-2">{controls}</div>}
+    {controls != null && <div className="ms-auto flex shrink-0 items-center gap-2">{controls}</div>}
   </PaneColumn>
 )
 

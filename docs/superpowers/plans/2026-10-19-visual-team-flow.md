@@ -141,3 +141,20 @@ Design: own messages use the existing right-hand user bubble; Agent messages ret
 - [x] Correct remaining Chat / Split browser contract selectors and enter optional Judge through Details, preserving all decision and refusal assertions.
 - [x] Correct the long plain-task validation reason so it identifies the visible source of the limit; cover explicit Done when separately.
 - [ ] Execute the four additional affected browser specs and the current Team Work contract; inspect results and repair failures.
+
+
+### Task 14: Narrow title and toolbar geometry found by hosted tests
+
+- [x] Measure the failure through CUA: 360px viewport, 328px embedded Team frame, 302px top bar and zero-width title while all tool controls remain drawn.
+- [x] Preserve the title floor and button sizes by moving narrow-only secondary controls into the existing More menu, retaining navigation and exact tool actions.
+- [x] Restore the canonical page-control group to the opposite gutter while preserving its shared row alignment.
+- [ ] Rerun strict team-tabs, team-frame, publication and full census measurements on the corrected source; never weaken the title contract.
+
+
+### Task 15: Final shared-action and focus follow-up
+
+- [x] Keep inline approvals from stealing the composer caret or scroll position; preserve actual modal autofocus and keyboard safety.
+- [x] Migrate the shared wall action helper and Split destination, including direct/overflow tool and rail doors without bypassing the UI.
+- [x] Replace graph-seat warning paragraphs with the shared accessible issue mark and retain direct runtime recovery.
+- [x] Review canonical TopBar lifecycle independently and repair folded-to-noncompact prop changes at positive and zero width.
+- [ ] Finish current-source full UI/gates, selected hosted browser matrix and final evidence publication.

@@ -1,12 +1,21 @@
 import { expect, test } from '@playwright/test'
-import { selectRunView } from './run-frame-actions'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`publication words and the read-only recovery action in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?review-publication&publication-scene=kept&theme=${theme}`)
     const run = page.locator('#review-publication-kept')
-    await selectRunView(run, 'Timeline')
+    // This standalone recorded Run retains its Timeline/Flow radio choices;
+    // Full record belongs to the unified Team work surface.
+    const view = run.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'Timeline', exact: true })
+    await expect(view).toHaveCount(1)
+    await view.click()
+    const timeline = page.getByRole('menuitemradio', { name: 'Timeline', exact: true })
+    await expect(timeline).toHaveCount(1)
+    await expect(timeline).toBeVisible()
+    await expect(timeline).toHaveAttribute('aria-checked', 'true')
+    await timeline.click()
+    await expect(run.getByRole('list', { name: 'Run timeline', exact: true })).toBeVisible()
     await expect(run.locator('[data-row="card-3-3"]')).toContainText('Judge')
     await expect(run.locator('[data-row="card-3-3"]')).toContainText('This desk only')
     await expect(page.locator('#review-publication-overview')).toContainText('This desk only')
@@ -36,9 +45,21 @@ for (const theme of ['light', 'dark'] as const) {
     // popover. Escape here would dismiss the New Team form itself.
     await expect(judge).toHaveCount(0)
     await expect(dialog).toBeVisible()
-    await expect(page.getByRole('dialog')).toContainText('Runtime 3 can be asked to stay read-only here but cannot be held to it. Choose another runtime, or start from /race.')
-    await page.getByRole('button', { name: 'Use Runtime 1', exact: true }).click()
+    const judgeSeat = dialog.locator('[data-slot="team-role-seat"]').filter({ has: page.getByRole('button', { name: 'Configure Judge', exact: true }) })
+    const refusal = 'Runtime 3 can be asked to stay read-only here but cannot be held to it. Choose another runtime, or start from /race.'
+    const issue = judgeSeat.getByRole('img', { name: refusal, exact: true })
+    await expect(judgeSeat.locator('[data-slot="issue-mark"]')).toHaveCount(1)
+    await expect(issue).toBeVisible()
+    await issue.hover()
+    await expect(issue).toHaveAttribute('title', refusal)
+    await expect(judgeSeat).not.toContainText(refusal)
+    const recovery = judgeSeat.getByRole('button', { name: 'Use Runtime 1', exact: true })
+    await expect(recovery).toHaveCount(1)
+    await expect(recovery).toBeVisible()
+    await expect(recovery).toBeEnabled()
+    await recovery.click()
     await expect(configure).toContainText('Runtime 1')
+    await expect(judgeSeat.locator('[data-slot="issue-mark"]')).toHaveCount(0)
     await expect(page.getByRole('dialog')).not.toContainText('cannot be held to it')
     await expect(page.getByRole('button', { name: 'Use Runtime 1', exact: true })).toHaveCount(0)
   })

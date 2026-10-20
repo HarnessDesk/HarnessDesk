@@ -183,19 +183,19 @@ const UserInputBody = ({
  * shortcuts answer only in the focused pane — two agents asking at once must
  * not share one Escape key.
  *
- * `placement="docked"` draws the same question as a card in a composer's
- * slot rather than over the pane — the room's own use, where the thread above
- * belongs to everyone in it and stays readable while one member waits. A
+ * `placement="docked"` draws the same question as an inline card rather than
+ * over the pane — the room's own use, where the thread belongs to everyone
+ * in it and stays readable while one member waits. A
  * docked card traps nothing, so its keys are its own: they answer only from
  * inside the card, never from a field anywhere else in the window. It takes
- * focus only when `takeFocus` says the person was in the composer it
- * replaced — and then a key already on its way from that sentence is not an
- * answer (`TYPED_THROUGH_MS`).
+ * focus only with an explicit `takeFocus`; the room keeps its composer
+ * visible and leaves that false. For a caller replacing a focused composer,
+ * a key already on its way from that sentence is not an answer (`TYPED_THROUGH_MS`).
  */
 export const Approvals = ({ placement = 'overlay', takeFocus = false, requester }: {
   requester?: { name: string; mark?: ReactNode; open: () => void }
   placement?: 'overlay' | 'docked'
-  /** Docked only: the person was in the composer below this card, so it takes the focus. */
+  /** Docked only: explicitly transfer focus when replacing a focused control. Inline chat leaves this false. */
   takeFocus?: boolean
 } = {}) => {
   const store = useStore()
