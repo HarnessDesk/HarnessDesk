@@ -409,10 +409,20 @@ for (const theme of WALL_THEMES) {
       expect(firstTool.width).toBe(FRAME.bar.iconButton)
       const more = (await top.getByRole('button', { name: 'More', exact: true }).boundingBox())!
       expect(more.x + more.width + FRAME.bar.pad).toBe(1440)
-      const keys = details.locator('[data-slot="summary-item"] dt')
+      // Folded Seat records retain their facts, but have no laid-out key column yet.
+      const keys = details.locator('[data-slot="summary-item"] dt:visible')
       expect(await keys.count()).toBeGreaterThanOrEqual(3)
       const widths = await keys.evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().width)))
       expect(widths).toEqual(widths.map(() => FRAME.summaryKey.panel))
+      if (destination === 'conversation') {
+        const recorded = details.getByRole('button', { name: 'Seat record', exact: true })
+        await expect(recorded).toHaveAttribute('aria-expanded', 'false')
+        await recorded.click()
+        await expect(recorded).toHaveAttribute('aria-expanded', 'true')
+        expect(await keys.count()).toBeGreaterThan(widths.length)
+        const expandedWidths = await keys.evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().width)))
+        expect(expandedWidths).toEqual(expandedWidths.map(() => FRAME.summaryKey.panel))
+      }
     })
   }
 }

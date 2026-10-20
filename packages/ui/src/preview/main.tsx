@@ -1248,7 +1248,7 @@ const siteScene = isSceneName(siteSceneParam) ? siteSceneParam : null
 /** A stable native specimen for guides mutation tests; empty optional app cards stay omitted. */
 const GuidesFixPreview = () => {
   useTheme()
-  return <div data-frame-id="guides-fix" className="w-80 max-w-full p-4">
+  return <div data-frame-id="guides-fix" className="w-64 max-w-full p-4">
     <ToolSection label="Background tasks"><EmptyState tight title="Nothing to list" description="This runtime keeps no background task list." /></ToolSection>
   </div>
 }

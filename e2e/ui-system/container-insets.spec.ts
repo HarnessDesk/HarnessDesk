@@ -212,11 +212,14 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     await expect(defaultLines.last()).toBeVisible()
     // Plain tails inherit each live line's own compact rhythm rather than
     // the default tinted strip's row inset. Both contracts keep real coverage.
-    const plainLines = plainTail.locator('> :has(> [data-slot="turn-work-live-words"])')
+    // A trail puts the polite region around the words, inside the same
+    // padded row. Measure that row, with or without the nested region.
+    const plainLines = plainTail.locator('> :has([data-slot="turn-work-live-words"])')
+    expect(await plainLines.count()).toBeGreaterThan(0)
     await expect(plainLines.first()).toBeVisible()
     const plainPadding = await plainLines.evaluateAll(lines => lines.map(line => {
       const probe = document.createElement('div')
-      probe.style.padding = 'var(--hd-space-0-5) var(--hd-space-0) var(--hd-space-1) var(--hd-space-0-5)'
+      probe.style.padding = 'var(--hd-space-0-5) var(--hd-space-0) var(--hd-space-1) var(--hd-space-0)'
       probe.style.minHeight = 'var(--hd-control-h)'
       document.body.append(probe)
       const expected = getComputedStyle(probe), css = getComputedStyle(line)

@@ -377,7 +377,9 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
     }
     return { x: left, y: top, width: right - left, height: bottom - top }
   }, [flow, engineEdges])
-  const navigationInset = toolbarOnTop && !inert && showControls && width < 608 ? GRID * 4 : 0
+  // A fitted plan stays below its top title and navigation at every width.
+  // Short wide panes can otherwise fit a node directly underneath the title.
+  const navigationInset = title || (toolbarOnTop && !inert && showControls) ? GRID * 4 : 0
   const fittedViewport = useCallback((zoom: number) => {
     const viewport = getViewportForBounds(planBounds(), width, Math.max(1, height - navigationInset), minimumZoom, Math.max(minimumZoom, zoom), 0.12)
     return { ...viewport, y: viewport.y + navigationInset }

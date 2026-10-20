@@ -63,8 +63,9 @@ for (const theme of ['light', 'dark'] as const) {
         expect(geometry.whitespace).toBe('nowrap')
         expect(geometry.ellipsis).toBe('ellipsis')
         // Compact model metadata and the name share the row's centred face.
+        await expect(row.locator('[data-slot="list-row-lead"] svg')).toHaveCount(1)
         const leadOffset = await row.evaluate(node => {
-          const face = node.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
+          const face = node.querySelector('[data-slot="list-row-lead"] svg')!.getBoundingClientRect()
           const bounds = node.getBoundingClientRect()
           return Math.abs((face.top + face.bottom - bounds.top - bounds.bottom) / 2)
         })

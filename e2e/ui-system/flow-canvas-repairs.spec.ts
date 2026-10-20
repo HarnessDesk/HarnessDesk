@@ -17,11 +17,14 @@ const run = async (page: Page, theme: string) => {
 }
 
 const nodesInCanvas = async (pane: Locator) => {
+  await expect(pane.locator('[data-slot="flow-canvas"] .react-flow__panel.top.left')).toHaveText('The path this Run took')
   await expect.poll(() => pane.locator('[data-slot="flow-canvas"]').evaluate(canvas => {
     const clip = canvas.getBoundingClientRect()
+    const title = canvas.querySelector('.react-flow__panel.top.left')!.getBoundingClientRect()
     return [...canvas.querySelectorAll('.react-flow__node')].every(node => {
       const box = node.getBoundingClientRect()
-      return box.top >= clip.top && box.bottom <= clip.bottom && box.left >= clip.left && box.right <= clip.right
+      const overlapsTitle = box.left < title.right && box.right > title.left && box.top < title.bottom && box.bottom > title.top
+      return !overlapsTitle && box.top >= clip.top && box.bottom <= clip.bottom && box.left >= clip.left && box.right <= clip.right
     })
   })).toBe(true)
 }
@@ -356,5 +359,30 @@ for (const theme of ['light', 'dark'] as const) {
       expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
       await page.locator('[data-slot="site-run-demo"]').screenshot({ path: `${folder}/poster-${theme}.png` })
     })
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`route chips retain their compact plate and show every outcome without clipping in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
+    for (const scene of ['equivalent', 'not-reached', 'repeated']) {
+      await page.goto(`/preview.html?frame-wall=team-run-${scene}&theme=${theme}`)
+      const labels = page.locator('[data-slot="flow-word"] [data-slot="chip-words"]')
+      await expect(labels).toHaveCount(3)
+      await page.evaluate(() => document.fonts.ready)
+      const measured = await labels.evaluateAll(nodes => nodes.map(words => {
+        const chip = words.closest('[data-slot="chip"]')!, style = getComputedStyle(words)
+        return { text: words.textContent, height: parseFloat(getComputedStyle(chip).height),
+          line: parseFloat(style.lineHeight), expectedLine: parseFloat(style.getPropertyValue('--hd-line-xs')),
+          width: words.clientWidth, scrollWidth: words.scrollWidth, wordsHeight: words.clientHeight, scrollHeight: words.scrollHeight }
+      }))
+      expect(measured.map(one => one.text).sort(), scene).toEqual(['approve', 'pass', 'request-changes'])
+      for (const label of measured) {
+        expect(label.height, `${scene}: ${label.text} keeps its compact plate`).toBe(18)
+        expect(label.line).toBe(label.expectedLine)
+        expect(label.scrollHeight, `${scene}: ${label.text} has no vertical clip`).toBeLessThanOrEqual(label.wordsHeight)
+        expect(label.scrollWidth, `${scene}: ${label.text} stays whole`).toBeLessThanOrEqual(label.width)
+      }
+    }
   })
 }

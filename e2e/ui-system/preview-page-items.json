@@ -281,6 +281,11 @@
       "title": "Library \u2014 Changes made here"
     },
     {
+      "selector": "[data-frame-id=\"coverage-retained-components\"] > div",
+      "id": "coverage-retained-components",
+      "title": "Seats \u2014 saved rows, member options and recorded cards"
+    },
+    {
       "selector": "[data-frame-id=\"coverage-panel-actions\"] > div",
       "id": "coverage-panel-actions",
       "title": "Panel actions context"

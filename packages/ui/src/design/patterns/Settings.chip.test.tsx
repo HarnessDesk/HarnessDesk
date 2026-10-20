@@ -137,6 +137,14 @@ it('stays on one line: bounded, ellipsised, never wrapping inside its pill', () 
   expect(css).toMatch(/\.chipWords > span\s*\{[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s)
 })
 
+it('fits the full text line inside a compact chip without clipping bare route words', () => {
+  const chip = draw(<Chip size="sm" tone="neutral">{['pass']}</Chip>)
+  // Route labels can contain an icon and bare text rather than a single
+  // ellipsis span. Their line needs the text scale's full em room too.
+  expect(chip.querySelector('[data-slot="chip-words"]')?.textContent).toBe('pass')
+  expect(css).toMatch(/\.chip\s*\{[^}]*line-height:\s*var\(--hd-line-xs\)/s)
+})
+
 it('says itself whole in title while it is cut, and keeps a title the caller gave', () => {
   const text = 'verify ✓ @a1b2c3d — 2 commits since'
   const chip = draw(<Chip tone="neutral">{text}</Chip>)

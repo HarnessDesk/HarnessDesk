@@ -42,7 +42,8 @@ for (const theme of ['light', 'dark']) {
       expect(decoration.animation).toBe('none')
       await expect(graph(page)).toContainText('request-changes ×1')
       await expect(activity(page, 'fix')).toContainText('Edited src/checkout/retry.ts')
-      await expect(state(page, 'fix').locator('[data-slot="card"] [data-slot="text"][data-role="meta"]')).toHaveText('retry.ts')
+      await expect(state(page, 'fix').locator('[data-slot="card"] [data-slot="text"][data-role="meta"][title="retry.ts"]')).toHaveText('retry.ts')
+      await expect(state(page, 'fix').locator('[data-slot="flow-duration"]')).toHaveText('2m')
       for (const id of ['land', 'you']) {
         const future = state(page, id)
         const card = future.locator('[data-slot="card"]')

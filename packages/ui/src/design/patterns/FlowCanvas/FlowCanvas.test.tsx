@@ -430,6 +430,24 @@ it('groups read-only navigation and caller actions at the top right with a title
   expect(tools.querySelector('[aria-label="Fit plan"]')).not.toBeNull()
 })
 
+it.each([true, false])('keeps a tall wide plan below its title with controls %s', async showControls => {
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.classList.contains('react-flow__node') ? 300 : this.matches('.react-flow__panel.top.left') ? 20 : 200
+  })
+  const tall: FlowCanvasNode = { id: 'tall', position: { x: 0, y: 0 }, size: { width: 232, height: 300 }, data: { name: 'Tall step', kind: 'agent' } }
+  await draw({ nodes: [tall], edges: [], readOnly: true, showControls, title: 'The path this Run took' })
+  const bounds = () => {
+    const transform = host.querySelector<HTMLElement>('.react-flow__viewport')!.style.transform
+    const match = /translate\(([-.\d]+)px,([-.\d]+)px\) scale\(([-.\d]+)\)/.exec(transform)!
+    return { top: Number(match[2]), bottom: Number(match[2]) + 300 * Number(match[3]) }
+  }
+  await vi.waitFor(() => { expect(bounds().top).toBeGreaterThanOrEqual(64); expect(bounds().bottom).toBeLessThanOrEqual(200) })
+  if (showControls) {
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Fit plan"]')!.click())
+    await vi.waitFor(() => { expect(bounds().top).toBeGreaterThanOrEqual(64); expect(bounds().bottom).toBeLessThanOrEqual(200) })
+  } else expect(host.querySelector('[aria-label="Fit plan"]')).toBeNull()
+})
+
 it('an inert poster leaves selection, edits and keyboard navigation to its page', async () => {
   const onNodesChange = vi.fn(), onEdgesChange = vi.fn()
   await draw({ inert: true, onNodesChange, onEdgesChange } as Partial<FlowCanvasProps>)

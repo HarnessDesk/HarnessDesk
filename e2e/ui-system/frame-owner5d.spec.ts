@@ -126,19 +126,23 @@ test(`R10.39 Flow cards use the approved selection and graph colours at ${width}
   const hover = await resolveToken(page, '--hd-hover')
   const border = await resolveToken(page, '--hd-border-strong')
   const accent = await resolveToken(page, '--hd-accent')
-  const muted = await resolveToken(page, '--hd-muted')
+  const background = await resolveToken(page, '--hd-background')
   const ink = await resolveToken(page, '--hd-foreground')
   const card = await selected.evaluate(node => ({
     background: getComputedStyle(node).backgroundColor,
     border: getComputedStyle(node).borderColor,
-    steps: [...node.querySelectorAll('[data-step] rect')].map(step => ({ fill: getComputedStyle(step).fill, border: getComputedStyle(step).stroke })),
+    // Only a step's direct rect paints its plate; canonical kind glyphs also
+    // contain rects, whose unfilled geometry must keep the glyph's own ink.
+    steps: [...node.querySelectorAll('[data-step] > rect')].map(step => {
+      const style = getComputedStyle(step)
+      return { fill: style.fill, border: style.stroke, opacity: style.opacity, fillOpacity: style.fillOpacity, strokeOpacity: style.strokeOpacity }
+    }),
     labels: [...node.querySelectorAll('[data-slot="flow-mini-label"]')].map(label => getComputedStyle(label).color),
   }))
   expect(card.background).toBe(active)
   expect(card.border).toBe(accent)
-  expect(card.steps.length).toBeGreaterThan(0)
-  expect(card.steps.every(step => step.fill === muted && step.border === border)).toBe(true)
-  expect(card.labels.every(label => label === ink)).toBe(true)
+  expect(card.steps).toEqual(Array(3).fill({ fill: background, border, opacity: '1', fillOpacity: '1', strokeOpacity: '1' }))
+  expect(card.labels).toEqual(Array(3).fill(ink))
   const hovered = page.getByRole('button', { name: 'Side by side', exact: true })
   await expect(hovered).toBeEnabled()
   await hovered.hover()
