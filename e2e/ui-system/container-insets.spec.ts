@@ -528,10 +528,12 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2000, 720])
       await expect(column, name).toHaveAttribute('data-width', measure)
       await expect.poll(() => column.evaluate(element => getComputedStyle(element).getPropertyValue('--hd-column').trim()), { message: `${name} foundation ready` }).toBe('736px')
       const geometry = await column.evaluate(element => {
-        const box = element.getBoundingClientRect(), parent = element.parentElement!.getBoundingClientRect(), css = getComputedStyle(element)
+        const box = element.getBoundingClientRect(), host = element.parentElement!, outer = host.getBoundingClientRect(), css = getComputedStyle(element)
+        // A reserved scrollbar gutter is outside the usable scrollport content.
+        const available = host.clientWidth, left = outer.left + host.clientLeft, right = left + available
         const padding = parseFloat(css.paddingLeft) + parseFloat(css.paddingRight)
         const limit = css.getPropertyValue(element.getAttribute('data-width') === 'reading' ? '--hd-column' : '--hd-page-wide')
-        return { width: box.width, available: parent.width, padding, cap: parseFloat(limit), left: box.left - parent.left, right: parent.right - box.right }
+        return { width: box.width, available, padding, cap: parseFloat(limit), left: box.left - left, right: right - box.right }
       })
       const target = measure === 'canvas' ? geometry.available : Math.min(geometry.available, geometry.cap + geometry.padding)
       expect(Math.abs(geometry.width - target), `${name} measure`).toBeLessThanOrEqual(1)

@@ -86,11 +86,13 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
   }
   const value = await column.evaluate(element => {
     const css = getComputedStyle(element), box = element.getBoundingClientRect()
-    const parent = element.parentElement!.getBoundingClientRect()
+    const host = element.parentElement!, outer = host.getBoundingClientRect()
+    // A reserved scrollbar gutter is outside the usable scrollport content.
+    const available = host.clientWidth, viewportLeft = outer.left + host.clientLeft
     const left = parseFloat(css.paddingLeft), right = parseFloat(css.paddingRight)
     const contentLeft=box.left+left,contentRight=box.right-right
-    return { width: box.width - left - right, available: parent.width, left, right,
-      top: parseFloat(css.paddingTop), centre: (box.left + box.right) / 2 - (parent.left + parent.right) / 2,
+    return { width: box.width - left - right, available, left, right,
+      top: parseFloat(css.paddingTop), centre: (box.left + box.right) / 2 - (viewportLeft + available / 2),
       edges: [...element.children].filter(child => getComputedStyle(child).display !== 'none' && child.getClientRects().length > 0)
         .map(child => {
           const childBox=child.getBoundingClientRect()

@@ -32,11 +32,12 @@ const RadioGroup = ({ className, variant = 'default', ...props }: RadioGroupPrim
 )
 
 /** `choice` uses the supplied render element's box and children, without a second radio glyph. */
-const RadioGroupItem = ({ className, variant = 'default', children, ...props }: Radio.Root.Props & {
+const RadioGroupItem = ({ className, variant = 'default', children, render, ...props }: Radio.Root.Props & {
   variant?: 'default' | 'choice'
 }) => (
   <Radio.Root
-    data-slot="radio-group-item"
+    {...(variant === 'choice' && render ? {} : { 'data-slot': 'radio-group-item' })}
+    render={render}
     className={cn(
       variant === 'default' && 'aspect-square size-4 shrink-0 rounded-full border border-(--hd-border-strong) outline-none transition-colors',
       /* Checked is the solid, the same ink a filled button and an on switch
