@@ -87,3 +87,27 @@
 - [x] Use compact real Agent identity, one concise queue consequence and a reduced-motion-safe Chat attention count.
 - [x] Distinguish message, activity and request presentation; combine Flow additions only with recorded same-round provenance and retain exact task doors.
 - [x] Verify direct human-step answers, pending requests, both conversation entry points, shared rail geometry and final light/dark frames; rerun full UI and selected push checks.
+
+### Task 9: Close the complete conversation UI queue after development refresh
+
+Each item is an acceptance check for the user's accumulated requests. Existing implementation is retained; only a verified remaining defect justifies another source change. Three agents own the independent Flow, conversation and Work groups.
+
+- [x] Flow gallery: plain role glyphs, consistent corners, readable node size and generous content insets. **Verification:** focused FlowCards/FlowGraph tests and inspect the built gallery.
+- [x] Flow routing: adjacent nodes align with straight handoffs; return paths stay outside nodes. **Verification:** route geometry regressions and inspect the real canvas.
+- [x] All predefined Flows: inspectable complex graphs, bounded playback, pause at a person, accessible alternatives and reduced motion. **Verification:** FlowExample and policy-path tests plus catalogue playback.
+- [x] Creation and launch: discoverable New Flow, compact editor, Save and Start reachable, every Seat configurable with exact policy/admission rules. **Verification:** creation/FlowStart tests and saved-source launch walkthrough.
+- [x] Seat identity: actual selected runtime marks, stable duplicate-role ordinals, custom names retained, compact model line. **Verification:** SeatList/TeamRoomPane/SideBySide tests and the running Seat rail.
+- [x] Composer menus: one compact member identity and one relevant current value, full options on demand, exact-session mutations and confirmations. **Verification:** RoomComposerOptions/ComposerControls tests and each of the four actual menus.
+- [x] Conversations: readable sender/recipient/time, agent-to-agent and grouped messages, concise provenance-based activity and folded diagnostics. **Verification:** Channel/Items tests and light/dark/narrow synthetic chat frames.
+- [x] Pending requests: gentle Chat indicator/count, same request in Team and source conversation, persistent draft/audience/composer, and a scrollback return cue. **Verification:** approval/Room tests and real fake-agent request walkthrough.
+- [x] Shared rails: bounded paths and names, concise permission/context facts, no redundant empty detail towers. **Verification:** shared geometry/record tests and inspect Details beside the floating rail.
+- [x] Minimal navigation: Work/Tasks/Chat, Flow first, inline full history, Findings in Tasks and secondary history/receipt entries. **Verification:** TeamRoomPane/RunView tests and current tab/keyboard contracts.
+- [x] Recent activity and Run facts: consistent compact recorded rows, meaningful progress/time, unknown cost explicit without a missing-field essay. **Verification:** RunSteps/RunFacts/RunInspector tests and Work screenshot.
+- [x] Human and historical actions: exact recorded answer target, preserved Run identity, comparison/lifecycle actions, manual full-record collapse survives refresh. **Verification:** human-answer walkthrough and RunView historical/StrictMode regressions.
+
+### Task 10: Integrate and publish the refreshed branch
+
+- [x] Save the reviewed follow-up fixes and merge latest fetched development without rewriting published history: development cd33160d2 is contained in merge eec3f7161; the subsequent CI-duration-only commit 24aa8d7fd is contained in merge 8906ecece.
+- [x] Finish the three acceptance audits. Remaining fixes bound Inspector paths/revisions and omit only confirmed empty optional conversation cards; preserve loading, failures/retry, recorded events and exact actions. An independent read-only review found no verified integration defect. Shipped-policy playback tests now cover all ten predefined Agent Flows.
+- [x] Rebuild and refresh the local fake-agent app. Full UI: 677 files / 8,573 tests passed with four workers; typecheck/build/design-doc/interface checks passed. Browser discovery: 266 files / 6,509 tests (discovery only). Selected push gates passed; repeat on the final committed head before pushing.
+- [ ] Push the refreshed PR, update its exact-head evidence and request the local extra-eyes review. Keep pending CI/browser/native coverage explicit; do not merge.

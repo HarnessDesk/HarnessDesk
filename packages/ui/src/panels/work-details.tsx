@@ -62,6 +62,6 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
     </ToolSection>}
     {session && <SeatRecordBlock />}
     {hasSessionAgents(session) && <ToolSection label="Sub-agents"><AgentsView includeSeat={false} /></ToolSection>}
-    {session && <><BackgroundTasksView card /><TrajectoryCard /></>}
+    {session && <><BackgroundTasksView card /><TrajectoryCard hideEmpty /></>}
   </ToolFooterSuppressed></ToolBodySections></ToolBody>
 }

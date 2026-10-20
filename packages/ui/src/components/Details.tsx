@@ -205,8 +205,9 @@ export const TrajectoryView = ({ initialFilter = 'all' }: { initialFilter?: 'all
   )
 }
 
-export const TrajectoryCard = () => {
+export const TrajectoryCard = ({ hideEmpty = false }: { hideEmpty?: boolean }) => {
   const session = useActiveSession()
+  if (hideEmpty && session?.itemsLoaded && !session.turns.some(turn => turn.items.length > 0 || turn.durationMs != null || turn.status !== 'completed')) return null
   return <ToolSection label="Trajectory" value={trajectorySummary(session?.turns ?? []) || 'No timing yet'} fold defaultOpen={false}>
     <ToolBodySections><ToolFooterSuppressed><TrajectoryView /></ToolFooterSuppressed></ToolBodySections>
   </ToolSection>

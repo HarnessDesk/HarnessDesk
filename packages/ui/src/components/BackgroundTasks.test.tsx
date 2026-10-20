@@ -63,14 +63,14 @@ const calls = {
   notice: vi.fn(),
 }
 
-const mount = (tasks: readonly BackgroundTask[], { capable = true, open = true, card = false } = {}): void => {
+const mount = (tasks: readonly BackgroundTask[], { capable = true, open = true, card = false, key = KEY } = {}): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     runtimes: [runtime(capable)],
     activeRuntime: 'alpha' as RuntimeId,
-    sessions: open ? new Map([[KEY, session()]]) : new Map(),
-    activeSessionKey: open ? KEY : null,
-    tasks: tasks.length > 0 ? new Map([[KEY, tasks]]) : new Map(),
+    sessions: open ? new Map([[key, session()]]) : new Map(),
+    activeSessionKey: open ? key : null,
+    tasks: tasks.length > 0 ? new Map([[key, tasks]]) : new Map(),
   }
   const store = {
     subscribe: () => () => {},
@@ -266,4 +266,43 @@ describe('BackgroundTasksView', () => {
 it('keeps a finished task name at the compact name weight', () => {
   mount([done('t1', 'Check the row types')])
   expect(container.querySelector('[data-slot="inspector-row"] [data-role="navigation"]')).toBeNull()
+})
+
+
+it('hides only successfully empty optional cards while the standalone empty doorway stays', async () => {
+  calls.refreshTasks.mockResolvedValue('loaded')
+  mount([], { card: true })
+  await act(async () => {})
+  expect(container.querySelector('[aria-label="Background tasks"]')).toBeNull()
+  mount([])
+  expect(container.textContent).toContain('Nothing in the background')
+})
+it('keeps optional loading and failed reads visible, with a retry instead of a false empty state', async () => {
+  let finish!: (value: string) => void
+  calls.refreshTasks.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  mount([], { card: true })
+  expect(container.textContent).toContain('Reading background tasks')
+  await act(async () => finish('failed'))
+  expect(container.textContent).toContain('Background tasks could not be read')
+  expect(container.textContent).not.toContain('Nothing in the background')
+  calls.refreshTasks.mockResolvedValue('loaded')
+  await act(async () => button('Try again').click())
+  expect(container.querySelector('[aria-label="Background tasks"]')).toBeNull()
+})
+it('ignores an empty read from the prior conversation and keeps the current failed read visible', async () => {
+  let finishFirst!: (value: string) => void
+  calls.refreshTasks.mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve })).mockResolvedValueOnce('failed')
+  mount([], { card: true })
+  mount([], { card: true, key: sessionKey('alpha', 's2') })
+  await act(async () => {})
+  expect(container.textContent).toContain('Background tasks could not be read')
+  await act(async () => finishFirst('loaded'))
+  expect(container.textContent).toContain('Background tasks could not be read')
+})
+it('retains real task data on a failed optional refresh', async () => {
+  calls.refreshTasks.mockResolvedValue('failed')
+  mount([running('retained', 'Keep this watcher')], { card: true })
+  await act(async () => {})
+  expect(container.textContent).toContain('Keep this watcher')
+  expect(button('Stop Keep this watcher')).toBeTruthy()
 })

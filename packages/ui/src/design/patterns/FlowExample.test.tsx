@@ -3,6 +3,10 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import { FlowExample } from './FlowExample'
 import type { FlowModel } from '../../lib/flow-model'
+import { flowModel } from '../../lib/flow-model'
+import { examplePaths } from '../../lib/flow-example'
+// Parse shipped fixtures through the host grammar; product rendering never imports it.
+import { parseFlowPolicy } from '../../../../server/dist/src/flow-policy.js'
 vi.mock('./FlowGraph', () => ({ FlowGraph: ({ onSelectRule }: { onSelectRule?: (id: string) => void }) => <div data-slot="example-test-graph"><button onClick={() => onSelectRule?.('handoff')}>Inspect transition</button></div> }))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const container = document.createElement('div'); document.body.append(container)
@@ -13,6 +17,40 @@ const model: FlowModel = { name: 'Human handoff', seed: 'work', positions: {}, i
   { id: 'person', name: 'Person', kind: 'person', line: 'done', count: 1, agents: [] },
 ], rules: [{ id: 'handoff', on: 'work', to: 'person', word: null, when: 'Whatever the outcome' }] }
 const button = (label: string) => [...container.querySelectorAll('button')].find(one => one.textContent === label)!
+const shipped = import.meta.glob('../../../../server/flows/*.yml', { eager: true, query: '?raw', import: 'default' })
+it.each(Object.entries(shipped))('plays every declared illustration path in %s and waits for a person', async (_file, source) => {
+  vi.useFakeTimers()
+  const parsed = parseFlowPolicy(String(source))
+  expect(parsed.problems.filter(problem => problem.level === 'error')).toEqual([])
+  if (parsed.document?.format !== 'agents') throw new Error('Expected an Agent-routed Flow')
+  const policy = parsed.document.flow, model = flowModel(policy), rounds = policy.budget?.rounds ?? 3
+  const paths = examplePaths(model, rounds)
+  expect(paths.length).toBeGreaterThan(0)
+  await act(async () => root.render(<FlowExample model={model} rounds={rounds} />))
+  for (const [index, path] of paths.entries()) {
+    const select = container.querySelector('select')
+    if (select) await act(async () => { select.value = String(index); select.dispatchEvent(new Event('change', { bubbles: true })) })
+    else await act(async () => button('Reset').click())
+    expect(path.steps.length).toBeLessThanOrEqual(Math.max(1, Math.min(24, rounds)))
+    for (const stepId of path.steps) {
+      const step = model.steps.find(one => one.id === stepId)!
+      if (step.kind === 'person') {
+        expect(container.textContent).toContain('Paused for a person')
+        expect(button('Play').disabled).toBe(true)
+        const paused = container.textContent
+        await act(async () => vi.advanceTimersByTime(5000))
+        expect(container.textContent).toBe(paused)
+        await act(async () => button('Next').click())
+      } else {
+        expect(container.textContent).toContain(`Example step: ${step.name}`)
+        if (!button('Pause')) await act(async () => button('Play').click())
+        await act(async () => vi.advanceTimersByTime(1400))
+      }
+    }
+    expect(container.textContent).toContain('Example finished')
+    expect(button('Next').disabled).toBe(true)
+  }
+})
 it('labels local playback and pauses at a person until an explicit Next', async () => {
   vi.useFakeTimers()
   await act(async () => root.render(<FlowExample model={model} />))

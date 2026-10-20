@@ -35,7 +35,7 @@
 
 ## 已执行验证与边界
 
-- 最终产品修改后的完整 UI Vitest：675 个文件、8,548 项通过，包含复审后补充的滚动中审批提示与记录展开回归。
+- 最新 development 合并与最后详情修复后的完整 UI Vitest：677 个文件、8,573 项通过，包含复审后补充的滚动中审批提示与记录展开回归。
 - `pnpm check:push --base origin/development --fast` 已执行，退出码 0；它明确跳过的 Node 和 browser 套件不计为通过证据。
 - 提交前检查中的脚本测试：440 项通过、1 项明确跳过；Agent 消息相关 host 过滤测试独立执行，21 项通过。UI 类型检查、设计文档、严格设计审计和目录覆盖检查通过；现有布局债务上限从 2,043 降为 2,040，页面度量从 18 降为 17，没有增加豁免。
 - 本轮浏览器证据来自实际 CUA 交互、画面检查与 DOM 测量。没有把它写成完整 Playwright/browser 套件或 native 验证，也没有把合成消息写成真实模型协作证明。
@@ -46,3 +46,15 @@
 本地额外复审在已发布的 ca24d7ae4 上指出两项交互问题：读旧消息时新审批没有就近返回入口；选中旧轮次后手动收起 Full record 会被模型刷新覆盖。分别补了独立回归，修复为固定的 Approval waiting 返回入口和按 Run/选择身份处理展开。既有审批选项、草稿、受众和显式历史定位保持原行为。长 Chat 的返回提示已在 CUA 中观察到；返回到底部、同请求刷新、下一请求、外部解决和草稿保留由回归测试覆盖。
 
 CI Gates 的首次失败来自文档测试仍寻找已移除的 Overview 标题。同步更新设计说明与该测试，保留其对默认页面和无 Run 场景的要求，并在缺少章节时明确失败。目标测试先红后绿，4 项通过。上述修复之后重新执行完整 UI 套件、构建及提交前门禁。
+
+## 完整队列复核与 development 同步
+
+三组子代理逐项复核 Flow、Conversation、Work 的全部截图反馈，并做独立的只读集成复审。补充了十个实际内置 YAML 的完整示例路径测试：计时推进、人工暂停、显式继续和结束状态都使用发布的策略解析结果。
+
+最后收紧了 Inspector 中工作目录、比较 revision、分支与冻结 base 的展示，使用现有 MiddleTruncate，完整值仍可访问。Conversation 的可选 Background tasks 卡片仅在成功读取为空或明确不支持时省略；读取中、失败重试与已有任务保持可见。可选 Trajectory 只省略已加载且确无记录的情况，Activity 的 Events 入口与所有有效、失败、进行中或未计时的步骤保持原样。
+
+development 的 cd33160d2 已合入；随后新增、仅调整浏览器分片耗时的 24aa8d7fd 也已合入。当前 app 已重新构建并实际刷新，复查了 Work、来源会话详情与目录播放到人工暂停、显式结束的路径。新增的两张公开帧已逐张检查，发布于 [8d0c408c1b75](https://github.com/HarnessDesk/HarnessDesk/tree/8d0c408c1b755542647e1b2948e7c349c1b2815d/pr-1813/visual-team-flow)：`visual-conversation-record-refreshed-light.png` 和 `visual-flow-gallery-refreshed-light.png`。
+
+CI 上原有三个真实图形配置用例曾接近或超过 5 秒默认测试预算；只为这些用例设置 10 秒预算，断言不变，目标 FlowStart 60 项测试通过。第一次合并后全量本地 UI 运行因过高并发出现超时并停止；最终使用 4 个 worker 完整重跑，未改变断言。
+
+最终完整 UI 命令 `pnpm --filter @harnessdesk/ui test --maxWorkers=4`：677 个文件、8,573 项通过，退出码 0，227.58 秒。UI 类型检查、实际 Vite 构建、设计文档新鲜度及接口漂移检查通过。浏览器测试只做发现检查：266 文件、6,509 项可发现，未将其记为执行通过。

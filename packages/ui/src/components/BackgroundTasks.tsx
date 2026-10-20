@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { isFinishedTask, type BackgroundTask } from '@harnessdesk/protocol'
 
-import { Button, CodeBlock, EmptyState, SectionBody, Spinner, Text, ToolSection } from '../design'
+import { ActionError, Button, CodeBlock, EmptyState, SectionBody, Spinner, Text, ToolSection } from '../design'
 import { splitTasks, taskElapsed, taskKindWord, tasksCount, taskStateWord, taskTooltip } from '../lib/tasks'
 import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, BackgroundIcon, CheckIcon, StopIcon } from './Icons'
@@ -47,6 +47,8 @@ export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
   const runtime = snapshot.runtimes.find((entry) => entry.id === session?.runtime) ?? active
   const tasks = key ? (snapshot.tasks.get(key) ?? EMPTY) : EMPTY
   const [now, setNow] = useState(() => Date.now())
+  const [read, setRead] = useState<{ key: typeof key; state: 'reading' | 'loaded' | 'unsupported' | 'failed' }>({ key, state: 'reading' })
+  const [readAgain, setReadAgain] = useState(0)
 
   const split = useMemo(() => splitTasks(tasks), [tasks])
   const { running, finished } = split
@@ -55,8 +57,17 @@ export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
   // of date: a job running since before this window opened has had no reason
   // to be announced, because nothing about it has changed.
   useEffect(() => {
-    if (key) void store.refreshTasks(key)
-  }, [key, store])
+    let held = true
+    if (!key || !runtime.capabilities.backgroundTasks) {
+      setRead({ key, state: 'unsupported' })
+      return
+    }
+    setRead({ key, state: 'reading' })
+    void Promise.resolve(store.refreshTasks(key)).then(result => {
+      if (held) setRead({ key, state: result ?? 'failed' })
+    }, () => { if (held) setRead({ key, state: 'failed' }) })
+    return () => { held = false }
+  }, [key, store, runtime.capabilities.backgroundTasks, readAgain])
 
   // Only tick while something is actually running — the reason an idle app
   // has no timer at all.
@@ -118,7 +129,11 @@ export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
           </div>
     )}
   </>
-  return card ? <ToolSection label="Background tasks" value={tasks.length > 0 ? tasksCount(split) : undefined} action={clear}>{body}</ToolSection>
+  const readState = read.key === key ? read.state : 'reading'
+  if (card && tasks.length === 0 && (readState === 'loaded' || readState === 'unsupported')) return null
+  const cardBody = tasks.length > 0 ? body : readState === 'reading' ? <Text role="meta">Reading background tasks…</Text>
+    : <ActionError>Background tasks could not be read. <Button variant="link" size="inline-link" onClick={() => setReadAgain(value => value + 1)}>Try again</Button></ActionError>
+  return card ? <ToolSection label="Background tasks" value={tasks.length > 0 ? tasksCount(split) : undefined} action={clear}>{cardBody}</ToolSection>
     : <PanelFrame testId="background-tasks-panel"><ToolBodyControls>
       <Text role="meta" truncate className="min-w-0 flex-1">{tasks.length > 0 ? tasksCount(split) : 'Background tasks'}</Text>{clear}
     </ToolBodyControls><PanelBody>{body}</PanelBody></PanelFrame>

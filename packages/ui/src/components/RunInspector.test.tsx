@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { runFixture } from '../preview/run-view-fixture'
+import { shapeFixture } from '../preview/run-shapes-fixture'
 import { RunInspector, type RunInspectorProps } from './RunInspector'
 import type { Evidence, FindingRunState, FlowCheckAttempt, Freshness } from '@harnessdesk/protocol'
 
@@ -34,6 +35,8 @@ it('reads the Run, its frozen base, budget and Seats without inventing absent fa
     seats: [{ id: 'seat-0', name: 'Alpha', override: 'Balanced · Medium', cost: { unit: 'turns', value: 3, estimated: false } }] })
   try {
     for (const text of ['Brief', fixture.execution.brief!, 'Build and review', '3f9a1c', 'Alpha', 'Balanced · Medium', 'origin · main · abc123', 'Started by you', 'rounds', '3 turns']) expect(view.container.textContent).toContain(text)
+    const base = [...view.container.querySelectorAll('[data-slot="summary-item"]')].find(row => row.querySelector('dt')?.textContent === 'Base')
+    expect(base?.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain('origin · main · abc123')
     expect(view.container.textContent).not.toContain('This Run did not record:')
   } finally { view.close() }
 })
@@ -606,7 +609,7 @@ it('gives the observed pull request its state and check counts, and the recorded
     const pr = cards[1]!
     expect(pr.querySelector('[data-slot="chip"][data-tone="success"]')?.textContent).toBe('Open')
     expect(pr.querySelector('[data-slot="group-label"] button')?.textContent).toBe('Open')
-    expect(pr.querySelector('[data-slot="code-text"]')?.textContent).toBe('fix/checkout')
+    expect(pr.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain('fix/checkout')
     expect(pr.querySelector('[data-slot="text"][data-tone="danger"]')?.textContent).toBe('1 failed')
     expect(pr.querySelector('[data-slot="change-stats"]')).not.toBeNull()
     for (const [label, value, max, reading] of [['Budget', 3, 24, '3 of 24 rounds'], ['Without progress', 1, 3, '1 of 3 rounds']] as const) {
@@ -745,5 +748,45 @@ it('keeps moderately long summary briefs behind a full-text door and unknown cos
     expect(sectionText(view.container, 'Run')).toContain('CostNot recorded')
     act(() => [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.includes('Read full text'))!.click())
     expect(view.container.textContent).toContain(brief)
+  } finally { view.close() }
+})
+
+
+it('keeps a long observed check location on the canonical path line with complete accessible text', () => {
+  const fixture = runFixture(), cwd = `/workspace/${'nested checkout folder/'.repeat(25)}repo`
+  const input = { ...fixture, evidence: { ...fixture.evidence, cards: fixture.evidence.cards.map(group => ({ ...group, facts: group.facts.map(one => ({ ...one, record: { ...one.record,
+    checkout: { root: '/workspace', cwd, commonDir: '/workspace/.git', head: 'abc123', branch: 'review/demo' } } })) })) } }
+  const view = render({ input, selectedRow: 'check-2-2' })
+  try {
+    const where = view.container.querySelector('[aria-label="Where"]')!
+    expect(where.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain(cwd)
+    expect(where.textContent).not.toContain('Declared folder')
+    expect(where.textContent).not.toContain('Run location not recorded')
+  } finally { view.close() }
+})
+
+it('keeps exact compared-attempt revisions accessible without wrapping them as prose', () => {
+  const view = render({ input: shapeFixture('comparison'), selectedRow: 'card-3-5' })
+  try {
+    const revisions = view.container.querySelectorAll('[aria-label="Compared attempts"] [data-slot="middle-truncate"]')
+    expect(revisions).toHaveLength(2)
+    expect(revisions[0]?.textContent).toContain('a'.repeat(40))
+    expect(revisions[1]?.textContent).toContain('b'.repeat(40))
+  } finally { view.close() }
+})
+
+it('keeps a declared folder separate from an unknown observed Run location', () => {
+  const fixture = runFixture(), cwd = `/workspace/${'declared folder/'.repeat(25)}repo`
+  const document = fixture.execution.document
+  if (document.format !== 'agents') throw new Error('Expected an agents-format fixture')
+  const input = { ...fixture, evidence: null, execution: { ...fixture.execution, document: { ...document, flow: { ...document.flow,
+    roles: document.flow.roles.map(role => role.id === 'verify' && role.kind === 'check' && role.check ? { ...role, check: { ...role.check, cwd } } : role),
+  } } } }
+  const view = render({ input, selectedRow: 'check-2-2' })
+  try {
+    const where = view.container.querySelector('[aria-label="Where"]')!
+    expect(where.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain(cwd)
+    expect(where.textContent).toContain('Declared folder')
+    expect(where.textContent).toContain('Run location not recorded')
   } finally { view.close() }
 })

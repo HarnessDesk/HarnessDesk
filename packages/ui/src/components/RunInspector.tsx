@@ -49,7 +49,7 @@ export interface RunInspectorProps {
   attemptsRead?: 'reading' | 'failed'
 }
 
-import { Button, SummaryList, SummaryItem, Chip, CodeText, FormStack, ChangeStats, PanelBody, SectionBody, PanelFooter, PanelFrame, PanelRow, ToolBodyControls, Progress, RunStateChip, stateTone, Text, type Tint } from '../design'
+import { Button, SummaryList, SummaryItem, Chip, CodeText, MiddleTruncate, FormStack, ChangeStats, PanelBody, SectionBody, PanelFooter, PanelFrame, PanelRow, ToolBodyControls, Progress, RunStateChip, stateTone, Text, type Tint } from '../design'
 import { commandShown } from '../lib/projects'
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
@@ -135,7 +135,9 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
     const fact = record?.fact.kind === 'check' ? record.fact : null
     body = <>
       <Section title="Command"><CodeText block wrap title={sanitizeText(check.run)}>{sanitizeText(commandShown(check.run, home))}</CodeText></Section>
-      <Section title="Where"><Words>{record?.checkout?.cwd ?? (check.cwd ? `Declared folder: ${check.cwd} · Run location not recorded` : 'Run location not recorded')}</Words></Section>
+      <Section title="Where">{record?.checkout?.cwd ? <MiddleTruncate>{sanitizeText(record.checkout.cwd)}</MiddleTruncate>
+        : check.cwd ? <><Text as="div" role="meta">Declared folder</Text><MiddleTruncate>{sanitizeText(check.cwd)}</MiddleTruncate><Text as="div" role="meta">Run location not recorded</Text></>
+        : <Words>Run location not recorded</Words>}</Section>
       <Section title="Limit"><Words>{`${check.timeout} seconds`}</Words></Section>
       <Section title="Exit mapping"><Words>{[...Object.entries(check.exits).map(([exit, outcome]) => `Exit ${exit} → ${wordOf(outcome)}`), `Other exits and timeout → ${wordOf(check.otherwise)}`].join('\n')}</Words></Section>
       <Section title="Latest result"><Words>{selected.status ?? 'Result unavailable'}</Words>{fact && <Text role="meta">{fact.timedOut ? 'Timed out' : fact.exit === null ? 'No exit recorded' : `Exit ${fact.exit}`} · {sanitizeText(fact.at)}</Text>}</Section>
@@ -209,7 +211,7 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
           return <ListRow key={attempt.card} as={choose ? 'button' : 'div'} size="sm" density="compact" interactive={Boolean(choose)} onClick={choose}
             lead={candidate?.seat ? faces?.get(candidate.seat) ?? <AgentIcon /> : <AgentIcon />}
             title={sanitizeText(attempt.label)}
-            subtitle={attempt.revision ? <CodeText wrap>{sanitizeText(attempt.revision)}</CodeText> : 'No change recorded'} wrapSubtitle
+            subtitle={attempt.revision ? <MiddleTruncate>{sanitizeText(attempt.revision)}</MiddleTruncate> : 'No change recorded'} wrapSubtitle
             trail={attempt.keep ? <Chip tone={attempt.keep === 'kept' ? 'success' : 'neutral'}>{attempt.keep === 'kept' ? 'Picked' : 'Not kept'}</Chip> : undefined} />
         })}
       </ListRows></Section>}
@@ -264,7 +266,7 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
           {pr && <Chip tone={stateTone(pr.state).tone} stale={prRecord?.freshness.state !== 'fresh'}>{wordOf(pr.state)}</Chip>}
           {request.url && <Button variant="link" size="inline-link" onClick={() => openExternal(request.url!)}>Open</Button>}
         </>}><SummaryList surface="panel">
-            {branch && <SummaryItem label="Branch"><CodeText wrap>{sanitizeText(branch)}</CodeText></SummaryItem>}
+            {branch && <SummaryItem label="Branch" kind="path">{sanitizeText(branch)}</SummaryItem>}
             {pr && prRecord?.freshness.state !== 'fresh' && <SummaryItem label="Observation">Earlier observation</SummaryItem>}
             {ci?.kind === 'ci' && <SummaryItem label="Checks"><span className="inline-flex flex-wrap items-center gap-1">
               {[...new Set(ci.checks.map(one => one.state))].map((state, index) => <span key={state} className="inline-flex items-center gap-1">
@@ -277,7 +279,7 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
           </SummaryList></ToolSection>}
         <ToolSection label="Run" action={flowFile}><SummaryList surface="panel">
             <SummaryItem label="Flow">{sanitizeText(execution.document.flow.name)}{execution.revision ? ` · ${sanitizeText(execution.revision)}` : ''}</SummaryItem>
-            {execution.base && <SummaryItem label="Base">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</SummaryItem>}
+            {execution.base && <SummaryItem label="Base" kind="path">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</SummaryItem>}
             {input.origin && <SummaryItem label="Started by">{sanitizeText(input.origin)}</SummaryItem>}
             {budget && <SummaryItem label="Budget"><Progress size="sm" value={closed} max={limit!} label={`${closed} of ${limit} rounds`} aria-label="Budget" /></SummaryItem>}
             {budget && <SummaryItem label="Without progress"><Progress size="sm" value={idle} max={budget.withoutProgress} label={`${idle} of ${budget.withoutProgress} rounds`} aria-label="Without progress" /></SummaryItem>}
