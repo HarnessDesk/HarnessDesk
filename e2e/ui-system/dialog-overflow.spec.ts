@@ -101,14 +101,20 @@ for (const height of [520, 720]) for (const theme of ['light', 'dark'] as const)
       import { Button as AuthoredButton } from '/src/design/ui/button.tsx';
       const authoredFrame = document.createElement('section');
       document.body.append(authoredFrame);
-      createRoot(authoredFrame).render(authoredReact.createElement(AuthoredDialog, {
-        title: 'Change chats location', description: ${JSON.stringify(consequence)}, onClose: () => {},
-        footer: authoredReact.createElement(AuthoredButton, null, 'Continue'),
-      }, authoredReact.createElement('p', null, 'Choose the location for new chats.')));
+      const AuthoredFixture = () => {
+        const [open, setOpen] = authoredReact.useState(false);
+        return open ? authoredReact.createElement(AuthoredDialog, {
+          title: 'Change chats location', description: ${JSON.stringify(consequence)}, onClose: () => setOpen(false),
+          footer: authoredReact.createElement(AuthoredButton, { onClick: () => setOpen(false) }, 'Continue'),
+        }, authoredReact.createElement('p', null, 'Choose the location for new chats.'))
+          : authoredReact.createElement(AuthoredButton, { onClick: () => setOpen(true) }, 'Open authored consequence');
+      };
+      createRoot(authoredFrame).render(authoredReact.createElement(AuthoredFixture));
     ` })
   })
   await page.goto('/preview.html')
   await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+  await page.getByRole('button', { name: 'Open authored consequence', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Change chats location', exact: true })
   await expect(dialog).toHaveAccessibleDescription(consequence)
   const description = dialog.locator('[data-slot="dialog-description"]')
@@ -126,6 +132,8 @@ for (const height of [520, 720]) for (const theme of ['light', 'dark'] as const)
   expect(held.clipped).toBeLessThanOrEqual(1)
   expect(held.inkSpill).toBeLessThanOrEqual(1)
   await expect(dialog.getByRole('button', { name: 'Continue', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
 })
 
 for (const height of [520, 900]) for (const theme of ['light', 'dark'] as const) test(`a long folder refusal leaves its body and actions reachable (${height} ${theme})`, async ({ page }) => {

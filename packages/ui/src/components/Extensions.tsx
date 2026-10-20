@@ -112,14 +112,6 @@ export const ExtensionsSection = () => {
     <>
       <PageExplanation>{`What ${runtime.presentation.name} can connect to: its plugins, apps and MCP servers.`}</PageExplanation>
 
-      {catalogError !== null && (
-        <Banner tone="warning" title="Could not load plugins" actions={
-          <Button variant="secondary" disabled={catalogLoading} onClick={() => void reload()}>Retry</Button>
-        }>
-          {catalogError}{catalog !== null && ' Showing the last loaded catalogue; plugin status may have changed.'}
-        </Banner>
-      )}
-
       {/* A row per marketplace that failed, each with its own words. One row
           counted them all and showed the first message, so with three
           failures two reasons were never seen (#105). */}
@@ -175,6 +167,13 @@ export const ExtensionsSection = () => {
               setQuery(next)
               setShown(PAGE)
             }}}/>
+          {catalogError !== null && (
+            <Banner tone="warning" title="Could not load plugins" actions={
+              <Button variant="secondary" disabled={catalogLoading} onClick={() => void reload()}>Retry</Button>
+            }>
+              {catalogError}{catalog !== null && ' Showing the last loaded catalogue; plugin status may have changed.'}
+            </Banner>
+          )}
           {catalog === null ? (
             catalogError === null ? <Note>Loading…</Note> : null
           ) : (

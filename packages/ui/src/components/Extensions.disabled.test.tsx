@@ -307,3 +307,30 @@ it('does not refresh a new workspace after an old workspace install finishes', a
   expect(store.loadCatalog).toHaveBeenCalledTimes(2)
   expect(container.textContent).toContain('Current plugin')
 })
+
+
+it('keeps a failed plugin read and its retry on Plugins while independent tabs remain usable', async () => {
+  const entry = plugin({ id: 'good@openai', name: 'Working plugin', installed: false })
+  const store = mount([entry])
+  await act(async () => {})
+  vi.mocked(store.loadCatalog).mockRejectedValueOnce(new Error('Plugin catalogue unavailable'))
+  await act(async () => button('Install').click())
+  expect(container.textContent).toContain('Plugin catalogue unavailable')
+  expect(button('Retry')).toBeTruthy()
+  const selectTab = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(node => node.textContent === label)!.click()
+  for (const label of ['Apps', 'MCP servers']) {
+    await act(async () => selectTab(label))
+    expect(container.textContent).not.toContain('Could not load plugins')
+    expect(container.textContent).not.toContain('Plugin catalogue unavailable')
+    expect(button('Retry')).toBeUndefined()
+  }
+  expect(store.loadCatalog).toHaveBeenCalledTimes(2)
+  await act(async () => selectTab('Plugins'))
+  expect(container.textContent).toContain('Plugin catalogue unavailable')
+  expect(button('Retry')).toBeTruthy()
+  vi.mocked(store.loadCatalog).mockResolvedValueOnce(catalogWith({ ...entry, installed: true }))
+  await act(async () => button('Retry').click())
+  expect(container.textContent).not.toContain('Plugin catalogue unavailable')
+  expect(container.textContent).toContain('Installed · 1')
+  expect(store.loadCatalog).toHaveBeenCalledTimes(3)
+})
