@@ -75,7 +75,13 @@ export const TopBar = (props: TopBarProps) => {
   const rowRef = useRef<HTMLDivElement>(null)
   const leadRef = useRef<HTMLSpanElement>(null)
   const toolsRef = useRef<HTMLSpanElement>(null)
+  const measurementOptions = useRef({ compact: Boolean(props.compact), baseMore })
+  const measureContent = useRef<(() => void) | null>(null)
   const hasMore = baseMore || (folded && Boolean(props.compact))
+  useLayoutEffect(() => {
+    measurementOptions.current = { compact: Boolean(props.compact), baseMore }
+    measureContent.current?.()
+  })
   useLayoutEffect(() => {
     const row = rowRef.current
     if (!row) return
@@ -90,7 +96,8 @@ export const TopBar = (props: TopBarProps) => {
       return width
     }
     const measure = (): void => {
-      if (!props.compact) setFolded(false)
+      const { compact, baseMore } = measurementOptions.current
+      if (!compact) setFolded(false)
       const width = row.getBoundingClientRect().width
       if (width <= 0) return
       const css = getComputedStyle(row)
@@ -98,7 +105,7 @@ export const TopBar = (props: TopBarProps) => {
       const title = row.querySelector<HTMLElement>('[data-topbar-title]')
       const floor = Math.min(intrinsicWidth(title), metric('--hd-bar-title-min', FRAME.bar.titleMin))
       setTitleFloor(floor)
-      if (!props.compact) return
+      if (!compact) return
       const lead = intrinsicWidth(leadRef.current)
       const tools = intrinsicWidth(toolsRef.current)
       const state = row.querySelector<HTMLElement>('[data-topbar="state"]')?.getBoundingClientRect().width ?? 0
@@ -110,13 +117,29 @@ export const TopBar = (props: TopBarProps) => {
       const minimum = lead + floor + margins + (state ? state + gap : 0) + tools + more + (tools && more ? toolGap : 0) + gap * (lead ? 3 : 2)
       setFolded(minimum > width)
     }
-    measure()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
-    for (const node of [row, leadRef.current, toolsRef.current]) if (node) observer?.observe(node)
+    const observed = new Set<Element>()
+    let lastContent: string | null = null
+    const syncContent = (): void => {
+      const nodes = new Set<Element>([row, leadRef.current, toolsRef.current,
+        row.querySelector('[data-topbar-title]'), row.querySelector('[data-topbar="state"]')].filter((node): node is Element => node !== null))
+      for (const node of observed) if (!nodes.has(node)) { observer?.unobserve(node); observed.delete(node) }
+      for (const node of nodes) if (!observed.has(node)) { observer?.observe(node); observed.add(node) }
+      // Parent snapshots create new React nodes and callbacks even when the bar's
+      // contents are unchanged. Only committed markup needs an intrinsic measure;
+      // resize and font events still measure independently of this content check.
+      const { compact, baseMore } = measurementOptions.current
+      const content = `${compact}:${baseMore}:${row.innerHTML}`
+      if (content === lastContent) return
+      lastContent = content
+      measure()
+    }
+    measureContent.current = syncContent
+    syncContent()
     window.addEventListener('resize', measure)
     document.fonts?.addEventListener('loadingdone', measure)
-    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); document.fonts?.removeEventListener('loadingdone', measure) }
-  }, [props.place, props.state, props.lead, props.tools, props.compact, baseMore])
+    return () => { measureContent.current = null; observer?.disconnect(); window.removeEventListener('resize', measure); document.fonts?.removeEventListener('loadingdone', measure) }
+  }, [])
   return <Bar as="header" data-content-inset="frame" corner={props.corner} className={`${styles.bar} hd-drag`}>
     <div ref={rowRef} data-slot="top-bar" data-fold={folded ? '1' : '0'} className={styles.row} style={{ '--topbar-title-floor': `${titleFloor}px` } as CSSProperties}>
       <div data-topbar="lead" className={`${styles.fixed} ${styles.lead}`}>

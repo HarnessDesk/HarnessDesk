@@ -27,9 +27,11 @@ export interface AgentCatalogueCardProps {
 /** One role, its purpose, and its actual seating result, each with a distinct place. */
 export const AgentCatalogueCard = ({ name, description, face, runtime, ceiling, status, problem, broken = false, onOpen }: AgentCatalogueCardProps) => {
   const descriptionId = useId()
+  const runtimeId = useId()
+  const stateId = useId()
   const problemId = useId()
   return <Button variant="ghost" size="pattern" render={<Card as="button" spacing="compact" />} className={styles.card} data-slot="agent-card" data-kind="record"
-    aria-label={name} aria-describedby={[description ? descriptionId : null, problem ? problemId : null].filter(Boolean).join(' ') || undefined} onClick={onOpen}>
+    aria-label={name} aria-describedby={[description ? descriptionId : null, runtime ? runtimeId : null, status || ceiling ? stateId : null, problem ? problemId : null].filter(Boolean).join(' ') || undefined} onClick={onOpen}>
     <span className={styles.head}>
       <span data-slot="agent-card-face" className={styles.face}>{face}</span>
       <span data-slot="agent-card-title" className={styles.name}><Text as="span" role="subject" truncate title={name}>{name}</Text></span>
@@ -38,9 +40,11 @@ export const AgentCatalogueCard = ({ name, description, face, runtime, ceiling, 
       <Text as="span" role="prose" ink="secondary" lines={2}>{description}</Text>
     </span>
     <span className={styles.foot}>
-      {runtime && <span data-slot="agent-card-runtime" className={styles.runtime}><Text as="span" role="meta" ink="secondary" truncate title={runtime}>{runtime}</Text></span>}
+      {runtime && <span id={runtimeId} data-slot="agent-card-runtime" className={styles.runtime}><Text as="span" role="meta" ink="secondary" truncate title={runtime}>{runtime}</Text></span>}
       <span data-slot="agent-card-state" className={styles.state}>
-        {status ? <Chip tone={problem ? broken ? 'danger' : 'warning' : 'neutral'} size="sm">{status}</Chip> : ceiling}
+        {(status || ceiling) && <span id={stateId} data-slot="agent-card-state-reading" className="inline-flex">
+          {status ? <Chip tone={problem ? broken ? 'danger' : 'warning' : 'neutral'} size="sm">{status}</Chip> : ceiling}
+        </span>}
         {problem && <IssueMark message={problem} tone={broken ? 'danger' : 'warning'} />}
       </span>
     </span>

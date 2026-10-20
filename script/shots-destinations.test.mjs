@@ -47,3 +47,32 @@ test('native Agents scrolls the destination itself to include its shadowed row',
   assert.equal(page.scrollTop, page.scrollHeight)
   assert.equal(scrolled, true)
 })
+
+test('native Agents opens initially folded sources before verifying the shadowed copy', async () => {
+  const from = shoot.indexOf("    'settings-agents':")
+  const to = shoot.indexOf("    /** An Agent's page:", from)
+  assert.ok(from >= 0 && to > from)
+  let open = false
+  const page = { clientHeight: 700, scrollHeight: 1400, scrollTop: 0, querySelectorAll: () => [], dispatchEvent: () => {} }
+  const sources = { getAttribute: name => name === 'aria-expanded' ? String(open) : null }
+  const row = { textContent: 'Shadowed by the project copy. This copy is not used.', getBoundingClientRect: () => ({ width: 700, height: 40, top: 600, bottom: 640 }) }
+  const document = {
+    querySelector: selector => selector.includes('agent-catalogue-sources') ? sources : page,
+    querySelectorAll: () => open ? [row] : [],
+  }
+  const cdp = { eval: async expression => new Function('document', 'innerHeight', `return ${expression}`)(document, 800) }
+  const clickScrolled = async (label, scope) => {
+    assert.equal(label, 'Sources and precedence')
+    assert.equal(scope, '[data-page-destination="agents"]:not([hidden])')
+    open = !open
+    return true
+  }
+  const scene = new Function('openStorefront', 'click', 'clickScrolled', 'sleep', 'cdp', 'waitForSnapshot',
+    `return ({${shoot.slice(from, to)}})['settings-agents']`)(async () => {}, async () => true, clickScrolled, async () => {}, cdp,
+    async (read, accept) => assert.equal(accept(await read()), true))
+  await scene.run()
+  assert.equal(open, true, 'the scene must reveal sources rather than search the folded catalogue')
+  await scene.verify()
+  await scene.run()
+  assert.equal(open, true, 'repeating the scene keeps an already open source disclosure open')
+})

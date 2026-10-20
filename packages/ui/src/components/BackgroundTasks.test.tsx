@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useLayoutEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -63,7 +63,9 @@ const calls = {
   notice: vi.fn(),
 }
 
-const mount = (tasks: readonly BackgroundTask[], { capable = true, open = true, card = false, key = KEY } = {}): void => {
+const PaintProbe = ({ inspect }: { inspect: () => void }) => { useLayoutEffect(inspect); return null }
+
+const mount = (tasks: readonly BackgroundTask[], { capable = true, open = true, card = false, key = KEY, inspect = () => {} } = {}): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     runtimes: [runtime(capable)],
@@ -81,6 +83,7 @@ const mount = (tasks: readonly BackgroundTask[], { capable = true, open = true, 
     root.render(
       <StoreProvider store={store}>
         <BackgroundTasksView card={card} />
+        <PaintProbe inspect={inspect} />
       </StoreProvider>,
     )
   })
@@ -268,6 +271,19 @@ it('keeps a finished task name at the compact name weight', () => {
   expect(container.querySelector('[data-slot="inspector-row"] [data-role="navigation"]')).toBeNull()
 })
 
+
+it('omits an unsupported optional card before paint, including after a conversation switch', async () => {
+  const frames: string[] = []
+  const inspect = () => { frames.push(container.textContent ?? '') }
+  mount([], { capable: false, card: true, inspect })
+  expect(frames).toEqual([''])
+  expect(calls.refreshTasks).not.toHaveBeenCalled()
+  calls.refreshTasks.mockImplementation(() => new Promise(() => {}))
+  mount([], { card: true })
+  expect(container.textContent).toContain('Reading background tasks')
+  mount([], { capable: false, card: true, key: sessionKey('alpha', 'unsupported'), inspect })
+  expect(frames).toEqual(['', ''])
+})
 
 it('hides only successfully empty optional cards while the standalone empty doorway stays', async () => {
   calls.refreshTasks.mockResolvedValue('loaded')

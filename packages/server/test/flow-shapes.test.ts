@@ -168,12 +168,9 @@ test('unattended: a topology only ever started by hand today, with its future tr
   )
 })
 
-test('the design’s pair build (UC5) compiles against the shipped Agents, its dev cards taking the split the contract agreed', async () => {
-  const spec = await readFile(join(builtinFlowRoot(), '..', '..', '..', 'docs', 'superpowers', 'specs', '2026-09-17-agents-and-goals-design.md'), 'utf8')
-  const section = spec.slice(spec.indexOf('### UC5'))
-  const source = /```yaml\n([\s\S]*?)```/.exec(section)?.[1]
-  assert.ok(source, 'UC5 carries its flow')
-  const compiled = compileShape(source!, await agentsOf())
+test('the pair-build fixture compiles against the shipped Agents, its dev cards taking the split the contract agreed', async () => {
+  const source = await readFile(new URL('../../test/fixtures/pair-build.yml', import.meta.url), 'utf8')
+  const compiled = compileShape(source, await agentsOf())
   assert.equal(compiled.document.format, 'agents')
   const build = compiled.document.format === 'agents' ? compiled.document.flow.rules.find((rule) => rule.then.role === 'dev') : undefined
   assert.equal(build?.then.split, 'contract', 'each dev card owns its own part of the agreed split')
@@ -197,16 +194,13 @@ test('comparison seeds two competitor cards from the file itself, so a generic F
 })
 
 /*
- * Issue #1032, gap 1, in the design spec's own walk-through: `to-judge` reads
+ * Issue #1032, gap 1, in the race-and-judge fixture: `to-judge` reads
  * `any: published`, not `every: published`, so a round where only one
  * competitor published still reaches the judge instead of stalling before it.
  */
-test('the design’s race and judge (UC2) compiles against the shipped Agents, and lets the judge decide once every competitor has finished and at least one published', async () => {
-  const spec = await readFile(join(builtinFlowRoot(), '..', '..', '..', 'docs', 'superpowers', 'specs', '2026-09-17-agents-and-goals-design.md'), 'utf8')
-  const section = spec.slice(spec.indexOf('### UC2'), spec.indexOf('### UC3'))
-  const source = /```yaml\n([\s\S]*?)```/.exec(section)?.[1]
-  assert.ok(source, 'UC2 carries its flow')
-  const compiled = compileShape(source!, await agentsOf())
+test('the race-and-judge fixture compiles against the shipped Agents, and lets the judge decide once every competitor has finished and at least one published', async () => {
+  const source = await readFile(new URL('../../test/fixtures/race-and-judge.yml', import.meta.url), 'utf8')
+  const compiled = compileShape(source, await agentsOf())
   assert.equal(compiled.document.format, 'agents')
   const flow = compiled.document.format === 'agents' ? compiled.document.flow : null
   const toJudge = flow?.rules.find((rule) => rule.then.role === 'judge')

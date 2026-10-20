@@ -122,3 +122,61 @@ for (const afterWidth of [302, 0]) test(`restores the full controls when compact
     expect(host.querySelector('[data-topbar="more"] button')).toBeNull()
   } finally { measure.mockRestore() }
 })
+
+test('equivalent parent renders keep one measurement subscription without cloning the controls again', () => {
+  const disconnect = vi.fn(), observe = vi.fn(), unobserve = vi.fn()
+  const observer = vi.fn(function () { return { observe, unobserve, disconnect } })
+  vi.stubGlobal('ResizeObserver', observer)
+  const bounds = HTMLElement.prototype.getBoundingClientRect
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.matches('[data-slot="top-bar"]')) return new DOMRect(0, 0, 900, 40)
+    if (this.matches('[data-topbar-title]')) return new DOMRect(0, 0, 180, 28)
+    if (this.matches('[data-topbar-full-lead], [data-topbar-full-tools]')) return new DOMRect(0, 0, 84, 28)
+    return bounds.call(this)
+  })
+  const clone = vi.spyOn(Node.prototype, 'cloneNode')
+  const fresh = () => ({ lead: <button>Navigation</button>, tools: <button>Terminal</button>,
+    state: <Dot title="Working" />, compact: { lead: <button>Sidebar</button>, more: (close: () => void) => <MenuItem label="Terminal" onSelect={close} /> } })
+  try {
+    render(fresh())
+    const clones = clone.mock.calls.length
+    const observations = observe.mock.calls.length
+    expect(clones).toBeGreaterThan(0)
+    render(fresh())
+    expect(observer).toHaveBeenCalledOnce()
+    expect(disconnect).not.toHaveBeenCalled()
+    expect(observe).toHaveBeenCalledTimes(observations)
+    expect(clone).toHaveBeenCalledTimes(clones)
+  } finally { clone.mockRestore(); geometry.mockRestore(); vi.unstubAllGlobals() }
+})
+
+test('content changes remeasure the title and hidden full controls without replacing the observer', () => {
+  const disconnect = vi.fn(), observe = vi.fn(), unobserve = vi.fn()
+  const observer = vi.fn(function () { return { observe, unobserve, disconnect } })
+  vi.stubGlobal('ResizeObserver', observer)
+  const bounds = HTMLElement.prototype.getBoundingClientRect
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.matches('[data-slot="top-bar"]')) return new DOMRect(0, 0, 320, 40)
+    if (this.matches('[data-topbar-title]')) return new DOMRect(0, 0, this.textContent === 'Short' ? 40 : 420, 28)
+    if (this.matches('[data-topbar-full-lead]')) return new DOMRect(0, 0, 84, 28)
+    if (this.matches('[data-topbar-full-tools]')) return new DOMRect(0, 0, this.textContent === 'Terminal' ? 84 : 180, 28)
+    return bounds.call(this)
+  })
+  const compact = { lead: <button>Sidebar</button>, more: (close: () => void) => <MenuItem label="Terminal" onSelect={close} /> }
+  try {
+    render({ place: 'Short', lead: <button>Navigation</button>, tools: <button>Terminal</button>, compact })
+    const row = host.querySelector<HTMLElement>('[data-slot="top-bar"]')!
+    expect(row.getAttribute('data-fold')).toBe('0')
+    expect(row.style.getPropertyValue('--topbar-title-floor')).toBe('40px')
+    render({ place: 'A long comparison title', lead: <button>Navigation</button>, tools: <button>Terminal</button>, compact })
+    expect(row.getAttribute('data-fold')).toBe('1')
+    expect(row.style.getPropertyValue('--topbar-title-floor')).toBe('180px')
+    render({ place: 'Short', lead: <button>Navigation</button>, tools: <button>Terminal and Browser</button>, compact })
+    expect(row.style.getPropertyValue('--topbar-title-floor')).toBe('40px')
+    expect(row.getAttribute('data-fold')).toBe('1')
+    render({ place: 'Short', lead: <button>Navigation</button>, tools: <button>Terminal</button>, compact })
+    expect(row.getAttribute('data-fold')).toBe('0')
+    expect(observer).toHaveBeenCalledOnce()
+    expect(disconnect).not.toHaveBeenCalled()
+  } finally { geometry.mockRestore(); vi.unstubAllGlobals() }
+})

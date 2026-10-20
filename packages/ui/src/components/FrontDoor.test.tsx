@@ -307,7 +307,7 @@ it('reissues the initial source in StrictMode and ignores the retired preview be
   await act(async () => button('Start Team').click())
   expect(spy.mock.calls.find(([method]) => method === 'flow/start-goal')?.[1]).toMatchObject({ source, token: 'fresh-token' })
   expect(onStarted).toHaveBeenCalledExactlyOnceWith(EXECUTION)
-  expect(store.getSnapshot().teamFrameRequests[EXECUTION.goal]).toMatchObject({ page: 'run', runView: 'flow' })
+  expect(store.getSnapshot().teamFrameRequests[EXECUTION.goal]).toBeUndefined()
 })
 
 it('starts a legal just-a-team Flow from its source even when the plain prefill is also present', async () => {
@@ -872,9 +872,10 @@ it('the seed preview follows input defaults, edits and clearing in the front doo
   }
 })
 
-it('review is choice then Start: two clicks, one start call', async () => {
+it('review is choice then Start, and leaves navigation to its caller', async () => {
   const preview = previewOf(emptyFlow('strict-token'))
   const store = new AppStore('ws://localhost:0/')
+  const navigate = vi.spyOn(store, 'requestTeamFrame')
   const spy = requestSpy(store, {
     'flow/catalog': () => [ENTRY('review', 'Review')],
     'agent/list': () => [],
@@ -900,6 +901,7 @@ it('review is choice then Start: two clicks, one start call', async () => {
   expect(starts).toHaveLength(1)
   expect(starts[0]![1]).toMatchObject({ root: '/repo', token: 'strict-token', source: 'version: 2\nname: Review\n' })
   expect(onStarted).toHaveBeenCalledWith(EXECUTION)
+  expect(navigate).not.toHaveBeenCalled()
 })
 
 it('the rendered list follows the catalogue, never a hardcoded set of shapes', async () => {

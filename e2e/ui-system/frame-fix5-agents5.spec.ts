@@ -23,14 +23,21 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720] 
       width,
     )
 
-    const reviewer = page.locator('section[aria-label="In storefront"] button[data-kind="record"]').filter({ hasText: 'Code reviewer' })
+    const main = page.locator('[data-page-destination="agents"]:visible')
+    const reviewer = main.locator('section[aria-label="Project"] [data-slot="agent-card"]').filter({ hasText: 'Code reviewer' })
     await expect(reviewer).toHaveCount(1)
-    await expect(reviewer.locator('[data-slot="row-desc"]')).toHaveText('The storefront team’s reviewer: reads the diff against our checkout rules. · Gamma is signed out')
+    await expect(reviewer.locator('[data-slot="agent-card-description"]')).toHaveText('The storefront team’s reviewer: reads the diff against our checkout rules.')
+    await expect(reviewer).toHaveAccessibleDescription('The storefront team’s reviewer: reads the diff against our checkout rules. Gamma is signed out')
+    await expect(reviewer.locator('[data-slot="issue-mark"]')).toHaveAttribute('title', 'Gamma is signed out')
     await expect(reviewer).toContainText("Can't seat here")
     await expect(reviewer).not.toContainText("Set by this file's older permission line")
-    await expect(page.locator('section[aria-label="Yours"]')).not.toContainText("Set by this file's older permission line, which counts as Publish.")
+    await expect(main.locator('section[aria-label="Yours"]')).not.toContainText("Set by this file's older permission line, which counts as Publish.")
 
-    const source = page.locator('section[aria-label="Yours"] [data-slot="note"]')
+    const sources = main.getByRole('button', { name: 'Sources and precedence', exact: true })
+    await expect(sources).toHaveAttribute('aria-expanded', 'false')
+    await sources.click()
+    await expect(sources).toHaveAttribute('aria-expanded', 'true')
+    const source = main.locator('section[aria-label="Sources: Yours"] [data-slot="note"]')
     const path = source.locator('[data-slot="middle-truncate"]')
     await expect(path).toHaveAttribute('title', longHomePath)
     const noteGeometry = await source.evaluate(note => {

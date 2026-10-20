@@ -133,7 +133,7 @@ export const BackgroundTasksView = ({ card = false }: { card?: boolean }) => {
           </div>
     )}
   </>
-  const readState = read.key === key ? read.state : 'reading'
+  const readState = !key || !runtime.capabilities.backgroundTasks ? 'unsupported' : read.key === key ? read.state : 'reading'
   if (card && tasks.length === 0 && (readState === 'loaded' || readState === 'unsupported')) return null
   const cardBody = tasks.length > 0 ? body : readState === 'reading' ? <Text role="meta">Reading background tasks…</Text>
     : <ActionError>Background tasks could not be read. <Button variant="link" size="inline-link" onClick={() => setReadAgain(value => value + 1)}>Try again</Button></ActionError>

@@ -1,0 +1,24 @@
+name: Pair build
+inputs:
+  task: { label: What to build }
+
+roles:
+  proposal: { uses: implementer, count: 2 }                        # read: how would you split it
+  contract: { uses: implementer, grant: publish }                  # writes the interface, records the split
+  admit:    { kind: person, outcomes: [admitted] }                 # the split becomes board work
+  dev:      { uses: implementer, count: 2, isolate: true, grant: publish }
+  join:     { uses: implementer, grant: publish }                  # integrates both parts
+  gate:     { kind: check, run: pnpm verify }
+  referee:  { kind: person, outcomes: [accepted] }
+
+seed: { role: proposal, title: "How would you split {{task}}?" }
+
+rules:
+  - { on: proposal, when: { any: disagree },    then: { role: proposal, title: "Reconcile round {{round}}" } }
+  - { on: proposal, when: { every: agreed },    then: { role: contract, title: "Write the interface and the split" } }
+  - { on: contract, when: { every: published }, then: { role: admit,   title: "Admit the split" } }
+  - { on: admit,    when: { every: admitted },  then: { role: dev,     title: "Build part {{n}} of {{task}}", split: contract } }
+  - { on: dev,      when: { every: published }, then: { role: join,    title: "Integrate both parts" } }
+  - { on: join,     when: { every: published }, then: { role: gate,    title: "Verify the integration" } }
+  - { on: gate,     when: { any: fail },        then: { role: join,    title: "Fix the integration" } }
+  - { on: gate,     when: { every: pass },      then: { role: referee, title: "Accept {{task}}" } }

@@ -72,6 +72,8 @@ const SideBySideRoomFrame = ({
   const view = {
     kind: 'room' as const,
     room: PREVIEW_ROOM,
+    framePage: 'room' as const,
+    chatLayout: 'side-by-side' as const,
     sideBySide: {
       tiles,
       ...(comparison === 'combined' ? { modes: { [tiles[0]!]: 'browser' as const } } : {}),

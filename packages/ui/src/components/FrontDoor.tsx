@@ -408,7 +408,6 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
       })
       if (chosen?.kind === 'saved') recordShapeStart(chosen.id)
       onStarted(execution)
-      store.requestTeamFrame(execution.goal, 'run', 'flow')
     } catch (error) {
       setStarting(false)
       setStartProblem(error instanceof Error ? error.message : 'The desk did not start this.')

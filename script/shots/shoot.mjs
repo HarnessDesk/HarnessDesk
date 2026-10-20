@@ -2687,10 +2687,15 @@ rules:
 
   Object.assign(SCENES, {
     /** The top-level Agents window: three sections and the project's reviewer shadowing the one that ships. */
-    'settings-agents': { leaveOverlay: true, expect: 'Shadowed by the one in storefront', run: async () => {
+    'settings-agents': { leaveOverlay: true, expect: 'Shadowed by the project copy. This copy is not used.', run: async () => {
       await openStorefront()
       if (!(await click('Agents'))) throw new Error('no Agents row in the sidebar')
       await sleep(1400)
+      const sourcesOpen = await cdp.eval(`document.querySelector('[data-page-destination="agents"]:not([hidden]) [data-slot="agent-catalogue-sources"] button')?.getAttribute('aria-expanded') ?? null`)
+      if (sourcesOpen === null) throw new Error('no Sources and precedence disclosure in the Agents catalogue')
+      if (sourcesOpen !== 'true' && !(await clickScrolled('Sources and precedence', '[data-page-destination="agents"]:not([hidden])'))) {
+        throw new Error('could not open Sources and precedence in the Agents catalogue')
+      }
       await cdp.eval(`(() => {
         const dialog = document.querySelector('[data-page-destination="agents"]:not([hidden])')
         const scroller = [dialog, ...(dialog?.querySelectorAll('*') ?? [])]
@@ -2704,7 +2709,7 @@ rules:
     }, verify: async () => {
       await waitForSnapshot(() => cdp.eval(`(() => {
         const row = [...document.querySelectorAll('[data-page-destination="agents"]:not([hidden]) [data-slot="row-desc"]')]
-          .find(node => node.textContent.startsWith('Shadowed by the one in storefront'))
+          .find(node => node.textContent === 'Shadowed by the project copy. This copy is not used.')
         const box = row?.getBoundingClientRect()
         return Boolean(box?.width && box?.height && box.top >= 0 && box.bottom <= innerHeight)
       })()`), Boolean)
