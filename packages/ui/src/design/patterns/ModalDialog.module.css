@@ -40,9 +40,12 @@
   min-width: 0;
   white-space: normal; /* desk: consequence sentences wrap whole instead of ending in an ellipsis */
   overflow-wrap: anywhere;
-  /* Authored consequences stay whole; a host error can be arbitrarily long.
-     Give that text its own scroll budget so the title, body and footer stay reachable. */
-  max-height: min(round(down, 8vh, var(--hd-line-sm)), calc(var(--hd-line-sm) * 4));
+}
+
+/* Only unbounded host text shares the viewport with the body and footer.
+   Keep whole lines, including one line in a very short window. */
+.description[data-scroll] {
+  max-height: clamp(var(--hd-line-sm), round(down, 8vh, var(--hd-line-sm)), calc(var(--hd-line-sm) * 4));
   overflow-y: auto;
 }
 

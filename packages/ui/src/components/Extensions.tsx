@@ -8,7 +8,7 @@ import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, ExtensionIcon, PluginIcon, ServerIcon } from './Icons'
-import { Button, Chip, EmptyState, IconTile, Monogram, Note, Row, Rows, Search, SectionHead } from '../design'
+import { Banner, Button, Chip, EmptyState, IconTile, Monogram, Note, Row, Rows, Search, SectionHead } from '../design'
 import { Tabs, TabsList, TabsTrigger } from '../design'
 
 /**
@@ -36,6 +36,8 @@ export const ExtensionsSection = () => {
   const runtime = useRuntime()
   const snapshot = useSnapshot()
   const [catalog, setCatalog] = useState<RuntimeCatalog | null>(null)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
+  const [catalogLoading, setCatalogLoading] = useState(false)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<'plugins' | 'apps' | 'mcp'>(
     runtime.capabilities.extensionStore ? 'plugins' : 'mcp',
@@ -43,20 +45,39 @@ export const ExtensionsSection = () => {
   const [shown, setShown] = useState(PAGE)
   const [failuresShown, setFailuresShown] = useState(FAILURES)
 
-  const generation=useRef(0)
-  const activeRead=useRef(destinationActive)
-  activeRead.current=destinationActive
+  const generation = useRef(0)
+  const activeRead = useRef(destinationActive)
+  activeRead.current = destinationActive
+  const workspace = snapshot.workspace?.path
+  const scope = useRef({ store, runtime: runtime.id, workspace })
+  scope.current = { store, runtime: runtime.id, workspace }
   const reload = useCallback(async () => {
-    if (!activeRead.current) return
-    const epoch=++generation.current
-    const value = await store.loadCatalog()
-    if(activeRead.current && epoch===generation.current)setCatalog(value)
-  }, [store])
+    const sameScope = () => scope.current.store === store && scope.current.runtime === runtime.id && scope.current.workspace === workspace
+    if (!activeRead.current || !sameScope()) return
+    const epoch = ++generation.current
+    const ownsRead = () => activeRead.current && epoch === generation.current && sameScope()
+    setCatalogLoading(true)
+    try {
+      const value = await store.loadCatalog()
+      if (ownsRead()) {
+        setCatalog(value)
+        setCatalogError(null)
+      }
+    } catch (error) {
+      if (ownsRead()) setCatalogError(error instanceof Error ? error.message : String(error))
+    } finally {
+      if (ownsRead()) setCatalogLoading(false)
+    }
+  }, [store, runtime.id, workspace])
   useEffect(() => {
-    activeRead.current=destinationActive
+    setCatalog(null)
+    setCatalogError(null)
+  }, [store, runtime.id, workspace])
+  useEffect(() => {
+    activeRead.current = destinationActive
     if (destinationActive) void reload()
-    return () => {generation.current++;activeRead.current=false}
-  }, [destinationActive, reload, snapshot.workspace?.path])
+    return () => { generation.current++; activeRead.current = false }
+  }, [destinationActive, reload])
 
   const { installed, available } = useMemo(() => {
     const all = catalog?.plugins ?? []
@@ -90,6 +111,14 @@ export const ExtensionsSection = () => {
   return (
     <>
       <PageExplanation>{`What ${runtime.presentation.name} can connect to: its plugins, apps and MCP servers.`}</PageExplanation>
+
+      {catalogError !== null && (
+        <Banner tone="warning" title="Could not load plugins" actions={
+          <Button variant="secondary" disabled={catalogLoading} onClick={() => void reload()}>Retry</Button>
+        }>
+          {catalogError}{catalog !== null && ' Showing the last loaded catalogue; plugin status may have changed.'}
+        </Banner>
+      )}
 
       {/* A row per marketplace that failed, each with its own words. One row
           counted them all and showed the first message, so with three
@@ -147,7 +176,7 @@ export const ExtensionsSection = () => {
               setShown(PAGE)
             }}}/>
           {catalog === null ? (
-            <Note>Loading…</Note>
+            catalogError === null ? <Note>Loading…</Note> : null
           ) : (
             <>
               <SectionHead level="label" name={`Installed · ${installed.length}`} />

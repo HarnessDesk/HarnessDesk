@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { McpServer, RuntimeCatalog, RuntimeInfo, RuntimePlugin } from '@harnessdesk/protocol'
+import { runtimeId, type McpServer, type RuntimeCatalog, type RuntimeInfo, type RuntimePlugin } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -59,7 +59,7 @@ const runtime = {
   presentation: { name: 'Codex' },
 } as unknown as RuntimeInfo
 
-const mount = (plugins: readonly RuntimePlugin[], servers: readonly McpServer[] = [], active = true) => {
+const mount = (plugins: readonly RuntimePlugin[], servers: readonly McpServer[] = [], active = true, loadCatalog?: AppStore['loadCatalog']) => {
   const catalog: RuntimeCatalog = { plugins, marketplaces: ['openai'], loadErrors: [], featured: [] }
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -70,7 +70,7 @@ const mount = (plugins: readonly RuntimePlugin[], servers: readonly McpServer[] 
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
-    loadCatalog: vi.fn().mockResolvedValue(catalog),
+    loadCatalog: loadCatalog ?? vi.fn().mockResolvedValue(catalog),
     setRuntimePluginInstalled: vi.fn().mockResolvedValue(undefined),
     searchApps: vi.fn().mockResolvedValue({ apps: [] }),
     loadMcpServers: vi.fn().mockResolvedValue(servers),
@@ -212,4 +212,98 @@ it('discards a catalogue refresh that finishes after its page was hidden', async
   await act(async () => finish(catalogWith({ ...entry, installed: true })))
   expect(container.textContent).toContain('Installed · 0')
   expect(container.textContent).toContain('Available · 1')
+})
+
+
+const button = (label: string): HTMLButtonElement =>
+  [...container.querySelectorAll('button')].find(node => node.textContent?.trim() === label)!
+
+it('reports an initial catalogue failure without claiming the runtime has no plugins, and retries', async () => {
+  const entry = plugin({ id: 'good@openai', name: 'Working plugin', installed: false })
+  const read = vi.fn().mockRejectedValueOnce(new Error('Runtime unavailable')).mockResolvedValueOnce(catalogWith(entry))
+  mount([], [], true, read)
+  await act(async () => {})
+  expect(container.textContent).toContain('Could not load plugins')
+  expect(container.textContent).toContain('Runtime unavailable')
+  expect(container.textContent).not.toContain('Loading…')
+  expect(container.textContent).not.toContain('Nothing installed yet')
+  expect(container.textContent).not.toContain('Nothing more to add')
+  await act(async () => button('Retry').click())
+  expect(container.textContent).not.toContain('Could not load plugins')
+  expect(rowFor(entry.name).textContent).toContain('Install')
+})
+
+it.each([false, true])('retains known plugins when the catalogue read after installed=%s fails, then recovers', async installed => {
+  const entry = plugin({ id: 'good@openai', name: 'Working plugin', installed })
+  const store = mount([entry])
+  await act(async () => {})
+  vi.mocked(store.loadCatalog).mockRejectedValueOnce(new Error('Runtime unavailable'))
+  await act(async () => button(installed ? 'Installed' : 'Install').click())
+  expect(container.textContent).toContain('Could not load plugins')
+  expect(container.textContent).toContain('Showing the last loaded catalogue')
+  expect(rowFor(entry.name).textContent).toContain(installed ? 'Installed' : 'Install')
+  expect(container.textContent).toContain(`Installed · ${installed ? 1 : 0}`)
+  vi.mocked(store.loadCatalog).mockResolvedValueOnce(catalogWith({ ...entry, installed: !installed }))
+  await act(async () => button('Retry').click())
+  expect(container.textContent).not.toContain('Could not load plugins')
+  expect(rowFor(entry.name).textContent).toContain(installed ? 'Install' : 'Installed')
+  expect(container.textContent).toContain(`Installed · ${installed ? 0 : 1}`)
+})
+
+it('discards an obsolete catalogue failure after the page reopens and a newer read succeeds', async () => {
+  const entry = plugin({ id: 'good@openai', name: 'Working plugin', installed: false })
+  const store = mount([entry])
+  await act(async () => {})
+  let refuse!: (error: Error) => void
+  vi.mocked(store.loadCatalog).mockImplementationOnce(() => new Promise<RuntimeCatalog>((_resolve, reject) => { refuse = reject }))
+  act(() => button('Install').click())
+  await act(async () => {})
+  const render = (active: boolean) => root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:settings" active={active}><ExtensionsSection /></DestinationPageScope></StoreProvider>)
+  await act(async () => render(false))
+  vi.mocked(store.loadCatalog).mockResolvedValueOnce(catalogWith({ ...entry, installed: true }))
+  await act(async () => render(true))
+  await act(async () => refuse(new Error('Obsolete failure')))
+  expect(container.textContent).not.toContain('Obsolete failure')
+  expect(container.textContent).not.toContain('Could not load plugins')
+  expect(container.textContent).toContain('Installed · 1')
+})
+
+
+it.each(['runtime', 'workspace'])('discards a rejected catalogue read after its %s changes', async changed => {
+  const entry = plugin({ id: 'good@openai', name: 'Working plugin', installed: false })
+  const store = mount([entry])
+  await act(async () => {})
+  let refuse!: (error: Error) => void
+  vi.mocked(store.loadCatalog).mockImplementationOnce(() => new Promise<RuntimeCatalog>((_resolve, reject) => { refuse = reject }))
+  act(() => button('Install').click())
+  await act(async () => {})
+  const previous = store.getSnapshot()
+  const next = changed === 'runtime'
+    ? { ...previous, activeRuntime: runtimeId('fixture-runtime'), runtimes: [{ ...runtime, id: runtimeId('fixture-runtime') }] } as AppSnapshot
+    : { ...previous, workspace: { path: '/work/other', name: 'Other', lastOpenedAt: 1 } } as AppSnapshot
+  vi.spyOn(store, 'getSnapshot').mockReturnValue(next)
+  const current = plugin({ id: 'current@test', name: 'Current plugin', installed: true })
+  vi.mocked(store.loadCatalog).mockResolvedValueOnce(catalogWith(current))
+  await act(async () => root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:settings" active><ExtensionsSection /></DestinationPageScope></StoreProvider>))
+  expect(store.loadCatalog).toHaveBeenCalledTimes(3)
+  await act(async () => refuse(new Error('Obsolete failure')))
+  expect(container.textContent).not.toContain('Obsolete failure')
+  expect(container.textContent).not.toContain('Could not load plugins')
+  expect(container.textContent).not.toContain(entry.name)
+  expect(container.textContent).toContain(current.name)
+})
+
+it('does not refresh a new workspace after an old workspace install finishes', async () => {
+  const entry = plugin({ id: 'good@openai', name: 'Working plugin', installed: false })
+  const store = mount([entry])
+  await act(async () => {})
+  let finish!: () => void
+  vi.mocked(store.setRuntimePluginInstalled).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+  act(() => button('Install').click())
+  vi.spyOn(store, 'getSnapshot').mockReturnValue({ ...store.getSnapshot(), workspace: { path: '/work/other', name: 'Other', lastOpenedAt: 1 } } as AppSnapshot)
+  vi.mocked(store.loadCatalog).mockResolvedValueOnce(catalogWith(plugin({ id: 'current@test', name: 'Current plugin' })))
+  await act(async () => root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:settings" active><ExtensionsSection /></DestinationPageScope></StoreProvider>))
+  await act(async () => finish())
+  expect(store.loadCatalog).toHaveBeenCalledTimes(2)
+  expect(container.textContent).toContain('Current plugin')
 })

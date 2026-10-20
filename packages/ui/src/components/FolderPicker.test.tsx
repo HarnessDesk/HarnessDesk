@@ -88,6 +88,19 @@ it('draws a separator between crumbs as the item’s own sibling, not its child'
   expect(crumbs.some((el) => el.textContent === 'harness-desk')).toBe(true)
 })
 
+it('bounds only a host refusal and restores the ordinary instruction when cleared', async () => {
+  const { store } = rig()
+  const render = (problem?: string) => act(async () => root.render(<StoreProvider store={store}><FolderPicker onClose={() => {}} problem={problem} /></StoreProvider>))
+  await render()
+  expect(document.querySelector('[data-slot="dialog-description"]')?.hasAttribute('data-scroll')).toBe(false)
+  const problem = 'The chosen chats location contains an opened project: /work/' + 'nested-directory/'.repeat(45) + 'project'
+  await render(problem)
+  expect(document.querySelector('[data-slot="dialog-description"]')?.textContent).toBe(problem)
+  expect(document.querySelector('[data-slot="dialog-description"]')?.hasAttribute('data-scroll')).toBe(true)
+  await render()
+  expect(document.querySelector('[data-slot="dialog-description"]')?.hasAttribute('data-scroll')).toBe(false)
+})
+
 it('reports a chosen folder only after it has opened successfully (#1720)', async () => {
   const { store } = rig()
   let finish!: (opened: boolean) => void

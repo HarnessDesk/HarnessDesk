@@ -129,3 +129,15 @@ it('draws a zero diff alone only when the caller says the card is finished', asy
   expect(container.querySelector('[data-card="2"]')?.innerHTML).toBe('')
   expect(container.querySelector('[data-card="3"]')?.innerHTML).toBe('')
 })
+
+
+it('bounds a long board title while retaining its full text, recorded facts and Done action', async () => {
+  const title = 'Review the project and document the remaining work. '.repeat(35)
+  await mount(<ObservedDialog id={1} title={title} card={cardEvidence(1, [checkView()])} onClose={() => {}} />)
+  const dialog = document.querySelector('[role="dialog"]')!
+  const description = dialog.querySelector('[data-slot="dialog-description"]')!
+  expect(description.textContent).toBe(title)
+  expect(description.hasAttribute('data-scroll')).toBe(true)
+  expect(dialog.querySelector('[data-slot="modal-dialog-body"]')?.textContent).toContain('verify')
+  expect(dialog.querySelector('[data-slot="dialog-footer"] button')?.textContent).toBe('Done')
+})

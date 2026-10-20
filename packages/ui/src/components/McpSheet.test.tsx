@@ -42,3 +42,15 @@ it('keeps the existing MCP no-target diagnostic when copies disagree', async () 
   ], reach: [{ runtime: one, state: 'reaches', basis: 'scanned' }, { runtime: two, state: 'unhostable', basis: 'scanned' }] })
   expect(document.querySelector('[data-slot="mcp-sheet"]')!.textContent).toContain('Resolve the copies before installing anywhere else.')
 })
+
+
+it('bounds an opaque MCP identifier while retaining its full text, definition and install action', async () => {
+  const name = 'workspace-tools-' + 'opaque-identifier-'.repeat(100)
+  await mount(false, { name })
+  const sheet = document.querySelector('[data-slot="mcp-sheet"]')!
+  const description = sheet.querySelector('[data-slot="dialog-description"]')!
+  expect(description.textContent).toBe(name)
+  expect(description.hasAttribute('data-scroll')).toBe(true)
+  expect(sheet.querySelector('[data-slot="modal-dialog-body"]')?.textContent).toContain('Workspace tools.')
+  expect([...sheet.querySelectorAll('button')].some(button => button.textContent === 'Add to Runtime 2')).toBe(true)
+})

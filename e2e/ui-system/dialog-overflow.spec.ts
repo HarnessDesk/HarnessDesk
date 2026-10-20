@@ -88,6 +88,46 @@ for (const theme of ['light', 'dark'] as const) test(`Storage cleanup keeps its 
   await expect(dialog).toHaveCount(0)
 })
 
+for (const height of [520, 720]) for (const theme of ['light', 'dark'] as const) test(`an authored consequence wraps whole across three or four lines (${height} ${theme})`, async ({ page }) => {
+  await page.setViewportSize({ width: 720, height })
+  const consequence = 'Conversations and branches stay. Existing projects keep their folders and their saved work. New chats use the selected location. Reopening a conversation recreates its worktree in that same location.'
+  await page.route('**/src/preview/main.tsx*', async route => {
+    const response = await route.fetch(), source = await response.text()
+    const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
+    if (!reactUrl) throw new Error('preview React module import was not found')
+    await route.fulfill({ response, body: `${source}
+      import authoredReact from ${JSON.stringify(reactUrl)};
+      import { Dialog as AuthoredDialog } from '/src/design/patterns/ModalDialog.tsx';
+      import { Button as AuthoredButton } from '/src/design/ui/button.tsx';
+      const authoredFrame = document.createElement('section');
+      document.body.append(authoredFrame);
+      createRoot(authoredFrame).render(authoredReact.createElement(AuthoredDialog, {
+        title: 'Change chats location', description: ${JSON.stringify(consequence)}, onClose: () => {},
+        footer: authoredReact.createElement(AuthoredButton, null, 'Continue'),
+      }, authoredReact.createElement('p', null, 'Choose the location for new chats.')));
+    ` })
+  })
+  await page.goto('/preview.html')
+  await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+  const dialog = page.getByRole('dialog', { name: 'Change chats location', exact: true })
+  await expect(dialog).toHaveAccessibleDescription(consequence)
+  const description = dialog.locator('[data-slot="dialog-description"]')
+  await expect(description).not.toHaveAttribute('tabindex')
+  const held = await description.evaluate(node => {
+    const range = document.createRange(); range.selectNodeContents(node)
+    const ink = range.getBoundingClientRect(), d = node.getBoundingClientRect(), css = getComputedStyle(node)
+    return { lines: node.clientHeight / Number.parseFloat(css.lineHeight), maxHeight: css.maxHeight,
+      clipped: node.scrollHeight - node.clientHeight,
+      inkSpill: Math.max(d.top - ink.top, ink.bottom - d.bottom, d.left - ink.left, ink.right - d.right) }
+  })
+  expect(held.lines).toBeGreaterThanOrEqual(3)
+  expect(held.lines).toBeLessThanOrEqual(4)
+  expect(held.maxHeight).toBe('none')
+  expect(held.clipped).toBeLessThanOrEqual(1)
+  expect(held.inkSpill).toBeLessThanOrEqual(1)
+  await expect(dialog.getByRole('button', { name: 'Continue', exact: true })).toBeVisible()
+})
+
 for (const height of [520, 900]) for (const theme of ['light', 'dark'] as const) test(`a long folder refusal leaves its body and actions reachable (${height} ${theme})`, async ({ page }) => {
   await page.setViewportSize({ width: 720, height })
   await page.route('**/src/preview/main.tsx*', async route => {
@@ -150,7 +190,7 @@ for (const height of [520, 900]) for (const theme of ['light', 'dark'] as const)
   expect(held.viewportSpill).toBeLessThanOrEqual(1)
   expect(held.horizontalSpill).toBeLessThanOrEqual(1)
   expect(held.reasonScroll).toBeGreaterThan(0)
-  expect(held.reasonHeight).toBe(Math.min(Math.floor(height * .08 / held.lineHeight) * held.lineHeight, held.lineHeight * 4))
+  expect(held.reasonHeight).toBe(Math.max(held.lineHeight, Math.min(Math.floor(height * .08 / held.lineHeight) * held.lineHeight, held.lineHeight * 4)))
   await expect(description).toHaveAttribute('tabindex', '0')
   await page.keyboard.press('Tab')
   await expect(description).toBeFocused()

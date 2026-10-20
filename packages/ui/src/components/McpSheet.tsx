@@ -79,7 +79,7 @@ export const McpSheet = ({ entry, columns, hosts, cwd, home, onFlow, onChanged, 
   return <DialogRoot open onOpenChange={next => !next && onClose()}>
     <DialogContent ref={surface} data-slot="mcp-sheet" bleed initialFocus={() => surface.current} showCloseButton={false}
       className="flex h-[min(84vh,760px)] w-[min(1080px,94vw)] flex-col overflow-hidden">
-      <DialogHead title={entry.title ?? entry.name} aside={<Badge variant="secondary">MCP server</Badge>}><Text role="meta"><CodeText as="code">{entry.name}</CodeText></Text></DialogHead>
+      <DialogHead title={entry.title ?? entry.name} scrollDescription aside={<Badge variant="secondary">MCP server</Badge>}><Text role="meta"><CodeText as="code">{entry.name}</CodeText></Text></DialogHead>
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_auto_300px] md:overflow-hidden">
         <div className="flex min-w-0 flex-col md:min-h-0">
           <DialogBody layout="reading">
