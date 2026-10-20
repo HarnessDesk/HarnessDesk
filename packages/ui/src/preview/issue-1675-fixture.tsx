@@ -44,6 +44,12 @@ export const Issue1675Frames = () => {
           reach: healthy.reach.map(reach => ({ ...reach, state: 'hollow' as const })) }
         return { ...LIBRARY, home: '/home/u', entries: [broken, { ...healthy, description: 'Review `src/` before changing files.' }] } as unknown as Library
       }
+      // This scene measures the model track at its natural width. A committed repository now starts the draft in
+      // an automatic new worktree, whose chip spends toolbar width, so keep the folder before its first commit.
+      if (scene === 'model' && method === 'git/status') {
+        const status = await request(method, params) as { headSha: string | null } | null
+        return status ? { ...status, headSha: null } : status
+      }
       return request(method, params)
     }) as typeof fixture.transport.request
     const own = frameDestinationStore(fixture)
