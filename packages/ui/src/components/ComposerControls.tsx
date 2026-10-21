@@ -355,9 +355,9 @@ const ChoiceRows = ({
   const store = useStore()
   const key = useSessionKey()
   const agent = brandForRuntime(useRuntime())
-  // Models and custom codenames may need a comparison column. Named modes
-  // and effort levels already carry their meaning; their prose stays on hover.
-  const column = !['mode', 'thought_level'].includes(option.category ?? '') && describesEveryChoice(option)
+  // Low and High already name the reasoning distinction. Runtime-defined
+  // modes can carry consequences their names do not explain.
+  const column = option.category !== 'thought_level' && describesEveryChoice(option)
   const groups = new Map<string | undefined, OptionChoice[]>()
   for (const choice of choices) {
     const list = groups.get(choice.group) ?? []

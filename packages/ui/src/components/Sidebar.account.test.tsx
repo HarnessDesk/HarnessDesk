@@ -1043,14 +1043,15 @@ it('keeps the root menu to five actions even with a large account roster', () =>
 })
 
 
-it('selecting the current account closes the picker without switching runtimes', () => {
-  const { selectRuntime } = mount()
+it.each(['ready', 'crashed'] as const)('delegates a %s current account selection so the store can recover a crash', state => {
+  const { selectRuntime } = mount({ healthByRuntime: { [CLAUDE]: state === 'ready' ? { state: 'ready' }
+    : { state: 'unavailable', reason: 'crashed', message: 'The agent exited.' } } })
   click(row())
   const parent = document.querySelector('[role="menuitem"][data-current]')!
   click(parent)
   const current = [...document.querySelectorAll('[role="menuitem"][data-current]')].find(item => item !== parent)!
   click(current)
-  expect(selectRuntime).not.toHaveBeenCalled()
+  expect(selectRuntime).toHaveBeenCalledExactlyOnceWith(CLAUDE)
   expect(document.querySelector('[role="menu"]')).toBeNull()
 })
 
@@ -1084,7 +1085,9 @@ it('identifies the reporting account when one runtime chooses its second quota r
     ],
   })
   click(row())
-  expect(document.querySelector('[role="menuitem"][data-current]')?.textContent).toContain('first')
+  expect(document.querySelector('[role="menuitem"][data-current]')?.textContent).toContain('second')
+  expect(row().title).toContain('second')
+  expect(row().title).not.toContain('first')
   expect(usageTrigger().textContent).toContain('60% left')
   const facts = openUsage().querySelector('[data-usage-details]')!
   const identity = facts.querySelector('[title="second@example.com"]')

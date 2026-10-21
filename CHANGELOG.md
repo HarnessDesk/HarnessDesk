@@ -7,9 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Profile pictures follow their chosen shape.** Plated artwork is clipped inside round faces and keeps the selected square shape where requested.
+
+- **The account menu stays compact as accounts grow.** Accounts and usage have their own flyouts, with the working account's name beside its matching quota; choosing a crashed current runtime still restarts it.
+
 - **The macOS Usage submenu keeps icons close to their labels.** Sign-in and usage rows share standard brand icons instead of reserving an empty meter-sized column.
 
-- **Dropdown menus keep ordinary explanations on hover.** Named modes, reasoning levels and switches stay on one line, alongside a shorter Direct route and Git patch action. Model descriptions, paths and consequential differences remain visible.
+- **Dropdown menus keep ordinary explanations on hover.** Reasoning levels and switches stay on one line, alongside a shorter Direct route and Git patch action. Model and mode comparisons, paths and consequential differences remain visible.
 
 - **Restore the macOS menu bar icon from View › Show Menu Bar Icon.** The choice survives restarting an isolated desk. Its native menu stays compact, with usage and sign-in actions in one submenu; choosing an account's usage opens that account's dashboard.
 

@@ -518,13 +518,12 @@ const buildMenu = () => {
     {
       label: 'View',
       submenu: [
-        {
+        ...(process.platform === 'darwin' ? [{
           label: 'Show Menu Bar Icon',
           type: 'checkbox',
           checked: menuBarVisible,
           click: (item) => setMenuBarVisible(item.checked),
-        },
-        { type: 'separator' },
+        }, { type: 'separator' }] : []),
         {
           label: 'Toggle Sidebar',
           accelerator: 'Cmd+B',

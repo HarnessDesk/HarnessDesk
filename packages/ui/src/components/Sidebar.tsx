@@ -39,7 +39,7 @@ import {
   type MenuAccountFigure,
   type Tone,
 } from '../design'
-import { accountKey, accountName, accountIdentity, agentKey, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
+import { accountKey, accountName, accountIdentity, agentKey, prefsForUsage, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken } from '../lib/agents'
 import { FlowIcon } from './Icons'
@@ -51,7 +51,7 @@ import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
 import { Clipped, EmptyState } from '../design'
 import type { Section } from './Settings'
-import { bindingLane, describeReport, describeLane, formatAge, formatMoney, isBlocked } from '../lib/usage'
+import { bindingLane, describeReport, describeLane, formatAge, formatMoney, isBlocked, workingAccount } from '../lib/usage'
 import { usageReadingTone } from '../lib/limits'
 import { usageAccount } from '../lib/usage-alerts'
 import styles from './Sidebar.module.css'
@@ -475,7 +475,9 @@ export const AccountFooter = ({
 
   // The default agent's seat — its account, or its empty chair. Null only
   // with no agents at all, when the row is just the desk.
-  const here = seats.find((seat) => seat.current) ?? null
+  const report = workingAccount(snapshot.usage.filter(one => one.runtime === snapshot.activeRuntime), one =>
+    prefsForUsage(one.runtime, one.account, snapshot.accountsByRuntime, snapshot.accountPrefs) ?? {})
+  const here = seats.find(seat => seat.current && seat.report === report) ?? seats.find(seat => seat.current) ?? null
   const currentFigure = here ? figureOf(here) : undefined
   const signedIn = here?.account !== null && here?.account !== undefined
   const agentName = brandOf(runtime.presentation.name)
@@ -606,7 +608,7 @@ export const AccountFooter = ({
                   tag={tagOf(seat)}
                   figure={figureOf(seat)}
                   current={seat.current}
-                  onSelect={() => { if (!seat.current) void store.selectRuntime(seat.info.id) }}
+                  onSelect={() => { void store.selectRuntime(seat.info.id) }}
                 />
               )
               if (group.length === 1) return renderSeat(group[0]!, false)
@@ -679,7 +681,7 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
         const name = meter.account ? `${meter.name} · ${usageAccountName(meter)}` : runtimeLabel(meter.info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)
         return <MenuItem key={`${meter.runtime}:${meter.report.account ?? ''}`}
           icon={<RuntimeMark runtime={meter.info} size={16} />}
-          label={<span data-menu-account-name="" title={name}>{name}</span>}
+          label={<span data-menu-account-name="" title={meter.title}>{name}</span>}
           value={<Text role="muted" tone={usageReadingTone(meter.tone)} numeric>{meter.figure}</Text>}
           title={meter.title} onSelect={() => onOpen(meter.runtime)} />
       })}

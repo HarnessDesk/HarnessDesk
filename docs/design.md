@@ -628,8 +628,9 @@ A second line is earned by exactly three things:
 
 Everything else goes on hover, as `title`.
 
-Named modes and effort levels use that hover explanation even when every
-choice has a distinct description: Low and High already name the distinction.
+Effort levels use that hover explanation even when every choice has a distinct
+description: Low and High already name the distinction. Runtime-defined modes
+retain their comparison column: a mode name alone may not explain its consequences.
 Ordinary boolean options keep their explanation on hover too; a refused
 switch still shows its reason. Models and custom codenames retain a complete,
 distinct comparison column.

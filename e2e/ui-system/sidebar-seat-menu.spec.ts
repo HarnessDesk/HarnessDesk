@@ -95,6 +95,10 @@ test('seat menu keeps its content width across sidebar widths and clamps both le
     expect(accountWidth).toBe(pickerWidth)
     expect(accountWidth).toBeGreaterThanOrEqual(FRAME.menu.min)
     expect(accountWidth).toBeLessThanOrEqual(FRAME.menu.max)
+    await expect.poll(() => accounts.evaluate(node => {
+      const cap = parseFloat(getComputedStyle(node).maxHeight)
+      return Math.abs(node.getBoundingClientRect().height - Math.min(node.scrollHeight, cap))
+    })).toBeLessThanOrEqual(1)
     await page.keyboard.press('Escape')
     await expect(accounts).toBeHidden()
     await expect(picker).toBeFocused()

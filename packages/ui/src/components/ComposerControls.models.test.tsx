@@ -224,6 +224,22 @@ it('reports a recommendation refusal when clearing a stale composer pick', async
   expect(resultNotice).toHaveBeenCalledWith('warning', 'Recommendation unavailable.')
 })
 
+it('keeps a mode consequence visible when its name alone does not explain it', () => {
+  const setOption = vi.fn()
+  const mode: ConfigOption = { id: 'mode', label: 'Mode', category: 'mode', type: 'select', currentValue: 'default', choices: [
+    { value: 'default', label: 'Default', description: 'Ask before running commands.' },
+    { value: 'unattended', label: 'Unattended', description: 'Run commands without asking for permission.' },
+  ] }
+  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [mode] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, setOption } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><ModeControl /></StoreProvider>))
+  click(container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!)
+  const unattended = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(one => one.textContent?.includes('Unattended'))!
+  expect(unattended.querySelector('[data-menu-hint]')?.textContent).toBe('Run commands without asking for permission.')
+  click(unattended)
+  expect(setOption).toHaveBeenCalledWith('mode', 'unattended')
+})
+
 it.each(['stale default', 'unavailable current value'] as const)('keeps a single mode actionable for a %s', (state) => {
   const clearNewSessionDefault = vi.fn()
   const setOption = vi.fn()
