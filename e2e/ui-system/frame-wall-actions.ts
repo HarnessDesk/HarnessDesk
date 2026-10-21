@@ -1,6 +1,6 @@
 import { closeFloatingTeamRail } from './team-frame-actions'
 import { expect } from '@playwright/test'
-import { applyLeftColumnActions } from './left-column-actions'
+import { applyLeftColumnActions, openAccountUsage } from './left-column-actions'
 import type { Page } from '@playwright/test'
 export interface WallActions { readonly popup?: string; readonly query?: string }
 /** Popup actions run after the wall's existing destination navigation. */
@@ -51,9 +51,6 @@ export const openWallDestination = async (page: Page, destination: WallActions):
   }
   if (destination.account) {
     await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'account' })
-    await page.locator('[role="menuitem"][data-current]').click()
-    const usage = page.getByRole('menuitem', { name: /^Usage remaining/ })
-    if (await usage.count()) await usage.click()
     if (destination.signOut) {
       await page.getByRole('menuitem', { name: /^Sign out of/ }).click()
       await expect(page.getByRole('alertdialog')).toBeVisible()
@@ -62,11 +59,7 @@ export const openWallDestination = async (page: Page, destination: WallActions):
   }
   if (destination.plan) {
     await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'account' })
-    const usage = page.locator('[role="menuitem"][aria-expanded]').filter({
-      hasText: destination.plan === 'anchor' ? /^Usage remaining/ : / usage/,
-    }).first()
-    await usage.click()
-    await expect(usage).toHaveAttribute('aria-expanded', 'true')
+    await openAccountUsage(page)
     await expect(page.locator('[data-usage-details]')).toBeVisible()
   }
   if (destination.inbox) await page.getByRole('button', { name: 'Inbox, 1 unread', exact: true }).click()

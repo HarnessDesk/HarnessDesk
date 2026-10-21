@@ -424,7 +424,9 @@ export const Submenu = ({
   icon,
   label,
   hint,
+  title,
   value,
+  current,
   disabled,
   width: _width,
   icons: childIcons = 'none',
@@ -434,7 +436,10 @@ export const Submenu = ({
   icon?: ReactNode
   label: ReactNode
   hint?: ReactNode
+  title?: string
   value?: ReactNode
+  /** The active choice stays marked while its alternatives are closed. */
+  current?: boolean
   disabled?: string | boolean
   width?: number
   icons?: MenuIcons
@@ -535,12 +540,13 @@ export const Submenu = ({
     >
       <DropdownMenuSubControl
         data-slot="dropdown-menu-sub-trigger"
+        {...(current ? { 'data-current': '', 'aria-current': true } : {})}
         ref={row}
         render={<button type="button" disabled={Boolean(disabled)} />}
         nativeButton
         {...menuRowAttributes(data)}
         disabled={Boolean(disabled)}
-        title={reason}
+        title={reason ?? title}
         openOnHover
         delay={110}
         closeDelay={220}

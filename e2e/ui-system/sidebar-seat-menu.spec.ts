@@ -20,16 +20,18 @@ for (const theme of ['light', 'dark'] as const) test(`unavailable account keeps 
   const popup = page.locator('[data-popup-kind="wide-menu"][role="dialog"]')
   const current = popup.locator('[role="menuitem"][data-current]')
   await expect(current.locator('[data-menu-trailing]')).toHaveText('Unavailable')
-  await expect(popup.getByText('Usage remaining', { exact: true })).toBeVisible()
+  await expect(popup.getByText('Usage', { exact: true })).toBeVisible()
   await expect(popup.locator('[data-menu-trailing]').filter({ hasText: /\d+%/ }).first()).toBeVisible()
 })
 
-test('seat menu keeps the design token width across sidebar widths and clamps to a narrow window', async ({ page }) => {
+test('seat menu keeps its content width across sidebar widths and clamps both levels to a narrow window', async ({ page }) => {
   await page.goto('/design.html?view=sidebar')
   const board = seatMenuBoard(page)
   await expect(board).toBeVisible()
   const trigger = board.locator('button[class*="accountRow"]')
   await expect(trigger).toBeVisible()
+  let rootWidth: number | null = null
+  let pickerWidth: number | null = null
 
   for (const width of [200, 260, 320]) {
     await board.evaluate((node, value) => {
@@ -37,17 +39,23 @@ test('seat menu keeps the design token width across sidebar widths and clamps to
     }, width)
     await trigger.scrollIntoViewIfNeeded()
     await trigger.click()
-    const popup = page.locator('[data-popup-kind="wide-menu"]')
+    const popup = page.locator('[data-slot="popover-popup"]')
     await expect(popup).toBeVisible()
-    const foldedSeat = popup.locator('[role="menuitem"]:has([data-menu-account-name])[aria-expanded="false"]').first()
-    if (await foldedSeat.count()) await foldedSeat.click()
-    await expect(popup.locator('[data-menu-account-name]').getByText('legacy-account-with-a-long-label', { exact: true })).toBeVisible()
-    const demoRows = popup.locator('[role="menuitem"]:has([data-menu-account-name])').filter({ hasText: 'shane' })
+    await expect(popup.getByRole('menuitem')).toHaveCount(5)
+    const rootBounds = await popup.boundingBox()
+    const picker = popup.locator('[data-slot="dropdown-menu-sub-trigger"][data-current]')
+    await picker.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(picker).toHaveAttribute('aria-expanded', 'true')
+    const accounts = page.locator('[data-slot="dropdown-menu-sub-content"]:visible')
+    await expect(accounts).toBeVisible()
+    await expect(accounts.locator('[data-menu-account-name]').getByText('legacy-account-with-a-long-label', { exact: true })).toBeVisible()
+    const demoRows = accounts.locator('[role="menuitem"]:has([data-menu-account-name])').filter({ hasText: 'shane' })
     await expect(demoRows.first().locator('[data-menu-account-name]')).toBeVisible()
     expect(await demoRows.first().evaluate((row) => row.querySelector('[data-menu-icon]')!.getBoundingClientRect().right <= row.querySelector('[data-menu-label]')!.getBoundingClientRect().left)).toBe(true)
     await expect(demoRows.first().locator('[data-menu-badge]')).toBeVisible()
     await expect(demoRows.first().locator('[data-menu-trailing]')).toBeVisible()
-    const usageLabel = popup.getByText('Usage remaining', { exact: true })
+    const usageLabel = popup.getByText('Usage', { exact: true })
     await expect(usageLabel).toBeVisible()
     expect(await usageLabel.evaluate((node) => {
       const text = node.firstChild
@@ -56,11 +64,11 @@ test('seat menu keeps the design token width across sidebar widths and clamps to
       range.selectNodeContents(text)
       return range.getClientRects().length
     })).toBe(1)
-    expect(await popup.evaluate((node) => [...node.querySelectorAll('*')].some((element) => {
+    for (const surface of [popup, accounts]) expect(await surface.evaluate((node) => [...node.querySelectorAll('*')].some((element) => {
       const style = getComputedStyle(element)
       return /[.!?](?:\s|$)/.test(element.textContent ?? '') && style.whiteSpace === 'nowrap' && style.textOverflow === 'ellipsis'
     }))).toBe(false)
-    const longAccount = popup.locator('[role="menuitem"]:has([data-menu-account-name])').filter({ hasText: 'legacy-account-with-a-long-label' })
+    const longAccount = accounts.locator('[role="menuitem"]:has([data-menu-account-name])').filter({ hasText: 'legacy-account-with-a-long-label' })
     const longName = longAccount.locator('[data-menu-account-name]')
     await expect(longName).toBeVisible()
     await expect(longAccount.locator('[data-menu-trailing]')).toBeVisible()
@@ -72,11 +80,24 @@ test('seat menu keeps the design token width across sidebar widths and clamps to
     const measured = await popup.evaluate((node) => {
       const panel = node.getBoundingClientRect()
       const anchor = document.querySelector('[data-catalog-case="seat-menu-width"] button[class*="accountRow"]')!.getBoundingClientRect()
-      return { width: panel.width, x: panel.x, anchorX: anchor.x }
+      return { width: panel.width, x: panel.x, anchorX: anchor.x, height: panel.height }
     })
-    // Phase A's approved wide-menu contract is FRAME.menu.max (340px).
-    expect(measured.width).toBe(FRAME.menu.max)
+    // Both levels use the menu's width range; content, not the sidebar,
+    // chooses the width. Opening the picker never grows the five-row root.
+    if (rootWidth === null) rootWidth = measured.width
+    expect(measured.width).toBe(rootWidth)
+    expect(measured.width).toBeGreaterThanOrEqual(FRAME.menu.min)
+    expect(measured.width).toBeLessThanOrEqual(FRAME.menu.max)
     expect(measured.x).toBeCloseTo(measured.anchorX, 0)
+    expect(measured.height).toBe(rootBounds!.height)
+    const accountWidth = (await accounts.boundingBox())!.width
+    if (pickerWidth === null) pickerWidth = accountWidth
+    expect(accountWidth).toBe(pickerWidth)
+    expect(accountWidth).toBeGreaterThanOrEqual(FRAME.menu.min)
+    expect(accountWidth).toBeLessThanOrEqual(FRAME.menu.max)
+    await page.keyboard.press('Escape')
+    await expect(accounts).toBeHidden()
+    await expect(picker).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(popup).toHaveCount(0)
     await expect(trigger).toBeFocused()
@@ -85,13 +106,18 @@ test('seat menu keeps the design token width across sidebar widths and clamps to
   await page.setViewportSize({ width: 280, height: 900 })
   await trigger.scrollIntoViewIfNeeded()
   await trigger.click()
-  const clamped = page.locator('[data-popup-kind="wide-menu"]')
+  const clamped = page.locator('[data-slot="popover-popup"]')
   await expect(clamped).toBeVisible()
-  await expect.poll(() => clamped.evaluate((node) => node.getBoundingClientRect().width)).toBeLessThanOrEqual(264)
-  // Narrower is not enough: both edges stay inside the window, so the panel is
-  // neither cut off on the left nor pushed past the right.
-  await expect.poll(() => clamped.evaluate((node) => node.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0)
-  await expect.poll(() => clamped.evaluate((node) => window.innerWidth - node.getBoundingClientRect().right)).toBeGreaterThanOrEqual(0)
+  await clamped.locator('[data-slot="dropdown-menu-sub-trigger"][data-current]').focus()
+  await page.keyboard.press('ArrowRight')
+  const accounts = page.locator('[data-slot="dropdown-menu-sub-content"]:visible')
+  await expect(accounts).toBeVisible()
+  for (const surface of [clamped, accounts]) {
+    await expect.poll(() => surface.evaluate((node) => node.getBoundingClientRect().width)).toBeLessThanOrEqual(264)
+    // Both edges stay inside a window narrower than either menu's natural width.
+    await expect.poll(() => surface.evaluate((node) => node.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0)
+    await expect.poll(() => surface.evaluate((node) => window.innerWidth - node.getBoundingClientRect().right)).toBeGreaterThanOrEqual(0)
+  }
 })
 
 test('other real sidebar menus keep content width across sidebar widths', async ({ page }) => {

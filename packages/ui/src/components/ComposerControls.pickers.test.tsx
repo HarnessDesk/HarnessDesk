@@ -209,3 +209,25 @@ it.each([5, 6])('shows search at six tail choices and Enter skips a refused firs
   act(() => field!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
   expect(store.setOption).toHaveBeenCalledWith('model', 'rigel')
 })
+
+
+it('keeps named effort choices compact while preserving their explanation and selection', async () => {
+  const store = await mount([options[0]!, {
+    id: 'effort', label: 'Reasoning effort', description: 'How hard the model thinks before answering.', category: 'thought_level', type: 'select', currentValue: 'low',
+    choices: [
+      { value: 'low', label: 'Low', description: 'Less reasoning for quicker replies.' },
+      { value: 'high', label: 'High', description: 'More reasoning for difficult tasks.' },
+    ],
+  }])
+  await open()
+  const effort = row('Reasoning effort')
+  expect(effort.title).toBe('How hard the model thinks before answering.')
+  act(() => effort.focus())
+  act(() => effort.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
+  await frame()
+  const high = row('High')
+  expect(high.querySelector('[data-menu-hint]')).toBeNull()
+  expect(high.title).toBe('More reasoning for difficult tasks.')
+  act(() => high.click())
+  expect(store.setOption).toHaveBeenCalledWith('effort', 'high')
+})

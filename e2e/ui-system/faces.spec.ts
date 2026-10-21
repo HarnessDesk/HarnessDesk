@@ -205,6 +205,52 @@ const surfaceCount = (page: Page, surface: Surface) =>
     }).length
   }, { frame: surface.frame ?? null, selector: surface.selector })
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`profile pictures crop their inset plate at the face corner without scaling the artwork in ${theme}`, async ({ page }) => {
+    await open(page, '/preview.html', PREVIEW_READY)
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('profile')
+    const profile = page.locator('[data-frame-id="settings-sheet"]')
+    for (const shape of ['round', 'square'] as const) {
+      await setFaces(page, 'attribute', shape)
+      for (const name of ['Paper', 'Ink', 'Blueprint']) {
+        const choice = profile.getByRole('radio', { name, exact: true })
+        await choice.click()
+        await expect(choice).toHaveAttribute('aria-checked', 'true')
+        const plates = profile.locator('[data-slot="face-picture-plate"]')
+        // Five choices, the profile's head and the sidebar's selected picture.
+        await expect(plates).toHaveCount(7)
+        const pictures = await plates.evaluateAll(elements => elements.map(plate => {
+          const face = plate.parentElement!, image = plate.querySelector('img')!
+          const a = face.getBoundingClientRect(), b = plate.getBoundingClientRect(), c = image.getBoundingClientRect()
+          return {
+            overflow: getComputedStyle(plate).overflow,
+            corner: getComputedStyle(plate).borderRadius,
+            faceCorner: getComputedStyle(face).borderRadius,
+            inset: b.width / a.width,
+            width: c.width - a.width, height: c.height - a.height,
+            centreX: c.x + c.width / 2 - (a.x + a.width / 2),
+            centreY: c.y + c.height / 2 - (a.y + a.height / 2),
+          }
+        }))
+        for (const picture of pictures) {
+          expect(picture.overflow).toBe('hidden')
+          expect(picture.corner).toBe(picture.faceCorner)
+          expect(picture.inset).toBeCloseTo(824 / 1024, 2)
+          for (const difference of [picture.width, picture.height, picture.centreX, picture.centreY]) {
+            expect(Math.abs(difference)).toBeLessThan(0.1)
+          }
+        }
+      }
+      for (const name of ['Plain', 'Wizard']) {
+        const choice = profile.getByRole('radio', { name, exact: true })
+        await expect(choice.locator('[data-slot="face-picture-plate"]')).toHaveCount(0)
+        expect(await choice.locator('img').evaluate(image => image.parentElement?.getAttribute('data-shape'))).toBe('face')
+      }
+    }
+  })
+}
+
 test.describe('rule: faces', () => {
   for (const spec of PAGES) {
     test(`rule: faces — ${spec.name}: every face follows the Faces setting, and every named surface is a face`, async ({ page }) => {

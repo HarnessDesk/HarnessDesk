@@ -94,7 +94,7 @@ test('a healthy account reading keeps plain ink rather than success ink', async 
   expect(colours.reading).not.toBe(colours.success)
 })
 
-test('the accounts menu opens above its row, left-aligned with it, at the foundation\'s wide width', async ({ page }) => {
+test('the accounts menu opens above its row, left-aligned with it, inside the foundation\'s width range', async ({ page }) => {
   await page.goto('/preview.html')
   const trigger = page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]')
   // Where the row sits in the app: at the foot of the window.
@@ -113,12 +113,12 @@ test('the accounts menu opens above its row, left-aligned with it, at the founda
   // Unfolds from the row rather than being laid over the transcript beside it.
   expect(edges.menu.bottom).toBeLessThanOrEqual(edges.row.top)
   expect(edges.menu.left).toBeCloseTo(edges.row.left, 0)
-  // The panel keeps its own width, the foundation's wide one, so a narrow
-  // sidebar does not fold the account and usage rows; the seat-menu spec
-  // measures it at every sidebar width and holds both its edges inside a
-  // window too narrow for it.
+  // The compact root sizes to its own content, bounded by the same menu
+  // tokens as its flyouts. The seat-menu spec checks independence from
+  // sidebar width, and both levels in a window narrower than their content.
   expect(edges.wide).toBeGreaterThan(0)
-  expect(edges.menu.width).toBeCloseTo(edges.wide, 0)
+  expect(edges.menu.width).toBeGreaterThanOrEqual(FRAME.menu.min)
+  expect(edges.menu.width).toBeLessThanOrEqual(edges.wide)
 })
 
 test('Settings group labels and destinations use the named frame type pairs', async ({ page }) => {

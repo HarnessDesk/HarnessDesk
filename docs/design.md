@@ -628,6 +628,12 @@ A second line is earned by exactly three things:
 
 Everything else goes on hover, as `title`.
 
+Named modes and effort levels use that hover explanation even when every
+choice has a distinct description: Low and High already name the distinction.
+Ordinary boolean options keep their explanation on hover too; a refused
+switch still shows its reason. Models and custom codenames retain a complete,
+distinct comparison column.
+
 For plugin tools, the short manifest title is the name to scan. Capabilities
 keeps the owning plugin on the second line and the full description on hover;
 the plugin's own page shows that description as a wrapping second line.

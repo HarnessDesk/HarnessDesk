@@ -355,7 +355,9 @@ const ChoiceRows = ({
   const store = useStore()
   const key = useSessionKey()
   const agent = brandForRuntime(useRuntime())
-  const column = describesEveryChoice(option)
+  // Models and custom codenames may need a comparison column. Named modes
+  // and effort levels already carry their meaning; their prose stays on hover.
+  const column = !['mode', 'thought_level'].includes(option.category ?? '') && describesEveryChoice(option)
   const groups = new Map<string | undefined, OptionChoice[]>()
   for (const choice of choices) {
     const list = groups.get(choice.group) ?? []
@@ -400,7 +402,7 @@ const OptionRows = ({ option }: { option: ConfigOption }) => {
       {option.type === 'boolean' ? (
         <MenuToggle
           label={option.label}
-          hint={option.disabled ?? option.description}
+          title={option.description}
           checked={option.currentValue}
           disabled={option.disabled}
           onChange={(next) => ask(option, next, () => void (key ? store.setOption(option.id, next, key) : store.setOption(option.id, next)))}
@@ -712,11 +714,11 @@ export const ModelControl = () => {
                   key={option.id}
                   icon={<BrainIcon size={14} />}
                   label={option.label}
+                  title={option.description}
                   value={currentLabel(option)}
                   disabled={option.disabled}
 
                  wide icons="none">
-                  {option.description && <MenuNote>{option.description}</MenuNote>}
                   <UnavailableChoice option={option} />
                   <ChoiceRows option={option} />
                   {/* Switches about thinking ride with the first effort select. */}
@@ -727,7 +729,7 @@ export const ModelControl = () => {
                         <MenuToggle
                           key={toggle.id}
                           label={toggle.label}
-                          hint={toggle.description}
+                          title={toggle.description}
                           checked={toggle.currentValue}
                           disabled={toggle.disabled}
                           onChange={(next) =>
@@ -744,7 +746,7 @@ export const ModelControl = () => {
                     <MenuToggle
                       key={toggle.id}
                       label={toggle.label}
-                      hint={toggle.description}
+                      title={toggle.description}
                       checked={toggle.currentValue}
                       disabled={toggle.disabled}
                       onChange={(next) => ask(toggle, next, () => void (key ? store.setOption(toggle.id, next, key) : store.setOption(toggle.id, next)))}
@@ -779,7 +781,7 @@ export const ModelControl = () => {
                   <MenuItem
                     selected={snapshot.draftRouteId === null}
                     label="Direct"
-                    hint="The backend's own provider and account."
+                    title="The backend's own provider and account."
                     onSelect={() => store.setDraftRoute(null)}
                   />
                   {routes.map((route) => (

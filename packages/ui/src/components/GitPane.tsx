@@ -1146,7 +1146,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             <MenuItem
               icon={<CopyIcon size={14} />}
               label="Copy as a patch"
-              hint="The mail-format text git am takes."
+              title="The mail-format text git am takes."
               onSelect={() =>
                 verb('Building the patch…', async () => {
                   const { patch } = await request('git/patch', { root, sha: menuCommit.sha })

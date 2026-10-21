@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import path from 'node:path'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
+import { openAccountUsage } from './left-column-actions'
 
 const mountPlanMeters = async (page: Page, fixtureUsage = false) => {
   await page.evaluate(async fixtureUsage => {
@@ -72,14 +73,23 @@ const wholeMeterNames = async (rows: Locator) => {
     const range = document.createRange()
     range.selectNodeContents(reading)
     const lines = new Set([...range.getClientRects()].map(box => Math.round(box.top)))
+    const nameRange = document.createRange()
+    nameRange.selectNodeContents(name)
+    const nameRects = [...nameRange.getClientRects()]
     return { name: name.textContent, width: node.getBoundingClientRect().width,
       nameWidth: name.clientWidth, nameScroll: name.scrollWidth, title: name.getAttribute('title'), hasBar,
+      nameLines: new Set(nameRects.map(box => Math.round(box.top))).size,
+      nameRight: Math.max(...nameRects.map(box => box.right)), readingLeft: reading.getBoundingClientRect().left,
+      readingRight: reading.getBoundingClientRect().right, resetLeft: reset.getBoundingClientRect().left,
       resetTitle: reset.getAttribute('title'), resetWidth: reset.clientWidth, resetScroll: reset.scrollWidth, readingLines: lines.size }
   }))
   for (const reading of readings) {
     expect(reading.nameScroll, JSON.stringify(reading)).toBeLessThanOrEqual(reading.nameWidth)
     expect(reading.title).toBe(reading.nameScroll > reading.nameWidth ? reading.name : null)
     expect(reading.hasBar).toBe(false)
+    expect(reading.nameLines, JSON.stringify(reading)).toBe(1)
+    expect(reading.nameRight, JSON.stringify(reading)).toBeLessThanOrEqual(reading.readingLeft)
+    expect(reading.readingRight, JSON.stringify(reading)).toBeLessThanOrEqual(reading.resetLeft)
     expect(reading.resetTitle).toMatch(/^(resets |blocked until )/)
     expect(reading.readingLines, JSON.stringify(reading)).toBe(1)
     expect(reading.resetScroll, JSON.stringify(reading)).toBeLessThanOrEqual(reading.resetWidth)
@@ -123,12 +133,12 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await stageWindows(page)
     await page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]').click()
-    await page.getByText('Usage remaining', { exact: true }).click()
+    await openAccountUsage(page)
     const rows = page.locator('[data-usage-details] [data-slot="usage-meter-row"]')
     await expect(rows).toHaveCount(2)
     // S17 puts these facts on the menu text edges: 16px on each side.
     const accountWidth = await rows.first().evaluate(node => {
-      const panel = node.closest('[data-slot="popover-popup"]')!.getBoundingClientRect()
+      const panel = node.closest('[data-slot="dropdown-menu-sub-content"]')!.getBoundingClientRect()
       const row = node.getBoundingClientRect()
       return { panel: panel.width, row: row.width, left: row.left - panel.left, right: panel.right - row.right }
     })

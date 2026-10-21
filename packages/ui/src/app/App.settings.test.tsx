@@ -113,6 +113,21 @@ it('the native Dashboard command enters the common registered page boundary', as
   } finally { MAIN_PAGE_ENTRIES.dashboard=previous }
 })
 
+it('native usage links open the named runtime and remain open when chosen again', async () => {
+  const previous = MAIN_PAGE_ENTRIES.dashboard
+  MAIN_PAGE_ENTRIES.dashboard = ({ page }) => <output>{page.kind}</output>
+  try {
+    const store = routedStore()
+    await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+    for (let repeat = 0; repeat < 2; repeat++) {
+      act(() => native.run('open-usage:fixture-runtime'))
+      expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'dashboard', view: 'plans', scope: 'fixture-runtime' })
+    }
+    act(() => native.run('open-usage'))
+    expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'dashboard', view: 'overview', scope: null })
+  } finally { MAIN_PAGE_ENTRIES.dashboard = previous }
+})
+
 it('repeated compatibility requests route Library and Plugins through the retained registry',async()=>{
   const saved={library:MAIN_PAGE_ENTRIES.library,plugins:MAIN_PAGE_ENTRIES.plugins}
   MAIN_PAGE_ENTRIES.library=({libraryImportIntent})=><output data-import-intent>{libraryImportIntent}</output>
