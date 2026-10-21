@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { SidebarNotices, useAccountQuotaWarning, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useActiveSession, useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
-import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, FolderOpenIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
+import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, FolderOpenIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
 import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
 import {
@@ -70,7 +70,6 @@ import styles from './Sidebar.module.css'
 
 export const Sidebar = ({
   onOpenSettings,
-  onOpenPlugins,
   onOpenLibrary,
   onOpenAgents,
   onOpenTeams,
@@ -163,8 +162,7 @@ export const Sidebar = ({
     { id: 'teams' as const, label: 'Teams', icon: <TeamIcon size={16} />, run: onOpenTeams, count: 0 },
     { id: 'flows' as const, label: 'Flows', icon: <FlowIcon size={16} />, run: onOpenFlows ?? (() => store.openDestination({kind:'flows',root:null,id:null,origin:null})), count: 0 },
     { id: 'agents' as const, label: 'Agents', icon: <AgentIcon size={16} />, run: onOpenAgents, count: 0 },
-    { id: 'library' as const, label: 'Library', icon: <LibraryIcon size={16} />, run: onOpenLibrary ?? (() => onOpenSettings('library')), count: 0 },
-    { id: 'plugins' as const, label: 'Plugins', icon: <PluginIcon size={16} />, run: onOpenPlugins, count: 0 },
+    { id: 'library' as const, label: 'Customize', icon: <LibraryIcon size={16} />, run: onOpenLibrary ?? (() => onOpenSettings('library')), count: 0 },
     { id: 'dashboard' as const, label: 'Dashboard', icon: <UsageIcon size={16} />, run: () => onOpenUsage(), count: lowAgents },
   ]
   const sessionsHead = <>
@@ -176,7 +174,7 @@ export const Sidebar = ({
           content: close => <WorktreeItems close={close} onBrowseFolders={onBrowseFolders} onChoose={() => { store.returnToWork(); setStarting(true) }} /> }} />
       <LeftColumnGroup label="Main sections" heading={false}>
         {pageDoors.map(door => <LeftColumnRow key={door.id} label={door.label} icon={door.icon}
-          selected={activeDestination === door.id} onClick={door.run}
+          selected={activeDestination === door.id || (door.id === 'library' && activeDestination === 'plugins')} onClick={door.run}
           title={door.id === 'agents' && agentsBroken ? 'Agents, some unavailable' : door.label}
           trailing={door.count > 0 ? { kind: 'count', value: door.count,
             label: `${door.count} Runtimes need attention` } : undefined} />)}

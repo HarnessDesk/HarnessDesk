@@ -442,9 +442,10 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
     return listedEntries.filter(
       (entry) =>
         entry.kind === kind &&
-        (needle === '' || `${entry.name} ${entry.title ?? ''}`.toLowerCase().includes(needle)),
+        (!screen.runtime || entry.reach.some(reach => reach.runtime === screen.runtime && reach.state !== 'absent')) &&
+        (needle === '' || `${entry.name} ${entry.title ?? ''} ${entry.description ?? ''}`.toLowerCase().includes(needle)),
     )
-  }, [library, listedEntries, kind, screen.query])
+  }, [library, listedEntries, kind, screen.query, screen.runtime])
 
   // State counts match the chip and search; chip counts cover the whole inventory.
   const chipEntries = useMemo(() => searched.filter(entry =>
@@ -494,7 +495,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
       }
       return true
     })
-  }, [scopedEntries, screen.filter, usage])
+  }, [scopedEntries, screen.filter, screen.runtime, usage])
 
   // Cards always sort by name. Matrix retains the existing cost order for
   // Never fired, and MCP retains its own list/matrix ordering.
@@ -504,7 +505,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
         ? [...rows].sort(
             (a, b) => (b.catalogTokens ?? 0) - (a.catalogTokens ?? 0) || a.name.localeCompare(b.name),
           )
-        : kind === 'skill' && screen.skillView === 'cards' ? [...rows].sort((a, b) => a.name.localeCompare(b.name)) : rows,
+        : kind === 'skill' && screen.skillView !== 'matrix' ? [...rows].sort((a, b) => a.name.localeCompare(b.name)) : rows,
     [rows, screen.filter, kind, screen.skillView],
   )
 
@@ -537,13 +538,13 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
 
   const chipCounts = useMemo(() => {
     const result: Record<SkillChip, number> = { all: 0, 'needs-you': 0, 'one-runtime': 0, nobody: 0 }
-    for (const entry of listedEntries.filter(one => one.kind === 'skill' && declared(one))) {
+    for (const entry of listedEntries.filter(one => one.kind === 'skill' && declared(one) && (!screen.runtime || one.reach.some(reach => reach.runtime === screen.runtime && reach.state !== 'absent')))) {
       result.all++
       const group = chipFor(entry, columns)
       if (group !== 'all') result[group]++
     }
     return result
-  }, [listedEntries, declared, columns])
+  }, [listedEntries, declared, columns, screen.runtime])
 
   /**
    * Each agent's scanned skill directories in the order a name conflict is
@@ -683,9 +684,9 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
       {entry ? <SkillPage key={entry.name} entry={entry} columns={columns} hosts={hosts} cwd={cwd} usage={usage} home={library?.home}
         onBack={back} onChanged={() => void load()} onFlow={setFlow} /> : <>
-        <DestinationBar place="Library" />
-        {loading ? <EmptyState variant="inline" title="Reading skills…" /> : failed !== null ? <Button variant="ghost" size="sm" onClick={back}>Back to Library</Button> : <EmptyState title="Skill not found">
-          <Button variant="ghost" size="sm" onClick={back}>Back to Library</Button>
+        <DestinationBar place="Customize" />
+        {loading ? <EmptyState variant="inline" title="Reading skills…" /> : failed !== null ? <Button variant="ghost" size="sm" onClick={back}>Back to Customize</Button> : <EmptyState title="Skill not found">
+          <Button variant="ghost" size="sm" onClick={back}>Back to Customize</Button>
         </EmptyState>}
       </>}
       <LibraryFlows flow={active ? flow : null} setFlow={setFlow} library={library} columns={columns} cwd={cwd} onApplied={() => void load()} />
@@ -695,11 +696,12 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
     <>
       <LibraryBar kind={kind} counts={kindCounts} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
         author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} github={() => setFlow({ type: 'github' })} checking={checking} check={() => void checkUpdates()} rescan={() => void load()}
-        choices={kind === 'mcp' ? libraryChoices : []} search={kind === 'mcp' ? { label: 'Search library', value: screen.query, change: value => patchScreen({ query: value }) } : undefined} />
+        choices={kind === 'mcp' ? libraryChoices : []} search={kind === 'mcp' ? { label: 'Search servers', value: screen.query, change: value => patchScreen({ query: value }) } : undefined} />
       {/* MCP retains its PageOptions, list, matrix and filters; only skills use cards and chips. */}
       {kind === 'skill' ? <LibrarySkillsControls chip={screen.chip} counts={chipCounts} onChip={value => patchScreen({ chip: value })} view={screen.skillView} onView={next => { patchScreen({ skillView: next }); setOpen(null) }}
+        runtime={{ id: 'runtime', label: 'Runtime', value: screen.runtime ?? '', items: [{ value: '', label: 'All runtimes' }, ...columns.map(column => ({ value: column.id, label: column.label }))], change: value => patchScreen({ runtime: value }) }}
         filters={{ ...libraryChoices[1]!, items: filterData.filter(one => one.value !== 'problems' && (one.value === 'all' || one.value === screen.filter || Boolean(one.disabled) || (one.count ?? 0) > 0)).map(one => ({ ...one, disabled: counts === null ? 'Reading skills…' : one.disabled })) }}
-        agent={libraryChoices[2]!} search={{ label: 'Search library', value: screen.query, change: value => patchScreen({ query: value }) }} /> : <PageExplanation>Every skill and MCP server your runtimes can load, wherever each one keeps them.</PageExplanation>}
+        agent={libraryChoices[2]!} search={{ label: kind === 'skill' ? 'Search skills' : 'Search servers', value: screen.query, change: value => patchScreen({ query: value }) }} /> : null}
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
       {checkFailed !== null && <ActionError>{checkFailed}</ActionError>}
 
@@ -751,12 +753,14 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
         </EmptyState> : kind === 'skill' && screen.chip === 'needs-you' && chipCounts['needs-you'] === 0 && !screen.query.trim() && screen.filter === 'all' && !agentFilter ? (
           <EmptyState tight title="Nothing needs you" />
         ) : <EmptyState tight icon={<SearchIcon size={16} />} title="Nothing matches">
-          <Button variant="outline" size="sm" onClick={() => { patchScreen({ query: '', filter: 'all', chip: 'all' }); setAgentFilter('') }}>Clear the filters</Button>
+          <Button variant="outline" size="sm" onClick={() => { patchScreen({ query: '', filter: 'all', chip: 'all', runtime: '' }); setAgentFilter('') }}>Clear the filters</Button>
         </EmptyState>
       ) : kind === 'skill' && screen.skillView === 'cards' ? (
-        <CompactBoardCardGrid data-slot="skill-cards">
+        <CompactBoardCardGrid data-slot="skill-cards" layout="catalogue">
           {ordered.map(entry => <SkillCard key={entry.name} entry={entry} columns={columns} onOpen={() => openEntry(entry)} />)}
         </CompactBoardCardGrid>
+      ) : kind === 'skill' && screen.skillView === 'list' ? (
+        <Rows>{ordered.map(entry => <SkillCard key={entry.name} view="list" entry={entry} columns={columns} onOpen={() => openEntry(entry)} />)}</Rows>
       ) : kind === 'mcp' && screen.view === 'list' ? (
         <SkillList kind={kind}>
           {ordered.map((entry) => (

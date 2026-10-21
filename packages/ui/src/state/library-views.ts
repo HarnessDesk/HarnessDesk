@@ -20,7 +20,9 @@ export interface LibraryViewState {
   /** MCP keeps its List/Matrix choice. */
   readonly view: 'list' | 'matrix'
   /** Skills keep their Cards/Matrix choice. */
-  readonly skillView: 'cards' | 'matrix'
+  readonly skillView: 'cards' | 'list' | 'matrix'
+  /** Runtime selected in Customize; empty means all scanned runtimes. */
+  readonly runtime?: string
 }
 
 export const emptyLibraryView = (): LibraryViewState => ({ filter: 'all', query: '', chip: 'all', view: 'list', skillView: 'cards' })

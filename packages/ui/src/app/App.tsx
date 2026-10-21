@@ -85,9 +85,13 @@ export const App = () => {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const openPage = useCallback((target: PageDestination) => store.openDestination(target), [store])
   const openSettingsAt = useCallback((section: Section, focus: string | null) => {
+    if (section === 'skills') {
+      const runtime = store.getSnapshot().activeRuntime
+      store.setLibraryView('skill', { ...store.libraryView('skill'), runtime: runtime ?? '' })
+    }
     const target=destinationForSettings(section,focus)
     openPage(target)
-  },[openPage])
+  },[openPage,store])
   const openAgents = useCallback((focus?:string)=>openPage({kind:'agents',id:focus??null}),[openPage])
   const openTeams = useCallback(()=>openPage({kind:'teams',filter:'active'}),[openPage])
   const openUsage = useCallback((runtime?:RuntimeId)=>openPage({kind:'dashboard',...dashboardRouteFor(runtime)}),[openPage])

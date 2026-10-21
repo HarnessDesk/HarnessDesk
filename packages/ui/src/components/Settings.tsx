@@ -115,6 +115,7 @@ export type Section =
   | 'runtimes'
   | 'models'
   | 'skills'
+  | 'hooks'
   | 'extensions'
   | 'library'
   | 'plugins'
@@ -139,7 +140,7 @@ const MOVED: Readonly<Record<string, Section>> = {
 }
 const SECTIONS: readonly Section[] = [
   'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage',
-  'runtimes', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser',
+  'runtimes', 'models', 'skills', 'hooks', 'extensions', 'library', 'plugins', 'permissions', 'browser',
 ]
 export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes'): Section =>
   name && (SECTIONS as readonly string[]).includes(name)
@@ -1166,96 +1167,17 @@ const SkillPage = ({
   )
 }
 
+/** Legacy skill routes retain command details; management has one destination. */
 export const SkillsSection = ({name,onSkill,onUse}: {readonly name:string|null;readonly onSkill:(name:string|null)=>void;readonly onUse:()=>void}) => {
   const snapshot = useSnapshot()
+  const store = useStore()
   const runtime = useRuntime()
-  const [query, setQuery] = useState('')
-  const openName=name,setOpenName=onSkill
-  const label = runtime.presentation.skillsLabel ?? 'Skills'
-  const hasFaces = snapshot.skills.some(skill => skill.iconUrl || skill.brandColor)
-
-  const skills = useMemo(
-    () =>
-      snapshot.skills.filter((skill) =>
-        `${skill.name} ${skillTitle(skill)} ${skill.shortDescription ?? ''} ${skill.description}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-      ),
-    [snapshot.skills, query],
-  )
-  // An agent that only declares what it has gets the sentence that is true
-  // of it: nothing here can be switched, and `@` does not summon one.
-  const declared =
-    snapshot.skills.length > 0 && snapshot.skills.every((skill) => skill.toggleable === false)
-
-  const open = openName ? (snapshot.skills.find((skill) => skill.name === openName) ?? null) : null
-  if (open) {
-    return (
-      <SkillPage
-        skill={open}
-        listLabel={label}
-        onBack={() => setOpenName(null)}
-        onUse={onUse}
-      />
-    )
-  }
-
-  return (
-    <>
-      <DestinationBar place={label} />
-<PageExplanation>{
-          declared
-            ? `What ${runtime.presentation.name} can be asked to run: its skills and its own commands.`
-            : `Instruction bundles ${runtime.presentation.name} found for this project. Mention one with @, or let the runtime choose.`
-        }</PageExplanation>
-
-      {snapshot.skills.length === 0 ? (
-        <Rows>
-          <EmptyState variant="row"
-            title="No skills found"
-            description={`${runtime.presentation.name} looks for them in the project${
-              runtime.presentation.configLocation
-                ? ` and in ${runtime.presentation.configLocation}`
-                : ''
-            }.`}
-          />
-        </Rows>
-      ) : (
-        <>
-          <PageControls search={{label:`Search ${label.toLowerCase()}`,placeholder:`Search ${label.toLowerCase()}`,value:query,change:setQuery}}/>
-          <Rows>
-            {skills.length === 0 && <EmptyState variant="row" title="Nothing matches" />}
-            {skills.map((skill) => {
-              const scope = skillScopeLabel(skill.scope)
-              return (
-                <RowButton
-                  key={skill.name}
-                  kind="record"
-                  onClick={() => setOpenName(skill.name)}
-                  mark={hasFaces ? <SkillMark skill={skill} tile="default" glyphSize={15} /> : undefined}
-                  title={skillTitle(skill)}
-                  desc={<Text role="prose" lines={2}>{skill.shortDescription ?? skill.description}</Text>}
-                  control={
-                    <>
-                      <RowValue>{scope}</RowValue>
-                      {skill.toggleable === false
-                        ? null
-                        : <SkillToggle skill={skill} />}
-                    </>
-                  }
-                />
-              )
-            })}
-          </Rows>
-        </>
-      )}
-
-      {/* Outside the branch above on purpose. Hooks have nothing to do with
-          whether any skills were found, and nesting them there hid every hook
-          an agent had whenever it happened to have no skills. */}
-      <HooksList />
-    </>
-  )
+  const skill = name ? snapshot.skills.find(one => one.name === name) : null
+  if (skill) return <SkillPage skill={skill} listLabel="Skills" onBack={() => onSkill(null)} onUse={onUse} />
+  return <Rows><RowButton title="Manage skills in Customize" desc={`Skills available to ${runtime.presentation.name}.`} onClick={() => {
+    store.setLibraryView('skill', { ...store.libraryView('skill'), runtime: runtime.id })
+    store.openDestination({ kind: 'library', section: 'skill' })
+  }} /></Rows>
 }
 
 /**
@@ -1682,7 +1604,7 @@ const WorktreeRows = () => {
 const SETTINGS_LABELS = {
   profile: 'Profile', general: 'General', appearance: 'Appearance', notifications: 'Notifications', shortcuts: 'Keyboard shortcuts',
   workspaces: 'Workspaces', archive: 'Archive', history: 'History', storage: 'Storage', runtimes: 'Runtimes', models: 'Models',
-  skills: 'Skills', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser',
+  skills: 'Skills', hooks: 'Hooks', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser',
 } as const
 export const Settings = ({ route, onRoute, onSignIn }: {
   readonly route: SettingsRoute; readonly onRoute: (route: SettingsRoute) => void; readonly onSignIn: (runtime: RuntimeId) => void
@@ -1731,6 +1653,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} view={runtimeView} onView={setRuntimeView} showAddRuntimeAction={false}
       onBrowseHistory={id => sectionRoute('history', id)} />}
     {section === 'models' && <ModelsSection />}
+    {section === 'hooks' && <HooksList />}
     {section === 'extensions' && hasExtensions && <ExtensionsSection />}
     {section === 'skills' && <SkillsSection name={route.kind === 'skill' ? route.name : null}
       onSkill={name => name ? onRoute({ kind: 'skill', name }) : sectionRoute('skills')} onUse={() => store.returnToWork()} />}

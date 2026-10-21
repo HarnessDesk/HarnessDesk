@@ -1427,6 +1427,12 @@ this layer has no store — so it is handed back rather than dropped. A row
 that stays shown while the tick is up hears about it through
 `onCopiedChange`.
 
+### `CustomizeTabs`
+
+`packages/ui/src/design/patterns/CustomizeTabs.tsx`
+
+One section vocabulary for the shared capability destination.
+
 ### `DashboardBands`
 
 `packages/ui/src/design/patterns/DashboardBands.tsx`

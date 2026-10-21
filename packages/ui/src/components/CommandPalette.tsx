@@ -32,6 +32,7 @@ import type { AppSnapshot, AppStore } from '../state/store'
 import { sidebarPlacement } from '../state/workbench'
 import {
   AgentIcon,
+  HookIcon,
   ServerIcon,
   ArchiveIcon,
   FolderIcon,
@@ -79,8 +80,9 @@ const SETTINGS_PAGE: Record<Exclude<Section, 'archive'>, { label: string; icon: 
   models: { label: 'Models', icon: <SlidersIcon size={14} />, keywords: 'models endpoints presets routes' },
   skills: { label: 'Skills', icon: <SlidersIcon size={14} />, keywords: 'skills commands hooks' },
   extensions: { label: 'Extensions', icon: <SlidersIcon size={14} />, keywords: 'extensions mcp servers apps' },
-  library: { label: 'Library', icon: <LibraryIcon size={14} />, keywords: 'library skills mcp servers import capabilities across agents' },
-  plugins: { label: 'Plugins', icon: <PluginIcon size={14} />, keywords: 'plugins tools capabilities' },
+  hooks: { label: 'Hooks', icon: <HookIcon size={14} />, keywords: 'hooks runtime events lifecycle' },
+  library: { label: 'Customize', icon: <LibraryIcon size={14} />, keywords: 'library skills mcp servers import capabilities across agents' },
+  plugins: { label: 'Customize · Plugins', icon: <PluginIcon size={14} />, keywords: 'plugins tools capabilities' },
   permissions: { label: 'Permissions', icon: <SlidersIcon size={14} />, keywords: 'permissions approvals sandbox rules deny allow' },
   browser: { label: 'Browser', icon: <SlidersIcon size={14} />, keywords: 'browser pane window profile cookies' },
 }
