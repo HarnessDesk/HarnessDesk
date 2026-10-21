@@ -34,7 +34,7 @@ const Preview = () => {
   const [wrapped, setWrapped] = useState(false)
   const chooseProject = () => setPicker(true)
   return <Mount with={target}><div className="flex h-screen bg-background text-foreground"><aside className="w-72 shrink-0 h-full">
-    <Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenTeams={() => {}} onOpenAgents={() => {}}
+    <Sidebar onOpenSettings={() => {}} onOpenTeams={() => {}} onOpenAgents={() => {}}
       onOpenUsage={() => {}} onBrowseFolders={chooseProject} onSignIn={() => {}} onSearch={() => {}} /></aside>
     <main className="flex min-w-0 flex-1 flex-col justify-end py-6">
       {scene === 'finished' ? <PaneColumn inset="reading"><Row title="Storefront" control={<Button onClick={() => {

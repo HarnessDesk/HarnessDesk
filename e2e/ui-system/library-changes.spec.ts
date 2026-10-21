@@ -67,7 +67,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(library.getByRole('heading', { name: 'Changes made here', exact: true })).toBeVisible()
     // Navigation from More uses the ordinary fixture's audit entries.
     await page.keyboard.press('Meta+[')
-    await expect(library.getByRole('heading', { name: 'Library', exact: true })).toBeVisible()
+    await expect(library.getByRole('heading', { name: 'Customize', exact: true })).toBeVisible()
     await openFrame(page, 'frame-wall=library&frame-kind=changes', theme)
     await expect(library.getByRole('listitem')).toHaveCount(7)
     await expect(library.getByRole('heading', { level: 2 })).toHaveText(['Today 3', 'Yesterday 2', 'Earlier 2'])
@@ -90,8 +90,8 @@ for (const theme of ['light', 'dark'] as const) {
     await library.getByRole('button', { name: 'Restore…', exact: true }).click()
     await expect(page.getByRole('dialog', { name: 'Restore benchmark' })).toBeVisible()
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
-    await library.getByRole('button', { name: 'Back to Library', exact: true }).click()
-    await expect(library.getByRole('heading', { name: 'Library', exact: true })).toBeVisible()
+    await library.getByRole('button', { name: 'Back to Customize', exact: true }).click()
+    await expect(library.getByRole('heading', { name: 'Customize', exact: true })).toBeVisible()
   })
   test(`Library changes empty ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=library&frame-kind=changes&frame-changes-empty=1', theme)

@@ -103,7 +103,7 @@ export const RaceFrame = ({ store }: { store: AppStore }) => {
   return <StoreProvider store={store}>
     <MountProvider scope={{ area: 'main', id: 'team-room', view }}>
       <KeyboardHereContext.Provider value={false}>
-        <Themed><TeamFramePreview room={PREVIEW_ROOM} view={view} railOpen={false} sidebar={<Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /></Themed>
+        <Themed><TeamFramePreview room={PREVIEW_ROOM} view={view} railOpen={false} sidebar={<Sidebar onOpenSettings={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /></Themed>
       </KeyboardHereContext.Provider>
     </MountProvider>
   </StoreProvider>

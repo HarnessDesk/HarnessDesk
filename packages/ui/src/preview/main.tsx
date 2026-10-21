@@ -576,6 +576,7 @@ const SETTINGS_SECTIONS = [
   'runtimes',
   'models',
   'skills',
+  'hooks',
   'extensions',
   'library',
   'plugins',
@@ -1106,7 +1107,6 @@ const Preview = () => {
                 : SIDEBAR_VARIANT_PARAM === 'projects' ? sidebarProjectsStore : store}>
               <Sidebar
                 onOpenSettings={() => {}}
-                onOpenPlugins={() => {}}
                 onOpenTeams={() => {}} onOpenAgents={() => {}}
                 onOpenUsage={() => {}}
                 onBrowseFolders={() => {}}
@@ -1120,7 +1120,6 @@ const Preview = () => {
           <div className="h-[720px]" style={{ width: 200, background: 'var(--hd-sidebar-plate, transparent)' }}>
             <Sidebar
               onOpenSettings={() => {}}
-              onOpenPlugins={() => {}}
               onOpenTeams={() => {}} onOpenAgents={() => {}}
               onOpenUsage={() => {}}
               onBrowseFolders={() => {}}
@@ -1134,7 +1133,6 @@ const Preview = () => {
             <Mount with={sidebarNoFolderStore}>
               <Sidebar
                 onOpenSettings={() => {}}
-                onOpenPlugins={() => {}}
                 onOpenTeams={() => {}} onOpenAgents={() => {}}
                 onOpenUsage={() => {}}
                 onBrowseFolders={() => {}}

@@ -82,7 +82,6 @@ export const Sidebar = ({
   active = true, settings, listFilter, sessionsOwner = true,
 }: {
   onOpenSettings: (section?: Section) => void
-  onOpenPlugins: () => void
   onOpenLibrary?: () => void
   /** Opens the Agents window — the roster, never a Settings page. */
   onOpenAgents: () => void

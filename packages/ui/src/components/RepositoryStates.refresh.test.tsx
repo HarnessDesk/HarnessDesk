@@ -45,7 +45,7 @@ it.each(['composer', 'sidebar', 'project', 'palette'] as const)('%s re-reads an 
         group={{ root: PATH, name: 'storefront', folders: [PATH], sessions: [], updatedAt: 0 }}
         current={false} actualRoot={PATH} at={{ x: 10, y: 10 }} onClose={noop} onNewWorktree={noop} />
         : surface === 'palette' ? <CommandPalette host={{ close: noop, chooseFolder: noop, openSettings: noop, openUsage: noop, openAgents: noop, openFrontDoor: noop }} />
-        : <Sidebar onOpenSettings={noop} onOpenPlugins={noop} onOpenTeams={noop} onOpenAgents={noop}
+        : <Sidebar onOpenSettings={noop} onOpenTeams={noop} onOpenAgents={noop}
           onOpenUsage={noop} onBrowseFolders={noop} onSignIn={noop} onSearch={noop} />}
     </StoreProvider>))
     if (surface === 'composer' || surface === 'sidebar') {

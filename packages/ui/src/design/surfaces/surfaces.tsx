@@ -494,7 +494,6 @@ export const RailSurface = () => (
       <div className={`${styles.beside} h-full`}>
         <Sidebar
           onOpenSettings={() => {}}
-          onOpenPlugins={() => {}}
           onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
@@ -541,7 +540,6 @@ export const SeatRowsSurface = () => (
       <div className={`${styles.beside} h-full`}>
         <Sidebar
           onOpenSettings={() => {}}
-          onOpenPlugins={() => {}}
           onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
@@ -574,7 +572,6 @@ export const ProjectsSurface = () => (
       <div className={`${styles.beside} h-full`}>
         <Sidebar
           onOpenSettings={() => {}}
-          onOpenPlugins={() => {}}
           onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
@@ -948,7 +945,6 @@ export const PanelsSurface = () => (
         sidebar={
           <Sidebar
             onOpenSettings={() => {}}
-            onOpenPlugins={() => {}}
           onOpenTeams={() => {}} onOpenAgents={() => {}}
             onOpenUsage={() => {}}
             onBrowseFolders={() => {}}

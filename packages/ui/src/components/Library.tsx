@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
+  runtimeId,
   entryHasProblem,
   isReachProblem,
   summarise,
@@ -244,29 +245,24 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
    * fixture — answers with a placeholder rather than a view; only a real
    * answer is kept, and anything else starts from the empty view.
    */
-  const storedView = (): LibraryViewState => {
-    const held = store.libraryView?.(section)
-    return held && typeof held.query === 'string' ? held : emptyLibraryView()
-  }
-  const [screen, setScreen] = useState<LibraryViewState>(storedView)
+  const storedView = store.libraryView?.(section)
+  const [localScreen, setLocalScreen] = useState<LibraryViewState>(emptyLibraryView)
   const [screenSection, setScreenSection] = useState(section)
-  /**
-   * What is on screen right now. `patchScreen` merges onto this, never onto
-   * the store's answer: a store without the view memory answers empty every
-   * time, and merging onto it dropped the filter as soon as a search followed.
-   */
+  // The real store is authoritative, including writes from Settings while this
+  // page is retained. Preview proxies without view memory keep a local fallback.
+  const heldScreen = storedView && typeof storedView.query === 'string' ? storedView : localScreen
+  const screen = section === 'skill' && heldScreen.filter === 'problems' ? { ...heldScreen, filter: 'all' as const } : heldScreen
   const latest = useRef(screen)
   latest.current = screen
   if (screenSection !== section) {
     setScreenSection(section)
-    const stored = storedView()
-    setScreen(section === 'skill' && stored.filter === 'problems' ? { ...stored, filter: 'all' } : stored)
+    setLocalScreen(emptyLibraryView())
   }
   const patchScreen = useCallback((patch: Partial<LibraryViewState>) => {
     const next = { ...latest.current, ...patch }
     latest.current = next
     store.setLibraryView?.(section, next)
-    setScreen(next)
+    setLocalScreen(next)
   }, [store, section])
   const [open, setOpen] = useState<string | null>(null)
   /**
@@ -431,6 +427,12 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
     [library, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs],
   )
 
+  // A Settings link may select an installed runtime before its first scan.
+  // Keep that selection named and clearable rather than claiming an unscoped view.
+  const runtimeItems = [{ value: '', label: 'All runtimes' }, ...snapshot.runtimes.map(info => ({ value: info.id, label: info.presentation.name }))]
+  for (const column of columns) if (!runtimeItems.some(item => item.value === column.id)) runtimeItems.push({ value: column.id, label: column.label })
+  if (screen.runtime && !runtimeItems.some(item => item.value === screen.runtime)) runtimeItems.push({ value: screen.runtime, label: 'Selected runtime (unavailable)' })
+
   /** Hide reserved and wholly hollow skills, retaining mixed copies for repair. */
   const listedEntries = useMemo(() => (library?.entries ?? []).filter(entry =>
     entry.kind !== 'skill' || (!entry.name.startsWith('_') &&
@@ -442,7 +444,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
     return listedEntries.filter(
       (entry) =>
         entry.kind === kind &&
-        (!screen.runtime || entry.reach.some(reach => reach.runtime === screen.runtime && reach.state !== 'absent')) &&
+        (kind !== 'skill' || !screen.runtime || entry.reach.some(reach => reach.runtime === screen.runtime && reach.state !== 'absent')) &&
         (needle === '' || `${entry.name} ${entry.title ?? ''} ${entry.description ?? ''}`.toLowerCase().includes(needle)),
     )
   }, [library, listedEntries, kind, screen.query, screen.runtime])
@@ -495,7 +497,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
       }
       return true
     })
-  }, [scopedEntries, screen.filter, screen.runtime, usage])
+  }, [scopedEntries, screen.filter, usage])
 
   // Cards always sort by name. Matrix retains the existing cost order for
   // Never fired, and MCP retains its own list/matrix ordering.
@@ -699,7 +701,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
         choices={kind === 'mcp' ? libraryChoices : []} search={kind === 'mcp' ? { label: 'Search servers', value: screen.query, change: value => patchScreen({ query: value }) } : undefined} />
       {/* MCP retains its PageOptions, list, matrix and filters; only skills use cards and chips. */}
       {kind === 'skill' ? <LibrarySkillsControls chip={screen.chip} counts={chipCounts} onChip={value => patchScreen({ chip: value })} view={screen.skillView} onView={next => { patchScreen({ skillView: next }); setOpen(null) }}
-        runtime={{ id: 'runtime', label: 'Runtime', value: screen.runtime ?? '', items: [{ value: '', label: 'All runtimes' }, ...columns.map(column => ({ value: column.id, label: column.label }))], change: value => patchScreen({ runtime: value }) }}
+        runtime={{ id: 'runtime', label: 'Runtime', value: screen.runtime ?? '', items: runtimeItems, change: value => patchScreen({ runtime: value ? runtimeId(value) : '' }) }}
         filters={{ ...libraryChoices[1]!, items: filterData.filter(one => one.value !== 'problems' && (one.value === 'all' || one.value === screen.filter || Boolean(one.disabled) || (one.count ?? 0) > 0)).map(one => ({ ...one, disabled: counts === null ? 'Reading skills…' : one.disabled })) }}
         agent={libraryChoices[2]!} search={{ label: kind === 'skill' ? 'Search skills' : 'Search servers', value: screen.query, change: value => patchScreen({ query: value }) }} /> : null}
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}

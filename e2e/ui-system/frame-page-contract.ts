@@ -151,6 +151,11 @@ export const expectDestinationTab = async (page: Page, value: string): Promise<v
     }
     return
   }
+  if (value === 'skill' || value === 'mcp') {
+    await expect(page.getByRole('radiogroup', { name: 'Customize sections', exact: true })
+      .getByRole('radio', { name: value === 'skill' ? 'Skills' : 'MCP', exact: true })).toHaveAttribute('aria-checked', 'true')
+    return
+  }
   const choice = pageChoiceFor(value)
   await page.locator('[data-slot="page-options"]:visible').getByTitle(choice.title, { exact: true }).click()
   const item = page.getByRole('menuitemradio').filter({ has: page.getByText(choice.label, { exact: true }) })

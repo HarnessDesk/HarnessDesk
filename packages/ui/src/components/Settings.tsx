@@ -1,3 +1,4 @@
+import { openCustomizeSkills } from '../state/library-views'
 import SettingsChatsFolder from './SettingsChatsFolder'
 import { projectWorkspaces } from '../lib/chats'
 import SettingsNewConversations from './SettingsNewConversations'
@@ -1168,16 +1169,16 @@ const SkillPage = ({
 }
 
 /** Legacy skill routes retain command details; management has one destination. */
-export const SkillsSection = ({name,onSkill,onUse}: {readonly name:string|null;readonly onSkill:(name:string|null)=>void;readonly onUse:()=>void}) => {
+export const SkillsSection = ({name,onUse}: {readonly name:string|null;readonly onUse:()=>void}) => {
   const snapshot = useSnapshot()
   const store = useStore()
   const runtime = useRuntime()
   const skill = name ? snapshot.skills.find(one => one.name === name) : null
-  if (skill) return <SkillPage skill={skill} listLabel="Skills" onBack={() => onSkill(null)} onUse={onUse} />
-  return <Rows><RowButton title="Manage skills in Customize" desc={`Skills available to ${runtime.presentation.name}.`} onClick={() => {
-    store.setLibraryView('skill', { ...store.libraryView('skill'), runtime: runtime.id })
-    store.openDestination({ kind: 'library', section: 'skill' })
-  }} /></Rows>
+  const { active } = useDestinationPage()
+  const openSkills = () => openCustomizeSkills(store, runtime.id)
+  useEffect(() => { if (active && name === null) openCustomizeSkills(store, runtime.id) }, [active, name, store, runtime.id])
+  if (skill) return <SkillPage skill={skill} listLabel="Customize" onBack={openSkills} onUse={onUse} />
+  return name === null ? null : <EmptyState title="Command not found"><Button variant="ghost" size="sm" onClick={openSkills}>Back to Customize</Button></EmptyState>
 }
 
 /**
@@ -1656,7 +1657,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     {section === 'hooks' && <HooksList />}
     {section === 'extensions' && hasExtensions && <ExtensionsSection />}
     {section === 'skills' && <SkillsSection name={route.kind === 'skill' ? route.name : null}
-      onSkill={name => name ? onRoute({ kind: 'skill', name }) : sectionRoute('skills')} onUse={() => store.returnToWork()} />}
+      onUse={() => store.returnToWork()} />}
     {section === 'permissions' && <PermissionsSection focus={focus} />}
     {section === 'browser' && <BrowserSection />}
   </Page>
@@ -1678,7 +1679,7 @@ export const SettingsNavigation = ({ section, onSection, onBack }: {
           ? { kind: 'mark', icon: <Dot state={entry.state} />, label: `Runtimes: ${entry.state}` }
           : entry.count !== undefined ? { kind: 'count', value: entry.count, label: `${entry.count} accounts` } : undefined
         return <LeftColumnRow key={entry.id} label={entry.label} icon={entry.icon} title={entry.title ?? entry.label}
-          selected={section === entry.id} trailing={trailing} onClick={() => onSection(entry.id)} />
+          selected={(section === 'skills' ? 'runtimes' : section) === entry.id} trailing={trailing} onClick={() => onSection(entry.id)} />
       })}
     </LeftColumnGroup>)}
     {groups.length === 0 && <Text as="p" role="meta">Nothing in settings matches “{query.trim()}”.</Text>}

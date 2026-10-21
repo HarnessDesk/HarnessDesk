@@ -1,0 +1,18 @@
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
+import { expect, it, vi } from 'vitest'
+import { LibrarySkillsControls } from './library-skills-controls'
+
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+it('keeps a selected attention filter visible when its count drops to zero', () => {
+  const box = document.createElement('div'); document.body.append(box)
+  const root = createRoot(box)
+  const option = { id: 'filter', label: 'Filter', value: '', items: [], change: vi.fn() }
+  try {
+    act(() => root.render(<LibrarySkillsControls chip="needs-you" counts={{ all: 3, 'needs-you': 0, 'one-runtime': 0, nobody: 0 }} onChip={vi.fn()}
+      view="cards" onView={vi.fn()} filters={option} agent={option} runtime={{ ...option, value: 'unknown' }} search={{ label: 'Search skills', value: '', change: vi.fn() }} />))
+    const selected = box.querySelector('[role="radio"][aria-checked="true"]')
+    expect(selected?.textContent).toBe('Needs attention0')
+    expect(box.querySelector('[title="Runtime"]')?.textContent).toBe('Selected runtime')
+  } finally { act(() => root.unmount()); box.remove() }
+})

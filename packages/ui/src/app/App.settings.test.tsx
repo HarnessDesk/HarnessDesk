@@ -12,8 +12,8 @@ vi.mock('../lib/desktop', () => ({ desktop: () => undefined, isDesktop: () => fa
 vi.mock('../panels/Workbench', () => ({ Workbench: ({sidebar, pages, pageActive}: {sidebar:ReactNode;pages:ReactNode;pageActive:boolean}) =>
   <>{sidebar}<div data-slot="retained-work" hidden={pageActive} inert={pageActive}><input defaultValue="Remembered draft" /></div>{pages}</> }))
 vi.mock('../components/Sidebar', () => ({ Sidebar: (props: Record<string, unknown>) => <div data-sidebar>
-  {['Settings','Agents','Teams','Library','Plugins','Dashboard'].map((label, at) => <button key={label} onClick={() =>
-    (props[['onOpenSettings','onOpenAgents','onOpenTeams','onOpenLibrary','onOpenPlugins','onOpenUsage'][at]!] as () => void)()}>{label}</button>)}
+  {['Settings','Agents','Teams','Customize','Dashboard'].map((label, at) => <button key={label} onClick={() =>
+    (props[['onOpenSettings','onOpenAgents','onOpenTeams','onOpenLibrary','onOpenUsage'][at]!] as () => void)()}>{label}</button>)}
   <output data-selected>{String(props.activeDestination ?? '')}</output><output data-settings>{JSON.stringify(props.settings ? (props.settings as {section:string}).section : null)}</output>
 </div> }))
 vi.mock('../components/FrontDoor', () => ({ FrontDoor: () => <output data-new-team /> }))
@@ -66,8 +66,8 @@ it('an Agent destination deactivates retained Settings readers', async () => {
   expect(container.querySelector('[data-page-destination="settings"]')?.hasAttribute('hidden')).toBe(true)
   expect(container.querySelector('[data-active]')?.textContent).toBe('false')
 })
-for (const kind of ['dashboard','agents','teams','library','plugins'] as const) it(`all normal ${kind} doors use registration, normal selection and real Back/Forward`, async () => {
-  const label = {dashboard:'Dashboard',agents:'Agents',teams:'Teams',library:'Library',plugins:'Plugins'}[kind]
+for (const kind of ['dashboard','agents','teams','library'] as const) it(`all normal ${kind} doors use registration, normal selection and real Back/Forward`, async () => {
+  const label = {dashboard:'Dashboard',agents:'Agents',teams:'Teams',library:'Customize'}[kind]
   const previous=MAIN_PAGE_ENTRIES[kind]
   MAIN_PAGE_ENTRIES[kind] = ({page}) => <output data-future-page>{page.kind}</output>
   try {
@@ -179,7 +179,7 @@ it('E9 delivers separate Library import events and resets the counter with the p
     await click('Settings'); await click('Review imports')
     expect(container.querySelector('[data-import-intent]')?.textContent).toBe('2')
     await act(async () => { await store.openWorkspace('/synthetic/second') }); await settle()
-    await click('Library')
+    await click('Customize')
     expect(container.querySelector('[data-import-intent]')?.textContent).toBe('0')
   } finally { MAIN_PAGE_ENTRIES.library = previous }
 })
@@ -331,4 +331,21 @@ it('Go to file only dispatches for Editor on a conversation, using Command and C
     act(() => native.run('go-to-file'))
     expect(open).toHaveBeenCalledTimes(2)
   } finally { window.removeEventListener('harnessdesk:go-to-file', open) }
+})
+
+
+it('native Skills requests open Customize scoped to the current runtime, including repeated requests', async () => {
+  const previous = MAIN_PAGE_ENTRIES.library
+  MAIN_PAGE_ENTRIES.library = () => <output data-customize />
+  try {
+    const store = routedStore()
+    Object.assign(store.getSnapshot(), { activeRuntime: runtimeId('one') })
+    await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+    for (const id of ['one', 'two']) {
+      Object.assign(store.getSnapshot(), { activeRuntime: runtimeId(id) })
+      await act(async () => store.askSettings('skills')); await settle(); await settle()
+      expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'library', section: 'skill' })
+      expect(store.libraryView('skill').runtime).toBe(id)
+    }
+  } finally { MAIN_PAGE_ENTRIES.library = previous }
 })

@@ -105,7 +105,6 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
       <StoreProvider store={store}>
         <Sidebar
           onOpenSettings={() => {}}
-          onOpenPlugins={() => {}}
           onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
@@ -232,7 +231,6 @@ describe('Sidebar readiness with active runtime (#382)', () => {
         <StoreProvider store={store}>
           <Sidebar
             onOpenSettings={() => {}}
-            onOpenPlugins={() => {}}
             onOpenTeams={() => {}} onOpenAgents={() => {}}
             onOpenUsage={() => {}}
             onBrowseFolders={() => {}}
@@ -389,18 +387,18 @@ describe('sidebar destinations', () => {
     } as unknown as Partial<AppSnapshot>)
     const group = container.querySelector('[aria-label="Main sections"]')!
     const rows = [...group.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
-    expect(rows).toHaveLength(6)
-    expect(rows.map((one) => one.getAttribute('aria-label'))).toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
-    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent)).toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
-    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(6)
-    expect(rows.map((one) => one.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim())).toEqual([undefined, undefined, undefined, undefined, undefined, '1'])
-    expect(group.querySelectorAll('[data-left-trailing]')).toHaveLength(6)
-    expect(rows[5]?.parentElement?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('1 Runtimes need attention')
+    expect(rows).toHaveLength(5)
+    expect(rows.map((one) => one.getAttribute('aria-label'))).toEqual(['Teams', 'Flows', 'Agents', 'Customize', 'Dashboard'])
+    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent)).toEqual(['Teams', 'Flows', 'Agents', 'Customize', 'Dashboard'])
+    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(5)
+    expect(rows.map((one) => one.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim())).toEqual([undefined, undefined, undefined, undefined, '1'])
+    expect(group.querySelectorAll('[data-left-trailing]')).toHaveLength(5)
+    expect(rows[4]?.parentElement?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('1 Runtimes need attention')
   })
 
   it('fills the active row when its destination window is open', () => {
     mount({}, 'plugins')
-    const plugins = container.querySelector<HTMLButtonElement>('button[aria-label="Plugins"]')!
+    const plugins = container.querySelector<HTMLButtonElement>('button[aria-label="Customize"]')!
     expect(plugins.dataset.active).toBe('true')
     expect(plugins.getAttribute('aria-current')).toBe('page')
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Agents"]')?.dataset.active).toBeUndefined()
@@ -480,14 +478,14 @@ it('offers paging when a short filtered list cannot produce a scroll event', () 
   expect(loadHistory).toHaveBeenCalledOnce()
 })
 
-it('has one top row and six page doors in the approved order', () => {
+it('has one top row and five page doors in the approved order', () => {
   mount()
   const header = container.querySelector('[data-region="sidebar-header"]')!
   expect(header.querySelectorAll('[data-slot="bar"]')).toHaveLength(2)
   const group = container.querySelector('[aria-label="Main sections"]')!
   expect([...group.querySelectorAll('[data-slot="sidebar-menu-button"]')]
     .map(node => node.getAttribute('aria-label')))
-    .toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+    .toEqual(['Teams', 'Flows', 'Agents', 'Customize', 'Dashboard'])
   expect(header.querySelector('[data-role="wordmark"]')?.textContent).toBe('HarnessDesk')
   expect(container.querySelector('button[aria-label="Settings"]')?.getAttribute('aria-pressed')).toBe('false')
 })
@@ -495,7 +493,7 @@ it('has one top row and six page doors in the approved order', () => {
 it('Library keeps the existing section route and supports an explicit door', () => {
   const settings = vi.fn(), library = vi.fn()
   mount({}, 'library', { onOpenSettings: settings })
-  const row = () => container.querySelector<HTMLButtonElement>('button[aria-label="Library"]')!
+  const row = () => container.querySelector<HTMLButtonElement>('button[aria-label="Customize"]')!
   expect(row().getAttribute('aria-current')).toBe('page')
   act(() => row().click())
   expect(settings).toHaveBeenCalledWith('library')

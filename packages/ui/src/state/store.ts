@@ -1438,13 +1438,18 @@ export class AppStore {
 
   /**
    * The Library's remembered view choices for one section: its filter,
-   * search, chip and list/matrix choice. Read when a section mounts and
+   * search, chip and layout choice. Read by retained sections and
    * written as the person changes it, so leaving for Changes and coming
    * back keeps the view they left.
    */
   libraryView(section: LibraryViewSection): LibraryViewState { return this.#libraryViews[section] }
-  /** Deliberately silent: the section reads this on mount and on section change, so no listener wake is owed. */
-  setLibraryView(section: LibraryViewSection, view: LibraryViewState): void { this.#libraryViews[section] = view }
+  /** Publishes view changes so retained pages also receive explicit navigation scope. */
+  setLibraryView(section: LibraryViewSection, view: LibraryViewState): void {
+    if (this.#libraryViews[section] === view) return
+    this.#libraryViews[section] = view
+    // Explicit scope changes must reach a retained page, even if it is already active.
+    this.#patch({})
+  }
 
   /** One click on a workspace group's +: that folder, a fresh draft. */
   async startSessionIn(path: string): Promise<void> {

@@ -14,7 +14,7 @@ export const LibrarySkillsControls = ({ chip, counts, onChip, view, onView, filt
     <Toolbar data-slot="library-skills-controls">
       <Search label={search.label} placeholder={search.label} value={search.value} onChange={search.change} />
       <ToolbarGap />
-      <Popover title="Runtime" label={<>{runtime.items.find(item => item.value === runtime.value)?.label ?? 'All runtimes'}<CaretIcon /></>}
+      <Popover title="Runtime" label={<>{runtime.items.find(item => item.value === runtime.value)?.label ?? (runtime.value ? 'Selected runtime' : 'All runtimes')}<CaretIcon /></>}
         triggerVariant={{ variant: 'outline', size: 'sm' }}>{close => <Menu close={close}>
         {runtime.items.map(item => <MenuItem key={item.value} label={item.label} selected={runtime.value === item.value}
           onSelect={() => { runtime.change(item.value); close() }} />)}
@@ -37,7 +37,7 @@ export const LibrarySkillsControls = ({ chip, counts, onChip, view, onView, filt
     <Toolbar>
       <ToggleGroup type="single" size="sm" variant="chips" aria-label="Skills" value={chip === 'needs-you' ? 'needs-you' : 'all'} onValueChange={value => { if (value) onChip(value as SkillChip) }}>
         <ToggleGroupItem value="all">All<Text role="meta" numeric>{counts.all}</Text></ToggleGroupItem>
-        {counts['needs-you'] > 0 && <ToggleGroupItem value="needs-you">Needs attention<Text role="meta" numeric>{counts['needs-you']}</Text></ToggleGroupItem>}
+        {(counts['needs-you'] > 0 || chip === 'needs-you') && <ToggleGroupItem value="needs-you">Needs attention<Text role="meta" numeric>{counts['needs-you']}</Text></ToggleGroupItem>}
       </ToggleGroup>
       {(chip === 'one-runtime' || chip === 'nobody') && <Button variant="ghost" size="sm" onClick={() => onChip('all')}>{chip === 'nobody' ? 'No runtime' : 'One runtime'} · Clear</Button>}
     </Toolbar>

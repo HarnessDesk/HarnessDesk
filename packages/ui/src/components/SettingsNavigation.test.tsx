@@ -49,10 +49,10 @@ test('the Settings middle keeps preference order across agent capabilities', () 
   expect(groups.map(group => group.label)).toEqual(['Preferences', 'Conversations', 'Runtimes', 'Access'])
   expect(groups.flatMap(group => group.entries.map(entry => entry.id))).toEqual([
     'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'history', 'storage', 'archive',
-    'runtimes', 'models', 'skills', 'extensions', 'permissions', 'browser',
+    'runtimes', 'models', 'hooks', 'extensions', 'permissions', 'browser',
   ])
-  const skills = groups.flatMap(group => group.entries).find(entry => entry.id === 'skills')!
-  expect(skills.label).toBe('Skills')
+  const skills = groups.flatMap(group => group.entries).find(entry => entry.id === 'hooks')!
+  expect(skills.label).toBe('Hooks')
   expect(skills.title).toContain(source.presentation.name)
   expect(settingsGroups(snapshot, { ...runtime, capabilities: { ...runtime.capabilities, mcp: true } })
     .flatMap(group => group.entries.map(entry => entry.id))).toContain('extensions')
@@ -111,7 +111,8 @@ test('navigation keeps its groups and labels before and after the runtime read',
   </StoreProvider>))
   const labels = () => [...container.querySelectorAll('[data-left-row] button')].map(one => one.textContent)
   const before = labels()
-  expect(row('Skills')).not.toBeNull()
+  expect(row('Skills')).toBeNull()
+  expect(row('Hooks')).not.toBeNull()
   expect(row('Extensions')).not.toBeNull()
   act(() => {
     snapshot = { ...loaded, runtimes: loaded.runtimes.map(runtime => ({ ...runtime,
@@ -121,4 +122,11 @@ test('navigation keeps its groups and labels before and after the runtime read',
     listeners.forEach(listener => listener())
   })
   expect(labels()).toEqual(before)
+})
+
+
+test('legacy command details keep the parent Runtimes navigation selected', () => {
+  act(() => root.render(<StoreProvider store={previewStore()}><SettingsNavigation section="skills" onSection={() => {}} onBack={() => {}} /></StoreProvider>))
+  expect(row('Runtimes')?.getAttribute('aria-current')).toBe('page')
+  expect(row('Skills')).toBeNull()
 })
