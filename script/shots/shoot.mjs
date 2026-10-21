@@ -516,7 +516,10 @@ try {
         // length of its exit transition) is the last scene's, not this one's:
         // it takes no pointer by design and is gone a moment later.
         const leaving = (node) => node.closest('[data-ending-style]') !== null
-        for (const popup of document.querySelectorAll('[data-slot="popover-popup"]')) {
+        // Submenu portals may be nested under the root Popover in the DOM,
+        // but their rows paint in the flyout's own box beside that Popover.
+        const popupSurface = '[data-slot="popover-popup"], [data-slot="dropdown-menu-sub-content"]'
+        for (const popup of document.querySelectorAll(popupSurface)) {
           if (leaving(popup)) continue
           const box = popup.getBoundingClientRect()
           if (box.top < 0 || box.bottom > innerHeight + 1 || box.left < 0 || box.right > innerWidth + 1) {
@@ -532,7 +535,7 @@ try {
           // popup and be clipped away. Check the painted/hit-tested center.
           const rect = item.getBoundingClientRect()
           const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2
-          const popup = item.closest('[data-slot="popover-popup"]')
+          const popup = item.closest(popupSurface)
           if (popup) {
             const box = popup.getBoundingClientRect()
             const contentX = x - box.left + popup.scrollLeft, contentY = y - box.top + popup.scrollTop
