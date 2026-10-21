@@ -36,6 +36,10 @@ it('leaves a box that crops its picture on purpose out of the overflow findings'
   // A crop says so, because the picture being larger than the plate is the drawing.
   plate.setAttribute('data-crop', '')
   expect(spillsOf(collect(root, bounds), bounds, root)).toEqual([])
+  // The marker is about the plate's own content, not about where it sits: a
+  // crop that has been pushed off the page is still content off the page.
+  vi.spyOn(plate, 'getBoundingClientRect').mockReturnValue(new DOMRect(390, 10, 20, 20))
+  expect(spillsOf(collect(root, bounds), bounds, root).map(one => one.how)).toEqual(['leaves page'])
 })
 
 it('still diagnoses actual painted content spilling outside a semantic image', () => {

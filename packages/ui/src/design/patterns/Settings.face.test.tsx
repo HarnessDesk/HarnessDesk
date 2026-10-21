@@ -61,6 +61,9 @@ it('clips the inset plate of a colourway separately from the outer face', () => 
       const picture = face.querySelector('img')!
       const plate = face.querySelector('[data-slot="face-picture-plate"]')
       expect(plate, `${avatar}/${size}`).not.toBeNull()
+      // The plate is the drawing, not content lost: it says so, and the
+      // guides read that attribute rather than guessing from the overflow.
+      expect(plate?.hasAttribute('data-crop'), `${avatar}/${size}`).toBe(true)
       expect(picture.parentElement).toBe(plate)
       expect(plate?.parentElement).toBe(face)
     }
