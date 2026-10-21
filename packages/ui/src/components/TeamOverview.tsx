@@ -11,6 +11,7 @@ import { sanitizeHtml } from '../lib/sanitize'
 import type { NeedsYouAnswers } from '../lib/needs-you'
 import type { runTimeline } from '../lib/run-timeline'
 import { doingLine, type DoingLine, type SeatRow, type teamOverview } from '../lib/team-overview'
+import { overviewAttention, type OverviewAttention } from '../lib/overview-attention'
 import { runPublication } from '../lib/review-publication'
 import { stepName } from '../lib/flow-model'
 import { comparisonProgress } from '../lib/team-run-words'
@@ -46,7 +47,14 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, runRules, statusLine, defaultExpanded = false, onStop, onWrap, runNeedsYou = false, onFindings, faceTints, runtimeNames }: {
+export const TeamOverview = ({ attention, uncheckedDone = 0, onBoard, onTask, model, timeline, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, runRules, statusLine, defaultExpanded = false, onStop, onWrap, runNeedsYou = false, onFindings, faceTints, runtimeNames, compact = false, pendingInChat = false, onChat }: {
+  compact?: boolean
+  pendingInChat?: boolean
+  onChat?: () => void
+  attention?: readonly OverviewAttention[]
+  uncheckedDone?: number | undefined
+  onBoard?: (() => void) | undefined
+  onTask?: (card: number) => void
   model: ReturnType<typeof teamOverview>
   onFindings?: (() => void) | undefined
   faceTints?: ReadonlyMap<string, Tint>
@@ -114,13 +122,22 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const reason = runReason ? words(runReasonWords(runReason, runRules)) : evidenceWait ? 'The next step is waiting for its evidence.' : null
   const findingsWait = run?.waitingFindings === true
   const publicationReason = run?.findingRun?.reason ? words(run.findingRun.reason) : null
-  const publicationWait = Boolean(publication?.needsYou && onFindings)
+  const publicationWait = Boolean(publication?.needsYou)
   const reasonInWait = findingsWait || (publicationWait && reason === publicationReason)
+  const attentionRows = attention ?? overviewAttention(model, {needsYou:runNeedsYou,runReason:reason})
+  const wrapAction = compact && timeline?.header.end ? undefined : onWrap
+  const pendingRequests = pendingInChat ? attentionRows.filter(row => row.kind === 'request' && row.item.kind !== 'card').length : 0
+  const visibleAttention = attentionRows.filter(row =>
+    !(pendingInChat && row.kind === 'request' && row.item.kind !== 'card')
+    && !(compact && timeline?.header.end && row.kind === 'run'))
+  const attentionAction = (row: Exclude<OverviewAttention, {kind:'request'}>) => row.kind === 'seat' ? onOpen ? () => onOpen(row.seat) : undefined
+    : row.kind === 'findings' || row.kind === 'publication' ? onFindings
+      : row.kind === 'board' ? onBoard : onRun
   return (
-    <div data-slot="team-overview" data-layout={narrow === null ? 'unmeasured' : narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
-      <Page width="wide">
-        {onWrap && <div data-slot="overview-header" className="flex justify-end"><Button variant="outline" onClick={onWrap}>Wrap</Button></div>}
-        {run && (
+    <div data-slot="team-overview" data-layout={narrow === null ? 'unmeasured' : narrow ? 'narrow' : 'table'} className={compact ? undefined : "min-w-0 overflow-y-auto"}>
+      <Page width="wide" gutter={compact ? "none" : "page"}>
+        {compact && pendingRequests === 0 && <section aria-label="Run">{statusLine?.(now, !reasonInWait && !timeline?.header.end)}</section>}
+        {!compact && run && (
           <Card spacing="compact">
             <section aria-label="Run" className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
@@ -148,23 +165,33 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
             </section>
           </Card>
         )}
-        {(model.needsYou.length > 0 || findingsWait || publicationWait) && (
-          <Section title="Needs you" inset="row" className="mt-0">
+        {pendingRequests > 0 && <ListRow title={`${pendingRequests} ${pendingRequests === 1 ? 'request needs' : 'requests need'} your reply`}
+          trail={<Button variant="outline" size="sm" onClick={onChat}>Open Chat</Button>} />}
+        {visibleAttention.length > 0 && (
+          <Section level="heading" title={pendingInChat ? "Pending" : "Needs you"} inset="row" className="mt-0">
             <ListRows>
-              {findingsWait && <ListRow title="Review the findings" subtitle={reason} wrapSubtitle
-                trail={onFindings && <Button variant="outline" size="sm" title="You or the reviewer can resolve this wait in Findings." onClick={onFindings}>Open findings</Button>} />}
-              {publicationWait && <ListRow title="Post the review" subtitle={findingsWait && publicationReason === reason ? null : publicationReason} wrapSubtitle
-                trail={<Button variant="outline" size="sm" onClick={onFindings}>Open findings</Button>} />}
-              {model.needsYou.map((item, index) => (
-                <NeedsYouRow key={item.approval !== undefined
-                  ? JSON.stringify([item.sessionKey ?? item.seat, item.approval])
-                  : item.card !== null ? `card-${item.card}` : `${item.kind}-${item.seat}-${index}`} item={item}
-                  name={model.seats.find(one => one.seat === item.seat)?.name ?? null} answers={answers} onOpenSeat={onOpen} />
-              ))}
+              {visibleAttention.map((row, index) => row.kind === 'request' && pendingInChat ? <ListRow key={`pending-${index}`}
+                title={row.item.kind === 'card' ? 'A decision is waiting' : `${model.seats.find(one => one.seat === row.item.seat)?.name ?? 'An agent'} · ${row.item.kind === 'approval' ? 'Approval waiting' : 'Question waiting'}`}
+                trail={<Button variant="outline" size="sm" onClick={row.item.kind === 'card' && row.item.card !== null && onTask ? () => onTask(row.item.card!) : onBoard}>{row.item.kind === 'card' ? 'Open task' : 'Open conversation'}</Button>} /> : row.kind === 'request' ? (
+                <NeedsYouRow key={row.item.approval !== undefined
+                  ? JSON.stringify([row.item.sessionKey ?? row.item.seat, row.item.approval])
+                  : row.item.card !== null ? `card-${row.item.card}` : `${row.item.kind}-${row.item.seat}-${index}`} item={row.item}
+                  name={model.seats.find(one => one.seat === row.item.seat)?.name ?? null} answers={answers} onOpenSeat={onOpen} />
+              ) : <ListRow key={`${row.kind}-${index}`} title={words(row.title)}
+                subtitle={row.kind === 'publication' && findingsWait && row.reason === reason ? null : row.reason ? words(row.reason) : null} wrapSubtitle
+                trail={attentionAction(row) && <Button variant="outline" size="sm" title={row.kind === 'findings' ? 'You or the reviewer can resolve this wait in Findings.' : undefined} onClick={attentionAction(row)}>
+                  {row.kind === 'publication' || row.kind === 'findings' ? 'Open findings' : row.kind === 'board' ? 'Open Board' : row.kind === 'seat' ? 'Open conversation' : 'Open Run'}
+                </Button>} />)}
             </ListRows>
           </Section>
         )}
-        <Section ref={box} title={`Agents · ${model.seats.length}`} aria-label="Seats" inset="row" className="mt-0"
+        {(uncheckedDone > 0 || wrapAction) && <ListRow data-unchecked-done={uncheckedDone > 0 ? '' : undefined}
+          title={uncheckedDone > 0 ? <Text role="meta">{uncheckedDone} {uncheckedDone === 1 ? 'card' : 'cards'} finished without a check</Text> : null}
+          trail={<>
+            {uncheckedDone > 0 && onBoard && <Button variant="link" size="inline-link" onClick={onBoard}>Open Board</Button>}
+            {wrapAction && <Button variant="outline" onClick={wrapAction}>Wrap</Button>}
+          </>} />}
+        {!compact && <Section level="heading" ref={box} title={`Agents · ${model.seats.length}`} aria-label="Seats" inset="row" className="mt-0"
           action={done.length > 0 && <Button variant="outline" size="sm" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
             <DisclosureChevron open={expanded} />{done.length} done
           </Button>}>
@@ -211,7 +238,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               </TableBody>
             </Table>
           )}
-        </Section>
+        </Section>}
       </Page>
     </div>
   )

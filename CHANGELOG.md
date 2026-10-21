@@ -5,6 +5,149 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## 0.6.0 — 2026-10-21
+
+A Team opens on its recorded Work, Settings reads calmer and behaves the same
+everywhere, and the account and macOS menus stay compact. It also carries
+everything listed under 0.5.4, which was never published as a build of its own.
+
+- **A Team opens on its Work.** The Run's frozen Flow leads the page, a short list of recent activity sits beneath it, and Full record expands the whole history in place. Tasks groups the Board and Findings; Chat offers combined and Split layouts. A destination you chose last time is restored.
+
+- **Approvals and questions live in the Team's Chat.** They sit at the end of the thread with the composer and its draft still below, name the Seat that asked, and link to that Seat's conversation; Work keeps a single link with the pending count.
+
+- **Starting a Team is one compact dialog.** Write the task, pick a Flow, and set each role's agent, model and effort from the node itself. A candidate that cannot start keeps its exact reason and a way to fix it, and a folder you have not opened before is refused rather than guessed.
+
+- **Agents are a searchable catalogue of reusable roles**, filtered by source, with each role's purpose and its seating facts kept apart. Team cards show a short status instead of a whole refusal, with the full text one click away.
+
+- **Settings lines up, and its controls behave alike.** Add a runtime sits beside the page title, the notification guide folds away until you want it, long descriptions in dialogs wrap whole and scroll from the keyboard, and the plugin list keeps what it had, with a Retry, when a refresh fails.
+
+- **Profile pictures follow their chosen shape.** Plated artwork is clipped inside round faces and keeps the selected square shape where requested.
+
+- **The account menu stays compact as accounts grow.** Accounts and usage have their own flyouts, with the working account's name beside its matching quota; choosing a crashed current runtime still restarts it.
+
+- **The macOS Usage submenu keeps icons close to their labels.** Sign-in and usage rows share standard brand icons instead of reserving an empty meter-sized column.
+
+- **Dropdown menus keep ordinary explanations on hover.** Reasoning levels and switches stay on one line, alongside a shorter Direct route and Git patch action. Model and mode comparisons, paths and consequential differences remain visible.
+
+- **Restore the macOS menu bar icon from View › Show Menu Bar Icon.** The choice survives restarting an isolated desk. Its native menu stays compact, with usage and sign-in actions in one submenu; choosing an account's usage opens that account's dashboard.
+
+## 0.5.4 — 2026-10-20
+
+Development sessions start in their own worktree and branch, agents that cannot
+start say exactly what is missing from the moment a desk opens, Antigravity
+holds a second Google account, the Library keeps your place, and toasts move out
+of the way of the composer.
+
+- **New development sessions start in their own worktree and branch.** Local remains an explicit choice; an opened linked worktree or repository subfolder keeps its selected location. Each session keeps its own browser tabs and sign-ins, even when sessions share a checkout, and updating a PR refuses a different branch. Team sidebar rows now expose their actions on right-click.
+- **A Team's seats are listed under it in the sidebar again**, and a conversation that is working shows a spinner.
+- **Flow card diagrams line up, and the Run view reads cleaner.** Every step in a card's diagram is the same width on one centre line with centred labels (a Flow whose cards were moved still draws whole), a step waiting on you no longer shows "0ms", and a long revision in a Run's facts is shortened in the middle instead of running out of its column.
+- **A conversation keeps its name after a live refresh**, in the command palette and every other session list, and an unavailable runtime or a model route you cannot use keeps its menu row at a steady height. An agent that declares its own mode options now has the chosen mode applied to the right option.
+
+## 0.5.3 — 2026-10-18
+
+- **Toasts sit at the bottom right, just above the composer when one is showing**, keeping page controls, Send and the model picker clear.
+- **An agent run through a package runner (`npx`, `uvx`) says what is actually missing when the runner is not on PATH** — whether startup discovery finds the absence or a start attempt fails, the failure names the runner and what provides it (Node.js, uv) instead of offering the agent's own install command, and a required CLI that is installed but too old no longer reads as missing.
+- **An agent whose program or required CLI is missing shows Not installed when a fresh desk opens**, instead of Ready until its first conversation.
+- **A runtime is checked again when the shell's PATH arrives during startup discovery**, so a newly findable program no longer stays Not installed until its page is opened or the desk restarts.
+- **Back to Library returns to the section and filters you left.** Leaving Changes always landed on Skills and reset the filter and search; Back now steps back to the Library page it was opened from, and each section keeps its filter, search, chip and list-or-matrix choice while the window is open.
+- **Skill pages show which files can run or contain binary data**, and when a sourced skill was installed or last updated.
+- **A Team's page action now lines up with its tabs.** The action beside View on a Team's Run and Findings tabs (Stop run…, Decide this run) stood two pixels taller than the tabs and View beside it; it now stands on the same control height, so the compact tab row reads one line. New `control` button size, beside `sm`.
+- **Opening a Team reliably clears its blue mark**, including news from an earlier Seat and activity whose inbox save is still arriving.
+- **An agent whose program cannot start appears under Needs attention** — failed spawns stay remembered after a restart, and startup discovery checks unused agents that support it before a session asks them. Settings › Runtimes shows the failure reason on its row.
+- **Antigravity can hold more than one account** — Add another account asks you to name the account, then makes a second row over a folder of its own, with the token kept in that folder so two Google accounts stay signed in side by side. An empty name uses “Antigravity 2”, “Antigravity 3” and so on. Each account keeps its own conversations and can be removed on its own, which asks it to sign out and moves its folder to the Trash.
+- **Starting a Team now says, under each seat, which of its Agent's skills and servers will load and names the ones that won't.**
+- **The Library's counts match what is on screen.** A chip or filter count now follows the Declared by choice, so its number is the number of cards choosing it will show; "Never fired" shows no number at all until the stored conversations have been read, rather than counting every skill as idle.
+
+## 0.5.2 — 2026-10-17
+
+Skills open as pages in the Library, a Team's sidebar mark now tells waiting
+from news, and agents that could not start, are signed out or keep their
+sign-ins elsewhere report it quietly and correctly.
+
+- **A skill opens as its own page.** Choosing a skill in the Library shows its definition beside Update, Loaded by, Source, Files and Cost, with one banner per problem above both; Remove, Resolve copies and Install to… are in the page's More menu, each previewed first. The skill sheet is gone.
+- **An OpenCode row reads its own sign-ins** — OpenCode 2's sign-ins, kept in its own database rather than `auth.json`, now name the providers on the row, and a row with its own data folder reads only that folder. Its page no longer offers `opencode auth login` for such a row, since OpenCode 2 signs that command into its default folder; it says so instead.
+- **Team marks distinguish waiting from news.** Orange means someone needs your answer; blue means unseen activity, an ended Run or work ready to wrap. Opening the Team clears blue across windows. After this update, finished Teams show the blue mark once. Unchecked finished cards keep their Board reason and get a quiet Overview count without raising attention.
+- **A background task whose command shows nothing is still named** — a command made only of blanks or display breaks shows as "Shell" instead of an empty label or a bare "…", and no title keeps an invisible blank at either end.
+- **Drafts explain why Send is disabled** while the runtime starts or is unavailable, with a short readiness chip and the reason on Send’s hover title; an unavailable runtime’s chip opens its Settings page.
+- **Conversations whose folder is gone can be archived from their banner.** The folder name stays short with its full path on hover, and the copy action explains that it starts a conversation with a summary.
+- **A signed-out agent no longer raises its raw sign-in refusal** — the agent's "Authentication required" answer, with its method names and settings path, is no longer shown as a toast, or as a warning under New conversations on its page or in General, while the desk already shows it signed out; its banner and Accounts card say it. A refusal from an agent shown as signed in is still reported.
+- **An agent that could not start no longer reads Ready after a restart** — one whose program was missing, would not report its version or was too old is checked again in the background as the desk opens, so Settings › Runtimes lists it under Needs attention with its reason instead of Ready until its page is opened.
+- **An agent's account commands answer for its own row** — status, sign-in and sign-out run with the environment the row starts the agent with and the copy of the CLI its start chose, so a row that moves the agent's home shows and signs out its own account, not the default one.
+- **What the Library changed now has its own page**, reached from the Library's menu or from the toast that follows each change, instead of a list at the foot of the page.
+- **Agents nobody has asked yet say "Not checked yet"** instead of "needs no account here", and are listed as Ready. Antigravity's Gemini API key is a key field the agent switches to, and its Agent Platform method shows the setup step it needs instead of a button that could only fail.
+- **Skills are cards under filter chips.** The Library's skills page is now a grid of cards with filter chips (All, Needs you, One runtime, Nobody) and an Add skill menu; the problems stay on the card, and the list view is replaced by cards and the matrix.
+- **Side by side browser tiles reach the bottom** behind the floating shared composer and comparison decision card, like conversation tiles, with no surrounding fade; gaps between and beside the cards pass clicks through.
+- **Team tabs sit close under the top bar**, with View on the same line and less space before the tiles; narrow panes scroll the tabs while keeping View in place.
+
+## 0.5.1 — 2026-10-17
+
+Conversations now start without a project, with a managed Chats folder behind
+them, alongside clearer runtime choices, readable background-task titles and
+fixes to menus, page alignment and Team receipts.
+
+- **A conversation can start without a project.** Send creates its own folder
+  and puts the conversation under Chats in the sidebar. No folder clears a
+  project choice without losing the draft; Settings › General lets you change
+  the Chats folder for future conversations. Returning to a chat restores its
+  saved workbench, and hand-offs from chats get a fresh folder.
+
+- **Page sections read as headings.** Page section headings are a size larger
+  and bolder, so the groups on the Teams, Agents, Library and Plugins pages
+  read as headings rather than labels.
+
+- **Pages and cards line up.** Page titles share the sidebar wordmark's line.
+  Git history, profile faces, empty cards and background-task output keep
+  their insets, long table labels truncate inside their cells, and a browser
+  tab keeps its close button inside the tab beside its text.
+
+- **Runtime names the program; Agent names the role.** The composer, Settings,
+  Library, history and account controls use Runtime for what runs a
+  conversation. Agents and Team roles keep their own names.
+
+- **Runtimes are easier to add and recognise.** Add a runtime shows what is
+  on the machine first, with Browse more… opening the third-party registry.
+  Runtime faces keep a consistent colour across pages, Library marks stay
+  apart, and Usage charts match their runtime faces to their legend colours.
+
+- **New Team keeps model choices within reach.** Runtime, model and effort
+  open in the same choice menus as the composer. An automatic Seat offers
+  its runtime's models straight away; choosing a model or effort pins that
+  Seat. Escape closes the picker before the dialog.
+
+- **Skills stay readable and within reach.** Settings keeps Skills and
+  Extensions in the same place while runtimes load. Library leaves out
+  reserved skill folders and skills with only empty definitions, keeps those
+  with a usable copy, and formats descriptions' inline code and Markdown.
+
+- **Background tasks show the command you recognise.** Titles leave out a
+  shell wrapper and leading folder change when the command is clear, keeping
+  the original command when shortening it would change its meaning. Long or
+  multiline commands stay on one title line without becoming an empty label
+  or a bare ellipsis.
+
+- **Menus keep the next choice open.** Closing one popup no longer steals
+  focus from the menu opened next. Keyboard focus gives rows the same fill
+  as pointer hover, refused menu rows remain readable by keyboard, and menus
+  and pickers share their entrance and exit motion.
+
+- **Repository controls wait for the facts.** The composer's place control
+  and a conversation's repository actions stay available while Git facts are
+  unread. A folder known to have no repository leaves those actions out.
+
+- **Team receipts scroll to the end.** A receipt taller than its pane keeps
+  its last lines reachable.
+
+- **Read-only review Seats can load their tools.** A Claude Code Seat held
+  to reading can load the desk's review tools without asking for editing
+  access.
+
+- **The headless host explains its options.** Help prints usage and exits,
+  and an invalid argument reports the problem before opening a desk.
+
+- **Stopping the app lets its runtimes close.** A stop or interrupt signal
+  follows the app's ordinary shutdown, giving its runtimes time to dispose
+  before the window exits.
+
 ## 0.5.0 — 2026-10-16
 
 Flows now have their own page, with a canvas for building the work a Team will
@@ -261,7 +404,7 @@ reviewed skill bundles, faster history and verified Team outcomes.
   refuse before replacement, and local edits keep their backup protection.
 
 - **Skill updates are checked when you ask.** Check for updates reads recorded
-  repository origins; rows show the result and the skill sheet names pinned
+  repository origins; rows show the result and the skill detail names pinned
   and newer commits. Review fetches the current source and lists added,
   changed and removed files before Apply, with the same acknowledgement for
   incoming runnable or binary files. Origins remain visible before a check;
@@ -1870,7 +2013,6 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
   room now says why beside the header's **Needs you**: what refused it, which
   of the round's other cards were held back with it (a round's cards start
   together), and what to do next.
-
 
 - **Wrapping a Goal right after stopping its run now waits for the stopped
   Seat's answer to finish saving.** That answer is written to disk a beat

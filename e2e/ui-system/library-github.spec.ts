@@ -41,12 +41,12 @@ for (const theme of ['light', 'dark'] as const) test(`GitHub selection and file 
   await expect(plan.getByTestId('apply-summary')).toHaveText('1 change made.')
 })
 
-test('Library More opens Add from GitHub after Import', async ({ page }) => {
+test('Library Add skill opens From GitHub after Write a skill', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library&frame-no-folder=1', 'light')
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
+  await page.getByRole('button', { name: 'Add skill', exact: true }).click()
   const items = page.getByRole('menuitem')
   const labels = await items.allTextContents()
-  expect(labels.indexOf('Add from GitHub…')).toBe(labels.indexOf('Import') + 1)
-  await page.getByRole('menuitem', { name: 'Add from GitHub…', exact: true }).click()
+  expect(labels).toEqual(['Write a skill', 'From GitHub…', 'Copy from another runtime…'])
+  await page.getByRole('menuitem', { name: 'From GitHub…', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Add from GitHub', exact: true })).toBeVisible()
 })

@@ -3,6 +3,42 @@ import AxeBuilder from '@axe-core/playwright'
 import { emptyGitFixture } from './git-table-fixture'
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`Git resize targets own their column edge and detail seam (${theme})`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?frame-wall=conversation&frame-tool=git&theme=${theme}`)
+    const grip = page.getByRole('separator', { name: 'Resize the Graph column', exact: true })
+    await expect(grip).toBeVisible()
+    const geometry = await grip.evaluate(el => {
+      const box = el.getBoundingClientRect(), column = el.parentElement!.getBoundingClientRect()
+      return { position: getComputedStyle(el).position, width: box.width, height: box.height,
+        columnHeight: column.height, before: column.right - box.left, after: box.right - column.right }
+    })
+    expect(geometry.position).toBe('absolute')
+    expect([geometry.width, geometry.before, geometry.after]).toEqual([9, 4, 5])
+    expect(geometry.height).toBe(geometry.columnHeight)
+    const before = Number(await grip.getAttribute('aria-valuenow'))
+    await grip.press('ArrowRight')
+    await expect(grip).toHaveAttribute('aria-valuenow', String(before + 4))
+    await grip.press('Home')
+    await expect(grip).toHaveAttribute('aria-valuenow', '0')
+    await expect(grip).toHaveAttribute('data-tight', '')
+    expect(await grip.evaluate(el => {
+      const box = el.getBoundingClientRect(), column = el.parentElement!.getBoundingClientRect()
+      return [box.width, box.left - column.left]
+    })).toEqual([9, 0])
+    await page.getByRole('grid', { name: 'Commits', exact: true }).locator('[role="row"][aria-selected]').first().click()
+    const detail = page.getByRole('separator', { name: 'Resize the commit detail', exact: true })
+    await expect(detail).toBeVisible()
+    expect(await detail.evaluate(el => {
+      const box = el.getBoundingClientRect(), panel = el.parentElement!.getBoundingClientRect()
+      return { position: getComputedStyle(el).position, edges: [box.left - panel.left, box.right - panel.right, box.top - panel.top], height: box.height }
+    })).toEqual({ position: 'absolute', edges: [0, 0, -3], height: 4 })
+    const ratio = Number(await detail.getAttribute('aria-valuenow'))
+    await detail.press('ArrowUp')
+    await expect(detail).toHaveAttribute('aria-valuenow', String(ratio - 2))
+  })
+
   test(`Page Up and Page Down scroll only the Git history (${theme})`, async ({ page }) => {
     await page.goto(`/preview.html?theme=${theme}`)
     await page.locator('select').filter({ has: page.locator('option[value="git tools"]') }).selectOption('git tools')
@@ -95,11 +131,11 @@ for (const theme of ['light', 'dark'] as const) {
     await page.keyboard.press('Enter')
     await expect(rows.last()).toHaveAttribute('aria-selected', 'true')
 
-    const library = page.locator('[data-frame-id="coverage-library"]')
-    await expect(library.getByRole('listitem')).toHaveCount(2)
+    const library = page.locator('[data-frame-id="coverage-library"] [data-page-destination="library"]:visible')
+    await expect(library.getByRole('listitem')).toHaveCount(7)
     await expect(library.locator('[data-slot="separator"]')).toHaveCount(0)
     const item = library.getByRole('listitem').first()
-    expect(await item.evaluate(el => getComputedStyle(el.firstElementChild!).alignItems)).toBe('center')
+    expect(await item.evaluate(el => getComputedStyle(el).alignItems)).toBe('center')
     expect(await item.locator('[data-slot="text"][data-role="meta"]').first().evaluate(el => getComputedStyle(el).fontVariantNumeric)).toBe('tabular-nums')
     expect(await item.getByRole('button', { name: 'Restore…' }).getAttribute('data-variant')).toBe('outline')
     await page.locator('select').filter({ has: page.locator('option[value="worktree manager"]') }).selectOption('worktree manager')

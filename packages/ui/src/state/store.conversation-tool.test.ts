@@ -126,8 +126,9 @@ it('reload preserves the exact prior panel even after an Editor tool selection',
 })
 it('reload restores an expanded prior file pane while keeping the rail changed during Editor', async () => {
   const original = fixture()
+  original.toggleWorkRail()
   original.openFile('/repo/first.ts'); original.openFile('/repo/second.ts')
-  original.toggleWorkRail(); original.swapWorkPane()
+  original.swapWorkPane()
   const prior = intent(original), subject = original.workSubject()!
   const selected = dockViews(original.getSnapshot().workbench.right).find(one => one.view.kind === 'file' && one.view.path === '/repo/second.ts')!
   expect(prior).toEqual({ tool: 'files', mode: 'file', open: true, railOpen: false, expanded: true })

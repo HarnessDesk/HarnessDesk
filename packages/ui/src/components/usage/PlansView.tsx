@@ -87,7 +87,7 @@ export const PlansView = ({
 
   return (
     <>
-      <Section title="What is left" description={summary.headline ?? undefined}
+      <Section level="heading" title="What is left" description={summary.headline ?? undefined}
         action={<ShapeFilters counts={counts} value={filter} onChange={setFilter} />}>
         <PlansTable
           rows={rows}
@@ -118,7 +118,7 @@ export const PlansView = ({
       )}
 
       {untracked.length > 0 && (
-        <Section title="Not tracked">
+        <Section level="heading" title="Not tracked">
           <Rows>
             {untracked.map((info) => (
               <Row

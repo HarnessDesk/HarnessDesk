@@ -411,3 +411,12 @@ test('HarnessDeskâ€™s own shell environment is never consulted for OpenRouter â€
     else process.env['OPENROUTER_API_KEY'] = originalEnv
   }
 })
+
+test('an extra account gets only desk-counted turns, never the CLI account meter', () => {
+  const extra = {
+    ...row({ id: 'antigravity-extra', command: 'agy_acp_server', env: { GEMINI_HOME: '/tmp/demo-account' } }),
+    accountOf: 'antigravity-acp',
+  }
+  assert.deepEqual(localUsageFor(extra, knowledge('antigravity-acp')), { deskTurns: true })
+  assert.deepEqual(localUsageFor({ ...extra, command: 'agy_acp_server.par' }), { deskTurns: true })
+})

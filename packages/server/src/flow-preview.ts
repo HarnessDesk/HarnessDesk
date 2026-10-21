@@ -483,7 +483,7 @@ export class FlowPreviews {
           problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })
         } else if (plan.winner === null) {
           // Every candidate passed over now: a fact about this machine at this moment, not about the flow.
-          const reasons = plan.candidates.flatMap((candidate) => candidate.reason && ['noModel', 'noEffort', 'modelsUnread', 'unheld'].includes(candidate.reason.kind)
+          const reasons = plan.candidates.flatMap((candidate) => candidate.reason
             ? [`${candidate.label}: ${sentenceOf(candidate.runtimeName, candidate.reason)}`] : [])
           problems.push({ level: 'error', at: reasons.length ? `roles.${role.id}.seat[${binding.index}]` : `roles.${role.id}`, text: [`No seat could be opened for “${binding.agent.id}”.`, ...reasons].join('\n'), availability: true })
         }

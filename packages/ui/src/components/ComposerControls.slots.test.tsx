@@ -58,6 +58,7 @@ const draw = (isLive = false): void => {
   const state = snapshot()
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => state,
   } as unknown as AppStore
   const controls = (

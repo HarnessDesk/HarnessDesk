@@ -24,7 +24,8 @@ export type PageDestination =
   | { readonly kind: 'agents'; readonly id: string | null }
   | { readonly kind: 'teams'; readonly filter: 'active' | 'needs-you' | 'settled' }
   | { readonly kind: 'flows'; readonly root: string | null; readonly id: string | null; readonly origin: FlowOrigin | null; readonly start?: FlowPageStart }
-  | { readonly kind: 'library'; readonly section: 'skill' | 'mcp' }
+  | { readonly kind: 'library'; readonly section: 'skill'; readonly id?: string }
+  | { readonly kind: 'library'; readonly section: 'mcp' | 'changes'; readonly id?: never }
   | { readonly kind: 'plugins'; readonly section: 'installed' | 'capabilities'; readonly id: string | null }
   | { readonly kind: 'changes-review'; readonly root: string | null; readonly returnTo: WorkView }
 export type Destination = PageDestination | { readonly kind: 'work'; readonly view: WorkView }
@@ -61,6 +62,25 @@ export const leaveSettingsDestination = (history: DestinationHistory): Destinati
     back: history.back.slice(0, destinationIndex),
     forward: [...history.forward, history.current, ...history.back.slice(destinationIndex + 1).reverse()].slice(-50),
   }
+}
+
+/**
+ * Where **Back to Library** goes from the Changes page.
+ *
+ * Step back when a Library page is directly behind it, so the section — and a
+ * skill detail — is restored exactly as it was left. Changes can also be
+ * reached from a toast raised elsewhere, with no Library page in history at
+ * all; then the fallback visits the Library section the person last used,
+ * falling back to Skills. This reads the store's one history; it adds none.
+ */
+export const libraryBack = (history: DestinationHistory): { readonly step: true } | { readonly step: false; readonly section: 'skill' | 'mcp' } => {
+  const previous = history.back.at(-1)
+  if (previous?.kind === 'library' && previous.section !== 'changes') return { step: true }
+  for (let index = history.back.length - 1; index >= 0; index--) {
+    const entry = history.back[index]
+    if (entry?.kind === 'library' && entry.section !== 'changes') return { step: false, section: entry.section }
+  }
+  return { step: false, section: 'skill' }
 }
 
 const object = (raw: unknown): Record<string, unknown> | null =>
@@ -136,7 +156,11 @@ export const readDestination = (raw: unknown, leadAvailable = false): Destinatio
       if (start === null) return null
       return { kind: 'flows', root: data.root, id: data.id, origin: data.origin, ...(start ? { start } : {}) }
     }
-    case 'library': return oneOf(data.section, ['skill', 'mcp']) ? { kind: 'library', section: data.section } : null
+    case 'library': {
+      if (data.section === 'skill') return data.id === undefined ? { kind: 'library', section: 'skill' }
+        : string(data.id) ? { kind: 'library', section: 'skill', id: data.id } : null
+      return oneOf(data.section, ['mcp', 'changes']) && data.id === undefined ? { kind: 'library', section: data.section } : null
+    }
     case 'plugins': return oneOf(data.section, ['installed', 'capabilities']) && nullable(data.id)
       ? { kind: 'plugins', section: data.section, id: data.id } : null
     case 'changes-review': { const view = workView(data.returnTo); return nullable(data.root) && view

@@ -43,7 +43,7 @@ export const PropagationPage = () => {
   return (
     <div className={styles.page}>
       <section data-testid="prop-settings">
-        <SectionHead
+        <SectionHead level="label"
           name="Appearance"
           description="The real Settings page furniture and controls."
           action={<Button variant="outline" size="sm" data-testid="prop-button">Save</Button>}

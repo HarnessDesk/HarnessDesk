@@ -167,6 +167,22 @@
     "pad": "4 8 4 8",
     "radius": 8
   },
+  "agent-catalogue/agent-catalogue-specimen/size/default": {
+    "h": 116,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "agent-catalogue/agent-catalogue-specimen/variant/default": {
+    "h": 116,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "badge/badge/variant/default": {
     "h": 20,
     "text": 12,
@@ -253,6 +269,14 @@
     "weight": "400",
     "line": 13,
     "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "button/button/size/control": {
+    "h": 26,
+    "text": 12,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 10 0 10",
     "radius": 8
   },
   "button/button/size/default": {
@@ -743,6 +767,14 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
+  "control/toggle-group/variant/chips": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
   "control/toggle-group/variant/default": {
     "h": 26,
     "text": 14,
@@ -913,6 +945,14 @@
   },
   "section/section/variant/card": {
     "h": 86,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 10
+  },
+  "section/section/variant/document": {
+    "h": 107,
     "text": 14,
     "weight": "400",
     "line": 20,

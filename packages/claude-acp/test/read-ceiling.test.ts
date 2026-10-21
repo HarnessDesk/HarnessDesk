@@ -33,6 +33,14 @@ test('read ceiling denies non-desk MCP tools and desk tools placed above read', 
   }
 })
 
+test('read ceiling lets a read seat load deferred tool schemas, and still judges each tool it loads', () => {
+  assert.equal(denied('ToolSearch', { query: 'select:mcp__harnessdesk__record_review,mcp__harnessdesk__complete_claim' }), undefined)
+  assert.equal(denied('mcp__harnessdesk__record_review'), undefined)
+  assert.equal(denied('mcp__harnessdesk__complete_claim'), undefined)
+  assert.equal(denied('mcp__harnessdesk__commit_work')?.permissionDecision, 'deny')
+  assert.equal(denied('Write')?.permissionDecision, 'deny')
+})
+
 test('read ceiling shell allowlist rejects writes, evasions and shell syntax', () => {
   for (const command of [
     'touch marker', 'rm -rf .', 'git add file', 'git commit -m x', 'git push',

@@ -8,6 +8,7 @@ import {
   CodexError,
   CodexRpcError,
   discoverCodex,
+  requireCodex,
   compareVersions,
   type CodexAppServerOptions,
   type CodexInstallation,
@@ -261,6 +262,7 @@ export const installCommandFor = (path: string | null | undefined): string => {
 export class CodexRuntime implements AgentRuntime {
   readonly #server: CodexAppServer
   readonly #binaryPath: string | null
+  readonly #discovery: CodexAppServerOptions['discovery']
   readonly #logger: CodexLogger | undefined
   readonly #approvals: ApprovalRouter
   readonly #catalog: CodexCatalog
@@ -294,6 +296,7 @@ export class CodexRuntime implements AgentRuntime {
   #version: string | null = null
   #disposeServer: Unsubscribe[] = []
   #idleStopped = true
+  #discoveredFailure: RuntimeHealth | null = null
   #lastAccount: AccountStatus | null = null
   #lastRateLimits: RateLimits | null = null
   #lastAccountActivity: AccountActivity | null = null
@@ -334,6 +337,7 @@ export class CodexRuntime implements AgentRuntime {
     this.#launch = { env: { ...process.env, ...options.env }, overrides: options.configOverrides ?? [] }
     this.#providerRead = this.#readProvider()
     this.#binaryPath = options.binaryPath ?? null
+    this.#discovery = options.discovery
     this.#logger = options.logger
     this.#capabilities = options.capabilities ?? null
     this.#instructions = options.instructions ?? null
@@ -589,7 +593,7 @@ export class CodexRuntime implements AgentRuntime {
       case 'restarting':
         return { state: 'starting' }
       case 'stopped':
-        if (this.#idleStopped) return { state: 'idle' }
+        if (this.#idleStopped) return this.#discoveredFailure ?? { state: 'idle' }
         return {
           state: 'unavailable',
           reason: 'unknown',
@@ -604,6 +608,22 @@ export class CodexRuntime implements AgentRuntime {
   onHealthChange(listener: (health: RuntimeHealth) => void): Unsubscribe {
     this.#healthListeners.add(listener)
     return () => this.#healthListeners.delete(listener)
+  }
+
+  async discoverProgram(): Promise<void> {
+    const before = this.#server.state
+    if (this.#disposed || before.type !== 'stopped' || !this.#idleStopped) return
+    let failure: RuntimeHealth | null = null
+    try {
+      await requireCodex(this.#binaryPath, this.#discovery)
+    } catch (error) {
+      if (!(error instanceof CodexError)) throw error
+      failure = healthFromError(error)
+    }
+    // A start or a quit while the version probe was running owns the answer.
+    if (this.#disposed || this.#server.state !== before) return
+    this.#discoveredFailure = failure
+    for (const listener of this.#healthListeners) listener(this.health())
   }
 
   subscribe(listener: (event: AgentEvent) => void): Unsubscribe {
@@ -2040,7 +2060,10 @@ export class CodexRuntime implements AgentRuntime {
 
   #onStateChange(state: ConnectionState): void {
     const resting = state.type === 'stopped' && this.#idleStopped
-    if (state.type !== 'stopped') this.#idleStopped = false
+    if (state.type !== 'stopped') {
+      this.#idleStopped = false
+      this.#discoveredFailure = null
+    }
     if (state.type === 'ready') this.#version = state.installation.version
     if (state.type !== 'ready') {
       // A restarted app-server has no memory of live threads or watches. Drop
@@ -2136,6 +2159,8 @@ const healthFromError = (error: CodexError): RuntimeHealth => {
         message: error.message,
         remediation: 'Check the diagnostics log, then restart HarnessDesk.',
       }
+    case 'spawnFailed':
+      return { state: 'unavailable', reason: 'spawnFailed', message: error.message }
     default:
       return { state: 'unavailable', reason: 'unknown', message: error.message }
   }

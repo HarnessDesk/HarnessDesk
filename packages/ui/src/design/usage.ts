@@ -331,7 +331,7 @@ export const ELEMENTS: readonly UsageRule[] = [
   {
     family: 'label',
     variant: 'GroupLabel',
-    when: 'The word over any group — a card of rows, a rail\'s list, a section of a page: 13px, the secondary ink, sentence case. `SectionHead`, `Section`, `NavigationGroupHeader` and the catalogue rail all draw it.',
+    when: 'Field groups, Settings forms, dialog groups and rail cards: 13px, the secondary ink, sentence case. `SectionHead level="label"`, `Section`, `NavigationGroupHeader` and the catalogue rail draw it; page-body bands use the section role.',
     never: 'Capitals. No label outside a `Keycap` is set in uppercase, tracked or not; the design audit counts every one (`uppercaseLabel`) and its ceiling may only fall.',
     because:
       'The app had three group-label styles and a column of six 12px tracked capitals read as shouted — the one group that needed finding stopped standing out. A key is the exception because it is a physical thing with printing on it.',
@@ -339,7 +339,7 @@ export const ELEMENTS: readonly UsageRule[] = [
   {
     family: 'section',
     variant: 'page',
-    when: 'Any part of a page: `<Section title description action>` around its card. It owns the rhythm — label to card 8px, section to section 32px, the first one after the head at the same 32px — and drops its children\'s own margins.',
+    when: 'A part of a page: `<Section title description action>` around its card, with `level="heading"` for page-body bands and `level="label"` for form groups. It owns the rhythm — label to card 8px, section to section 32px, the first one after the head at the same 32px — and drops its children\'s own margins.',
     never: 'A `SectionHead`, a free `Note` and a `Rows` stacked by hand, or a screen margin between sections. The label then belongs to neither card and every page spaces itself.',
     because:
       'On the Agent page the label "Ceiling" sat 18px under the card above it and 20px over its own, so it named neither. A section that owns its spacing cannot drift that way, and a page composing sections writes no margin at all.',

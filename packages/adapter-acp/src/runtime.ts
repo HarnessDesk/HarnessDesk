@@ -2,7 +2,7 @@ import { recommendAcpOptions } from './recommendations.js'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, extname, isAbsolute, join } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   approvalId,
@@ -116,7 +116,7 @@ import {
   type AcpDelegationUsage,
 } from '@harnessdesk/transport-acp'
 
-import { CliAccount, type AcpAccountCommands } from './account.js'
+import { CliAccount, type AcpAccountCommands, type AcpCommandSpec } from './account.js'
 import { attachmentsMeta, decodeAttachmentCapability, toAttachmentSupport, validateAttachmentReceipt } from './attachments.js'
 import { AcpExtensions } from './extensions.js'
 import { resolveExecutable, versionAtLeast, type AcpExecutableSpec, type ResolvedExecutable } from './executable.js'
@@ -125,6 +125,7 @@ import { CliMcp, type AcpMcpCommands } from './mcp.js'
 import { decodeLoadout, loadoutItem, loadoutPart } from './loadout.js'
 import { AcpTasks } from './tasks.js'
 import { projectToolItem, type ToolItemState } from './tool-items.js'
+import { whichOnPath } from './which.js'
 
 /**
  * `AgentRuntime` over the Agent Client Protocol.
@@ -170,6 +171,22 @@ export interface AcpSecretSpec {
    * written here — HarnessDesk owns exactly one copy, in its own broker.
    */
   readonly alsoAt?: readonly AcpSecretSource[]
+  /**
+   * The ACP auth method this key answers, when the agent declares one that
+   * reads it from the environment — Antigravity's `gemini-api-key`. The key
+   * field stands in for that method, so the method is not offered as a
+   * button of its own: pressed without the key in the agent's environment it
+   * can only fail (#1760). Once a key is stored the agent is told to use it,
+   * by calling `authenticate` with this id after the restart that hands the
+   * key over — the agent keeps whichever method it was last told.
+   */
+  readonly acpMethod?: string
+  /**
+   * The agent has another way in, so no key is not the same as signed out —
+   * Gemini CLI's Google sign-in, Antigravity's, Cline's own. Absent, the key
+   * is the agent's only way in (DeepSeek), and its absence is the answer.
+   */
+  readonly optional?: boolean
 }
 
 /** One file an agent reads a secret from, and what to call it. */
@@ -245,6 +262,14 @@ export interface AcpAgentConfig {
    * the process starts — so a key never sits in `agents.json`.
    */
   readonly secrets?: readonly AcpSecretSpec[]
+  /**
+   * ACP auth methods the agent declares that the desk cannot drive, each with
+   * the step to take instead — Antigravity's Agent Platform needs a project
+   * and location in the agent's own environment or settings, which no button
+   * here can supply. Such a method is offered as an `external` way in with
+   * this sentence, rather than as a press that can only be refused (#1760).
+   */
+  readonly authMethodNotes?: Readonly<Record<string, string>>
   /** Reads a stored secret at spawn time. Supplied by the host, not the registry. */
   readonly resolveSecret?: (env: string) => string | undefined
   readonly tagline?: string
@@ -263,6 +288,8 @@ export interface AcpAgentConfig {
    * from. See `executable.ts`.
    */
   readonly executable?: AcpExecutableSpec
+  /** The bridge needs the CLI named by `executable`; it has no embedded fallback. */
+  readonly cliRequired?: boolean
   /**
    * Decides what is spawned, when the host knows more than the row does:
    * which of several installed copies of the agent should answer, whether
@@ -845,6 +872,20 @@ export class AcpRuntime implements AgentRuntime {
   #providerRead: Promise<void> = Promise.resolve()
   /** Set when the agent answered that it cannot take an MCP tool server. */
   #toolServerRefused = false
+  /**
+   * A stored key changed since the agent last started, so the next handshake
+   * tells it to use the key — see `AcpSecretSpec.acpMethod`.
+   */
+  #keyAuthPending = false
+  /**
+   * The keys in the environment the running agent was spawned with. What
+   * `resolveSecret` says now may be newer than what the process got — a key
+   * stored while it was starting — and the agent can only be told to use a
+   * key it actually has.
+   */
+  #handedKeys: ReadonlySet<string> = new Set()
+  /** The agent accepted being told to use a stored key, and nothing has told it otherwise since. */
+  #keyTold = false
   /** The version of the agent that refused the tool server; a different one is asked again. */
   #refusedBy: string | null | undefined = undefined
   /** The agent's bridge declared that it carries the desk's standing instruction. */
@@ -872,6 +913,7 @@ export class AcpRuntime implements AgentRuntime {
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   readonly #infoListeners = new Set<() => void>()
   #health: RuntimeHealth = { state: 'idle' }
+  #discoveredFailure: RuntimeHealth | null = null
   #initialized: AcpInitializeResult | null = null
   /** The agent CLI behind the bridge, once looked for; null when not found or not declared. */
   #executable: ResolvedExecutable | null = null
@@ -943,7 +985,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#providerRead = this.#refreshProvider()
     this.#account = config.account
       ? new CliAccount(
-          config.account,
+          () => this.#accountCommands(),
           runtimeId(config.id),
           (event) => this.#accountEvent(event),
           (message, details) => config.logger?.debug?.(message, details),
@@ -964,14 +1006,15 @@ export class AcpRuntime implements AgentRuntime {
       ...(config.cwd ? { cwd: config.cwd } : {}),
       // Secrets are read at spawn, not at registration: a key stored after
       // the app started must reach the next process without a restart.
-      env: () => ({
-        ...config.env,
-        ...Object.fromEntries(
+      env: () => {
+        const keys = Object.fromEntries(
           (config.secrets ?? [])
             .map((secret) => [secret.env, config.resolveSecret?.(secret.env)])
             .filter((pair): pair is [string, string] => typeof pair[1] === 'string'),
-        ),
-      }),
+        )
+        if (!worker) this.#handedKeys = new Set(Object.keys(keys))
+        return { ...config.env, ...keys }
+      },
       onNotification: (method, params) => this.#onNotification(method, params),
       onRequest: (method, params) => this.#onAgentRequest(method, params),
       onStderr: (line) => config.logger?.debug?.('agent stderr', { agent: config.id, line }),
@@ -1284,7 +1327,10 @@ export class AcpRuntime implements AgentRuntime {
       // observation. The probe is free until prompted, and opening it now is
       // what turns "offered" into "accepted" or "refused" within moments of
       // start instead of at the first conversation.
-      void this.#observeToolReach()
+      // A key handed over at this start is only used once the agent is told
+      // to — before the probe opens, so the probe is the first session the key
+      // signs.
+      void this.#authenticateWithStoredKey().then(() => this.#observeToolReach())
     } catch (error) {
       const cleanExit = error instanceof AcpError && error.exitCode === 0
       const message = cleanExit
@@ -1298,14 +1344,12 @@ export class AcpRuntime implements AgentRuntime {
               message,
               remediation: "Verify the agent's profile or configuration, then select it again.",
             }
-          : {
-              state: 'unavailable',
-              reason: 'notInstalled',
-              message,
-              ...(this.#config.installCommand
-                ? { remediation: `Install it with \`${this.#config.installCommand}\`.` }
-                : {}),
-            },
+          // The command that was actually spawned — the host's launch choice
+          // when it made one — names a missing runner, but only when it is
+          // really not there: a runner that ran and failed (a package it could
+          // not fetch, an agent that crashed) is not missing, and the generic
+          // failure says so. The clean exit above has its own remediation.
+          : this.#spawnedFailure(message),
       )
       throw error
     }
@@ -1396,6 +1440,45 @@ export class AcpRuntime implements AgentRuntime {
         command: spec.command,
       })
     }
+  }
+
+  /**
+   * The row's account commands as this row runs them (#1761). They ran with
+   * the desk's own environment and the bare name the agent table gives, so a
+   * row whose environment moves the agent's home — `CLAUDE_CONFIG_DIR`,
+   * `GROK_HOME` — asked, signed in and signed out the default account, and a
+   * row whose start chose a particular install asked whichever copy came
+   * first on PATH. Each now takes the environment the agent is started with,
+   * under the command's own, and a command that names the agent's CLI runs
+   * the copy this start chose. Before a start has chosen one, the name is
+   * run as written, as it always was. Stored keys stay out: only the agent's
+   * own process is handed them, at spawn.
+   */
+  #accountCommands(): AcpAccountCommands {
+    const { account = {}, env } = this.#config
+    const launch = this.#launch && !('blocked' in this.#launch) ? this.#launch : null
+    const place = <T extends AcpCommandSpec>(spec: T): T => ({
+      ...spec,
+      command: this.#chosenCopyOf(spec.command, launch),
+      env: { ...env, ...launch?.env, ...spec.env },
+    })
+    return {
+      ...(account.status ? { status: place(account.status) } : {}),
+      ...(account.login ? { login: place(account.login) } : {}),
+      ...(account.logout ? { logout: place(account.logout) } : {}),
+    }
+  }
+
+  /** The path this start chose for `command` when it names the agent's own CLI, else `command`. */
+  #chosenCopyOf(command: string, launch: Extract<AcpLaunchDecision, { command: string }> | null): string {
+    const name = cliName(command)
+    // Matched on the chosen copy's own name, never the row's: a row run by a
+    // launcher (`npx …`) would otherwise have every `npx` command swapped
+    // for the agent itself.
+    if (launch && name === cliName(launch.command)) return launch.command
+    const executable = this.#config.executable
+    if (executable && this.#executable && name === cliName(executable.command)) return this.#executable.path
+    return command
   }
 
   #resolveExecutable(spec: AcpExecutableSpec): Promise<ResolvedExecutable | null> {
@@ -1657,6 +1740,9 @@ export class AcpRuntime implements AgentRuntime {
    */
   async reloadSecrets(): Promise<SecretReload> {
     if ((this.#config.secrets?.length ?? 0) === 0) return 'unsupported'
+    // Whatever happens below, the next handshake is the one that hands the
+    // changed key over, so that is when the agent is told to use it.
+    if (this.#config.secrets?.some((secret) => secret.acpMethod)) this.#keyAuthPending = true
     if (this.#health.state !== 'ready') return 'restarted'
     const busy = [...this.#sessions.values()].some(
       (session) => !this.#isProbe(session.id) && session.busy,
@@ -1687,7 +1773,62 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   health(): RuntimeHealth {
-    return this.#health
+    return this.#discoveredFailure ?? this.#health
+  }
+
+  async discoverProgram(): Promise<void> {
+    const before = this.#health
+    if (this.#disposed || before.state !== 'idle') return
+    let failure: RuntimeHealth | null = null
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      // 'recheck' runs the host's install scan: a --version probe per copy
+      // found, and possibly a registry version lookup. It skips start-only
+      // preflight checks. Bound the whole ask, including a required CLI's
+      // existing resolver, without changing what the connection will spawn.
+      const lookup = async (): Promise<RuntimeHealth | null> => {
+        const decision = await this.#config.resolveLaunch?.('recheck')
+        if (decision && 'blocked' in decision) return { state: 'unavailable', ...decision.blocked }
+        const command = decision?.command ?? this.#config.command
+        const env = { ...process.env, ...this.#config.env, ...decision?.env }
+        // ACP has no general version command. The shared PATH walk checks
+        // file type and executability without launching an ACP session.
+        if (!whichOnPath(command, { env })) {
+          return this.#missingProgramFailure(
+            command,
+            `${this.#config.name}'s program could not be found or executed: ${command}.`,
+          )
+        }
+        const spec = this.#config.executable
+        if (this.#config.cliRequired && spec && !(await this.#resolveExecutable(spec))) {
+          // The resolver answers null for a copy below the version floor as
+          // well as for an absent one, so the message may not claim which:
+          // "missing" alone reads an installed-but-too-old CLI as absent.
+          return this.#programFailure(`${this.#config.name}'s required CLI is missing or not a usable version: ${spec.command}.`)
+        }
+        return null
+      }
+      failure = await Promise.race([
+        lookup(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Program lookup timed out after 10 seconds.')), 10_000)
+        }),
+      ])
+      settled = true
+    } catch (error) {
+      // An inconclusive scan says nothing about whether the program exists.
+      this.#config.logger?.warn?.('runtime program discovery did not complete', {
+        agent: this.#config.id, error: describeAcp(error),
+      })
+    } finally {
+      clearTimeout(timer)
+    }
+    // An unfinished scan keeps whatever an earlier discovery found, and a
+    // start or quit while the lookup was running owns the newer answer.
+    if (!settled || this.#disposed || this.#health !== before) return
+    this.#discoveredFailure = failure
+    for (const listener of this.#healthListeners) listener(this.health())
   }
 
   onHealthChange(listener: (health: RuntimeHealth) => void): Unsubscribe {
@@ -1899,13 +2040,24 @@ export class AcpRuntime implements AgentRuntime {
     // Key presence and precedence are local reads, even while the agent is
     // idle. Refresh them before returning observations from an older cache;
     // only the agent-owned identities still need their saved answer.
-    if (this.#health.state !== 'ready' && saved) return this.#lastAccount = {
-      ...saved,
-      accounts: [...saved.accounts.filter(account => account.kind !== 'apiKey' && account.kind !== 'externalKey'), ...keyAccounts],
-      signInMethods: [
-        ...(this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : []),
-        ...keyMethods, ...this.#observedAccount(false).signInMethods,
-      ],
+    if (this.#health.state !== 'ready' && saved) {
+      const { unchecked: _was, ...rest } = saved
+      const accounts = [...saved.accounts.filter(account => account.kind !== 'apiKey' && account.kind !== 'externalKey'), ...keyAccounts]
+      const observed = this.#observedAccount(keyAccounts.length > 0)
+      return this.#lastAccount = {
+        ...rest,
+        accounts,
+        signInMethods: [
+          ...(this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : []),
+          ...keyMethods, ...observed.signInMethods,
+        ],
+        // The saved answer stands where it was one: a status command's, or a
+        // refusal. An empty one without either is what an agent nobody had
+        // asked yet left behind — written before the flag existed, too.
+        ...(accounts.length === 0 && observed.unchecked && !saved.refusal && (saved.unchecked || !this.#config.account?.status)
+          ? { unchecked: true }
+          : {}),
+      }
     }
     if (this.#account && this.#health.state === 'ready') {
       const status = await this.#account.status()
@@ -1915,18 +2067,86 @@ export class AcpRuntime implements AgentRuntime {
       const observed = this.#config.account?.status
         ? { accounts: [], signInMethods: [] }
         : this.#observedAccount(keyAccounts.length > 0)
+      const accounts = [...status.accounts, ...keyAccounts, ...observed.accounts]
       return this.#lastAccount = {
-        accounts: [...status.accounts, ...keyAccounts, ...observed.accounts],
+        accounts,
         signInMethods: [...status.signInMethods, ...keyMethods, ...observed.signInMethods],
         ...(observed.refusal ? { refusal: observed.refusal } : {}),
+        ...(accounts.length === 0 && observed.unchecked ? { unchecked: true } : {}),
       }
     }
     const observed = this.#observedAccount(keyAccounts.length > 0)
+    const accounts = [...keyAccounts, ...observed.accounts]
     return this.#lastAccount = {
-      accounts: [...keyAccounts, ...observed.accounts],
+      accounts,
       signInMethods: [...keyMethods, ...observed.signInMethods],
       ...(observed.refusal ? { refusal: observed.refusal } : {}),
+      ...(accounts.length === 0 && observed.unchecked ? { unchecked: true } : {}),
     }
+  }
+
+  /**
+   * Tells the agent to use a key it was just handed, once per change: an
+   * agent that reads its key from the environment only once it is told to
+   * (`AcpSecretSpec.acpMethod`) otherwise keeps signing in the way it last
+   * did, and a key stored from the Sign in card would change nothing. A
+   * refusal is the agent's to give and is logged; the next session says
+   * whether it signed in.
+   *
+   * Told to, the agent keeps signing in with that key until it is told
+   * otherwise, so a key taken away leaves it pointed at nothing: the desk
+   * says it needs signing in again rather than calling it unchecked. It does
+   * not sign it back in the old way itself — that way may be a browser.
+   */
+  async #authenticateWithStoredKey(): Promise<void> {
+    if (!this.#keyAuthPending) return
+    const declared = new Set((this.#initialized?.authMethods ?? []).map((method) => method.id))
+    const told = (this.#config.secrets ?? []).filter((one) => one.acpMethod !== undefined && declared.has(one.acpMethod))
+    const secret = told.find((one) => this.#handedKeys.has(one.env))
+    if (!secret?.acpMethod) {
+      // A key stored after this process was spawned waits for the next one.
+      if (told.some((one) => typeof this.#config.resolveSecret?.(one.env) === 'string')) return
+      this.#keyAuthPending = false
+      if (this.#keyTold && told.length > 0) this.#noteSignIn({ state: 'required', message: KEY_REMOVED })
+      this.#keyTold = false
+      return
+    }
+    this.#keyAuthPending = false
+    try {
+      await this.#connection.request(ACP_AUTHENTICATE, { methodId: secret.acpMethod })
+      this.#keyTold = true
+      this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
+    } catch (error) {
+      // Refused, so it signs in however it did before — nothing to undo later.
+      this.#keyTold = false
+      this.#config.logger?.warn?.('the agent would not switch to the stored key', {
+        agent: this.#config.id,
+        error: describeAcp(error),
+      })
+    }
+  }
+
+  /**
+   * The ways in the agent declared, as the desk can offer them: a method a
+   * stored key stands for is left to the key field, and a method that needs
+   * what no button here can give is a step to take, in the desk's sentence.
+   */
+  #declaredMethods(): AuthMethod[] {
+    const byKey = new Set((this.#config.secrets ?? []).flatMap((secret) => (secret.acpMethod ? [secret.acpMethod] : [])))
+    const notes = this.#config.authMethodNotes ?? {}
+    return (this.#initialized?.authMethods ?? [])
+      .filter((method) => !byKey.has(method.id))
+      .map((method) => {
+        const note = notes[method.id]
+        return note
+          ? { id: `${ACP_METHOD}${method.id}`, label: method.name, flow: 'external' as const, description: note }
+          : {
+              id: `${ACP_METHOD}${method.id}`,
+              label: method.name,
+              flow: 'browser' as const,
+              ...(method.description ? { description: method.description } : {}),
+            }
+      })
   }
 
   async login(method: string): Promise<LoginStart> {
@@ -2815,16 +3035,25 @@ export class AcpRuntime implements AgentRuntime {
       const said = firstSentence(seen.message)
       return {
         accounts: [],
-        signInMethods: (this.#initialized?.authMethods ?? []).map((method) => ({
-          id: `${ACP_METHOD}${method.id}`,
-          label: method.name,
-          flow: 'browser' as const,
-          ...(method.description ? { description: method.description } : {}),
-        })),
+        signInMethods: this.#declaredMethods(),
         ...(said ? { refusal: said } : {}),
       }
     }
-    return { accounts: [], signInMethods: [] }
+    // Not asked yet. A stored key already answers; so does the absence of
+    // one for an agent whose only way in is that key.
+    const secrets = this.#config.secrets ?? []
+    if (hasKey || secrets.some((secret) => !secret.optional)) return { accounts: [], signInMethods: [] }
+    const declared = this.#declaredMethods()
+    // An agent that has answered the handshake, declared no way in and takes
+    // no key has nothing to check: the empty answer is the agent's own.
+    if (this.#initialized !== null && declared.length === 0 && secrets.length === 0 && !this.#account) {
+      return { accounts: [], signInMethods: [] }
+    }
+    // Otherwise the agent has a way in the desk cannot see from here, and
+    // only a session will say whether it is signed in — so it is "not checked
+    // yet", never "needs no account" (#1759). The record on disk still waits
+    // for that session: it is what the agent will try, not proof it works.
+    return { accounts: [], signInMethods: declared, unchecked: true }
   }
 
   /**
@@ -3257,8 +3486,51 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   #setHealth(health: RuntimeHealth): void {
+    this.#discoveredFailure = null
     this.#health = health
     for (const listener of this.#healthListeners) listener(health)
+  }
+
+  #programFailure(message: string): RuntimeHealth {
+    return {
+      state: 'unavailable',
+      reason: 'notInstalled',
+      message,
+      ...(this.#config.installCommand
+        ? { remediation: `Install it with \`${this.#config.installCommand}\`.` }
+        : {}),
+    }
+  }
+
+  /** The start path's not-installed failure, runner-aware only when the spawned command is not on PATH. */
+  #spawnedFailure(message: string): RuntimeHealth {
+    const launch = this.#launch && !('blocked' in this.#launch) ? this.#launch : null
+    const command = launch?.command ?? this.#config.command
+    const env = { ...process.env, ...this.#config.env, ...launch?.env }
+    return whichOnPath(command, { env }) ? this.#programFailure(message) : this.#missingProgramFailure(command, message)
+  }
+
+  /**
+   * The failure for a program that could not be found or executed. A
+   * package-runner row runs the agent's package through a runner that fetches
+   * the package itself on first start, so when the runner is what is missing,
+   * the agent's install command would install something nothing can run. Name
+   * the runner and what provides it instead. The names live in the
+   * `PACKAGE_RUNNERS` table, not in the message string, so a runner joins by
+   * data rather than by editing a sentence (rule 8 — adapter text may name
+   * programs). Discovery and the start path both answer through here, so a
+   * row reads the same failure however its absence was found.
+   */
+  #missingProgramFailure(command: string, message: string): RuntimeHealth {
+    const runner = cliName(command)
+    const provider = Object.hasOwn(PACKAGE_RUNNERS, runner) ? PACKAGE_RUNNERS[runner] : undefined
+    if (!provider) return this.#programFailure(message)
+    return {
+      state: 'unavailable',
+      reason: 'notInstalled',
+      message: `${this.#config.name} needs ${command} (${provider}), which could not be found or executed.`,
+      remediation: `Install ${provider}, which provides ${command}.`,
+    }
   }
 
   #onExit(code: number | null): void {
@@ -3610,6 +3882,22 @@ type SignInObservation =
  * them back; the agent's own id is whatever follows.
  */
 const ACP_METHOD = 'acp:'
+/** A command's name without its folder or a Windows launcher's extension, as the host's `commandName` reads it: `/opt/bin/claude` and `claude.cmd` are both `claude`. */
+const cliName = (command: string): string =>
+  basename(command.replaceAll('\\', '/')).replace(/\.(?:exe|cmd|bat|com)$/i, '').toLowerCase()
+
+/**
+ * The package runners a registry-written row may name, and the install that
+ * provides each. A runner fetches the agent's package on first start, so
+ * when the runner itself is not found, the way forward is the provider's
+ * install, not the agent's.
+ */
+const PACKAGE_RUNNERS: Readonly<Record<string, string>> = {
+  npx: 'Node.js',
+  uvx: 'uv',
+}
+/** Said when the key an agent was told to use is taken away (`#authenticateWithStoredKey`). */
+const KEY_REMOVED = 'Its key was removed. Sign in again, or store a key.'
 
 const AUTH_REQUIRED_WORDS =
   /authentication required|not authenticated|unauthenticated|auth(?:Required|[_ -]required)|login required|sign[- ]?in required|not (?:signed|logged) in|please (?:log|sign) in|(?:log|sign) in to (?:use|continue|access)|authenticate again/i
@@ -4136,7 +4424,11 @@ class AcpSession implements AgentSession {
     }
     const refusal = refuseOptionValue(option, value)
     if (refusal) throw new OptionRefusedError(refusal, id, value, false)
-    if (id === 'mode' && this.#modes) {
+    // A config option takes precedence over ACP's v1 modes when both expose
+    // the same id. `options()` already follows that rule; route the write
+    // through the same source the composer displayed.
+    const declared = this.#configOptions.find((entry) => entry.id === id)
+    if (id === 'mode' && this.#modes && !declared) {
       await this.#host.connectionFor(this.id).request('session/set_mode', {
         sessionId: this.id,
         modeId: value,
@@ -4184,7 +4476,6 @@ class AcpSession implements AgentSession {
       if (!listSaid && this.#models) this.#models = { ...this.#models, currentModelId: settled }
       this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
     } else {
-      const declared = this.#configOptions.find((entry) => entry.id === id)
       const before = this.#announced.options
       const response = await this.#host.connectionFor(this.id).request<{
         configOptions?: readonly AcpConfigOption[] | null

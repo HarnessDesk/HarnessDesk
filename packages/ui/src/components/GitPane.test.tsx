@@ -396,7 +396,7 @@ it('uses padded canonical segments for the branch scope', async () => {
   const group = container.querySelector('[role="radiogroup"][aria-label="Which branches"]')!
   const options = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
 
-  expect(group.getAttribute('data-slot')).toBe('toggle-group')
+  expect(group.getAttribute('data-slot')).toBe('radio-group')
   expect(options.map((option) => option.textContent)).toEqual(['All branches', 'Current'])
   for (const option of options) {
     expect(option.getAttribute('data-slot')).toBe('toggle-group-item')
@@ -1045,6 +1045,19 @@ it('the table head names the columns and carries a handle for each width', async
     'Resize the Date column',
     'Resize the Author column',
   ])
+})
+
+it.each(['column', 'detail'] as const)('composes the %s resize handle over the pane seam defaults', async kind => {
+  await mount({ log: [commit('aaaa1111111', 'tip')] })
+  if (kind === 'detail') await act(async () => container.querySelector<HTMLElement>('[role="row"][aria-selected]')!.click())
+  const handle = container.querySelector<HTMLElement>(`[aria-label="${kind === 'column' ? 'Resize the Graph column' : 'Resize the commit detail'}"]`)!
+  expect(handle).not.toBeNull()
+  expect(handle.classList.contains('absolute')).toBe(true)
+  expect(handle.classList.contains('relative')).toBe(false)
+  if (kind === 'column') {
+    expect(handle.classList.contains('w-[calc(var(--hd-space-2)+var(--hd-border-width))]')).toBe(true)
+    expect(handle.classList.contains('w-1')).toBe(false)
+  } else expect(handle.classList.contains('h-1')).toBe(true)
 })
 
 it('dragging an edge resizes the column live and remembers it once, on release', async () => {

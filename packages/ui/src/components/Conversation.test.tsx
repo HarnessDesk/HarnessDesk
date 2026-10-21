@@ -112,6 +112,7 @@ const rig = (
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     workSubject: () => one ? `session:${KEY}` : 'draft:p1',
     send: vi.fn(),
@@ -321,7 +322,7 @@ it('keeps one short draft pitch with a chosen project', () => {
   })
   render(store, null)
 
-  expect(container.textContent).toContain('Describe a task, then choose the folder it runs in.')
+  expect(container.textContent).toContain('Describe a task.')
   expect(container.textContent).not.toContain('Pick a project folder')
 })
 
@@ -400,8 +401,12 @@ it('draft and conversation keep the fixed browser door and More in the shell', (
 it('folder facts remain readable in Details when the shell title folds', () => {
   render(rig(session()).store)
   const facts = container.querySelector('[aria-label="Conversation facts"]')!
-  expect(facts.textContent).toContain('Folderrepo')
-  expect(facts.querySelector('[title="/repo"]')?.textContent).toBe('repo')
+  const folder = [...facts.querySelectorAll('[data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Folder')!
+  const path = folder.querySelector('[data-slot="middle-truncate"]')!
+  expect(path.querySelector('.sr-only')?.textContent).toBe('/repo')
+  expect(path.querySelector('[data-part="tail"]')?.textContent).toBe('/repo')
+  expect(path.className).toContain('whitespace-nowrap')
+  expect(path.className).toContain('overflow-hidden')
   expect(container.querySelector('header [aria-label="Conversation status"]')).toBeNull()
 })
 
@@ -459,8 +464,14 @@ it('puts the reason where the composer would be, in the agent’s own words', ()
   render(rig(session({ updatedAt: 9_000 }), new Map([['/repo', said]])).store)
 
   expect(container.textContent).toContain('folder is gone')
-  expect(container.textContent).toContain(said)
+  expect(container.textContent).toContain('Codex cannot open this conversation: its folder no longer exists (')
+  const refusal = [...container.querySelectorAll('[data-slot="alert-description"]')].find(one => one.textContent?.includes('folder no longer exists'))!
+  expect(refusal.textContent).not.toContain('/repo')
+  expect(refusal.querySelector('[title="/repo"] .sr-only')?.textContent).toBe('repo')
+  const folderFact = [...container.querySelectorAll('[data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Folder')!
+  expect(folderFact.querySelector('.sr-only')?.textContent).toBe('/repo')
   expect(container.textContent).toContain('Open a copy in another folder')
+  expect(container.textContent).toContain('Archive')
   // Nothing to type into: there is nowhere for it to go.
   expect(container.querySelector('textarea')).toBeNull()
 })
@@ -495,14 +506,26 @@ it('a plain conversation’s header is unchanged, and asks nothing about an Agen
 
 it('Details reports the recorded held or asked ceiling, and leaves unknown facts unknown', () => {
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'reviewer', ceiling: { level: 'read', hold: 'held' }, ceilingNote: 'Read-only sandbox; anything past it asks you' } })).store)
-  const facts = () => container.querySelector('[aria-label="Conversation facts"]')?.textContent
-  expect(facts()).toContain('Read only')
-  expect(facts()).toContain('Held: Read-only sandbox')
+  const facts = () => container.querySelector('[aria-label="Conversation facts"]')!
+  const ceiling = () => [...facts().querySelectorAll('[data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Ceiling')
+  const details = () => [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Conversation"] button')].find(one => one.textContent?.trim() === 'Details')!
+  expect(ceiling()?.textContent).toContain('Read')
+  expect(ceiling()?.textContent).toContain('Held')
+  expect(ceiling()?.textContent).not.toContain('Asked')
+  expect(ceiling()?.querySelector('[title*="Read-only sandbox"]')).not.toBeNull()
+  expect(details().getAttribute('aria-expanded')).toBe('false')
+  expect(container.textContent).not.toContain('Read-only sandbox')
+  act(() => details().click())
+  expect(container.textContent).toContain('Held: Read-only sandbox')
   expect(container.querySelector('header [data-ceiling]')).toBeNull()
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'writer', ceiling: { level: 'edit', hold: 'asked' } } })).store)
-  expect(facts()).toContain('Edit · asked, not enforced')
+  expect(ceiling()?.textContent).toContain('Edit')
+  expect(ceiling()?.textContent).toContain('Asked, not held')
+  expect(ceiling()?.querySelector('[title*="Asked, not held"]')).not.toBeNull()
+  if (details().getAttribute('aria-expanded') === 'false') act(() => details().click())
+  expect(container.textContent).toContain("The desk's own tools still refuse anything above it.")
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6' } })).store)
-  expect(facts()).not.toContain('Ceiling')
+  expect(ceiling()).toBeUndefined()
   expect(container.textContent).toContain('Permission level not reported for this conversation.')
 })
 
@@ -852,9 +875,12 @@ it('Details renders the latest recorded plan states and respects an explicit cle
   expect(plan.textContent).toContain('Review <script>unsafe()</script> changes')
   expect(plan.textContent).not.toContain('\u001b')
   render(rig(session({ turns: [old, { ...latest, plan: [] }] })).store)
-  const cleared = container.querySelector('[data-slot="tool-body"] [aria-label="Plan"]')!
+  const cleared = container.querySelector('[data-slot="tool-body"]')!
+  expect(cleared.querySelector('[aria-label="Plan"]')).toBeNull()
   expect(cleared.querySelector('[data-slot="checklist"]')).toBeNull()
-  expect(cleared.textContent).toContain('No plan yet.')
+  expect(cleared.textContent).not.toContain('Old plan')
+  expect(cleared.textContent).not.toContain('Finished step')
+  expect(cleared.textContent).not.toContain('Next step')
 })
 
 it('leaves no ceiling wrapper on the plain conversation path', () => {
@@ -914,6 +940,38 @@ it('Undo leaves the menu before asking, and Keep never rolls back', async () => 
     host.remove()
     fixture.mockRestore()
     history.replaceState(null, '', previousURL)
+  }
+})
+
+it.each(['starting', 'failed', 'ready'] as const)('a %s draft explains runtime readiness beside Send without replacing typing', (state) => {
+  const health = state === 'failed'
+    ? { state: 'unavailable' as const, reason: 'unreadable' as const, message: 'The agent failed its version check.', remediation: 'Choose a working installation in Settings.' }
+    : { state: state === 'ready' ? 'ready' as const : 'starting' as const }
+  const { store } = rig(null, new Map(), { health, healthByRuntime: { codex: health } })
+  const settings = vi.fn()
+  store.askSettings = settings
+  render(store, null)
+  const textarea = container.querySelector<HTMLTextAreaElement>('textarea')!
+  expect(textarea.disabled).toBe(false)
+  expect(textarea.placeholder).toBe('Describe a task to start a session — / for commands, @ for files')
+  const send = container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!
+  const tools = container.querySelector('[data-slot="composer-tools"]')!
+  if (state === 'ready') {
+    expect(tools.textContent).not.toContain('Unavailable')
+    expect(tools.textContent).not.toContain('Not answered yet')
+    expect(send.title).toBe('')
+  } else {
+    expect(send.disabled).toBe(true)
+    expect(tools.querySelector(`[data-slot="chip"][data-state="${state === 'failed' ? 'broken' : 'unknown'}"]`)?.textContent)
+      .toBe(state === 'failed' ? 'Unavailable' : 'Not answered yet')
+    expect(send.title).toBe(state === 'failed'
+      ? 'The agent failed its version check. Choose a working installation in Settings.'
+      : 'Waiting for the runtime to start')
+    if (state === 'failed') {
+      const link = [...tools.querySelectorAll('button')].find(button => button.textContent === 'Unavailable')!
+      act(() => link.click())
+      expect(settings).toHaveBeenCalledWith('runtimes', 'codex')
+    }
   }
 })
 
@@ -1093,7 +1151,7 @@ it('keeps other clients out of the draft pitch even with legacy history metadata
   }))
   render(rig(null, new Map(), { runtimes, activeRuntime: runtimes[0]!.id }).store, null)
   const text = container.querySelector('[data-slot="conversation-empty-state"]')!.textContent
-  expect(text).toContain('Describe a task, then choose the folder it runs in.')
+  expect(text).toContain('Describe a task.')
   expect(text).not.toContain('Sessions you start in')
   expect(text).not.toContain('Gamma CLI')
   expect(text).not.toContain('Codex')
@@ -1176,9 +1234,16 @@ it('omits legacy history-source copy for multiple accounts', () => {
 it('draft Details names the folder with its full path on hover (#1720)', () => {
   render(rig(null, new Map(), { workspace: { path: '/work/long/project/first-run-1720', name: 'first-run-1720' } as AppSnapshot['workspace'] }).store, null)
   const facts = container.querySelector('[aria-label="Conversation facts"]')!
-  expect(facts.textContent).toContain('first-run-1720')
-  expect(facts.textContent).not.toContain('/work/')
-  expect(facts.querySelector('[title="/work/long/project/first-run-1720"]')?.textContent).toBe('first-run-1720')
+  const folder = [...facts.querySelectorAll('[data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Folder')!
+  const path = folder.querySelector<HTMLElement>('[data-slot="middle-truncate"]')!
+  expect(path.querySelector('.sr-only')?.textContent).toBe('/work/long/project/first-run-1720')
+  expect(path.querySelector('[data-part="tail"]')?.textContent).toBe('/first-run-1720')
+  expect(path.querySelector('[data-part="head"]')?.className).toContain('truncate')
+  expect(path.className).toContain('whitespace-nowrap')
+  const head = path.querySelector('[data-part="head"]')!
+  Object.defineProperties(head, { scrollWidth: { configurable: true, value: 300 }, clientWidth: { configurable: true, value: 120 } })
+  act(() => path.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+  expect(path.title).toBe('/work/long/project/first-run-1720')
   expect(container.textContent).not.toContain('reported for this draft')
   expect(container.querySelector('[aria-label="Plan"]')).toBeNull()
 })

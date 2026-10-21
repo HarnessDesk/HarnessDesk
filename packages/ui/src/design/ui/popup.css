@@ -20,6 +20,9 @@
   max-width: var(--hd-info-card-width);
   padding: var(--hd-space-3);
 }
+/* A level's own facts need room for name, reading and reset columns. Do not
+   size its parent menu from the facts in a nested, portalled flyout. */
+[data-popup-kind='wide-menu']:has(> [data-menu-facts], > :not([data-slot]) > [data-menu-facts]) { width: var(--hd-popover-width-wide); }
 [data-menu-row] {
   position: relative;
   box-sizing: border-box;
@@ -63,6 +66,11 @@
 [data-menu-body] { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 [data-menu-label] { display: block; min-width: 0; white-space: normal; overflow-wrap: normal; word-break: normal; }
 [data-menu-label] > :not([data-menu-badge]) { font-size: inherit; line-height: inherit; }
+/* Account names give way to their disambiguating badge and reading. A name
+   truncates; the explanatory sentences in ordinary menu rows still wrap. */
+[data-menu-label]:has([data-menu-account-name]) { display: flex; align-items: center; }
+[data-menu-account-name] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-menu-label]:has([data-menu-account-name]) [data-menu-badge] { flex: none; }
 [data-menu-row][data-selected] { background: var(--hd-hover); }
 [data-menu-hint] { font-size: var(--hd-text-xs); line-height: var(--hd-line-xs); color: var(--hd-secondary-foreground); white-space: normal; overflow-wrap: normal; word-break: normal; }
 [data-menu-badge] { display: inline-flex; min-width: 0; max-width: calc(100% - var(--hd-space-2)); margin-left: var(--hd-space-2); vertical-align: top; }

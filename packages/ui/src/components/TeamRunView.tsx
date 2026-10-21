@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import { type FlowCheckAttempt, type InsightReport, type SessionKey, type TeamSignal } from '@harnessdesk/protocol'
-import { useSnapshot, useStore } from '../state/context'
+import { useSnapshot, useStore, usePane } from '../state/context'
 import { runtimeTint } from '../lib/accounts'
 import { hasConversation, teamSeats } from '../lib/team-seats'
 import { teamSeatCost } from '../lib/team-overview'
@@ -25,9 +25,11 @@ const findingsRead = (list: FindingsListState | undefined): 'reading' | 'failed'
 }
 
 /** Reads only while the Run is mounted; the pane's rail owns conversation navigation. */
-export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFlow, attempts, incompleteAttempts, attemptsRead, waitingSeats, ...view }: ComponentProps<typeof RunView> & {
+export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFlow, attempts, incompleteAttempts, attemptsRead, waitingSeats, insight, ...view }: ComponentProps<typeof RunView> & {
   execution: RunTimelineInput['execution']
   origin: string | null
+  /** The room owns usage reads when supplied; null means it has no report yet. Omit for a standalone Run. */
+  insight?: InsightReport | null
   onOpenSeat: (key: SessionKey) => void
   /** What the desk recorded each time a check card ran, by card, as the pane read it for the timeline beside this. */
   attempts?: ReadonlyMap<number, readonly FlowCheckAttempt[]>
@@ -43,6 +45,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
 }) => {
   waitingSeats ??= new Set()
   const store = useStore()
+  const owner = usePane()?.paneId
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(execution.goal)
   const team = snapshot.teams.get(execution.goal)
@@ -52,24 +55,28 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
   const listed = snapshot.findings.get(execution.goal)
   const findingsList = listed?.filter === 'all' ? listed : undefined
   const seats = useMemo(() => teamSeats(goal, team, execution, 'seat'), [goal, team, execution])
-  const [report, setReport] = useState<InsightReport | null>(null)
+  const [report, setReport] = useState<{ store: typeof store; value: InsightReport } | null>(null)
+  const readsUsage = insight === undefined
   const [readAgain, setReadAgain] = useState(0)
   const [readProblem, setReadProblem] = useState<string | null>(null)
   const finished = cards.filter(card => card.state === 'done').map(card => card.id).join(',')
   useEffect(() => {
     let active = true
     setReadProblem(null)
+    let generation = 0
     const read = () => {
+      const current = ++generation
       // The last report stays on screen while the next is read, and when that read fails: a cost is "Not recorded"
       // only when none was ever read. A report of another Goal is never shown (below), so none is cleared here.
-      if (typeof store.readGoalInsight === 'function') void store.readGoalInsight(execution.goal).then(value => { if (active) setReport(value) }, () => {})
+      if (readsUsage && typeof store.readGoalInsight === 'function') void store.readGoalInsight(execution.goal).then(value => { if (active && current === generation) setReport({ store, value }) }, () => {})
       if (typeof store.loadFindingRun === 'function') void store.loadFindingRun(execution.goal, execution.id).then(() => { if (active) setReadProblem(null) }, () => { if (active) setReadProblem('Review details could not be read.') })
     }
     read()
     const timer = execution.state === 'running' ? window.setInterval(read, 60_000) : null
     return () => { active = false; if (timer !== null) window.clearInterval(timer) }
-  }, [store, execution.goal, execution.id, execution.state, Boolean(execution.findings), finished, readAgain])
-  const usage = report?.goal === execution.goal ? report : null
+  }, [store, execution.goal, execution.id, execution.state, Boolean(execution.findings), finished, readAgain, readsUsage])
+  const supplied = readsUsage ? report?.store === store ? report.value : null : insight
+  const usage = supplied?.goal === execution.goal ? supplied : null
   const costs = new Map(seats.map(seat => {
     // Usage may know a Seat's runtime even when an older receipt kept no session pointer. It does not grant Open.
     const runtimeId = seat.record.session?.runtime ?? usage?.breakdowns.find(one => one.dimension === 'seat')?.rows
@@ -82,11 +89,13 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
   const selectedStep = view.selectedRow?.startsWith('step:') ? view.selectedRow.slice(5) : stepForRow(execution, view.model.rows, view.selectedRow)
   const stepRows = rowsForStep(execution, view.model.rows, selectedStep)
   const faceTints = new Map(seats.filter(hasConversation).map(seat => [seat.record.id, runtimeTint(snapshot.runtimes.find(info => info.id === seat.record.session.runtime))]))
-  const flow = drawFlow ? <RunFlow execution={execution} root={goal?.goal.root ?? null} seats={goal?.members ?? []}
+  const flow = drawFlow ? <RunFlow inline={view.unified} execution={execution} root={goal?.goal.root ?? null} seats={goal?.members ?? []}
     cards={cards} sessions={snapshot.sessions} waitingSeats={waitingSeats} attempts={attempts ? new Map([...attempts].map(([id, history]) => [id, { attempts: history, complete: attemptsRead !== 'failed' && !incompleteAttempts?.has(id) }])) : undefined} selectedStep={selectedStep} onSelectStep={id => {
       const rows = rowsForStep(execution, view.model.rows, id)
       const latest = [...rows].reverse().find(id => view.model.rows.find(row => row.id === id)?.kind === 'round')
-      view.onSelect(latest ?? `step:${id}`)
+      const person = [...rows].reverse().find(rowId => view.model.rows.find(row => row.id === rowId)?.kind === 'person')
+      view.onSelect(person ?? latest ?? `step:${id}`)
+      if (person && owner) store.chooseWorkTool('details', 'run-details')
     }} faces={view.faces} faceTints={faceTints} doing={view.doing} /> : view.flow
   return <RunWorkspace {...view} home={snapshot.home} seatNames={new Map(seats.map(seat => [seat.record.id, { name: seat.name,
     detail: goal?.receipt?.members?.find(member => member.seat === seat.record.id)?.seatLabel ?? goal?.members.find(record => record.id === seat.record.id)?.seatLabel ?? null }]))} flow={flow} selectedRows={stepRows} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{

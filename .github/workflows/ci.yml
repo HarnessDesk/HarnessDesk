@@ -1,7 +1,7 @@
 name: CI
 
 # Feature branches are covered by pull_request without duplicating push runs.
-# Development gets core checks on every push; its release PR and main run full CI.
+# Development adds reached browser specs on every push; its release PR and main run full CI.
 on:
   push:
     branches: [main, development]
@@ -11,10 +11,11 @@ on:
   # Runs started by hand always prove the full suite.
   workflow_dispatch:
 
-# Supersede runs of the same event and ref. A development core push must not
-# cancel the nightly full dispatch on that branch.
+# Each development push checks its own range, so give it a separate group:
+# neither running nor pending coverage may be cancelled by the next push.
+# Event names also keep pushes separate from the nightly full dispatch.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/development' && github.sha || 'latest' }}
   # A pull request's newer push supersedes its older run. Main never cancels:
   # on a busy main every push cancelled the run before it, so for over an hour
   # no combined state of main was checked in full, and "main is green" could
@@ -47,17 +48,19 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      # What each spec ran on the last full run of main (script/ui-impact.mjs). Caches made on
-      # main are readable from a pull request; the newest one is the nearest to its base.
-      # Bounded CI reports the local check-push selection, then defers browser/native
-      # work to the full tier. Without a usable map, local selection samples the suite.
-      - name: Restore the impact map of main
-        if: github.event_name == 'pull_request'
+      # Prefer this branch's last full-run map, then main's (script/ui-impact.mjs).
+      # Development's nightly map includes source that has not shipped on main;
+      # unresolved reads/ranges and missing maps run every browser spec.
+      - name: Restore the branch impact map
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/development')
         uses: actions/cache/restore@v6
         with:
           path: ui-impact-map.json
-          key: ui-impact-map-none
-          restore-keys: ui-impact-map-
+          key: ui-impact-map-${{ github.ref_name }}-none
+          restore-keys: |
+            ui-impact-map-${{ github.ref_name }}-
+            ui-impact-map-main-
+            ui-impact-map-
       - name: Select UI integration jobs
         id: paths
         env:
@@ -65,19 +68,36 @@ jobs:
           UI_IMPACT_MAP: ui-impact-map.json
           CI_HEAD_BRANCH: ${{ github.head_ref }}
           CI_REF_NAME: ${{ github.ref_name }}
+          CI_BEFORE: ${{ github.event.before }}
           CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           list="$RUNNER_TEMP/ci-changed-paths"
+          rm -f "$list"
           theme=false
+          base=""
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            # Compare the merge to its base parent. Disable rename detection
-            # so moving an input out of a tested directory still runs its suite.
-            if ! git diff --no-renames --name-only -z HEAD^1 HEAD > "$list"; then
+            # The merge's base parent covers the whole PR, including moved inputs.
+            base=HEAD^1
+          elif [ "$EVENT_NAME" = "push" ] && [ "$CI_REF_NAME" = "development" ]; then
+            # Checkout has only two commits. A multi-commit push can start earlier;
+            # fetch that exact object rather than diffing just the last commit.
+            if [[ "$CI_BEFORE" =~ ^[0-9a-f]{40}$ ]] && [[ "$CI_BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+              if git cat-file -e "$CI_BEFORE^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$CI_BEFORE"; then
+                if git cat-file -e "$CI_BEFORE^{commit}" 2>/dev/null; then
+                  base="$CI_BEFORE"
+                fi
+              fi
+            fi
+          fi
+          # A missing/zero/unavailable before leaves no list: every browser spec runs.
+          if [ -n "$base" ]; then
+            if ! git diff --no-renames --name-only -z "$base" HEAD > "$list"; then
               rm -f "$list"
             fi
-            # Retain theme metadata for the shared local planner. Bounded CI runs
-            # no browsers; full CI reads every spec in both themes.
-            if git diff --no-renames -U0 HEAD^1 HEAD -- packages/ui | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' | grep -Eiq 'dark|theme'; then
+            # Theme metadata uses exactly the same change boundary as the paths.
+            # The last grep reads to the end: an early -q exit would make the
+            # diff die of SIGPIPE on a large change, failing the pipe under pipefail.
+            if git diff --no-renames -U0 "$base" HEAD -- packages/ui | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' | grep -Ei 'dark|theme' > /dev/null; then
               theme=true
             fi
           fi
@@ -577,9 +597,9 @@ jobs:
         # As many shards as the work needs, from one to sixteen: each carries
         # about 1,500 recorded dev-server seconds of tests. Static runs finish
         # earlier; script/ci-browser-shards.mjs still sizes the shards from those
-        # times and script/ci-changes.mjs counts them. Only the full tier runs
-        # browser shards (main, batch/, full-ci or manual dispatch). Bounded CI
-        # keeps [1] with browser=none so the skipped matrix stays well formed.
+        # times and script/ci-changes.mjs counts them. Development pushes also
+        # run the bounded selection. A skipped browser job keeps [1] so its
+        # matrix stays well formed.
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     env:
       # What this run is: its theme matrix and the specs it covers. The shards
@@ -653,7 +673,7 @@ jobs:
           retention-days: 3
 
   # The records of a full run, folded into one map and kept for the pull requests
-  # that come next. Only a clean run makes one, and only main keeps it.
+  # that come next. Only a clean full run makes one; main and development keep it.
   ui-impact-map:
     name: UI impact map
     needs: [changes, ui-system-browser]
@@ -683,10 +703,10 @@ jobs:
           path: ui-impact-map.json
           retention-days: 14
       - uses: actions/cache/save@v6
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development'
         with:
           path: ui-impact-map.json
-          key: ui-impact-map-${{ github.sha }}
+          key: ui-impact-map-${{ github.ref_name }}-${{ github.sha }}
 
   ui-system-server:
     needs: changes

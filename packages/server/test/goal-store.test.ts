@@ -310,3 +310,17 @@ test('a trigger’s reserved Goal id is made once and never adopts another Goal'
   assert.equal(plane.unattended(id), true)
   assert.equal(plane.unattended(person.goal.id), false)
 })
+
+
+test('backup duplicate comparison ignores local read and ready times', async () => {
+  const store = new GoalStore(await empty())
+  await store.load()
+  const backup = document()
+  await store.save(backup, null)
+  await store.mark('g1', { lastSeenAt: 20, readyAt: 10 })
+  assert.equal(await store.restore(backup, 30), 'duplicate')
+  assert.equal(await store.restore({ ...backup, lastSeenAt: 50, readyAt: 40 }, 60), 'duplicate')
+  assert.equal(store.read('g1').lastSeenAt, 20)
+  assert.equal(store.read('g1').readyAt, 10)
+  assert.equal(await store.restore({ ...backup, goal: { ...backup.goal, sentence: 'Different work' } }, 30), 'conflict')
+})

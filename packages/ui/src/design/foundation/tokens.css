@@ -512,6 +512,9 @@ body {
   /* The sidebar's own row indent — `PaneColumn`'s `rail` inset. It is no
      longer the bar's edge: rows keep their tighter gutter under a roomier bar. */
   --hd-rail-inset: var(--hd-space-2);
+  /* A revealed rail is real glass over the work, not an opaque canvas plate. */
+  --hd-rail-sheet-fill: color-mix(in srgb, var(--hd-background) 88%, transparent);
+  --hd-rail-sheet-filter: blur(12px);
   /* And where a label lands once a control has been composed: that inset, the
      control's own padding, and the hairline it reserves whether or not it
      paints one. A thing with no box of its own — a wordmark, a page title, a
@@ -521,8 +524,11 @@ body {
   --hd-column: 736px;
   /* A page's two other measures (`Page` in design/patterns). Wide is for
      tables and card grids that read better than a reading column allows;
-     every page keeps one gutter on both sides of whichever measure it takes. */
+     every page keeps one gutter on both sides of whichever measure it takes.
+     The aside is the fact column beside a detail's reading body
+     (`PageColumns`). */
   --hd-page-wide: 1320px;
+  --hd-page-aside: 320px;
   --hd-page-gutter: var(--hd-space-6);
   /* The step between a page's blocks (#1646). A section head subtracts it to
      stand 32 under the card above and 12 over its own. */
@@ -544,6 +550,14 @@ body {
      nothing. */
   --hd-fade-edge: 16px;
   --hd-fade: linear-gradient(to right, #000 calc(100% - var(--hd-fade-edge)), transparent);
+
+  /* Floating results clear a visible composer, or keep this gap off the window. */
+  --hd-toast-gap: var(--hd-space-4);
+  /* Visible composer docks publish their measured clearance for floating UI. */
+  --hd-composer-clearance: 0px;
+  /* Where a toast's bottom edge stands: the gap alone, until a visible composer
+     dock publishes its clearance over it (inline on body, design/ui/composer-toast-offset). */
+  --hd-toast-bottom: var(--hd-toast-gap);
 
   /* The text well of the composer: where it rests, where it stops growing, and
      the line it is set on.
@@ -1212,8 +1226,8 @@ body {
   --hd-label-weight: var(--hd-weight-medium);
 
   /* --- the section label ---------------------------------------------------
-     The word over a group of rows — "Workspaces", "Capabilities", "Agents".
-     There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own
+     The word over a field group, a Settings form or a rail card.
+     Page-body bands use the section text role; small groups use `GroupLabel` (design/ui/group-label.tsx): the rows' own
      13px chrome step, the secondary ink, sentence case, so it names the group
      quietly and the rows stay the subject. Both interfaces use medium weight;
      Studio adds more air above a rail's group; neither interface sets
@@ -1630,7 +1644,7 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
 /* --- panel cards ------------------------------------------------------------
    The right panel is a stack of cards on the left column's ground: a piece of
    work's facts and actions, each card showing its summary while folded
-   (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md). A card is
+   (docs/design.md). A card is
    the main ground on a hairline; its header is one 20px line and each row
    inside it is 28. On `body`, where the spacing scale it is built from lives.
 */

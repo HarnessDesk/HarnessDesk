@@ -100,6 +100,7 @@
 --hd-code-type = rgb(154, 76, 15)
 --hd-code-variable = rgb(36, 41, 47)
 --hd-column = 736px
+--hd-composer-clearance = 0px
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
@@ -230,6 +231,7 @@
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
 --hd-notice-bar = 3px
+--hd-page-aside = 320px
 --hd-page-gutter = 24px
 --hd-page-stack = 16px
 --hd-page-wide = 1320px
@@ -260,6 +262,8 @@
 --hd-radius-xl = 16px
 --hd-radius-xs = 4px
 --hd-rail-inset = 8px
+--hd-rail-sheet-fill = color-mix(in srgb, rgb(255, 255, 255) 88%, transparent)
+--hd-rail-sheet-filter = blur(12px)
 --hd-ring = rgb(52, 88, 240)
 --hd-ring-muted = rgb(52, 88, 240)
 --hd-ring-offset = 2px
@@ -385,6 +389,8 @@
 --hd-title = 24px
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
+--hd-toast-bottom = 16px
+--hd-toast-gap = 16px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
 --hd-toggle-knob-on = rgb(255, 255, 255)
@@ -682,6 +688,7 @@
 --hd-code-type = rgb(255, 166, 87)
 --hd-code-variable = rgb(201, 209, 217)
 --hd-column = 736px
+--hd-composer-clearance = 0px
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
@@ -812,6 +819,7 @@
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
 --hd-notice-bar = 3px
+--hd-page-aside = 320px
 --hd-page-gutter = 24px
 --hd-page-stack = 16px
 --hd-page-wide = 1320px
@@ -842,6 +850,8 @@
 --hd-radius-xl = 16px
 --hd-radius-xs = 4px
 --hd-rail-inset = 8px
+--hd-rail-sheet-fill = color-mix(in srgb, rgb(24, 24, 24) 88%, transparent)
+--hd-rail-sheet-filter = blur(12px)
 --hd-ring = rgb(112, 142, 250)
 --hd-ring-muted = rgb(112, 142, 250)
 --hd-ring-offset = 2px
@@ -967,6 +977,8 @@
 --hd-title = 24px
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
+--hd-toast-bottom = 16px
+--hd-toast-gap = 16px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
 --hd-toggle-knob-on = rgb(49, 49, 49)
@@ -1268,6 +1280,7 @@
 --hd-code-type = rgb(154, 76, 15)
 --hd-code-variable = rgb(36, 41, 47)
 --hd-column = 736px
+--hd-composer-clearance = 0px
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
@@ -1400,6 +1413,7 @@
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
 --hd-notice-bar = 3px
+--hd-page-aside = 320px
 --hd-page-group-gap = 0px
 --hd-page-gutter = 24px
 --hd-page-stack = 16px
@@ -1431,6 +1445,8 @@
 --hd-radius-xl = 16px
 --hd-radius-xs = 4px
 --hd-rail-inset = 8px
+--hd-rail-sheet-fill = color-mix(in srgb, rgb(255, 255, 255) 88%, transparent)
+--hd-rail-sheet-filter = blur(12px)
 --hd-ring = rgb(52, 88, 240)
 --hd-ring-muted = color-mix(in srgb, rgb(52, 88, 240) 45%, transparent)
 --hd-ring-offset = 0px
@@ -1558,6 +1574,8 @@
 --hd-title = 24px
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
+--hd-toast-bottom = 16px
+--hd-toast-gap = 16px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
 --hd-toggle-knob-on = rgb(255, 255, 255)
@@ -1859,6 +1877,7 @@
 --hd-code-type = rgb(255, 166, 87)
 --hd-code-variable = rgb(201, 209, 217)
 --hd-column = 736px
+--hd-composer-clearance = 0px
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
@@ -1991,6 +2010,7 @@
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
 --hd-notice-bar = 3px
+--hd-page-aside = 320px
 --hd-page-group-gap = 0px
 --hd-page-gutter = 24px
 --hd-page-stack = 16px
@@ -2022,6 +2042,8 @@
 --hd-radius-xl = 16px
 --hd-radius-xs = 4px
 --hd-rail-inset = 8px
+--hd-rail-sheet-fill = color-mix(in srgb, rgb(24, 24, 24) 88%, transparent)
+--hd-rail-sheet-filter = blur(12px)
 --hd-ring = rgb(112, 142, 250)
 --hd-ring-muted = color-mix(in srgb, rgb(112, 142, 250) 55%, transparent)
 --hd-ring-offset = 0px
@@ -2149,6 +2171,8 @@
 --hd-title = 24px
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
+--hd-toast-bottom = 16px
+--hd-toast-gap = 16px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
 --hd-toggle-knob-on = rgb(49, 49, 49)

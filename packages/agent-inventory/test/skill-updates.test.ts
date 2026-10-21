@@ -138,3 +138,21 @@ test('an update never drops a linked target file that the bundle reader omits', 
     assert.equal(await readFile(join(target, 'my-link'), 'utf8'), 'Same note')
   })
 })
+
+
+test('install records its time and update replaces it with the update time', async () => {
+  await fixture(async (home, libraryDir, target, source) => {
+    const manifest = await LibraryManifest.load(libraryDir)
+    const installed = manifest.find('skill', target, 'demo')!
+    assert.equal(installed.origin?.installedAt, installed.at)
+    manifest.record({ ...installed, origin: { ...baseOrigin, installedAt: 1 } })
+    await manifest.save()
+    const before = Date.now()
+    const op = (await planLibrary(agents, [intent(source)], { home, libraryDir })).ops[0]!
+    assert.equal((await applyLibrary([{ ...op, acknowledged: true }], { home, libraryDir }))[0]?.outcome, 'done')
+    const updated = (await LibraryManifest.load(libraryDir)).find('skill', target, 'demo')!
+    const at = updated.origin?.installedAt
+    assert.equal(at, updated.at)
+    assert.ok(at !== undefined && at >= before && at <= Date.now())
+  })
+})

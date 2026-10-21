@@ -72,6 +72,7 @@ const mount = (paneId?: string, key: SessionKey | null = null): void => {
   }
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     transport: { request: vi.fn() },
     // Each fixture is a separate window; it must not restore another test's mirror.

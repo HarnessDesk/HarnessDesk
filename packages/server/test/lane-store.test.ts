@@ -12,7 +12,8 @@ const lane = (): Lane => ({ id: 'a', goal: 'g1', seat: null, cwd: '', branch: ''
 test('a restart preserves reserved ownership and readers cannot change the registry', async () => {
   const home = await temporary()
   try {
-    const first = new LaneStore(home); await first.load(); await first.save(lane())
+    const first = new LaneStore(home); await first.load(); const revision = first.revision; await first.save(lane())
+    assert.ok(first.revision > revision, 'successful saves invalidate browser admission caches')
     const next = new LaneStore(home); await next.load(); assert.deepEqual(next.list(), [lane()])
     ;(next.list()[0]!.ports as { start: number }).start = 40000
     assert.equal(next.list()[0]!.ports.start, 30000)
@@ -24,9 +25,9 @@ test('a failed save neither updates memory nor rewrites the last durable registr
   try {
     const first = new LaneStore(home); await first.load(); await first.save(lane())
     const file = join(home, 'lanes', 'index.json'); const before = await readFile(file, 'utf8')
-    const next = new LaneStore(home, async () => { throw new Error('disk full') }); await next.load()
+    const next = new LaneStore(home, async () => { throw new Error('disk full') }); await next.load(); const revision = next.revision
     await assert.rejects(next.save({ ...lane(), state: 'retained' }), /disk full/)
-    assert.equal(next.list()[0]!.state, 'reserved'); assert.equal(await readFile(file, 'utf8'), before)
+    assert.equal(next.revision, revision, 'a failed write does not invalidate the durable generation'); assert.equal(next.list()[0]!.state, 'reserved'); assert.equal(await readFile(file, 'utf8'), before)
   } finally { await rm(home, { recursive: true, force: true }) }
 })
 

@@ -4,7 +4,7 @@ import type { AgentEntry, FlowPolicyRole, FlowSeat, RuntimeInfo } from '@harness
 
 import {
   BoardMenuButton, Button, Card, Checkbox, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
-  DropdownMenuTrigger, Field, FormStack, Input, MenuNote, MenuSearch, NativeSelect, Note, Row, Rows, SectionHead, Textarea,
+  DropdownMenuTrigger, Field, FormStack, Input, MenuNote, MenuSearch, NativeSelect, Note, Row, Rows, SectionBody, SectionHead, Textarea,
 } from '../design'
 import { agentName, ceilingWords } from '../lib/agents'
 import {
@@ -34,9 +34,10 @@ export interface ShapeStepProps {
   readonly agents: readonly AgentEntry[]
   readonly runtimes: readonly RuntimeInfo[]
   readonly onChange: (role: FlowPolicyRole) => void
+  readonly embedded?: boolean
 }
 
-export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) => {
+export const ShapeStep = ({ role, agents, runtimes, onChange, embedded = false }: ShapeStepProps) => {
   const [seatQuery, setSeatQuery] = useState('')
   const shownSeats = runtimes.filter(one => one.presentation.name.toLocaleLowerCase().includes(seatQuery.trim().toLocaleLowerCase()))
   const setId = (id: string): void => onChange({ ...role, id })
@@ -45,8 +46,7 @@ export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) 
     onChange(defaultRole(kind, role.id))
   }
 
-  return (
-    <Card spacing="compact">
+  const form = (
         <FormStack>
           <Field label="Step name" hint="Other steps refer to this one by this name — renaming it updates every place that does.">
             {(control) => <Input {...control} value={role.id} onChange={(event) => setId(event.target.value)} />}
@@ -62,7 +62,7 @@ export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) 
           {role.kind === 'agent' && (
             <>
               <section aria-label={`Agents for ${role.id}`}>
-                <SectionHead name="Uses" />
+                <SectionHead level="label" name="Uses" />
                 <Rows>
                   {agents.length === 0 && <Row title="No Agents to choose from yet" />}
                   {agents.map((entry) => (
@@ -101,7 +101,7 @@ export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) 
                 )}
               </Field>
               <section aria-label={`Seat override for ${role.id}`}>
-                <SectionHead
+                <SectionHead level="label"
                   name="Seat override"
                   action={
                     <DropdownMenu wide icons="none">
@@ -233,6 +233,6 @@ export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) 
             </Field>
           )}
         </FormStack>
-    </Card>
   )
+  return embedded ? <SectionBody spacing="compact">{form}</SectionBody> : <Card spacing="compact">{form}</Card>
 }

@@ -14,6 +14,7 @@ import { destinationOf, stepDestination, visitDestination } from '../state/desti
 import type { ReactNode } from 'react'
 
 import {
+  isBrowserProfile,
   matchPlanSuggestion,
   runtimeId,
   splitSessionKey,
@@ -421,6 +422,8 @@ export const LIBRARY = {
     {
       kind: 'skill',
       name: 'code-review',
+      update: [{ name: 'code-review', runtime: runtimeId('claude'), status: 'behind' as const, latest: 'abcdef1234567890', reason: null,
+        origin: { url: 'https://github.com/acme-dev/skills', ref: 'main', commit: '1234567890abcdef', path: 'review/code-review' } }],
       title: null,
       description: 'Review the current diff for correctness bugs.',
       catalogTokens: 96,
@@ -465,6 +468,8 @@ export const LIBRARY = {
     {
       kind: 'skill',
       name: 'benchmark',
+      update: [{ name: 'benchmark', runtime: runtimeId('claude'), status: 'gone' as const, latest: null, reason: 'The branch no longer exists.',
+        origin: { url: 'https://github.com/acme-dev/skills', ref: 'retired', commit: '1234567890abcdef', path: 'benchmark' } }],
       title: null,
       description: 'Performance regression detection for the site.',
       catalogTokens: 120,
@@ -1400,7 +1405,7 @@ class PreviewStore {
   }
   openBrowser(url?: string, options: { readonly split?: 'row' | 'column' | null; profile?: string | null } = {}): void {
     const profile = options.profile ?? null
-    if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) throw new Error('Invalid browser profile.')
+    if (profile !== null && !isBrowserProfile(profile)) throw new Error('Invalid browser profile.')
     const before = this.#snapshot.workbench
     const browsers = dockViews(before.right).filter(one => one.view.kind === 'browser' && (one.view.profile ?? null) === profile)
     const held = browsers[0]
@@ -1473,7 +1478,11 @@ class PreviewStore {
     const base = room ?? (pane?.view.kind === 'room' ? pane.view.room : undefined)
     if (base) this.requestTeamFrame(base, 'board')
   }
-  openTeamRoom(room: string): void { this.showViewIn('main', { kind: 'room', room }) }
+  markTeamSeen(room: string): void {
+    const view = this.#snapshot.goals.get(room)
+    if (view) this.patch({ goals: new Map(this.#snapshot.goals).set(room, { ...view, lastSeenAt: Date.now() }) })
+  }
+  openTeamRoom(room: string): void { this.markTeamSeen(room); this.showViewIn('main', { kind: 'room', room }) }
 
   togglePanel(area: DockId): void {
     this.#workbench(toggleDock(this.#snapshot.workbench, area))
@@ -2131,16 +2140,17 @@ class PreviewStore {
    * error boundary. A real implementation, even a small one, is the fix —
    * the same shape the real `Store.loadAudit` returns, never the floor.
    */
-  refreshTasks = async (key: SessionKey | null = this.#snapshot.activeSessionKey): Promise<void> => {
-    if (!key) return
+  refreshTasks = async (key: SessionKey | null = this.#snapshot.activeSessionKey): Promise<'loaded' | 'unsupported'> => {
+    if (!key) return 'unsupported'
     const address = splitSessionKey(key)
     const runtime = this.#snapshot.runtimes.find(one => one.id === address.runtime)
-    if (runtime && !runtime.capabilities.backgroundTasks) return
+    if (runtime && !runtime.capabilities.backgroundTasks) return 'unsupported'
     const tasks = await this.transport.request('tasks/list', { runtime: address.runtime, sessionId: address.id }) as readonly BackgroundTask[]
     const next = new Map(this.#snapshot.tasks)
     if (tasks.length === 0) next.delete(key)
     else next.set(key, orderTasks(tasks))
     this.patch({ tasks: next })
+    return 'loaded'
   }
   readWorkDiff = async (_root: string, _from: string, _to: string): Promise<{ diff: string }> => ({ diff: DOCUMENT_DIFF })
   loadAudit = async (): Promise<readonly AuditRow[]> => AUDIT_ROWS

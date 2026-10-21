@@ -4,10 +4,11 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { test } from 'node:test'
 
+import { placeCard, sessionKey } from '@harnessdesk/protocol'
 import type { BoardEvidence, FlowExecution, GoalCitation, RuntimeId, SeatRecord } from '@harnessdesk/protocol'
 
 import { GoalPlane, type GoalMemorySupport, type GoalPlanePort } from '../src/goals/plane.js'
-import { goalViewForWire } from '../src/methods/goals.js'
+import { goalMethods, goalViewForWire } from '../src/methods/goals.js'
 import { UNOBSERVED_LOADING_REFUSAL } from '../src/goals/assignments.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { MemoryPlane } from '../src/memory/plane.js'
@@ -98,9 +99,13 @@ const rig = async (
   }
 }
 
-test('a done card without observed evidence needs a person; a current passing check makes it ready', async () => {
+test('unchecked done cards stay on the board without raising Team attention', async () => {
   const proof = await rig()
-  assert.equal((await proof.plane.view('g1')).activity, 'needs-you')
+  const document = proof.store.read('g1')
+  await proof.store.save({...document,goal:{...document.goal,revision:1},board:{...document.board,nextIntent:142,intents:Array.from({length:141},(_,n)=>intent(n+1,{state:'done'}))}},0)
+  assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap')
+  assert.equal((await proof.plane.view('g1')).uncheckedDone, 141)
+  assert.deepEqual(placeCard({intent:proof.store.read('g1').board.intents[0]!,evidence:undefined,stranded:false,holderWaits:false,forPerson:false,live:false,runStopped:false}), {column:'needs',why:'nothing checked'})
   await proof.plane.refresh('g1')
   assert.deepEqual(proof.transitions, [])
   proof.facts({
@@ -114,7 +119,7 @@ test('a done card without observed evidence needs a person; a current passing ch
   })
   await proof.plane.refresh('g1')
   assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap')
-  assert.deepEqual(proof.transitions, ['needs-you:ready-to-wrap'])
+  assert.deepEqual(proof.transitions, [])
 })
 
 test('an evidence read failure is visible and never makes settled work ready', async () => {
@@ -663,7 +668,8 @@ test('a Run completed by its person does not keep its finished attempts in Team 
   proof.port.held = () => false
   const settled = proof.store.read('g1')
   await proof.store.save({ ...settled, board: { ...settled.board, nextIntent: 5, intents: [...settled.board.intents, intent(4, { state: 'done' })] }, goal: { ...settled.goal, revision: 5 } }, 4)
-  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'unchecked follow-up work remains attention')
+  assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap', 'unchecked follow-up work does not raise Team attention')
+  assert.equal((await proof.plane.view('g1')).uncheckedDone, 1, 'unchecked follow-up work keeps its Board placement')
 
   const followUp = proof.store.read('g1')
   await proof.store.save({ ...followUp,
@@ -702,4 +708,191 @@ test('past members belong only to the selected current Run, while earlier stoppe
   await proof.store.save({ ...document, goal: { ...document.goal, revision: document.goal.revision + 1 },
     flowReservation: { run: 'old', operation: 'start' } }, document.goal.revision)
   assert.deepEqual((await proof.plane.view('g1')).pastMembers, [earlier], 'a reserved Run owns the roster selection')
+})
+
+
+test('opening a Team persists its seen time across a Goal store restart without changing the Goal revision', async () => {
+  const proof = await rig()
+  const stale = proof.store.read('g1')
+  const before = stale.goal
+  const seen = (goalMethods as unknown as Record<string, (ctx: unknown, params: unknown) => Promise<{ lastSeenAt?: number }>>)['goal/seen']
+  assert.equal(typeof seen, 'function')
+  const result = await seen!({ goals: proof.plane }, { goal: 'g1' })
+  assert.ok(result.lastSeenAt! > 0)
+  const restarted = new GoalStore(proof.store.directory.slice(0, -'/goals'.length))
+  await restarted.load()
+  const plane = new GoalPlane(restarted, proof.port)
+  assert.equal((await plane.view('g1') as unknown as { lastSeenAt?: number }).lastSeenAt, result.lastSeenAt)
+  assert.deepEqual(restarted.read('g1').goal, before)
+  await proof.store.save({...stale,goal:{...stale.goal,revision:stale.goal.revision+1}},stale.goal.revision)
+  assert.equal((await proof.plane.view('g1')).lastSeenAt,result.lastSeenAt,'a board save captured before opening cannot erase seen time')
+  await plane.hydrateActivity()
+  assert.equal((await plane.view('g1')).lastSeenAt,result.lastSeenAt)
+})
+
+
+test('an approval still raises Team attention when all work is unchecked and done', async () => {
+  const proof = await rig()
+  proof.seats.push(seat('waiting'))
+  proof.port.waits = () => true
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you')
+  proof.port.waits = () => false
+  assert.equal((await proof.plane.view('g1')).activity, 'ready-to-wrap')
+})
+
+test('ready news advances after a later transition and survives restart without becoming new again', async () => {
+  const proof = await rig()
+  let at = 10
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  await plane.refresh('g1')
+  await plane.seen('g1')
+  proof.port.held = () => true
+  await plane.refresh('g1')
+  at = 20
+  proof.port.held = () => false
+  await plane.refresh('g1')
+  assert.equal((await plane.view('g1')).readyAt, 20)
+  assert.equal((await plane.view('g1')).lastSeenAt, 10)
+  const store = new GoalStore(proof.store.directory.slice(0, -'/goals'.length))
+  await store.load()
+  at = 30
+  const restarted = new GoalPlane(store, proof.port, undefined, () => at)
+  await restarted.hydrateActivity()
+  assert.equal((await restarted.view('g1')).readyAt, 20)
+  assert.equal((await restarted.view('g1')).lastSeenAt, 10)
+})
+
+
+test('seen skips writes and broadcasts until newer Team news arrives', async (t) => {
+  const proof = await rig()
+  let at = 10
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  const mark = t.mock.method(proof.store, 'mark')
+  const changed = t.mock.method(proof.port, 'changed')
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 1)
+  assert.equal(changed.mock.callCount(), 1)
+  at = 20
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 1, 'opening the same news again writes nothing')
+  assert.equal(changed.mock.callCount(), 1)
+  proof.port.executions = () => [{ id: 'ended', goal: 'g1', state: 'settled', endedAt: 15, rounds: [] } as unknown as FlowExecution]
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 2, 'an ended Run is new news')
+  at = 30
+  Object.assign(proof.port, { unreadAt: () => 25 })
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 3, 'unread Seat output is new news')
+  at = 40
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 3)
+  await proof.store.mark('g1', { readyAt: 35 })
+  await plane.seen('g1')
+  assert.equal(mark.mock.callCount(), 5, 'ready news is new even without a Goal revision')
+  assert.equal(changed.mock.callCount(), 4)
+})
+
+for (const history of ['wrapped', 'restored'] as const) test(`seen leaves ${history} history untouched`, async (t) => {
+  const proof = await rig()
+  if (history === 'wrapped') {
+    const choices = { summary: 'Finished.', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+    const preview = await proof.plane.preview('g1', choices)
+    const document = proof.store.read('g1')
+    const receipt = { ...preview.receipt, id: 'receipt-g1', wrappedAt: 10 }
+    await proof.store.save({ ...document, goal: { ...document.goal, state: 'wrapped', receipt: receipt.id, revision: document.goal.revision + 1 }, receipt }, document.goal.revision)
+  } else {
+    const doc = proof.store.read('g1')
+    await proof.store.restore({ ...doc, goal: { ...doc.goal, id: 'restored' } }, 10)
+  }
+  const id = history === 'wrapped' ? 'g1' : 'restored'
+  const before = proof.store.read(id)
+  const mark = t.mock.method(proof.store, 'mark')
+  const changed = t.mock.method(proof.port, 'changed')
+  const result = await proof.plane.seen(id)
+  assert.equal(result.goal.id, id)
+  assert.deepEqual(proof.store.read(id), before)
+  assert.equal(mark.mock.callCount(), 0)
+  assert.equal(changed.mock.callCount(), 0)
+})
+
+test('goal/seen refuses an unknown Goal without writing or broadcasting', async (t) => {
+  const proof = await rig()
+  const mark = t.mock.method(proof.store, 'mark')
+  const changed = t.mock.method(proof.port, 'changed')
+  await assert.rejects(goalMethods['goal/seen']({ goals: proof.plane } as never, { goal: 'missing' }), /That Goal is not on this desk/)
+  assert.equal(mark.mock.callCount(), 0)
+  assert.equal(changed.mock.callCount(), 0)
+})
+
+
+test('seen clears unread output from a board-only Seat', async (t) => {
+  const proof = await rig()
+  let at = 10
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  await plane.seen('g1')
+  const boardOnly = { runtime: 'fake', sessionId: 'earlier' }
+  const view = plane.view.bind(plane)
+  // The page can retain an earlier roster even when no Seat record is current.
+  t.mock.method(plane, 'view', async (id: string) => {
+    const current = await view(id)
+    return { ...current, board: { ...current.board, members: [sessionKey(boardOnly.runtime, boardOnly.sessionId)] } }
+  })
+  proof.port.unreadAt = sessions => sessions.some(one => one.runtime === boardOnly.runtime && one.sessionId === boardOnly.sessionId) ? 15 : 0
+  at = 20
+  const seen = await plane.seen('g1')
+  assert.deepEqual(seen.members, [])
+  assert.deepEqual(seen.pastMembers, [])
+  assert.equal(seen.lastSeenAt, 20, 'the board-only unread output is acknowledged')
+})
+
+test('goal/seen news hint acknowledges an inbox entry saved after an otherwise skipped read', async (t) => {
+  const proof = await rig()
+  let at = 10
+  let inboxAt = 0
+  proof.port.unreadAt = () => inboxAt
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  await plane.seen('g1')
+  at = 20
+  await plane.seen('g1')
+  assert.equal((await plane.view('g1')).lastSeenAt, 10, 'no host news yet, so this read was skipped')
+  const mark = t.mock.method(proof.store, 'mark')
+  // The renderer already shows this news, but its preference write is still pending.
+  const params = { goal: 'g1', newsAt: 15 }
+  const result = await goalMethods['goal/seen']({ goals: plane } as never, params)
+  inboxAt = 15
+  assert.equal(result.lastSeenAt, 20)
+  assert.ok((await plane.view('g1')).lastSeenAt! >= inboxAt, 'late persistence cannot restore the blue mark')
+  assert.equal(mark.mock.callCount(), 1)
+  await goalMethods['goal/seen']({ goals: plane } as never, params)
+  assert.equal(mark.mock.callCount(), 1, 'an already acknowledged hint still skips the write')
+})
+
+
+test('goal/seen preserves its stored seen time when the host clock steps backwards', async (t) => {
+  const proof = await rig()
+  let at = 30
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  await plane.seen('g1')
+  assert.equal(proof.store.read('g1').lastSeenAt, 30)
+  at = 20
+  const mark = t.mock.method(proof.store, 'mark')
+  const seen = await goalMethods['goal/seen']({ goals: plane } as never, { goal: 'g1', newsAt: 40 })
+  assert.equal(mark.mock.calls[0]?.arguments[1].lastSeenAt, 30, 'the plane must not request a backwards write')
+  assert.equal(proof.store.read('g1').lastSeenAt, 30, 'a hinted write cannot lower the stored seen time')
+  assert.equal(seen.lastSeenAt, 30)
+})
+
+test('goal/seen uses a future news hint only to trigger a host-timed write', async () => {
+  const proof = await rig()
+  let at = 10
+  const plane = new GoalPlane(proof.store, proof.port, undefined, () => at)
+  await plane.seen('g1')
+  at = 20
+  const params = { goal: 'g1', newsAt: Number.MAX_SAFE_INTEGER }
+  const seen = await goalMethods['goal/seen']({ goals: plane } as never, params)
+  assert.equal(seen.lastSeenAt, 20, 'the client cannot choose the stored seen time')
+  assert.equal(proof.store.read('g1').lastSeenAt, 20)
+  at = 30
+  proof.port.unreadAt = () => 25
+  assert.equal((await plane.seen('g1')).lastSeenAt, 30, 'later host news is not hidden by the future hint')
 })

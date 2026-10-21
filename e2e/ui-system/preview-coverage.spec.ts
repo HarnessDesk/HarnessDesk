@@ -561,13 +561,27 @@ test.describe('preview coverage', () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto('/design.html?view=team-start')
       await page.getByRole('button', { name: 'Picker', exact: true }).click()
-      await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
+      const dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
+      await expect(dialog).toBeVisible()
       const teamStartCoverage = await collectCoverage(page)
       expect(teamStartCoverage.covered).toContain('components/FrontDoor.tsx#FrontDoor')
       for (const component of teamStartCoverage.covered) covered.add(component)
+      await dialog.getByRole('button', { name: 'Side by side', exact: true }).click()
+      await expect(dialog.getByRole('region', { name: 'Selected Flow', exact: true })).toContainText('Side by side')
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+      await dialog.getByRole('button', { name: 'Configure Attempt A', exact: true }).click()
+      await expect(page.getByRole('button', { name: 'Runtime for Attempt A', exact: true })).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+      await page.keyboard.press('Escape')
+      await dialog.getByRole('button', { name: 'Details', exact: true }).click()
+      await dialog.getByRole('button', { name: 'Completion and dry run', exact: true }).click()
+      await expect(dialog.getByLabel('Done when · optional', { exact: true })).toBeVisible()
+      await dialog.getByRole('button', { name: 'Dry run', exact: true }).click()
+      await expect(dialog.getByRole('region', { name: 'Dry run', exact: true })).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
     })
 
-    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers', '?flows-page=catalogue', '?flows-page=editor', '?lead-synthetic=app-shell', '?lead-synthetic=result-person-gate', '?lead-synthetic=settings-configured']).entries()) test(`coverage page 1: query ${item}`, async () => {
+    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers', '?flows-page=catalogue', '?flows-page=editor', '?frame-wall=library&frame-detail=skill&frame-name=code-review', '?frame-wall=agents&frame-account-name=dialog', '?lead-synthetic=app-shell', '?lead-synthetic=result-person-gate', '?lead-synthetic=settings-configured']).entries()) test(`coverage page 1: query ${item}`, async () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto(`/preview.html${query}`)
       if (query === '?board-list') {
@@ -581,6 +595,7 @@ test.describe('preview coverage', () => {
       if (query === '?flows-page=editor') await expect(page.getByRole('main', { name: 'Flow editor', exact: true })).toBeVisible()
       if (query.startsWith('?lead-synthetic=')) await expect(page.locator('h1').filter({ hasText: /^Lead$/ })).toBeVisible()
       if (query === '?lead-synthetic=settings-configured') await expect(page.getByRole('dialog', { name: 'Lead settings', exact: true })).toBeVisible()
+      if (query.includes('frame-detail=skill')) await expect(page.locator('[data-slot="skill-page"]')).toBeVisible()
       await settleCoveragePage(page)
       const result = await collectCoverage(page)
       allComponents = result.allComponents
@@ -626,7 +641,7 @@ test.describe('preview coverage', () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto(`/preview.html?run-shapes=${scene}`)
       await page.locator('#run-shapes-frame [data-step-row][data-row="card-1-1"] button').click()
-      if (scene === 'comparison') await expect(page.locator('[data-slot="run-inspector"] [data-slot="timeline-card"]')).toHaveCount(2)
+      if (scene === 'comparison') await expect(page.locator('[data-slot="run-inspector"]').getByRole('region', { name: 'Recorded cards', exact: true }).locator('[data-slot="list-row"]')).toHaveCount(2)
       else await expect(page.locator('[data-slot="timeline-document-body"]')).toContainText('Investigation answer')
       for (const component of (await collectCoverage(page)).covered) covered.add(component)
     })
@@ -828,8 +843,13 @@ test.describe('preview coverage', () => {
         return heading?.textContent?.trim() === 'Product Surfaces'
       })
       if (isProductSurface) await waitForLazyBoardToSettle(page, label)
+      if (label === 'Library') {
+        await expect(page.locator('[data-slot="skill-card"]').first()).toBeVisible()
+        await expect(page.locator('[data-slot="skill-list"] [data-slot="skill-row"]').first()).toBeVisible()
+      }
       const result = await collectCoverage(page)
       for (const file of result.covered) covered.add(file)
+      if (label === 'Library') expect(result.covered).toEqual(expect.arrayContaining(['components/SkillRow.tsx#SkillList', 'components/SkillRow.tsx#SkillRow']))
       if (label === 'Panels') expect(result.covered).toContain('panels/Workbench.tsx#Workbench')
     })
   })

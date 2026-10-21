@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -43,8 +43,8 @@ test('the plan reaches the shards and metadata selects the tier, with manual dis
   assert.ok(changes.includes('CI_HEAD_BRANCH: ${{ github.head_ref }}'))
   assert.ok(changes.includes('CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}'))
   assert.match(changes, /UI_THEME_TOUCHED="\$theme" node script\/ci-changes\.mjs/)
-  // The diff that decides it is the UI's own, between the base parent and the merge.
-  assert.match(changes, /git diff --no-renames -U0 HEAD\^1 HEAD -- packages\/ui /)
+  // The paths and theme metadata use the same event-specific base.
+  assert.match(changes, /git diff --no-renames -U0 "\$base" HEAD -- packages\/ui /)
 })
 
 test('the stable browser check requires every shard and keeps reports after failure (#1140)', () => {
@@ -91,30 +91,41 @@ const runAggregate = (name, env) => {
   return spawnSync('bash', ['-e', '-c', block[1]], { encoding: 'utf8', env: { ...process.env, ...env } })
 }
 
-test('bounded CI for UI changes concludes both required integration checks successfully', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ci-core-'))
-  try {
-    const list = join(directory, 'paths')
-    writeFileSync(list, 'packages/ui/src/App.tsx\0')
-    const selection = spawnSync(process.execPath, ['script/ci-changes.mjs', list], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: 'pull_request', CI_HEAD_BRANCH: 'feature/ui', CI_LABELS: '[]', UI_IMPACT_MAP: '' },
-    })
-    assert.equal(selection.status, 0, selection.stderr)
-    const plan = Object.fromEntries(selection.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
-    assert.equal(plan.tier, 'bounded')
-    const browser = runAggregate('ui-system-browser-integration', {
-      CI_TIER: plan.tier, BROWSER: plan.browser, CHANGES_RESULT: 'success',
-      BUILD_RESULT: 'skipped', SHARDS_RESULT: 'skipped', SERVER_RESULT: 'skipped',
-    })
-    assert.equal(browser.status, 0, browser.stdout + browser.stderr)
-    const native = runAggregate('ui-system-native-integration', {
-      NATIVE: plan.native, CHANGES_RESULT: 'success', SMOKE_RESULT: 'skipped',
-    })
-    assert.equal(native.status, 0, native.stdout + native.stderr)
-  } finally {
-    rmSync(directory, { recursive: true, force: true })
-  }
-})
+for (const [event, path, expected] of [
+  ['pull_request', 'packages/ui/src/App.tsx', 'none'],
+  ['push', 'docs/architecture.md', 'none'],
+  ['push', 'e2e/ui-system/row-box.spec.ts', 'all'],
+  ['push', 'packages/server/src/host.ts', 'server'],
+]) {
+  test(`bounded ${event} for ${path} concludes both required integration checks successfully`, () => {
+    const directory = mkdtempSync(join(tmpdir(), 'ci-core-'))
+    try {
+      const list = join(directory, 'paths')
+      writeFileSync(list, `${path}\0`)
+      const selection = spawnSync(process.execPath, ['script/ci-changes.mjs', list], {
+        encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, CI_REF_NAME: 'development', CI_HEAD_BRANCH: 'feature/ui', CI_LABELS: '[]', UI_IMPACT_MAP: '' },
+      })
+      assert.equal(selection.status, 0, selection.stderr)
+      const plan = Object.fromEntries(selection.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
+      assert.equal(plan.tier, 'bounded')
+      assert.equal(plan.browser, expected)
+      assert.equal(plan.native, 'false')
+      const browser = runAggregate('ui-system-browser-integration', {
+        CI_TIER: plan.tier, BROWSER: plan.browser, CHANGES_RESULT: 'success',
+        BUILD_RESULT: expected === 'all' ? 'success' : 'skipped',
+        SHARDS_RESULT: expected === 'all' ? 'success' : 'skipped',
+        SERVER_RESULT: expected === 'server' ? 'success' : 'skipped',
+      })
+      assert.equal(browser.status, 0, browser.stdout + browser.stderr)
+      const native = runAggregate('ui-system-native-integration', {
+        NATIVE: plan.native, CHANGES_RESULT: 'success', SMOKE_RESULT: 'skipped',
+      })
+      assert.equal(native.status, 0, native.stdout + native.stderr)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+}
 
 for (const [name, resultKey, flagKey, heavy] of [
   ['ui-system-native-integration', 'SMOKE_RESULT', 'NATIVE', 'ui-system-native'],
@@ -244,7 +255,7 @@ test('the gate check passes only when every part succeeded', () => {
 test('changes compares the merge to its first parent and falls back on failed diff', () => {
   const changes = job('changes')
   assert.match(changes, /fetch-depth: 2/)
-  assert.match(changes, /git diff --no-renames --name-only -z HEAD\^1 HEAD/)
+  assert.match(changes, /git diff --no-renames --name-only -z "\$base" HEAD/)
   assert.match(changes, /if ! git diff[\s\S]*?rm -f "\$list"/)
   assert.match(changes, /node script\/ci-changes\.mjs "\$list" > "\$RUNNER_TEMP\/ci-plan"\n\s+cat "\$RUNNER_TEMP\/ci-plan" >> "\$GITHUB_OUTPUT"/)
   assert.match(changes, /browser: \$\{\{ steps\.paths\.outputs\.browser \}\}/)
@@ -268,7 +279,7 @@ test('a full run records what each spec ran, and only a pull request that runs p
   assert.match(browser, /- uses: actions\/upload-artifact@\S+\n        if: success\(\) && needs\.changes\.outputs\.record == 'true'\n        with:\n          name: ui-impact-\$\{\{ matrix\.shard \}\}\n          path: output\/ui-impact\//)
 })
 
-test('the map is made from a clean full run, kept only by main, and read by a pull request from the newest one', () => {
+test('the map is made from a clean full run, kept by main and development, and restored with the branch preferred', () => {
   const map = job('ui-impact-map')
   assert.match(map, /^    needs: \[changes, ui-system-browser\]$/m)
   assert.match(map, /^    if: needs\.changes\.outputs\.record == 'true' && needs\.ui-system-browser\.result == 'success'$/m)
@@ -279,9 +290,9 @@ test('the map is made from a clean full run, kept only by main, and read by a pu
   assert.doesNotMatch(map, /steps\.map\./)
   assert.match(map, /test -s ui-impact-map\.json/)
   assert.match(map, /actions\/upload-artifact@\S+\n        with:\n          name: ui-impact-map\n/)
-  assert.match(map, /actions\/cache\/save@\S+\n        if: github\.ref == 'refs\/heads\/main'\n        with:\n          path: ui-impact-map\.json\n          key: ui-impact-map-\$\{\{ github\.sha \}\}/)
+  assert.match(map, /actions\/cache\/save@\S+\n        if: github\.ref == 'refs\/heads\/main' \|\| github\.ref == 'refs\/heads\/development'\n        with:\n          path: ui-impact-map\.json\n          key: ui-impact-map-\$\{\{ github\.ref_name \}\}-\$\{\{ github\.sha \}\}/)
   const changes = job('changes')
-  assert.match(changes, /if: github\.event_name == 'pull_request'\n        uses: actions\/cache\/restore@\S+\n        with:\n          path: ui-impact-map\.json\n          key: ui-impact-map-none\n          restore-keys: ui-impact-map-\n/)
+  assert.match(changes, /if: github\.event_name == 'pull_request' \|\| \(github\.event_name == 'push' && github\.ref == 'refs\/heads\/development'\)\n        uses: actions\/cache\/restore@\S+\n        with:\n          path: ui-impact-map\.json\n          key: ui-impact-map-\$\{\{ github\.ref_name \}\}-none\n          restore-keys: \|\n            ui-impact-map-\$\{\{ github\.ref_name \}\}-\n            ui-impact-map-main-\n/)
   assert.ok(changes.includes('UI_IMPACT_MAP: ui-impact-map.json'))
   // The map job concludes nothing the merge depends on: neither aggregate waits for it.
   assert.doesNotMatch(job('ui-system-browser-integration'), /ui-impact-map/)
@@ -291,7 +302,7 @@ test('the map is made from a clean full run, kept only by main, and read by a pu
 test('a pull request runs the unit tests that depend on its change, and every other run runs them all', () => {
   const changes = job('changes'), tests = job('ui-unit-tests')
   assert.match(changes, /node script\/ci-unit-tests\.mjs "\$list"/)
-  assert.match(changes, /git diff --no-renames --name-only -z HEAD\^1 HEAD > "\$list"/)
+  assert.match(changes, /git diff --no-renames --name-only -z "\$base" HEAD > "\$list"/)
   assert.match(tests, /if: needs\.changes\.outputs\.unit_mode == 'all'/)
   assert.match(tests, /id: deal\n        if: needs.changes.outputs.unit_mode == 'all'\n        run: \|/)
   assert.match(tests, /test -s "\$deal"/)
@@ -348,4 +359,57 @@ test('the aggregate requires a successful build exactly when the browser suite r
       assert.equal(output.status, passes ? 0 : 1, `${browser}/${result}: ${output.stdout} ${output.stderr}`)
     }
   }
+})
+
+// Run the workflow's actual diff preparation in a shallow clone: a push may
+// contain several commits, so HEAD^1 is not its change boundary.
+test('development push diff fetches before beyond checkout depth and computes theme over the same range', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ci-push-range-'))
+  const root = fileURLToPath(new URL('../', import.meta.url))
+  const git = (args, cwd = root) => {
+    const run = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+    assert.equal(run.status, 0, run.stderr)
+    return run.stdout
+  }
+  try {
+    const clone = join(directory, 'clone')
+    const before = git(['rev-parse', 'HEAD~3']).trim()
+    // The workflow fetch must not leave detached maintenance writing into a
+    // disposable clone while finally removes it. Apply before the initial fetch too.
+    git(['clone', '--config', 'maintenance.auto=false', '--config', 'gc.auto=0', '--depth=2', '--no-checkout', `file://${root}`, clone])
+    assert.notEqual(spawnSync('git', ['cat-file', '-e', `${before}^{commit}`], { cwd: clone }).status, 0)
+    const block = job('changes').match(/        run: \|\n([\s\S]*?)          UI_THEME_TOUCHED=/)?.[1]
+    assert.ok(block, 'workflow diff preparation')
+    const execute = (event, revision, ref = 'development') => spawnSync('bash', ['-e', '-o', 'pipefail', '-c', block + '\nprintf "%s\\n" "$theme"'], {
+      cwd: clone, encoding: 'utf8', env: { ...process.env, RUNNER_TEMP: directory, EVENT_NAME: event, CI_REF_NAME: ref, CI_BEFORE: revision },
+    })
+    const list = join(directory, 'ci-changed-paths')
+    const run = execute('push', before)
+    assert.equal(run.status, 0, run.stderr)
+    assert.equal(readFileSync(list, 'utf8'), git(['diff', '--no-renames', '--name-only', '-z', before, 'HEAD'], clone))
+    const diff = git(['diff', '--no-renames', '-U0', before, 'HEAD', '--', 'packages/ui'], clone)
+    const themed = diff.split('\n').some(line => /^[+-]/.test(line) && !/^(\+\+\+|---)/.test(line) && /dark|theme/i.test(line))
+    assert.equal(run.stdout.trim(), String(themed))
+    const pr = execute('pull_request', '')
+    assert.equal(pr.status, 0, pr.stderr)
+    assert.equal(readFileSync(list, 'utf8'), git(['diff', '--no-renames', '--name-only', '-z', 'HEAD^1', 'HEAD'], clone))
+    for (const revision of ['', '0'.repeat(40), 'f'.repeat(40)]) {
+      writeFileSync(list, 'stale-path\0')
+      const fallback = execute('push', revision)
+      assert.equal(fallback.status, 0, fallback.stderr)
+      assert.equal(existsSync(list), false, `no trustworthy diff for ${revision}`)
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('impact cache restore falls back to legacy entries after development and main', () => {
+  const keys = job('changes').match(/restore-keys: \|\n((?:            [^\n]+\n)+)/)?.[1].trim().split('\n').map(line => line.trim().replace('${{ github.ref_name }}', 'development'))
+  assert.deepEqual(keys, ['ui-impact-map-development-', 'ui-impact-map-main-', 'ui-impact-map-'])
+  const legacy = `ui-impact-map-${'a'.repeat(40)}`
+  const restore = entries => keys.flatMap(prefix => entries.filter(key => key.startsWith(prefix)))[0]
+  assert.equal(restore([legacy]), legacy)
+  assert.equal(restore([legacy, 'ui-impact-map-main-new', 'ui-impact-map-development-new']), 'ui-impact-map-development-new')
+  assert.equal(restore([legacy, 'ui-impact-map-main-new']), 'ui-impact-map-main-new')
 })

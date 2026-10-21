@@ -4,10 +4,11 @@ const preview = '/src/preview/project-entry.html'
 
 test('the empty composer and both sidebar entries open one folder picker with keyboard access', async ({ page }) => {
   await page.goto(preview)
-  const open = page.getByRole('button', { name: 'Choose folder', exact: true })
+  const open = page.getByRole('button', { name: 'No folder', exact: true })
   await expect(open).toBeEnabled()
   await open.focus()
   await page.keyboard.press('Enter')
+  await page.getByRole('menuitem', { name: 'Choose folder…', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Open a project folder' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(open).toBeFocused()
@@ -29,14 +30,17 @@ test('catalogue totals leave sidebar labels quiet', async ({ page }) => {
   }
 })
 
-test('a finished Team stays under its project with attention until wrapped', async ({ page }) => {
+test('a finished Team stays under its project with blue news until opened or wrapped', async ({ page }) => {
   await page.goto(`${preview}?scene=finished`)
   const team = page.getByRole('button', { name: 'Room Finish checkout retry', exact: true })
   await expect(team).toBeVisible()
   const attention = team.locator('..').locator('[data-slot="sidebar-menu-state"]')
-  await expect(attention).toHaveAccessibleName('Ready to wrap')
+  await expect(attention).toHaveAccessibleName('New')
+  await expect(attention.locator('[data-slot="dot"]')).toHaveAttribute('data-state','new')
   await expect(attention).toBeVisible()
   await expect(team.locator('xpath=ancestor::*[@data-project-root]')).toHaveAttribute('data-project-root', '/work/storefront')
+  await team.locator('[data-left-fold-name]').click()
+  await expect(attention).toHaveCount(0)
   await page.getByRole('button', { name: 'Wrap Team', exact: true }).click()
   await expect(team).toHaveCount(0)
 })
@@ -49,10 +53,16 @@ test('a finished Team whose project is gone stays hidden', async ({ page }) => {
 
 test('Most used earns its section from recorded starts', async ({ page }) => {
   await page.goto(`${preview}?scene=shapes`)
+  const dialog = page.getByRole('dialog', { name: 'New Team', exact: true })
+  // Quick choices lead into the complete, grouped catalogue; usage sections
+  // are a contract of that catalogue rather than the initial spotlight.
+  await expect(dialog.getByRole('button', { name: 'Write and review', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'All Flows', exact: true }).click()
   await expect(page.getByRole('region', { name: 'Most used', exact: true })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'More Flows', exact: true }).getByRole('button', { name: 'Write and review', exact: true })).toBeVisible()
   await page.evaluate(() => localStorage.setItem('hd-team-shape-starts', JSON.stringify({ comparison: 1 })))
   await page.reload()
+  await dialog.getByRole('button', { name: 'All Flows', exact: true }).click()
   const most = page.getByRole('region', { name: 'Most used', exact: true })
   await expect(most.getByRole('button', { name: 'Side by side', exact: true })).toBeVisible()
   await expect(most.getByRole('button')).toHaveCount(1)

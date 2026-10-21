@@ -1,3 +1,5 @@
+import { RetainedComponentsCoverage } from './coverage-retained-components'
+import { LibraryChangesFixture } from './library-destination-fixture'
 import { Notice, NoticeHost, Input, Text } from '../design'
 import { libraryNoticeResults } from './notice-fixture'
 import { SettingsPreviewScope } from './settings-pages'
@@ -15,7 +17,7 @@ import { TroubleNote } from '../components/GitAskAgent'
 import { ConfirmDialog } from '../components/GitDialogs'
 import { AddWorktreeDialog } from '../components/GitWorktrees'
 import { PlanSteps, StepNameScope } from '../components/Items'
-import { ImportDialog, LibraryFlows, LibraryHistory, PlanDialog, ResolveDialog } from '../components/LibraryActions'
+import { ImportDialog, LibraryFlows, PlanDialog, ResolveDialog } from '../components/LibraryActions'
 import { Notices, NoticeStripOutlet, SidebarNotices } from '../components/Notices'
 import { Publication } from '../components/Publication'
 import { Deliverables, JobsBar } from '../components/SessionBars'
@@ -224,8 +226,8 @@ export const NoticePlacementFrames = () => (
   <>
     <NoticeLayoutFrame id="coverage-notice-narrow-overlay" title="Notice placement — narrow window overlay" options={{ narrow: true }} />
     <NoticeLayoutFrame id="coverage-notice-room-board" title="Notice placement — room board without a composer" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never }} />
-    <NoticeLayoutFrame id="coverage-notice-room-pending-approval" title="Notice placement — room composer hidden by an approval" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, pendingRoomApproval: true }} />
-    <NoticeLayoutFrame id="coverage-notice-room-container-query" title="Notice placement — narrow room rail hides its body" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, stripSurface: true, narrowRoom: true }} />
+    <NoticeLayoutFrame id="coverage-notice-room-pending-approval" title="Notice placement — inline approval with a persistent composer" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, pendingRoomApproval: true }} />
+    <NoticeLayoutFrame id="coverage-notice-room-container-query" title="Notice placement — narrow room with a floating rail" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, stripSurface: true, narrowRoom: true }} />
     <NoticeLayoutFrame id="coverage-notice-folder-gone" title="Notice placement — folder-gone conversation" options={{ folderGone: true }} />
     <NoticeLayoutFrame id="coverage-notice-zoomed-sidebar" title="Notice placement — zoomed sidebar" options={{ zoom: 'sidebar' }} />
     <NoticeLayoutFrame id="coverage-notice-zoomed-dock" title="Notice placement — zoomed dock" options={{ zoom: 'right' }} />
@@ -313,9 +315,10 @@ export const CoverageFrames = () => {
           </div>
         </StoreProvider>
       </Frame>
-      <Frame id="coverage-library" title="Library — changes made from here">
-        <div className="p-4"><LibraryHistory refreshedAt={0} home="/home/u" onFlow={() => {}} /></div>
+      <Frame id="coverage-library" title="Library — Changes made here">
+        <div className="h-[900px]"><LibraryChangesFixture /></div>
       </Frame>
+      <RetainedComponentsCoverage />
       <Frame id="coverage-panel-actions" title="Panel actions context">
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
           <div className="p-4">Panel actions are available here.</div>

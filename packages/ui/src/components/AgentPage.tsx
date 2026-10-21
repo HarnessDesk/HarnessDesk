@@ -37,7 +37,7 @@ import { ceilingTitle, flagWords, runtimeHolds } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentSeatCosts } from './AgentSeatCosts'
-import { PlusIcon, TrashIcon, CopyIcon, FolderIcon, FileIcon, ShieldIcon, ClockIcon } from './Icons'
+import { PlusIcon, TrashIcon, FolderIcon, FileIcon, ShieldIcon, ClockIcon } from './Icons'
 import {
   Banner,
   Chip,
@@ -111,7 +111,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
   const snapshot = useSnapshot()
   const [customizing, setCustomizing] = useState(false)
   const [removing, setRemoving] = useState(false)
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState<'primary' | 'fallback' | null>(null)
   const [updatingCeiling, setUpdatingCeiling] = useState(false)
   const [editingCeiling, setEditingCeiling] = useState(false)
   const [editingPrefer, setEditingPrefer] = useState(false)
@@ -128,7 +128,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
     if (active) return
     setCustomizing(false)
     setRemoving(false)
-    setAdding(false)
+    setAdding(null)
     setUpdatingCeiling(false)
     setEditingCeiling(false)
     setEditingPrefer(false)
@@ -146,6 +146,9 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
   const warnings = entry.problems.filter((one) => one.level === 'warning')
   const shadows = shadowWords(entry)
   const plan = snapshot.agentPlans.get(entry.id)
+  const localSeats = snapshot.seating?.entries.find(one => one.id === entry.id)?.seats ?? null
+  const seatingUnreadable = snapshot.seating?.problems.some(one => one.id === null) ?? false
+  const primaryChoiceDisabled = seatingBusy || !snapshot.seating || seatingUnreadable || (localSeats?.length ?? 0) > SEAT_PREFERENCE_LIMIT
   const ceilingFlag = definition ? flagWords(definition) : null
   // Relative to the project's own root when there is one to be relative to —
   // the header above already says "In storefront", so a project Agent's file
@@ -157,6 +160,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
   /** Builtins are read-only until Customize copies them, exactly like the fields below. */
   const editable = entry.origin !== 'builtin'
   useEffect(() => {
+    setAdding(null)
     setUpdatingCeiling(false)
     setEditingCeiling(false)
     setEditingPrefer(false)
@@ -231,7 +235,6 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
       <DestinationBar place={name}
         more={close => <>
           {canStartHigher && <MenuItem icon={<ShieldIcon size={14} />} label="Start at a higher ceiling…" onSelect={() => { setStartingHigher(true); close() }} />}
-          {targets.length > 0 && <MenuItem icon={<CopyIcon size={14} />} label="Customize…" onSelect={() => { setCustomizing(true); close() }} />}
           {definition && snapshot.agentsProject && <MenuItem icon={<ClockIcon size={14} />} label="Run automatically…" onSelect={() => { setEveryTime(true); close() }} />}
           {folder && <MenuItem icon={<FileIcon size={14} />} label="Open file" onSelect={() => { openFile(); close() }} />}
           {folder && <MenuItem icon={<FolderIcon size={14} />} label="Reveal" onSelect={() => { void store.revealAgent(entry.id, entry.origin); close() }} />}
@@ -240,13 +243,19 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
       <PageOptions title={name}><Toolbar>
         {definition && <Button variant="outline" size="sm" onClick={start}>Start a conversation as {definition.name}</Button>}
         <Button variant="ghost" size="sm" onClick={onBack}>Back to Agents</Button>
+      </Toolbar></PageOptions>
+      <Toolbar>
+        {definition && <Button variant="outline" size="sm" disabled={primaryChoiceDisabled}
+          title={seatingUnreadable ? 'The file cannot be read, so nothing here writes to it — fix it by hand first.' : (localSeats?.length ?? 0) > SEAT_PREFERENCE_LIMIT ? `An Agent names at most ${SEAT_PREFERENCE_LIMIT} seats.` : undefined}
+          onClick={() => setAdding('primary')}>Choose runtime…</Button>}
+        {targets.length > 0 && <Button variant="outline" size="sm" onClick={() => setCustomizing(true)}>Customize…</Button>}
         <AgentFace entry={entry} />
         {definition && <Chip label={ceilingWords(definition.ceiling)} tone="neutral" title={ceilingFlag ?? undefined} />}
-      </Toolbar></PageOptions>
+      </Toolbar>
       {definition?.description && <PageExplanation>{definition.description}</PageExplanation>}
 
       {(folder || definition) && (
-        <Section title="Agent">
+        <Section level="heading" title="Agent">
           <SummaryList>
             {folder && (
               <SummaryItem
@@ -303,7 +312,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
       {attachmentsProblem && <Banner tone="danger" title="Attachments could not be read">{attachmentsProblem}</Banner>}
 
       {errors.length > 0 && (
-        <Section title="Why it will not parse">
+        <Section level="heading" title="Why it will not parse">
           <Rows>
             {errors.map((one) => (
               <Row key={`${one.at}-${one.text}`} title={one.text} {...(one.at ? { desc: `At ${one.at}` } : {})} />
@@ -312,7 +321,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
         </Section>
       )}
       {warnings.length > 0 && (
-        <Section title="Warnings">
+        <Section level="heading" title="Warnings">
           <Rows>
             {warnings.map((one) => (
               <Row key={`${one.at}-${one.text}`} title={one.text} {...(one.at ? { desc: `At ${one.at}` } : {})} />
@@ -325,7 +334,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
         <>
           <OwnSeats
             entry={entry}
-            onEditSeats={() => setAdding(true)}
+            onEditSeats={() => setAdding('fallback')}
             {...(agentDocument ? { onEditPrefer: () => setEditingPrefer(true) } : {})}
           />
           <MachineSeats
@@ -333,7 +342,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
             busy={seatingBusy}
             problem={seatingProblem}
             onSet={setMachineSeats}
-            onAdd={() => setAdding(true)}
+            onAdd={() => setAdding('fallback')}
           />
           <AgentSeatCosts entry={entry} />
 
@@ -348,7 +357,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
           ) : documentProblem ? (
             <Banner tone="danger" title="This Agent’s file could not be read">{documentProblem}</Banner>
           ) : (
-            <Section title="What it hands back">
+            <Section level="heading" title="What it hands back">
               <Rows>
                 <Row title="Answers" control={<RowValue>{wordList(definition.answers)}</RowValue>} />
                 <Row title="Produces" control={<RowValue>{wordList(definition.produces)}</RowValue>} />
@@ -385,9 +394,10 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
       {active && adding && definition && (
         <AddSeatDialog
           entry={entry}
-          expected={snapshot.seating?.entries.find((one) => one.id === entry.id)?.seats ?? null}
+          mode={adding}
+          expected={localSeats}
           onSet={setMachineSeats}
-          onClose={() => setAdding(false)}
+          onClose={() => setAdding(null)}
         />
       )}
 
@@ -471,7 +481,7 @@ const OwnSeats = ({
   const seats = replaced ? (plan.own ?? []) : (plan?.candidates ?? [])
   const editable = entry.origin !== 'builtin'
   return (
-    <Section title="Seats"
+    <Section level="heading" title="Seats"
         {...(editable && onEditPrefer ? { action: <Button size="sm" variant="outline" onClick={onEditPrefer}>Edit…</Button> } : {})}
       >
       <Note>
@@ -630,7 +640,7 @@ const MachineSeats = ({
   }
 
   return (
-    <Section title="On this Mac"
+    <Section level="label" title="On this Mac"
         action={
           <>
             {mine && (
@@ -716,26 +726,42 @@ const MachineSeats = ({
 /**
  * One seat for this Mac, chosen in words: a runtime this desk has added, one
  * of its models or its default, one of that model's efforts or its default,
- * and thinking where the model has the switch. Appended to the list.
+ * and thinking where the model has the switch. A primary choice replaces
+ * only the first local preference; a fallback is appended.
  */
 const AddSeatDialog = ({
   entry,
+  mode,
   expected,
   onSet,
   onClose,
 }: {
   readonly entry: AgentEntry
+  readonly mode: 'primary' | 'fallback'
   readonly expected: readonly FlowSeat[] | null
   readonly onSet: (seats: readonly FlowSeat[] | null, expected: readonly FlowSeat[] | null) => Promise<void>
   readonly onClose: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const [runtime, setRuntime] = useState<string>(snapshot.runtimes[0]?.id ?? '')
+  const [compared] = useState(() => expected?.map(seat => ({ ...seat })) ?? null)
+  const [initial] = useState<FlowSeat>(() => {
+    if (mode === 'primary') {
+      if (compared?.[0]) return compared[0]
+      const plan = snapshot.agentPlans.get(entry.id)
+      const winner = plan?.winner == null ? null : plan.candidates[plan.winner]
+      if (winner) return winner.seat
+      const available = snapshot.runtimes.filter(one => snapshot.healthByRuntime[one.id]?.state !== 'unavailable')
+      return { runtime: available.find(one => one.id === snapshot.activeRuntime)?.id ?? available[0]?.id ?? '' }
+    }
+    return { runtime: snapshot.runtimes[0]?.id ?? '' }
+  })
+  const [runtime, setRuntime] = useState<string>(initial.runtime)
   const [models, setModels] = useState<readonly ModelInfo[] | null>(null)
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [thinking, setThinking] = useState(false)
+  const [thinkingSet, setThinkingSet] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
 
@@ -743,19 +769,29 @@ const AddSeatDialog = ({
     if (!runtime) return
     let live = true
     setModels(null)
-    setModel('')
-    setEffort('')
-    setThinking(false)
+    setProblem(null)
+    const prefill = mode === 'primary' && runtime === initial.runtime ? initial : null
+    setModel(prefill?.model ?? '')
+    setEffort(prefill?.effort ?? '')
+    setThinking(prefill?.thinking ?? false)
+    setThinkingSet(prefill?.thinking !== undefined)
     void store.modelsFor(runtime as RuntimeId).then((list) => {
       if (live) setModels(list.filter((one) => !one.hidden))
+    }, (error: unknown) => {
+      if (live) setProblem(error instanceof Error ? error.message : 'The runtime’s models could not be read.')
     })
     return () => {
       live = false
     }
-  }, [runtime, store])
+  }, [runtime, store, initial, mode])
 
   // Its efforts and its switch are the chosen model's — or, for its default, the model it defaults to.
   const shape = models?.find((one) => (model ? one.id === model : one.isDefault)) ?? null
+  const unknownModel = models !== null && Boolean(model) && !models.some(one => one.id === model)
+  const unknownEffort = Boolean(effort && shape && !shape.reasoningLevels.some(one => one.id === effort))
+  const unreadable = !snapshot.seating || snapshot.seating.problems.some(one => one.id === null)
+  const full = mode === 'primary' ? (compared?.length ?? 0) > SEAT_PREFERENCE_LIMIT : (compared?.length ?? 0) >= SEAT_PREFERENCE_LIMIT
+  const missingRuntime = !snapshot.runtimes.some(one => one.id === runtime)
 
   const add = async (): Promise<void> => {
     setBusy(true)
@@ -764,10 +800,10 @@ const AddSeatDialog = ({
       runtime,
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
-      ...(thinking ? { thinking: true } : {}),
+      ...(thinkingSet ? { thinking } : {}),
     }
     try {
-      await onSet([...(expected ?? []), seat], expected)
+      await onSet(mode === 'primary' ? [seat, ...(compared?.slice(1) ?? [])] : [...(compared ?? []), seat], compared)
       onClose()
     } catch (error) {
       setBusy(false)
@@ -777,13 +813,13 @@ const AddSeatDialog = ({
 
   return (
     <Dialog
-      title={`A seat for ${agentName(entry)} on this Mac`}
+      title={mode === 'primary' ? `Runtime for ${agentName(entry)} on this Mac` : `A seat for ${agentName(entry)} on this Mac`}
       size="sm"
       onClose={onClose}
       footer={
         <>
-          <Button variant="default" disabled={busy || !runtime || models === null} onClick={() => void add()}>
-            {busy ? 'Adding…' : 'Add seat'}
+          <Button variant="default" disabled={busy || !runtime || missingRuntime || models === null || unknownModel || unknownEffort || unreadable || full} onClick={() => void add()}>
+            {busy ? mode === 'primary' ? 'Saving…' : 'Adding…' : mode === 'primary' ? 'Save choice' : 'Add seat'}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
@@ -791,10 +827,13 @@ const AddSeatDialog = ({
         </>
       }
     >
-      {expected === null && <Note>Seats here replace its own list on this Mac. They are not added to it.</Note>}
+      {mode === 'primary'
+        ? <Note>{compared?.length ? 'This choice applies on this Mac only. It replaces the first local preference and keeps later fallbacks.' : 'This choice applies on this Mac only. It replaces this Agent’s preferred seats here without changing its file.'}</Note>
+        : compared === null && <Note>Seats here replace its own list on this Mac. They are not added to it.</Note>}
       <Field label="Runtime">
         {(control) => (
           <NativeSelect {...control} value={runtime} onChange={(event) => setRuntime(event.target.value)}>
+            {missingRuntime && <option value={runtime}>Unavailable runtime</option>}
             {snapshot.runtimes.map((one) => (
               <option key={one.id} value={one.id}>
                 {one.presentation.name}
@@ -813,9 +852,11 @@ const AddSeatDialog = ({
               setModel(event.target.value)
               setEffort('')
               setThinking(false)
+              setThinkingSet(false)
             }}
           >
             <option value="">Its default</option>
+            {unknownModel && <option value={model} disabled>{model} · unavailable</option>}
             {(models ?? []).map((one) => (
               <option key={one.id} value={one.id}>
                 {one.displayName}
@@ -824,11 +865,12 @@ const AddSeatDialog = ({
           </NativeSelect>
         )}
       </Field>
-      {shape && shape.reasoningLevels.length > 0 && (
+      {shape && (shape.reasoningLevels.length > 0 || effort) && (
         <Field label="Effort">
           {(control) => (
             <NativeSelect {...control} value={effort} onChange={(event) => setEffort(event.target.value)}>
               <option value="">Its default</option>
+              {unknownEffort && <option value={effort} disabled>{effort} · unavailable</option>}
               {shape.reasoningLevels.map((level) => (
                 <option key={level.id} value={level.id}>
                   {level.label}
@@ -839,8 +881,10 @@ const AddSeatDialog = ({
         </Field>
       )}
       {shape?.thinking === 'optional' && (
-        <Field label="Thinking">{(control) => <Switch {...control} checked={thinking} onCheckedChange={setThinking} />}</Field>
+        <Field label="Thinking">{(control) => <Switch {...control} checked={thinking} onCheckedChange={(value) => { setThinking(value); setThinkingSet(true) }} />}</Field>
       )}
+      {unknownModel && <Note tone="bad">This model is unavailable. Choose another model before saving.</Note>}
+      {unknownEffort && <Note tone="bad">This effort is unavailable. Choose another effort before saving.</Note>}
       {problem && <Note tone="bad">{problem}</Note>}
     </Dialog>
   )

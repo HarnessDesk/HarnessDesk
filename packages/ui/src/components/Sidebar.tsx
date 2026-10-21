@@ -18,6 +18,7 @@ import { SessionListControls, SessionTree } from './SessionTree'
 import {
   AccountMark,
   MenuFacts,
+  Submenu,
   ConfirmDialog,
   ActionError,
   useDismissOverlays,
@@ -39,7 +40,7 @@ import {
   type MenuAccountFigure,
   type Tone,
 } from '../design'
-import { accountKey, accountName, accountIdentity, agentKey, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
+import { accountForUsage, accountKey, accountName, accountIdentity, agentKey, prefsForUsage, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken } from '../lib/agents'
 import { FlowIcon } from './Icons'
@@ -49,9 +50,9 @@ import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
 import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
-import { Clipped, DisclosureChevron, EmptyState } from '../design'
+import { Clipped, EmptyState } from '../design'
 import type { Section } from './Settings'
-import { bindingLane, describeReport, describeLane, formatAge, formatMoney, isBlocked } from '../lib/usage'
+import { bindingLane, describeReport, describeLane, formatAge, formatMoney, isBlocked, workingAccount } from '../lib/usage'
 import { usageReadingTone } from '../lib/limits'
 import { usageAccount } from '../lib/usage-alerts'
 import styles from './Sidebar.module.css'
@@ -193,6 +194,7 @@ export const Sidebar = ({
         now={now}
         suppressSelection={activeDestination !== null}
         searching={searchQuery.length > 0}
+        filter={searchQuery}
         searchEmptyState={searchQuery && !snapshot.historyLoading ? (
           <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
             {' '}
@@ -361,6 +363,20 @@ const readinessTone = (state: Readiness): Tone | undefined => ({
   broken: 'danger',
 } as const)[state]
 
+/** A broken launch or sign-in requirement outranks a cached reading. */
+const figureOf = (seat: Seat): MenuAccountFigure | undefined =>
+  seat.state === 'broken' || seat.state === 'signin'
+    ? { kind: 'word', text: READINESS_LABEL[seat.state], tone: readinessTone(seat.state) }
+    : seat.figure
+      ? { kind: 'reading', text: seat.figure, tone: usageReadingTone(seat.tone) }
+      : seat.state === 'limit'
+        ? { kind: 'word', text: READINESS_LABEL[seat.state], tone: readinessTone(seat.state) }
+        : undefined
+
+const SeatFigure = ({ figure }: { figure: MenuAccountFigure | undefined }) => figure
+  ? <Text role={figure.kind === 'reading' ? 'muted' : 'meta'} tone={figure.tone} numeric={figure.kind === 'reading'}>{figure.text}</Text>
+  : null
+
 export const AccountFooter = ({
   notifications,
   onOpenSettings,
@@ -384,15 +400,11 @@ export const AccountFooter = ({
   // and not the focused conversation's.
   const runtime = useRuntime()
   const quotaWarning = useAccountQuotaWarning()
-  const [accountsOpen, setAccountsOpen] = useState(false)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [busy, setBusy] = useState(false)
   const [signOutError, setSignOutError] = useState<string | null>(null)
   useDismissOverlays(confirmingSignOut, () => { setSignOutError(null); setConfirmingSignOut(false) })
   const accountRef = useRef<HTMLDivElement>(null)
-  const resetMenu = (): void => {
-    setAccountsOpen(false)
-  }
 
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
     const status = snapshot.accountsByRuntime[info.id] ?? null
@@ -465,7 +477,10 @@ export const AccountFooter = ({
 
   // The default agent's seat — its account, or its empty chair. Null only
   // with no agents at all, when the row is just the desk.
-  const here = seats.find((seat) => seat.current) ?? null
+  const report = workingAccount(snapshot.usage.filter(one => one.runtime === snapshot.activeRuntime), one =>
+    prefsForUsage(one.runtime, one.account, snapshot.accountsByRuntime, snapshot.accountPrefs) ?? {})
+  const here = seats.find(seat => seat.current && seat.report === report) ?? seats.find(seat => seat.current) ?? null
+  const currentFigure = here ? figureOf(here) : undefined
   const signedIn = here?.account !== null && here?.account !== undefined
   const agentName = brandOf(runtime.presentation.name)
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
@@ -483,9 +498,7 @@ export const AccountFooter = ({
   // mark. An agent with several is a heading wearing the mark once, and its
   // accounts under it as lines of their own — the agent is said by the
   // heading, so no row has to say it again.
-  // Grouped from every chair, folded or not: the default's row keeps the
-  // same parent either way, so opening the picker does not remount the row
-  // a keyboard is on. Folded, a group shows only the default under its heading.
+  // The whole roster lives in its own flyout, leaving the footer menu short.
   const groups: Seat[][] = []
   for (const seat of chairs) {
     const group = groups.find((entry) => agentKey(entry[0]!.info) === agentKey(seat.info))
@@ -530,7 +543,6 @@ export const AccountFooter = ({
     try {
       await store.signOutAgent(snapshot.activeRuntime)
       close()
-      resetMenu()
     } catch (error) {
       setSignOutError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -562,19 +574,12 @@ export const AccountFooter = ({
         icons="all"
         triggerClassName={buttonVariants({ variant: 'navigation', size: 'navigation', className: styles.accountRow })}
         label={accountTrigger}
-        onOpenChange={(next) => {
-          if (!next) resetMenu()
-        }}
       >
         {(close) => (
           <Menu
-            close={() => {
-              close()
-              resetMenu()
-            }}
+            close={close}
             onEscape={() => {
               close()
-              resetMenu()
               accountRef.current?.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')?.focus()
             }}
           >
@@ -585,85 +590,44 @@ export const AccountFooter = ({
           <MenuItem icon={<ProfileFace size={16} />} label={yourName} title="Your name and picture. Nothing syncs between machines." onSelect={() => onOpenSettings('profile')} />
 
           <MenuSeparator />
-          <MenuLabel size="compact">Run new sessions as</MenuLabel>
-            {groups.map((all) => {
-              const group = accountsOpen || !here ? all : all.filter((seat) => seat.current)
-              if (group.length === 0) return null
-              const renderSeat = (seat: Seat, child: boolean) => {
-                const mark = child ? <AccountMark size="dot" aria-hidden="true" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}>{null}</AccountMark> : <AccountMark size="menu" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : seat.state === 'signin' ? { 'data-off': '' } : {})}><RuntimeMark runtime={seat.info} size={16} /></AccountMark>
-                // A launch or sign-in failure outranks a cached reading.
-                // Otherwise show what is left, where it is measured, or the
-                // one word that is wrong. A ready seat with nothing metered says
-                // nothing, and neither does one that has not answered yet.
-                const figure: MenuAccountFigure | undefined = seat.state === 'broken' || seat.state === 'signin'
-                  ? { kind: 'word', text: READINESS_LABEL[seat.state], tone: readinessTone(seat.state) }
-                  : seat.figure
-                    ? { kind: 'reading', text: seat.figure, tone: usageReadingTone(seat.tone) }
-                    : seat.state === 'limit'
-                      ? { kind: 'word', text: READINESS_LABEL[seat.state], tone: readinessTone(seat.state) }
-                      : undefined
-                return (
-                  <MenuAccountRow
-                    key={seat.key}
-                    mark={mark}
-                    // The name is the account's own — yours, or the address it
-                    // was signed in with — so the identity under it only said
-                    // it again. It is the name's tooltip (not the row's, which
-                    // would sit over the mark's card) and whole on the card.
-                    // The name gives way before the tag: the tag is the word
-                    // that tells two rows apart.
-                    name={labelOf(seat)}
-                    identity={seat.sub}
-                    tag={tagOf(seat)}
-                    figure={figure}
-                    current={seat.current}
-                    expanded={seat.current && chairs.length > 1 ? accountsOpen : undefined}
-                    keepOpen={seat.current && chairs.length > 1}
-                    onSelect={() => {
-                      if (seat.current && chairs.length > 1) {
-                        setAccountsOpen((value) => !value)
-                        return
-                      }
-                      void store.selectRuntime(seat.info.id)
-                    }}
-                  />
-                )
-              }
-              if (all.length === 1) return renderSeat(group[0]!, false)
-              // Folded to the default alone, the group keeps its place (and
-              // the row its focus) but draws no heading: one row, its mark.
-              const folded = group.length < all.length
-              const agent = group[0]!.info
-              return (
-                <MenuAccountGroup
-                  key={agentKey(agent)}
-                  heading={!folded}
-                  label={agent.presentation.name}
-                  mark={
-                    <AccountMark size="sm">
-                      <RuntimeMark runtime={agent} size={16} />
-                    </AccountMark>
-                  }
-                >
-                  {group.map((seat) => renderSeat(seat, !folded))}
-                </MenuAccountGroup>
+          <Submenu
+            icon={here ? <AccountMark size="menu" {...(here.account ? { 'data-tint': tintOf(here.key, snapshot.accountPrefs) } : here.state === 'signin' ? { 'data-off': '' } : {})}><RuntimeMark runtime={here.info} size={16} /></AccountMark> : <AgentIcon size={16} />}
+            label={here ? <span data-menu-account-name="" data-identity={here.sub} title={here.sub}>{labelOf(here)}</span> : 'Accounts'}
+            value={currentFigure?.kind === 'word' ? <SeatFigure figure={currentFigure} /> : undefined}
+            current={Boolean(here)}
+            icons="all"
+          >
+            <MenuLabel size="compact">Run new sessions as</MenuLabel>
+            {groups.map((group) => {
+              const renderSeat = (seat: Seat, child: boolean) => (
+                <MenuAccountRow
+                  key={seat.key}
+                  mark={child
+                    ? <AccountMark size="dot" aria-hidden="true" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}>{null}</AccountMark>
+                    : <AccountMark size="menu" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : seat.state === 'signin' ? { 'data-off': '' } : {})}><RuntimeMark runtime={seat.info} size={16} /></AccountMark>}
+                  name={labelOf(seat)}
+                  identity={seat.sub}
+                  tag={tagOf(seat)}
+                  figure={figureOf(seat)}
+                  current={seat.current}
+                  onSelect={() => { void store.selectRuntime(seat.info.id) }}
+                />
               )
+              if (group.length === 1) return renderSeat(group[0]!, false)
+              const agent = group[0]!.info
+              return <MenuAccountGroup key={agentKey(agent)} label={agent.presentation.name}
+                mark={<AccountMark size="sm"><RuntimeMark runtime={agent} size={16} /></AccountMark>}>
+                {group.map((seat) => renderSeat(seat, true))}
+              </MenuAccountGroup>
             })}
-            <MenuItem
-              icon={<PlusIcon size={16} />}
-              label="Add an account…"
-              onSelect={() => {
-                // Opens the chooser rather than adding one here. "An account"
-                // does not mean "another of this one": the agent is the first
-                // question, and only picking one that is already connected
-                // means a second credential home — which the sign-in screen
-                // asks for explicitly, so a stray click cannot leave one
-                // behind.
-                onSignIn()
-              }}
-            />
-
-            <SeatPlanUsage onOpen={onOpenUsage} onSignIn={onSignIn} />
+            {here?.state === 'signin' && <MenuItem icon={<RuntimeMark runtime={here.info} size={16} />}
+              label={`Sign in to ${here.info.presentation.name}`} onSelect={() => onSignIn(here.info.id)} />}
+            <MenuSeparator />
+            <MenuItem icon={<PlusIcon size={16} />} label="Add an account…" onSelect={() => onSignIn()} />
+            <MenuItem icon={<SettingsIcon size={16} />} label="Manage runtimes" onSelect={() => onOpenSettings('runtimes')} />
+          </Submenu>
+          <SeatPlanUsage onOpen={onOpenUsage} onSignIn={onSignIn} />
+          <MenuSeparator />
             <MenuItem
               icon={<SettingsIcon size={16} />}
               label="Settings"
@@ -683,62 +647,59 @@ export const AccountFooter = ({
   )
 }
 
-/** The same plan facts as PlanMeters, in the seat's existing menu rows. */
-const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime: RuntimeId) => void; onSignIn: (runtime: RuntimeId) => void }) => {
+/** Usage has its own level; roster growth never adds rows to the root menu. */
+const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => void; onSignIn: (runtime: RuntimeId) => void }) => {
   const snapshot = useSnapshot()
-  const [now, setNow] = useState(Date.now), [expanded, setExpanded] = useState<string | null>(null)
+  const [now, setNow] = useState(Date.now)
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
   const view = describeStrip({ runtimes: snapshot.runtimes, usage: snapshot.usage, accountsByRuntime: snapshot.accountsByRuntime,
     accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: null, now })
-  const meters: readonly StripMeter[] = [...(view.anchor?.kind === 'meter' ? [view.anchor.meter] : []), ...(view.rest?.meters ?? [])]
-  const signIns = view.rest?.asides.filter(aside => aside.detail === 'Needs sign-in').map(aside => aside.info) ?? []
-  const markFor = (runtime: RuntimeId): ReactNode => {
-    const info = snapshot.runtimes.find(one => one.id === runtime)
-    return info ? <RuntimeMark runtime={info} size={16} /> : <AgentIcon size={16} />
+  const current = view.anchor?.kind === 'meter' ? view.anchor.meter : null
+  const others = view.rest?.meters ?? []
+  const shortAccountName = (meter: StripMeter): string => {
+    const account = accountForUsage(meter.runtime, meter.report.account, snapshot.accountsByRuntime)
+    return account
+      ? accountName(account, snapshot.accountPrefs[accountKey(meter.runtime, account)], meter.name)
+      : meter.account?.split('@')[0] ?? meter.name
   }
-  const signedInIds = new Set([
-    ...(view.anchor?.kind === 'signIn' ? [view.anchor.info.id] : []),
-    ...signIns.map(info => info.id),
-  ])
-  const reportingIds = new Set(meters.map(meter => meter.runtime))
-  const noUsageNames = snapshot.runtimes
-    .filter(info => !signedInIds.has(info.id) && !reportingIds.has(info.id))
-    .map(info => runtimeLabel(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs))
-  const noUsageSummary = noUsageNames.length === 0 ? null
-    : noUsageNames.length === 1 ? `No usage reported: ${noUsageNames[0]}`
-      : noUsageNames.length === 2 ? `No usage reported: ${noUsageNames[0]} and ${noUsageNames[1]}`
-        : `No usage reported: ${noUsageNames[0]}, ${noUsageNames[1]} and ${noUsageNames.length - 2} more`
-  const hasUsageGroup = Boolean(view.anchor || meters.length || signIns.length || noUsageSummary)
-  return <>
-    {hasUsageGroup && <MenuSeparator />}
-    {view.anchor?.kind === 'signIn' && <MenuItem icon={markFor(view.anchor.info.id)} label={`Sign in to ${view.anchor.info.presentation.name}`}
+  const usageAccountName = (meter: StripMeter): string => {
+    const short = shortAccountName(meter)
+    // A short name is useful only when it still tells reporting accounts apart.
+    const collision = others.some(other => other !== meter && other.name === meter.name && shortAccountName(other) === short)
+    return collision ? meter.account ?? short : short
+  }
+  return <Submenu icon={<UsageIcon size={16} />} label="Usage" icons="all"
+    value={current ? <Text role="muted" tone={usageReadingTone(current.tone)} numeric>{current.figure.endsWith('%') ? `${current.figure} left` : current.figure}</Text> : undefined}>
+    {current ? <SeatUsageFacts meter={current} now={now} /> : <MenuNote>No usage reported for this account.</MenuNote>}
+    {view.anchor?.kind === 'signIn' && <MenuItem icon={<RuntimeMark runtime={view.anchor.info} size={16} />}
+      label={`Sign in to ${view.anchor.info.presentation.name}`}
       onSelect={() => { if (view.anchor?.kind === 'signIn') onSignIn(view.anchor.info.id) }} />}
-    {meters.map((meter, index) => {
-      const key = `${meter.runtime}:${meter.report.account ?? ''}`, open = expanded === key
-      return <SeatUsageRows key={key} meter={meter} now={now} open={open} icon={markFor(meter.runtime)}
-        label={index === 0 && view.anchor?.kind === 'meter' ? 'Usage remaining' : `${meter.name}${meter.account ? ` · ${meter.account}` : ''} usage`}
-        toggle={() => setExpanded(open ? null : key)} onOpen={() => onOpen(meter.runtime)} />
-    })}
-    {signIns.map(info => <MenuItem key={info.id} icon={markFor(info.id)}
-      label={`Sign in to ${info.presentation.name}`}
-      onSelect={() => onSignIn(info.id)} />)}
-    {noUsageSummary && <MenuNote>{noUsageSummary}</MenuNote>}
-    {hasUsageGroup && <MenuSeparator />}
-  </>
+    <MenuItem icon={<UsageIcon size={16} />} label="Open usage" onSelect={() => onOpen(snapshot.activeRuntime ?? undefined)} />
+    {others.length > 0 && <>
+      <MenuSeparator />
+      <MenuLabel size="compact">Other accounts</MenuLabel>
+      {others.map(meter => {
+        const name = meter.account ? `${meter.name} · ${usageAccountName(meter)}` : runtimeLabel(meter.info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)
+        return <MenuItem key={`${meter.runtime}:${meter.report.account ?? ''}`}
+          icon={<RuntimeMark runtime={meter.info} size={16} />}
+          label={<span data-menu-account-name="" title={meter.title}>{name}</span>}
+          value={<Text role="muted" tone={usageReadingTone(meter.tone)} numeric>{meter.figure}</Text>}
+          title={meter.title} onSelect={() => onOpen(meter.runtime)} />
+      })}
+    </>}
+  </Submenu>
 }
-const SeatUsageRows = ({ meter, now, open, icon, label, toggle, onOpen }: { meter: StripMeter; now: number; open: boolean; icon: ReactNode; label: string; toggle: () => void; onOpen: () => void }) => <>
-  <MenuItem icon={icon} label={label} trailing={<><Text role="muted" tone={usageReadingTone(meter.tone)} numeric>{meter.figure}</Text><DisclosureChevron open={open} placement="trailing" tone={usageReadingTone(meter.tone) ? 'warning' : 'neutral'} /></>} expanded={open} keepOpen onSelect={toggle} title={meter.title} />
-  {open && <div data-usage-details>
-    {(meter.report.plan || meter.report.account) && <MenuNote>{[meter.report.plan, meter.report.account].filter(Boolean).join(' · ')}</MenuNote>}
-    <MenuFacts rows={meter.report.lanes.map(raw => {
-      const lane = describeLane(raw, now, meter.report.lanes)
-      return { id: lane.id, name: lane.title, percent: lane.remainingPercent,
-        countdown: lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`,
-        countdownTitle: lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined,
-        tone: lane.tone === 'bad' ? 'danger' as const : lane.tone === 'warn' ? 'warning' as const : 'neutral' as const, barless: true }
-    })} />
-    <MenuNote>{[meter.report.spend?.todayCost != null ? `${formatMoney(meter.report.spend.todayCost, meter.report.spend.currency)} today` : null,
-      meter.report.source.label, formatAge(meter.report.fetchedAt, now)].filter(Boolean).join(' · ')}</MenuNote>
-    <MenuItem icon={<UsageIcon size={16} />} label="Open usage" onSelect={onOpen} />
-  </div>}
-</>
+
+const SeatUsageFacts = ({ meter, now }: { meter: StripMeter; now: number }) => <div data-usage-details>
+  <MenuLabel size="compact">{meter.name}{meter.report.plan ? ` · ${meter.report.plan}` : ''}</MenuLabel>
+  {meter.report.account && <MenuNote><Text as="div" role="meta" truncate title={meter.report.account}>{meter.report.account}</Text></MenuNote>}
+  <MenuFacts rows={meter.report.lanes.map(raw => {
+    const lane = describeLane(raw, now, meter.report.lanes)
+    return { id: lane.id, name: lane.title, percent: lane.remainingPercent,
+      countdown: lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`,
+      countdownTitle: lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined,
+      tone: lane.tone === 'bad' ? 'danger' as const : lane.tone === 'warn' ? 'warning' as const : 'neutral' as const, barless: true }
+  })} />
+  <MenuNote>{[meter.report.spend?.todayCost != null ? `${formatMoney(meter.report.spend.todayCost, meter.report.spend.currency)} today` : null,
+    meter.report.source.label, formatAge(meter.report.fetchedAt, now)].filter(Boolean).join(' · ')}</MenuNote>
+</div>

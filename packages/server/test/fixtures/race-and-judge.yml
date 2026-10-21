@@ -1,0 +1,18 @@
+name: Race and judge
+inputs:
+  work: { label: What to build }
+
+roles:
+  competitor:
+    uses: implementer
+    seats: [cursor=gpt-5.3-codex/xhigh, claude=opus-5/high]
+    isolate: true
+    grant: publish
+  judge:   { uses: judge }
+  referee: { kind: person }
+
+seed: { role: competitor, title: "{{work}}" }
+
+rules:
+  - { on: competitor, when: { any: published },    then: { role: judge, title: "Pick one" } }
+  - { on: judge,      when: { any: picked },      then: { role: referee, title: "Merge {{evidence.review.at}}" } }

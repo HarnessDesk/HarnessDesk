@@ -15,8 +15,8 @@ import { expect, test, type Page } from '@playwright/test'
  * it asks three things of what is on screen:
  *
  *   1. Every declared face computes `--hd-face-radius` (or `-lg`), and is
- *      filled solid, except a notice's face, which keeps its tone's wash: it is
- *      translucent by design, so it is held to the wash its tone paints.
+ *      filled solid, except a notice's face, which keeps its tone's wash, and
+ *      an explicit bare glyph, which must keep a transparent ground.
  *   2. Every tile that holds an agent's mark is a face, an account's ring, or
  *      a named exception. A tile drawn in a fixed square or round that holds an
  *      agent is the next one a review would have found.
@@ -61,7 +61,7 @@ const PAGES: readonly { readonly name: string; readonly url: string; readonly re
       { what: 'a notice carrying an agent’s face', frame: 'conversation-composer', selector: ':not([data-slot])[data-tone][data-shape="face"]' },
       { what: 'a board card’s holder', frame: 'board-populated', selector: '[data-slot="icon-tile"][data-shape="face"]' },
       { what: 'Trajectory’s Events-filter rows', frame: 'panel-activity', selector: '[data-slot="icon-tile"][data-shape="face"]' },
-      { what: 'a channel’s senders', frame: 'room-channel-grouping', selector: '[data-slot="icon-tile"][data-shape="face"]' },
+      { what: 'a channel’s bare sender glyphs', frame: 'room-channel-grouping', selector: '[data-slot="icon-tile"][data-shape="face"][data-variant="bare"]' },
       { what: 'a person’s face in a channel', frame: 'room-channel-grouping', selector: 'span[data-shape="face"]:not([data-slot])' },
       { what: 'the seat’s face', frame: 'sidebar-column', selector: 'span[data-shape="face"]' },
       { what: 'the setup survey’s runtime faces', frame: 'setup-survey', selector: '[data-slot="icon-tile"][data-shape="face"]' },
@@ -171,6 +171,14 @@ const faceReport = (page: Page, exceptions: Excused) =>
         if (cs.backgroundColor !== wash || (alpha !== undefined && Number(alpha) === 0)) {
           findings.push({ rule: 'ground', where: where(el), slot: slot(el), detail: `${cs.backgroundColor}, its tone paints ${wash}` })
         }
+      } else if (el.matches('[data-slot="icon-tile"][data-variant="bare"]')) {
+        // Bare is a declared glyph variant, not an exemption from the ground
+        // contract. A plate or wash changes that variant just as transparency
+        // changes a filled identity tile; both must be caught.
+        const alpha = cs.backgroundColor.match(/^rgba\(.*,\s*([\d.]+)\)$/)?.[1]
+        if (cs.backgroundColor !== 'transparent' && Number(alpha) !== 0) {
+          findings.push({ rule: 'glyph-ground', where: where(el), slot: slot(el), detail: cs.backgroundColor })
+        }
       } else if (!/^rgb\(/.test(cs.backgroundColor)) {
         findings.push({ rule: 'solid', where: where(el), slot: slot(el), detail: cs.backgroundColor })
       }
@@ -196,6 +204,52 @@ const surfaceCount = (page: Page, surface: Surface) =>
       return r.width >= 1 && r.height >= 1
     }).length
   }, { frame: surface.frame ?? null, selector: surface.selector })
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`profile pictures crop their inset plate at the face corner without scaling the artwork in ${theme}`, async ({ page }) => {
+    await open(page, '/preview.html', PREVIEW_READY)
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('profile')
+    const profile = page.locator('[data-frame-id="settings-sheet"]')
+    for (const shape of ['round', 'square'] as const) {
+      await setFaces(page, 'attribute', shape)
+      for (const name of ['Paper', 'Ink', 'Blueprint']) {
+        const choice = profile.getByRole('radio', { name, exact: true })
+        await choice.click()
+        await expect(choice).toHaveAttribute('aria-checked', 'true')
+        const plates = profile.locator('[data-slot="face-picture-plate"]')
+        // Five choices, the profile's head and the sidebar's selected picture.
+        await expect(plates).toHaveCount(7)
+        const pictures = await plates.evaluateAll(elements => elements.map(plate => {
+          const face = plate.parentElement!, image = plate.querySelector('img')!
+          const a = face.getBoundingClientRect(), b = plate.getBoundingClientRect(), c = image.getBoundingClientRect()
+          return {
+            overflow: getComputedStyle(plate).overflow,
+            corner: getComputedStyle(plate).borderRadius,
+            faceCorner: getComputedStyle(face).borderRadius,
+            inset: b.width / a.width,
+            width: c.width - a.width, height: c.height - a.height,
+            centreX: c.x + c.width / 2 - (a.x + a.width / 2),
+            centreY: c.y + c.height / 2 - (a.y + a.height / 2),
+          }
+        }))
+        for (const picture of pictures) {
+          expect(picture.overflow).toBe('hidden')
+          expect(picture.corner).toBe(picture.faceCorner)
+          expect(picture.inset).toBeCloseTo(824 / 1024, 2)
+          for (const difference of [picture.width, picture.height, picture.centreX, picture.centreY]) {
+            expect(Math.abs(difference)).toBeLessThan(0.1)
+          }
+        }
+      }
+      for (const name of ['Plain', 'Wizard']) {
+        const choice = profile.getByRole('radio', { name, exact: true })
+        await expect(choice.locator('[data-slot="face-picture-plate"]')).toHaveCount(0)
+        expect(await choice.locator('img').evaluate(image => image.parentElement?.getAttribute('data-shape'))).toBe('face')
+      }
+    }
+  })
+}
 
 test.describe('rule: faces', () => {
   for (const spec of PAGES) {
@@ -243,6 +297,21 @@ test.describe('rule: faces', () => {
     await page.addStyleTag({ content: '[data-frame-id="goal-roster"] [data-slot="icon-tile"][data-shape="face"] { background-color: rgba(0, 0, 0, 0.1) !important; }' })
     const after = await faceReport(page, NOT_SOMEONE)
     expect(after.findings.some((f) => f.rule === 'solid' && f.where === 'goal-roster')).toBe(true)
+  })
+
+  test('rule: faces — the checker catches a bare sender glyph painted with a plate or wash', async ({ page }) => {
+    const spec = PAGES[0]!
+    await open(page, spec.url, spec.ready)
+    const glyph = '[data-frame-id="room-channel-grouping"] [data-slot="icon-tile"][data-shape="face"][data-variant="bare"]'
+    await expect(page.locator(glyph).first()).toBeVisible()
+    expect((await faceReport(page, NOT_SOMEONE)).findings).toEqual([])
+    for (const ground of ['rgb(52, 88, 240)', 'rgba(52, 88, 240, 0.1)']) {
+      const style = await page.addStyleTag({ content: `${glyph} { background-color: ${ground} !important; }` })
+      const after = await faceReport(page, NOT_SOMEONE)
+      expect(after.findings.some(f => f.rule === 'glyph-ground' && f.where === 'room-channel-grouping'), ground).toBe(true)
+      await style.evaluate(el => el.remove())
+    }
+    expect((await faceReport(page, NOT_SOMEONE)).findings).toEqual([])
   })
 
   test('rule: faces — the checker catches a notice’s face that lost its ground', async ({ page }) => {
@@ -299,6 +368,20 @@ test('rule: faces — table corners are scoped to the family lead', async ({ pag
   expect((await faceReport(page, [])).findings).toEqual([])
   await page.locator('[data-slot="list-row-lead"]').evaluate(el => el.removeAttribute('data-slot'))
   expect((await faceReport(page, [])).findings.filter(f => f.rule === 'corner')).toHaveLength(1)
+})
+
+test('rule: faces — bare glyphs and filled identities keep independent ground contracts', async ({ page }) => {
+  await page.setContent(`<style>
+    body { --hd-face-radius:6px; --hd-face-radius-lg:10px; }
+    [data-shape=face] { display:block;width:32px;height:32px;border-radius:6px; }
+    [data-variant=default] { background:rgb(240,240,240); }
+  </style><span id="filled" data-slot="icon-tile" data-shape="face" data-variant="default"></span>
+  <span id="glyph" data-slot="icon-tile" data-shape="face" data-variant="bare"></span>`)
+  expect((await faceReport(page, [])).findings).toEqual([])
+  await page.locator('#filled').evaluate(el => { (el as HTMLElement).style.backgroundColor = 'transparent' })
+  expect((await faceReport(page, [])).findings.map(f => f.rule)).toEqual(['solid'])
+  await page.locator('#glyph').evaluate(el => { (el as HTMLElement).style.backgroundColor = 'rgb(240,240,240)' })
+  expect((await faceReport(page, [])).findings.map(f => f.rule)).toEqual(['solid', 'glyph-ground'])
 })
 
 

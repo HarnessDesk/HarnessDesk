@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { editorConversation } from '../editor'
 import { sanitizeText } from '../lib/sanitize'
 import { sessionUnavailable } from '../lib/session-unavailable'
+import { isChatFolder } from '../lib/chats'
 import { useInstalledAgents } from '../lib/first-run'
 import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
@@ -28,6 +29,7 @@ import { handOverToComposer } from '../lib/compose'
 import { dismissOverlays } from '../lib/overlays'
 import { Composer } from './Composer'
 import { useConversationTopBar } from './use-conversation-top-bar'
+import { WindowControls } from './WindowControls'
 import {
   BranchIcon,
   BrainIcon,
@@ -210,7 +212,9 @@ const ConversationEmpty = ({
 
   // Only meaningful for a runtime that has an account at all. A local model has
   // nothing to sign in to, and saying otherwise would be nonsense.
-  if (runtime.capabilities.account && account && account.accounts.length === 0) {
+  // And only once the agent has said so: one not checked yet may well be
+  // signed in, and its first conversation is what asks it.
+  if (runtime.capabilities.account && account && account.accounts.length === 0 && !account.unchecked) {
     const driveable = account.signInMethods.some((method) => method.flow !== 'external')
     const external = account.signInMethods.find((method) => method.flow === 'external')
     return (
@@ -261,7 +265,7 @@ const ConversationEmpty = ({
     <ConversationEmptyState height={height}>
       <EmptyTitle>What should we build?</EmptyTitle>
       <EmptyBody>
-        {session ? `Describe what you want done in ${folder}.` : 'Describe a task, then choose the folder it runs in.'}
+        {session ? `Describe what you want done in ${folder}.` : 'Describe a task.'}
       </EmptyBody>
       {/* This pane already knows its folder — the front door reads the same
           root. With none chosen yet there is no catalogue to read, so the
@@ -558,6 +562,7 @@ export const Conversation = ({
   const filePlace = activeFile && session?.cwd && activeFile.startsWith(`${session.cwd}/`)
     ? activeFile.slice(session.cwd.length + 1) : activeFile
   useConversationTopBar(pane?.paneId ?? '', {
+    compact: { lead: <WindowControls history={false} />, more: close => <><WindowControls menu close={close} /><WorkTools menu close={close} draft={!session} /></> },
     place: filePlace ? sanitizeText(filePlace) : <HeaderTitle session={session} />,
     parent: filePlace ? { label: titleOf(session), run: () => store.setWindowMode('conversation') } : undefined,
     state: session ? <Dot tone={STATUS_PILL_TONE[status]} pulse={status === 'running'} title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} /> : undefined,
@@ -802,6 +807,13 @@ export const GitControl = ({
   const summary = session
     ? snapshot.history.find((entry) => entry.runtime === session.runtime && entry.id === session.id)
     : undefined
+  // Repository rows go only where the folder is known not to be a repository:
+  // a managed chat, or the open workspace once the host has read it as none
+  // (`repo: null`; absent means unread). A folder this window has no read for
+  // (a Team member's clone, a runtime that reports no git) keeps them.
+  const here = cwd === snapshot.workspace?.path ? snapshot.workspace : null
+  const knownNotRepository = isChatFolder(cwd, snapshot.chatsFolderRoots) || (here?.repo === null && !here.git)
+  const hasRepository = Boolean(branch || checkout || session?.git || summary?.repo) || !knownNotRepository
   const linked =
     armed !== null ||
     pointedAway ||
@@ -846,7 +858,7 @@ export const GitControl = ({
                 disabled
                 onSelect={() => {}}
               />
-            ) : (
+            ) : hasRepository && (
               <>
                 <MenuItem
                   icon={<HistoryIcon size={16} />}
@@ -882,7 +894,7 @@ export const GitControl = ({
                 onSelect={onRemoveWorktree}
               />
             )}
-            {session && key && runtime.capabilities.review && (
+            {hasRepository && session && key && runtime.capabilities.review && (
               <MenuItem
                 icon={<ReviewIcon size={16} />}
                 label="Review uncommitted changes"
@@ -891,7 +903,7 @@ export const GitControl = ({
                 onSelect={() => void store.review({ type: 'uncommitted', delivery: 'detached' }, key)}
               />
             )}
-            {session && !sessionUnavailable(snapshot, session) && (
+            {hasRepository && session && !sessionUnavailable(snapshot, session) && (
               <MenuItem
                 icon={<CommitIcon size={16} />}
                 label="Commit the changes"

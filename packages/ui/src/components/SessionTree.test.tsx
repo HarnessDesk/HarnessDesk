@@ -10,6 +10,7 @@ import {
   wrapContext,
   type RuntimeInfo,
   type GoalView,
+  type FlowExecution,
   type Session,
   type SessionSummary,
   type TeamState,
@@ -129,19 +130,24 @@ it('keeps one tab stop and moves row focus with arrows, Home, End, and type-ahea
   expect(toggleCollapsed).toHaveBeenCalled()
 })
 
-it('a Team opens once and has no member disclosure or nested conversations', () => {
+it('a Team opens once and expands and collapses independently', () => {
   const member = summary({ id: 'room-member' })
   const key = String(sessionKey(member.runtime, member.id))
   const roomEntry = room({ id: 'room', name: 'Build', members: [key] })
   const { container: tree, store } = treeWith([roomEntry], [member], [], { collapsed: ['room'] })
   const opener = roomRow(tree, 'Build') as HTMLButtonElement
-  expect(tree.querySelector('[aria-label*="agents in Build"]')).toBeNull()
+  expect(opener.getAttribute('aria-expanded')).toBe('false')
+  expect(tree.querySelector('[aria-label*="agents in Build"]')).not.toBeNull()
   expect(tree.querySelector('[data-nested="true"]')).toBeNull()
   act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
   expect(store.openTeamRoom).toHaveBeenCalledTimes(1)
   expect(store.openTeamRoom).toHaveBeenCalledWith('room')
   act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })))
   expect(store.openTeamRoom).toHaveBeenCalledTimes(1)
+  expect(opener.getAttribute('aria-expanded')).toBe('true')
+  expect(tree.querySelector('[data-nested="true"]')).not.toBeNull()
+  act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
+  expect(opener.getAttribute('aria-expanded')).toBe('false')
 })
 
 it('ArrowLeft from a Team focuses its owning project without opening the Team', () => {
@@ -154,19 +160,21 @@ it('ArrowLeft from a Team focuses its owning project without opening the Team', 
 })
 
 
-it('a Team keeps one keyboard row when its member is active', () => {
+it('the Team owning the active conversation starts expanded and can fold', () => {
   const member = summary({ id: 'room-member' })
   const { container: tree } = treeWith([room({ id: 'room', name: 'Build', members: [String(sessionKey(member.runtime, member.id))] })], [member], [], {}, undefined, sessionKey(member.runtime, member.id))
   const opener = roomRow(tree, 'Build')
   opener.focus()
   expect(document.activeElement).toBe(opener)
-  expect(tree.querySelector('[data-nested="true"]')).toBeNull()
+  expect(opener.getAttribute('aria-expanded')).toBe('true')
+  expect(tree.querySelector('[data-nested="true"]')).not.toBeNull()
   act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
-  expect(document.activeElement).toBe(tree.querySelector('[aria-expanded="true"]'))
+  expect(opener.getAttribute('aria-expanded')).toBe('false')
+  expect(document.activeElement).toBe(opener)
 })
 
 
-it('uses a Team as one navigation row inside a virtual project', () => {
+it('keeps a collapsed Team as one navigation row inside a virtual project', () => {
   const first = summary({ id: 'first-member', updatedAt: 1000 })
   const second = summary({ id: 'second-member', updatedAt: 999 })
   const members = [String(sessionKey(first.runtime, first.id)), String(sessionKey(second.runtime, second.id))]
@@ -188,8 +196,8 @@ it('uses a Team as one navigation row inside a virtual project', () => {
 })
 
 
-it('uses the rendered room and live session names for virtual type-ahead', () => {
-  const renamed = summary({ id: 'renamed', title: 'Old title', updatedAt: 1000 })
+it('uses the rendered room and indexed session names for virtual type-ahead', () => {
+  const renamed = summary({ id: 'renamed', title: 'Chosen conversation name', updatedAt: 1000 })
   const rest = Array.from({ length: 51 }, (_, index) => summary({ id: `other-${index}`, updatedAt: 500 - index }))
   const board = room({ id: 'goal-room', name: 'Old room name', updatedAt: 2000 })
   const baseGoal = triggerGoalView(board)
@@ -197,7 +205,7 @@ it('uses the rendered room and live session names for virtual type-ahead', () =>
   const snapshot = {
     ...emptySnapshot(), status: 'open', workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 },
     workspaces: [{ path: '/repo', name: 'repo', lastOpenedAt: 1 }], history: [renamed, ...rest],
-    sessions: new Map([[sessionKey(renamed.runtime, renamed.id), { ...renamed, title: 'Live renamed title' }]]),
+    sessions: new Map([[sessionKey(renamed.runtime, renamed.id), { ...renamed, title: 'Stale runtime title' }]]),
     teams: new Map([[board.id, board]]), goals: new Map([[board.id, goal]]),
   } as unknown as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
@@ -208,7 +216,8 @@ it('uses the rendered room and live session names for virtual type-ahead', () =>
   }
   const project = container.querySelector<HTMLElement>('[data-virtual-project="true"][data-virtual-labels]')!
   const labels = JSON.parse(project.dataset.virtualLabels ?? '[]') as string[]
-  expect(labels).toContain('Live renamed title')
+  expect(labels).toContain('Chosen conversation name')
+  expect(labels).not.toContain('Stale runtime title')
   expect(labels).toContain('Visible Goal Title')
 })
 
@@ -287,7 +296,7 @@ it('uses one fixed trailing slot for conversation state and actions', () => {
   const busy = rows.find((row) => row.textContent?.includes('busy'))!
   const needsYou = rows.filter((row) => row.textContent?.includes('waiting'))
   expect(quiet.querySelector('[data-left-mark]')).toBeNull()
-  expect(busy.querySelectorAll('[data-left-mark]')).toHaveLength(0)
+  expect(busy.querySelectorAll('[data-left-mark]')).toHaveLength(1)
   expect(busy.querySelector('button')!.title).toContain('Running')
   expect(needsYou.length).toBeGreaterThan(0)
   for (const row of needsYou) {
@@ -303,7 +312,7 @@ it('uses one fixed trailing slot for conversation state and actions', () => {
   expect(label.className).toBe(classes)
 })
 
-it('a background conversation keeps running facts on hover without a trailing mark', () => {
+it('a background conversation spins and keeps running facts on hover', () => {
   // The turn is over and the row would read idle, but the agent sent
   // something to the background and walked away. Its hover line keeps that fact.
   const runtime = {
@@ -358,8 +367,8 @@ it('a background conversation keeps running facts on hover without a trailing ma
     return found as HTMLButtonElement
   }
   const glyph = (title: string): HTMLElement | null => row(title).parentElement?.querySelector('[data-slot="spinner"]') ?? null
-  expect(glyph('Busy one')).toBeNull()
-  expect(row('Busy one').parentElement?.querySelector('[data-left-mark]')).toBeNull()
+  expect(glyph('Busy one')).not.toBeNull()
+  expect(row('Busy one').parentElement?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Working')
   expect(row('Busy one').title).toContain('running in the background')
   // Finished work carries no background activity fact.
   expect(glyph('Quiet one')).toBeNull()
@@ -529,9 +538,11 @@ const treeWith = (
     toggleCollapsed: vi.fn(),
     setOthersOpen: vi.fn(),
     openTeamRoom: vi.fn(),
+    setTeamFramePage: vi.fn(),
     openSession: vi.fn(),
     triggerGoal: vi.fn(async () => null),
     refreshWorkspaceGit: async () => {},
+    loadTeamRuns: vi.fn(async () => {}),
     ...storeOverrides,
   } as unknown as AppStore
   act(() => {
@@ -581,7 +592,7 @@ it('No folder and Other projects follow the same name-then-disclosure rule', () 
   treeWith([], [summary({ id: 'unknown', runtime: runtimeId('agent'), cwd: '' }),
     summary({ id: 'one', runtime: runtimeId('agent'), cwd: '/one' }),
     summary({ id: 'two', runtime: runtimeId('agent'), cwd: '/two' })])
-  for (const label of ['No folder', 'Other projects']) {
+  for (const label of ['Chats', 'Other projects']) {
     const heading = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
     expect(heading).not.toBeNull()
     const name = heading.querySelector('[data-left-fold-name]') ?? heading.querySelector('[data-slot="sidebar-menu-label-content"]')!
@@ -892,7 +903,7 @@ const triggerGoalView = (board: TeamState, activity: GoalView['activity'] = 'wor
 })
 
 /** The Team header names the work; each folded Seat keeps its own conversation title. */
-it('names waiting Teams by their Goal and retains attention without nested Seats', () => {
+it('names waiting Teams by their Goal and retains attention on collapsed Teams', () => {
   const key1 = sessionKey('codex', sessionId('s1'))
   const key2 = sessionKey('codex', sessionId('s2'))
   const roomA = room({ id: 'g1', name: 'Issue #42, from trigger triage-issue', members: [key1] })
@@ -938,7 +949,7 @@ it('draws a trigger Goal’s subject on one line and names its activity on hover
   const head = row.querySelector('[data-slot="sidebar-menu-label"]')
   expect(head?.textContent).toBe('Issue #43')
   expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(0)
-  expect(row.closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).toBeNull()
+  expect(row.closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
   expect(row.title).toContain('Working')
   expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
   expect(row.textContent).not.toContain('from issue')
@@ -948,7 +959,7 @@ it('draws a trigger Goal’s subject on one line and names its activity on hover
   expect(triggerGoal).not.toHaveBeenCalled()
 })
 
-it('a Team is a single row under its project beside loose conversations', () => {
+it('a collapsed Team keeps its own row beside loose conversations', () => {
   const { container: tree } = treeWith(
     [room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })],
     [summary({ id: 'session-1' }), summary({ id: 'session-2' })],
@@ -1056,11 +1067,11 @@ it('a conversation in a Team stays out of loose rows', () => {
   expect(rowTitles(tree)).toContain('session-2')
 })
 
-it('a Team has no disclosure even when legacy collapsed preferences name it', () => {
+it('a Team starts folded independently of legacy project preferences', () => {
   const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })], [summary({ id: 'session-1' })], [], { collapsed: ['r1'] })
   const opener = roomRow(tree, 'Checkout rewrite')
-  expect(opener.hasAttribute('aria-expanded')).toBe(false)
-  expect(opener.closest('[data-left-row]')?.querySelector('[data-slot="sidebar-menu-action"]')).toBeNull()
+  expect(opener.getAttribute('aria-expanded')).toBe('false')
+  expect(opener.closest('[data-left-row]')?.querySelector('[data-slot="sidebar-menu-action"]')?.getAttribute('aria-label')).toBe('Actions for Checkout rewrite')
   expect(tree.querySelector('[data-nested="true"]')).toBeNull()
   expect(store.openTeamRoom).not.toHaveBeenCalled()
 })
@@ -1310,7 +1321,7 @@ it('a room in a project the tree is already showing does not add a second row', 
   expect(roomRow(tree, 'Checkout rewrite')).toBeTruthy()
 })
 
-it('a Team-only project remains one row under an agent filter', () => {
+it('a Team-only project reveals its matching Seat under an agent filter', () => {
   /* The member lookup used to be starved rather than filtered: it consulted
      the live session map only while no filter was set, which was the right
      rule by accident and only for as long as the room's own project carried
@@ -1331,7 +1342,8 @@ it('a Team-only project remains one row under an agent filter', () => {
   // No history at all, so this project is in the tree only because the room is.
   const { container: tree } = treeWith([both], [], [codex, claude], { agent: runtimeId('codex') })
   expect(roomRow(tree, 'Checkout rewrite')).toBeTruthy()
-  expect(tree.querySelector('[data-nested="true"]')).toBeNull()
+  expect(tree.querySelector('[data-nested="true"]')).not.toBeNull()
+  expect(tree.querySelectorAll('[data-region="seat-row"]')).toHaveLength(1)
   expect(rowTitles(tree)).toEqual([])
   expect(teamSeats(undefined, both, null).map(one => String(one.key))).toEqual(both.members)
 })
@@ -1512,6 +1524,32 @@ it('a row shows the live session\'s title before the history list has it', () =>
   })
   expect(container.textContent).toContain('/about')
   expect(container.textContent).not.toContain('Untitled session')
+})
+
+it('keeps an indexed rename when a live session refresh returns the runtime title', () => {
+  const row = summary({ id: 'renamed', title: 'Chosen conversation name' })
+  const key = sessionKey(row.runtime, row.id)
+  let snapshot = {
+    ...emptySnapshot(), status: 'open', history: [row],
+    sessions: new Map([[key, { ...row, title: row.title, turns: [] }]]),
+  } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
+  const store = {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    getSnapshot: () => snapshot,
+  } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  const labels = () => [...container.querySelectorAll('[data-slot="sidebar-menu-label"]')].map(node => node.textContent)
+  expect(labels()).toContain('Chosen conversation name')
+
+  // Opening the conversation or resuming its runtime can return the agent's
+  // original metadata while the index still holds the person's chosen name.
+  act(() => {
+    snapshot = { ...snapshot, sessions: new Map([[key, { ...row, title: 'Stale runtime title', turns: [] } as unknown as Session]]) }
+    for (const listener of listeners) listener()
+  })
+  expect(labels()).toContain('Chosen conversation name')
+  expect(labels()).not.toContain('Stale runtime title')
 })
 
 it('gives a conversation open in this window a row even when its agent lists no history', () => {
@@ -1988,7 +2026,7 @@ it('keeps a pinned gone-folder row’s worktree and Needs you marks without dupl
 it.each([
   ['needs-you', 'Needs you', 'warning', 'limit'],
   ['working', 'Running', 'info', 'signin'],
-  ['ready-to-wrap', 'Ready to wrap', 'warning', 'limit'],
+  ['ready-to-wrap', 'New', 'info', 'new'],
 ] as const)('keeps a Goal’s %s signal in its compact state without a member approval', (activity, label, tone, state) => {
   const board = room({ id: 'goal-signal', name: 'Check the rail' })
   const { container: tree } = treeWith([board], [], [], {}, undefined, null,
@@ -1996,7 +2034,7 @@ it.each([
   if (activity === 'working') {
     expect(roomRow(tree, board.name).textContent).toBe(board.name)
     expect(roomRow(tree, board.name).title).toContain('Working')
-    expect(roomRow(tree, board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')).toBeNull()
+    expect(roomRow(tree, board.name).closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
     return
   }
   const mark = roomRow(tree, board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')!
@@ -2004,7 +2042,7 @@ it.each([
   expect(mark.querySelector('[data-slot="dot"]')?.getAttribute('data-state')).toBe(state)
 })
 
-it('owns both Goal Seats without nested rows when its older roster is empty', () => {
+it('owns both Goal Seats while collapsed when its older roster is empty', () => {
  const first=summary({id:'session-flow-writer'}),second=summary({id:'session-flow-reviewer'})
  const board=room({id:'flow-team',name:'Flow team',members:[]})
  const view={goal:{id:board.id,state:'open',sentence:'Flow team',origin:{kind:'person'}},board,members:[first,second].map((one,index)=>({id:`seat-${index}`,session:{runtime:one.runtime,sessionId:one.id},role:index?'reviewer':'writer',openedAt:1,closed:null,agent:{name:'Agent'}}))} as unknown as GoalView
@@ -2032,7 +2070,7 @@ it('keeps a finished Team with attention until wrapped, without listing its Seat
  const {container:tree,update}=treeWith([board],[seat],[],{},undefined,null,new Map([[board.id,view]]))
  const finished = tree.querySelector('[aria-label="Room Settled Team"]')!
  expect(finished).not.toBeNull()
- expect(finished.parentElement?.querySelector('[aria-label="Ready to wrap"]')).not.toBeNull()
+ expect(finished.parentElement?.querySelector('[aria-label="New"]')).not.toBeNull()
  expect(rowTitles(tree)).not.toContain('finished-seat')
  update({goals:new Map([[board.id,{...view,activity:'needs-you'}]])})
  expect(tree.querySelector('[aria-label="Room Settled Team"]')).not.toBeNull()
@@ -2056,12 +2094,12 @@ it('keeps working and waiting state on the conversation row inside its project',
   expect([...project.querySelectorAll('[data-region="session-row"] [data-slot="sidebar-menu-label"]')].map(one => one.textContent)).toEqual(['busy-row', 'waiting-row'])
 })
 
-it('keeps pinned and waiting Seats owned by the sole Team row', () => {
+it('keeps pinned and waiting Seats owned by their folded Team', () => {
   const seats = ['Writer', 'Reviewer', 'Tester'].map(id => summary({ id }))
   const board = room({ id: 'folded-team', name: 'Ship retry', members: seats.map(one => String(sessionKey(one.runtime, one.id))) })
   const view = treeWith([board], seats, [], { pinnedSessions: [sessionKey(seats[0]!.runtime, seats[0]!.id)] }, undefined, null, new Map(), {})
   view.update({ approvals: [{ key: sessionKey(seats[1]!.runtime, seats[1]!.id), approval: {} }] as unknown as AppSnapshot['approvals'] })
-  expect(view.container.querySelector('[aria-label*="agents in Ship retry"]')).toBeNull()
+  expect(view.container.querySelector('[aria-label*="agents in Ship retry"]')).not.toBeNull()
   expect(view.container.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
   expect(roomRow(view.container, 'Ship retry').title).toContain('Needs you')
   expect(view.container.querySelector('[data-sidebar-band="pinned"]')).toBeNull()
@@ -2080,8 +2118,8 @@ it.each(['/repo', '/other-checkout'])('reveals the owning Team for an externally
 
   const opener = roomRow(view.container, 'Ship retry')
   expect(opener.closest('[data-project-root]')?.getAttribute('data-project-root')).toBe('/repo')
-  expect(view.container.querySelector('[data-nested="true"]')).toBeNull()
-  expect(view.container.querySelector('[aria-current="page"]')).toBeNull()
+  expect(view.container.querySelector('[data-nested="true"]')).not.toBeNull()
+  expect(view.container.querySelector('[data-region="seat-row"] [aria-current="page"]')).not.toBeNull()
   view.update({ teams: new Map([[board.id, { ...board, updatedAt: 5 }]]) })
   expect(roomRow(view.container, 'Ship retry')).toBeTruthy()
 })
@@ -2113,8 +2151,8 @@ it('reveals the owning Team when its roster arrives after activation', () => {
   const view = treeWith([], [seat], [], {}, undefined, key, new Map(), {})
   view.update({ teams: new Map([[board.id, board]]) })
   expect(roomRow(view.container, 'Late Team')).toBeTruthy()
-  expect(view.container.querySelector('[data-nested="true"]')).toBeNull()
-  expect(view.container.querySelectorAll('[aria-current="page"]')).toHaveLength(0)
+  expect(view.container.querySelector('[data-nested="true"]')).not.toBeNull()
+  expect(view.container.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
 })
 
 
@@ -2125,7 +2163,7 @@ it('reveals an activated durable Seat with no live session or history', () => {
   const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), {})
   view.update({ activeSessionKey: sessionKey('codex', sessionId('rested')) })
   expect(roomRow(view.container, 'Rested Team')).toBeTruthy()
-  expect(view.container.querySelector('[data-nested="true"]')).toBeNull()
+  expect(view.container.querySelector('[data-nested="true"]')).not.toBeNull()
 })
 
 it('mounts the owning Team for an activated Seat beyond the virtual project window', () => {
@@ -2146,7 +2184,7 @@ it('mounts the owning Team for an activated Seat beyond the virtual project wind
     first.blur()
     view.update({ activeSessionKey: sessionKey(seat.runtime, seat.id) })
     expect(roomRow(view.container, 'Last Team')).toBeTruthy()
-    expect(view.container.querySelector('[data-nested="true"]')).toBeNull()
+    expect(view.container.querySelector('[data-nested="true"]')).not.toBeNull()
   } finally { rect.mockRestore() }
 })
 
@@ -2161,7 +2199,7 @@ it.each([false, true])('keeps Team unread, running and urgent facts in one prior
     from: { runtime: busy.runtime, sessionId: sameSeat ? busy.id : unread.id, name: 'Reviewer' } }] })
   const item = roomRow(view.container, board.name).closest('[data-left-row]')!
   expect(view.container.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
-  expect(item.querySelector('[aria-label="Unread activity"]')).toBeNull()
+  expect(item.querySelector('[aria-label="New"] [data-state="new"]')).not.toBeNull()
   expect(roomRow(view.container, board.name).title).toContain('Unread activity')
   expect(roomRow(view.container, board.name).title).toContain('Working')
   expect(item.textContent).not.toContain('Working')
@@ -2170,7 +2208,7 @@ it.each([false, true])('keeps Team unread, running and urgent facts in one prior
   expect(item.querySelector('[aria-label="Needs you"]')).not.toBeNull()
   view.update({ approvals: [], sessions: new Map([[sessionKey(busy.runtime, busy.id), { ...busy, status: { type: 'idle' }, turns: [] }]]) })
   expect(item.querySelector('[data-slot="spinner"]')).toBeNull()
-  expect(item.querySelector('[aria-label="Unread activity"]')).toBeNull()
+  expect(item.querySelector('[aria-label="New"] [data-state="new"]')).not.toBeNull()
   expect(roomRow(view.container, board.name).title).toContain('Unread activity')
 })
 
@@ -2239,7 +2277,7 @@ it('keeps Pinned conversations in the shared flat group', () => {
   expect(view.container.querySelector('[data-sidebar-band="pinned"] [data-nested]')).toBeNull()
 })
 
-it('keeps completed and running conversations unmarked and names new activity on hover', () => {
+it('keeps completed conversations quiet and spins on new activity', () => {
   const one = summary({ id: 'finished-conversation', status: { type: 'idle' } })
   const live = { ...one, turns: [{ id: 'finished-turn', status: 'completed', items: [] }] } as unknown as Session
   const view = treeWith([], [one], [live], {}, undefined, sessionKey(one.runtime, one.id))
@@ -2254,16 +2292,16 @@ it('keeps completed and running conversations unmarked and names new activity on
       turns: [...live.turns, { id: 'next-turn', status: 'inProgress', items: [] }],
     } as Session]]),
   })
-  expect(view.container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(0)
+  expect(view.container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(1)
   expect(view.container.querySelector('[aria-label="finished-conversation"]')?.getAttribute('title')).toContain('Thinking')
 })
 
-it('keeps running Teams unmarked and shows only the needs-you mark', () => {
+it('spins on collapsed working Teams and replaces activity with Needs you', () => {
   const one = summary({ id: 'session-spin', status: { type: 'active' } })
   const live = { ...one, turns: [{ id: 'spin-turn', status: 'inProgress', items: [] }] } as unknown as Session
   const board = room({ id: 'spin-team', name: 'Running Team', members: [String(sessionKey(one.runtime, one.id))] })
   const view = treeWith([board], [one], [live])
-  expect(view.container.querySelectorAll('[data-slot="spinner"][data-tone="neutral"][data-size="sm"]')).toHaveLength(0)
+  expect(view.container.querySelectorAll('[data-slot="spinner"][data-tone="neutral"][data-size="sm"]')).toHaveLength(1)
   expect(roomRow(view.container, board.name).title).toContain('Working')
   expect(view.container.textContent).not.toContain('Working')
   expect(roomRow(view.container, board.name).querySelector('[data-left-mark][aria-label="Needs you"]')).toBeNull()
@@ -2484,14 +2522,14 @@ it('counts Teams in the five-row project cap and keeps pinned conversations unca
   expect(project.textContent).toContain('Show more')
 })
 
-it('shows only attention and error marks while keeping running and worktree facts in titles', () => {
+it('spins on running rows while keeping attention priority and worktree facts in titles', () => {
   const busy = summary({ id: 'calm-busy', status: { type: 'active' } })
   const branch = summary({ id: 'calm-branch', cwd: '/repo/worktree', repo: { root: '/repo', worktree: true }, git: { branch: 'topic' } })
   const failed = summary({ id: 'calm-failed' })
   const live = { ...failed, turns: [{ id: 'failed-turn', status: 'failed', items: [] }] } as unknown as Session
   const view = treeWith([], [busy, branch, failed], [live])
   const row = (label: string) => [...view.container.querySelectorAll<HTMLElement>('[data-region="session-row"]')].find(one => one.textContent?.includes(label))!
-  expect(row('calm-busy').querySelector('[data-left-mark]')).toBeNull()
+  expect(row('calm-busy').querySelector('[data-slot="spinner"]')).not.toBeNull()
   expect(row('calm-busy').querySelector('button')!.title).toContain('Running')
   expect(row('calm-branch').querySelector('[data-left-mark]')).toBeNull()
   expect(row('calm-branch').querySelector('button')!.title).toContain('topic')
@@ -2571,4 +2609,459 @@ it('keeps the main Team in the fifth slot when no conversation is active', () =>
   const rows = view.container.querySelectorAll('[data-project-root="/repo"] [data-virtual-index]')
   expect(rows).toHaveLength(5)
   expect(rows[4]!.textContent).toContain('Main Team')
+})
+
+
+it('opening a settled Team clears its blue mark, and orange wins over unseen news', () => {
+ const board=room({id:'news-team',name:'Finished work'})
+ const view={...triggerGoalView(board),activity:'ready-to-wrap',readyAt:100,lastSeenAt:0} as GoalView
+ const {container:tree,update}=treeWith([board],[],[],{},undefined,null,new Map([[board.id,view]]))
+ const mark=()=>roomRow(tree,board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')
+ expect(mark()?.getAttribute('aria-label')).toBe('New')
+ expect(mark()?.querySelector('[data-slot="dot"]')?.getAttribute('data-state')).toBe('new')
+ update({goals:new Map([[board.id,{...view,...{lastSeenAt:100}}]])})
+ expect(mark()).toBeNull()
+ update({goals:new Map([[board.id,{...view,activity:'needs-you'}]])})
+ expect(mark()?.getAttribute('aria-label')).toBe('Needs you')
+})
+
+
+it('news arriving in the selected Team never draws a blue mark', () => {
+ const board=room({id:'open-news',name:'Open work'})
+ const goal={...triggerGoalView(board),activity:'ready-to-wrap',readyAt:100,lastSeenAt:100} as GoalView
+ const view=treeWith([board],[],[],{},undefined,null,new Map([[board.id,goal]]))
+ view.update({layout:{root:{kind:'pane',id:'main',view:{kind:'room',room:board.id}},focused:'main',expanded:null},
+  goals:new Map([[board.id,{...goal,readyAt:200}]])})
+ expect(roomRow(view.container,board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')).toBeNull()
+ view.update({goals:new Map([[board.id,{...goal,activity:'needs-you',readyAt:200}]])})
+ expect(roomRow(view.container,board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Needs you')
+})
+
+it('a stopped Run with run stopped cards still asks the person to review it', () => {
+ const board=room({id:'stopped-attention',name:'Stopped work',intents:[{id:1,title:'Review stopped work',state:'blocked',blockedReason:'run stopped',files:[],dependsOn:[],claim:null,createdAt:1,updatedAt:2} as import('@harnessdesk/protocol').Intent]})
+ const goal={...triggerGoalView(board),activity:'needs-you'} as GoalView
+ const view=treeWith([board],[],[],{},undefined,null,new Map([[board.id,goal]]))
+ view.update({flowExecutions:new Map([['stopped',{id:'stopped',goal:board.id,state:'stopped',end:{kind:'stopped',by:'person'},rounds:[],document:{format:'agents',flow:{version:2,name:'Review',roles:[],rules:[],inputs:[],seed:{role:'reviewer',title:'Review'},messaging:'board-only',wait:240}}} as unknown as import('@harnessdesk/protocol').FlowExecution]])})
+ const row=roomRow(view.container,board.name)
+ expect(row.title).toContain('Needs you')
+ expect(row.closest('[data-left-row]')?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Needs you')
+ expect(row.closest('[data-left-row]')?.querySelector('[data-slot="dot"]')?.getAttribute('data-state')).toBe('limit')
+})
+
+
+it('seat marks prioritize Needs you, unread, working card and idle; only collapsed Teams spin', () => {
+  const member = summary({ id: 'worker', status: { type: 'active' } })
+  const key = sessionKey(member.runtime, member.id)
+  const team: TeamState = { ...room({ id: 'team', name: 'Build', members: [key] }),
+    nicknames: { [key]: 'Agent 2' },
+    intents: [{ id: 4, title: 'Build the page', state: 'claimed', claim: { runtime: member.runtime, sessionId: member.id, at: 1 }, files: [], dependsOn: [], createdAt: 1, updatedAt: 1 }],
+  }
+  const { update } = treeWith([team], [member], [member])
+  const opener = roomRow(container, 'Build')
+  expect(opener.closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  const seat = () => container.querySelector<HTMLElement>('[data-region="seat-row"]')!
+  const mark = () => seat().querySelector('[data-left-mark]')!
+  expect(opener.closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).toBeNull()
+  expect(seat().querySelector('[data-left-mark-prefix]')?.textContent).toContain('#4')
+  expect(mark().querySelector('[data-slot="spinner"]')).not.toBeNull()
+  expect(seat().querySelector('button')!.title).toContain('Build the page')
+  update({ inbox: [{ id: 'news', read: false, at: 1, tone: 'neutral', title: 'New output', from: { runtime: member.runtime, sessionId: member.id, name: 'Agent' } }] as AppSnapshot['inbox'] })
+  expect(mark().getAttribute('aria-label')).toBe('New')
+  expect(mark().querySelector('[data-slot="spinner"]')).toBeNull()
+  update({ queues: new Map([[key, { status: 'paused', messages: [] }]]) as AppSnapshot['queues'] })
+  expect(mark().getAttribute('aria-label')).toBe('Needs you')
+  update({ inbox: [], queues: new Map(), sessions: new Map([[key, { ...member, status: { type: 'idle' } } as Session]]), teams: new Map([[team.id, { ...team, intents: [] }]]) })
+  expect(seat().querySelector('[data-left-mark]')).toBeNull()
+  expect(seat().querySelector('button')!.title).toContain('Idle')
+})
+
+it('seat rows open their conversation or the Team Overview when not open', () => {
+  const member = summary({ id: 'open-seat' })
+  const closed = summary({ id: 'not-open' })
+  const team = room({ id: 'team', name: 'Build', members: [sessionKey(member.runtime, member.id), sessionKey(closed.runtime, closed.id)] })
+  const { store } = treeWith([team], [member])
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  const seats = container.querySelectorAll<HTMLButtonElement>('[data-region="seat-row"] button')
+  expect(seats).toHaveLength(2)
+  act(() => seats[0]!.click())
+  expect(store.openSession).toHaveBeenCalledWith(member.id, { runtime: member.runtime })
+  act(() => seats[1]!.click())
+  expect(store.openTeamRoom).toHaveBeenCalledWith(team.id)
+  expect(store.setTeamFramePage).toHaveBeenCalledWith(team.id, 'overview')
+})
+
+it('expanded seats do not consume any of the five project rows', () => {
+  const members = Array.from({ length: 7 }, (_, i) => summary({ id: `seat-${i}` }))
+  const loose = Array.from({ length: 6 }, (_, i) => summary({ id: `loose-${i}`, updatedAt: 10 - i }))
+  const team = room({ id: 'team', name: 'Build', updatedAt: 20, members: members.map(one => sessionKey(one.runtime, one.id)) })
+  treeWith([team], [...members, ...loose])
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  expect(container.querySelectorAll('[data-region="seat-row"]')).toHaveLength(7)
+  expect(container.querySelectorAll('[data-region="session-row"]')).toHaveLength(4)
+})
+
+it('a selected Team starts expanded and a seat filter reveals matching seats', () => {
+  const member = summary({ id: 'match' })
+  const key = sessionKey(member.runtime, member.id)
+  const team = room({ id: 'team', name: 'Build', members: [key] })
+  const { update } = treeWith([team], [member])
+  update({ layout: { ...emptySnapshot().layout, root: { kind: 'pane', id: 'main', view: { kind: 'room', room: team.id } } } as AppSnapshot['layout'] })
+  expect(roomRow(container, 'Build').getAttribute('aria-expanded')).toBe('true')
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  expect(roomRow(container, 'Build').getAttribute('aria-expanded')).toBe('false')
+  update({ listPrefs: { ...emptySnapshot().listPrefs, agent: member.runtime } })
+  expect(roomRow(container, 'Build').getAttribute('aria-expanded')).toBe('true')
+  expect(container.querySelectorAll('[data-region="seat-row"]')).toHaveLength(1)
+})
+
+
+it('unread Inbox output does not mark loose conversations or suppress their spinner', () => {
+  const member = summary({ id: 'unread-loose', status: { type: 'active' } })
+  const key = sessionKey(member.runtime, member.id)
+  const view = treeWith([], [member], [member])
+  const row = () => container.querySelector('[data-region="session-row"]')!
+  view.update({ inbox: [{ id: 'new-output', read: false, at: 1, tone: 'neutral', title: 'New output', from: { runtime: member.runtime, sessionId: member.id, name: 'Agent' } }] as AppSnapshot['inbox'] })
+  expect(row().querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Working')
+  expect(row().querySelector('[data-slot="spinner"]')).not.toBeNull()
+  view.update({ inbox: [] })
+  expect(row().querySelector('[data-slot="spinner"]')).not.toBeNull()
+  view.update({ sessions: new Map([[key, { ...member, status: { type: 'idle' }, turns: [], itemsLoaded: true } as Session]]) })
+  expect(row().querySelector('[data-left-mark]')).toBeNull()
+})
+
+
+it('a collapsed Team spins while a seat has background work after its turn rests', () => {
+  const member = summary({ id: 'background-seat' })
+  const key = sessionKey(member.runtime, member.id)
+  const team = room({ id: 'background-team', name: 'Build', members: [key] })
+  const view = treeWith([team], [member], [member])
+  view.update({ tasks: new Map([[key, [{ id: 'task', kind: 'command', label: 'Watch tests', state: 'running', stoppable: true }]]]) })
+  expect(roomRow(container, 'Build').closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  expect(roomRow(container, 'Build').closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).toBeNull()
+  expect(container.querySelector('[data-region="seat-row"] [data-slot="spinner"]')).not.toBeNull()
+})
+
+
+it('a failed Seat turn outranks its spinner and unread output outranks the failure', () => {
+  const member = { ...summary({ id: 'failed-seat' }), itemsLoaded: true,
+    turns: [{ id: 'failed-turn', status: 'failed', items: [] }] } as unknown as Session
+  const key = sessionKey(member.runtime, member.id)
+  const team = room({ id: 'failed-team', name: 'Build', members: [key] })
+  const view = treeWith([team], [member], [member])
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  const row = () => container.querySelector('[data-region="seat-row"]')!
+  expect(row().querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Failed')
+  view.update({ inbox: [{ id: 'news', read: false, at: 1, tone: 'neutral', title: 'New output', from: { runtime: member.runtime, sessionId: member.id, name: 'Agent' } }] })
+  expect(row().querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('New')
+})
+
+it('default Team expansion survives navigating away, while a deliberate fold stays folded', () => {
+  const teams = [room({ id: 'first', name: 'First' }), room({ id: 'second', name: 'Second' })]
+  const view = treeWith(teams)
+  const select = (id: string) => view.update({ layout: { ...emptySnapshot().layout, root: { kind: 'pane', id: 'main', view: { kind: 'room', room: id } } } })
+  select('first')
+  expect(roomRow(container, 'First').getAttribute('aria-expanded')).toBe('true')
+  select('second')
+  expect(roomRow(container, 'First').getAttribute('aria-expanded')).toBe('true')
+  expect(roomRow(container, 'Second').getAttribute('aria-expanded')).toBe('true')
+  act(() => roomRow(container, 'First').closest('[data-left-row]')!.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  view.update({ inbox: [] })
+  expect(roomRow(container, 'First').getAttribute('aria-expanded')).toBe('false')
+})
+
+it('focusing a nested Seat keeps focus on that Seat instead of its virtual Team wrapper', () => {
+  const member = summary({ id: 'focus-seat' })
+  const team = room({ id: 'focus-team', name: 'Build', updatedAt: 1000, members: [sessionKey(member.runtime, member.id)] })
+  const loose = Array.from({ length: 51 }, (_, i) => summary({ id: `focus-loose-${i}`, updatedAt: 100 - i }))
+  const view = treeWith([team], [member, ...loose])
+  view.update({ layout: { ...emptySnapshot().layout, root: { kind: 'pane', id: 'main', view: { kind: 'room', room: team.id } } } })
+  act(() => [...container.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find(row => row.textContent === 'Show more')!.click())
+  const seat = container.querySelector<HTMLButtonElement>('[data-region="seat-row"] [data-slot="sidebar-menu-button"]')!
+  act(() => seat.focus())
+  expect(document.activeElement).toBe(seat)
+  act(() => seat.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })))
+  expect(document.activeElement?.textContent).toBe('focus-loose-0')
+  act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true })))
+  expect(document.activeElement).toBe(seat)
+})
+
+
+it('a recovered live Seat replaces a historical error with its current activity', () => {
+  const saved = summary({ id: 'recovered-seat', status: { type: 'error', message: 'Old failure' } })
+  const live = { ...saved, status: { type: 'active' }, turns: [], itemsLoaded: true } as Session
+  const key = sessionKey(live.runtime, live.id)
+  const team = room({ id: 'recovered-team', name: 'Build', members: [key] })
+  const view = treeWith([team], [saved], [live])
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  const seat = () => container.querySelector('[data-region="seat-row"]')!
+  expect(seat().querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Working')
+  expect(seat().querySelector('[data-slot="spinner"]')).not.toBeNull()
+  view.update({ sessions: new Map([[key, { ...live, status: { type: 'idle' } } as Session]]) })
+  expect(seat().querySelector('[data-left-mark]')).toBeNull()
+})
+
+it('a retained Seat keeps its recorded model on hover without a live conversation', () => {
+  const saved = summary({ id: 'retained-seat' })
+  const team = room({ id: 'retained-team', name: 'Build' })
+  const record = { id: 'past-seat', session: { runtime: saved.runtime, sessionId: saved.id },
+    seat: { runtime: saved.runtime, model: 'demo-model' }, seatLabel: 'Writer', role: null,
+    openedAt: 1, closed: { at: 2 }, agent: null } as unknown as import('@harnessdesk/protocol').SeatRecord
+  const goal = { ...triggerGoalView(team, null), pastMembers: [record] } as GoalView
+  treeWith([team], [saved], [], {}, undefined, null, new Map([[team.id, goal]]))
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  expect(container.querySelector<HTMLButtonElement>('[data-region="seat-row"] button')?.title).toContain('demo-model')
+})
+
+
+it('a title filter reveals an unopened Seat by its visible name and keeps its Overview fallback', () => {
+  const first = summary({ id: 'indexed-seat' }), unopened = summary({ id: 'unindexed-seat' })
+  const key = sessionKey(unopened.runtime, unopened.id)
+  const team = { ...room({ id: 'filter-team', name: 'Build', members: [sessionKey(first.runtime, first.id), key] }),
+    nicknames: { [key]: 'Writer 2' } }
+  const view = treeWith([team], [first])
+  view.update({ history: [] })
+  act(() => root.render(<StoreProvider store={view.store}><SessionTree now={3} searching filter="Writer 2" /></StoreProvider>))
+  expect(roomRow(container, 'Build').getAttribute('aria-expanded')).toBe('true')
+  const seats = container.querySelectorAll<HTMLButtonElement>('[data-region="seat-row"] [data-slot="sidebar-menu-button"]')
+  expect(seats).toHaveLength(1)
+  expect(seats[0]!.textContent).toBe('Writer 2')
+  expect(seats[0]!.title).toContain('Not open')
+  act(() => seats[0]!.click())
+  expect(view.store.openSession).not.toHaveBeenCalled()
+  expect(view.store.setTeamFramePage).toHaveBeenCalledWith(team.id, 'overview')
+})
+
+
+it('a Team-name-only filter keeps every Seat in a stored-open Team visible', () => {
+  const members = ['First worker', 'Second worker'].map(id => summary({ id }))
+  const team = room({ id: 'name-filter', name: 'Build', members: members.map(one => sessionKey(one.runtime, one.id)) })
+  const view = treeWith([team], members)
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  view.update({ history: [] })
+  act(() => root.render(<StoreProvider store={view.store}><SessionTree now={3} searching filter="Build" /></StoreProvider>))
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+  expect(container.querySelectorAll('[data-region="seat-row"]')).toHaveLength(2)
+})
+
+it('seats stay in roster order when their activity changes', () => {
+  const members = ['First', 'Second', 'Third'].map(id => summary({ id }))
+  const keys = members.map(one => sessionKey(one.runtime, one.id))
+  const team = { ...room({ id: 'roster', name: 'Build', members: keys }), nicknames: Object.fromEntries(keys.map((key, i) => [key, members[i]!.id])) }
+  const view = treeWith([team], members, members)
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  const labels = () => [...container.querySelectorAll('[data-region="seat-row"] [data-slot="sidebar-menu-label-content"]')].map(one => one.textContent)
+  expect(labels()).toEqual(['First', 'Second', 'Third'])
+  view.update({ sessions: new Map(members.map((one, i) => [keys[i]!, { ...one, status: { type: i === 1 ? 'active' : 'idle' } } as Session])) })
+  expect(labels()).toEqual(['First', 'Second', 'Third'])
+  view.update({ sessions: new Map(members.map((one, i) => [keys[i]!, { ...one, status: { type: i === 2 ? 'active' : 'idle' } } as Session])) })
+  expect(labels()).toEqual(['First', 'Second', 'Third'])
+})
+
+it('a matching agent filter can be folded and reopened without changing the stored Team fold', () => {
+  const member = summary({ id: 'filter-worker' }), key = sessionKey(member.runtime, member.id)
+  const team = room({ id: 'filter-fold', name: 'Build', members: [key] })
+  const view = treeWith([team], [member])
+  const toggle = () => act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  view.update({ listPrefs: { ...emptySnapshot().listPrefs, agent: member.runtime } })
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+  toggle()
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('false')
+  toggle()
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+  view.update({ listPrefs: emptySnapshot().listPrefs })
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('false')
+})
+
+it.each([false, true])('search reveal restores the Team’s own %s stored expansion after temporary toggles', storedOpen => {
+  const member = summary({ id: 'search-worker' }), key = sessionKey(member.runtime, member.id)
+  const team = room({ id: 'search-fold', name: 'Build', members: [key] })
+  const view = treeWith([team], [member])
+  const toggle = () => act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  if (storedOpen) toggle()
+  const search = (filter: string) => act(() => root.render(<StoreProvider store={view.store}><SessionTree now={3} searching={Boolean(filter)} filter={filter} /></StoreProvider>))
+  search('search-worker')
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+  toggle()
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('false')
+  if (!storedOpen) toggle()
+  search('')
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe(String(storedOpen))
+  search('search-worker')
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+})
+
+it('clearing search preserves the selected Team’s default expansion after a temporary fold', () => {
+  const member = summary({ id: 'selected-worker' }), key = sessionKey(member.runtime, member.id)
+  const team = room({ id: 'selected-filter', name: 'Build', members: [key] })
+  const view = treeWith([team], [member])
+  view.update({ layout: { ...emptySnapshot().layout, root: { kind: 'pane', id: 'main', view: { kind: 'room', room: team.id } } } })
+  const render = (filter: string) => act(() => root.render(<StoreProvider store={view.store}><SessionTree now={3} searching={Boolean(filter)} filter={filter} /></StoreProvider>))
+  render('selected-worker')
+  act(() => container.querySelector<HTMLButtonElement>('[data-left-disclosure]')!.click())
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('false')
+  render('')
+  expect(roomRow(container, team.name).getAttribute('aria-expanded')).toBe('true')
+})
+
+
+it('right-clicking a stopped Team without kept conversations offers its canonical actions and Rename', async () => {
+  const board = room({ id: 'menu-team', name: 'Build a game' })
+  const goal = triggerGoalView(board, 'needs-you')
+  const updateGoal = vi.fn(async () => goal)
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), { updateGoal })
+  view.update({ flowExecutions: new Map([['stopped-run', {
+    id: 'stopped-run', goal: board.id, state: 'stopped', rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution]]) })
+  const opener = roomRow(view.container, board.name)
+  act(() => opener.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })))
+  const items = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(items().map(one => one.querySelector('[data-menu-label]')?.textContent?.trim())).toEqual(['Rename', 'Run again…', 'Wrap…', 'Stop run…'])
+  expect(items().find(one => one.querySelector('[data-menu-label]')?.textContent === 'Stop run…')?.getAttribute('aria-disabled')).toBe('true')
+  expect(view.store.openTeamRoom).not.toHaveBeenCalled()
+  act(() => items().find(one => one.textContent === 'Rename')!.click())
+  const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')!
+  expect(input.value).toBe(board.name)
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Build a puzzle')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+  expect(updateGoal).toHaveBeenCalledWith(board.id, 1, { sentence: 'Build a puzzle' })
+})
+
+it('Team actions are reachable by the row action button and Shift+F10 without opening the Team', () => {
+  const board = room({ id: 'keyboard-team', name: 'Build' })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]))
+  const opener = roomRow(view.container, board.name)
+  const action = view.container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Build"]')
+  expect(action).not.toBeNull()
+  act(() => action!.click())
+  expect(document.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe('Actions for Build')
+  act(() => document.querySelector('[role="menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true })))
+  expect(document.querySelector('[role="menu"]')?.getAttribute('aria-label')).toBe('Actions for Build')
+  expect(view.store.openTeamRoom).not.toHaveBeenCalled()
+})
+
+
+it('a Team menu reads its named uncached Run only when opened and never substitutes an older Run', async () => {
+  const board = room({ id: 'uncached-menu', name: 'Build' })
+  const base = triggerGoalView(board)
+  const goal = { ...base, goal: { ...base.goal, origin: { kind: 'flow' as const, run: 'new-run', flow: 'Build' } } } as GoalView
+  const readFlowExecution = vi.fn(async () => null as unknown as FlowExecution)
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), { readFlowExecution })
+  const execution = { id: 'old-run', goal: board.id, state: 'stopped', rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution
+  view.update({ flowExecutions: new Map([[execution.id, execution]]) })
+  expect(readFlowExecution).not.toHaveBeenCalled()
+  await act(async () => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  expect(readFlowExecution).toHaveBeenCalledExactlyOnceWith('new-run')
+  expect([...document.querySelectorAll('[data-menu-label]')].map(one => one.textContent)).not.toContain('Run again…')
+  view.update({ flowExecutions: new Map([[execution.id, execution], ['new-run', { ...execution, id: 'new-run' }]]) })
+  expect([...document.querySelectorAll('[data-menu-label]')].map(one => one.textContent)).toContain('Run again…')
+})
+
+it('a Team menu opens the canonical Run again question and retains saved-Flow errors', async () => {
+  const board = room({ id: 'again-menu', name: 'Build' })
+  const source = vi.fn(async () => { throw new Error('Saved Flow unavailable') })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]), { flowExecutionSource: source })
+  view.update({ flowExecutions: new Map([['stopped-run', { id: 'stopped-run', goal: board.id, state: 'stopped', rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution]]) })
+  act(() => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.querySelector('[data-menu-label]')?.textContent === 'Run again…')!.click())
+  expect(source).toHaveBeenCalledExactlyOnceWith('stopped-run')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Run again')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Saved Flow unavailable')
+  expect(view.store.openTeamRoom).not.toHaveBeenCalled()
+})
+
+it('a running Team menu stops only after the canonical confirmation, including without kept Seats', async () => {
+  const board = room({ id: 'stop-menu', name: 'Build' })
+  const stopFlowExecution = vi.fn(async () => ({}) as never)
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]), { stopFlowExecution })
+  view.update({ flowExecutions: new Map([['running-run', { id: 'running-run', goal: board.id, state: 'running', rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution]]) })
+  act(() => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  act(() => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.querySelector('[data-menu-label]')?.textContent === 'Stop run…')!.click())
+  expect(stopFlowExecution).not.toHaveBeenCalled()
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('No open Seats in this Run.')
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === 'Stop run')!.click())
+  expect(stopFlowExecution).toHaveBeenCalledExactlyOnceWith('running-run', 'You stopped this Run. No further step starts.')
+})
+
+it.each(['open', 'wrapping', 'problem'] as const)('a %s Team menu preserves Wrap eligibility and the receipt question', (state) => {
+  const board = room({ id: 'wrap-menu', name: 'Build' })
+  const base = triggerGoalView(board)
+  const goal = state === 'wrapping' ? { ...base, goal: { ...base.goal, state: 'wrapping' as const } }
+    : state === 'problem' ? { ...base, problem: 'The board could not be saved.' } : base
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]))
+  act(() => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  const wrap = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.querySelector('[data-menu-label]')?.textContent === 'Wrap…')!
+  expect(wrap.getAttribute('aria-disabled') === 'true').toBe(state !== 'open')
+  if (state === 'open') {
+    act(() => wrap.click())
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Wrap this Team')
+    expect([...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].some(one => one.textContent === 'Review receipt')).toBe(true)
+  }
+})
+
+
+it('closing a Team row action menu returns focus to the row', async () => {
+  const board = room({ id: 'focus-team', name: 'Build' })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]))
+  const row = roomRow(view.container, board.name)
+  const action = view.container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Build"]')!
+  act(() => { action.focus(); action.click() })
+  await act(async () => vi.waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('menuitem')))
+  act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  await act(async () => vi.waitFor(() => { expect(document.querySelector('[role="menu"]')).toBeNull(); expect(document.activeElement).toBe(row) }))
+})
+
+
+it.each(['person', 'trigger'] as const)('opening a %s Team menu discovers its persisted stopped Run after reconnect', async (origin) => {
+  const board = room({ id: 'reconnected-menu', name: 'Build' })
+  const base = triggerGoalView(board)
+  const goal = origin === 'person' ? { ...base, goal: { ...base.goal, origin: { kind: 'person' as const } } } : base
+  const execution = { id: 'persisted-stopped-run', goal: board.id, state: 'stopped', rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution
+  let finishRead!: () => void
+  const pending = new Promise<void>(resolve => { finishRead = resolve })
+  const loadTeamRuns = vi.fn(async (): Promise<void> => {
+    await pending
+    view.update({ flowExecutions: new Map([[execution.id, execution]]) })
+  })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), { loadTeamRuns })
+  expect(view.store.getSnapshot().flowExecutions.size).toBe(0)
+  expect(loadTeamRuns).not.toHaveBeenCalled()
+  await act(async () => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  expect(loadTeamRuns).toHaveBeenCalledExactlyOnceWith(board.id)
+  expect([...document.querySelectorAll('[data-menu-label]')].map(one => one.textContent)).not.toContain('Run again…')
+  await act(async () => { finishRead(); await pending })
+  const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(items.map(one => one.querySelector('[data-menu-label]')?.textContent)).toContain('Run again…')
+  expect(items.find(one => one.querySelector('[data-menu-label]')?.textContent === 'Stop run…')?.getAttribute('aria-disabled')).toBe('true')
+  expect(loadTeamRuns).toHaveBeenCalledTimes(1)
+  expect(view.store.openTeamRoom).not.toHaveBeenCalled()
+})
+
+it.each(['empty', 'refused'] as const)('an unnamed Team menu retries an %s history read only when reopened', async (result) => {
+  const board = room({ id: 'empty-run-menu', name: 'Build' })
+  const loadTeamRuns = vi.fn(async () => { if (result === 'refused') throw new Error('Run history unavailable') })
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]), { loadTeamRuns })
+  const open = () => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+  await act(async () => { open() })
+  expect(loadTeamRuns).toHaveBeenCalledExactlyOnceWith(board.id)
+  view.update({ flowExecutions: new Map() })
+  view.update({ flowExecutions: new Map() })
+  expect(loadTeamRuns).toHaveBeenCalledTimes(1)
+  act(() => document.querySelector('[role="menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  await act(async () => { open() })
+  expect(loadTeamRuns).toHaveBeenCalledTimes(2)
 })

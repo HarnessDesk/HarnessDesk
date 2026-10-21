@@ -13,3 +13,12 @@
 .summary { display: flex; align-items: start; gap: var(--hd-space-1-5); overflow-wrap: anywhere; }
 .summary svg { flex-shrink: 0; margin-top: var(--hd-space-0-5); }
 .footer { display: flex; align-items: center; justify-content: space-between; gap: var(--hd-space-2); min-width: 0; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(var(--hd-space-16) * 4)), 1fr)); align-items: stretch; gap: var(--hd-space-3); }
+.summary[data-detail-lines='2'] { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.marks { display: flex; align-items: center; gap: var(--hd-space-1); flex-shrink: 0; }
+.mark { display: inline-flex; align-items: center; justify-content: center; width: var(--hd-space-5); height: var(--hd-space-5); border-radius: var(--hd-radius-full); color: var(--hd-muted-foreground); }
+.mark[data-mark-active='true'] { color: var(--hd-foreground); }
+.mark[data-mark-attention] { outline: var(--hd-border-width) dashed var(--hd-warning-ink); }
+.finding { display: flex; align-items: start; gap: var(--hd-space-1-5); overflow-wrap: anywhere; }
+.finding svg { flex-shrink: 0; margin-top: var(--hd-space-0-5); }

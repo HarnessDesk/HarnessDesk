@@ -37,7 +37,7 @@ export const LibraryFiles = ({ op }: { op: LibraryPlannedOp }) => {
   if (!op.files) return null
   const runnable = op.files.filter(f => f.runnable).length, binary = op.files.filter(f => f.binary).length
   return <FormStack>
-    <SectionHead name={`${op.files.length} files · ${runnable} can run${binary ? ` · ${binary} binary` : ''}`} />
+    <SectionHead level="label" name={`${op.files.length} files · ${runnable} can run${binary ? ` · ${binary} binary` : ''}`} />
     <Rows>{op.files.map(file => <FileRow key={file.path} file={file} sourcePath={op.origin ? op.sourcePath : undefined} />)}</Rows>
   </FormStack>
 }

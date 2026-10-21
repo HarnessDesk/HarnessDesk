@@ -8,7 +8,7 @@ import type { CeilingLevel, FlowAgentRole, FlowPolicy, FlowPolicyRole, FlowPolic
 import { FLOW_CARD_H, FLOW_MARGIN, FLOW_ROW_GAP, flowLayout } from '../../lib/flow-layout'
 import { FLOW_CANVAS_RUN_CARD_HEIGHT } from './FlowCanvas'
 import { flowModel } from '../../lib/flow-model'
-import { FlowGraph } from './FlowGraph'
+import { FlowGraph, FlowRoleConfiguration } from './FlowGraph'
 import { canvasDOM } from '../../test/flow-canvas-dom'
 
 // The real layout, with its calls counted, so a test can see how often a drawing asks for one.
@@ -80,11 +80,15 @@ it('draws a card for each step, in the model\'s order, each saying what it is, i
   expect(steps[5]!.textContent).toContain('merged · dropped')
 })
 
-it('tints a step by its kind and draws every mark as the thing it is, not a face', async () => {
+it('uses plain neutral canonical kind marks in one stable header slot', async () => {
   await draw(blueprint())
-  const tiles = stepsOf().map((step) => step.querySelector('[data-slot="icon-tile"]'))
-  expect(tiles.map((tile) => tile?.getAttribute('data-tint'))).toEqual(['violet', 'sky', 'violet', 'sky', 'violet', 'amber'])
-  expect(tiles.every((tile) => tile?.getAttribute('data-shape') === 'square')).toBe(true)
+  const steps = stepsOf()
+  expect(steps.every(step => step.querySelector('[data-slot="flow-node-mark"]'))).toBe(true)
+  expect(steps.every(step => !step.querySelector('[data-slot="icon-tile"], [data-tint]'))).toBe(true)
+  for (const step of steps) {
+    const icon = step.dataset.kind === 'agent' ? 'bot' : step.dataset.kind === 'check' ? 'square-terminal' : 'user'
+    expect(step.querySelector(`[data-slot="flow-node-mark"] .lucide-${icon}`)).not.toBeNull()
+  }
 })
 
 it('scales layout pitch to the rendered card dimensions without a second layout', async () => {
@@ -204,7 +208,7 @@ it('draws a Flow from the position its file gave, and says nothing about it', as
   expect(model.positions['write']).toEqual({ x: 300, y: 40 })
 })
 
-it('draws recorded Run state with faces, a badge and duration, a working ring and a counted route', async () => {
+it('draws recorded Run state with plain runtime marks, accessible seat counts, duration and a counted route', async () => {
   const model = flowModel(blueprint())
   const overlay = {
     steps: new Map([
@@ -225,12 +229,18 @@ it('draws recorded Run state with faces, a badge and duration, a working ring an
   expect(write.getAttribute('data-state')).toBe('done')
   expect(write.querySelector('[data-slot="flow-complete"]')).not.toBeNull()
   expect(write.querySelector('[data-slot="flow-duration"]')?.textContent).toBe('11m')
-  expect(write.querySelector('[data-shape="face"]')?.textContent).toContain('Alpha mark')
-  expect(container.querySelector('[data-step="review"]')!.querySelectorAll('[data-shape="face"]')).toHaveLength(2)
-  expect([...container.querySelectorAll('[data-slot="flow-faces"] [data-shape="face"]')].every(face => !face.hasAttribute('title'))).toBe(true)
+  expect(write.querySelector('[data-slot="flow-node-mark"]')?.textContent).toContain('Alpha mark')
+  const review = container.querySelector('[data-step="review"]')!
+  expect(review.querySelector('[data-slot="flow-node-mark"]')?.getAttribute('aria-label')).toBe('2 seats')
+  expect(review.querySelectorAll('[data-behind]')).toHaveLength(2)
+  expect([...container.querySelectorAll('[data-slot="flow-step"]')].every(step => !step.querySelector('[data-slot="icon-tile"], [data-tint]'))).toBe(true)
+  // The accessible Steps list retains the individual recorded Seat marks.
+  expect(container.querySelector('[data-step-row="review"]')?.textContent).toContain('Beta mark')
+  expect(container.querySelector('[data-step-row="review"]')?.textContent).toContain('Gamma mark')
   const fix = container.querySelector('[data-step="fix"]')!
   expect(fix.textContent).toContain('Working')
-  expect(fix.textContent).toContain('Editing src/retry.ts')
+  expect(fix.querySelector('[data-slot="flow-doing"]')).toBeNull()
+  expect(fix.parentElement!.querySelector('[data-slot="flow-doing"]')?.textContent).toBe('Editing src/retry.ts')
   expect(fix.getAttribute('data-selected')).toBe('true')
   expect(container.querySelector('[data-edge="review>fix"]')!.getAttribute('data-state')).toBe('travelled')
   expect(container.querySelector('[data-slot="flow-baton"]')).not.toBeNull()
@@ -256,6 +266,16 @@ it('the list carries waiting, repeat counts and unknown duration; agent words ar
   expect(container.querySelector('script')).toBeNull()
 })
 
+
+it('draws no duration for a step that has not yet spent any time, rather than 0ms', async () => {
+  const model = flowModel(blueprint())
+  await act(async () => root.render(<FlowGraph model={model} overlay={{ rules: new Map(), steps: new Map([
+    ['you', { state: 'waiting', runs: 1, durationMs: 0, since: null, line: 'merged · dropped', seats: [] }],
+    ['write', { state: 'done', runs: 1, durationMs: 660_000, since: null, line: 'published', seats: [] }],
+  ]) }} />))
+  expect(container.querySelector('[data-step="you"] [data-slot="flow-duration"]')).toBeNull()
+  expect(container.querySelector('[data-step="write"] [data-slot="flow-duration"]')?.textContent).toBe('11m')
+})
 
 it('marks command steps with terminals in the blueprint drawing and catalogue list', async () => {
   await draw(blueprint())
@@ -352,9 +372,10 @@ it('keeps explanations on unknown readings of an unconfirmed check',async ()=>{
  expect(readings.querySelector('[title="Run count unavailable"]')?.textContent).toBe('—')
 })
 
-it('keeps check Steps square when the fallback has no seated Agent', async () => {
+it('keeps check Steps marked by a plain terminal when no Agent is seated', async () => {
  await draw(policy([check('verify','pnpm test')], []))
- expect(container.querySelector('[data-step-row="verify"] [data-slot="icon-tile"]')?.getAttribute('data-shape')).toBe('square')
+ expect(container.querySelector('[data-step-row="verify"] [data-slot="flow-row-mark"] .lucide-square-terminal')).not.toBeNull()
+ expect(container.querySelector('[data-step-row="verify"] [data-slot="icon-tile"]')).toBeNull()
 })
 
 it('uses the shared read-only canvas and refuses edits while keeping step selection', async () => {
@@ -433,4 +454,113 @@ it.each([500,900])('keeps the bare four-step extent when controls are omitted or
     const {drawing}=await inPane(width,'below',flow,options)
     expect(width < 608 ? drawing.style.minHeight : drawing.style.height).toBe('274px')
   }
+})
+
+
+it('replaces ordinary node contents with configuration controls without nesting card buttons', async () => {
+  const configure = vi.fn(), select = vi.fn()
+  await act(async () => root.render(<FlowGraph model={flowModel(blueprint())} onSelectStep={select}
+    stepContent={new Map([['write', <button type="button" onClick={configure}>Configure writer</button>]])} />))
+  const step = container.querySelector('[data-step="write"]')!
+  expect(step.textContent).toBe('Configure writer')
+  expect(step.querySelector('[data-slot="icon-tile"]')).toBeNull()
+  const control = step.querySelector('button')!
+  expect(control.parentElement?.closest('button')).toBeNull()
+  act(() => control.click())
+  expect(configure).toHaveBeenCalledOnce()
+  expect(select).not.toHaveBeenCalled()
+  expect(container.querySelector('section[aria-label="Steps"]')?.textContent).toContain('Write')
+  expect(container.querySelector('[data-step="check"]')?.textContent).toContain('pnpm verify')
+})
+
+it('measures requested card height and scales vertical pitch and fan boxes with it', async () => {
+  const model = flowModel(blueprint()), height = 194
+  await act(async () => root.render(<FlowGraph model={model} cardHeight={height} showControls={false} />))
+  const layout = flowLayout(model), scale = (height + FLOW_ROW_GAP) / (FLOW_CARD_H + FLOW_ROW_GAP)
+  for (const node of layout.nodes) {
+    const card = container.querySelector<HTMLElement>(`.react-flow__node[data-id="${node.id}"]`)!
+    expect(card.style.height).toBe(`${height}px`)
+    expect(card.style.transform).toContain(`,${node.box.y * scale}px)`)
+  }
+  expect(container.querySelector<HTMLElement>('[data-behind]')?.style.height).toBe(`${height}px`)
+  expect(container.querySelector<HTMLElement>('[data-slot="flow-drawing"]')?.style.height).toBe(`${Math.ceil(layout.height * scale + FLOW_MARGIN)}px`)
+})
+
+it('selects natural-language rules from canvas edges and the accessible Rules list', async () => {
+  const select = vi.fn()
+  await act(async () => root.render(<FlowGraph model={flowModel(blueprint())} selectedRule="r4" onSelectRule={select} />))
+  const edge = container.querySelector<HTMLElement>('.react-flow__edge[data-id="check>review"]')!
+  act(() => edge.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(select).toHaveBeenCalledWith('r2')
+  const row = container.querySelector<HTMLButtonElement>('[data-rule="r4"]')!
+  expect(row.getAttribute('aria-pressed')).toBe('true')
+  expect(row.textContent).toContain('request-changes')
+  act(() => row.click())
+  expect(select).toHaveBeenCalledWith('r4')
+  expect(container.querySelector('.react-flow__edge[data-id="review>fix"]')?.classList.contains('selected')).toBe(true)
+})
+
+it('a summary keeps its measured drawing height and a hidden accessible alternative', async () => {
+  await act(async () => root.render(<FlowGraph model={flowModel(blueprint())} listPlacement="summary" />))
+  const drawing = container.querySelector<HTMLElement>('[data-slot="flow-drawing"]')!
+  const list = container.querySelector<HTMLElement>('[data-slot="flow-list"]')!
+  expect(drawing.style.height).not.toBe('')
+  expect(list.classList.contains('sr-only')).toBe(true)
+  expect(list.querySelector('section[aria-label="Steps"]')?.textContent).toContain('Write')
+})
+
+
+it('keeps each role seat instructions, runtime control and refusal in one configuration group', async () => {
+  const configure = vi.fn()
+  const recover = vi.fn()
+  await act(async () => root.render(<FlowRoleConfiguration label="Writer agents" seats={[
+    { key: 'writer-0', title: 'Writes', mark: <span>Agent mark</span>, instructions: 'Implementation notes',
+      control: <><button onClick={configure}>Configure runtime</button><button onClick={recover}>Use Runtime Beta</button></>, problem: 'This runtime is signed out.', badge: <span>Fresh each round</span> },
+  ]} />))
+  const group = container.querySelector('[data-slot="team-role-configuration"]')!
+  expect(group.getAttribute('aria-label')).toBe('Writer agents')
+  const seat = group.querySelector('[data-slot="team-role-seat"]')!
+  expect(seat.textContent).toContain('Writes')
+  expect(seat.textContent).toContain('Implementation notes')
+  const issues = seat.querySelectorAll('[data-slot="issue-mark"]')
+  expect(issues).toHaveLength(1)
+  expect(issues[0]?.getAttribute('role')).toBe('img')
+  expect(issues[0]?.getAttribute('aria-label')).toBe('This runtime is signed out.')
+  expect(issues[0]?.getAttribute('title')).toBe('This runtime is signed out.')
+  expect(seat.textContent).not.toContain('This runtime is signed out.')
+  expect(seat.querySelector('[title="Implementation notes"]')).not.toBeNull()
+  act(() => seat.querySelector('button')!.click())
+  expect(configure).toHaveBeenCalledOnce()
+  const recovery = [...seat.querySelectorAll('button')].find(button => button.textContent === 'Use Runtime Beta')!
+  act(() => recovery.click())
+  expect(recover).toHaveBeenCalledOnce()
+})
+
+it('keeps configuration contents readable on a large graph while ordinary Run graphs still fit', async () => {
+  const roles = Array.from({ length: 12 }, (_, index) => agent(`agent-${index}`))
+  const rules = roles.slice(1).map((role, index) => rule(`r-${index}`, roles[index]!.id, role.id))
+  const model = flowModel(policy(roles, rules))
+  const zoom = () => Number(/scale\(([^)]+)\)/.exec(container.querySelector<HTMLElement>('.react-flow__viewport')!.style.transform)?.[1])
+  await act(async () => root.render(<FlowGraph key="configuration" model={model} stepContent={new Map([['agent-0', <button>Configure</button>]])} />))
+  await vi.waitFor(() => expect(zoom()).toBe(0.8))
+  const center = container.querySelector<HTMLButtonElement>('[aria-label="Center plan"]')!
+  act(() => center.click())
+  await vi.waitFor(() => expect(zoom()).toBe(0.8))
+  await act(async () => root.render(<FlowGraph key="run" model={model} />))
+  await vi.waitFor(() => expect(zoom()).toBeLessThan(0.8))
+  expect(container.querySelector('[aria-label="Fit plan"]')).not.toBeNull()
+})
+
+it.each([500, 900])('reserves compact toolbar space for a configuration summary at %ipx', async width => {
+  vi.restoreAllMocks(); vi.unstubAllGlobals()
+  canvasDOM({ graphWidth: width })
+  const model = flowModel(policy([agent('write'), agent('review')], [rule('handoff', 'write', 'review')]))
+  const cardHeight = 232
+  await act(async () => root.render(<FlowGraph model={model} cardHeight={cardHeight} listPlacement="summary"
+    title="Who does what" stepContent={new Map([['write', <button>Configure writer</button>]])} />))
+  const layout = flowLayout(model)
+  const extent = Math.ceil(layout.height * ((cardHeight + FLOW_ROW_GAP) / (FLOW_CARD_H + FLOW_ROW_GAP)) + FLOW_MARGIN)
+  const drawing = container.querySelector<HTMLElement>('[data-slot="flow-drawing"]')!
+  expect(width < 608 ? drawing.style.minHeight : drawing.style.height).toBe(`calc(${extent}px + var(--hd-space-8))`)
+  expect(container.querySelector('[aria-label="Center plan"]')).not.toBeNull()
 })

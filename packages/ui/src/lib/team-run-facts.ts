@@ -16,6 +16,7 @@ export const teamRunFacts = (input: RunTimelineInput) => {
   return {
     checks: ci?.kind === 'ci' ? ci.checks : null, changes: diff?.kind === 'diff' ? {added:diff.added,removed:diff.removed} : null,
     flow: sanitizeText(execution.document.flow.name), revision: execution.revision,
+    roundLimit: limit,
     budget: budget ? `${closed} of ${limit} rounds` : 'Not recorded',
     idle: budget ? `${execution.findings?.idleRounds ?? 0} of ${budget.withoutProgress} rounds` : 'Not recorded',
     origin: sanitizeText(input.origin ?? 'Not recorded'),

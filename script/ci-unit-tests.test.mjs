@@ -305,6 +305,18 @@ test('a change the unit tests may read from outside the UI source runs every tes
   ]) assert.equal(plan(['packages/ui/src/components/BringHome.tsx', path]).mode, 'all', path)
 })
 
+test('the public UI design entrypoint runs every test, alone or alongside a leaf change', () => {
+  const entrypoint = 'packages/ui/src/design/index.ts'
+  const leaf = 'packages/ui/src/components/BringHome.tsx'
+  for (const paths of [[entrypoint], [leaf, entrypoint]]) {
+    const run = plan(paths)
+    assert.equal(run.mode, 'all', paths.join(' '))
+    assert.deepEqual(run.files, [])
+    assert.match(run.summary, /shared design entrypoint/)
+  }
+  assert.equal(plan([leaf]).mode, 'related', 'a leaf retains dependency-based selection')
+})
+
 test('a deleted source file runs every test', () => {
   const run = plan(['packages/ui/src/components/Gone.tsx'])
   assert.equal(run.mode, 'all')
@@ -436,6 +448,9 @@ test('real-tree script reads include named gates and their static imports withou
   t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports() })
   const reads = outsideReads(root).filter(path => path.startsWith('script/'))
   assert.deepEqual(reads, [
+    // The face's crop geometry names its icon generator; follow its brand
+    // dependency too, as for every other source named by UI text.
+    'script/brands.mjs', 'script/build-icons.mjs',
     'script/check-reachable.mjs', 'script/check-ui-system.mjs', 'script/design-audit.mjs', 'script/design-doc.mjs',
     'script/design-sections.mjs', 'script/design-tokens.mjs', 'script/design-usage.mjs', 'script/flow-contest.sh',
     'script/lib/repository-files.mjs', 'script/lib/steps.mjs', 'script/lib/stylesheet-imports.mjs', 'script/lib/without-comments.mjs',
@@ -454,7 +469,7 @@ test('real-tree script reads include named gates and their static imports withou
   for (const path of ['script/cli-doc.mjs', 'script/generate-codex-protocol.mjs', 'script/check-secrets.mjs', 'script/cut-avatars.mjs']) {
     assert.equal(measuredPlan([path]).mode, 'none', path)
   }
-  for (const path of ['script/design-audit.mjs', 'script/verify.mjs', 'script/check-ui-system.mjs']) assert.equal(measuredPlan([path]).mode, 'all', path)
+  for (const path of ['script/brands.mjs', 'script/build-icons.mjs', 'script/design-audit.mjs', 'script/verify.mjs', 'script/check-ui-system.mjs']) assert.equal(measuredPlan([path]).mode, 'all', path)
   assert.equal(measuredPlan(['script/cli-doc.mjs', 'docs/x.md', 'packages/cli/src/y.ts']).mode, 'none')
   const changed = ['packages/ui/src/components/BringHome.tsx']
   assert.deepEqual(measuredPlan(['script/cli-doc.mjs', ...changed]), measuredPlan(changed))

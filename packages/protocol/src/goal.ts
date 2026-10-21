@@ -161,6 +161,12 @@ export interface GoalBoard {
 }
 
 export interface GoalView {
+  /** Host-owned read mark; absent on older desks means never opened. */
+  readonly lastSeenAt?: number
+  /** When this Team became ready to wrap; reading it never advances this time. */
+  readonly readyAt?: number
+  /** Done cards whose board placement still says nothing checked. */
+  readonly uncheckedDone?: number
   readonly goal: Goal
   readonly activity: GoalActivity | null
   readonly waitingOn: readonly { id: GoalId; sentence: string }[]

@@ -26,18 +26,22 @@ for (const theme of ['light', 'dark'] as const) {
       }).toBe(1)
     }
     await check()
+    const facts = frame.locator('[aria-label="Conversation facts"]')
+    await expect(facts).toBeVisible()
+    await expect(facts).not.toHaveText('')
+    const recordedFacts = (await facts.textContent())!
+    await expect(frame.locator('[data-slot="empty-state"]')).toHaveCount(0)
     if (process.env.REVIEW_BOARD_FRAMES) await page.screenshot({ path: path.join(process.env.REVIEW_BOARD_FRAMES, `board-${theme}-as-is.png`), animations: 'disabled' })
     await page.getByRole('radio', { name: 'fixed', exact: true }).click()
     await expect(scene.getByText(/\d+ fixed/)).toBeVisible()
-    await expect(frame.locator('[data-slot="empty-state"]').first()).toHaveCSS('padding-left', '12px')
-    await expect.poll(async () => frame.locator('body').evaluate(() =>
-      (window as any).__hdGuides.current.flatMap((one: any) => one.overflow).some((one: string) => one.includes('"Nothing to list" touches frame')),
-    )).toBe(false)
+    await expect(facts).toHaveText(recordedFacts)
+    await expect(frame.locator('[data-slot="empty-state"]')).toHaveCount(0)
     await check()
     if (process.env.REVIEW_BOARD_FRAMES) await page.screenshot({ path: path.join(process.env.REVIEW_BOARD_FRAMES, `board-${theme}-fixed.png`), animations: 'disabled' })
     await page.getByRole('radio', { name: 'as is', exact: true }).click()
     await expect(scene.getByText(/\d+ fixed/)).toHaveCount(0)
-    await expect(frame.locator('[data-slot="empty-state"]').first()).not.toHaveAttribute('style', /padding/)
+    await expect(facts).toHaveText(recordedFacts)
+    await expect(frame.locator('[data-slot="empty-state"]')).toHaveCount(0)
     // Appearance changes leave the scene mounted: the guides must follow the
     // new palette without a pointer move, resize, or remount.
     await frame.locator('body').evaluate(() => {

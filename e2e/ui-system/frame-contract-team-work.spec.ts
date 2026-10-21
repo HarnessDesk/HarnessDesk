@@ -18,12 +18,20 @@ for (const theme of WALL_THEMES) {
       await openFrame(page, 'frame-wall=team', theme)
       await selectFrameTab(page, tab)
       const main = page.locator('[data-slot="workbench-main"]')
-      const icon = main.getByRole('button', { name: 'View', exact: true })
-      await expect(icon).toHaveCount(tab === 'overview' ? 0 : 1)
-      if (tab === 'overview') await expect(main.locator('[data-slot="page-options"] button, [data-slot="page-options"] input, [data-slot="page-options"] select')).toHaveCount(0)
+      const icon = main.locator('[data-slot="page-options"]:visible').getByRole('button', { name: /^(View|Chat|Split)$/ })
+      const work = tab === 'overview' || tab === 'run'
+      await expect(icon).toHaveCount(work ? 0 : 1)
+      if (work) {
+        await expect(main.locator('[data-slot="run-flow"]')).toBeVisible()
+        await expect(main.getByRole('button', { name: 'Stop run…', exact: true })).toBeVisible()
+      }
       else {
         await expect(icon).toBeVisible()
         expect(await icon.evaluate(node => node.closest('[data-slot="top-bar"]'))).toBeNull()
+        const tabs = (await main.getByRole('tablist', { name: 'Team views', exact: true }).boundingBox())!
+        const control = (await icon.boundingBox())!
+        expect(Math.abs(control.y - tabs.y)).toBeLessThanOrEqual(1)
+        expect(control.x).toBeGreaterThanOrEqual(tabs.x + tabs.width)
       }
       await expect(page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true })).toHaveCount(0)
       await expect(page.locator('[data-slot="view-bar"]')).toHaveCount(0)
@@ -45,7 +53,8 @@ for (const theme of WALL_THEMES) {
     await openFrame(page, 'frame-wall=team-run-equivalent', theme)
     await selectFrameTab(page, 'run')
     const main = page.locator('[data-slot="workbench-main"]')
-    const group = main.locator('[data-round-group]')
+    await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Timeline')
+    const group = main.locator('[data-slot="run-steps"] [data-round-group]')
     await expect(group).toHaveCount(1)
     await expect(group).toContainText('Rounds 1–2')
     await expect(group).toContainText('2 runs')
@@ -76,12 +85,12 @@ for (const theme of WALL_THEMES) {
       await expect(verb).toBeVisible()
       await expect(verb.locator('svg')).toHaveCount(0)
       await expectTitleRoom(bar.locator('[data-topbar-title]'))
-      const view = main.getByRole('button', { name: 'View', exact: true })
-      const before = (await view.boundingBox())!
+      const before = (await verb.boundingBox())!
+      await expect(main.getByRole('button', { name: /^(View|Flow|Timeline)$/ })).toHaveCount(0)
       await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Flow')
       await expect(main.locator('[data-slot="run-flow"]')).toBeVisible()
       await expect(main.locator('[data-slot="flow-canvas"] .react-flow__node')).toHaveCount(4)
-      await expect.poll(async () => (await view.boundingBox())!.x).toBe(before.x)
+      await expect.poll(async () => (await verb.boundingBox())!.x).toBe(before.x)
       await expectTitleRoom(bar.locator('[data-topbar-title]'))
       await expect(page.locator('[data-slot="work-tools"]:visible')).toHaveCount(0)
       await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Timeline')
@@ -108,7 +117,7 @@ for (const theme of WALL_THEMES) {
     await expect(main).toContainText('Round 1')
     const details = await teamDetails(page.locator('[data-frame-id="frame-wall"]'))
     await expect(details.locator('[aria-label="Team Run facts"]')).toBeVisible()
-    await expect(details.locator('[aria-label="Seats"]')).toBeVisible()
+    await expect(details.locator('[data-slot="tool-section"][aria-label="Seats"]')).toBeVisible()
     await expect(details.locator('[data-slot="summary-card"][data-surface="card"]')).toHaveCount(0)
     // The canonical toggle stays above the covered main area and returns to
     // the same timeline without reselecting or releasing the retained record.
@@ -124,7 +133,7 @@ for (const theme of WALL_THEMES) {
     await expect(main.locator('[data-slot="flow-list"] section[aria-label="Rules"]')).toHaveCount(1)
     await selectRunView(page.locator('#run-dock-frame'), 'Timeline')
     await expect(main.locator('[data-slot="run-steps"]')).toBeVisible()
-    await expect(main.locator('[data-step-row]')).toHaveCount(5)
+    await expect(main.locator('[data-slot="run-steps"] [data-step-row]')).toHaveCount(5)
     await expect(main).toContainText('Taken 4')
     await expect(main).toContainText('Not reached 1')
     // The canonical toggle restores remembered Details on one press; Flow
@@ -157,9 +166,9 @@ for (const theme of WALL_THEMES) {
     expect(headings[0]).toContain('Run')
     expect(headings[1]).toContain('Seats')
     await selectFrameTab(page, 'room')
-    await page.getByRole('button', { name: 'View', exact: true }).click()
-    await expect(page.getByRole('menuitemradio', { name: 'Thread', exact: true })).toBeVisible()
-    await expect(page.getByRole('menuitemradio', { name: 'Side by side', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: /^(Chat|Split)$/ }).click()
+    await expect(page.getByRole('menuitemradio', { name: 'Chat', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitemradio', { name: 'Split', exact: true })).toBeVisible()
   })
   test(`B4 Chat has one composer edge and no view toolbar in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
@@ -198,8 +207,8 @@ for (const theme of WALL_THEMES) {
     await input.fill('Check the retry budget')
     await page.getByRole('button', { name: 'Send to', exact: true }).click()
     await page.getByRole('switch', { name: 'Board-only', exact: true }).click()
-    await page.getByRole('button', { name: 'View', exact: true }).click()
-    await page.getByRole('menuitemradio', { name: 'Side by side', exact: true }).click()
+    await page.getByRole('button', { name: /^(Chat|Split)$/ }).click()
+    await page.getByRole('menuitemradio', { name: 'Split', exact: true }).click()
     const shared = page.locator('[data-shared-composer]:visible')
     await expect(shared.getByText('Board-only', { exact: true })).toBeVisible()
     await expect(shared.locator('textarea')).toHaveValue('Check the retry budget')

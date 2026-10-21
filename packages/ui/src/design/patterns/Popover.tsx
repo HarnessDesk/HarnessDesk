@@ -100,6 +100,7 @@ export const Popover = ({
   title,
   'aria-label': ariaLabel,
   disabled = false,
+  focusableWhenDisabled = false,
   reason,
   narrowed = false,
   drop = 'down',
@@ -125,6 +126,8 @@ export const Popover = ({
   /** A stable control name when the visible label is a changing value. */
   'aria-label'?: string
   disabled?: boolean
+  /** Retain a focus-return target while temporary work refuses new opens. */
+  focusableWhenDisabled?: boolean
   reason?: string
   narrowed?: boolean
   /** Replaces the default trigger look, for a button that already has one. */
@@ -169,6 +172,7 @@ export const Popover = ({
   const grouped = useHeaderStatusGroup()
   const [open, setOpenState] = useState(false)
   const menuId = useRef(Symbol('popover-menu'))
+  const externalReturnFocus = useRef<boolean | null>(null)
   useLayoutEffect(() => open ? registerMenu(menuId.current) : undefined, [open])
   // What the caller was last told, kept beside the state rather than read out
   // of an updater: an updater runs during render (twice, in StrictMode), and a
@@ -177,6 +181,7 @@ export const Popover = ({
   const told = useRef(false)
   const setOpen = (next: boolean): void => {
     if (next && disabled) return
+    if (next) externalReturnFocus.current = null
     setOpenState(next)
     if (next === told.current) return
     told.current = next
@@ -194,7 +199,7 @@ export const Popover = ({
     : triggerVariant ? cn(buttonVariants(triggerVariant)) : (triggerClassName ?? styles.trigger)
   const triggerId = useId()
   const panel = useRef<HTMLDivElement>(null)
-  const externalReturnFocus = useRef<boolean | null>(null)
+  const lastPanel = useRef<HTMLDivElement | null>(null)
 
   /*
     A dialog opening is also a way of leaving. Menus have to outrank the
@@ -244,7 +249,8 @@ export const Popover = ({
           {...(open ? { 'data-open': '' } : {})}
           data-tone={tone}
           data-filtered={narrowed || undefined}
-          disabled={disabled}
+          disabled={disabled && !focusableWhenDisabled}
+          aria-disabled={disabled || undefined}
           title={grouped ? undefined : reason ?? title}
         /* Icon-only triggers use their title as a name. Outside a status
            group, words (including text in fragments) name themselves.
@@ -274,17 +280,26 @@ export const Popover = ({
             className={styles.positioner}
           >
             <PopoverPopup
-              ref={panel}
+              ref={node => { panel.current = node; if (node) lastPanel.current = node }}
               data-popup-kind={panelWidth === 'wide' ? 'wide-menu' : 'menu'}
               data-menu-icons={icons}
               aria-labelledby={triggerId}
               className={cn(styles.panel, floatingMotion)}
               initialFocus={false}
-              finalFocus={() => {
-                const requested = externalReturnFocus.current
-                externalReturnFocus.current = null
-                return requested === false ? false : trigger.current
-              }}
+              // A temporary refusal must remain a valid return target even
+              // when the modal focus guard has already focused its dialog.
+              // Respect any other control the person reached while closing.
+              finalFocus={focusableWhenDisabled ? () => {
+                if (externalReturnFocus.current === false) return false
+                const active = document.activeElement
+                const dialog = trigger.current?.closest('[data-slot="dialog-content"]')
+                if (active !== document.body && !lastPanel.current?.contains(active) && active !== dialog) return false
+                // A nested popup's focus-out guard can suppress the manager's
+                // queued return even for an explicit target. Restore only this
+                // eligible target while the final-focus callback owns cleanup.
+                trigger.current?.focus({ preventScroll: true })
+                return trigger.current
+              } : externalReturnFocus.current !== false}
             >
               {children(() => setOpen(false))}
             </PopoverPopup>

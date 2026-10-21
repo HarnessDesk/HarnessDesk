@@ -80,23 +80,24 @@ const row = (text: string): HTMLButtonElement | undefined =>
     entry.textContent?.startsWith(text),
   )
 
-it('names the project folder on a draft in the main checkout, and names the branch on hover', () => {
+it('defaults a project draft to its own worktree and makes Local an explicit choice', () => {
   rig()
 
-  expect(trigger()?.textContent).toContain('harness-desk')
-  expect(trigger()?.title).toBe('Starts in harness-desk, on main')
+  expect(trigger()?.textContent).toContain('New worktree')
+  expect(trigger()?.title).toBe('Starts in a new worktree on its own branch, made when you send')
 
   open()
   const popup = document.querySelector('[data-popup-kind="wide-menu"]')!
   expect(popup.getAttribute('data-menu-icons')).toBe('none')
   expect(popup.querySelector('[data-menu-icon]')).toBeNull()
-  expect(row('Local')?.getAttribute('aria-checked')).toBe('true')
-  expect(row('New worktree')?.getAttribute('aria-checked')).toBe('false')
+  expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
+  expect(row('New worktree')?.getAttribute('aria-checked')).toBe('true')
 })
 
 it('shows the selected project folder beside the folder icon', () => {
   rig({
     workspace: { ...MAIN, path: '/work/storefront', name: 'storefront' },
+    draftPlace: { kind: 'existing', path: '/work/storefront', branch: 'main' },
   })
 
   expect(trigger()?.textContent).toContain('storefront')
@@ -105,9 +106,15 @@ it('shows the selected project folder beside the folder icon', () => {
   expect(glyphs.every(glyph => Number(glyph.getAttribute('width')) >= 12)).toBe(true)
 })
 
+it('names the carried source folder when a handoff intentionally continues there', () => {
+  rig({ draftHandoff: { cwd: MAIN.path } as AppSnapshot['draftHandoff'] })
+  expect(trigger()?.textContent).not.toContain('New worktree')
+  expect(trigger()?.title).toBe(`Starts in ${MAIN.path}`)
+})
+
 it('keeps the full path on hover while the long folder label can truncate', () => {
   const path = '/work/this-is-a-very-long-storefront-folder-name'
-  rig({ workspace: { ...MAIN, path, name: path.split('/').at(-1)! } })
+  rig({ workspace: { ...MAIN, path, name: path.split('/').at(-1)! }, draftPlace: { kind: 'existing', path, branch: 'main' } })
 
   const label = trigger()?.querySelector<HTMLElement>('[data-slot="text"]')
   expect(label?.textContent).toBe(path.split('/').at(-1))
@@ -124,6 +131,7 @@ it('is gone once the conversation exists — the header says where a session run
 
 it('never calls a folder that is itself a worktree Local', () => {
   rig({
+    draftPlace: { kind: 'existing', path: '/code/harness-desk-parser', branch: 'feat/parser' },
     workspace: {
       ...MAIN,
       path: '/code/harness-desk-parser',
@@ -135,7 +143,7 @@ it('never calls a folder that is itself a worktree Local', () => {
   expect(trigger()?.textContent).not.toContain('Local')
   expect(trigger()?.textContent).toContain('parser')
   expect(trigger()?.textContent).toContain('worktree')
-  expect(trigger()?.title).toBe('Starts in this worktree, on feat/parser')
+  expect(trigger()?.title).toBe('Starts in the worktree on feat/parser')
 
   open()
   expect(row('This worktree')?.getAttribute('aria-checked')).toBe('true')
@@ -194,13 +202,11 @@ it("offers HarnessDesk's own worktrees of this project to start in", () => {
   })
 })
 
-it('says why a folder with no repository has no worktree, rather than hiding the row', () => {
+it('omits worktree controls for a folder with no repository', () => {
   rig({ workspace: { ...MAIN, git: null, repo: null } as WorkspaceEntry })
 
-  open()
-  const unavailable = row('New worktree')
-  expect(unavailable?.getAttribute('aria-disabled')).toBe('true')
-  expect(unavailable?.textContent).toContain('Worktrees need a git repository.')
+  expect(container.querySelector('button')).toBeNull()
+  expect(row('New worktree')).toBeUndefined()
 })
 
 it('names a worktree by the end of its branch, where branches differ, and the whole of it on hover', () => {
@@ -264,7 +270,7 @@ it('gives the main checkout no row pointing at itself', () => {
 
   open()
   expect(row('Main checkout')).toBeUndefined()
-  expect(row('Local')?.getAttribute('aria-checked')).toBe('true')
+  expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
 })
 
 it('draws a draft pointed at the main checkout as a place, not as a worktree', () => {
@@ -340,4 +346,42 @@ it('opens Commit for an unborn repository in place of New worktree', () => {
   const commit = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Commit')!
   click(commit)
   expect(store.askCommit).toHaveBeenCalledWith(MAIN.path)
+})
+
+it('keeps repository controls when fresh Git status arrives before repository identity', () => {
+  rig({ workspace: { ...MAIN, repo: null } as WorkspaceEntry })
+  open()
+  expect(row('New worktree')).toBeDefined()
+})
+
+it('keeps the place control while repository facts have not been read', () => {
+  rig({ workspace: { path: MAIN.path, name: MAIN.name, lastOpenedAt: 1 } as WorkspaceEntry })
+  expect(trigger()).not.toBeNull()
+  expect(trigger()?.textContent).toContain('Checking Git…')
+  open()
+  expect(row('Local')).toBeDefined()
+  expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
+  expect(row('New worktree')).toBeDefined()
+})
+
+it('keeps a linked worktree as the default without an explicit draftPlace', () => {
+  rig({ workspace: { ...MAIN, path: '/review-tree', checkoutRoot: '/review-tree', repo: { root: MAIN.path, worktree: true }, git: { branch: 'review' } } })
+  expect(trigger()?.title).toBe('Starts in this worktree, on review')
+  expect(trigger()?.textContent).not.toContain('New worktree')
+  open()
+  expect(row('This worktree')?.getAttribute('aria-checked')).toBe('true')
+})
+
+it('keeps an opened monorepo package in its selected subfolder', () => {
+  rig({ workspace: { ...MAIN, path: `${MAIN.path}/packages/widget`, checkoutRoot: MAIN.path } })
+  expect(trigger()?.title).toBe('Starts in widget, on main')
+  expect(trigger()?.textContent).not.toContain('New worktree')
+})
+
+it('shows checking instead of promising Local while Git facts are unread', () => {
+  rig({ workspace: { ...MAIN, git: undefined } })
+  expect(trigger()?.textContent).toContain('Checking Git')
+  expect(trigger()?.title).toContain('checking Git')
+  open()
+  expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
 })

@@ -1,3 +1,4 @@
+import { CaretIcon } from '../components/Icons'
 import { TerminalMenuItem } from '../components/TerminalToggle'
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import { TopBar, PageOptions, Popover, type TopBarProps, type TopBarAction } from '../design'
@@ -78,8 +79,8 @@ export const WorkViewControlsOutlet = ({ owner, choices = [] }: { owner: string;
   const source = useContext(Context) ?? emptyRegistry
   const entries = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
   const slots = entries.get(owner)?.value.view
-  return <PageOptions choices={choices} action={slots?.verb ? { label: slots.verb.label, icon: slots.verb.icon, disabled: slots.verb.disabled || undefined, run: slots.verb.run } : undefined}
-    read={slots?.view && !slots.view.disabled ? <Popover narrowed={slots.view.narrowed} title="View" aria-label="View" label="View" icons="none">{close => slots.view?.content(close)}</Popover> : undefined} />
+  return <PageOptions choices={choices} actionLast action={slots?.verb ? { label: slots.verb.label, icon: slots.verb.icon, disabled: slots.verb.disabled || undefined, run: slots.verb.run } : undefined}
+    read={slots?.view && !slots.view.disabled ? <Popover narrowed={slots.view.narrowed} title={slots.view.label ?? 'View'} aria-label={slots.view.label ?? 'View'} label={<>{slots.view.label ?? 'View'}<CaretIcon /></>} icons="none">{close => slots.view?.content(close)}</Popover> : undefined} />
 }
 export const TopBarOutlet = ({ owner, fallback, rightColumnWidth }: { owner: string; fallback: TopBarProps; rightColumnWidth?: TopBarProps['rightColumnWidth'] }) => {
   const source = useContext(Context)
@@ -89,5 +90,5 @@ export const TopBarOutlet = ({ owner, fallback, rightColumnWidth }: { owner: str
   const base = current?.base ?? fallback
   return <TopBar {...base} rightColumnWidth={rightColumnWidth ?? base.rightColumnWidth} verb={base.verb}
     view={undefined}
-    more={close => <>{base.more(close)}{current?.more?.(close)}{base.terminal && <TerminalMenuItem close={close} />}</>} extraMore={current?.view?.more} />
+    more={(close, compact) => <>{base.more(close)}{current?.more?.(close)}{base.terminal && !compact && <TerminalMenuItem close={close} />}</>} extraMore={current?.view?.more} />
 }

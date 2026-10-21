@@ -24,3 +24,43 @@ it.each(['light', 'dark'] as const)('keeps each miniature selection in its own n
     }
   } finally { act(() => root.unmount()); host.remove() }
 })
+
+it('treats the theme cards as one keyboard choice, keeping focus and selection together', async () => {
+  const host = document.createElement('div'); document.body.append(host)
+  const root = createRoot(host)
+  let snapshot = { ...emptySnapshot(), theme: 'light' as const } as ReturnType<typeof emptySnapshot>
+  const listeners = new Set<() => void>()
+  const store = {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    getSnapshot: () => snapshot,
+    setTheme: (theme: typeof snapshot.theme) => { snapshot = { ...snapshot, theme }; for (const listener of listeners) listener() },
+  } as unknown as AppStore
+  const radios = () => [...host.querySelectorAll<HTMLElement>('[role="radio"]')]
+  const selected = () => radios().find(radio => radio.getAttribute('aria-checked') === 'true')!
+  const key = async (key: string) => {
+    await act(async () => {
+      const target = document.activeElement as HTMLElement
+      target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+      target.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true, cancelable: true }))
+      // jsdom has no native button activation default for Space.
+      if (key === ' ') target.click()
+    })
+  }
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><ThemeCards /></StoreProvider>))
+    expect(radios().filter(radio => radio.tabIndex === 0)).toEqual([selected()])
+    act(() => selected().focus())
+    for (const [pressed, theme] of [['ArrowRight', 'dark'], ['Home', 'dark'], ['End', 'dark'], ['ArrowLeft', 'light'], ['ArrowUp', 'system'], ['ArrowDown', 'light']] as const) {
+      await key(pressed)
+      expect(snapshot.theme).toBe(theme)
+      expect(document.activeElement).toBe(selected())
+    }
+    // Space activates a focused radio, and the pointer can still pick any card.
+    act(() => radios()[0]!.focus())
+    await key(' ')
+    expect(snapshot.theme).toBe('system')
+    await act(async () => { radios()[2]!.focus(); radios()[2]!.click() })
+    expect(snapshot.theme).toBe('dark')
+    expect(radios().filter(radio => radio.tabIndex === 0)).toEqual([selected()])
+  } finally { act(() => root.unmount()); host.remove() }
+})

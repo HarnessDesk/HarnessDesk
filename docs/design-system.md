@@ -271,9 +271,12 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-bar-pad` | `12px` |
 | `--hd-bar-tool-gap` | `4px` |
 | `--hd-rail-inset` | `8px` |
+| `--hd-rail-sheet-fill` | `color-mix(in srgb, rgb(255, 255, 255) 88%, transparent)` |
+| `--hd-rail-sheet-filter` | `blur(12px)` |
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
 | `--hd-page-wide` | `1320px` |
+| `--hd-page-aside` | `320px` |
 | `--hd-page-gutter` | `24px` |
 | `--hd-page-stack` | `16px` |
 | `--hd-menu-min` | `200px` |
@@ -282,6 +285,9 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-info-card-width` | `288px` |
 | `--hd-fade-edge` | `16px` |
 | `--hd-fade` | `linear-gradient(to right, #000 calc(100% - 16px), transparent)` |
+| `--hd-toast-gap` | `16px` |
+| `--hd-composer-clearance` | `0px` |
+| `--hd-toast-bottom` | `16px` |
 | `--hd-composer-min` | `44px` |
 | `--hd-composer-max` | `320px` |
 | `--hd-composer-line` | `20px` |
@@ -472,7 +478,7 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 
 ### The section label
 
-The word over a group of rows — "Workspaces", "Capabilities", "Agents". There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own 13px chrome step, the secondary ink, sentence case, so it names the group quietly and the rows stay the subject. Both interfaces use medium weight; Studio adds more air above a rail's group; neither interface sets a label in capitals — the only capitals in the app are printed on a `Keycap`, and the design audit counts any other (`uppercaseLabel`).
+The word over a field group, a Settings form or a rail card. Page-body bands use the section text role; small groups use `GroupLabel` (design/ui/group-label.tsx): the rows' own 13px chrome step, the secondary ink, sentence case, so it names the group quietly and the rows stay the subject. Both interfaces use medium weight; Studio adds more air above a rail's group; neither interface sets a label in capitals — the only capitals in the app are printed on a `Keycap`, and the design audit counts any other (`uppercaseLabel`).
 
 ### The card
 
@@ -591,7 +597,7 @@ A table scope owns its density, including list and settings examples. Restating 
 
 ### Panel cards
 
-The right panel is a stack of cards on the left column's ground: a piece of work's facts and actions, each card showing its summary while folded (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md). A card is the main ground on a hairline; its header is one 20px line and each row inside it is 28. On `body`, where the spacing scale it is built from lives.
+The right panel is a stack of cards on the left column's ground: a piece of work's facts and actions, each card showing its summary while folded (docs/design.md). A card is the main ground on a hairline; its header is one 20px line and each row inside it is 28. On `body`, where the spacing scale it is built from lives.
 
 | token | value |
 | --- | --- |
@@ -934,7 +940,7 @@ having written the judgement down.
 
 ### `GroupLabel`
 
-**Use** — The word over any group — a card of rows, a rail's list, a section of a page: 13px, the secondary ink, sentence case. `SectionHead`, `Section`, `NavigationGroupHeader` and the catalogue rail all draw it.
+**Use** — Field groups, Settings forms, dialog groups and rail cards: 13px, the secondary ink, sentence case. `SectionHead level="label"`, `Section`, `NavigationGroupHeader` and the catalogue rail draw it; page-body bands use the section role.
 
 **Not** — Capitals. No label outside a `Keycap` is set in uppercase, tracked or not; the design audit counts every one (`uppercaseLabel`) and its ceiling may only fall.
 
@@ -942,7 +948,7 @@ having written the judgement down.
 
 ### `page`
 
-**Use** — Any part of a page: `<Section title description action>` around its card. It owns the rhythm — label to card 8px, section to section 32px, the first one after the head at the same 32px — and drops its children's own margins.
+**Use** — A part of a page: `<Section title description action>` around its card, with `level="heading"` for page-body bands and `level="label"` for form groups. It owns the rhythm — label to card 8px, section to section 32px, the first one after the head at the same 32px — and drops its children's own margins.
 
 **Not** — A `SectionHead`, a free `Note` and a `Rows` stacked by hand, or a screen margin between sections. The label then belongs to neither card and every page spaces itself.
 
@@ -1171,6 +1177,24 @@ With `description`, the small face stays beside the name while the prose
 sits directly under the name, in that same text column. `meta` is the
 role or other recorded fact beside the name.
 
+### `AgentCatalogue`
+
+`packages/ui/src/design/patterns/AgentCatalogue.tsx`
+
+A responsive catalogue of reusable roles; the host remains the authority for their seats.
+
+### `AgentCatalogueCard`
+
+`packages/ui/src/design/patterns/AgentCatalogue.tsx`
+
+One role, its purpose, and its actual seating result, each with a distinct place.
+
+### `AgentCatalogueSources`
+
+`packages/ui/src/design/patterns/AgentCatalogue.tsx`
+
+Sources and lower-precedence copies stay available without repeating source paragraphs between role cards.
+
 ### `ApprovalReason`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
@@ -1227,12 +1251,10 @@ the safety policy explicit and keeps the portal inside its conversation.
 The warning mark hangs in a gutter; title and body share one text column
 in both placements.
 
-`placement="docked"` is the same question in a composer's slot instead: a
-card in normal flow, as wide as the composer it stands in for, with the
-thread above it left fully readable — no scrim, no blur, no portal, not a
-dialog. A room is where this happens: a member waiting on a person takes
-the room's composer rather than covering the conversation everyone else in
-it is reading. It has exactly one filled act, the plain approve, like any
+`placement="docked"` is the same question as a card in the chat stream:
+no scrim, no blur, no portal, not a dialog. The conversation scrolls the
+whole request while the composer remains available below it. It has
+exactly one filled act, the plain approve, like any
 footer in the app; every other answer is quiet, and its number still works.
 
 ### `BoardCard`
@@ -1242,7 +1264,15 @@ footer in the app; every other answer is quiet, and its number still works.
 A compact opening card, exported publicly as CompactBoardCard: identity,
 optional attention detail, middle and footer.
 Title and detail props preserve a caller's hover text, slots and description ids.
+Optional marks retain presence and attention independently and describe the card; a finding owns its flag.
+detailLines bounds a catalogue description without truncating the finding.
 Supply aria-describedby for the detail and any facts inside the footer slot.
+
+### `BoardCardGrid`
+
+`packages/ui/src/design/patterns/BoardCard.tsx`
+
+Opening cards share a responsive grid that becomes one column within a narrow pane.
 
 ### `ChannelSignal`
 
@@ -1766,7 +1796,7 @@ A notice portal contributes only its Banner's height, including in flex main.
 
 `packages/ui/src/design/patterns/FlowCanvas.tsx`
 
-A controlled plan drawing. Give its container a height; Fit only shrinks.
+A controlled plan drawing. Give its container a height; Fit recalculates the viewport between the supplied zoom floor and 100%.
 New drawings start at 100% when they fit, otherwise shrink to the container.
 Edits keep the viewport while any earlier step survives.
 Steps connect by pointer here; the builder dock will add keyboard connection later.
@@ -1801,6 +1831,12 @@ Text and ordered forms reserve the toolbar's own band above the shared page inse
 
 A Flow in a destination or picker: its source, actual shape, earned summary and optional Run count.
 
+### `SelectedFlow`
+
+`packages/ui/src/design/patterns/FlowCards.tsx`
+
+The chosen policy stays inspectable while its full catalogue is folded away.
+
 ### `FlowMiniGraph`
 
 `packages/ui/src/design/patterns/FlowCards.tsx`
@@ -1813,11 +1849,23 @@ A policy thumbnail reads the full canvas's topology, with one fixed viewport and
 
 Flow destinations and New Team pickers share one content-sized, responsive card grid.
 
+### `FlowExample`
+
+`packages/ui/src/design/patterns/FlowExample.tsx`
+
+Explicit local illustration. It never receives a host, admission token or recorded Run.
+
 ### `FlowGraph`
 
 `packages/ui/src/design/patterns/FlowGraph.tsx`
 
 The frozen Flow on the shared read-only canvas, with recorded state and an accessible Steps seam for the Team dock.
+
+### `FlowRoleConfiguration`
+
+`packages/ui/src/design/patterns/FlowGraph.tsx`
+
+Editable seats inside a measured Flow node, with the same header and control edges for every role.
 
 ### `words`
 
@@ -1835,7 +1883,7 @@ A recorded step or Seat state, toned once for the Flow list and main Run Timelin
 
 `packages/ui/src/design/patterns/FlowStepRow.tsx`
 
-A step in the Flow list or Timeline: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
+A step in the Flow list or Timeline: kind and unframed Seat marks, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
 
 ### `MergeDialog`
 
@@ -1905,6 +1953,12 @@ A quiet account row closes the column beneath a full-width hairline.
 
 Explorer occupies the same column; its header and foot share the row inset.
 
+### `LeftColumnSeats`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+Seat rows indent their leading column while retaining the parent's end rail.
+
 ### `LibraryMatrix`
 
 `packages/ui/src/design/patterns/LibraryMatrix.tsx`
@@ -1942,6 +1996,12 @@ Keep work and visited pages mounted; only the active main layer is interactive.
 
 Each visited page owns one scroll element for the current project.
 
+### `IssueMark`
+
+`packages/ui/src/design/patterns/Menu.tsx`
+
+A single-line warning or error with an explanation on hover and in the accessible name.
+
 ### `MenuAccountGroup`
 
 `packages/ui/src/design/patterns/Menu.tsx`
@@ -1967,7 +2027,7 @@ A switch stays open; Base UI supplies checkbox-menu keyboard semantics.
 The head every dialog wears: its name, context, short description, and way out.
 
 `Dialog` draws it, and so does a sheet that lays out its own body — the
-skill sheet — so a dialog's name is one step, one inset and one rule under
+MCP detail — so a dialog's name is one step, one inset and one rule under
 it whichever of them is open. The name is the title step (16/24, semibold).
 
 `aside` sits after the name on its line (a context chip); `children` are one
@@ -2096,13 +2156,29 @@ chosen centred page measure. A dense canvas with topInset="page" replaces
 its smaller top inset with the page's top content inset while keeping the
 same full-width canvas frame.
 Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
-four edges. A surface that brings its own geometry — a terminal, a diff,
+four edges — except above a page that opens with its title. That page
+starts at the body's top, and its title row is one bar tall, so the title
+stands in the same band as the sidebar's brand row and reads on the
+wordmark's line (docs/decisions.md, "A page title stands on the
+wordmark's line"). A surface that brings its own geometry — a terminal, a diff,
 a graph — bleeds instead of taking a page.
 
 Blocks inside sit one stack gap (`--hd-page-stack`) apart; a `Section` brings
 its own larger step. A Team's Findings drew its
 facts against the sidebar, a button across the window and a switch in the
 middle of it because nothing told the page what width it was.
+
+### `PageStack`
+
+`packages/ui/src/design/patterns/Page.tsx`
+
+Content blocks share a page's stack; fact cards and captions use the smaller named steps.
+
+### `PageColumns`
+
+`packages/ui/src/design/patterns/Page.tsx`
+
+A detail's reading body and its fact column (`--hd-page-aside`) become one column below the large breakpoint.
 
 ### `PageControls`
 
@@ -2168,7 +2244,15 @@ Row actions and portalled menus never activate the record; the title is its keyb
 
 `data-slot`/`data-inset` are for a test or a screen's own CSS to read, the
  same convention the rest of `design/patterns` stamps. A prose `page`
- keeps the full reading inset above and below its content.
+ keeps the full reading inset above and below its content; `Page` may set
+ `--page-top` to start a page that opens with its title at the top.
+
+### `PaneTabsRow`
+
+`packages/ui/src/design/patterns/PaneColumn.tsx`
+
+Tabs under a pane's top bar keep the reading gutter and a small vertical
+step. Tabs yield and scroll; their current view and action stay beside them.
 
 ### `useComposerHeightVar`
 
@@ -2410,9 +2494,10 @@ The *behaviour* is no longer this app's own. It was a row of hand-rolled
 keyboard reaching the fourth choice pressed Tab four times, where a real
 radio group is one press to enter and arrows to choose. It now sits on
 `design/ui/radio-group`, the shadcn Base UI build, which brings the roving
-focus, the arrow keys, Home/End, and the form value with it.
+focus, arrow-key selection, and the form value with it. Home/End stay with
+the page, following the primitive's radio policy.
 
-The canonical toggle group supplies radio semantics and roving focus while
+The canonical radio group supplies radio semantics and roving focus while
 this pattern supplies the settings-specific segmented appearance.
 An unavailable answer takes a disabled reason, kept in its hover title.
 
@@ -2421,6 +2506,14 @@ An unavailable answer takes a disabled reason, kept in its hover title.
 `packages/ui/src/design/patterns/Settings.tsx`
 
 The same segmented setting when it reports a value instead of changing it.
+
+### `SectionHead`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Names a band of a page’s body with the existing section text role (16px,
+semibold). `level="label"` keeps field groups, Settings forms and rail cards
+small. A dialog form always draws its group legend, independent of level.
 
 ### `Text`
 
@@ -2466,6 +2559,8 @@ row buttons) keeps its card, its edge and its ground.
 
 A named row with optional text below it. Keep the title scannable and put
 its full sentence in `desc`, where it wraps as an earned second line.
+`density="compact"` is a card row at panel-row height with a 16px face, no
+divider, one trailing value and one action.
 
 ### `RowButton`
 
@@ -2516,6 +2611,8 @@ unless they picked square), and it is the same corner the agents' marks
 beside it wear. When faces are square the corner steps up the radius scale
 with the size, so the seat's 24px and the profile page's 44px read as one
 object at two sizes.
+Plated colourways crop their inset plate to that same corner without
+enlarging the mark. Transparent marks and sticker artwork stay whole.
 
 Without a `size` it fills the box it is put in and takes that box's corner:
 a room's message rows draw a tile for every sender, and a person's face
@@ -2636,6 +2733,7 @@ A Settings record's actions: its name and distinguishing location, with destruct
 
 `packages/ui/src/design/patterns/SidebarMenuState.tsx`
 
+Orange limit means a person waits; blue new means unseen news.
 A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions.
 
 ### `SignInRail`
@@ -2684,18 +2782,12 @@ The shell tabs and panel actions share one row above the terminal screen.
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
-One card of the right panel (docs/superpowers/specs/2026-10-14-panel-cards-and-team-bar.md).
+One card of the right panel (docs/design.md).
 
 The header is the card's label, a disclosure when it folds, and its `value`
 — the summary a folded card still shows, so a glance down the panel reads
 every card's state without opening one. A card's rows keep their own 12px
 edge, which is the card's side padding; the card adds the top and bottom.
-
-### `ToolRow`
-
-`packages/ui/src/design/patterns/ToolBody.tsx`
-
-One line of a card: a 16px icon, a label, one trailing fact and at most one action.
 
 ### `ToolFold`
 
@@ -2750,7 +2842,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
 | `screenAppearance` | 0 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. A hard zero since #838: the Git pane's two own declarations are named, reasoned exemptions (`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`), matched by sheet, selector, property and value. |
-| `singleAreaPrimitive` | 11 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area. |
+| `singleAreaPrimitive` | 6 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
@@ -2768,21 +2860,23 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawDuration` | 0 | Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
-| `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
-| `pageMeasureInScreen` | 18 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2043 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `retiredComponent` | 4 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
+| `pageMeasureInScreen` | 16 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
+| `screenLayout` | 2017 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
 ## Screens against the standard
 
 The rest of this page is the system as written. This is the app as drawn: every
 scene of the review board (`pnpm design`, then `/review.html`), measured by its
 own guides and recorded in
-`packages/ui/src/design/guides-standard.json`. *Off-line* is an edge 0.5–3px off a
+`packages/ui/src/design/guides-standard.json`, once per platform: text widths are the
+platform's own, so the same scene measures a little differently on a Mac and on a Linux
+runner. The counts below are the Linux record, the one CI gates on, and the most any CI run has shown. *Off-line* is an edge 0.5–3px off a
 line three others share; *overflow* is content that spills, is clipped without an
 ellipsis, leaves its window, or touches the edge of its card; *off-scale* is a
 value no token names. The guides standard spec fails a count that rises, so these
 numbers only go down until someone re-records them on purpose
-(`UPDATE_GUIDES=1`, then `pnpm design:doc`). The board's *View: fixed* switch (or
+(`UPDATE_GUIDES=1` on each platform, from one commit, then `pnpm design:doc`). The board's *View: fixed* switch (or
 `?fix=1`) shows each screen with every finding it can correct corrected — an
 off-line edge moved onto its line, text given its card's edge, an off-scale value
 set to the nearest token — and measures again, so a reviewer sees the target
@@ -2796,54 +2890,54 @@ before anyone edits the source.
 | `conversation-details` | 8 | 3 | 0 |
 | `conversation-details-no-background` | 6 | 3 | 0 |
 | `conversation-changes` | 8 | 3 | 0 |
-| `conversation-browser` | 11 | 3 | 0 |
-| `conversation-git` | 13 | 3 | 0 |
-| `conversation-file` | 10 | 3 | 1 |
-| `conversation-terminal` | 10 | 3 | 0 |
-| `conversation-tasks` | 10 | 3 | 0 |
+| `conversation-browser` | 9 | 3 | 0 |
+| `conversation-git` | 12 | 3 | 0 |
+| `conversation-file` | 9 | 3 | 1 |
+| `conversation-terminal` | 9 | 3 | 0 |
+| `conversation-tasks` | 9 | 3 | 0 |
 | `changes-review` | 5 | 1 | 0 |
 | `conversation-update` | 8 | 3 | 0 |
 | `conversation-disconnected` | 8 | 3 | 0 |
 | `conversation-status-tasks` | 8 | 3 | 0 |
-| `team-reconnecting` | 14 | 1 | 0 |
+| `team-reconnecting` | 15 | 1 | 0 |
 | `plugin-unavailable` | 9 | 3 | 0 |
 | `width-1100` | 9 | 3 | 0 |
-| `width-720` | 10 | 2 | 0 |
-| `team-overview` | 14 | 1 | 0 |
-| `team-run` | 11 | 1 | 0 |
+| `width-720` | 11 | 2 | 0 |
+| `team-overview` | 15 | 1 | 0 |
+| `team-run` | 16 | 1 | 0 |
 | `team-run-flow` | 11 | 7 | 0 |
-| `team-run-not-reached` | 12 | 1 | 0 |
-| `team-run-repeated` | 19 | 1 | 0 |
-| `team-run-equivalent` | 13 | 1 | 0 |
-| `team-board` | 11 | 1 | 0 |
-| `team-board-list` | 10 | 1 | 0 |
-| `team-chat` | 11 | 1 | 0 |
-| `team-chat-side` | 13 | 1 | 0 |
-| `team-findings` | 11 | 1 | 0 |
+| `team-run-not-reached` | 20 | 1 | 0 |
+| `team-run-repeated` | 28 | 1 | 0 |
+| `team-run-equivalent` | 20 | 1 | 0 |
+| `team-board` | 10 | 1 | 0 |
+| `team-board-list` | 11 | 1 | 0 |
+| `team-chat` | 12 | 1 | 0 |
+| `team-chat-side` | 14 | 1 | 0 |
+| `team-findings` | 12 | 1 | 0 |
 | `team-runs` | 10 | 1 | 0 |
-| `team-receipt` | 14 | 1 | 0 |
-| `team-details` | 14 | 1 | 0 |
+| `team-receipt` | 12 | 1 | 0 |
+| `team-details` | 15 | 1 | 0 |
 | `teams` | 6 | 1 | 0 |
-| `agents-roster` | 4 | 3 | 0 |
-| `agent-detail` | 5 | 3 | 0 |
+| `agents-roster` | 6 | 3 | 0 |
+| `agent-detail` | 4 | 3 | 0 |
 | `agent-parse` | 5 | 3 | 0 |
 | `agent-refused` | 8 | 3 | 0 |
-| `agent-missing` | 4 | 3 | 0 |
-| `library` | 11 | 1 | 0 |
+| `agent-missing` | 6 | 3 | 0 |
+| `library` | 12 | 4 | 0 |
 | `plugins-installed` | 4 | 1 | 0 |
-| `plugins-capabilities` | 6 | 1 | 0 |
+| `plugins-capabilities` | 13 | 1 | 0 |
 | `plugins-detail` | 5 | 1 | 0 |
 | `plugins-failed` | 4 | 1 | 0 |
-| `dashboard-overview` | 14 | 2 | 0 |
-| `dashboard-plans` | 8 | 5 | 0 |
+| `dashboard-overview` | 16 | 2 | 0 |
+| `dashboard-plans` | 9 | 5 | 0 |
 | `dashboard-spend` | 6 | 2 | 1 |
-| `dashboard-activity` | 8 | 4 | 1 |
+| `dashboard-activity` | 7 | 4 | 1 |
 | `dashboard-projects` | 5 | 1 | 0 |
 | `dashboard-empty` | 7 | 4 | 2 |
 | `settings-general` | 3 | 0 | 0 |
-| `settings-appearance` | 4 | 0 | 5 |
+| `settings-appearance` | 3 | 0 | 5 |
 | `settings-notifications` | 3 | 0 | 0 |
-| `settings-shortcuts` | 7 | 0 | 0 |
+| `settings-shortcuts` | 8 | 0 | 0 |
 | `settings-workspaces` | 5 | 0 | 0 |
 | `settings-archive` | 3 | 0 | 0 |
 | `settings-history` | 3 | 0 | 0 |
@@ -2856,18 +2950,18 @@ before anyone edits the source.
 | `settings-browser` | 3 | 0 | 0 |
 | `settings-profile` | 5 | 0 | 0 |
 | `settings-runtime` | 5 | 0 | 0 |
-| `settings-account` | 4 | 0 | 0 |
+| `settings-account` | 3 | 0 | 0 |
 | `settings-project` | 3 | 0 | 0 |
 | `settings-skill` | 3 | 0 | 0 |
 | `left-work` | 9 | 1 | 0 |
-| `navigation` | 10 | 4 | 0 |
+| `navigation` | 9 | 4 | 0 |
 | `left-start` | 8 | 3 | 0 |
 | `left-account` | 8 | 3 | 0 |
 | `left-inbox` | 8 | 3 | 0 |
 | `left-session-menu` | 9 | 1 | 0 |
 | `menu-model` | 8 | 3 | 0 |
 | `menu-permissions` | 8 | 3 | 0 |
-| `menu-icons` | 12 | 3 | 0 |
+| `menu-icons` | 8 | 3 | 0 |
 | `menu-disabled` | 8 | 3 | 0 |
 | `menu-wide` | 8 | 3 | 0 |
 | `menu-metered` | 8 | 3 | 0 |
@@ -2875,4 +2969,4 @@ before anyone edits the source.
 | `menu-suggestions` | 8 | 3 | 0 |
 | `menu-inbox` | 8 | 3 | 0 |
 | `menu-palette` | 8 | 3 | 0 |
-| **total** | 661 | 158 | 10 |
+| **total** | 696 | 161 | 10 |

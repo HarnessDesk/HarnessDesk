@@ -13,7 +13,8 @@ export const expectColumnRowEdges = async (rows: Locator, rowHeight: number = FR
     const words = button.querySelector<HTMLElement>('[data-left-fold-name]')
     const chevron = button.querySelector<SVGElement>('[data-slot="disclosure-chevron"]')
     return { h: button.getBoundingClientRect().height, text: text.getBoundingClientRect().x,
-      icon: icon?.getBoundingClientRect().x ?? null, heading: button.hasAttribute('aria-expanded'),
+      icon: icon?.getBoundingClientRect().x ?? null, heading: button.hasAttribute('aria-expanded') && !node.querySelector('[data-left-disclosure]'),
+      nested: node.hasAttribute('data-left-nested'),
       gap: words && chevron ? chevron.getBoundingClientRect().left - words.getBoundingClientRect().right : null }
   }))
   for (const row of values) expect(row.h).toBe(rowHeight)
@@ -21,8 +22,10 @@ export const expectColumnRowEdges = async (rows: Locator, rowHeight: number = FR
   expect(opening.length).toBeGreaterThan(2)
   for (const row of opening) expect(row.icon).not.toBeNull()
   for (const field of ['text', 'icon'] as const) {
-    const xs = opening.map(row => row[field]!)
-    expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
+    for (const nested of [false, true]) {
+      const xs = opening.filter(row => row.nested === nested).map(row => row[field]!)
+      if (xs.length > 0) expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
+    }
   }
   for (const heading of values.filter(row => row.heading)) {
     expect(heading.icon, 'a foldable heading has its disclosure after the name').toBeNull()

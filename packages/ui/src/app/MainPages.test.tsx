@@ -23,6 +23,8 @@ it('retains one keyed body per kind, deactivates its callbacks and resets on pro
     const input=box.querySelector('input')!;input.focus()
     await act(async()=>{store.openDestination({kind:'dashboard',view:'overview',scope:null});await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
     const held=box.querySelector('[data-page-destination="settings"]')!
+    expect(held.hasAttribute('data-stable-gutter')).toBe(true)
+    expect(box.querySelector('[data-page-destination="dashboard"]')?.hasAttribute('data-stable-gutter')).toBe(false)
     expect(held.hasAttribute('hidden')).toBe(true);expect(held.hasAttribute('inert')).toBe(true)
     expect(held.querySelector('output')?.textContent).toBe('false')
     act(()=>held.querySelector('button')!.click());expect(store.getSnapshot().workbench.navigation.current.kind).toBe('dashboard')

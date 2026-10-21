@@ -16,7 +16,7 @@ import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
 import { STOP_HEAD_TIMEOUT_MS } from '../team.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
-import { goalMembers, memberProjection } from './members.js'
+import { goalMembers, memberProjection, teamNewsSessions } from './members.js'
 import { recoverOperation, reserveEmpty, type CarryPort, type GoalOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
 import { citationBlob, previewWrap, Wraps, type WrapInput } from './wrap.js'
@@ -82,6 +82,8 @@ export interface GoalPlanePort extends GoalOperationPort {
   evidenceIds(goal: string, project: string): Promise<readonly GoalReceiptEvidenceSeat[]>
   flow(goal: string): FlowRun | undefined
   busy(session: SessionPointer): boolean
+  /** Newest unread Seat notice retained in the desk preferences. */
+  unreadAt?(sessions: readonly SessionPointer[]): number
   waits(session: SessionPointer): boolean
   stranded(goal: string, card: number): boolean
   held(goal: string): boolean
@@ -305,7 +307,7 @@ export class GoalPlane {
     const dependencies = document.goal.dependsOn.flatMap((id) => this.store.standing(id) ? [this.store.read(id).goal] : [])
     const activity = document.restored ? null : activityOf(document.goal, {
       needsYou: endingNeedsYou || this.port.held(id) || members.some((seat) => this.port.waits(seat.session)) ||
-        placements.some((one) => one.column === 'needs'),
+        placements.some((one) => one.column === 'needs' && one.why !== 'nothing checked'),
       busy: problem !== null || members.some((seat) => this.port.busy(seat.session)) ||
         placements.some((one) => one.column === 'review') ||
         (evidence?.cards.some((card) => card.running.length > 0) ?? false),
@@ -315,6 +317,9 @@ export class GoalPlane {
     })
     return {
       goal: document.goal,
+      lastSeenAt: document.lastSeenAt ?? 0,
+      readyAt: document.readyAt ?? Math.max(document.goal.updatedAt, ...board.intents.map(card => card.updatedAt)),
+      uncheckedDone: placements.filter((one, index) => board.intents[index]?.state === 'done' && one.column === 'needs' && one.why === 'nothing checked').length,
       activity,
       waitingOn: document.goal.dependsOn.flatMap((dependency) => {
         const found = dependencies.find((one) => one.id === dependency)
@@ -326,9 +331,31 @@ export class GoalPlane {
     }
   }
 
+  async seen(id: string, newsAt = 0): Promise<GoalView> {
+    return this.serial.run(async () => {
+      const document = this.store.read(id)
+      const view = await this.view(id)
+      if (document.goal.state === 'wrapped' || document.restored) return view
+      const latest = Math.max(view.activity === 'ready-to-wrap' ? view.readyAt ?? 0 : 0,
+        ...(this.port.executions?.(id) ?? []).map(run => run.state !== 'running' && run.state !== 'stalled' ? run.endedAt ?? 0 : 0),
+        this.port.unreadAt?.(teamNewsSessions(view)) ?? 0)
+      // Inbox persistence can trail the renderer's acknowledgement. Its hint only
+      // decides whether to write, never the stored time (even for a future hint).
+      if (document.lastSeenAt !== undefined && Math.max(latest, newsAt) <= document.lastSeenAt) return view
+      await this.store.mark(id, { lastSeenAt: Math.max(this.now(), latest, document.lastSeenAt ?? 0) })
+      const seen = await this.view(id)
+      this.port.changed(seen, { install: false })
+      return seen
+    })
+  }
+
   async refresh(id: string, options: { readonly install: boolean } = { install: true }): Promise<void> {
-    const view = await this.view(id)
+    let view = await this.view(id)
     const previous = this.#activity.get(id)
+    if (view.activity === 'ready-to-wrap' && (this.store.read(id).readyAt === undefined || (previous !== undefined && previous !== 'ready-to-wrap'))) {
+      await this.store.mark(id, { readyAt: previous === undefined ? view.readyAt ?? this.now() : this.now() })
+      view = await this.view(id)
+    }
     if (view.activity === null) this.#activity.delete(id)
     else this.#activity.set(id, view.activity)
     this.port.changed(view, options)
@@ -346,6 +373,7 @@ export class GoalPlane {
   async hydrateActivity(): Promise<void> {
     for (const document of this.store.list()) {
       const view = await this.view(document.goal.id)
+      if (view.activity === 'ready-to-wrap' && document.readyAt === undefined) await this.store.mark(document.goal.id, { readyAt: view.readyAt ?? this.now() })
       if (view.activity === null) this.#activity.delete(document.goal.id)
       else this.#activity.set(document.goal.id, view.activity)
     }

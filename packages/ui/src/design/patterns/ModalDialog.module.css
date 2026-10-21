@@ -38,9 +38,15 @@
 
 .description {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal; /* desk: consequence sentences wrap whole instead of ending in an ellipsis */
+  overflow-wrap: anywhere;
+}
+
+/* Only unbounded host text shares the viewport with the body and footer.
+   Keep whole lines, including one line in a very short window. */
+.description[data-scroll] {
+  max-height: clamp(var(--hd-line-sm), round(down, 8vh, var(--hd-line-sm)), calc(var(--hd-line-sm) * 4));
+  overflow-y: auto;
 }
 
 .body {

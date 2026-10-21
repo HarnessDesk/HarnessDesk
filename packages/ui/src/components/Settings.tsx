@@ -1,4 +1,6 @@
 import { LeadSettingsSection } from './LeadSettings'
+import SettingsChatsFolder from './SettingsChatsFolder'
+import { projectWorkspaces } from '../lib/chats'
 import SettingsNewConversations from './SettingsNewConversations'
 import { Toolbar } from '../design'
 import type { SettingsRoute, SettingsSection } from '../state/destinations'
@@ -37,7 +39,7 @@ import {
 import { brandForRuntime } from '../lib/brands'
 import { ModelMark, RuntimeMark } from './BrandIcons'
 
-import { agentGroups } from '../lib/accounts'
+import { accountKey, agentGroups } from '../lib/accounts'
 import { exportedSentence, restoredSentence } from '../lib/backup-words'
 
 import { summarise } from '../lib/options'
@@ -264,7 +266,7 @@ const RoutesRows = () => {
 
   return (
     <>
-      <SectionHead
+      <SectionHead level="label"
         name={withCount('Custom endpoints', snapshot.routes.length)}
         action={
           <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
@@ -395,7 +397,7 @@ const KeysRows = () => {
 
   return (
     <>
-      <SectionHead name={withCount('Stored keys', routeKeys.length)} />
+      <SectionHead level="label" name={withCount('Stored keys', routeKeys.length)} />
       <Rows>
         {routeKeys.map((key) => {
           const owners = usedBy.get(key.ref) ?? []
@@ -821,7 +823,7 @@ const PresetsRows = () => {
 
   return (
     <>
-      <SectionHead
+      <SectionHead level="label"
         name={withCount('Presets', presets.length)}
         action={
           <Button variant="outline" size="sm" disabled={!options} onClick={() => setSaving(true)}>
@@ -903,14 +905,14 @@ const ModelsSection = () => {
       model.displayName.toLowerCase().includes(needle) ||
       model.id.toLowerCase().includes(needle),
   )
-  const shown = snapshot.models.length - hidden.length
+  const shown = snapshot.models.filter(model => !hidden.includes(model.id)).length
   const total = snapshot.models.length
 
   return (
     <>
       <PageExplanation>{`Which of ${runtime.presentation.name}’s models the composer offers.`}</PageExplanation>
 
-      <SectionHead
+      <SectionHead level="label"
         name={withCount('Models', total)}
         action={
           <>
@@ -924,7 +926,7 @@ const ModelsSection = () => {
                 Hide all
               </Button>
             )}
-            {hidden.length > 0 && (
+            {shown < total && (
               <Button size="sm" variant="outline" onClick={() => store.setAllModelsHidden(runtime.id, false)}>
                 Show all
               </Button>
@@ -1028,7 +1030,7 @@ const HooksList = () => {
   if (!runtime.capabilities.hooks || !hooks || hooks.length === 0) return null
   return (
     <>
-      <SectionHead name={withCount('Hooks', hooks.length)} />
+      <SectionHead level="label" name={withCount('Hooks', hooks.length)} />
       <Note>Run by {runtime.presentation.name} around the runtime’s work, configured on disk.</Note>
       <Rows>
         {hooks.map((hook) => (
@@ -1146,12 +1148,12 @@ const SkillPage = ({
 
       {skill.description && skill.description !== skill.shortDescription && (
         <>
-          <SectionHead name="What it does" />
+          <SectionHead level="label" name="What it does" />
           <PreservedText value={skill.description}/>
         </>
       )}
 
-      <SectionHead name="About" />
+      <SectionHead level="label" name="About" />
       <Rows>
         <Row title="Identifier" control={<Text role="meta"><CodeText>{skill.name}</CodeText></Text>} />
         {skill.path && (
@@ -1305,7 +1307,7 @@ const BrowserSection = () => {
     <>
       <PageExplanation>Where the pages runtimes open appear, and what those pages may keep.</PageExplanation>
 
-      <SectionHead name="Pages open" />
+      <SectionHead level="label" name="Pages open" />
       <Rows role="radiogroup" aria-label="Pages open">
         {PLACEMENTS.map((option) => (
           <RowChoice
@@ -1320,7 +1322,7 @@ const BrowserSection = () => {
 
       {prefs.placement === 'window' && (
         <>
-          <SectionHead name="Which browser" />
+          <SectionHead level="label" name="Which browser" />
           <Rows role="radiogroup" aria-label="Which browser">
             <RowChoice
               title="Whichever is installed"
@@ -1376,7 +1378,7 @@ const BrowserSection = () => {
 
       {prefs.placement === 'pane' && (
         <>
-          <SectionHead name="The pane" />
+          <SectionHead level="label" name="The pane" />
           <Rows>
             <Row
               title="Open links in the pane"
@@ -1406,7 +1408,7 @@ const BrowserSection = () => {
             />
             <Row
               title="Browsing data"
-              desc="Cookies, storage and caches for the pane’s pages."
+              desc="Cookies, storage and caches for all conversation browser panes."
               control={
                 <Button variant="secondary"
                   size="sm"
@@ -1414,9 +1416,9 @@ const BrowserSection = () => {
                   onClick={() => {
                     setClearing(true)
                     void desktop()
-                      ?.clearBrowserData?.()
+                      ?.clearAllBrowserData?.()
                       .then(() =>
-                        store.notice('info', 'The browser pane’s cookies and storage were cleared.'),
+                        store.notice('info', 'All conversation browser panes’ cookies, storage and caches were cleared.'),
                       )
                       .catch((error: unknown) =>
                         store.notice('error', error instanceof Error ? error.message : String(error)),
@@ -1443,6 +1445,7 @@ const BrowserSection = () => {
  */
 export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focus?:string|null;readonly project:string|null;readonly onProject:(root:string|null)=>void}) => {
   const snapshot = useSnapshot()
+  const workspaces = projectWorkspaces(snapshot.workspaces, snapshot.chatsFolderRoots)
   const open=project,setOpen=onProject
   if (open) return <ProjectPage key={open} root={open} onBack={() => setOpen(null)} />
 
@@ -1450,12 +1453,12 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
     <>
       <PageExplanation>Every folder HarnessDesk has opened, and each project’s own page. Forgetting one touches nothing on disk.</PageExplanation>
 
-      <Section title={withCount('Folders', snapshot.workspaces.length)}>
+      <Section title={withCount('Folders', workspaces.length)}>
       <Rows>
-        {snapshot.workspaces.length === 0 && (
+        {workspaces.length === 0 && (
           <EmptyState variant="row" title="No folders opened yet" description="Open one from File › Open Folder, or ⌘O." />
         )}
-        {snapshot.workspaces.map((workspace) => (
+        {workspaces.map((workspace) => (
           <RowButton
             key={workspace.path}
             kind="record"
@@ -1486,10 +1489,11 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
 export const GeneralSectionRows = () => (
   <>
     <SettingsNewConversations />
-    <SectionHead name="Backup" />
+    <SettingsChatsFolder />
+    <SectionHead level="label" name="Backup" />
     <BackupRows />
 
-    <SectionHead name="Support" />
+    <SectionHead level="label" name="Support" />
     <Rows>
       <Row
         title="Diagnostics"
@@ -1697,8 +1701,10 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     if (!destinationActive) return
  if (active && route.kind === 'section' && route.section === 'lead' && !snapshot.leadAvailable) sectionRoute('runtimes')
  if (active && section === 'extensions' && !hasExtensions) sectionRoute('runtimes') }, [destinationActive, active, section, hasExtensions, snapshot.leadAvailable])
-  const runtimeView: RuntimeSettingsView = route.kind === 'runtime' ? { kind: 'agent', runtime: route.runtime }
-    : route.kind === 'account' ? { kind: 'account', runtime: route.runtime, key: route.key }
+  const runtimeExists = (id: RuntimeId) => snapshot.runtimes.some(info => info.id === id)
+  const runtimeView: RuntimeSettingsView = route.kind === 'runtime' && runtimeExists(route.runtime) ? { kind: 'agent', runtime: route.runtime }
+    : route.kind === 'account' && runtimeExists(route.runtime) && snapshot.accountsByRuntime[route.runtime]?.accounts.some(account => accountKey(route.runtime, account) === route.key)
+      ? { kind: 'account', runtime: route.runtime, key: route.key }
     : route.kind === 'add-runtime' ? { kind: 'add' } : { kind: 'list' }
   const settingsTitle = route.kind === 'project' ? SETTINGS_LABELS.workspaces
     : route.kind === 'skill' || section === 'skills' ? runtime.presentation.skillsLabel ?? SETTINGS_LABELS.skills : SETTINGS_LABELS[section]
@@ -1709,7 +1715,9 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     else onRoute({ kind: 'account', runtime: view.runtime, key: view.key })
   }
   return <Page width="reading">
-    <PageOptions title={settingsTitle} />
+    <PageOptions title={settingsTitle} action={section === 'runtimes' && runtimeView.kind === 'list'
+      ? { label: 'Add a runtime', icon: <PlusIcon size={13} />, run: () => onRoute({ kind: 'add-runtime' }) }
+      : undefined} />
     {route.kind === 'section' && section !== 'runtimes' && section !== 'skills' && <DestinationBar place={SETTINGS_LABELS[section]}
       more={() => null} />}
     {section === 'profile' && <ProfileSection />}
@@ -1723,7 +1731,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     {section === 'storage' && <StorageSection />}
     {section === 'history' && <HistorySection focus={focus} onOpen={() => store.returnToWork()}
       onOpenAgent={id => onRoute({ kind: 'runtime', runtime: id as RuntimeId })} />}
-    {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} view={runtimeView} onView={setRuntimeView}
+    {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} view={runtimeView} onView={setRuntimeView} showAddRuntimeAction={false}
       onBrowseHistory={id => sectionRoute('history', id)} />}
     {section === 'models' && <ModelsSection />}
     {section === 'extensions' && hasExtensions && <ExtensionsSection />}

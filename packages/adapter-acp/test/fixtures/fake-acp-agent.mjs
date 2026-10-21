@@ -134,6 +134,7 @@ const newSession = (id0, cwd) => {
     modeId: 'chatty',
     modelId: 'small',
     options: {
+      mode: 'default',
       voice: 'plain',
       verbose: false,
       auto_approve: false,
@@ -152,6 +153,18 @@ const newSession = (id0, cwd) => {
 }
 
 const declaredOptionsOf = (state) => [
+  ...(process.env.FAKE_ACP_CONFIG_MODE === '1' ? [{
+    id: 'mode',
+    name: 'Session Mode',
+    category: 'mode',
+    type: 'select',
+    currentValue: state.options.mode,
+    options: [
+      { value: 'default', name: 'Default' },
+      { value: 'auto_edit', name: 'Auto Edit' },
+      { value: 'yolo', name: 'YOLO' },
+    ],
+  }] : []),
   ...(GROUPED_MODELS ? [{
     id: 'model',
     name: 'Model',
@@ -1070,6 +1083,16 @@ const handlers = {
       : [{ id: 'device' }]
     ).map((m) => m.id)
     if (!known.includes(params?.methodId)) return fail(id, `unknown auth method ${String(params?.methodId)}`)
+    // FAKE_ACP_AUTH_NEEDS_ENV={"<method>":"<VAR>"} refuses a method whose
+    // variable is not in this process's environment — Antigravity's
+    // `gemini-api-key`, which reads GEMINI_API_KEY (#1760) — and
+    // FAKE_ACP_AUTH_LOG=<file> records every method it accepted, so a test
+    // reads a switch that took, not one that was merely asked for.
+    const needs = process.env.FAKE_ACP_AUTH_NEEDS_ENV ? JSON.parse(process.env.FAKE_ACP_AUTH_NEEDS_ENV)[params?.methodId] : undefined
+    if (needs && !process.env[needs]) {
+      return fail(id, `The ${needs} environment variable must be set in the environment the ACP server is launched from.`)
+    }
+    if (process.env.FAKE_ACP_AUTH_LOG) appendFileSync(process.env.FAKE_ACP_AUTH_LOG, `${params?.methodId}\n`)
     const answer = () => {
       if (process.env.FAKE_ACP_AUTH_FAILS === '1') return fail(id, 'the browser flow was refused. Try again.')
       // Signed in, so the sessions this agent was refusing now open.
@@ -1246,6 +1269,13 @@ const handlers = {
   'session/set_config_option': (id, params) => {
     const state = sessions.get(params.sessionId)
     if (!state) return fail(id, 'no such session')
+    if (process.env.FAKE_ACP_CONFIG_MODE === '1' && params.configId === 'mode') {
+      if (!['default', 'auto_edit', 'yolo'].includes(params.value)) return fail(id, `no mode ${params.value}`)
+      state.options.mode = params.value
+      reply(id, { configOptions: configOptionsOf(state) })
+      update(state.id, { sessionUpdate: 'config_option_update', configOptions: configOptionsOf(state) })
+      return
+    }
     if (params.configId === 'auto_approve' && params.type !== 'boolean') {
       return fail(id, 'auto_approve must use the ACP boolean option type')
     }

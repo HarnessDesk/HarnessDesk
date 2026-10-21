@@ -10,11 +10,7 @@ import { RUN_FLOW_SOURCE } from './run-view-fixture'
 installTopBarTestLayout()
 const settle = () => act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
 const selectLibraryMatrix = async (host: ParentNode): Promise<void> => {
-  const trigger = host.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"][title="How to show the library"]')
-  expect(trigger).toBeTruthy()
-  await act(async () => trigger!.click())
-  const matrix = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
-    .find(node => node.textContent?.trim() === 'Matrix')
+  const matrix = host.querySelector<HTMLButtonElement>('[role="radio"][aria-label="Matrix"]')
   expect(matrix).toBeTruthy()
   await act(async () => matrix!.click())
 }
@@ -70,6 +66,26 @@ it('shows a plugin’s held access in the production detail page', async () => {
     expect(container.textContent).not.toContain('Change files in the open project')
     expect(container.textContent).not.toContain('Run programs on this machine')
     expect(container.textContent).not.toContain('Reach any host')
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+    window.history.replaceState(null, '', '/')
+  }
+})
+
+it.each(['race-tiles', 'browser-tile'])('keeps the %s Team layout when the window is measured', async scene => {
+  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  window.history.replaceState(null, '', `/?release-stills=${scene}`)
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  try {
+    await act(async () => root.render(<ReleaseStills />))
+    await settle()
+    // The camera decorates the snapshot, and a store patch (the window's size) replaces it:
+    // a layout written onto the decorated copy would be gone, leaving the empty "New session" page.
+    expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(scene === 'race-tiles' ? 2 : 1)
+    expect(container.textContent).not.toContain('What should we build?')
   } finally {
     act(() => root.unmount())
     container.remove()

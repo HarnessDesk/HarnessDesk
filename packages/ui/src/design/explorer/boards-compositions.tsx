@@ -1,4 +1,5 @@
 import { LeadAvatarSpecimen, LeadContractSpecimen } from '../../preview/frames-lead'
+import { flowModel } from '../../lib/flow-model'
 import { PagePreview } from '../../preview/page-preview'
 import { InfoCardBody, SubjectActionsMenu } from '..'
 import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
@@ -20,11 +21,12 @@ import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { ShapeGraphBoard } from '../../preview/frames-shape-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
+import { AgentCatalogueBoard } from '../../preview/frames-agent-catalogue'
 import { BoardCardExample } from './board-card-example'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
 import { MainDestination, DestinationBody, Page, TopBar, TopBarToolButton } from '..'
-import { FlowCard, FlowCardGrid, FlowCanvas, FlowCanvasToolbar, FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent } from '..'
+import { FlowExample, FlowCard, FlowCardGrid, SelectedFlow, FlowCanvas, FlowCanvasToolbar, FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent } from '..'
 import { GlobeIcon, SquareMenuIcon, FilePlusIcon, PencilIcon, StopIcon, ExpandIcon, ResetIcon } from '../../components/Icons'
 
 const MAINDESTINATION_CATALOG_VARIANTS = ['light', 'dark'] as const
@@ -303,7 +305,7 @@ const TABS_CATALOG_VARIANTS = ['default', 'line', 'section'] as const
 const TABS_CATALOG_SIZES = ['default'] as const
 const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 
-const ICON_TILE_CATALOG_VARIANTS = ['default'] as const
+const ICON_TILE_CATALOG_VARIANTS = ['default', 'bare'] as const
 const ICON_TILE_CATALOG_SIZES = ['navigation', 'stack', 'xs', 'sm', 'default', 'lg'] as const
 const ICON_TILE_CATALOG_STATES = ['default', 'hover', 'selected'] as const
 const ICON_TILE_CATALOG_SHAPE = ['square', 'round', 'face'] as const
@@ -314,7 +316,7 @@ const INPUT_GROUP_CATALOG_ALIGN = ['inline-start', 'inline-end', 'block-start', 
 const MARKER_CATALOG_VARIANTS = ['default', 'border', 'separator'] as const
 const MARKER_CATALOG_SIZES = ['default'] as const
 const MARKER_CATALOG_STATES = ['default', 'success', 'warning', 'error'] as const
-const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel', 'page'] as const
+const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel', 'page', 'document'] as const
 const SECTION_CATALOG_SIZES = ['default'] as const
 const SECTION_CATALOG_STATES = ['expanded', 'collapsed'] as const
 const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel', 'summary'] as const
@@ -506,7 +508,7 @@ const PageGrammar = () => (
     <div className="grid w-full items-start gap-(--hd-space-3) xl:grid-cols-2" data-catalog-example="page-grammar">
       <Case label="the Agent page, before: a label over a one-row card, five times">
         <div className="w-full">
-          <SectionHead name="File" />
+          <SectionHead level="label" name="File" />
           <Rows>
             <Row
               title={<CodeText>{AGENT_FILE}</CodeText>}
@@ -514,15 +516,15 @@ const PageGrammar = () => (
               control={<><Button size="sm" variant="outline">Open file</Button><Button size="sm" variant="outline">Reveal</Button></>}
             />
           </Rows>
-          <SectionHead name="Ceiling" />
+          <SectionHead level="label" name="Ceiling" />
           <Rows>
             <Row title="Edit" desc="May change files and commit in its own checkout, and never push." control={<Button size="sm" variant="outline">Update…</Button>} />
           </Rows>
-          <SectionHead name="Skills" />
+          <SectionHead level="label" name="Skills" />
           <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
-          <SectionHead name="Servers" />
+          <SectionHead level="label" name="Servers" />
           <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
-          <SectionHead name="Brief" />
+          <SectionHead level="label" name="Brief" />
           <Rows><Row title={AGENT_BRIEF} control={<Button size="sm" variant="outline">Open in editor</Button>} /></Rows>
         </div>
       </Case>
@@ -561,6 +563,10 @@ const PageGrammar = () => (
 
 const SectionBoard = () => (
   <>
+    <SectionHead name="Page band" />
+    <Rows><Row title="The cards and rows are the page’s content" /></Rows>
+    <SectionHead level="label" name="Field group" />
+    <Rows><Row title="The group names form controls or a rail card" /></Rows>
     <div
       className={styles.stack}
       style={{ maxWidth: 640 }}
@@ -586,9 +592,10 @@ const SectionBoard = () => (
             </Section>
           </div>
         ) : (
-          <Section key={variant} variant={variant} data-catalog-variant={variant}>
-            <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>
-            <SectionBody>Canonical section variant.</SectionBody>
+          <Section key={variant} variant={variant} data-catalog-variant={variant}
+            header={variant === 'document' ? <><Text role="row">SKILL.md</Text><ToolbarGap /><Button variant="ghost" size="sm">Copy</Button></> : undefined}>
+            {variant !== 'document' && <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>}
+            <SectionBody spacing={variant === 'document' ? 'document' : 'default'}>Canonical section variant.</SectionBody>
           </Section>
         ),
       )}
@@ -670,7 +677,7 @@ const SectionBoard = () => (
  * Badge and Tabs — the two primitives that had no board.
  *
  * Both are shipped: `Badge` in the conversation, the composer controls, the
- * skill sheet and a channel; `Tabs` in the changes review, extensions and the
+ * MCP detail and a channel; `Tabs` in the changes review, extensions and the
  * plugins section. Their only appearance in this catalogue used to be inside
  * `showcase/ToolsPage`, a drawing of the tool panes — so the one place a
  * reader could see a badge was a place where no badge the app ships had ever
@@ -727,6 +734,7 @@ const TileBoard = () => (
         ))}
       </Case>
       <Case label="identity badge — bottom-right; attention reserves top-right">
+        <IconTile variant="bare" shape="face" title="Plain runtime glyph"><AgentIcon /></IconTile>
         {ICON_TILE_CATALOG_SIZES.map(size => <IconTile key={size} size={size} shape="face" tint="blue" badge="↳"><AgentIcon /></IconTile>)}
         <IconTile size="sm" shape="face" tint="violet" badge="AL"><AgentIcon /></IconTile>
         <AvatarStack members={[{ id: 'writer', name: 'Writer', mark: <AgentIcon />, badge: '↳', tint: 'blue' }, { id: 'reviewer', name: 'Reviewer', mark: <AgentIcon />, badge: '↳', tint: 'rose' }]} />
@@ -855,8 +863,15 @@ const KeyValueBoard = () => (
       </Case>
       <Case label="compact panel facts">
         <KeyValue variant="panel" className="w-full" data-catalog-variant="panel">
-          <KeyValueRow variant="panel" label="Branch">main</KeyValueRow>
-          <KeyValueRow variant="panel" label="Status">Ready</KeyValueRow>
+          <KeyValueRow label="Branch" kind="path">feature/a-long-checkout-name</KeyValueRow>
+          <KeyValueRow label="Status">Ready</KeyValueRow>
+        </KeyValue>
+      </Case>
+      <Case label="compact panel with a long identity">
+        <KeyValue variant="panel" className="w-full">
+          <KeyValueRow label="Agent" kind="name">Code reviewer with a long descriptive model selection</KeyValueRow>
+          <KeyValueRow label="Branch" kind="path">feature/a-long-checkout-name</KeyValueRow>
+          <KeyValueRow label="Status">Ready</KeyValueRow>
         </KeyValue>
       </Case>
       <Case label="progress, as a reading">
@@ -1263,7 +1278,7 @@ const EmptyBoard = () => (
           <ConversationEmptyState data-catalog-variant="column">
             <Text as="div" role="page" weight="medium">What should we build?</Text>
             <Text as="p" role="prose" className="m-0">
-              Describe a task, then choose the folder it runs in.
+              Describe a task.
             </Text>
           </ConversationEmptyState>
         </div>
@@ -1271,7 +1286,7 @@ const EmptyBoard = () => (
           <ConversationEmptyState height="content" data-catalog-variant="content">
             <Text as="div" role="page" weight="medium">What should we build?</Text>
             <Text as="p" role="prose" className="m-0">
-              Describe a task, then choose the folder it runs in.
+              Describe a task.
             </Text>
           </ConversationEmptyState>
           <ToolPaneNotice tone="warning">A tool was unavailable when this conversation opened.</ToolPaneNotice>
@@ -2923,7 +2938,10 @@ const PlansTableBoard = () => {
 
 const LibraryBoard = () => {
   const [store] = useState(previewStore)
-  return <div className="h-screen"><PagePreview fixture={store} page={{kind:'library',section:'skill'}} /></div>
+  return <div className="flex flex-col gap-6">{(['skill', 'mcp'] as const).map(section =>
+    <Case key={section} label={section === 'skill' ? 'Skills — cards and chips' : 'MCP servers — list and matrix'}>
+      <div className="h-screen w-full"><PagePreview fixture={store} page={{kind:'library',section}} /></div>
+    </Case>)}</div>
 }
 
 const HeaderStatusBoard = () => (
@@ -3127,9 +3145,9 @@ export const SeatListBoard = () => {
 }
 
 const FLOWCARDS_CATALOG_VARIANTS = ['default'] as const
-const FLOWCARDS_CATALOG_SIZES = ['default'] as const
-const FLOWCARDS_CATALOG_STATES = ['default', 'selected', 'disabled', 'empty', 'long-title', 'unknown'] as const
-const FLOWCANVASTOOLBAR_CATALOG_VARIANTS = ['default'] as const
+const FLOWCARDS_CATALOG_SIZES = ['compact', 'large'] as const
+const FLOWCARDS_CATALOG_STATES = ['default', 'selected', 'disabled', 'empty', 'long-title', 'unknown', 'loading'] as const
+const FLOWCANVASTOOLBAR_CATALOG_VARIANTS = ['default', 'bar'] as const
 const FLOWCANVASTOOLBAR_CATALOG_SIZES = ['default'] as const
 const FLOWCANVASTOOLBAR_CATALOG_STATES = ['default', 'disabled'] as const
 const FLOW_CARD_EXAMPLE_POLICY: FlowPolicy = {
@@ -3157,7 +3175,19 @@ const FlowCardsBoard = () => {
         <FlowCard name="Earlier format" origin="Yours" summary="Open the source to inspect its steps." runs={null} onClick={() => {}} />
       </FlowCardGrid>
     </Specimen>
+    <Specimen measure="wide" caption="Gallery: larger role marks and more room around the policy poster">
+      <FlowCardGrid size="large">
+        <FlowCard previewSize="large" name="Review and fix" origin="Built in" policy={FLOW_CARD_EXAMPLE_POLICY} summary="Review and Fix repeat up to three rounds." runs={4} onClick={() => setSelected('review')} />
+        <FlowCard previewSize="large" name="Just a Team" origin="Built in" empty summary="Agents take jobs from the shared board." runs={0} onClick={() => setSelected('plain')} />
+      </FlowCardGrid>
+    </Specimen>
     <Rule>A thumbnail reads the policy's roles and rules. A Team with no policy has no steps; its card never invents a path.</Rule>
+    <Specimen measure="wide" caption="Selected Flow: the actual policy remains visible while the catalog is folded away">
+      <SelectedFlow name="Review and fix" origin="Built in" policy={FLOW_CARD_EXAMPLE_POLICY} onChange={() => setSelected('review')} />
+    </Specimen>
+    <Specimen measure="wide" caption="Selected Flow: reading the policy keeps the thumbnail space and announces progress">
+      <SelectedFlow name="Review and fix" origin="Built in" loading onChange={() => setSelected('review')} />
+    </Specimen>
   </div>
 }
 const FlowCanvasToolbarBoard = () => {
@@ -3179,6 +3209,12 @@ const FlowCanvasToolbarBoard = () => {
       </div>
     </Specimen>
     <Text role="meta" aria-live="polite">{view} · {notice}</Text>
+    <Specimen measure="wide" caption="The editor bar stays above the canvas and wraps as one surface">
+      <FlowCanvasToolbar placement="bar" actions={<><Button size="sm" variant="outline" onClick={() => setNotice('Save preview requested')}>Save…</Button><Button size="sm" onClick={() => setNotice('Team start requested')}>Start a Team</Button></>}>
+        <Button variant="ghost" size="sm" onClick={() => setNotice('Back requested')}>Back to Flows</Button>
+        <Button variant="outline" size="sm" onClick={() => setNotice('Step requested')}><PlusIcon />Step</Button>
+      </FlowCanvasToolbar>
+    </Specimen>
     <Rule>The gap between plates passes pointer input to the canvas. At narrow widths the plates wrap and actions stay at the right edge.</Rule>
   </div>
 }
@@ -3201,6 +3237,7 @@ const FlowCanvasWorkspaceBoard = () => {
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'flow-canvas-workspace', title: 'Flow canvas workspace', about: 'The shared canvas and its responsive card rail, below the shell bar.', render: () => <FlowCanvasWorkspaceBoard /> },
+  { id: 'flow-example', title: 'Flow example', about: 'Local finite playback of declared routes; no host work starts.', render: () => <Specimen measure="wide" caption="A repair loop and person handoff, with manual or automatic stepping"><FlowExample model={flowModel(FLOW_CARD_EXAMPLE_POLICY)} rounds={7} /></Specimen> },
   { id: 'flow-cards', title: 'Flow cards', about: 'Policy thumbnails, source chips, complete summaries and selection in the destination and picker.', render: () => <FlowCardsBoard /> },
   { id: 'flow-canvas-toolbar', title: 'Flow canvas toolbar', about: 'Two floating groups leave the canvas available between controls.', render: () => <FlowCanvasToolbarBoard /> },
   {id:'sign-in-rail',title:'Sign-in rail',about:'The first-run navigation boundary.',render:() => <SignInRailBoard />},
@@ -3226,7 +3263,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'comparison-summary', title:'Comparison summary', about:'The merged receipt in the same Side by side body.', render:ComparisonSummaryBoard },
   { id: 'comparison-notice', title: 'Comparison notice', about: 'The real comparison shelf, with a recorded pick, a waiting person and text that scrolls without moving the tiles.', render: ComparisonNoticeBoard },
   { id: 'header-status', title: 'Header status group', about: 'One chip ground, neutral at rest. Hover or focus names every reading; only a condition needing attention takes a tone.', render: HeaderStatusBoard },
-  { id: 'library', title: 'Library', about: 'The real skill and server lists: state, loaded-by faces, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
+  { id: 'library', title: 'Library', about: 'Skills cards and the MCP server list: state, runtime reach, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
   {
     id: 'tables',
     title: 'Tables',
@@ -3448,6 +3485,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     render: TeamsPageBoard,
   },
   {
+    id: 'agent-catalogue',
+    title: 'Agent catalogue',
+    about: 'Reusable roles with their purpose and observed seats, source precedence, and the production catalogue in its loading, empty and failed states.',
+    render: AgentCatalogueBoard,
+  },
+  {
     id: 'board-card',
     title: 'BoardCard',
     about: 'A compact opening card with optional attention, middle and footer content.',
@@ -3532,7 +3575,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'left-column', title: 'Left column', about: 'Aligned rows with one trailing slot and long titles.', render: LeftColumnBoard },
 ]
 
-import { LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
+import { LeftColumnSeats, LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
 import { BellIcon, UserIcon, FileIcon } from '../../components/Icons'
 
 export const LEFTCOLUMN_CATALOG_VARIANTS = ['light', 'dark'] as const
@@ -3541,13 +3584,14 @@ export const LEFTCOLUMN_CATALOG_STATES = ['default', 'selected', 'disabled', 'lo
 
 export function LeftColumnBoard() {
   const [mode, setMode] = useState<'conversation' | 'editor'>('conversation')
+  const [teamOpen, setTeamOpen] = useState(true)
   return <LeftColumn
   top={<LeftColumnTop shown settings={false} back={false} forward={false} toggle={() => {}} goBack={() => {}} goForward={() => {}}
     search={<Button variant="ghost" size="icon-sm" aria-label="Search everything"><SearchIcon size={16} /></Button>}
     modeSwitch={{ value: mode, onChange: setMode, disabled: false, disabledTitle: "Editor mode opens a conversation's files" }} />}
   head={mode === 'editor' ? <LeftColumnExplorerHead name="storefront" path="/work/storefront" filter="changed" changes={4} onFilter={() => {}} /> : null} body={<LeftColumnBody>
   {mode === 'editor' && <><LeftColumnRow label="src" icon={<FolderIcon size={16} />} tree={{ depth: 0, expanded: true }} onClick={() => {}} /><LeftColumnRow label="checkout.ts" icon={<FileIcon size={16} />} tree={{ depth: 1, letter: 'M' }} trailing={{ kind: 'mark', icon: 'M', label: 'Modified' }} selected onClick={() => {}} /></>}
-  {mode === 'conversation' && <><LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
+  {mode === 'conversation' && <LeftColumnGroup label="Conversations" heading={false}><LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
   <LeftColumnGroup label="Projects">
     <LeftColumnRow label="Release notes for checkout retry · 長い会話名" icon={<FolderIcon size={16} />}
       title={'Release notes for checkout retry\nThe folder is gone; the transcript remains readable.'}
@@ -3555,7 +3599,12 @@ export function LeftColumnBoard() {
       action={{ label: 'Actions for Release notes', onClick: () => {} }} />
     <LeftColumnRow label="Conversation with no leading mark" onClick={() => {}} />
     <LeftColumnRow label="Unavailable conversation" disabled title="Conversation not kept" />
-  </LeftColumnGroup></>}
+    <LeftColumnRow label="Writer" icon={<TeamIcon size={16} />} disclosure={{ open: teamOpen, onToggle: () => setTeamOpen(!teamOpen) }} />
+    {teamOpen && <LeftColumnSeats>
+      <li><LeftColumnRow nested label="Agent 2" icon={<AgentIcon size={16} />} trailing={{ kind: 'mark', label: 'Working', prefix: '#4', icon: <Spinner aria-hidden /> }} /></li>
+      <li><LeftColumnRow nested label="Agent with a long seat label" icon={<AgentIcon size={16} />} title="Agent · Idle" /></li>
+    </LeftColumnSeats>}
+  </LeftColumnGroup></LeftColumnGroup>}
 </LeftColumnBody>}
   footer={<>{mode === 'editor' && <LeftColumnExplorerFoot onClick={() => {}} />}<LeftColumnSeat notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>} settingsOpen={false} onSettings={() => {}}
     menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} /></>} />
@@ -3569,12 +3618,12 @@ export function LeftColumnWorkBoard() {
   return <LeftColumn head={<LeftColumnNavigation><LeftColumnRow label="New session" icon={<PlusIcon size={16} />} onClick={() => {}} /></LeftColumnNavigation>} body={<LeftColumnBody>
     <LeftColumnProjectsHead value={filter} onChange={setFilter} focused={focused} onFocusChange={setFocused}
       onBrowseFolders={() => {}} options={<LeftColumnListOptions filtered={false}><Button variant="muted" size="icon-xs" aria-label="List options"><MoreIcon size={16} /></Button></LeftColumnListOptions>} />
-    <LeftColumnList before={30} after={30} labels="Release plan|Rename">
+    <LeftColumnGroup label="Conversations" heading={false}><LeftColumnList before={30} after={30} labels="Release plan|Rename">
       <LeftColumnRow label="Release plan" icon={<FolderIcon size={16} />} project current expanded
         action={{ kind: 'new', label: 'New session in Release plan', onClick: () => {} }} />
       <LeftColumnRename input={<Input aria-label="Rename example" defaultValue="Release plan" />} />
       <LeftColumnEmpty>No conversations yet — ⌘N starts one here.</LeftColumnEmpty>
-    </LeftColumnList>
+    </LeftColumnList></LeftColumnGroup>
   </LeftColumnBody>} top={null} footer={null} />
 }
 COMPOSITION_BOARDS.push({ id: 'left-column-work', title: 'Left column work rows', about: 'Fixed rows, rename, virtual spacers and the existing project controls.', render: LeftColumnWorkBoard })
@@ -3668,8 +3717,8 @@ export const SettingsChoicesBoard = () => {
   const [picture,setPicture] = useState<AvatarId | null>('wizard'), [accent,setAccent] = useState('default'), [ring,setRing] = useState<'blue' | 'green' | 'amber' | 'rose' | 'violet'>('blue')
   const pictures = [{id:null,label:'Default',about:'The HarnessDesk mark'},...AVATARS]
   return <div data-catalog-variants={SETTINGSCHOICES_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SETTINGSCHOICES_CATALOG_SIZES.join(' ')} data-catalog-states={SETTINGSCHOICES_CATALOG_STATES.join(' ')}>
-    <Page width="reading"><SectionHead name="Selected picture" /><PictureChoices value={picture} items={pictures} change={setPicture} />
-      <SectionHead name="Unknown picture" /><PictureChoices value="unavailable-picture" items={pictures} change={setPicture} />
+    <Page width="reading"><SectionHead level="label" name="Selected picture" /><PictureChoices value={picture} items={pictures} change={setPicture} />
+      <SectionHead level="label" name="Unknown picture" /><PictureChoices value="unavailable-picture" items={pictures} change={setPicture} />
       <Rows><Row title="Accent" control={<AccentChoices value={accent} items={[{value:'default',label:'Default',swatch:'var(--hd-accent)'},{value:'green',label:'Green',swatch:'var(--hd-success)'}]} change={setAccent} />} />
         <Row title="Ring colour" control={<RingChoices value={ring} values={['blue','green','amber','rose','violet']} mark={<AgentIcon size={14} />} change={setRing} />} /></Rows>
     </Page>

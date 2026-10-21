@@ -62,8 +62,8 @@ export const WorkbenchRail = forwardRef<HTMLElement, React.ComponentProps<'nav'>
   ({ as = 'div', cards = false, sheet = false, className, ...props }, ref) => createElement(as, {
     ref,
     'data-slot': 'workbench-rail',
-    className: cn(cards ? 'bg-(--hd-background) outline-none' : 'bg-(--hd-sidebar) outline-none data-[floating]:shadow-(--hd-shadow-lg)',
-      sheet && 'rounded-(--hd-radius-matted) border border-(--hd-border) shadow-(--hd-shadow-lg)', className),
+    className: cn(cards ? 'bg-transparent outline-none [&_[data-slot=tool-scroll]]:bg-transparent' : 'bg-(--hd-sidebar) outline-none data-[floating]:shadow-(--hd-shadow-lg)',
+      sheet && 'bg-(--hd-rail-sheet-fill) backdrop-filter-(--hd-rail-sheet-filter) rounded-(--hd-radius-matted) border border-(--hd-border) shadow-(--hd-shadow-lg)', className),
     ...props,
   }),
 )

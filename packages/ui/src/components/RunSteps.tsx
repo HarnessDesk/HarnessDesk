@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
-import { FlowStepRow, GroupLine, TimelineItem, type Tint } from '../design'
+import { FlowStepRow, GroupLine, ListRows, TimelineItem, type Tint } from '../design'
 import { flowModel } from '../lib/flow-model'
 import { flowOverlay, stepForRow } from '../lib/flow-overlay'
 import { runTimeline, type RunTimelineInput } from '../lib/run-timeline'
@@ -7,6 +7,7 @@ import { groupRunSteps } from '../lib/run-step-groups'
 import { wordOf } from '../lib/agents'
 
 export interface RunStepsProps {
+  recent?: number
   timeline?: boolean
   seatNames?: ReadonlyMap<string, { name: string }>
   input: RunTimelineInput
@@ -21,7 +22,7 @@ export interface RunStepsProps {
   renderRound?: (round: number) => ReactNode
 }
 
-export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, attemptsRead, onSelect, onSelectStep, renderRound, timeline = false, seatNames }: RunStepsProps) => {
+export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, attemptsRead, onSelect, onSelectStep, renderRound, timeline = false, seatNames, recent }: RunStepsProps) => {
   const { execution } = input
   const model = flowModel(execution.document.flow), rows = runTimeline(input).rows
   const rounds = [...execution.rounds].sort((a, b) => a.n - b.n)
@@ -85,12 +86,16 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, a
     const row = rows.find(one => one.kind === 'round' && one.round === n)
     return [row?.asked != null && row.asked > 1 ? row.detail : null, row?.blind ? 'Blind until the round closes' : null].filter(Boolean).join(' · ')
   }
-  const renderOne = (one: typeof normalized[number]) => renderRound ? renderRound(one.round.n) : <FlowStepRow timeline={timeline} seatNames={seatNames} rowId={primary(one)?.id} rowKind={primary(one)?.kind}
+  const renderOne = (one: typeof normalized[number]) => renderRound ? renderRound(one.round.n) : <FlowStepRow timeline={timeline} activity={Boolean(recent)} seatNames={seatNames} rowId={primary(one)?.id} rowKind={primary(one)?.kind}
     step={model.steps.find(step => step.id === one.step)
       ?? { id: one.step, kind: 'agent', name: wordOf(one.step), line: '', count: 1, agents: [] }}
-    run={runOf(one)} faces={faces} faceTints={faceTints} now={now} subtitle={`Round ${one.round.n}${timeline && roundFacts(one.round.n) ? ` · ${roundFacts(one.round.n)}` : ''}`}
+    run={runOf(one)} faces={faces} faceTints={faceTints} now={now} subtitle={recent ? (() => {
+      const record = rows.find(row => row.kind === 'round' && row.round === one.round.n)
+      return `Round ${one.round.n}${record?.asked != null && record.asked > 1 && record.answered != null ? ` · ${record.answered} of ${record.asked} complete` : ''}`
+    })() : `Round ${one.round.n}${timeline && roundFacts(one.round.n) ? ` · ${roundFacts(one.round.n)}` : ''}`}
     selected={step === one.step} onSelect={() => onSelect(select(one))} />
-  const taken = groupRunSteps(normalized).map(group => {
+  if (recent) return <ListRows>{normalized.slice(-recent).map(one => <Fragment key={one.round.n}>{renderOne(one)}</Fragment>)}</ListRows>
+  const taken = groupRunSteps(recent ? normalized.slice(-recent) : normalized).map(group => {
     const first = group[0]!
     if (group.length === 1) return <Fragment key={first.round.n}>{renderOne(first)}</Fragment>
     const open = expanded.has(first.round.n) || group.some(one => one.round.n === chosen)
@@ -111,7 +116,7 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, a
       {row}{open && group.map(one => <Fragment key={one.round.n}>{renderOne(one)}</Fragment>)}
     </div>
   })
-  const unreached = future.map(one => {
+  const unreached = (recent ? [] : future).map(one => {
     const row = <FlowStepRow timeline={timeline} seatNames={seatNames} step={one} run={{ state: 'future', runs: 0, durationMs: null, since: null, line: null, seats: [] }}
       selected={step === one.id} onSelect={onSelectStep} />
     return <Fragment key={one.id}>{row}</Fragment>

@@ -25,3 +25,15 @@ it('keeps availability truth, disclosure, complete footer values and expanded co
     expect(box.querySelector('tfoot')?.textContent).toContain('1 of 1')
   } finally { act(() => root.unmount()); box.remove() }
 })
+
+it('keeps the identity and per-runtime cell names when the caller narrows its rows', async () => {
+  const box = document.createElement('div'); document.body.append(box)
+  const root = createRoot(box)
+  try {
+    await act(async () => root.render(<LibraryMatrix columns={[{id:'alpha',label:'Alpha'}]}
+      rows={[{id:'review',name:'Review',description:'Read the diff',open:()=>{},cells:[{id:'alpha',state:'reaches',label:'Review — Alpha: Reaches',mark:'●'}]}]} />))
+    expect(box.querySelectorAll('tbody tr')).toHaveLength(1)
+    expect(box.querySelector('th[scope="row"]')?.textContent).toContain('Review')
+    expect(box.querySelector('[data-library-state="reaches"]')?.getAttribute('title')).toBe('Review — Alpha: Reaches')
+  } finally { act(() => root.unmount()); box.remove() }
+})

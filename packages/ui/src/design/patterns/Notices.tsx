@@ -314,8 +314,8 @@ export const ComposerNoticeStack = ({ children }: { children: ReactNode }) => (
  * page's own ground. It styles its direct children, so any line can ride in
  * it, and two or more join: no gap, only the outer corners round.
  */
-export const ComposerTail = ({ children }: { children: ReactNode }) => (
-  <div className={styles.tail} data-slot="composer-tail">
+export const ComposerTail = ({ children, variant = 'default' }: { children: ReactNode; variant?: 'default' | 'plain' }) => (
+  <div className={styles.tail} data-slot="composer-tail" data-variant={variant}>
     {children}
   </div>
 )

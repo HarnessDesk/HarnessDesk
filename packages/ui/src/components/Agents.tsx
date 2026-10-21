@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react'
 
-import { allItems, type SessionId, type SubagentItem, type TokenUsage } from '@harnessdesk/protocol'
+import { allItems, type Session, type SessionId, type SubagentItem, type TokenUsage } from '@harnessdesk/protocol'
 
 import { defaultTint } from '../lib/accounts'
 import { formatTokensWithFloor } from '../lib/context-usage'
@@ -34,6 +34,8 @@ interface Entry {
   /** False where the child's id is a handle rather than a conversation. */
   readonly openable: boolean
 }
+
+export const hasSessionAgents = (session: Session | null): boolean => Boolean(session && allItems(session).some(item => item.type === 'subagent' && item.members.length > 0))
 
 const RUNNING = new Set(['running', 'active', 'started', 'working'])
 

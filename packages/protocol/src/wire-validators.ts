@@ -394,9 +394,14 @@ const goalValidators = {
   'flow/executions': goalShape({ team: optional(goalId), project: optional(atMost(4096, isFilled)), active: optional(isBoolean) }),
   'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
   'goal/read': goalShape({ goal: goalId }),
+  'goal/seen': goalShape({ goal: goalId, newsAt: optional(goalInteger(0)) }),
   'goal/create': goalShape({
     root: atMost(4096, isFilled), cwd: optional(atMost(4096, isFilled)), sentence: goalSentence,
     checkout: optional(literalUnion('shared', 'isolated')), dependsOn: optional(goalDependencies),
+  }),
+  'goal/start': goalShape({
+    root: atMost(4096, isFilled), sentence: goalSentence,
+    checkout: optional(literalUnion('shared', 'isolated')),
   }),
   'goal/update': goalShape({
     goal: goalId, revision: goalInteger(0), sentence: optional(goalSentence), dependsOn: optional(goalDependencies),
@@ -1085,6 +1090,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/account/add': shape({
     runtime: isString,
     gateway: optional(shape({ name: isString, endpoint: isString, apiKey: isString })),
+    name: optional(isString),
   }),
   'runtime/account/remove': shape({ runtime: isString }),
 
@@ -1129,7 +1135,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'backup/import': shape({ backup: isObject }),
   'session/loadout': shape({ session: isString, runtime: optional(isString) }),
   'session/read': shape({ runtime: isString, sessionId: isString }),
-  'session/create': shape({ runtime: isString, options: withoutHostOnly(shape({ cwd: isString })) }),
+  'session/create': shape({ runtime: isString, options: withoutHostOnly(shape({ cwd: optional(isString) })) }),
   'session/resume': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
   'session/fork': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
   'session/worktreePreview': shape({ runtime: isString, sessionId: isString }),
@@ -1265,7 +1271,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'terminal/close': shape({ terminalId: isString }),
 
   'worktree/list': shape({ root: isString }),
-  'worktree/create': shape({ root: isString, name: isString, base: optional(isString) }),
+  'worktree/create': shape({ root: isString, name: isString, base: optional(isString), fromDefault: optional(isBoolean) }),
   'worktree/changes': shape({ path: isString }),
   'worktree/remove': shape({ path: isString, force: optional(isBoolean) }),
   'worktree/bringHome': shape({ path: isString }),

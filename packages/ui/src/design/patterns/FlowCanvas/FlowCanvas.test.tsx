@@ -36,6 +36,48 @@ const key = (value: string, selector = '.react-flow__node', modifiers: KeyboardE
   act(() => { host.querySelector(selector)!.dispatchEvent(event) })
   return event
 }
+it('keeps a two-attempt comparison handoff straight at the ordinary layout gap', async () => {
+  // jsdom does not lay out the left/right handles at the cards' centres.
+  vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.classList.contains('react-flow__handle') ? 0 : this.classList.contains('react-flow__node') ? 232 : 960
+  })
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+    if (this.classList.contains('react-flow__handle')) return 0
+    return this.classList.contains('react-flow__node') ? this.dataset.id === 'competitor' ? 232 : 108 : 600
+  })
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const handle = this.classList.contains('react-flow__handle')
+    return { x: 0, y: 0, left: handle && this.dataset.handlepos === 'right' ? 232 : 0,
+      top: handle ? this.closest<HTMLElement>('.react-flow__node')?.dataset.id === 'competitor' ? 116 : 54 : 0,
+      right: 0, bottom: 0, width: 0, height: 0, toJSON() {} }
+  })
+  const comparison: FlowCanvasNode[] = [
+    { id: 'competitor', position: { x: 0, y: 0 }, size: { width: 232, height: 232 }, data: { name: 'Competitor', kind: 'agent', seatLine: '2 attempts' } },
+    { id: 'judge', position: { x: 296, y: 62 }, size: { width: 232, height: 108 }, data: { name: 'Judge', kind: 'person' } },
+  ]
+  await draw({ nodes: comparison, edges: [{ id: 'handoff', source: 'competitor', target: 'judge', label: 'done' }] })
+  const edge = host.querySelector('[data-edge="handoff"]')!
+  expect(edge.getAttribute('data-flow-rail-y')).toBe('')
+  const points = edge.querySelector('path')!.getAttribute('d')!.match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+  expect(points.slice(0, 2)).toEqual([232, 116])
+  expect(points.slice(-2)).toEqual([296, 116])
+  expect(points.filter((_, index) => index % 2 === 1)).toEqual(points.filter((_, index) => index % 2 === 1).map(() => 116))
+})
+it('keeps a long handoff label straight when its gap has room for the whole label', async () => {
+  await draw({ nodes: [
+    { ...nodes[0]!, size: { width: 232, height: 108 } },
+    { ...nodes[1]!, position: { x: 600, y: 0 }, size: { width: 232, height: 108 } },
+  ], edges: [{ id: 'handoff', source: 'write', target: 'check', label: 'all work finished' }] })
+  expect(host.querySelector('[data-edge="handoff"]')?.getAttribute('data-flow-rail-y')).toBe('')
+})
+it('still routes a same-row handoff around an intervening card', async () => {
+  await draw({ nodes: [
+    { ...nodes[0]!, size: { width: 232, height: 108 } },
+    { ...nodes[1]!, position: { x: 600, y: 0 }, size: { width: 232, height: 108 } },
+    { id: 'obstacle', position: { x: 320, y: 0 }, size: { width: 100, height: 108 }, data: { name: 'Obstacle', kind: 'person' } },
+  ], edges: [{ id: 'handoff', source: 'write', target: 'check' }] })
+  expect(host.querySelector('[data-edge="handoff"]')?.getAttribute('data-flow-rail-y')).not.toBe('')
+})
 it('uses the least-crossing rail when every height is blocked', async () => {
   const crowded: FlowCanvasNode[] = [
     { id: 'write', position: { x: 0, y: 0 }, size: { width: 232, height: 108 }, data: { name: 'Write', kind: 'agent' } },
@@ -99,10 +141,11 @@ it('draws default kind cards, the Run state slot and the rule word', async () =>
   expect(host.querySelector('[data-slot="flow-canvas-step"][data-state="done"]')).not.toBeNull()
   expect(host.textContent).toContain('ready')
 })
-it('agent cards use Faces while check cards keep their square mark', async () => {
+it('agent and check cards use plain canonical glyphs without decorative tiles', async () => {
   await draw()
-  expect(host.querySelector('[data-kind="agent"] [data-slot="icon-tile"]')?.getAttribute('data-shape')).toBe('face')
-  expect(host.querySelector('[data-kind="check"] [data-slot="icon-tile"]')?.getAttribute('data-shape')).toBe('square')
+  expect(host.querySelector('[data-slot="flow-canvas-step"] [data-slot="icon-tile"]')).toBeNull()
+  expect(host.querySelector('[data-kind="agent"] svg')).not.toBeNull()
+  expect(host.querySelector('[data-kind="check"] svg')).not.toBeNull()
 })
 it('reports engine selection and selected-node keyboard movement through controlled callbacks', async () => {
   const onNodesChange = vi.fn(), onSelectionChange = vi.fn()
@@ -381,9 +424,28 @@ it('position-only graphs move steps but refuse connections and deletion', async 
 it('groups read-only navigation and caller actions at the top right with a title at the top left', async () => {
   await draw({ readOnly: true, title: 'The path this Run took', actions: <button>Open the file</button> })
   expect(host.querySelector('.react-flow__panel.top.left')?.textContent).toBe('The path this Run took')
+  expect(host.querySelector<HTMLElement>('.react-flow__panel.top.left')?.style.margin).toBe('var(--hd-space-3)')
   const tools = host.querySelector('.react-flow__panel.top.right')!
   expect(tools.textContent).toContain('Open the file')
   expect(tools.querySelector('[aria-label="Fit plan"]')).not.toBeNull()
+})
+
+it.each([true, false])('keeps a tall wide plan below its title with controls %s', async showControls => {
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+    return this.classList.contains('react-flow__node') ? 300 : this.matches('.react-flow__panel.top.left') ? 20 : 200
+  })
+  const tall: FlowCanvasNode = { id: 'tall', position: { x: 0, y: 0 }, size: { width: 232, height: 300 }, data: { name: 'Tall step', kind: 'agent' } }
+  await draw({ nodes: [tall], edges: [], readOnly: true, showControls, title: 'The path this Run took' })
+  const bounds = () => {
+    const transform = host.querySelector<HTMLElement>('.react-flow__viewport')!.style.transform
+    const match = /translate\(([-.\d]+)px,([-.\d]+)px\) scale\(([-.\d]+)\)/.exec(transform)!
+    return { top: Number(match[2]), bottom: Number(match[2]) + 300 * Number(match[3]) }
+  }
+  await vi.waitFor(() => { expect(bounds().top).toBeGreaterThanOrEqual(64); expect(bounds().bottom).toBeLessThanOrEqual(200) })
+  if (showControls) {
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Fit plan"]')!.click())
+    await vi.waitFor(() => { expect(bounds().top).toBeGreaterThanOrEqual(64); expect(bounds().bottom).toBeLessThanOrEqual(200) })
+  } else expect(host.querySelector('[aria-label="Fit plan"]')).toBeNull()
 })
 
 it('an inert poster leaves selection, edits and keyboard navigation to its page', async () => {
@@ -422,4 +484,25 @@ it('omits the map while the whole plan fits and brings it back when the viewport
   expect(host.querySelector('.react-flow__minimap')).toBeNull()
   await draw({ nodes: [{ ...write, position: { x: 1500, y: 0 } }], edges: [], readOnly: true })
   await vi.waitFor(() => expect(host.querySelector('.react-flow__minimap')).not.toBeNull())
+})
+
+it.each([[0.8, 0.8], [2, 1], [-1, 0.05], [Number.NaN, 0.05]])('keeps a bounded minimum zoom %s when centering a large plan', async (minZoom, expected) => {
+  const plan = [nodes[0]!, { ...nodes[1]!, position: { x: 30_000, y: 0 } }]
+  await draw({ nodes: plan, edges: [], readOnly: true, minZoom })
+  const zoom = () => Number(/scale\(([^)]+)\)/.exec(host.querySelector<HTMLElement>('.react-flow__viewport')!.style.transform)?.[1])
+  await vi.waitFor(() => expect(zoom()).toBe(expected))
+  const fit = host.querySelector<HTMLButtonElement>(expected > 0.05 ? '[aria-label="Center plan"]' : '[aria-label="Fit plan"]')!
+  act(() => fit.click())
+  await vi.waitFor(() => expect(zoom()).toBe(expected))
+})
+
+it('explicit Fit recovers a small plan from a reduced zoom up to its natural size', async () => {
+  await draw({ readOnly: true })
+  const zoom = () => Number(/scale\(([^)]+)\)/.exec(host.querySelector<HTMLElement>('.react-flow__viewport')!.style.transform)?.[1])
+  await vi.waitFor(() => expect(zoom()).toBe(1))
+  const out = host.querySelector<HTMLButtonElement>('[aria-label="Zoom out"]')!
+  for (let count = 0; count < 7; count += 1) await act(async () => { out.click() })
+  expect(zoom()).toBeLessThan(0.3)
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="Fit plan"]')!.click())
+  await vi.waitFor(() => expect(zoom()).toBe(1))
 })

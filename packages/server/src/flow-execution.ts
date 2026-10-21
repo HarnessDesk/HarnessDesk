@@ -621,7 +621,7 @@ export const RUN_CHECK_CLEAN = 'This ran in a clean checkout of the commit, with
 
 export const CHECK_CWD_OUTSIDE = 'This check points outside the project. Choose a folder inside the project and review it again.'
 export const CHECK_UNPLANNED = 'This check’s checkouts were not recorded when its round opened, so it was not run. Start a new run.'
-const LANE_REFUSED = 'This step needs its own checkout, ports and browser profile, and they could not all be prepared, so its Seat was released.'
+const LANE_REFUSED = 'This step needs its own checkout and ports, and they could not all be prepared, so its Seat was released.'
 
 /**
  * Why a round stalled on one Seat that would not open, and what a person can
@@ -3427,7 +3427,7 @@ export class FlowExecutions {
         // The Seat's journal can land before validation. A recovery still proves its lane and initial HEAD before its first order.
         if (isolate || base !== null) {
           const lane = this.#port.laneOf(kept)
-          if (!lane || lane.cwd !== kept.checkout.cwd || lane.ports.end < lane.ports.start || !lane.browserProfile) {
+          if (!lane || lane.cwd !== kept.checkout.cwd || lane.ports.end < lane.ports.start || lane.state === 'released' || lane.state === 'reserved') {
             openedNow.push(String(kept.id))
             return fail(LANE_REFUSED)
           }
@@ -3500,7 +3500,7 @@ export class FlowExecutions {
       }
       if (isolate || base !== null) {
         const lane = this.#port.laneOf(record)
-        if (!lane || lane.cwd !== record.checkout.cwd || lane.ports.end < lane.ports.start || !lane.browserProfile) return fail(LANE_REFUSED)
+        if (!lane || lane.cwd !== record.checkout.cwd || lane.ports.end < lane.ports.start || lane.state === 'released' || lane.state === 'reserved') return fail(LANE_REFUSED)
       }
       /* A card handed one predecessor's work is given it only in a checkout
          at that commit, read fresh from git. Otherwise a run that works on
@@ -3566,7 +3566,7 @@ export class FlowExecutions {
     const handed = run.operations.some((one) => one.kind === 'turn' && one.card === cardId && one.seat === String(seat.id) && one.state === 'finished')
     if (!handed && plan?.base != null) {
       const lane = this.#port.laneOf(seat)
-      const reason = !lane || lane.cwd !== seat.checkout.cwd || lane.ports.end < lane.ports.start || !lane.browserProfile
+      const reason = !lane || lane.cwd !== seat.checkout.cwd || lane.ports.end < lane.ports.start || lane.state === 'released' || lane.state === 'reserved'
         ? LANE_REFUSED
         : (await this.#port.headOf(seat.checkout.cwd, null)).at !== plan.base ? NOT_AT_BASE(cardId!, plan.base) : null
       if (reason !== null) {
@@ -4304,8 +4304,8 @@ export class FlowExecutions {
     const role = policyOf(run).roles.find((one) => one.id === roleId)
     if (role?.kind === 'agent' && (role.isolate || run.base !== undefined)) {
       const lane = this.#port.laneOf(seat)
-      if (!lane || lane.cwd !== seat.checkout.cwd || !lane.browserProfile) {
-        await this.#stall(id, `The Seat for card #${cardId} no longer has its own checkout, ports and browser profile, so it was not re-armed.`)
+      if (!lane || lane.cwd !== seat.checkout.cwd || lane.ports.end < lane.ports.start || lane.state === 'released' || lane.state === 'reserved') {
+        await this.#stall(id, `The Seat for card #${cardId} no longer has its own checkout and ports, so it was not re-armed.`)
         return false
       }
     }

@@ -49,7 +49,7 @@ const openFrame = async (page: Page, query: string, theme: 'light' | 'dark', wid
   for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720]).entries()) test(`R11.1 new conversation keeps its task prompt and selected folder control [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=draft&frame-fix5-storefront=1', theme, width)
-    await expect(page.getByText('Describe a task, then choose the folder it runs in.', { exact: true })).toBeVisible()
+    await expect(page.getByText('Describe a task.', { exact: true })).toBeVisible()
     await expect(page.locator('[data-composer-track="work-in"]')).toContainText('storefront')
     await expect(page.locator('[data-composer-track="work-in"] button[title="/work/storefront"]')).toHaveAccessibleName('storefront')
     await openFrame(page, 'frame-wall=draft&frame-fix5-long-folder=1', theme, width)

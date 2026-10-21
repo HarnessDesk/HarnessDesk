@@ -106,3 +106,9 @@ test('standardRows counts each scene\'s recorded findings by kind, in board orde
     { scene: 'total', offLine: 2, overflow: 4, offScale: 1 },
   ])
 })
+
+test('the guides standard is kept for both platforms, over the same scenes', () => {
+  const record = JSON.parse(fs.readFileSync(new URL('../packages/ui/src/design/guides-standard.json', import.meta.url), 'utf8'))
+  assert.deepEqual(Object.keys(record).sort(), ['darwin', 'linux'], 'CI is linux and the Mac gates locally: each has its own record')
+  assert.deepEqual(Object.keys(record.darwin).sort(), Object.keys(record.linux).sort(), 'a scene on one platform\'s record is on the other\'s')
+})

@@ -1,3 +1,5 @@
+import { changePlanner } from './ci-changes.mjs'
+import { IMPORT, SOURCE, findFile, resolveHelper, specsReaching, suiteGraph } from './ci-imports.mjs'
 import { pageLayoutFindings } from './frame-page-layout.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
@@ -185,13 +187,14 @@ test('single-screen pattern accounting names the settings, agent roster and room
   const agentRoster = path.join(repoRoot, 'packages/ui/src/components/AgentRoster.tsx')
   const agentPage = path.join(repoRoot, 'packages/ui/src/components/AgentPage.tsx')
   assert.equal(singleScreenAreaOf([agentsWindow, agentRoster, agentPage]), 'agentroster')
-  // Agents.tsx (a session's own delegated sub-agents, in the right-dock
-  // inspector) is a different screen and must stay out of that family — it
-  // does, but not by keeping its own name: its one real importer is
-  // Details.tsx, which is itself unhosted, so the closure folds it (and
-  // Activity.tsx, and Trajectory.tsx) into `details` instead.
+  // A session's delegated sub-agents are composed only by the canonical
+  // Details inspector. The resting rail no longer imports this inspector
+  // for a presence query, so it belongs to Details rather than the roster.
+  // Pin the actual value-import edge as well as the resulting family.
   const agentsInspector = path.join(repoRoot, 'packages/ui/src/components/Agents.tsx')
-  assert.equal(screenAreaOf(agentsInspector), 'details')
+  const details = path.join(repoRoot, 'packages/ui/src/components/Details.tsx')
+  assert.deepEqual(importersByFile.get(agentsInspector), [details])
+  assert.equal(singleScreenAreaOf([agentsInspector, details]), 'details')
   assert.notEqual(screenAreaOf(agentsInspector), 'agentroster')
 
   const teamRoomPane = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
@@ -1642,15 +1645,14 @@ test('a named exemption that matches nothing is reported, so the list cannot out
 
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
   const expected = new Map([
-    ['design/ui/timeline.tsx', ['Timeline', 'TimelineItem']],
-    ['design/ui/flow-step.tsx', ['FlowStepSurface', 'FlowDoingLine']],
+    ['design/ui/timeline.tsx', ['Timeline']],
     ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
     ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
     ['design/ui/delta.tsx', ['Delta']],
     ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
     ['design/adapters/terminal.ts', ['terminalAppearance']],
   ])
-  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 23)
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 20)
   assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
   for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
     if (entry.kind === 'data-geometry') {
@@ -1695,7 +1697,8 @@ test('a single-area export is exempt only when its module, its name and its area
   assert.equal(isSingleAreaPrimitiveExempt(terminal, 'terminalAppearance', 'terminalpane'), true)
   assert.equal(isSingleAreaPrimitiveExempt(terminal, 'terminalAppearance', 'usage'), false)
   const flow = path.join(repoRoot, 'packages/ui/src/design/ui/flow-step.tsx')
-  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowStepSurface', 'room'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowStepSurface', 'room'), false)
+  assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowDoingLine', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowStepSurface', 'settings'), false)
   assert.equal(isSingleAreaPrimitiveExempt(flow, 'FlowFaces', 'room'), false)
   // These are shared through FlowCanvas now, so keeping an exemption would be stale.
@@ -4509,10 +4512,10 @@ test('an arbitrary Tailwind property or an inline style object that writes its o
 })
 
 
-test('timeline geometry exemption is confined to its two data-view exports and current consumer area', () => {
+test('timeline geometry exemption excludes its now-shared item and retains only the single-area rail', () => {
   const module = path.join(repoRoot, 'packages/ui/src/design/ui/timeline.tsx')
   assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'room'), true)
-  assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineItem', 'room'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineItem', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineAction', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'settings'), false)
   const other = path.join(repoRoot, 'packages/ui/src/design/ui/button.tsx')
@@ -4537,7 +4540,7 @@ test('round-card geometry exemption names only its recorded-data slots in the ro
   assert.equal(staleSingleAreaPrimitiveExemptions([entry], () => undefined).length, 5)
 })
 /**
- * The frame work's burn-downs (docs/superpowers/specs/2026-10-09-app-frame-design.md):
+ * The frame work's burn-downs (docs/design.md):
  * frame parts a screen still draws, page measures a screen sets itself, and
  * layout written in a screen. Each only falls.
  */
@@ -4655,4 +4658,91 @@ test('Phase E has retired destination windows, heads and title rules', () => {
 test('the loadout brief home is a placeholder while undeclared home names remain refused', () => {
   assert.deepEqual(offendersIn('loadout-fixture.ts', "const cwd = '/home/jane/project'"), [])
   assert.equal(offendersIn('loadout-fixture.ts', "const cwd = '/home/private-person/project'").length, 1) // hd-secrets-ok
+})
+
+// Inspect all literal repository paths, not only import declarations: specs also
+// read docs and source text through fs, URLs and child-process arguments. Follow
+// their script helpers too; package inputs already select UI or server coverage.
+const browserRepositoryReads = (root) => {
+  const graph = suiteGraph(root)
+  const queue = graph.sources.filter(file => specsReaching(graph, [file]).length > 0)
+  const seen = new Set()
+  const reads = new Set()
+  const importers = new Map([...graph.importers].map(([file, parents]) => [file, new Set(parents)]))
+  while (queue.length > 0) {
+    const file = queue.pop()
+    if (seen.has(file)) continue
+    seen.add(file)
+    const text = fs.readFileSync(file, 'utf8')
+    const add = target => {
+      if (!target || !target.startsWith(`${root}/`)) return
+      const relative = path.relative(root, target)
+      reads.add(relative)
+      importers.set(target, new Set([...(importers.get(target) ?? []), file]))
+      if (fs.existsSync(target) && SOURCE.includes(path.extname(target)) && !relative.startsWith('packages/')) queue.push(target)
+    }
+    for (const [, specifier] of text.matchAll(IMPORT)) {
+      if (specifier.startsWith('.')) add(resolveHelper(file, specifier))
+    }
+    const visit = node => {
+      if (ts.isStringLiteralLike(node)) {
+        const literal = node.text
+        if (literal.startsWith('.')) add(findFile(file, literal))
+        else if (!path.isAbsolute(literal) && (literal.includes('/')
+          || (ts.isCallExpression(node.parent) && /(?:readFile|readFileSync)$/.test(node.parent.expression.getText()) && node.parent.arguments[0] === node))) {
+          add(findFile(path.join(root, 'entry'), `./${literal}`))
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true))
+  }
+  return new Map([...reads].sort().map(file => [file, specsReaching({ ...graph, importers }, [path.join(root, file)]).map(spec => path.relative(root, spec)).sort()]))
+}
+
+const browserReadGaps = (root, reads, plan = changePlanner(root)) => [...reads].filter(([file, readers]) => {
+  const run = plan({ event: 'push', refName: 'development', paths: [file] })
+  const selected = run.browser === 'none' ? [] : run.browser === 'server' ? JSON.parse(run.server_specs)
+    : run.browser_specs === 'all' ? null : JSON.parse(run.browser_specs)
+  return selected !== null && readers.some(spec => !selected.includes(spec))
+}).map(([file]) => file)
+
+test('every repository file read by browser specs is covered by the browser input policy', () => {
+  const reads = browserRepositoryReads(repoRoot)
+  for (const file of ['docs/interface.md', 'script/shots/shoot.mjs', 'script/shots/template-rig.mjs', 'packages/ui/src/design/metrics.json']) {
+    assert.ok(reads.has(file), `the repository read scan must see ${file}`)
+  }
+  assert.deepEqual(browserReadGaps(repoRoot, reads), [], 'every reader must be selected when its input changes')
+})
+
+test('the browser input gate resolves a new repo read, including one through a helper or URL', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-read-gate-'))
+  const put = (file, text) => {
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+    fs.writeFileSync(path.join(root, file), text)
+  }
+  try {
+    put('packages/ui/package.json', JSON.stringify({ name: '@harnessdesk/ui' }))
+    put('e2e/ui-system/durations.json', '{}')
+    put('docs/new-contract.md', 'contract')
+    for (const source of [
+      "import { readFileSync } from 'node:fs'; readFileSync('docs/new-contract.md', 'utf8')",
+      "import './helper';",
+    ]) {
+      put('e2e/ui-system/example.spec.ts', source)
+      put('e2e/ui-system/helper.ts', "import { readFileSync } from 'node:fs'; readFileSync(new URL('../../docs/new-contract.md', import.meta.url), 'utf8')")
+      const reads = browserRepositoryReads(root)
+      assert.ok(reads.has('docs/new-contract.md'))
+      assert.deepEqual(reads.get('docs/new-contract.md'), ['e2e/ui-system/example.spec.ts'])
+      assert.deepEqual(browserReadGaps(root, reads), [])
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the browser read gate rejects a server-only plan that omits the package reader', () => {
+  const reads = new Map([['packages/cli/package.json', ['e2e/ui-system/row-box.spec.ts']]])
+  const serverOnly = () => ({ browser: 'server', server_specs: '[]', browser_specs: 'all' })
+  assert.deepEqual(browserReadGaps(repoRoot, reads, serverOnly), ['packages/cli/package.json'])
 })

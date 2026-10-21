@@ -1,9 +1,10 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import type { Account } from '@harnessdesk/protocol'
 
+import { readForeignDatabase } from '../ledger/foreign-db.js'
 import type { KnownAgent } from './known-agents.js'
 
 /**
@@ -167,16 +168,88 @@ const openCodeIdentity = (context: IdentityContext): Account | null => {
   const env = context.env ?? process.env
   const data = nonEmpty(env['XDG_DATA_HOME']) ?? join(context.home ?? homedir(), '.local', 'share')
   const auth = readJson(join(data, 'opencode', 'auth.json'))
-  if (typeof auth !== 'object' || auth === null || Array.isArray(auth)) return null
   // Only the keys. The values are the credentials themselves, and nothing
   // here reads one — see the note at the top of this file.
-  const providers = Object.keys(auth).filter((name) => name.trim() !== '')
+  const files = typeof auth === 'object' && auth !== null && !Array.isArray(auth) ? Object.keys(auth) : []
+  const providers = [...new Set([...files, ...openCodeSignIns(join(data, 'opencode', 'opencode.db'))])]
+    .filter((name) => name.trim() !== '')
   if (providers.length === 0) return null
   return signedInWith(
     providers.length > 3
       ? `${providers.slice(0, 3).join(', ')} +${providers.length - 3} more`
       : providers.join(', '),
   )
+}
+
+/**
+ * OpenCode 2 keeps its sign-ins in `opencode.db` as well: a `credential`
+ * table, one row per sign-in, `active` for the one each provider uses — an
+ * OpenCode Console sign-in lands only there. Measured on opencode 2.0.32 on
+ * 2026-10-17, reading the integration and time columns only (#1776). The
+ * provider ids are read and nothing else: `value` is the credential.
+ *
+ * The file is OpenCode's, in WAL mode, and a plain read-only open would
+ * create `-shm` and `-wal` beside it, so it is read the way the ledger reads
+ * one: `readForeignDatabase` opens a quiet file without writing a byte and
+ * copies a live one to read. The account is asked for on every read of a
+ * row, so an answer is kept until the database changes size or time, or its
+ * side files do and `LOG_INTERVAL_MS` has passed, so a live OpenCode's
+ * database is not copied each time. One that is missing, unreadable or
+ * shaped otherwise names nobody.
+ */
+const openCodeSignIns = (path: string): readonly string[] => {
+  const stamp = openCodeStamp(path)
+  if (stamp === null) return []
+  const kept = openCodeRead.get(path)
+  if (kept && (kept.stamp === stamp.stamp || (kept.database === stamp.database && Date.now() - kept.at < LOG_INTERVAL_MS))) {
+    return kept.providers
+  }
+  try {
+    const providers = readForeignDatabase(path, (db) =>
+      db.prepare('SELECT DISTINCT integration_id AS provider FROM credential WHERE active = 1').all()
+        .flatMap((row) => typeof row['provider'] === 'string' ? [row['provider']] : []))
+    // Null is not a database, or not one that could be opened — found from
+    // its first bytes, so it is cheap to ask again and is not kept.
+    if (providers === null) return []
+    openCodeRead.set(path, { ...stamp, at: Date.now(), providers })
+    return providers
+  } catch {
+    // Too large, changing under the read, or shaped otherwise: nobody for
+    // now, and asked again next time rather than kept.
+    return []
+  }
+}
+
+/**
+ * A running OpenCode writes its log on every turn, so the log changing alone
+ * re-reads (a copy, for a live database) at most this often; the database
+ * itself changing always does. A sign-in that is still in the log shows
+ * within it.
+ */
+const LOG_INTERVAL_MS = 30_000
+
+interface OpenCodeStamp {
+  /** The database and both side files, sizes and times. */
+  readonly stamp: string
+  /** The database alone. */
+  readonly database: string
+}
+
+const openCodeRead = new Map<string, OpenCodeStamp & { readonly at: number; readonly providers: readonly string[] }>()
+
+/** Sizes and times of the database and its side files; null when there is no database. */
+const openCodeStamp = (path: string): OpenCodeStamp | null => {
+  const parts: string[] = []
+  for (const file of [path, `${path}-wal`, `${path}-shm`]) {
+    try {
+      const stat = statSync(file)
+      parts.push(`${stat.size}:${stat.mtimeMs}`)
+    } catch {
+      if (file === path) return null
+      parts.push('-')
+    }
+  }
+  return { stamp: parts.join('|'), database: parts[0]! }
 }
 
 /**

@@ -228,6 +228,8 @@ by its line box, because a text Range includes unused font-em space outside it.
 
 ## Named text roles
 
+A head naming a band of a page’s body uses the 16px semibold `section` role; field groups, Settings forms, dialog groups and right-rail card labels stay small (`SectionHead level="label"`).
+
 A size and a weight together name a *role*. A role describes what the words
 are doing; screens do not invent a new spelling for the same job:
 
@@ -235,8 +237,8 @@ are doing; screens do not invent a new spelling for the same job:
 | --- | --- | --- |
 | wordmark | 20 / semibold | the product name beside its mark |
 | page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
-| section | 16 / semibold | a page band's heading (a Dashboard band) — below the page title, above a subject (#1122) |
-| group label | 13 / medium, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
+| section | 16 / semibold | a page band's heading (Teams, Agents, Library, Plugins, Dashboard and detail-page bands) — below the page title, above a subject (#1122) |
+| group label | 13 / medium, secondary ink | the word over a group — a card of rows, a rail's list or a Settings form (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | member | 14 / medium | the name of someone — an agent at work or a person — beside its face: a chat's sender, a member named inside a sentence (`MemberName`); `--hd-member-weight` owns the weight |
 | row | 13 / medium | the title of a setting, and the word above a control |
@@ -301,8 +303,8 @@ from. The word over a group was 13px secondary in the sidebar, 13px in the
 faint ink over a settings card, and 12px tracked capitals in the room's rail,
 the trajectory's roles and the agent card.
 
-Now every page head is the page role, and every group heading is
-`GroupLabel`. The interfaces share its medium weight and vary the air above a
+Now every page head is the page role, page-body bands use the section role,
+and field groups and rail labels use `GroupLabel`. The interfaces share its medium weight and vary the air above a
 group, never its size, its ink or its case. Capitals are counted: the design
 audit's `uppercaseLabel` finds every `text-transform: uppercase`, `uppercase`
 utility and inline `textTransform` outside a `Keycap`, and its ceiling may only
@@ -311,6 +313,12 @@ agent card and the transcript's small tags — are the burn-down.
 
 Settings names each page with a visible h1 in the page role, above its
 description. Its bar carries no title, so the name is shown once.
+
+A page title is the wordmark's type, and it stands on the wordmark's line.
+`PageOptions` makes the titled head one bar tall (`--hd-bar-h`), the sidebar
+brand row's counterpart, and `Page` drops its top gutter above a first block
+that leads with that head. The title, the wordmark and the head's verb then
+centre on one line, with the sidebar shown or hidden.
 
 ### Where a label lands
 
@@ -621,6 +629,15 @@ A second line is earned by exactly three things:
    sentence.
 
 Everything else goes on hover, as `title`.
+
+Effort levels use that hover explanation even when every choice has a distinct
+description: Low and High already name the distinction. Runtime-defined modes
+retain their comparison column: a mode name alone may not explain its consequences.
+Ordinary boolean options keep their explanation on hover too; a refused
+switch still shows its reason. A switch labelled only with its option identifier
+(including a namespace-qualified identifier) keeps its description visible,
+because the machine name does not explain the setting. Models and custom codenames retain a complete,
+distinct comparison column.
 
 For plugin tools, the short manifest title is the name to scan. Capabilities
 keeps the owning plugin on the second line and the full description on hover;
@@ -1075,8 +1092,10 @@ capitals and for a heavier weight.
 ### Sidebar trailing rail
 
 In the production `SessionTree`, trailing state marks mean attention or an
-error: **Needs you**, **Ready to wrap**, a failure or a missing folder. Running conversations
-and Teams have no spinner or Working label; their activity stays on hover,
+error: **Needs you**, a failure or a missing folder; Team and Seat rows also show **New**. Working conversations
+show a spinner, after attention and errors in priority. A working Team spins
+only while collapsed; its expanded Seats carry their own activity. Activity
+words stay on hover,
 along with branch, worktree and pin facts. `LeftColumnRow` uses a compact
 mark that yields to the hover action without folding a full state label.
 
@@ -1105,11 +1124,17 @@ The production tree uses `LeftColumnRow`: a 34px row pitch
 (`--hd-sidebar-highlight-h`), leaving a 2px gap. About 20px of air above
 group headers comes from `--hd-sidebar-group-space`, adjusted for the line's
 position inside its row. State stays on its row as a compact attention or
-error mark; running activity stays on hover.
+error mark, followed in priority by a working spinner. Activity words stay on hover.
 
 Pinned is one plain section for loose conversations, with its heading,
 separator and uncapped rows. Every active Team, and each finished Team until
-it is wrapped, is one row in its project beside the loose conversations.
+it is wrapped, has a row in its project beside the loose conversations.
+The disclosure after its name reveals Seats one step in: their runtime icons
+start at the Team label, while all trailing marks retain the parent rail.
+The selected Team and the Team owning an open Seat start expanded.
+A working Seat shows its claimed card number, when present, and a spinner;
+the small running ring ends on the trailing guide inside the unchanged mark slot.
+An idle Seat has no mark. Seats do not count toward the project cap.
 A finished Team keeps the attention dot, labelled **Ready to wrap**. Team
 members do not also appear as loose rows. Wrapped Teams live on the Teams page.
 Agents and Plugins keep catalogue counts on their pages; a sidebar count
@@ -1123,12 +1148,14 @@ and is preserved when selection changes.
 
 Project headers have no folder icon: their names use 14px secondary ink.
 The fold chevron follows the name, visible when folded or on hover or keyboard
-focus; the end actions appear on hover or focus. Folding leaves only the
+focus; Team rows use the same fold chevron after their name, with no leading
+gutter, and its own control folds Seats without opening the Team. The end
+actions appear on hover or focus. Folding leaves only the
 header. The footer is a transparent 48px row with a full-width hairline and
 no identity pill; readiness and usage are read in the account menu.
 The sidebar catalogue and `preview.html?sidebar-structure` mount the same
-production tree. Nested Seat rows, guide lines and full state-label folding
-belong to the generic sidebar specimens, not this tree.
+production tree, including nested Seat rows. Guide lines and full state-label
+folding belong to the generic sidebar specimens.
 
 ### Destination rows
 
@@ -1273,7 +1300,7 @@ wrong keeps its own:
 - `components/ProjectTriggers.tsx`'s former "Armed" chip read in the
   success tone; the switch now carries Off and Armed, while Changed, Refused
   and Paused retain their exceptional-state chips.
-- `components/SkillSheet.tsx`'s runtime-reach row: a skill a runtime reaches
+- `components/SkillPage.tsx`'s runtime-reach row: a skill a runtime reaches
   read "On" in the success tone; "Off" already had none.
 - `components/SeatAttachments.tsx`: a loaded attachment read "Loaded" in the
   success tone; "Not loaded" keeps its warning, which is a verdict rather
@@ -1444,7 +1471,10 @@ measured across two.
   top on purpose.
 - **gaps** writes the space between neighbours on the space itself.
 - **overflow** marks what is drawn past its box, what is clipped without an
-  ellipsis, and what leaves its page; an ellipsis is amber, not red.
+  ellipsis, and what leaves its page; an ellipsis is amber, not red. A box
+  that crops its content on purpose — a face's plate cutting a brand picture
+  to the plate's own corner — carries `data-crop` and is not a finding: the
+  picture is meant to be larger than the box.
 - **scale** flags, with an amber corner, a padding, gap, radius, type size or
   colour that no `--hd-*` token resolves to (`design/explorer/guides-tokens.ts`
   reads the live tokens, so a foundation is measured as itself).
@@ -1483,7 +1513,15 @@ The same scene list is the **guides standard**:
 and holds the findings to `packages/ui/src/design/guides-standard.json`. A
 count may fall but not rise, and a finding not on the record fails;
 `UPDATE_GUIDES=1` re-records, which is a decision to accept what the board
-shows. A new state of the app belongs on the board — add its scene — and is
+shows. The record is kept per platform, `linux` and `darwin`, because a finding
+carries how far an edge sits from its rail and which edges form a rail at all,
+and both follow text widths that are the platform's own. CI is Linux and the
+docs count its record; a run on a platform with no record fails rather than
+read another's. Re-record each platform from the same commit. The Linux record
+is the most any CI run has shown, signature by signature: a finding at the outer
+edge of the near-miss band (`Δ3`) comes and goes between runs of the same code,
+and the gate only fails on growth. A failed run uploads what it measured in
+`guides-observed/`; merge it in as a per-signature maximum. A new state of the app belongs on the board — add its scene — and is
 held to the standard from then on.
 
 ### What the engine checks
@@ -1765,7 +1803,7 @@ simply unable to see:
   (`ApprovalDialog.module.css [room]`, 48 findings). And composition within
   one file was never followed at all: `Dialog` composes `DialogBody` and
   `DialogSubhead` in the same `ModalDialog.tsx`, with no import needed, so
-  their reach read as SkillSheet.tsx's alone instead of the ~46 screens
+  their reach read as SkillPage.tsx's alone instead of the ~46 screens
   `Dialog` itself reaches (`ModalDialog.module.css [settings]`, 9 findings).
   A registry or `app/` mount now counts as its own host area, but only
   alongside a real screen import, and a same-module composer's own reach is
@@ -1795,9 +1833,12 @@ has never been tested.
 
 ## The Team overview
 
-Overview is the first page tab in a Team. A Team with a Run or ready to wrap opens
-there; one with neither opens on Chat. Its Seat table uses the wide `Page`
-measure; narrow panes keep that same page contract and switch to list rows.
+Work is the first primary destination in a Team, alongside Tasks and Chat.
+Work opens by default, including a Team ready to wrap and a Team without a Run.
+An explicit saved destination is restored. A Run's frozen Flow leads Work,
+followed by a concise pending request link and recent activity. The standalone
+overview's Seat table uses the wide `Page` measure; narrow panes keep that same
+page contract and switch to list rows.
 The Run's current round and recorded
 usage lead, followed by what needs the person and the Seats in attention order:
 Needs you, Unread, Working, then Idle. Each Seat carries its face, role, card,
@@ -2333,6 +2374,18 @@ whole; other membership stacks retain their overlap.
 Add a runtime keeps the machine's catalogue first. Browse more… reveals the
 registry, with one MenuNote for its third-party, unreviewed status. It does not
 change an entry's add, download, blocked or registered behaviour.
+
+A folder choice is optional for a new conversation. The composer's **No folder**
+label keeps the same single toolbar line; its hover title names the host's chats
+folder. **No folder** is the first menu choice and clears a chosen folder. In
+Settings, **Chats folder** earns a path hint, shortened with `MiddleTruncate`,
+beside **Change…** and **Reset**. The sidebar's **Chats** group joins managed
+chats with unknown-folder conversations and is omitted when empty.
+Only folders recorded as host allocations belong to that group. A refused
+Chats folder pick explains the conflicting opened project in the picker's
+description and a Settings note. Project lists omit managed chats. The composer
+refreshes repository facts on mount before deciding whether to show its worktree
+control; an unread recent-folder entry cannot permanently hide that control.
 
 ## Lead is a conversation
 

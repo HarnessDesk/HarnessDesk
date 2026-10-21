@@ -802,7 +802,11 @@ export interface HostMethods {
   'lane/release': { params: { lane: string }; result: import('./goal.js').Lane }
   'goal/list': { params: { root?: string }; result: readonly GoalView[] }
   'goal/read': { params: { goal: GoalId }; result: GoalView }
+  /** Opening any Team page acknowledges its news. newsAt only requests a write; the host owns the stored seen time. */
+  'goal/seen': { params: { goal: GoalId; newsAt?: number }; result: GoalView }
   'goal/create': { params: Omit<GoalCreateInput, 'origin'>; result: GoalView }
+  /** The person's plain Team start admits only the project selected in the dialog. */
+  'goal/start': { params: Pick<GoalCreateInput, 'root' | 'sentence' | 'checkout'>; result: GoalView }
   'goal/update': {
     params: { goal: GoalId; revision: number; sentence?: string; dependsOn?: readonly GoalId[] }
     result: GoalView
@@ -1313,6 +1317,16 @@ export interface HostMethods {
         readonly endpoint: string
         readonly apiKey: string
       }
+      /**
+       * What to call the new account on screen.
+       *
+       * Used by an agent whose account cannot be named from its credential:
+       * the desk reads that an Antigravity row is signed in to "a Google
+       * account" and no more, so the person's own name for it is the only
+       * thing that tells two of them apart. Ignored by an agent that can
+       * answer for itself — Codex names its accounts from `auth.json`.
+       */
+      readonly name?: string
     }
     result: { readonly runtime: RuntimeId; readonly info: RuntimeInfo }
   }
@@ -1380,8 +1394,9 @@ export interface HostMethods {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
     result: Session
   }
+  /** With no cwd, the host creates a fresh directory inside its configured chats folder. */
   'session/create': {
-    params: { readonly runtime: RuntimeId; readonly options: SessionOptions }
+    params: { readonly runtime: RuntimeId; readonly options: Omit<SessionOptions, 'cwd'> & { readonly cwd?: string } }
     result: Session
   }
   'session/resume': {
@@ -1802,8 +1817,8 @@ export interface HostMethods {
    */
   'worktree/list': { params: { readonly root: string }; result: readonly Worktree[] }
   'worktree/create': {
-    /** `base` is the commit-ish the new branch starts from; HEAD when absent. */
-    params: { readonly root: string; readonly name: string; readonly base?: string }
+    /** `base` wins; otherwise `fromDefault` uses the known default branch, or HEAD for a local repository without one. */
+    params: { readonly root: string; readonly name: string; readonly base?: string; readonly fromDefault?: boolean }
     result: Worktree
   }
   'worktree/changes': { params: { readonly path: string }; result: WorktreeChanges }

@@ -75,9 +75,12 @@ test('S18 every dialog preview uses the same title, inset, close, and footer ana
   await opened.surface.getByRole('button', { name: 'Write and review', exact: true }).click()
   opened = await inspect('dialog')
   await expect(opened.surface).toHaveAttribute('aria-label', 'New Team')
-  await expect(teamSearch).toBeVisible()
-  await expect(opened.footer.locator('[data-slot="dialog-footer-actions"] button')).toHaveCount(3)
-  await expect(opened.footer.getByRole('button', { name: 'Dry run', exact: true })).toBeVisible()
+  await expect(teamSearch).toBeHidden()
+  await expect(opened.surface.getByRole('region', { name: 'Selected Flow' })).toBeVisible()
+  await expect(opened.footer.locator('[data-slot="dialog-footer-actions"] button')).toHaveCount(2)
+  await expect(opened.surface.getByRole('button', { name: 'Dry run', exact: true })).toBeHidden()
+  await opened.surface.getByRole('button', { name: 'Completion and dry run', exact: true }).click()
+  await expect(opened.surface.getByRole('button', { name: 'Dry run', exact: true })).toBeVisible()
 
   await page.goto('/preview.html')
   const gitSheet = page.getByLabel('git sheet')
@@ -105,8 +108,8 @@ test('S18 every dialog preview uses the same title, inset, close, and footer ana
   }
 
   await openFrame(page, 'frame-wall=library', 'light')
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', {name:'More',exact:true}).click()
-  await page.getByRole('menuitem', {name:'Import',exact:true}).click()
+  await page.getByRole('button', {name:'Add skill',exact:true}).click()
+  await page.getByRole('menuitem', {name:'Copy from another runtime…',exact:true}).click()
   opened = await inspect('dialog')
   await expect(opened.surface.locator('[data-slot="search"] svg')).toHaveCount(1)
   await opened.surface.getByRole('button', {name:'Cancel',exact:true}).click()

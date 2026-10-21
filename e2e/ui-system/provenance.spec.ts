@@ -1,5 +1,25 @@
 import { expect, test } from '@playwright/test'
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`historical Seat dialog shows its facts without rail disclosures (${theme})`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/preview.html?historical-seat=1&guides=off')
+    await page.getByLabel(/^theme/).selectOption(theme)
+    await page.getByLabel('git sheet').selectOption('provenance')
+    if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+    else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
+    const dialog = page.getByRole('dialog', { name: 'Seat record', exact: true })
+    const facts = dialog.locator('[data-slot="key-value"][aria-label="Seat facts"]')
+    await expect(facts).toBeVisible()
+    await expect(facts).toContainText('topic at aaaaaaa')
+    await expect(facts).toContainText('/work/project')
+    await expect(dialog.locator('[data-slot="tool-section"], [data-slot="tool-fold"]')).toHaveCount(0)
+    await expect(dialog.locator('[data-slot="inspector-empty"]')).toHaveCount(0)
+    await expect(dialog).toContainText('AttachmentsNot recorded')
+    expect(await facts.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  })
+}
+
 test('provenance preview keeps history labels passive and opens an immutable historical Seat', async ({ page }, info) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))

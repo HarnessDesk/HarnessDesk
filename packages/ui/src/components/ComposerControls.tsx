@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useCallback, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 
-import { Button, Chip, ComposerTrack, Dialog, Row, RowChoice, Text, TextMark } from '../design'
+import { Button, Chip, ComposerTrack, Dialog, IssueMark, Row, RowChoice, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
 import { worktreeBranch } from '../lib/worktree-branch'
+import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { type Brand, brandForRuntime } from '../lib/brands'
 import { brandOf } from '../lib/identity'
 import { describesEveryChoice, riskTone, selectedChoice } from '../lib/options'
@@ -44,11 +45,27 @@ import {
   ZapIcon,
 } from './Icons'
 import { ModelMark, RuntimeMark } from './BrandIcons'
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSearch, MenuSeparator, MenuToggle, RefusedAction, Submenu } from '../design'
+import { Menu, MenuItem, MenuLabel, MenuNote, MenuSearch, MenuSeparator, MenuToggle, RefusedAction, Submenu, useMenuClose } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
 import { Popover } from '../design'
 import sheet from './ComposerControls.module.css'
 
+type OptionMenuIdentity = { readonly label: string; readonly title: string; readonly icon: ReactNode; readonly value: string; readonly valueTitle?: string }
+const OptionMenuContext = createContext<OptionMenuIdentity | null>(null)
+/** A member's existing control menus, with one canonical identity/value submenu row. */
+export const ComposerOptionMenu = ({ children, ...identity }: OptionMenuIdentity & { readonly children: ReactNode }) =>
+  <OptionMenuContext.Provider value={identity}>{children}</OptionMenuContext.Provider>
+const OptionTrack = (props: ComponentProps<typeof ComposerTrack>) => useContext(OptionMenuContext) ? <>{props.children}</> : <ComposerTrack {...props} />
+const MemberOptionPopover = ({ identity, children }: { identity: OptionMenuIdentity; children: ComponentProps<typeof Popover>['children'] }) => {
+  const close = useMenuClose()
+  return <Submenu icon={identity.icon} label={<span title={identity.title}>{identity.label}</span>} value={<Text role="muted" truncate title={identity.valueTitle ?? identity.value}>{identity.value}</Text>}>
+    {children(close)}
+  </Submenu>
+}
+const OptionPopover = (props: ComponentProps<typeof Popover>) => {
+  const identity = useContext(OptionMenuContext)
+  return identity ? <MemberOptionPopover identity={identity}>{props.children}</MemberOptionPopover> : <Popover {...props} />
+}
 /**
  * The controls that live in the composer.
  *
@@ -157,11 +174,12 @@ export const useNarrowToolbar = (name: ToolbarTrack): {
   folded: boolean
   tight: boolean
 } => {
+  const menu = useContext(OptionMenuContext)
   const layout = useActiveSession() ? 'live' : 'draft'
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null)
   const ref = useCallback((node: HTMLSpanElement | null) => {
-    setToolbar(node?.closest<HTMLElement>('[data-slot="composer-tools"]') ?? node?.parentElement ?? null)
-  }, [])
+    setToolbar(menu ? null : node?.closest<HTMLElement>('[data-slot="composer-tools"]') ?? node?.parentElement ?? null)
+  }, [menu])
   // A step, not a width: set on every frame of a resize, a width would draw
   // the control again on every frame; a step only when one is crossed.
   const [step, setStep] = useState<ToolbarStep>({ folded: 0, tight: false })
@@ -195,7 +213,7 @@ export const useNarrowToolbar = (name: ToolbarTrack): {
   }, [toolbar, layout])
   const foldIndex = FOLD_ORDER.indexOf(name as FoldableTrack)
   const foldable = foldIndex >= 0
-  return { ref, folded: foldable && step.folded >= foldIndex + 1, tight: foldable && step.tight }
+  return { ref, folded: !menu && foldable && step.folded >= foldIndex + 1, tight: !menu && foldable && step.tight }
 }
 
 /** A control's wrapper: no box of its own, just a way to reach the toolbar. */
@@ -225,13 +243,13 @@ const useStaleDefaults = (slot: ComposerOptionSlot): readonly StaleDefault[] => 
   return (runtime ? snapshot.staleDraftDefaults[runtime] ?? [] : []).filter((one) => slotForCategory(one.category) === slot)
 }
 
-const DefaultWarning = () => <TextMark label="Stale saved default" tone="warning"><AlertIcon size={12} /></TextMark>
+const DefaultWarning = () => <IssueMark message="Stale saved default" />
 
 const StaleDefaultRows = ({ stale }: { stale: readonly StaleDefault[] }) => {
   const store = useStore()
   const runtime = useRuntime()?.id
-  return <>{stale.map((one) => <MenuItem key={one.id} icon={<AlertIcon size={14} />}
-    label="Use the runtime’s current value" hint={`Saved ${one.label}: ${one.valueLabel}. ${one.reason}`}
+  return <>{stale.map((one) => <MenuItem key={one.id} icon={<RetryIcon size={14} />}
+    label="Use the runtime’s current value" value={<IssueMark message={`Saved ${one.label}: ${one.valueLabel}. ${one.reason}`} />}
     onSelect={() => { if (runtime) void Promise.resolve(store.clearNewSessionDefault(runtime, one.id)).catch(error => store.resultNotice('warning', error instanceof Error ? error.message : String(error))) }} />)}
     {stale.length > 0 && <MenuSeparator />}
   </>
@@ -248,7 +266,7 @@ const MissingOptionControl = ({ stale, label, reason, narrow, tight, children }:
 ) : <RefusedComposerControl label={label} reason={reason} narrow={narrow} tight={tight}>{children}</RefusedComposerControl>
 
 const UnavailableChoice = ({ option }: { option: ConfigOption }) => option.type === 'select' && !selectedChoice(option)
-  ? <MenuItem icon={<AlertIcon size={14} />} label={currentLabel(option)} disabled="This current value is no longer offered." onSelect={() => undefined} /> : null
+  ? <MenuItem icon={<ModelIcon size={14} />} label={currentLabel(option)} value={<IssueMark message="This current value is no longer offered." />} disabled onSelect={() => undefined} /> : null
 
 const RefusedComposerControl = ({
   label,
@@ -337,7 +355,9 @@ const ChoiceRows = ({
   const store = useStore()
   const key = useSessionKey()
   const agent = brandForRuntime(useRuntime())
-  const column = describesEveryChoice(option)
+  // Low and High already name the reasoning distinction. Runtime-defined
+  // modes can carry consequences their names do not explain.
+  const column = option.category !== 'thought_level' && describesEveryChoice(option)
   const groups = new Map<string | undefined, OptionChoice[]>()
   for (const choice of choices) {
     const list = groups.get(choice.group) ?? []
@@ -370,6 +390,11 @@ const ChoiceRows = ({
 }
 
 /** One option, whole: its heading, its reason when refused, and its rows. */
+// An identifier used as its own label is not a human explanation. Keep that
+// switch's description visible even when its identifier has a namespace.
+const toggleHint = (option: ConfigOption): string | undefined =>
+  option.label === option.id || option.label === option.id.split(/[.:/]/).at(-1) ? option.description : undefined
+
 const OptionRows = ({ option }: { option: ConfigOption }) => {
   const store = useStore()
   const key = useSessionKey()
@@ -382,7 +407,8 @@ const OptionRows = ({ option }: { option: ConfigOption }) => {
       {option.type === 'boolean' ? (
         <MenuToggle
           label={option.label}
-          hint={option.disabled ?? option.description}
+          hint={toggleHint(option)}
+          title={option.description}
           checked={option.currentValue}
           disabled={option.disabled}
           onChange={(next) => ask(option, next, () => void (key ? store.setOption(option.id, next, key) : store.setOption(option.id, next)))}
@@ -474,13 +500,13 @@ export const PermissionControl = () => {
 
   if (options.length === 0) {
     return (
-      <ComposerTrack name="permissions" folded={folded} tight={tight}>
+      <OptionTrack name="permissions" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
           <MissingOptionControl stale={stale} label="Permissions" reason="This runtime has no permission setting" narrow={folded} tight={tight}>
             <ShieldIcon size={13} />
           </MissingOptionControl>
         </InToolbar>
-      </ComposerTrack>
+      </OptionTrack>
     )
   }
 
@@ -491,9 +517,9 @@ export const PermissionControl = () => {
   const current = first?.type === 'select' ? (selectedChoice(first)?.label ?? (first.currentValue === first.collaboration?.planValue ? 'Permissions' : currentLabel(first))) : first?.label
 
   return (
-    <ComposerTrack name="permissions" folded={folded} tight={tight} contentSized={!folded && !tight}>
+    <OptionTrack name="permissions" folded={folded} tight={tight} contentSized={!folded && !tight}>
       <InToolbar refer={ref}>
-        <Popover
+        <OptionPopover
           fullWidth
           tightTrigger={tight}
           aria-label={`Permissions${current && current !== 'Permissions' ? ` — ${current}` : ''}`}
@@ -533,9 +559,9 @@ export const PermissionControl = () => {
               ))}
             </Menu>
           )}
-        </Popover>
+        </OptionPopover>
       </InToolbar>
-    </ComposerTrack>
+    </OptionTrack>
   )
 }
 
@@ -591,13 +617,13 @@ export const ModelControl = () => {
       : first
   if (!model) {
     return (
-      <ComposerTrack name="model" folded={folded} tight={tight}>
+      <OptionTrack name="model" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
           <MissingOptionControl stale={stale} label="Model" reason="This runtime has no model setting" narrow={folded} tight={tight}>
             <ModelIcon size={13} />
           </MissingOptionControl>
         </InToolbar>
-      </ComposerTrack>
+      </OptionTrack>
     )
   }
   const levelSelects = levels.filter((option): option is SelectOption => option.type === 'select')
@@ -630,10 +656,10 @@ export const ModelControl = () => {
   }
 
   return (
-    <ComposerTrack name="model" folded={folded} tight={tight} contentSized={!folded && !tight}>
+    <OptionTrack name="model" folded={folded} tight={tight} contentSized={!folded && !tight}>
       <InToolbar refer={ref}>
         {dialog}
-        <Popover
+        <OptionPopover
           fullWidth
           tightTrigger={tight}
           /* Narrow, the words go to the hover text — and so, with nothing else
@@ -694,11 +720,11 @@ export const ModelControl = () => {
                   key={option.id}
                   icon={<BrainIcon size={14} />}
                   label={option.label}
+                  title={option.description}
                   value={currentLabel(option)}
                   disabled={option.disabled}
 
                  wide icons="none">
-                  {option.description && <MenuNote>{option.description}</MenuNote>}
                   <UnavailableChoice option={option} />
                   <ChoiceRows option={option} />
                   {/* Switches about thinking ride with the first effort select. */}
@@ -709,7 +735,8 @@ export const ModelControl = () => {
                         <MenuToggle
                           key={toggle.id}
                           label={toggle.label}
-                          hint={toggle.description}
+                          hint={toggleHint(toggle)}
+                          title={toggle.description}
                           checked={toggle.currentValue}
                           disabled={toggle.disabled}
                           onChange={(next) =>
@@ -726,7 +753,8 @@ export const ModelControl = () => {
                     <MenuToggle
                       key={toggle.id}
                       label={toggle.label}
-                      hint={toggle.description}
+                      hint={toggleHint(toggle)}
+                      title={toggle.description}
                       checked={toggle.currentValue}
                       disabled={toggle.disabled}
                       onChange={(next) => ask(toggle, next, () => void (key ? store.setOption(toggle.id, next, key) : store.setOption(toggle.id, next)))}
@@ -761,7 +789,7 @@ export const ModelControl = () => {
                   <MenuItem
                     selected={snapshot.draftRouteId === null}
                     label="Direct"
-                    hint="The backend's own provider and account."
+                    title="The backend's own provider and account."
                     onSelect={() => store.setDraftRoute(null)}
                   />
                   {routes.map((route) => (
@@ -769,8 +797,9 @@ export const ModelControl = () => {
                       key={route.id}
                       selected={snapshot.draftRouteId === route.id}
                       label={route.name}
-                      hint={route.usable === false ? route.reason : route.endpoint}
-                      disabled={route.usable === false ? route.reason : false}
+                      hint={route.usable === false ? undefined : route.endpoint}
+                      value={route.usable === false && route.reason ? <IssueMark message={route.reason} /> : undefined}
+                      disabled={route.usable === false}
                       onSelect={() => store.setDraftRoute(route.id)}
                     />
                   ))}
@@ -785,9 +814,9 @@ export const ModelControl = () => {
               <RuntimeBuildNote />
             </Menu>
           )}
-        </Popover>
+        </OptionPopover>
       </InToolbar>
-    </ComposerTrack>
+    </OptionTrack>
   )
 }
 
@@ -837,6 +866,7 @@ const RuntimeBuildNote = () => {
 
 /** The runtime's collaboration modes — plan first, act directly, whatever it offers. */
 export const ModeControl = () => {
+  const menu = useContext(OptionMenuContext)
   const { ref, folded, tight } = useNarrowToolbar('mode')
   const live = Boolean(useActiveSession())
   const all = useComposerOptions()
@@ -846,22 +876,22 @@ export const ModeControl = () => {
   if (!mode) {
     if (stale.length === 0) return null
     return (
-      <ComposerTrack name="mode" folded={folded} tight={tight}>
+      <OptionTrack name="mode" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
           <MissingOptionControl stale={stale} label="Mode" reason="This runtime has no mode setting" narrow={folded} tight={tight}>
             <ZapIcon size={13} />
           </MissingOptionControl>
         </InToolbar>
-      </ComposerTrack>
+      </OptionTrack>
     )
   }
   const current = mode.type === 'select' ? selectedChoice(mode) : undefined
   const label = mode.type === 'select' ? currentLabel(mode) : mode.label
-  const singleValue = mode.type === 'select' && mode.choices.length === 1 && current !== undefined && stale.length === 0
+  const singleValue = !menu && mode.type === 'select' && mode.choices.length === 1 && current !== undefined && stale.length === 0
   const showFoldedMark = singleValue && folded && !live
 
   return (
-    <ComposerTrack name="mode" folded={folded} tight={tight} contentSized={singleValue && !tight && (!folded || live)}>
+    <OptionTrack name="mode" folded={folded} tight={tight} contentSized={singleValue && !tight && (!folded || live)}>
       <InToolbar refer={ref}>
         {singleValue ? (
           tight ? null : showFoldedMark ? (
@@ -870,7 +900,7 @@ export const ModeControl = () => {
               <span className="sr-only">{label}</span>
             </Chip>
           ) : <Chip tone="neutral" title="Collaboration mode">{label}</Chip>
-        ) : <Popover
+        ) : <OptionPopover
           fullWidth
           tightTrigger={tight}
           aria-label={`Collaboration mode — ${label}`}
@@ -894,9 +924,9 @@ export const ModeControl = () => {
               ))}
             </Menu>
           )}
-        </Popover>}
+        </OptionPopover>}
       </InToolbar>
-    </ComposerTrack>
+    </OptionTrack>
   )
 }
 
@@ -908,10 +938,10 @@ export const MoreControl = () => {
   const stale = useStaleDefaults('more')
 
   return (
-    <ComposerTrack name="more" folded={folded} tight={tight}>
+    <OptionTrack name="more" folded={folded} tight={tight}>
       <InToolbar refer={ref}>
         {(others.length > 0 || stale.length > 0) && (
-          <Popover
+          <OptionPopover
             fullWidth
             tightTrigger={tight}
             title="More options"
@@ -933,10 +963,10 @@ export const MoreControl = () => {
                 ))}
               </Menu>
             )}
-          </Popover>
+          </OptionPopover>
         )}
       </InToolbar>
-    </ComposerTrack>
+    </OptionTrack>
   )
 }
 
@@ -1096,17 +1126,13 @@ export const AgentControl = () => {
                       key={entry.id}
                       icon={<RuntimeMark runtime={entry} />}
                       selected={entry.id === owner.id}
-                      label={down ? `${label(entry)} — unavailable` : label(entry)}
-                      // A dead agent's state is a consequence and stays on
-                      // screen. A tagline is not: these are brand names the
-                      // reader arrived knowing, the blurb cannot change which
-                      // one they pick, and only some agents declare one — so
-                      // on screen it is a ragged menu rather than a column
-                      // worth reading. Settings and first-run still show it,
-                      // where choosing is the whole task.
-                      hint={down ? 'This runtime cannot start right now. Selecting it shows what to fix.' : undefined}
+                      label={label(entry)}
+                      value={down ? <IssueMark message="This runtime cannot start right now. Select it to see what to fix." /> : undefined}
                       title={down ? undefined : entry.presentation.tagline}
-                      onHighlight={() => warm(entry.id)}
+                      // Hover is only intent to inspect this row. Starting a
+                      // failed runtime here toggles its health through
+                      // starting/unavailable and makes the menu change height.
+                      onHighlight={down ? undefined : () => warm(entry.id)}
                       onSelect={() => {
                         warm(entry.id)
                         if (entry.id !== owner.id) void store.selectRuntime(entry.id).then(() => {
@@ -1233,16 +1259,28 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   const session = useActiveSession()
   const { ref } = useNarrowToolbar('work-in')
   const workspace = snapshot.workspace
+  useEffect(() => { if (!session && workspace) void store.refreshWorkspaceGit(workspace.path) }, [store, workspace?.path, !!session])
   if (session) return null
+  const folderPicker = <Popover title={workspace?.path ?? `Starts in ${snapshot.chatsFolder}`} drop="up" align="left"
+    triggerVariant={{ variant: 'ghost', size: 'content-min' }}
+    label={<><FolderOpenIcon size={13} /><Text role="row" truncate className={sheet.word}>{workspace?.name ?? 'No folder'}</Text></>}>
+    {close => <Menu close={close}>
+      <MenuItem label="No folder" selected={!workspace} title={`Starts in ${snapshot.chatsFolder}`} onSelect={() => store.clearDraftFolder()} />
+      {onChooseProject && <MenuItem label="Choose folder…" icon={<FolderOpenIcon size={14} />} onSelect={onChooseProject} />}
+    </Menu>}
+  </Popover>
   if (!workspace) {
     return (
       <ComposerTrack name="work-in" contentSized shrinkable>
-        <InToolbar refer={ref}><Button variant="ghost" size="content-min" onClick={onChooseProject}><FolderOpenIcon size={13} /><Text role="row">Choose folder</Text></Button></InToolbar>
+        <InToolbar refer={ref}>{folderPicker}</InToolbar>
       </ComposerTrack>
     )
   }
 
   const place = snapshot.draftPlace
+  const carried = place === null ? snapshot.draftHandoff?.cwd : undefined
+  const checking = place === null && !carried && workspace.repo !== null && workspace.git == null && !keepsWorkspacePlace(workspace)
+  const automatic = place === null && !carried && canIsolateDraft(workspace)
   const folder = workspace.path.split('/').filter(Boolean).at(-1) ?? workspace.path
   const branch = workspace.git?.branch ?? null
   const linked = workspace.repo?.worktree === true
@@ -1287,9 +1325,18 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   /* Pointed at the main checkout, which is a place and not a worktree: the
      chip must wear neither the branch glyph nor the worktree badge for it. */
   const chosenMain = chosen !== null && main !== null && chosen.path === main.path
+  const chosenHere = chosen?.path === workspace.path
 
-  const title = armed
+  const title = carried
+    ? `Starts in ${carried}`
+    : checking
+    ? 'Starts in a new worktree if Git confirms a committed repository; checking Git'
+    : automatic
+    ? 'Starts in a new worktree on its own branch, made when you send'
+    : armed
     ? `Starts in a new worktree on ${armedBranch}, made when you send`
+    : chosenHere && !linked
+      ? `Starts in ${folder}${branch ? `, on ${branch}` : ''}`
     : chosenMain
       ? `Starts in the main checkout${chosen?.branch ? `, on ${chosen.branch}` : ''}`
       : chosen
@@ -1312,42 +1359,47 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   // never be caught disagreeing (#301).
   const leaf = (name: string | null, fallback: string): string =>
     name?.split('/').filter(Boolean).at(-1) ?? fallback
-  const word = armed
+  const word = carried
+    ? carried.split('/').filter(Boolean).at(-1) ?? carried
+    : checking
+    ? 'Checking Git…'
+    : armed || automatic
     ? 'New worktree'
+    : chosenHere && !linked
+      ? folder
     : chosen
       ? leaf(chosen.branch, chosenMain ? 'Local' : 'Worktree')
       : linked
         ? leaf(branch, 'Worktree')
         : folder
-  const tagged = !armed && !chosenMain && (chosen !== null || linked)
+  const tagged = !automatic && !armed && !chosenMain && (!carried || carried === workspace.path) && (chosenHere ? linked : chosen !== null || linked)
 
   return (
     <ComposerTrack name="work-in" contentSized shrinkable>
       <InToolbar refer={ref}>
-        {onChooseProject && <Button variant="ghost" size="content-min" title={workspace.path} onClick={onChooseProject}>
-          <FolderOpenIcon size={13} /><Text role="row" truncate className={sheet.word}>{folder}</Text>
-        </Button>}
-        <Popover
+        {onChooseProject && folderPicker}
+        {/* Missing repository facts are unread; only an explicit null with no Git facts hides this control. */}
+        {(workspace.repo !== null || workspace.git) && <Popover
           fullWidth={!onChooseProject}
-          triggerVariant={onChooseProject && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
+          triggerVariant={onChooseProject && !carried && !checking && !automatic && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
           title={title}
           drop="up"
           align="left"
           onOpenChange={(open) => { if (open) { void store.loadWorktrees(); void store.refreshWorkspaceGit(workspace.path) } }}
           label={
             <>
-            {armed ? (
+            {armed || automatic ? (
               <Text role="row" tone="brand"><NewWorktreeIcon size={13} /></Text>
             ) : tagged ? (
               <BranchIcon size={13} />
             ) : (
               <LocalIcon size={13} />
             )}
-            {onChooseProject && !armed && !chosen ? null : armed
+            {onChooseProject && !carried && !checking && !automatic && !armed && !chosen ? null : armed || automatic
               ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
               : <Text role="row" truncate title={workspace.path} className={sheet.word}>{word}</Text>}
             {tagged && <Badge variant="secondary">worktree</Badge>}
-            {(!onChooseProject || armed || chosen) && <Chevron size={12} />}
+            {(!onChooseProject || carried || checking || automatic || armed || chosen) && <Chevron size={12} />}
           </>
         }
          panelWidth="wide" icons="none">
@@ -1360,7 +1412,7 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
                 label={linked ? 'This worktree' : 'Local'}
                 value={branch ?? undefined}
                 title={branch ? `${branch} — ${workspace.path}` : workspace.path}
-                selected={place === null}
+                selected={!checking && !automatic && place === null && (!carried || carried === workspace.path) || chosen?.path === workspace.path}
                 onSelect={() => store.startDraftIn(null)}
               />
               {main && (
@@ -1382,9 +1434,9 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
               icon={<NewWorktreeIcon size={14} />}
               label={armed ? 'New worktree' : 'New worktree…'}
               value={armedBranch ?? undefined}
-              hint={armed ? `Made when you send, from ${armed.base ?? 'HEAD'}.` : undefined}
+              hint={armed ? `Made when you send, from ${armed.fromDefault ? 'the default branch' : armed.base ?? 'HEAD'}.` : undefined}
               title={armedBranch ?? 'A checkout of its own, on a branch of its own.'}
-              selected={armed !== null}
+              selected={automatic || armed !== null}
               disabled={branch ? false : 'Worktrees need a git repository. This folder is not one.'}
               onSelect={() => {
                 close()
@@ -1411,7 +1463,7 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
             )}
           </Menu>
         )}
-        </Popover>
+        </Popover>}
       </InToolbar>
     </ComposerTrack>
   )

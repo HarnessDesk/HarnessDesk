@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { runtimeId, sessionId, sessionKey, type AccountStatus, type RuntimeId, type RuntimeInfo, type Session, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, type AccountStatus, type RuntimeId, type RuntimeInfo, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import { accountKey } from '../lib/accounts'
 import { conditionFor } from '../lib/usage-alerts'
@@ -186,7 +186,7 @@ const groupNamed = (name: string): Element | undefined =>
 const identityOf = (item: Element): string | null | undefined => item.querySelector('[data-identity]')?.getAttribute('data-identity')
 
 const seatNamed = (identity: string): Element | undefined =>
-  [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name])')].find((item) => identityOf(item) === identity)
+  [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name])')].reverse().find((item) => identityOf(item) === identity)
 
 const click = (element: Element): void => {
   act(() => {
@@ -271,183 +271,111 @@ it('enters the canonical menu with ArrowDown and returns focus on Escape', () =>
   expect(document.activeElement).toBe(trigger)
 })
 
-it('expands Usage remaining inline and lists the current account windows', () => {
-  const report = usageReport(CLAUDE, [
+const usageTrigger = (): HTMLElement => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  .find(item => item.querySelector('[data-menu-label]')?.textContent?.trim() === 'Usage')!
+const openUsage = (): HTMLElement => {
+  click(usageTrigger())
+  return [...document.querySelectorAll<HTMLElement>('[role="menu"]')].find(menu => menu.querySelector('[data-usage-details]')) ??
+    [...document.querySelectorAll<HTMLElement>('[role="menu"]')].at(-1)!
+}
+
+it('opens current usage in its own menu with windows, provenance and a scoped action', () => {
+  mount({ usage: [usageReport(CLAUDE, [
     lane({ id: 'session', label: 'Session', usedPercent: 52, windowMinutes: 300, resetsAt: Date.now() + 3600000 }),
     lane({ id: 'weekly', label: 'Weekly', usedPercent: 63 }),
-  ])
-  mount({ usage: [report] })
+  ])] })
   click(row())
-
-  const usage = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
-    item.textContent?.includes('Usage remaining'),
-  )
-  if (!usage) throw new Error('no Usage remaining row')
+  const parent = document.querySelector('[role="menu"]')!
+  const usage = usageTrigger()
   expect(usage.getAttribute('aria-expanded')).toBe('false')
-  // The one trailing fold: down while folded, up while open.
-  const mark = () => usage.querySelector('[data-slot="disclosure-chevron"]')
-  expect(mark()?.getAttribute('data-placement')).toBe('trailing')
-  expect(mark()?.hasAttribute('data-open')).toBe(false)
-  click(usage)
-
+  expect(usage.querySelector('[data-menu-trailing]')?.textContent).toContain('48% left')
+  const details = openUsage()
   expect(usage.getAttribute('aria-expanded')).toBe('true')
-  expect(mark()?.hasAttribute('data-open')).toBe(true)
-  expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Session')
-  expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
-  // The fold keeps the windows and their scoped action; Dashboard stays in nav.
-  expect(document.querySelector('[data-usage-details] [role="menuitem"]')?.textContent).toContain('Open usage')
-  expect(document.querySelector('[data-usage-details] [data-meter-column="reset"] [title]')?.getAttribute('title')).toMatch(/^resets /)
+  expect(details).not.toBe(parent)
+  expect(details.textContent).toContain('Session')
+  expect(details.textContent).toContain('Weekly')
+  expect(details.textContent).toContain('from its own API')
+  expect(details.textContent).toContain('Open usage')
+  expect(details.querySelector('[data-meter-column="reset"] [title]')?.getAttribute('title')).toMatch(/^resets /)
 })
 
-it('shows reporting agents first and folds unreported agents into one note while preserving sign-in', () => {
-  const one = runtime(runtimeId('agent-one'), 'Agent One', 'agent-one')
-  const two = runtime(runtimeId('agent-two'), 'Agent Two', 'agent-two')
-  const three = runtime(runtimeId('agent-three'), 'Agent Three', 'agent-three')
-  const four = runtime(runtimeId('agent-four'), 'Agent Four', 'agent-four')
-  const report = (runtimeId: RuntimeId) => ({
-    ...usageReport(runtimeId, [lane({ id: 'weekly', label: 'Weekly', usedPercent: 32 })]),
-    account: null,
-  })
-  const foreignKey = sessionKey(CODEX, sessionId('foreign-session'))
-  const foreignSession = { id: sessionId('foreign-session'), runtime: CODEX, cwd: '/preview/project' } as Session
-  mount({
-    runtimes: [codex, one, two, three, four],
-    usage: [report(CODEX), report(one.id)],
-    activeRuntime: one.id,
-    activeSessionKey: foreignKey,
-    sessions: new Map([[foreignKey, foreignSession]]),
-    accountsByRuntime: { [CODEX]: signedIn('Account Current'), [one.id]: signedIn('Account One'),
-      [two.id]: signedIn('Account Two'), [three.id]: signedIn('Account Three'), [four.id]: signedOut },
+it('keeps other reporting accounts as scoped links and unreported runtimes out of Usage', () => {
+  const one = runtime('agent-one', 'Agent One', 'codex')
+  const two = runtime('agent-two', 'Agent Two', 'codex')
+  const three = runtime('agent-three', 'Agent Three', 'codex')
+  const { onOpenUsage } = mount({
+    runtimes: [codex, one, two, three], activeRuntime: one.id,
+    usage: [CODEX, one.id].map(id => ({ ...usageReport(id, [lane({ id: 'weekly', usedPercent: 32 })]), account: null })),
+    accountsByRuntime: { [CODEX]: signedIn('dev@example.com'), [one.id]: signedIn('one@example.com'),
+      [two.id]: signedIn('two@example.com'), [three.id]: signedOut },
   })
   click(row())
-  const menu = document.querySelector('[role="menu"]')!
-  const labels = [...menu.querySelectorAll<HTMLElement>('[data-menu-label]')].map(node => node.textContent?.trim())
-  const currentUsage = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    .find(item => item.querySelector('[data-menu-label]')?.textContent?.trim() === 'Usage remaining')
-  const codexUsage = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    .find(item => item.querySelector('[data-menu-label]')?.textContent?.trim() === `${codex.presentation.name} usage`)
-  expect(currentUsage?.title?.startsWith('Agent One —')).toBe(true)
-  expect(codexUsage?.querySelector('.brand-codex')).not.toBeNull()
-  expect(labels.indexOf('Usage remaining')).toBeLessThan(labels.indexOf(`${codex.presentation.name} usage`))
-  expect(labels).toContain('Sign in to Agent Four')
-  expect([...menu.querySelectorAll<HTMLElement>('[data-menu-note]')].map(note => note.textContent?.trim()))
-    .toContain('No usage reported: Agent Two and Agent Three')
-  expect(labels).not.toContain('Agent Two usage')
-  expect(labels).not.toContain('Agent Three usage')
-  expect(labels).not.toContain('Agent Four usage')
-  expect(menu.querySelectorAll('[data-menu-note]')).toHaveLength(1)
+  const details = openUsage()
+  expect(details.querySelectorAll('[data-usage-details]')).toHaveLength(1)
+  expect(details.textContent).toContain('Other accounts')
+  expect(details.textContent).not.toContain('Agent Two')
+  expect(details.textContent).not.toContain('Agent Three')
+  const other = [...details.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.querySelector('.brand-codex'))!
+  expect(other.getAttribute('aria-expanded')).toBeNull()
+  click(other)
+  expect(onOpenUsage).toHaveBeenCalledWith(CODEX)
 })
 
-it('shows the current seat sign-in once and keeps it out of the no-usage note', () => {
-  const one = runtime(runtimeId('agent-one'), 'Agent One', 'agent-one')
-  const two = runtime(runtimeId('agent-two'), 'Agent Two', 'agent-two')
-  mount({ runtimes: [one, two], activeRuntime: one.id,
-    accountsByRuntime: { [one.id]: signedOut, [two.id]: signedIn('Account Two') } })
+it('keeps scoped sign-in in the account picker without listing every signed-out runtime', () => {
+  const one = runtime('agent-one', 'Agent One', 'codex')
+  const two = runtime('agent-two', 'Agent Two', 'codex')
+  const { onSignIn } = mount({ runtimes: [one, two], activeRuntime: one.id,
+    accountsByRuntime: { [one.id]: signedOut, [two.id]: signedOut } })
   click(row())
-  const menu = document.querySelector('[role="menu"]')!
-  const labels = [...menu.querySelectorAll<HTMLElement>('[data-menu-label]')].map(node => node.textContent?.trim())
-  expect(labels.filter(label => label === 'Sign in to Agent One')).toHaveLength(1)
-  expect(labels).not.toContain('Agent One usage')
-  expect([...menu.querySelectorAll<HTMLElement>('[data-menu-note]')].map(note => note.textContent?.trim()))
-    .toContain('No usage reported: Agent Two')
+  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Sign in to')
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  const signIn = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Sign in to Agent One')!
+  expect(signIn).toBeDefined()
+  expect(document.body.textContent).not.toContain('Sign in to Agent Two')
+  click(signIn)
+  expect(onSignIn).toHaveBeenCalledWith(one.id)
 })
 
 it.each([
-  ['with room', 40, 'neutral'],
+  ['with room', 40, null],
   ['running low', 88, 'warning'],
-  ['spent', 100, 'warning'],
-] as const)('folds Usage remaining under a mark in the figure\'s trouble — %s', (_state, usedPercent, tone) => {
-  // A fold has one trouble tone: a spent window's red figure folds under the
-  // warning mark, a low one's amber figure too, and room is neutral.
-  mount({ usage: [usageReport(CLAUDE, [lane({ id: 'weekly', label: 'Weekly', usedPercent })])] })
+  ['spent', 100, 'danger'],
+] as const)('keeps the compact Usage figure honest when %s', (_state, usedPercent, tone) => {
+  mount({ usage: [usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent })])] })
   click(row())
-  const usage = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
-    item.textContent?.includes('Usage remaining'),
-  )
-  expect(usage?.querySelector('[data-slot="disclosure-chevron"]')?.getAttribute('data-tone')).toBe(tone)
+  const figure = usageTrigger().querySelector('[data-menu-trailing] [data-slot="text"]')
+  expect(figure?.getAttribute('data-tone') ?? null).toBe(tone)
+  expect(usageTrigger().textContent).toContain(usedPercent === 100 ? 'out' : `${100 - usedPercent}% left`)
 })
 
-it('resets expanded account and usage state when the trigger closes and reopens the menu', () => {
-  const report = usageReport(CLAUDE, [
-    lane({ id: 'session', label: 'Session', usedPercent: 52, windowMinutes: 300 }),
-    lane({ id: 'weekly', label: 'Weekly', usedPercent: 63 }),
-  ])
-  mount({ usage: [report] })
+it('resets both flyouts when the footer closes and reopens', () => {
+  mount({ usage: [quotaWarning()] })
   click(row())
-
-  const current = document.querySelector('[data-current]')
-  if (!current) throw new Error('no current account')
-  click(current)
-  const usage = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
-    item.textContent?.includes('Usage remaining'),
-  )
-  if (!usage) throw new Error('no Usage remaining row')
-  click(usage)
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  expect(seatNamed('shane@example.com')).toBeDefined()
+  openUsage()
   expect(document.querySelector('[data-usage-details]')).not.toBeNull()
-
   click(row())
   expect(document.querySelector('[role="menu"]')).toBeNull()
-
   click(row())
-  const reopened = document.querySelector('[role="menu"]')
-  // The picker is folded again: the current seat says so, and no other seat is drawn.
-  expect(reopened?.querySelector('[data-current]')?.getAttribute('aria-expanded')).toBe('false')
+  expect(document.querySelector('[role="menuitem"][data-current]')?.getAttribute('aria-expanded')).toBe('false')
+  expect(usageTrigger().getAttribute('aria-expanded')).toBe('false')
+  expect(document.querySelector('[data-usage-details]')).toBeNull()
   expect(seatNamed('shane@example.com')).toBeUndefined()
-  const reopenedUsage = [...(reopened?.querySelectorAll('[role="menuitem"]') ?? [])].find((item) =>
-    item.textContent?.includes('Usage remaining'),
-  )
-  expect(reopenedUsage?.getAttribute('aria-expanded')).toBe('false')
-  expect(reopened?.querySelector('[data-usage-details]')).toBeNull()
 })
 
 it.each([
-  ['Settings', 'settings'],
   ['Add an account…', 'signIn'],
-] as const)('resets expanded state when %s closes the menu', (_label, callback) => {
-  const { onOpenSettings, onSignIn } = mount({
-    usage: [
-      usageReport(CLAUDE, [
-        lane({ id: 'session', label: 'Session', usedPercent: 52, windowMinutes: 300 }),
-        lane({ id: 'weekly', label: 'Weekly', usedPercent: 63 }),
-      ]),
-    ],
-  })
-
-  const expand = () => {
-    click(row())
-    const current = document.querySelector('[data-current]')
-    if (!current) throw new Error('no current account')
-    click(current)
-    const usage = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
-      item.textContent?.includes('Usage remaining'),
-    )
-    if (!usage) throw new Error('no Usage remaining row')
-    click(usage)
-    expect(document.querySelector('[data-usage-details]')).not.toBeNull()
-  }
-
-  const reopenCollapsed = () => {
-    click(row())
-    const reopened = document.querySelector('[role="menu"]')
-    expect(reopened?.querySelector('[data-current]')?.getAttribute('aria-expanded')).toBe('false')
-    expect(seatNamed('shane@example.com')).toBeUndefined()
-    const usage = [...(reopened?.querySelectorAll('[role="menuitem"]') ?? [])].find((item) =>
-      item.textContent?.includes('Usage remaining'),
-    )
-    expect(usage?.getAttribute('aria-expanded')).toBe('false')
-    expect(reopened?.querySelector('[data-usage-details]')).toBeNull()
-  }
-
-  expand()
-  const item = [...document.querySelectorAll('[role="menuitem"]')].find((candidate) =>
-    candidate.textContent?.includes(_label),
-  )
-  if (!item) throw new Error(`no ${_label} row`)
+  ['Manage runtimes', 'settings'],
+] as const)('closes the account menu when %s opens its destination', (label, callback) => {
+  const { onOpenSettings, onSignIn } = mount()
+  click(row())
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  const item = [...document.querySelectorAll('[role="menuitem"]')].find(one => one.textContent === label)!
   click(item)
   expect(document.querySelector('[role="menu"]')).toBeNull()
-  if (callback === 'settings') expect(onOpenSettings).toHaveBeenCalled()
-  if (callback === 'signIn') expect(onSignIn).toHaveBeenCalled()
-  reopenCollapsed()
+  if (callback === 'settings') expect(onOpenSettings).toHaveBeenCalledWith('runtimes')
+  else expect(onSignIn).toHaveBeenCalledWith()
 })
 
 it('closes when something takes the screen, and a sign-out it was asking about is not waiting when it opens again', () => {
@@ -567,44 +495,34 @@ it('keeps the footer free of a hover card while its menu opens and closes', () =
   expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
 })
 
-it('keeps usage facts and scoped Usage in the account menu', () => {
+it('keeps usage facts and the current account dashboard action in the Usage flyout', () => {
   const { onOpenUsage } = mount({ usage: [quotaWarning()] })
   click(row())
-  const usage = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent?.includes('Usage remaining'))!
-  expect(usage).toBeDefined()
-  click(usage)
-  expect(document.querySelector('[data-usage-details]')).not.toBeNull()
-  const openUsage = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent?.includes('Open usage'))!
-  expect(openUsage).toBeDefined()
-  click(openUsage)
+  const details = openUsage()
+  click([...details.querySelectorAll('[role="menuitem"]')].find(item => item.textContent === 'Open usage')!)
   expect(onOpenUsage).toHaveBeenCalledWith(CLAUDE)
 })
 
-it('account More folds agents without usage into one note and exposes no empty usage action', () => {
+it('shows one honest empty-usage note without listing unreported agents', () => {
   const { onOpenUsage } = mount()
   click(row())
-  const current = document.querySelector('[role="menuitem"][data-current]')!
-  click(current)
-  const menu = document.querySelector('[role="menu"]')!
-  const labels = [...menu.querySelectorAll<HTMLElement>('[data-menu-label]')].map(label => label.textContent?.trim())
-  expect(labels.some(label => label?.toLowerCase().includes('usage'))).toBe(false)
-  expect([...menu.querySelectorAll('[data-menu-note]')].some(note => note.textContent?.includes('No usage reported'))).toBe(true)
-  expect(document.querySelector('[role="menu"] [data-slot="hover-card-trigger"]')).toBeNull()
-  expect(onOpenUsage).not.toHaveBeenCalled()
-  expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('No usage reported')
+  const details = openUsage()
+  expect(details.querySelectorAll('[data-menu-note]')).toHaveLength(1)
+  expect(details.textContent).toContain('No usage reported for this account.')
+  expect(details.textContent).not.toContain('OpenAI Codex')
+  click([...details.querySelectorAll('[role="menuitem"]')].find(item => item.textContent === 'Open usage')!)
+  expect(onOpenUsage).toHaveBeenCalledWith(CLAUDE)
 })
 
-it('separates usage facts from the closing Settings and sign-out actions', () => {
+it('keeps Settings and sign-out outside account and usage details', () => {
   mount()
   click(row())
-  click(document.querySelector('[role="menuitem"][data-current]')!)
   const menu = document.querySelector('[role="menu"]')!
-  const note = [...menu.querySelectorAll<HTMLElement>('[data-menu-note]')]
-    .find(one => one.textContent?.includes('No usage reported'))!
-  expect(note.previousElementSibling?.matches('[data-menu-separator]')).toBe(true)
-  const after = note.nextElementSibling
-  expect(after?.matches('[data-menu-separator]')).toBe(true)
-  expect(after?.nextElementSibling?.querySelector('[data-menu-label]')?.textContent?.trim()).toBe('Settings')
+  const rows = [...menu.querySelectorAll('[role="menuitem"]')]
+  expect(rows.at(-2)?.textContent).toContain('Settings')
+  expect(rows.at(-1)?.textContent).toContain('Sign out of')
+  expect(rows.at(-2)?.previousElementSibling?.matches('[data-menu-separator]')).toBe(true)
 })
 it('shows your chosen name and face without the default agent mark', () => {
   mount({ profile: { name: 'Jane', avatar: 'wizard' } })
@@ -674,7 +592,7 @@ it('gives every seat one line, and keeps the identity for the tooltip', () => {
   const current = document.querySelector('[role="menuitem"][data-current]')
   if (!current) throw new Error('no current seat')
   click(current)
-  const seats = [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name])')]
+  const seats = [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name]):not([data-slot="dropdown-menu-sub-trigger"])')]
   expect(seats.map((seat) => seat.textContent?.trim())).toEqual(['shane', 'Shane-Claude'])
   expect(seats.map(identityOf)).toEqual(['shane@example.com', 'olivia@acme.dev'])
   // On the name, not the row: the row's tooltip would sit over the mark's card.
@@ -696,8 +614,9 @@ it('leaves an agent waiting for a sign-in to Add an account…, unless it is the
   // The picker is open — the other signed-in agent is there — and Gemini is not.
   expect(seatNamed('shane@example.com')).toBeDefined()
   expect(seatNamed('Gemini CLI')).toBeUndefined()
-  expect(menu?.textContent).toContain('Sign in to Gemini CLI')
-  expect(menu?.textContent).toContain('Add an account…')
+  expect(menu?.textContent).not.toContain('Sign in to Gemini CLI')
+  expect(document.body.textContent).toContain('Manage runtimes')
+  expect(document.body.textContent).toContain('Add an account…')
 
   // The default is the chair you are in, and it says what is wrong with it.
   act(() => root.unmount())
@@ -709,11 +628,11 @@ it('leaves an agent waiting for a sign-in to Add an account…, unless it is the
   expect(chair?.textContent).toContain('Needs sign-in')
 })
 
-it('draws no usage row where nothing is metered', () => {
+it('keeps Usage available without inventing a figure where nothing is metered', () => {
   mount()
   click(row())
   const rows = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent ?? '')
-  expect(rows.some((text) => text.includes('Usage remaining'))).toBe(false)
+  expect(usageTrigger().querySelector('[data-menu-trailing] [data-slot="text"]')).toBeNull()
   expect(rows.some((text) => text.includes('Settings'))).toBe(true)
   // Dashboard is the sidebar nav's, not a second door in this menu.
   expect(rows.some((text) => text.includes('Dashboard'))).toBe(false)
@@ -728,7 +647,7 @@ it('names the agent only where two chairs share a name', () => {
   const current = document.querySelector('[role="menuitem"][data-current]')
   if (!current) throw new Error('no current seat')
   click(current)
-  const seats = [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name])')]
+  const seats = [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name]):not([data-slot="dropdown-menu-sub-trigger"])')]
   expect(seats.map((seat) => seat.textContent?.trim())).toEqual(['janeCodex', 'janeClaude'])
 })
 
@@ -739,7 +658,7 @@ it('marks the default by its filled row, not a tick, so every figure ends at the
   if (!current) throw new Error('no current seat')
   expect(current.getAttribute('aria-current')).toBe('true')
   click(current)
-  for (const seat of document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name])')) {
+  for (const seat of document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name]):not([data-slot="dropdown-menu-sub-trigger"])')) {
     expect(seat.querySelector('.lucide-check')).toBeNull()
   }
 })
@@ -759,7 +678,7 @@ it('tells two addresses with one local part on one agent apart by their domains'
   const current = document.querySelector('[role="menuitem"][data-current]')
   if (!current) throw new Error('no current seat')
   click(current)
-  const seats = [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name])')]
+  const seats = [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name]):not([data-slot="dropdown-menu-sub-trigger"])')]
   // One heading for the agent, its two accounts under it, told apart by domain.
   const group = groupNamed('OpenAI Codex')
   expect(group).not.toBeNull()
@@ -802,8 +721,8 @@ it.each([true, false])('shows unavailable readiness ahead of cached usage when c
   const seat = seatNamed('jane@example.com')
   expect(seat?.querySelector('[data-menu-trailing]')?.textContent).toContain('Unavailable')
   expect(seat?.querySelector('[data-menu-trailing]')?.textContent).not.toContain('60%')
-  // The reading remains available in the existing usage fold.
-  expect(document.body.textContent).toContain('60%')
+  // The cached reading remains available in Usage, not on the unavailable seat.
+  expect(openUsage().textContent).toContain('60%')
 })
 
 it('shows sign-in readiness ahead of cached usage for the default agent', () => {
@@ -823,7 +742,7 @@ it('keeps an agent that has not answered yet, without calling it signed out', ()
   const current = document.querySelector('[role="menuitem"][data-current]')
   if (!current) throw new Error('no current seat')
   click(current)
-  const codexSeat = [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name])')].find((item) =>
+  const codexSeat = [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name]):not([data-slot="dropdown-menu-sub-trigger"])')].find((item) =>
     item.textContent?.includes('OpenAI Codex'),
   )
   expect(codexSeat).toBeDefined()
@@ -835,7 +754,7 @@ const openPicker = (): Element[] => {
   const current = document.querySelector('[role="menuitem"][data-current]')
   if (!current) throw new Error('no current seat')
   click(current)
-  return [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name])')]
+  return [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name]):not([data-slot="dropdown-menu-sub-trigger"])')]
 }
 
 it('keeps a mixed group apart: the agent with two accounts under its heading, the other on its own line', () => {
@@ -942,46 +861,36 @@ const twoCodex = () => {
   }
 }
 
-it('keeps the default’s row — and the keyboard on it — when the picker opens and folds under a heading', () => {
+it('keeps the parent account trigger stable while its grouped picker opens', () => {
   mount(twoCodex().snapshot)
   click(row())
-  // Folded, the default is one row wearing its own mark — no heading yet.
-  expect(groupNamed('OpenAI Codex')).toBeUndefined()
-  const current = document.querySelector<HTMLElement>('[role="menuitem"][data-current]')
-  if (!current) throw new Error('no current seat')
+  const current = document.querySelector<HTMLElement>('[role="menuitem"][data-current]')!
   expect(current.querySelector('.brand-codex')).not.toBeNull()
   act(() => current.focus())
   click(current)
   expect(current.isConnected).toBe(true)
-  expect(document.activeElement).toBe(current)
-  // Open: the heading appears, the row steps under it and wears its colour instead of the mark.
-  expect(groupNamed('OpenAI Codex')?.querySelectorAll('[role="menuitem"]').length).toBe(2)
-  expect(current.querySelector('.brand-codex')).toBeNull()
-  expect(current.querySelector('[data-tint]')).not.toBeNull()
-  click(current)
-  expect(current.isConnected).toBe(true)
-  expect(document.activeElement).toBe(current)
+  expect(current.getAttribute('aria-expanded')).toBe('true')
+  expect(groupNamed('OpenAI Codex')?.querySelectorAll('[role="menuitem"]')).toHaveLength(2)
   expect(current.querySelector('.brand-codex')).not.toBeNull()
 })
 
-it('arrows into a group, across it and out of it', () => {
+it('arrows into the account submenu and Escape returns to its parent', async () => {
   mount(twoCodex().snapshot)
   click(row())
-  const current = document.querySelector<HTMLElement>('[role="menuitem"][data-current]')
-  if (!current) throw new Error('no current seat')
+  const current = document.querySelector<HTMLElement>('[role="menuitem"][data-current]')!
   act(() => current.focus())
-  click(current)
-  const press = (key: string) =>
-    act(() => {
-      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
-    })
-  press('ArrowDown')
+  const press = async (key: string) => act(async () => {
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+  })
+  await press('ArrowRight')
+  expect(document.activeElement?.textContent).toContain('example.com')
+  await press('ArrowDown')
   expect(document.activeElement?.textContent).toContain('acme.dev')
-  press('ArrowDown')
+  await press('ArrowDown')
   expect(document.activeElement?.textContent).toContain('olivia')
-  press('ArrowUp')
-  press('ArrowUp')
+  await press('Escape')
   expect(document.activeElement).toBe(current)
+  expect(current.getAttribute('aria-expanded')).toBe('false')
 })
 
 it('calls an account-less row under a heading what it is, not the heading or the readiness word again', () => {
@@ -1017,7 +926,8 @@ it('keeps a signed-out default listed under its heading when the picker is open,
   // Listed, though its signed-out sibling is not: it is the chair you are in.
   expect(rows.map((one) => one.textContent?.trim())).toEqual(['jane', 'No accountNeeds sign-in'])
   const current = rows.find((one) => one.hasAttribute('data-current'))
-  expect(current).toBe(folded)
+  expect(current).not.toBe(folded)
+  expect(folded.getAttribute('aria-expanded')).toBe('true')
   // Under the heading: no mark of its own, and an untinted dot — no account, no colour.
   expect(current?.querySelector('.brand-codex')).toBeNull()
   expect(current?.querySelector('[data-tint]')).toBeNull()
@@ -1109,4 +1019,99 @@ it('Sign out closes the menu, and a failed confirmation stays retryable', async 
   const keep = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(node => node.textContent?.trim() === 'Keep signed in')!
   click(keep)
   expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+})
+
+
+it('keeps the root menu to five actions even with a large account roster', () => {
+  const others = Array.from({ length: 18 }, (_, index) => runtime(`agent-${index}`, `Agent ${index}`, 'codex'))
+  mount({ runtimes: [claude, ...others], accountsByRuntime: Object.fromEntries([
+    [CLAUDE, signedIn('dev@example.com')], ...others.map(info => [info.id, signedIn(`account-${info.id}@example.com`)]),
+  ]) })
+  click(row())
+  const menu = document.querySelector('[role="menu"]')!
+  expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(5)
+  expect(menu.textContent).not.toContain('Agent 17')
+  expect(menu.textContent).not.toContain('No usage reported')
+  const account = menu.querySelector('[role="menuitem"][data-current]')!
+  click(account)
+  expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(5)
+  expect(account.getAttribute('aria-expanded')).toBe('true')
+  openUsage()
+  expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(5)
+  expect(account.getAttribute('aria-expanded')).toBe('false')
+  expect(usageTrigger().getAttribute('aria-expanded')).toBe('true')
+})
+
+
+it.each(['ready', 'crashed'] as const)('delegates a %s current account selection so the store can recover a crash', state => {
+  const { selectRuntime } = mount({ healthByRuntime: { [CLAUDE]: state === 'ready' ? { state: 'ready' }
+    : { state: 'unavailable', reason: 'crashed', message: 'The agent exited.' } } })
+  click(row())
+  const parent = document.querySelector('[role="menuitem"][data-current]')!
+  click(parent)
+  const current = [...document.querySelectorAll('[role="menuitem"][data-current]')].find(item => item !== parent)!
+  click(current)
+  expect(selectRuntime).toHaveBeenCalledExactlyOnceWith(CLAUDE)
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+})
+
+it('keeps distinct reporting accounts recognizable in Usage without repeating full addresses', () => {
+  const second = slotOf(codex, 'codex-2')
+  mount({ runtimes: [claude, codex, second], activeRuntime: CLAUDE,
+    accountsByRuntime: { [CLAUDE]: signedIn('dev@example.com'), [CODEX]: signedIn('first@example.com'), [second.id]: signedIn('second@example.com') },
+    accountPrefs: {},
+    usage: [
+      { ...usageReport(CODEX, [lane({ id: 'weekly', usedPercent: 20 })]), account: 'first@example.com' },
+      { ...usageReport(second.id, [lane({ id: 'weekly', usedPercent: 40 })]), account: 'second@example.com' },
+    ],
+  })
+  click(row())
+  const details = openUsage()
+  expect(details.textContent).toContain('OpenAI Codex · first')
+  expect(details.textContent).toContain('OpenAI Codex · second')
+  expect(details.textContent).not.toContain('first@example.com')
+  expect(details.textContent).not.toContain('second@example.com')
+})
+
+it('uses the canonical report label to retain another account nickname when it has an email too', () => {
+  const account = { kind: 'oauth' as const, label: 'work', email: 'jane@acme.dev' }
+  mount({ accountsByRuntime: { [CLAUDE]: signedIn('dev@example.com'), [CODEX]: { accounts: [account, { kind: 'oauth', label: 'other' }], signInMethods: [] } },
+    accountPrefs: { [accountKey(CODEX, account)]: { nickname: 'Review account' } },
+    usage: [{ ...usageReport(CODEX, [lane({ id: 'weekly', usedPercent: 20 })]), account: 'work' },
+      { ...usageReport(CODEX, [lane({ id: 'weekly', usedPercent: 30 })]), account: 'other' }] })
+  click(row())
+  expect(openUsage().textContent).toContain('OpenAI Codex · Review account')
+})
+
+
+it('identifies the reporting account when one runtime chooses its second quota report', () => {
+  const first = 'first@example.com', second = 'second@example.com'
+  mount({ activeRuntime: CLAUDE,
+    accountsByRuntime: { [CLAUDE]: { accounts: [{ kind: 'oauth', label: first }, { kind: 'oauth', label: second }], signInMethods: [] } },
+    accountPrefs: {},
+    usage: [
+      { ...usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 100 })]), account: first },
+      { ...usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 40 })]), account: second },
+    ],
+  })
+  click(row())
+  expect(document.querySelector('[role="menuitem"][data-current]')?.textContent).toContain('second')
+  expect(row().title).toContain('second')
+  expect(row().title).not.toContain('first')
+  expect(usageTrigger().textContent).toContain('60% left')
+  const facts = openUsage().querySelector('[data-usage-details]')!
+  const identity = facts.querySelector('[title="second@example.com"]')
+  expect(identity?.textContent).toBe(second)
+  expect(facts.textContent).not.toContain(first)
+})
+
+it('shows the quota once at the root while account choices keep their readings', () => {
+  mount({ usage: [usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 40 })])] })
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')!
+  expect(current.querySelector('[data-menu-trailing]')?.textContent).not.toContain('%')
+  expect(usageTrigger().textContent).toContain('60% left')
+  click(current)
+  const choice = [...document.querySelectorAll('[role="menuitem"][data-current]')].find(one => one !== current)!
+  expect(choice.querySelector('[data-menu-trailing]')?.textContent).toContain('60%')
 })

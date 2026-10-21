@@ -1,4 +1,6 @@
-import { forwardRef, type ComponentProps } from 'react'
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, type ComponentProps } from 'react'
+
+import { registerComposerDock } from './composer-toast-offset'
 
 import { CrossIcon } from '@/components/Icons'
 import styles from './composer.module.css'
@@ -9,6 +11,12 @@ import { cn } from '@/lib/utils'
  * transcript — or, `floating`, the fade and top clearance the one pane whose
  * composer sits over scrolling content (rather than in flow below it) needs
  * above the whole dock, bars strip included.
+ * `floating="bare"` keeps that top clearance without a fade, for cards that
+ * float over content which must remain visible around and between them.
+ *
+ * Each mounted dock reports its visible window clearance to the shared toast
+ * registry, including room and side-by-side composers. The app-level toaster
+ * can then clear docks outside its own subtree; hidden panes reserve nothing.
  *
  * The two are mutually exclusive rather than additive: `floating` wraps the
  * outer dock (`Conversation.tsx`, around its bars strip and its composer
@@ -17,21 +25,25 @@ import { cn } from '@/lib/utils'
  * wrapper the inner's own `px`/`pb` too, or the inner wrapper a second fade,
  * would double an inset the other side already pays.
  */
-const ComposerDock = forwardRef<HTMLDivElement, ComponentProps<'div'> & { floating?: boolean }>(
-  ({ className, floating = false, ...props }, ref) => (
-    <div
-      ref={ref}
+const ComposerDock = forwardRef<HTMLDivElement, ComponentProps<'div'> & { floating?: boolean | 'bare' }>(
+  ({ className, floating = false, ...props }, ref) => {
+    const dock = useRef<HTMLDivElement>(null)
+    useImperativeHandle(ref, () => dock.current!, [])
+    useLayoutEffect(() => registerComposerDock(dock.current!), [])
+    return <div
+      ref={dock}
       data-slot="composer-dock"
       className={cn(
         'shrink-0',
         floating
-          ? 'pt-(--hd-space-4) bg-[linear-gradient(to_bottom,transparent,var(--hd-background,var(--hd-card))_26%)]'
+          ? 'pt-(--hd-space-4)'
           : 'px-[calc(var(--hd-space-6)+var(--hd-scrollbar-width,8px))] pb-(--hd-space-5)',
+        floating === true && 'bg-[linear-gradient(to_bottom,transparent,var(--hd-background,var(--hd-card))_26%)]',
         className,
       )}
       {...props}
     />
-  ),
+  },
 )
 ComposerDock.displayName = 'ComposerDock'
 

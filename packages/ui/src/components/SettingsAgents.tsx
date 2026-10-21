@@ -6,6 +6,7 @@ import { PageExplanation, PageControls, PageOptions, MenuItem, MenuNote, Toolbar
 import { AgentHistory } from './History'
 import { RuntimeResources } from './RuntimeResources'
 import { RuntimeFace } from './RuntimeFace'
+import { AccountNameDialog } from './AccountNameDialog'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type {
@@ -157,7 +158,10 @@ export const agentReadiness = (
   // not answered; every other one is waiting on one.
   const relevant = siblings.filter((entry) => entry.capabilities.account)
   if (relevant.length === 0) return 'ready'
-  return relevant.every((entry) => view.accountsByRuntime[entry.id] !== undefined) ? 'signin' : 'unknown'
+  if (!relevant.every((entry) => view.accountsByRuntime[entry.id] !== undefined)) return 'unknown'
+  // An agent nobody has asked yet has not said it is signed out, and only a
+  // session can ask it — so it reads as `readinessOf` reads it (#1759).
+  return relevant.some((entry) => view.accountsByRuntime[entry.id]?.unchecked) ? 'ready' : 'signin'
 }
 
 /**
@@ -217,7 +221,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
   const view = describeLimits(limits)
   return (
     <>
-      <SectionHead name="Usage" />
+      <SectionHead level="label" name="Usage" />
       {view?.blocked && (
         <Text role="muted" as="p" tone="danger" >
           {view.blocked.title} — {view.blocked.detail}
@@ -472,6 +476,8 @@ const AgentRow = ({
   )
   const waiting = snapshot.logins[info.id]?.outcome.type === 'pending'
   const signIn = state === 'signin' && canSignIn
+  const failure = siblings.map(entry => snapshot.healthByRuntime[entry.id])
+    .find((health): health is Unavailable => health?.state === 'unavailable')
   return (
     <RowButton
       data-slot="agent-row"
@@ -485,7 +491,8 @@ const AgentRow = ({
           {snapshot.activeRuntime === info.id && <Chip tone="neutral" size="sm">Default</Chip>}
         </InlineParts>
       }
-      desc={who ?? (state === 'signin' ? 'Signed out' : undefined)} truncateDesc
+      desc={failure ? <Prose text={splitHealth(failure).lead} /> : who ?? (state === 'signin' ? 'Signed out' : undefined)}
+      truncateDesc={!failure}
       control={state === 'limit' || state === 'broken' ? <Chip state={state} /> : undefined}
       {...(signIn
         ? {
@@ -538,6 +545,7 @@ const AgentAccounts = ({
 
   const store = useStore()
   const snapshot = useSnapshot()
+  const [namingAccount, setNamingAccount] = useState(false)
   const [addingGateway, setAddingGateway] = useState(false)
   const [adding, setAdding] = useState(false)
   // An unanswered extra may be signed in already, and removing it signs it
@@ -582,7 +590,7 @@ const AgentAccounts = ({
    * One that cannot falls back to the old behaviour, which its own tooltip
    * has always described honestly.
    */
-  const addAccount = async (): Promise<void> => {
+  const addAccount = async (name?: string): Promise<void> => {
     const owns=capture()
     if (!info.slot?.canAdd) {
       if (needsField) onSignIn(info.id)
@@ -600,21 +608,22 @@ const AgentAccounts = ({
     if (adding) return
     setAdding(true)
     try {
-      const added = await store.addAccount(info.id)
+      const added = await store.addAccount(info.id, name)
       if (!added) return
+      setNamingAccount(false)
       if (needsField) { if (owns()) onSignIn(added) }
       else await store.signInAgent(added)
     } finally {
       setAdding(false)
     }
   }
-  useEffect(() => { if (!destinationActive) { setAddingGateway(false); setAdding(false); setRemoving(null) } }, [destinationActive])
+  useEffect(() => { if (!destinationActive) { setNamingAccount(false); setAddingGateway(false); setAdding(false); setRemoving(null) } }, [destinationActive])
 
   return (
     <>
       {/* The ways to add another stand in the section's head, where a card's
           own actions stand on a page, rather than in a bar under the list. */}
-      <SectionHead
+      <SectionHead level="label"
         name="Accounts"
         action={
           info.slot?.canAdd || (rows.length > 0 && info.capabilities.account && canSignIn) ? (
@@ -625,13 +634,15 @@ const AgentAccounts = ({
                   variant="outline"
                   title={
                     info.slot?.canAdd
-                      ? `${info.presentation.name} keeps one credential per home, so a new account gets a home of its own. Its sessions stay shared with this one.`
+                      ? info.slot.ownSessions
+                        ? `A new ${info.presentation.name} account gets a folder of its own, with its own conversations.`
+                        : `${info.presentation.name} keeps one credential per home, so a new account gets a home of its own. Its sessions stay shared with this one.`
                       : /* Said out loud rather than discovered: most CLIs keep one
                            credential file, so a second sign-in replaces the first. */
                         `${info.presentation.name} keeps one credential, so signing in again replaces this one.`
                   }
                   disabled={adding}
-                  onClick={() => void addAccount()}
+                  onClick={() => { if (info.slot?.canAdd && info.slot.asksName) setNamingAccount(true); else void addAccount() }}
                 >
                   <PlusIcon size={13} />
                   {adding ? 'Adding…' : 'Add account'}
@@ -639,7 +650,7 @@ const AgentAccounts = ({
               )}
               {/* Offered even with no plan account signed in: paying your own way
                   is a first-class way to run this agent, not a fallback. */}
-              {info.slot?.canAdd && (
+              {info.slot?.gateways && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -779,6 +790,10 @@ const AgentAccounts = ({
           /* Not answered yet (#986): the agent has not said who is signed in,
              so "Signed out" would be a guess. */
           <EmptyState variant="row" title={READINESS_LABEL.unknown} description="Its accounts show once it answers." />
+        ) : rows.length === 0 && gateways.length === 0 && status?.unchecked ? (
+          /* Nobody has asked it yet (#1759): neither "Signed out" nor "No
+             account needed" is known, and its first conversation says which. */
+          <EmptyState variant="row" title="Not checked yet" description="Its first conversation shows whether it is signed in." />
         ) : (
           rows.length === 0 &&
           gateways.length === 0 && (
@@ -837,6 +852,8 @@ const AgentAccounts = ({
         )}
       </Rows>
 
+      {destinationActive && namingAccount && <AccountNameDialog info={info} adding={adding}
+        onAdd={addAccount} onClose={() => setNamingAccount(false)} />}
       {destinationActive && addingGateway && <GatewayDialog info={info} onClose={() => setAddingGateway(false)} />}
       {destinationActive && removing && (
         <ConfirmDialog
@@ -1214,7 +1231,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
           aria-expanded={browsing} />
       </Rows>
       {browsing && <>
-      <SectionHead name="From the ACP registry" />
+      <SectionHead level="label" name="From the ACP registry" />
       <MenuNote>Third-party entries from the ACP registry. HarnessDesk has not reviewed them.</MenuNote>
       {(registry?.agents.length ?? 0) > 8 && (
         <PageControls search={{label:"Search the ACP registry",placeholder:"Search the registry",value:registryQuery,change:setRegistryQuery}}/>
@@ -1254,7 +1271,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
 
       </>}
 
-      <SectionHead name="Something else" />
+      <SectionHead level="label" name="Something else" />
       <Rows>
         <Row
           title="A command of your own"
@@ -1495,12 +1512,12 @@ const OptionRows = ({
       {options.map((option) => {
         const nativeSelect =
           option.type === 'select' &&
-          (option.choices.length > 3 || option.choices.some((choice) => Boolean(choice.disabled)))
+          (Boolean(option.disabled) || option.choices.length > 3 || option.choices.some((choice) => Boolean(choice.disabled)))
         return (
           <Row
             key={option.id}
             title={option.label}
-            desc={option.description ?? option.disabled}
+            desc={[...new Set([option.description, option.disabled].filter(Boolean))].join(' ') || undefined}
             control={
               option.type === 'boolean' ? (
                 <Switch
@@ -1582,7 +1599,7 @@ export const NewSessionDefaults = ({
   const staleListed = only ? stale.filter((one) => only({ id: one.id, label: one.label, category: one.category } as ConfigOption)) : stale
   return (
     <>
-      <SectionHead
+      <SectionHead level="label"
         name={
           mark ? (
             <Text as="span" role="row">
@@ -1707,7 +1724,7 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
           : 'No copy is installed; install one and it is picked up on the next check.'
   return (
     <>
-      <SectionHead name="Install" />
+      <SectionHead level="label" name="Install" />
       <Rows>
         <Row
           title={installSummary(install)}
@@ -1894,7 +1911,7 @@ const AgentDetail = ({
 
       {health?.state === 'unavailable' && (
         <>
-          <SectionHead name="Why it will not start" />
+          <SectionHead level="label" name="Why it will not start" />
           <Rows>
             <HealthBlock health={health} />
           </Rows>
@@ -1915,7 +1932,7 @@ const AgentDetail = ({
 
       {update && (
         <>
-          <SectionHead name="Update" />
+          <SectionHead level="label" name="Update" />
           <Rows>
             <Row
               title={`${info.update?.version} available`}
@@ -1944,14 +1961,14 @@ const AgentDetail = ({
 
       {options.length > 0 && (
         <>
-          <SectionHead name="Settings" />
+          <SectionHead level="label" name="Settings" />
           <OptionRows options={options} onSet={setOption} />
         </>
       )}
 
       {info.origin === 'registry' && (
         <>
-          <SectionHead name="Registration" />
+          <SectionHead level="label" name="Registration" />
           <Rows>
             <Row
               title="Remove from HarnessDesk"
@@ -1992,11 +2009,14 @@ export const RuntimesSection = ({
   onSignIn,
   view, onView,
   onBrowseHistory = () => {},
+  showAddRuntimeAction = true,
 }: {
   onSignIn: (runtime: RuntimeId) => void
   view:RuntimeSettingsView
   onView:(view:RuntimeSettingsView)=>void
   onBrowseHistory?: (id: string) => void
+  /** Settings owns this action beside its page title; standalone sections keep it here. */
+  showAddRuntimeAction?: boolean
 }) => {
   const destinationActive = useDestinationActive()
 
@@ -2087,11 +2107,11 @@ export const RuntimesSection = ({
   return (
     <>
       <DestinationBar place="Runtimes" />
-      <Toolbar>
+      {showAddRuntimeAction && <Toolbar>
         <Button variant="outline" size="sm" onClick={() => setView({ kind: 'add' })}>
           <PlusIcon size={13} />Add a runtime
         </Button>
-      </Toolbar>
+      </Toolbar>}
 <PageExplanation>What your Agents run on: the runtimes HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
 
       {/* Two agents fit on a screen and need no help being found; the filters
@@ -2112,12 +2132,12 @@ export const RuntimesSection = ({
                 : 'Nothing matches that search.'
             }
             control={
-              groups.length === 0 ? (
+              groups.length === 0 ? showAddRuntimeAction ? (
                 <Button size="sm" variant="default" onClick={() => setView({ kind: 'add' })}>
                   <PlusIcon size={13} />
                   Add a runtime
                 </Button>
-              ) : (
+              ) : undefined : (
                 <Button variant="secondary"
                   size="sm"
                   onClick={() => setQuery('')}
@@ -2133,7 +2153,7 @@ export const RuntimesSection = ({
           /* No accessible name of its own: the head names the group, and a
              label beside it was announced twice. */
           <div key={section.name} data-group={section.name}>
-            <SectionHead
+            <SectionHead level="label"
               name={withCount(section.name, section.agents.length)}
             />
             <Rows>

@@ -66,6 +66,8 @@ type IconTileProps = React.ComponentProps<'span'> &
   VariantProps<typeof tileVariants> & {
     /** One identity qualifier at bottom-right. Top-right is reserved for attention. */
     badge?: React.ReactNode
+    /** A plain glyph keeps the geometry without an identity plate. */
+    variant?: 'default' | 'bare'
     /** An identity with nobody assigned: an untinted outline in its chosen shape. */
     empty?: boolean
   } &
@@ -75,9 +77,10 @@ type IconTileProps = React.ComponentProps<'span'> &
     | { color: string; tone?: never; tint?: never }
   )
 
-const IconTile = ({ className, size, shape, tone, tint, color, style, badge, empty = false, children, ...props }: IconTileProps) => (
+const IconTile = ({ className, size, shape, tone, tint, color, style, badge, empty = false, variant = 'default', children, ...props }: IconTileProps) => (
   <span
     data-slot="icon-tile"
+    data-variant={variant}
     {...(empty ? { 'data-empty': '' } : {})}
     {...(color ? { 'data-color': '' } : {})}
     {...(tint ? { 'data-tint': tint } : {})}
@@ -85,7 +88,7 @@ const IconTile = ({ className, size, shape, tone, tint, color, style, badge, emp
     className={cn(
       tileVariants({ size, shape }),
       badge != null && "relative overflow-visible",
-      empty
+      variant === 'bare' ? 'text-(--hd-secondary-foreground)' : empty
         ? 'border border-(--hd-border-strong) bg-transparent text-(--hd-muted-foreground)'
         : color
         ? 'bg-(--tile-color) text-(--hd-accent-foreground)'

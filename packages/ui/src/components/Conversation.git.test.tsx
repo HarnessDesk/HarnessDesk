@@ -125,16 +125,17 @@ const fact = (label: string): string => {
 const expectFolder = (name: string, path: string): void => {
   const value = [...container.querySelectorAll('[data-slot="summary-item"]')]
     .find(one => one.querySelector('dt')?.textContent === 'Folder')
-    ?.querySelector('[data-slot="summary-value"] span[title]')
-  expect(value?.textContent).toBe(name)
-  expect(value?.getAttribute('title')).toBe(path)
+    ?.querySelector('[data-slot="summary-value"] [data-slot="middle-truncate"]')
+  expect(value?.querySelector('.sr-only')?.textContent).toBe(path)
+  expect(value?.querySelector('[data-part="tail"]')?.textContent).toBe(`/${name}`)
 }
 
 it('names an armed draft in Details as a branch off its source folder', () => {
   rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) })
   expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
   expectFolder('storefront', ROOT)
-  expect(container.querySelector('[data-slot="summary-note"]')?.textContent).toContain('Source folder; the worktree is made when the message goes')
+  act(() => [...container.querySelectorAll('button')].find(one => one.textContent?.includes('Details'))!.click())
+  expect(container.textContent).toContain('Source folder; the worktree is made when the message goes')
   expect(chip()?.getAttribute('aria-label')).toBe('Folder actions')
 })
 
@@ -197,7 +198,8 @@ it('names the worktree a draft is armed to cut, not the folder it will be cut fr
   // The composer says New worktree; the header above it must not say Local.
   rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) })
 
-  expect(container.querySelector('[data-slot="summary-note"]')?.textContent).toContain('Source folder; the worktree is made when the message goes')
+  act(() => [...container.querySelectorAll('button')].find(one => one.textContent?.includes('Details'))!.click())
+  expect(container.textContent).toContain('Source folder; the worktree is made when the message goes')
   expectFolder('storefront', ROOT)
   expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
 })
@@ -402,4 +404,39 @@ it('standalone Folder actions retains its Create dialog after its popup unmounts
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent === 'Create and checkout new branch…')!.click())
   expect(document.querySelector('[role="menu"]')).toBeNull()
   expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+})
+
+it('keeps file changes but omits repository actions for a non-repository conversation', () => {
+  const cwd = '/work/notes'
+  rig({ activeSessionKey: KEY, sessions: new Map([[KEY, { ...conversation(cwd), git: null, repo: null }]]),
+    workspace: { path: cwd, name: 'notes', lastOpenedAt: 1, git: null, repo: null },
+    runtimes: [{ id: runtimeId('fake'), presentation: { name: 'Demo runtime' }, capabilities: { ...NO_CAPABILITIES, review: true } }] as RuntimeInfo[] })
+  const rows = menu()
+  expect(rows).toContain('Changes')
+  expect(rows).not.toContain('History')
+  expect(rows).not.toContain('Not a git branch')
+  expect(rows).not.toContain('Commit the changes')
+  expect(rows).not.toContain('Review uncommitted changes')
+})
+
+it('keeps repository actions for a conversation outside the open workspace whose runtime reports no git', () => {
+  // A Team member's clone, or a runtime that records no git: this window has no read saying it is not a repository.
+  const cwd = '/work/teams/retry-checkout'
+  rig({ activeSessionKey: KEY, sessions: new Map([[KEY, { ...conversation(cwd), git: null }]]),
+    workspace: { path: '/work/notes', name: 'notes', lastOpenedAt: 1, git: null, repo: null },
+    runtimes: [{ id: runtimeId('fake'), presentation: { name: 'Demo runtime' }, capabilities: { ...NO_CAPABILITIES, review: true } }] as RuntimeInfo[] })
+  const rows = menu()
+  expect(rows).toContain('Commit the changes')
+  expect(rows).toContain('Review uncommitted changes')
+})
+
+it('omits repository actions for a managed chat outside the open workspace', () => {
+  const cwd = '/work/chats/2026-10-16-a1b2'
+  rig({ activeSessionKey: KEY, sessions: new Map([[KEY, { ...conversation(cwd), git: null }]]), chatsFolderRoots: [cwd],
+    workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1, git: { branch: 'main' }, repo: { root: '/work/storefront', worktree: false } },
+    runtimes: [{ id: runtimeId('fake'), presentation: { name: 'Demo runtime' }, capabilities: { ...NO_CAPABILITIES, review: true } }] as RuntimeInfo[] })
+  const rows = menu()
+  expect(rows).toContain('Changes')
+  expect(rows).not.toContain('Commit the changes')
+  expect(rows).not.toContain('Review uncommitted changes')
 })

@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useLayoutEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -63,14 +63,16 @@ const calls = {
   notice: vi.fn(),
 }
 
-const mount = (tasks: readonly BackgroundTask[], { capable = true, open = true, card = false } = {}): void => {
+const PaintProbe = ({ inspect }: { inspect: () => void }) => { useLayoutEffect(inspect); return null }
+
+const mount = (tasks: readonly BackgroundTask[], { capable = true, open = true, card = false, key = KEY, inspect = () => {} } = {}): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     runtimes: [runtime(capable)],
     activeRuntime: 'alpha' as RuntimeId,
-    sessions: open ? new Map([[KEY, session()]]) : new Map(),
-    activeSessionKey: open ? KEY : null,
-    tasks: tasks.length > 0 ? new Map([[KEY, tasks]]) : new Map(),
+    sessions: open ? new Map([[key, session()]]) : new Map(),
+    activeSessionKey: open ? key : null,
+    tasks: tasks.length > 0 ? new Map([[key, tasks]]) : new Map(),
   }
   const store = {
     subscribe: () => () => {},
@@ -81,6 +83,7 @@ const mount = (tasks: readonly BackgroundTask[], { capable = true, open = true, 
     root.render(
       <StoreProvider store={store}>
         <BackgroundTasksView card={card} />
+        <PaintProbe inspect={inspect} />
       </StoreProvider>,
     )
   })
@@ -161,7 +164,7 @@ describe('BackgroundTasksView', () => {
       running('t1', 'Watch the tests', { command: 'pnpm test --watch' }),
       running('t2', 'Serve the site', { command: 'pnpm dev' }),
     ])
-    const names = [...container.querySelectorAll('[data-slot="code-block-command"] button')].map((one) =>
+    const names = [...container.querySelectorAll('[data-slot="code-block"] button')].map((one) =>
       one.getAttribute('aria-label'),
     )
     expect(names).toEqual(['Copy the command for Watch the tests', 'Copy the command for Serve the site'])
@@ -266,4 +269,69 @@ describe('BackgroundTasksView', () => {
 it('keeps a finished task name at the compact name weight', () => {
   mount([done('t1', 'Check the row types')])
   expect(container.querySelector('[data-slot="inspector-row"] [data-role="navigation"]')).toBeNull()
+})
+
+
+it('omits an unsupported optional card before paint, including after a conversation switch', async () => {
+  const frames: string[] = []
+  const inspect = () => { frames.push(container.textContent ?? '') }
+  mount([], { capable: false, card: true, inspect })
+  expect(frames).toEqual([''])
+  expect(calls.refreshTasks).not.toHaveBeenCalled()
+  calls.refreshTasks.mockImplementation(() => new Promise(() => {}))
+  mount([], { card: true })
+  expect(container.textContent).toContain('Reading background tasks')
+  mount([], { capable: false, card: true, key: sessionKey('alpha', 'unsupported'), inspect })
+  expect(frames).toEqual(['', ''])
+})
+
+it('hides only successfully empty optional cards while the standalone empty doorway stays', async () => {
+  calls.refreshTasks.mockResolvedValue('loaded')
+  mount([], { card: true })
+  await act(async () => {})
+  expect(container.querySelector('[aria-label="Background tasks"]')).toBeNull()
+  mount([])
+  expect(container.textContent).toContain('Nothing in the background')
+})
+it('keeps optional loading and failed reads visible, with a retry instead of a false empty state', async () => {
+  let finish!: (value: string) => void
+  calls.refreshTasks.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  mount([], { card: true })
+  expect(container.textContent).toContain('Reading background tasks')
+  await act(async () => finish('failed'))
+  expect(container.textContent).toContain('Background tasks could not be read')
+  expect(container.textContent).not.toContain('Nothing in the background')
+  calls.refreshTasks.mockResolvedValue('loaded')
+  await act(async () => button('Try again').click())
+  expect(container.querySelector('[aria-label="Background tasks"]')).toBeNull()
+})
+it('ignores an empty read from the prior conversation and keeps the current failed read visible', async () => {
+  let finishFirst!: (value: string) => void
+  calls.refreshTasks.mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve })).mockResolvedValueOnce('failed')
+  mount([], { card: true })
+  mount([], { card: true, key: sessionKey('alpha', 's2') })
+  await act(async () => {})
+  expect(container.textContent).toContain('Background tasks could not be read')
+  await act(async () => finishFirst('loaded'))
+  expect(container.textContent).toContain('Background tasks could not be read')
+})
+it('retains real task data on a failed optional refresh', async () => {
+  calls.refreshTasks.mockResolvedValue('failed')
+  mount([running('retained', 'Keep this watcher')], { card: true })
+  await act(async () => {})
+  expect(container.textContent).toContain('Keep this watcher')
+  expect(button('Stop Keep this watcher')).toBeTruthy()
+})
+
+
+it('keeps failed task records open and names the failure in the collapsed summary', async () => {
+  mount([done('broken', 'Failed build', { state: 'failed' })], { card: true })
+  await act(async () => {})
+  const section = container.querySelector('[data-slot="tool-section"]')!
+  const toggle = section.querySelector<HTMLButtonElement>('[data-slot="tool-section-fold"]')!
+  expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  expect(section.querySelector('[data-slot="tool-section-value"]')?.textContent).toBe('1 failed')
+  click(toggle)
+  expect(section.querySelector('[data-slot="tool-section-value"]')?.textContent).toBe('1 failed')
+  expect(button('Clear')).toBeTruthy()
 })

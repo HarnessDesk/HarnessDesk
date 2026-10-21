@@ -43,6 +43,17 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
       await expect(body.getByRole('button', { name: 'Back to Agents', exact: true })).toBeVisible()
       await expect(body.getByRole('button', { name: /^Start a conversation as / })).toBeVisible()
       await expect(bar.getByRole('button', { name: /^Start a conversation as / })).toHaveCount(0)
+    } else {
+      const purposes = page.locator('[data-page-destination="agents"] [data-slot="agent-card-description"]')
+      await expect(purposes).toHaveCount(5)
+      for (const purpose of await purposes.all()) {
+        expect(await purpose.evaluate(node => {
+          const box = node.getBoundingClientRect()
+          const range = document.createRange(); range.selectNodeContents(node)
+          const text = range.getBoundingClientRect()
+          return node.scrollHeight <= node.clientHeight && text.bottom <= box.bottom && text.right <= box.right
+        }), 'the complete purpose fits its card without clipping the sentence').toBe(true)
+      }
     }
   })
 }
@@ -52,7 +63,10 @@ for (const state of ['parse', 'refused', 'missing']) test(`E4 Agents ${state} ke
   const main = page.locator('[data-page-destination="agents"]:visible')
   if (state === 'parse') await expect(main).toContainText('Why it will not parse')
   if (state === 'refused') await expect(main).toContainText('signed out')
-  if (state === 'missing') await expect(main).toContainText('Who does the work')
+  if (state === 'missing') {
+    await expect(main.getByRole('heading', { name: 'Agents', exact: true, level: 1 })).toBeVisible()
+    await expect(main).toContainText('Reusable roles for your Teams.')
+  }
 })
 for (const width of [1440, 720]) test(`E4 Agents column opens draft session and Settings ${width}`, async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light', width)
@@ -66,7 +80,7 @@ for (const width of [1440, 720]) test(`E4 Agents column opens draft session and 
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
   await reveal()
-  await (await revealPreviewConversation(column, 'Worktree Management')).click()
+  await (await revealPreviewConversation(column, 'Add fixtures for the refund path before extending the checkout matrix')).click()
   await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
@@ -89,8 +103,14 @@ for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roste
 
 test('R10 Agents source notes keep middle-truncated paths content-sized', async ({ page }) => {
   await openFrame(page, 'frame-wall=agents&frame-agent-path=long', 'light', 1440)
-  const project = page.locator('[data-page-destination="agents"] section[aria-label="In storefront"] [data-slot="middle-truncate"]')
-  const userNote = page.locator('[data-page-destination="agents"] section[aria-label="Yours"] [data-slot="note"]')
+  const main = page.locator('[data-page-destination="agents"]:visible')
+  const sources = main.getByRole('button', { name: 'Sources and precedence', exact: true })
+  await expect(sources).toHaveAttribute('aria-expanded', 'false')
+  await expect(main.locator('section[aria-label^="Sources:"]')).toHaveCount(0)
+  await sources.click()
+  await expect(sources).toHaveAttribute('aria-expanded', 'true')
+  const project = main.locator('section[aria-label="Sources: Project"] [data-slot="middle-truncate"]')
+  const userNote = main.locator('section[aria-label="Sources: Yours"] [data-slot="note"]')
   const userPath = userNote.locator('[data-slot="middle-truncate"]')
   await userNote.scrollIntoViewIfNeeded()
   await expect(project).toBeVisible()
@@ -141,13 +161,23 @@ test('R10 Release checker automatic trigger names its action and keeps dialog rh
   expect(gap).toBeGreaterThanOrEqual(await resolvedPx(page, '--hd-space-6') - 1)
 })
 
-test('R10 built-in shadow status uses the Agent row chip column', async ({ page }) => {
+test('R10 built-in shadow status uses the source row reserved chip column', async ({ page }) => {
   await openFrame(page, 'frame-wall=agents', 'light', 1440)
-  const builtin = page.locator('[data-page-destination="agents"]:visible section[aria-label="Built in"]')
-  const shadow = builtin.locator('[data-slot="row"]').filter({ hasText: 'Shadowed by the one in storefront' })
+  const main = page.locator('[data-page-destination="agents"]:visible')
+  const sources = main.getByRole('button', { name: 'Sources and precedence', exact: true })
+  await expect(sources).toHaveAttribute('aria-expanded', 'false')
+  await sources.click()
+  const builtin = main.locator('section[aria-label="Sources: Built in"]')
+  const shadow = builtin.locator('[data-slot="row"]').filter({ hasText: 'Shadowed by the project copy. This copy is not used.' })
   const chip = shadow.locator('[data-slot="row-ctl"] [data-slot="chip"]')
-  const reference = builtin.locator('button[data-kind="record"]').filter({ hasText: 'Implementer' }).locator('[data-slot="chip"]')
   await expect(chip).toHaveText('Shadowed')
-  const chipBox = (await chip.boundingBox())!, referenceBox = (await reference.boundingBox())!
-  expect(Math.abs(chipBox.x + chipBox.width - referenceBox.x - referenceBox.width)).toBeLessThanOrEqual(1)
+  await shadow.scrollIntoViewIfNeeded()
+  const chipBox = (await chip.boundingBox())!, controlBox = (await shadow.locator('[data-slot="row-ctl"]').boundingBox())!
+  const endBox = (await shadow.locator('[data-slot="row-end"]').boundingBox())!, chevronBox = (await shadow.locator('[data-slot="row-chevron-space"]').boundingBox())!
+  expect(Math.abs(chipBox.x + chipBox.width - controlBox.x - controlBox.width)).toBeLessThanOrEqual(1)
+  expect(Math.abs(endBox.x + endBox.width - chevronBox.x - chevronBox.width)).toBeLessThanOrEqual(1)
+  expect(Math.abs(chevronBox.x - controlBox.x - controlBox.width - await resolvedPx(page, '--hd-space-6'))).toBeLessThanOrEqual(1)
+  await sources.click()
+  await expect(sources).toHaveAttribute('aria-expanded', 'false')
+  await expect(main.locator('section[aria-label^="Sources:"]')).toHaveCount(0)
 })

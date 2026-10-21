@@ -89,7 +89,7 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
         )}
       </Field>
       <section aria-label="The most it may do">
-        <SectionHead name="The most it may do" />
+        <SectionHead level="label" name="The most it may do" />
         <Rows role="radiogroup" aria-label="The most it may do">
           {CEILING_LEVELS.map((one) => (
             <RowChoice
@@ -103,7 +103,7 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
         </Rows>
       </section>
       <section aria-label="Where it is kept">
-        <SectionHead name="Where it is kept" />
+        <SectionHead level="label" name="Where it is kept" />
         <Rows role="radiogroup" aria-label="Where it is kept">
           {snapshot.workspace && (
             <RowChoice

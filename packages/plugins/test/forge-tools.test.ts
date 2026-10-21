@@ -46,7 +46,7 @@ const pr = () => ({
   url: 'https://github.com/acme/widgets/pull/7', author: { login: 'octocat' },
   additions: 12, deletions: 3, changedFiles: 2,
   body: fs.existsSync(bodyFile) ? fs.readFileSync(bodyFile, 'utf8') : '',
-  headRefName: 'feature', baseRefName: 'main',
+  headRefName: fs.existsSync(path.join(home, 'head-branch')) ? fs.readFileSync(path.join(home, 'head-branch'), 'utf8') : require('child_process').execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim(), baseRefName: 'main',
 })
 const verb = args.slice(0, 2).join(' ')
 if (verb === 'pr list') { process.stdout.write(fs.existsSync(bodyFile) ? JSON.stringify([{ number: 7, url: pr().url }]) : '[]'); process.exit(0) }
@@ -455,8 +455,11 @@ test('pr_create reports how far a no-upstream branch differs from its remote', a
       }
     }
     execFileSync('git', ['add', '--', ...paths], { cwd: forge.repo })
+    // Newer git runs `maintenance run --auto` after a commit regardless of gc.auto, which
+    // repacks these loose objects before `gc --auto` can count them.
     execFileSync('git', [
-      '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', `gc trigger ${name}`,
+      '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', '-c', 'maintenance.auto=false',
+      'commit', '-q', '-m', `gc trigger ${name}`,
     ], { cwd: forge.repo })
     execFileSync('git', ['checkout', '-q', 'feature/diverged'], { cwd: forge.repo })
   }
@@ -483,6 +486,33 @@ test('a pull request already open for the branch is named, not duplicated', asyn
   assert.match(said, /Pull request #7 is already open for main/)
   assert.match(said, /pr_update/)
   assert.equal(forge.calls().filter((args) => args[1] === 'create').length, 1)
+})
+
+test('pr_update refuses another session branch before editing or recording its PR', async (t) => {
+  const forge = await rig(t)
+  writeFileSync(join(forge.home, 'head-branch'), 'harnessdesk/another-session')
+  const said = await forge.run('pr_update', { number: 7, body: 'My independent fix' })
+  assert.match(said, /belongs to branch harnessdesk\/another-session/)
+  assert.equal(forge.calls().some(args => args[0] === 'pr' && args[1] === 'edit'), false)
+  assert.equal(forge.published.length, 0)
+})
+
+test('pr_update refuses a detached HEAD before editing or recording', async (t) => {
+  const forge = await rig(t)
+  writeFileSync(join(forge.home, 'head-branch'), 'main')
+  execFileSync('git', ['checkout', '--detach', '-q'], { cwd: forge.repo })
+  assert.match(await forge.run('pr_update', { number: 7, body: 'Detached edit' }), /detached HEAD/)
+  assert.equal(forge.calls().some(args => args[0] === 'pr' && args[1] === 'edit'), false)
+  assert.equal(forge.published.length, 0)
+})
+
+test('pr_update names the local rename remedy for a differently named upstream', async (t) => {
+  const forge = await rig(t)
+  execFileSync('git', ['checkout', '-q', '-b', 'local-topic'], { cwd: forge.repo })
+  execFileSync('git', ['push', '-q', '-u', 'origin', 'local-topic:remote-topic'], { cwd: forge.repo })
+  writeFileSync(join(forge.home, 'head-branch'), 'remote-topic')
+  assert.match(await forge.run('pr_update', { number: 7, body: 'Aliased edit' }), /Rename this local branch to remote-topic/)
+  assert.equal(forge.calls().some(args => args[0] === 'pr' && args[1] === 'edit'), false)
 })
 
 test('pr_update retains earlier contributors in a new description and records the update', async (t) => {

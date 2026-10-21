@@ -44,18 +44,20 @@ describe('Teams list', () => {
  })
  it('Hide only folds the current settled revision out of Active, never out of Settled; a change revives it', () => {
   const done = input('done','done'); const token = teamListRow(done).change
-  expect(teamsList([done],{hidden:{done:token},seen:{}}).ready).toEqual([])
-  expect(teamsList([done],{hidden:{done:token},seen:{}}).counts.settled).toBe(1)
+  expect(teamsList([done],{hidden:{done:token}}).ready).toEqual([])
+  expect(teamsList([done],{hidden:{done:token}}).counts.settled).toBe(1)
   done.team = {...done.team,updatedAt:200}
-  expect(teamsList([done],{hidden:{done:token},seen:{}}).ready[0]?.rows).toHaveLength(1)
+  expect(teamsList([done],{hidden:{done:token}}).ready[0]?.rows).toHaveLength(1)
  })
- it('an unread dot compares the window mark with changes, never report refreshes or the clock', () => {
-  const one = input('one'); const token = teamListRow(one).change
-  expect(teamListRow(one,{hidden:{},seen:{one:token}}).unread).toBe(false)
+ it('news compares host times and ignores report refreshes, metadata and the clock', () => {
+  const one = input('one', 'done')
+  one.goal={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:'one'},activity:'ready-to-wrap',...{lastSeenAt:100,readyAt:100}}
+  expect(teamListRow(one).unread).toBe(false)
   one.overview.run!.total.turns = 55
-  expect(teamListRow(one,{hidden:{},seen:{one:token}}).unread).toBe(false)
-  one.execution = {...one.execution!,state:'stalled'}
-  expect(teamListRow(one,{hidden:{},seen:{one:token}}).unread).toBe(true)
+  one.team={...one.team,updatedAt:300}
+  expect(teamListRow(one).unread).toBe(false)
+  one.goal={...one.goal,...{readyAt:101}}
+  expect(teamListRow(one).unread).toBe(true)
  })
  it('a wrapped Team stays read when its review is loaded later, since its row follows none', () => {
   const review: FindingRunView = { run: 'run', goal: 'team', round: 2, finished: 2, total: 3, embargoed: false, open: 1, blocking: 1,
@@ -63,23 +65,24 @@ describe('Teams list', () => {
    reviewersTotal: null, pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null }
   const wrapped = input('wrapped','done'); wrapped.goal = {...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:'wrapped',state:'wrapped'}}
   const open = input('open','done')
-  const marks = {wrapped:teamListRow(wrapped).change,open:teamListRow(open).change}
   for (const one of [wrapped,open]) one.overview.run = {...one.overview.run!,findingRun:{...review,run:one.execution!.id,goal:one.team.id},publicationOn:true}
-  expect(teamListRow(wrapped,{hidden:{},seen:marks}).unread).toBe(false)
-  expect(teamListRow(open,{hidden:{},seen:marks}).unread).toBe(true)
+  expect(teamListRow(wrapped,{hidden:{}}).unread).toBe(false)
+  expect(teamListRow(open,{hidden:{}}).unread).toBe(true)
  })
  it('wrap records are settled and manual ready Goals fold; an idle Team remains active', () => {
   const manual=input('manual'); manual.execution=null; manual.overview.run=null; manual.goal={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:'manual'},activity:'ready-to-wrap'}
   const wrapped=input('wrapped'); wrapped.goal={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:'wrapped',state:'wrapped'},activity:null}
   expect(teamListRow(manual).ready).toBe(true)
   expect(teamListRow(wrapped)).toMatchObject({state:'wrapped',active:false,ready:false})
+  const wrapping={...manual,goal:{...manual.goal!,goal:{...manual.goal!.goal,state:'wrapping' as const}}}
+  expect(teamListRow(wrapping)).toMatchObject({state:'wrapping',active:true,ready:false})
   expect(teamListRow(input('idle'))).toMatchObject({state:'idle',active:true})
  })
  it('unknown time and cost remain unknown, and preference parsing refuses malformed records', () => {
   const one=input('one'); one.execution={...one.execution!,startedAt:undefined}; one.overview.seats=[]
   expect(teamListRow(one).since).toBeNull()
   expect(teamListRow(one).total).toEqual({money:null,turns:null})
-  expect(readTeamsPrefs({hidden:[],seen:{ok:'revision',bad:3}})).toEqual({hidden:{},seen:{ok:'revision'}})
+  expect(readTeamsPrefs({hidden:[],seen:{ok:'revision',bad:3}})).toEqual({hidden:{}})
  })
 })
 
@@ -166,4 +169,22 @@ it('stopped Runs distinguish an original turn finishing from claimed work', () =
  expect(teamListRow(one).state).toBe('stopping')
  Object.assign(one, { stopping: false })
  expect(teamListRow(one).state).toBe('stopped')
+})
+
+
+it('141 unchecked done cards are ready news, and opening the Team clears news on every window', () => {
+ const one = input('unchecked', 'done')
+ one.execution = null
+ one.overview = {run:null,needsYou:[],seats:[]}
+ one.team = {...one.team,updatedAt:100,intents:Array.from({length:141},(_,n)=>({...one.team.intents[0]!,id:n+1,state:'done' as const}))}
+ one.goal = {...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:one.team.id},activity:'ready-to-wrap',board:one.team,waitingOn:[],...{readyAt:100,lastSeenAt:0}}
+ expect(teamListRow(one)).toMatchObject({state:'settled',unread:true})
+ one.goal = {...one.goal,...{lastSeenAt:100}}
+ expect(teamListRow(one)).toMatchObject({state:'settled',unread:false})
+ one.overview.seats = [{seat:'writer',name:'Writer',role:null,card:null,round:null,state:'unread',done:false,reason:null,doing:null,since:101,cost:null}]
+ expect(teamListRow(one).unread).toBe(true)
+ one.goal = {...one.goal,...{lastSeenAt:101}}
+ expect(teamListRow(one).unread).toBe(false)
+ one.execution = {...input('ended','done').execution!,state:'stopped',endedAt:102}
+ expect(teamListRow(one).unread).toBe(true)
 })

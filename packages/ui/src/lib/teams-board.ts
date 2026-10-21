@@ -20,6 +20,15 @@ export const teamBoardItem = (input: TeamListInput, prefs?: TeamsPrefs) => {
  const title=row.sentence.split(/(?<=[.!?])\s+|\n/)[0]?.trim() || row.sentence
  const run=input.overview.run
  const working=row.seats.find(seat=>seat.state==='working' && seat.doing)
+ const request=input.overview.needsYou[0]
+ // A reason can contain a whole runtime refusal. Its kind earns a short status;
+ // the complete explanation remains separate, searchable and available in detail.
+ const status=request?.kind==='approval'?'Approval requested':request?.kind==='question'?'Answer requested':request?.kind==='card'?'Task needs your decision'
+  : row.seats.some(seat=>seat.state==='needs-you')?'Seat needs attention'
+   : run?.needsYou && run.findingRun?.reason?'Review needs attention'
+    : input.execution?.state==='stopped'?'Run stopped'
+     : input.execution?.state==='stalled' || input.execution?.end?.kind==='unrouted' || input.execution?.keptAnswer?'Run needs attention'
+      : 'Needs your attention'
  const summary=column==='needs-you' ? (input.execution?.state==='stopped' && row.state!=='needs-you' ? input.execution.reason ?? 'Run stopped' : row.detail ?? 'Open the Team to answer')
   : row.state==='wrapped' ? 'Receipt kept'
    : input.goal?.goal.state==='wrapping' || row.state==='wrapping' ? 'Wrapping'
@@ -38,5 +47,5 @@ export const teamBoardItem = (input: TeamListInput, prefs?: TeamsPrefs) => {
    return {id:step.id,label:step.name,state:state==='done'?'done':state==='future'?'future':'current'}
   })
  }
- return {row,column,title,summary,path,createdAt:input.goal?.goal.createdAt ?? input.execution?.startedAt ?? null}
+ return {row,column,title,summary,status,path,createdAt:input.goal?.goal.createdAt ?? input.execution?.startedAt ?? null}
 }

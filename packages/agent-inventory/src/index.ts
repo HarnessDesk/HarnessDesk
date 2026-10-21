@@ -1,7 +1,8 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 
+import { classifySkillFiles } from './skill-risk.js'
 import { digestOf } from './digest.js'
 import { canHostMcp, canonicalMcp, decodeMcpEntry, dialectFor, type McpServerSpec } from './mcp.js'
 import {
@@ -925,7 +926,10 @@ const walkBundle = (root: string): { files: LibraryFile[]; more: number } => {
     for (const name of readDir(next.dir)) {
       const full = join(next.dir, name)
       const relative = next.prefix === '' ? name : `${next.prefix}/${name}`
-      if (isDir(full)) {
+      let stat
+      try { stat = lstatSync(full) } catch { continue }
+      if (stat.isSymbolicLink()) continue
+      if (stat.isDirectory()) {
         if (next.depth + 1 <= MAX_BUNDLE_DEPTH) {
           queue.push({ dir: full, prefix: relative, depth: next.depth + 1 })
         }
@@ -935,13 +939,23 @@ const walkBundle = (root: string): { files: LibraryFile[]; more: number } => {
         more += 1
         continue
       }
-      let bytes = 0
+      if (!stat.isFile()) continue
+      let fd: number | undefined
       try {
-        bytes = statSync(full).size
+        fd = openSync(full, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+        const opened = fstatSync(fd)
+        if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) continue
+        // One extra byte lets the classifier distinguish a sampled UTF-8
+        // prefix from a complete file ending in a partial character.
+        const sample = Buffer.alloc(Math.min(opened.size, 8193))
+        const count = readSync(fd, sample, 0, sample.length, 0)
+        const flags = classifySkillFiles([{ path: relative, bytes: sample.subarray(0, count), mode: stat.mode }])[0]!
+        files.push({ path: relative, bytes: opened.size, ...(flags.runnable ? { runnable: true } : {}), ...(flags.binary ? { binary: true } : {}) })
       } catch {
         continue
+      } finally {
+        if (fd !== undefined) closeSync(fd)
       }
-      files.push({ path: relative, bytes })
     }
   }
   // `SKILL.md` first — it is the definition, and everything else in the

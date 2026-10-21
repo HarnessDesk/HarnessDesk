@@ -1,7 +1,7 @@
 import { act, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
-import { sessionKey, type GoalView, type Lane, type SeatRecord } from '@harnessdesk/protocol'
+import { browserProfileStorageName, sessionBrowserProfile, sessionKey, type GoalView, type Lane, type SeatRecord } from '@harnessdesk/protocol'
 import { browserMount, tileBrowserWorkbench } from '../lib/browser-tiles'
 import { fromStored, type SideBySideState } from '../lib/side-by-side'
 import type { DesktopBridge } from '../lib/desktop'
@@ -20,7 +20,7 @@ vi.mock('./Approvals', () => ({ Approvals: () => null }))
 
 it('two tiles borrow separate live profiles, route browser keys and agent focus, and keep guests across expansion', async () => {
   const keys = [sessionKey('assistant', 'alpha'), sessionKey('assistant', 'beta')]
-  const lanes = ['alpha', 'beta'].map(name => ({ id: name, goal: 'demo', seat: name, cwd: `/workspace/${name}`, browserProfile: `lane-${name}`, state: 'active' } as Lane))
+  const lanes = ['alpha', 'beta'].map(name => ({ id: name, goal: 'demo', seat: name, cwd: `/workspace/${name}`, browserProfile: sessionBrowserProfile('assistant', name), state: 'active' } as Lane))
   const members = lanes.map(lane => ({ id: lane.seat, board: 'demo', checkout: { cwd: lane.cwd }, session: { runtime: 'assistant', sessionId: lane.id }, closed: null } as SeatRecord))
   const goal: GoalView = { ...PREVIEW_GOAL, goal: { ...PREVIEW_GOAL.goal, id: 'demo', root: '/workspace', revision: 1, origin: { kind: 'person' } }, board: { ...PREVIEW_GOAL.board, id: 'demo', root: '/workspace', members: keys, intents: [], channel: [] }, members }
   const store = new AppStore('ws://localhost:0/')
@@ -69,24 +69,24 @@ it('two tiles borrow separate live profiles, route browser keys and agent focus,
     await act(async () => root.render(<StoreProvider store={store}><Harness /></StoreProvider>))
     const guests = [...container.querySelectorAll<HTMLElement>('webview')]
     expect(guests).toHaveLength(2)
-    expect(guests.map(node => node.getAttribute('partition'))).toEqual(['persist:hd-lane-alpha', 'persist:hd-lane-beta'])
+    expect(guests.map(node => node.getAttribute('partition'))).toEqual(lanes.map(lane => `persist:hd-${browserProfileStorageName(lane.browserProfile!)}`))
     expect(tileBrowserWorkbench(store.getSnapshot()).right.root).toMatchObject({ kind: 'stack', views: [] })
     act(() => guests.forEach((guest, index) => {
       let url = guest.getAttribute('src')!
       Object.assign(guest, { getWebContentsId: () => index + 1, getURL: () => url, loadURL: vi.fn(async (next: string) => { url = next }) })
       guest.dispatchEvent(new Event('dom-ready'))
     }))
-    expect(ready.mock.calls.map(([request]) => request)).toEqual([{ profile: 'lane-alpha', webContentsId: 1 }, { profile: 'lane-beta', webContentsId: 2 }])
+    expect(ready.mock.calls.map(([request]) => request)).toEqual([{ profile: lanes[0]!.browserProfile, webContentsId: 1 }, { profile: lanes[1]!.browserProfile, webContentsId: 2 }])
     tileAction('Alpha', 'Expand')
     expect([...container.querySelectorAll('webview')]).toEqual(guests)
-    act(() => store.focusDrivenBrowserTab('lane-beta'))
+    act(() => store.focusDrivenBrowserTab(lanes[1]!.browserProfile))
     expect(state.expanded).toBe(keys[1])
     act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', metaKey: true, bubbles: true, cancelable: true })))
     const betaTile = container.querySelectorAll('[data-slot="side-by-side-tile"]')[1]!
     expect(betaTile.contains(document.activeElement)).toBe(true)
     tileAction('Beta', 'Collapse')
     expect([...container.querySelectorAll('webview')]).toEqual(guests)
-    await act(async () => store.openBrowser('https://example.com/beta-updated', { profile: 'lane-beta' }))
+    await act(async () => store.openBrowser('https://example.com/beta-updated', { profile: lanes[1]!.browserProfile }))
     expect((guests[1] as unknown as { loadURL: ReturnType<typeof vi.fn> }).loadURL).toHaveBeenCalledWith('https://example.com/beta-updated')
     expect(store.getSnapshot().layout.focused).toBe(paneId)
     // The selected tile stays selected while a different mount has the keys.
@@ -131,7 +131,7 @@ it('two tiles borrow separate live profiles, route browser keys and agent focus,
     expect(betaTile.querySelector('textarea[aria-label="Message"]')).not.toBeNull()
     click(betaTile.querySelector('button[aria-label="Show the browser"]')!)
     expect(state.modes[keys[1]!]).toBe('browser')
-    expect(betaTile.querySelector('webview')?.getAttribute('partition')).toBe('persist:hd-lane-beta')
+    expect(betaTile.querySelector('webview')?.getAttribute('partition')).toBe(`persist:hd-${browserProfileStorageName(lanes[1]!.browserProfile!)}`)
   } finally {
     act(() => root.unmount())
     container.remove()

@@ -195,21 +195,20 @@ it('blames the search only when there was one', async () => {
   expect(document.body.textContent).toContain('Conversation a')
 })
 
-it('names an agent that could not be asked instead of counting it as empty', async () => {
+it('shows a read failure without claiming the archive is empty, then recovers on retry', async () => {
   const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true })
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
     runtimes: [codex],
   } as AppSnapshot
+  const request = vi.fn()
+    .mockRejectedValueOnce(new Error('not started'))
+    .mockResolvedValue({ data: [], nextCursor: null })
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
-    transport: {
-      request: vi.fn(async () => {
-        throw new Error('not started')
-      }),
-    },
+    transport: { request },
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -219,6 +218,14 @@ it('names an agent that could not be asked instead of counting it as empty', asy
     )
   })
   expect(document.body.textContent).toContain('could not be read')
+  expect(document.body.textContent).not.toContain('Nothing is archived')
+  expect(document.body.textContent).not.toContain('Nothing here matches')
+
+  await act(async () => button('Try again')!.click())
+  expect(request).toHaveBeenCalledTimes(2)
+  expect(document.body.textContent).not.toContain('could not be read')
+  expect(document.body.textContent).toContain('Nothing is archived')
+  expect(document.body.textContent).not.toContain('Nothing here matches')
 })
 
 

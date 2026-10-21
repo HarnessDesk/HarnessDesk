@@ -74,6 +74,33 @@ describe('the canonical button', () => {
     }
   })
 
+  it('sizes the control rung from the control height, so a page action stands on the tabs beside it', () => {
+    /* The page action in a tab row (`PageOptions`) shares its line with the
+       pane's quiet tabs and the View trigger, which stand on
+       `--hd-control-h`. `sm` is a rung above them, so it reads the small
+       button's own height token; this rung reads the control's. */
+    expect(buttonVariants({ size: 'control' })).toContain('h-(--hd-control-h)')
+    /* Everything but the height is `sm`'s box, so the two stay one kind of
+       thing to the hand. Pinned as the classes themselves, not just the
+       individual tokens: if the two sizes ever carry a different utility
+       besides the height, this is the check that says so. */
+    expect(buttonVariants({ size: 'control' })).toContain('p-(--hd-btn-padding-sm)')
+    expect(buttonVariants({ size: 'control' })).toContain('text-(length:--hd-btn-text-sm)')
+  })
+
+  it('differs from `sm` in the height alone', () => {
+    /* The two small rungs are composed from one shared box string; the test
+       reads the rendered classes, so the invariant holds however the source
+       spells it. */
+    const box = (size: 'sm' | 'control') =>
+      buttonVariants({ size })
+        .split(/\s+/)
+        .filter((c) => c !== 'h-(--hd-btn-h-sm)' && c !== 'h-(--hd-control-h)')
+        .sort()
+    expect(box('control')).toEqual(box('sm'))
+    expect(box('sm').length).toBeGreaterThan(0)
+  })
+
   it('never changes the label weight for a chosen state', () => {
     for (const variant of ['row', 'navigation', 'choice'] as const) {
       const classes = buttonVariants({ variant })

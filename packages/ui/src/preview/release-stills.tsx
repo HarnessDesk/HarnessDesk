@@ -8,7 +8,8 @@ import { StagedRun } from '../../site-demo/fake-run'
 import { SignInMode } from '../components/SignInMode'
 import { FlowStart, type FlowChoice } from '../components/FlowStart'
 import { Sidebar } from '../components/Sidebar'
-import { TeamFramePreview } from './TeamFramePreview'
+import { SideBySideStill } from './site-stills'
+import { seedTeamFrame, TeamFramePreview } from './TeamFramePreview'
 import { TeamRunView } from '../components/TeamRunView'
 import { TeamsWindow } from '../components/TeamsWindow'
 import { LibrarySection } from '../components/Library'
@@ -18,6 +19,7 @@ import { runTimeline } from '../lib/run-timeline'
 import { StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import type { AppStore } from '../state/store'
+import type { PaneView } from '../state/layout'
 import { comparisonVerdictStore } from './comparison-verdict-fixture'
 import { PREVIEW_ROOM, previewStore, store } from './harness'
 import { runTeamStore, RUN_FLOW_SOURCE } from './run-view-fixture'
@@ -28,6 +30,7 @@ import { teamsPageStore } from './teams-page-fixture'
 import { usagePreviewStore } from './usage-fixture'
 import { STILL_HOURS, STILL_LIBRARY, STILL_PLUGINS, STILL_RUNTIMES } from './release-stills-data'
 import { SITE_SCENES, SiteStills, siteStillStore } from './site-stills'
+import { README_RUNTIME_NAMES } from './readme-names'
 
 const CatalogueTeamRunView = (props: ComponentProps<typeof TeamRunView>) => <TopBarProvider>
   <TopBarOutlet owner="" fallback={{ place: 'Recorded Run', more: () => null }} />
@@ -56,6 +59,8 @@ const capabilityStore = () => {
   } })
 }
 
+const RACE_TILES: Extract<PaneView, { kind: 'room' }> = { kind: 'room', framePage: 'room', chatLayout: 'side-by-side', room: PREVIEW_ROOM,
+  sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 2), focused: SIDE_BY_SIDE_KEYS[0], modes: { [SIDE_BY_SIDE_KEYS[0]!]: 'browser' } } }
 const names = [...STILL_RUNTIMES.map(runtime => runtime.presentation.name), 'Judge']
 const raceStore = () => {
   const base = comparisonVerdictStore('combined')
@@ -63,6 +68,7 @@ const raceStore = () => {
   const board = seed.teams.get(PREVIEW_ROOM)!
   const own = previewStore({ ...seed, runtimes: STILL_RUNTIMES, teams: new Map([[board.id, { ...board, nicknames: Object.fromEntries(SIDE_BY_SIDE_KEYS.map((key, n) => [key, names[n] ?? 'Seat'])) }]]) })
   own.teamPeers = async () => (await base.teamPeers(PREVIEW_ROOM)).map((peer, n) => ({ ...peer, nickname: names[n]!, agent: names[n]!, model: n ? 'Sonnet' : 'Standard' }))
+  seedTeamFrame(own, PREVIEW_ROOM, RACE_TILES, false)
   return own
 }
 
@@ -75,6 +81,12 @@ const publicPaths = <T,>(value: T): T => {
   if (Array.isArray(value)) return value.map(publicPaths) as T
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, publicPaths(entry)])) as T
   return value
+}
+
+const projectSidebarStore = () => {
+  const own = previewStore(publicPaths(sidebarProjectsFixture(store.getSnapshot())))
+  seedTeamFrame(own, 'team-checkout')
+  return own
 }
 
 const startStore = () => {
@@ -107,7 +119,7 @@ const StartPreview = () => {
   const initial = useMemo(() => ({ source: RUN_FLOW_SOURCE, vars: {
     task: 'Retry the checkout call on a 502', brief: 'Bound the retry attempts and keep the final failure visible.' }, attended: true }), [])
   return <PaneColumn inset="reading" className="py-6"><FormStack>
-    <SectionHead name="Start with a team" />
+    <SectionHead level="label" name="Start with a team" />
     <FlowStart root="/work/storefront" initial={initial} onChange={setChoice} />
     <Bar><Button disabled={!choice}>Start</Button><Button variant="secondary">Cancel</Button></Bar>
   </FormStack></PaneColumn>
@@ -135,6 +147,8 @@ const PickedRun = () => {
   const execution = [...seed.flowExecutions.values()][0]!
   const model = runTimeline({ ...input, execution, cards: seed.teams.get(PREVIEW_ROOM)!.intents, evidence: seed.boardEvidence.get(PREVIEW_ROOM) })
   const [selected, setSelected] = useState<string | null>(null)
+  // The inspector says "Reading findings…" until its Team's ledger has been read once.
+  useEffect(() => { void own.loadFindings(execution.goal) }, [own, execution.goal])
   return <StoreProvider store={own}><CatalogueTeamRunView execution={execution} origin="Started by you" model={model} number={1}
     onOpenSeat={() => {}} selectedRow={selected} onSelect={setSelected} /></StoreProvider>
 }
@@ -143,7 +157,7 @@ const Body = ({ scene }: { scene: string }) => {
   useTheme()
   if (SITE_SCENES.includes(scene)) return <SiteStills scene={scene} />
   if (scene === 'library') return <CurrentPagePreview page={{kind:'library',section:'skill'}} />
-  if (scene === 'plugin-permissions') return <CurrentPagePreview page={{kind:'plugins',section:'capabilities',id:null}} />
+  if (scene === 'plugin-permissions') return <CurrentPagePreview page={{kind:'plugins',section:'installed',id:null}} />
   if (scene === 'teams') return <CurrentPagePreview page={{kind:'teams',filter:'active'}} />
   if (scene === 'project-sidebar') return <div className="flex h-full">
     <div className="w-80 shrink-0"><Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenTeams={() => {}} onOpenAgents={() => {}}
@@ -153,8 +167,7 @@ const Body = ({ scene }: { scene: string }) => {
   if (scene === 'run-timeline' || scene === 'run-flow') return <RunStill flow={scene === 'run-flow'} />
   if (scene === 'flow-start-preview') return <StartPreview />
   if (scene === 'run-picked') return <PickedRun />
-  if (scene === 'race-tiles') return <TeamFramePreview room={PREVIEW_ROOM} view={{ kind: 'room', framePage: 'room', room: PREVIEW_ROOM,
-    sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 2), focused: SIDE_BY_SIDE_KEYS[0], modes: { [SIDE_BY_SIDE_KEYS[0]!]: 'browser' } } }} />
+  if (scene === 'race-tiles') return <SideBySideStill view={RACE_TILES} />
   return <CurrentPagePreview page={{kind:'dashboard',view:scene==='dashboard-plans'?'plans':'activity',scope:null}} />
 }
 
@@ -163,19 +176,24 @@ export const ReleaseStills = () => {
   const scene = knobs.get('release-stills') ?? 'teams'
   const own = useMemo(() => {
     const own = SITE_SCENES.includes(scene) ? siteStillStore(scene) : scene === 'teams' ? teamsPageStore()
-      : scene === 'project-sidebar' ? previewStore(publicPaths(sidebarProjectsFixture(store.getSnapshot())))
+      : scene === 'project-sidebar' ? projectSidebarStore()
       : scene === 'race-tiles' ? raceStore()
       : scene === 'library' || scene === 'plugin-permissions' ? capabilityStore()
       : scene === 'flow-start-preview' ? startStore() : dashboardStore()
     // Some preview proxies retain their own snapshot, so patching their base
     // cannot change the theme the mounted screen reads. Decorate that read.
     const theme = knobs.get('theme') === 'dark' ? 'dark' as const : 'light' as const
+    const names: Readonly<Record<string, string>> = knobs.has('readme-names') ? README_RUNTIME_NAMES : {}
+    const decorate = (next: ReturnType<typeof own.getSnapshot>) => ({ ...next, theme, runtimes: next.runtimes.map(info => {
+      const name = names[info.presentation.name]
+      return name ? { ...info, name, presentation: { ...info.presentation, name } } : info
+    }) })
     let observed = own.getSnapshot()
-    let themed = { ...observed, theme }
+    let themed = decorate(observed)
     return new Proxy(own, { get(target, key) {
       if (key === 'getSnapshot') return () => {
         const next = target.getSnapshot()
-        if (next !== observed) { observed = next; themed = { ...next, theme } }
+        if (next !== observed) { observed = next; themed = decorate(next) }
         return themed
       }
       return Reflect.get(target, key)

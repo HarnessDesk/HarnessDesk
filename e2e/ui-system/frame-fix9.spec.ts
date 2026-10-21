@@ -1,3 +1,5 @@
+import { selectFrameTab } from './frame-actions'
+import { teamDetails, teamSeats } from './team-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { FRAME } from '../../packages/ui/src/design/frame'
@@ -23,7 +25,7 @@ test('FIX9 kept history remains readable after reopening', async ({ page }) => {
   for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`FIX9 wrapped findings use the receipt and ask nothing of a person [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=team-receipt&frame-fix9-findings=1', 1280, theme)
-    await page.getByRole('tab', { name: 'Findings 5', exact: true }).click()
+    await selectFrameTab(page, 'findings')
     const pane = page.getByRole('region', { name: 'Findings', exact: true })
     await expect(pane.getByRole('button', { name: /Advisory finding/ })).toHaveCount(4)
     await expect(pane.locator('[aria-label="Findings summary"]')).toContainText('Open4Blocking0All5')
@@ -39,15 +41,20 @@ test('FIX9 kept history remains readable after reopening', async ({ page }) => {
 
 test('FIX9 stopped Team keeps its Researcher and explains round counts', async ({ page }) => {
   await openFrame(page, 'frame-wall=team&frame-fix9-stop=1')
-  await page.getByRole('tab', { name: 'Run 1', exact: true }).click()
+  await selectFrameTab(page, 'run')
   await page.getByRole('button', { name: 'Stop run…', exact: true }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Stop run', exact: true }).click()
-  await page.getByRole('tab', { name: 'Overview', exact: true }).click()
-  const agents = page.locator('[data-slot="team-overview"]')
-  await expect(agents).not.toContainText('No agents')
-  await expect(agents).toContainText('Researcher')
-  await expect(agents).toContainText('Stopped')
-  await expect(page.locator('[data-slot="team-overview"]')).not.toContainText('Rounds 0 of')
+  await selectFrameTab(page, 'overview')
+  const run = page.locator('[data-slot="run-view"]')
+  await expect(run).toContainText('The person stopped this run.')
+  await expect(run.locator('[data-step-row="researcher"][data-presentation="activity"]')).toHaveAttribute('data-flow-state', 'stopped')
+  const seats = await teamSeats(page.locator('body'))
+  await expect(seats).not.toContainText('No agents')
+  await expect(seats.getByRole('group', { name: /^Researcher · .* · Stopped$/ })).toHaveCount(1)
+  const details = await teamDetails(page.locator('body'))
+  const facts = details.locator('[aria-label="Team Run facts"]')
+  await expect(facts).toContainText('Round 1 of 3')
+  await expect(facts).not.toContainText('Rounds 0 of')
 })
 
 test('FIX9 command card waits for approval and names its folder', async ({ page }) => {
@@ -208,5 +215,9 @@ test('FIX9 spend grouping uses sentence case', async ({ page }) => {
 
 test('FIX9 unavailable Findings names its refusal without an internal noun', async ({ page }) => {
   await openFrame(page, 'frame-wall=team&frame-fix9-no-findings=1')
-  await expect(page.getByRole('tab', { name: 'Findings 3', exact: true })).toHaveAttribute('title', 'This Team has no findings')
+  await selectFrameTab(page, 'board')
+  const findings = page.locator('[data-slot="task-navigation"]').getByRole('button', { name: /^Findings(?:\s|$)/ })
+  await expect(findings).toBeVisible()
+  await expect(findings).toBeDisabled()
+  await expect(findings).toHaveAttribute('aria-pressed', 'false')
 })

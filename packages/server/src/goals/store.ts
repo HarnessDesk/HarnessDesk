@@ -11,6 +11,8 @@ import type { GoalOperation } from './operations.js'
 
 export interface GoalDocument {
   readonly version: 1
+  readonly lastSeenAt?: number
+  readonly readyAt?: number
   readonly restored?: { readonly at: number }
   readonly goal: Goal
   readonly board: GoalBoard
@@ -172,6 +174,7 @@ const findingReceiptOf = (value: unknown): boolean =>
 export function documentOf(value: unknown): GoalDocument {
   const bad = (): never => { throw new Error('A Goal document cannot be read. Its original bytes were kept.') }
   if (!object(value) || value.version !== 1 || !object(value.goal) || !object(value.board)) return bad()
+  if ([value.lastSeenAt, value.readyAt].some(at => at !== undefined && (typeof at !== 'number' || !Number.isFinite(at) || at < 0))) return bad()
   const goal = value.goal
   const board = value.board
   if (
@@ -358,13 +361,30 @@ export class GoalStore {
         throw new Error('Every Goal change must advance its revision exactly once.')
       }
       if (current?.goal.state === 'wrapped') throw new Error('A wrapped Goal is read-only. Start another Goal for new work.')
-      await this.#persist(join(this.#directory, goalFile(copy.goal.id)), copy)
+      // Read/news metadata has its own serialized writes, without advancing
+      // a Goal revision. A concurrent board save must preserve those marks.
+      const retained = { ...copy, ...(current?.lastSeenAt === undefined ? {} : { lastSeenAt: current.lastSeenAt }),
+        ...(current?.readyAt === undefined ? {} : { readyAt: current.readyAt }) }
+      await this.#persist(join(this.#directory, goalFile(copy.goal.id)), retained)
       if (!current) {
         const index: GoalIndex = { ...this.#index, ids: [...this.#index.ids, copy.goal.id].sort() }
         await this.#persist(join(this.#directory, 'index.json'), index)
         this.#index = index
       }
-      this.#hold(copy)
+      this.#hold(retained)
+    })
+  }
+
+  /** Machine read/news state shares the Goal file and queue, never its revision. */
+  mark(id: string, patch: { lastSeenAt?: number; readyAt?: number }): Promise<void> {
+    return this.#enqueue(async () => {
+      const current = this.read(id)
+      const next = { ...current,
+        ...(patch.lastSeenAt === undefined ? {} : { lastSeenAt: Math.max(current.lastSeenAt ?? 0, patch.lastSeenAt) }),
+        ...(patch.readyAt === undefined ? {} : { readyAt: Math.max(current.readyAt ?? 0, patch.readyAt) }),
+      }
+      await this.#persist(join(this.#directory, goalFile(id)), next)
+      this.#hold(next)
     })
   }
 
@@ -379,7 +399,7 @@ export class GoalStore {
   restore(document: GoalDocument, at: number): Promise<'restored' | 'duplicate' | 'conflict'> {
     const imported = restoredGoal(documentOf(structuredClone(document)), at)
     documentOf(imported)
-    const canonical = (value: GoalDocument): string => JSON.stringify({ ...value, restored: undefined, operation: null })
+    const canonical = (value: GoalDocument): string => JSON.stringify({ ...value, restored: undefined, operation: null, lastSeenAt: undefined, readyAt: undefined })
     return this.#enqueue(async () => {
       const current = this.#documents.get(imported.goal.id)
       if (current) return canonical(current) === canonical(imported) ? 'duplicate' : 'conflict'

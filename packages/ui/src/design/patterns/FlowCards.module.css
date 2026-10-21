@@ -18,6 +18,13 @@
   text-align: left;
 }
 .card[data-selected] { border-color: var(--hd-accent); }
+.selection { display: flex; flex-direction: column; gap: var(--hd-space-2); min-width: 0; padding: var(--hd-space-3); border: var(--hd-border-width) solid var(--hd-border-strong); border-radius: var(--hd-radius); background: var(--hd-background); }
+.selectionHead { display: flex; align-items: center; justify-content: space-between; gap: var(--hd-space-3); min-width: 0; }
+.selectionName { display: flex; align-items: center; gap: var(--hd-space-2); min-width: 0; }
+.selectionName > :first-child { min-width: 0; }
+.selectionName > :last-child { flex-shrink: 0; }
+.selectionHead > button { flex-shrink: 0; }
+.selectionGraph { width: min(100%, calc(var(--hd-space-16) * 6)); align-self: center; }
 .head { display: flex; align-items: center; justify-content: space-between; gap: var(--hd-space-2); min-width: 0; }
 .head > :first-child { min-width: 0; }
 .head > :last-child { max-width: 50%; }
@@ -28,17 +35,30 @@
 .edge { fill: var(--hd-muted-foreground); }
 .edge path { fill: none; stroke: var(--hd-muted-foreground); stroke-width: 1; }
 .edge[data-kind="loop"] path { stroke-dasharray: 3 2; }
-.node rect { fill: var(--hd-muted); stroke: var(--hd-border-strong); stroke-width: 0.5; rx: var(--hd-radius-xs); }
+.node > rect { fill: var(--hd-background); stroke: var(--hd-border-strong); stroke-width: var(--hd-border-width); rx: var(--hd-radius); }
 .nodeLabel {
   display: flex;
   align-items: center;
+  justify-content: flex-start; /* desk: place the role icon before its label inside the thumbnail node. */
+  gap: var(--hd-space-1);
   width: 100%;
   height: 100%;
   padding-inline: var(--hd-space-1);
+  text-align: left; /* desk: align the thumbnail role label with its leading icon. */
   color: var(--hd-foreground);
   font-family: var(--hd-font-family);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-xs);
 }
-.nodeLabel > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.empty { display: flex; align-items: center; min-height: var(--hd-space-18); }
+.nodeLabel > [data-slot="flow-mini-mark"] { display: flex; align-items: center; justify-content: center; /* desk: centre the plain kind glyph in its reserved leading slot. */ flex-shrink: 0; width: calc(var(--hd-space-4) + var(--hd-space-0-5)); height: calc(var(--hd-space-4) + var(--hd-space-0-5)); color: var(--hd-muted-foreground); }
+.nodeName { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty { display: flex; align-items: center; justify-content: center; text-align: center; min-height: var(--hd-space-18); }
+
+.grid[data-size="large"] { grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(var(--hd-space-16) * 6)), 1fr)); gap: var(--hd-space-5); }
+.card[data-preview-size="large"] { padding: var(--hd-space-5); gap: var(--hd-space-4); }
+.card[data-preview-size="large"] .foot { flex-wrap: wrap; gap: var(--hd-space-2); }
+.graph[data-preview-size="large"] { height: calc(var(--hd-space-12) * 2); max-width: calc(var(--hd-space-16) * 7); justify-self: center; }
+.empty[data-preview-size="large"] { min-height: calc(var(--hd-space-12) * 2); }
+.graph[data-preview-size="large"] .nodeLabel { padding-inline: var(--hd-space-2); gap: var(--hd-space-2); font-size: var(--hd-text); line-height: var(--hd-line); }
+
+.graph[data-preview-size="large"] .nodeLabel [data-slot="flow-mini-mark"] { width: calc(var(--hd-space-6) + var(--hd-space-1)); height: calc(var(--hd-space-6) + var(--hd-space-1)); }

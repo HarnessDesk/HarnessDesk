@@ -142,15 +142,16 @@ export {
 export { ConfirmDialog } from './patterns/ConfirmDialog'
 export { ConversationEmptyState } from './patterns/ConversationEmptyState'
 export { CodeBlock, type CodeBlockProps } from './patterns/CodeBlock'
-export { FlowGraph, type FlowGraphProps } from './patterns/FlowGraph'
-export { FlowCard, FlowMiniGraph, FlowCardGrid, type FlowCardProps } from './patterns/FlowCards'
+export { FlowExample, type FlowExampleProps } from './patterns/FlowExample'
+export { FlowGraph, FlowRoleConfiguration, type FlowGraphProps } from './patterns/FlowGraph'
+export { FlowCard, FlowMiniGraph, FlowCardGrid, SelectedFlow, type FlowCardProps } from './patterns/FlowCards'
 export { FlowCanvasToolbar } from './patterns/FlowCanvasToolbar'
 export { FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent } from './patterns/FlowCanvasWorkspace'
 export { FlowStepRow, RunStateChip } from './patterns/FlowStepRow'
 export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
 export * from './patterns/InspectorPanel'
-export { Page, type PageWidth } from './patterns/Page'
+export { Page, PageStack, PageColumns, type PageWidth } from './patterns/Page'
 export { FRAME, FRAME_TOKENS } from './frame'
 export { ChangeStats, FileState, PatchHeader, type FileStateValue } from './patterns/Change'
 export { RefusedAction } from './patterns/RefusedAction'
@@ -163,7 +164,7 @@ export {
   TurnWorkLive,
   type TurnWorkState,
 } from './patterns/TurnWork'
-export { PaneColumn, ReadingMeasure, useComposerHeightVar, type PaneColumnProps, type PaneColumnInset } from './patterns/PaneColumn'
+export { PaneColumn, PaneTabsRow, ReadingMeasure, useComposerHeightVar, type PaneColumnProps, type PaneColumnInset } from './patterns/PaneColumn'
 export { ComposerTrack, type ComposerTrackName } from './patterns/ComposerTrack'
 export {
   ApprovalChoiceHint,
@@ -178,6 +179,7 @@ export {
 } from './patterns/ApprovalDialog'
 export {
   ContextMenu,
+  IssueMark,
   Menu,
   MenuItem,
   MenuAccountGroup,
@@ -242,7 +244,7 @@ export { MergeDialog, DiffRangeDialog } from './patterns/GitComparisonDialogs'
 
 export { TopBar, TopBarToolButton, type TopBarProps, type TopBarAction, type TopBarTab } from './patterns/TopBar'
 
-export { ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolRow, ToolFold } from './patterns/ToolBody'
+export { ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFold } from './patterns/ToolBody'
 export { ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, ToolFooterSuppressed, type ToolFoot } from './patterns/ToolFooter'
 
 export { SeatList, type SeatListRow } from './patterns/SeatList'
@@ -251,7 +253,7 @@ export { LeftColumn, LeftColumnBody, LeftColumnGroup, LeftColumnHead, LeftColumn
 
 export type { LeftColumnMenu } from './patterns/LeftColumn'
 
-export { LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnListOptions, LeftColumnEmpty } from './patterns/LeftColumn'
+export { LeftColumnSeats, LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnListOptions, LeftColumnEmpty } from './patterns/LeftColumn'
 import './ui/popup.css'
 export { MenuPresentation, MenuRowContent, MenuListboxOption, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './ui/menu-row'
 
@@ -275,11 +277,13 @@ export { MainDestination, DestinationBody } from './patterns/MainDestination'
 export { PageControls, ShortcutKeys, PageExplanation, PreservedText, InlineQualifier, PageNotes, type PageChoice } from './patterns/PageControls'
 export { PageOptions, type PageOption } from './patterns/PageOptions'
 export { PictureChoices, AccentChoices, RingChoices } from './patterns/SettingsChoices'
+export { RadioGroup, RadioGroupItem } from './ui/radio-group'
 
 export { DashboardOverviewStats, DashboardBands, DashboardColumns, DashboardAccounts, DashboardAccountHead, DashboardAccountBody, DashboardAccountFoot, DashboardFigure, DashboardLanes, DashboardReadingNote, DashboardFact, DashboardMoney, DashboardTable, DashboardPlanName, DashboardPlanReading, DashboardAgentReading, DashboardStats, DashboardBurn, DashboardAccountActivity, type DashboardBand } from './patterns/DashboardBands'
 export { PageRecords, PageRecordViews, type RecordColumn, type PageRecord, type RecordGroup } from './patterns/PageRecords'
 export { TeamsBoard, TeamsBoardColumn, TeamsBoardCard, TeamsBoardToolbar, TeamsBoardWrapped } from './patterns/TeamsBoard'
-export { BoardCard as CompactBoardCard } from './patterns/BoardCard'
+export { AgentCatalogue, AgentCatalogueCard, AgentCatalogueSources, type AgentCatalogueCardProps } from './patterns/AgentCatalogue'
+export { BoardCard as CompactBoardCard, BoardCardGrid as CompactBoardCardGrid } from './patterns/BoardCard'
 export { LibraryMatrix, type LibraryMatrixColumn, type LibraryMatrixCell, type LibraryMatrixRow, type LibraryMatrixFooter } from './patterns/LibraryMatrix'
 export { SignInRail } from './patterns/SignInRail'
 

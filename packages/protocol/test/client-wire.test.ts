@@ -61,3 +61,8 @@ test('Seat attachment readback is available at the client read tier', () => {
   assert.doesNotThrow(() => request('attachment/seat', { seat: 'seat-demo' }))
   assert.throws(() => request('attachment/seat', { seat: '' }), ValidationError)
 })
+
+
+test('Team read marks stay off the client door until a client command sets one', () => {
+  assert.equal(clientTierFor('goal/seen'), null)
+})

@@ -1,4 +1,5 @@
 import { sessionKey } from '@harnessdesk/protocol'
+import { isChatFolder, projectWorkspaces } from '../lib/chats'
 import { useDestinationActive } from '../panels/destination-page'
 import { PageExplanation, PageControls, Clipped, RowButton } from '../design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -80,10 +81,10 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
       if (epoch.current !== generation) return
       setRows(previous => after ? [...new Map([...previous, ...page.data].map(row => [`${row.runtime}:${row.id}`, row])).values()] : page.data)
       setCursor(page.nextCursor ?? null)
-      setProjects(previous => [...new Set([...previous, ...page.data.map(row => row.repo?.root ?? row.cwd)])].sort())
+      setProjects(previous => [...new Set([...previous, ...page.data.filter(row => !isChatFolder(row.cwd, snapshot.chatsFolderRoots)).map(row => row.repo?.root ?? row.cwd)])].sort())
     } catch (error) { if (epoch.current === generation) setProblem(reason(error)) }
     finally { if (epoch.current === generation) { setLoading(false); paging.current = false } }
-  }, [store, params])
+  }, [store, params, snapshot.chatsFolderRoots])
   const previousRead = useRef<typeof read | null>(null)
   useEffect(() => {
     if (!destinationActive) return
@@ -112,7 +113,7 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
     const observer = new ResizeObserver(measure); observer.observe(node)
     return () => observer.disconnect()
   }, [destinationActive, rows.length === 0])
-  const projectOptions = [...new Set([...projects, ...snapshot.workspaces.map(workspace => workspace.repo?.root ?? workspace.path)])].sort()
+  const projectOptions = [...new Set([...projects, ...projectWorkspaces(snapshot.workspaces, snapshot.chatsFolderRoots).map(workspace => workspace.repo?.root ?? workspace.path)])].filter(root => !isChatFolder(root, snapshot.chatsFolderRoots)).sort()
   const hasSearchableHistory = rows.length > 0 || query.trim() !== '' || agent !== '' || project !== '' || hidden
   const open = async (row: HistorySummary): Promise<void> => {
     if (!destinationActive) return
@@ -217,7 +218,7 @@ export const AgentHistory = ({ info, onBrowse }: { info: RuntimeInfo; onBrowse: 
   const label = running ? 'Importing history' : complete ? 'Imported history' : failed ? 'History import failed' : state?.state === 'cancelled' ? 'History import cancelled' : 'Import history'
 
   return <>
-    <SectionHead name="History" />
+    <SectionHead level="label" name="History" />
     <Rows><Row title={<span title={state?.error}>{label}</span>} control={<>
       {state && <RowValue numeric>{state.count.toLocaleString()} conversations</RowValue>}
       {complete && <RowValue>{scanTime(state.lastScanAt)}</RowValue>}

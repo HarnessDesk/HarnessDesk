@@ -155,3 +155,12 @@ it('assigns the overlay its modal edge and the docked approval its card edge', a
   expect(block('footer')).toContain('padding: var(--approval-edge-inset)')
   expect(block('dialog')).toContain('max-height: min(72vh, 720px, 100%)')
 })
+
+it('keeps an inline chat request in its stream and wraps all choices before they can be clipped', async () => {
+  const { default: sheet } = await import('./ApprovalDialog.module.css?raw')
+  const block = (selector: string) => new RegExp(`\\.${selector} \\{([^}]*)\\}`).exec(sheet)?.[1] ?? ''
+  expect(block('docked')).not.toContain('max-height:')
+  expect(block('footer')).toContain('flex-wrap: wrap')
+  expect(sheet).toContain(".meta[data-kind='person'] .metaValue")
+  expect(sheet).toContain('font-family: inherit')
+})

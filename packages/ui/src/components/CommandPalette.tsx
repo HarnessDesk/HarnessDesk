@@ -24,7 +24,7 @@ import { runtimeLabel } from '../lib/accounts'
 import { brandOf } from '../lib/identity'
 import { firstReason, inForce, markFor, seatTaken } from '../lib/agents'
 import { extractHit, highlightAll, type HighlightSpan } from '../lib/search-highlight'
-import { firstAsk, sessionLabel } from '../lib/sessions'
+import { firstAsk, indexedSessionLabel } from '../lib/sessions'
 import { handOverToComposer } from '../lib/compose'
 import { availableCommands } from '../state/commands'
 import { useSnapshot, useStore } from '../state/context'
@@ -548,16 +548,11 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
     const sessionEntryFrom = (summary: SessionSummary): Entry => {
       const agent = snapshot.runtimes.find((entry) => entry.id === summary.runtime)?.presentation.name ?? summary.runtime
       const folder = summary.cwd.split('/').filter(Boolean).at(-1) ?? summary.cwd
-      // A conversation open in this window is the fresher record: the history
-      // row has no preview until the host's list catches up, and the sidebar
-      // already names it from what the person asked.
       const live = snapshot.sessions.get(sessionKey(summary.runtime, summary.id))
-      // The same precedence as the sidebar row: the open session's own title
-      // (an explicit null or empty one included) over the summary's, and its
-      // preview or first ask over the summary's preview.
-      const liveTitle = live?.title
+      // Share the sidebar's indexed title authority, with a live title or
+      // first ask filling in metadata the index has not received yet.
       const livePreview = live ? live.preview ?? firstAsk(live) : undefined
-      const label = sessionLabel(liveTitle === undefined ? summary.title : liveTitle, livePreview ?? summary.preview)
+      const label = indexedSessionLabel(summary, { title: live?.title, preview: livePreview })
       const labelMatches = needle ? highlightAll(needle, label) : []
       // The transcript store's own matching line wins over one re-derived
       // from the preview: it is from the conversation's content. A title hit

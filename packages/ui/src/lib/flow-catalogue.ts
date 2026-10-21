@@ -3,6 +3,7 @@ import type { FlowEntry, FlowExecution, FlowPolicy } from '@harnessdesk/protocol
 import { useSnapshot, useStore } from '../state/context'
 import type { AppStore } from '../state/store'
 import { projectRootOf } from './projects'
+import { projectWorkspaces } from './chats'
 
 export interface CatalogueFlow { readonly root: string; readonly entry: FlowEntry }
 
@@ -70,7 +71,7 @@ const read = (store: AppStore, root: string): Promise<readonly FlowEntry[]> => {
 /** Catalogue reads spend nothing and are retired when their destination or project set changes. */
 export const useFlowCatalogue = (active = true) => {
   const store = useStore(), snapshot = useSnapshot()
-  const roots = [...new Set([projectRootOf(snapshot.workspace), ...snapshot.workspaces.map(projectRootOf)].filter((root): root is string => !!root))]
+  const roots = [...new Set(projectWorkspaces([...(snapshot.workspace ? [snapshot.workspace] : []), ...snapshot.workspaces], snapshot.chatsFolderRoots).map(projectRootOf).filter((root): root is string => !!root))]
   const rootsKey = JSON.stringify(roots)
   const routeKey = JSON.stringify(snapshot.workbench.navigation.current)
   const key = `${rootsKey}\0${routeKey}`

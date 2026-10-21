@@ -96,3 +96,38 @@ it('keeps the latest Seat facts for repeated live and stopped conversations', ()
  const seats=teamSeats({...goal([live,latest]),pastMembers:[past,pastLatest]},team(),run)
  expect(seats.map(one=>one.record.id)).toEqual(['live-latest','past-latest'])
 })
+
+it('uses chronological generated Seat ordinals across active and stopped Seats while preserving custom names', async () => {
+ const { compactTeamSeatName } = await import('./team-seats')
+ const first={...record('first','one'),agent:{...record('first','one').agent!,name:'Implementer'},seatLabel:'Model A · High',openedAt:1,closed:{at:3,why:'released'}}
+ const second={...record('second','two'),agent:{...record('second','two').agent!,name:'Implementer'},seatLabel:'Model A · Low',openedAt:2}
+ const third={...record('third','three'),agent:{...record('third','three').agent!,name:'Implementer'},seatLabel:'Model A · Low',openedAt:3}
+ const view={...goal([second,third]),pastMembers:[first]}
+ const board={...team(),nicknames:{[sessionKey('agent-a','one')]:'Implementer · Model A · High',[sessionKey('agent-a','two')]:'Implementer · Model A · Low',[sessionKey('agent-a','three')]:'Jane Doe'}}
+ const seats=teamSeats(view,board,null)
+ expect(seats.map(seat=>compactTeamSeatName(seat,seats,view))).toEqual(['Implementer 2','Jane Doe','Implementer 1'])
+})
+
+it.each([
+ ['Implementer', ['Implementer 1', 'Implementer 2', 'Implementer']],
+ ['Implementer 1', ['Implementer 2', 'Implementer 3', 'Implementer 1']],
+ ['Implementer 2', ['Implementer 1', 'Implementer 3', 'Implementer 2']],
+] as const)('reserves the deliberate nickname %s when allocating generated addresses', async (nickname, expected) => {
+ const { compactTeamSeatName } = await import('./team-seats')
+ const records = ['one', 'two', 'custom'].map((id, index) => ({ ...record(id, id), agent: { ...record(id,id).agent!, name: 'Implementer' }, seatLabel: 'Model A', openedAt: index + 1 }))
+ const view = goal(records)
+ const board = { ...team(), nicknames: Object.fromEntries(records.map(one => [sessionKey('agent-a',one.id), one.id === 'custom' ? nickname : 'Implementer · Model A'])) }
+ const seats = teamSeats(view,board,null)
+ expect(seats.map(seat=>compactTeamSeatName(seat,seats,view))).toEqual(expected)
+ // Presentation order cannot change the address of the exact same Seat.
+ expect(seats.map(seat=>compactTeamSeatName(seat,[...seats].reverse(),view))).toEqual(expected)
+})
+
+it('keeps another Agent’s explicit base name available when allocating ordinals', async () => {
+ const { compactTeamSeatName } = await import('./team-seats')
+ const records = ['Implementer', 'Implementer', 'Implementer 1'].map((name,index) => ({ ...record(String(index),String(index)), agent: { ...record(String(index),String(index)).agent!, name }, seatLabel: 'Model A', openedAt: index + 1 }))
+ const view = goal(records)
+ const board = { ...team(), nicknames: Object.fromEntries(records.map(one => [sessionKey('agent-a',one.id), `${one.agent.name} · Model A`])) }
+ const seats = teamSeats(view,board,null)
+ expect(seats.map(seat=>compactTeamSeatName(seat,seats,view))).toEqual(['Implementer 2','Implementer 3','Implementer 1'])
+})

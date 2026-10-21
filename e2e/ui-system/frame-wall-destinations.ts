@@ -1,5 +1,5 @@
 /**
- * What the frame wall captures (docs/superpowers/plans/2026-10-09-app-frame.md,
+ * What the frame wall captures (docs/design.md,
  * "The visual check"). `tab` is a Team view's `data-team-page` value. A phase
  * that adds a destination adds it here, and the wall grows with it.
  */
@@ -39,7 +39,7 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'draft-details', query: 'frame-wall=draft', tool: 'details' },
   { id: 'draft-browser', query: 'frame-wall=draft', tool: 'browser' },
   { id: 'team-details', query: 'frame-wall=team', tool: 'details' },
-  { id: 'team-chat-side-by-side', query: 'frame-wall=team', tab: 'room', viewChoice: 'Side by side' },
+  { id: 'team-chat-side-by-side', query: 'frame-wall=team', tab: 'room', viewChoice: 'Split' },
   { id: 'team-chat-holding', query: 'frame-wall=team', tab: 'room', holdMessages: true },
   { id: 'team-runs', query: 'frame-wall=team-trigger', tab: 'runs' },
   { id: 'team-receipt', query: 'frame-wall=team-receipt', tab: 'receipt' },
@@ -211,12 +211,19 @@ export const E5_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
 ;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E5_PAGE_WALL_DESTINATIONS)
 
 export const E6_LIBRARY_PAGE_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'l2-library-changes', query: 'frame-wall=library&frame-kind=changes', pageWidth: 'wide' },
+  { id: 'l2-library-changes-restore', query: 'frame-wall=library&frame-kind=changes', pageWidth: 'wide', bodyChoice: { label: 'Changes', value: 'restore', item: 'Can restore' } },
+  { id: 'l2-library-changes-failed', query: 'frame-wall=library&frame-kind=changes', pageWidth: 'wide', bodyChoice: { label: 'Changes', value: 'failed', item: 'Failed' } },
+  ...['one', 'several', 'installs', 'failed', 'failures'].map(shape => ({ id: `l2-library-toast-${shape}`, query: `frame-wall=library&frame-write-toast=${shape}`, pageWidth: 'wide' as const })),
+  { id: 'l2-library-changes-empty', query: 'frame-wall=library&frame-kind=changes&frame-changes-empty=1', pageWidth: 'wide' },
   { id: 'e6-library-skills', query: 'frame-wall=library&frame-kind=skill', pageWidth: 'wide' },
+  { id: 'l1-library-empty', query: 'frame-wall=library&frame-empty=1', pageWidth: 'wide' },
+  { id: 'l1-library-add', query: 'frame-wall=library', pageWidth: 'wide', addSkillMenu: true },
   { id: 'e6-library-mcp', query: 'frame-wall=library&frame-kind=mcp', pageWidth: 'wide', tab: 'mcp' },
   { id: 'e6-library-matrix', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'How to show the library',value:'matrix',item:'Matrix'} },
   { id: 'e6-library-expanded', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'How to show the library',value:'matrix',item:'Matrix'}, expandLibraryEntry: true },
-  { id: 'e6-library-import', query: 'frame-wall=library', pageWidth: 'wide', moreChoice: 'Import' },
-  { id: 'e6-library-attention', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'Filter the library',value:'problems',item:'Problems'} },
+  { id: 'e6-library-import', query: 'frame-wall=library', pageWidth: 'wide', addSkillChoice: 'Copy from another runtime…' },
+  { id: 'e6-library-attention', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'Skills',value:'needs-you',item:'Needs you'} },
   { id: 'e6-library-conflict', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'Filter the library',value:'differs',item:'Copies differ'} },
 ]
 ;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E6_LIBRARY_PAGE_DESTINATIONS)

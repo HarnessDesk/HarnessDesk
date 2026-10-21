@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { expect, test, type Page } from '@playwright/test'
@@ -19,16 +20,34 @@ import { writeOnceEveryTestPasses } from './write-once'
  * adding one is a review. `UPDATE_GUIDES=1` re-records, and is a choice to
  * accept what the board shows; `pnpm design:doc` then carries the new counts
  * into docs/design-system.md, whose check fails until it does.
+ *
+ * The record is kept per platform (`linux`, `darwin`). A signature carries how
+ * far an edge sits from its rail, and which edges form a rail at all, and both
+ * follow the text's width, which is the platform's own: the same page measured
+ * on a Mac and on a Linux runner does not agree to the half pixel. CI is Linux,
+ * and the docs count its record. A run on a platform with no record fails; it
+ * never reads another's. `UPDATE_GUIDES=1` re-records only the platform it runs
+ * on, so both platforms are re-recorded from the same commit.
+ *
+ * The `linux` record is the most any CI run has shown, signature by signature,
+ * not one run's. An edge that sits at the outer limit of the near-miss band
+ * (`Δ3` is 2.75 to 3px off, and the band ends at 3) comes and goes between runs
+ * of the same code, a quarter pixel of text width deciding it, and the gate
+ * only fails on growth, so the maximum stops it flipping. Each run keeps what
+ * it measured in `guides-observed/` beside the report, which CI uploads on a
+ * failure; merge a new run's file into the record as a per-signature maximum.
  */
 
 type Kind = 'offLine' | 'overflow' | 'offScale'
-type Record_ = Record<string, Record<Kind, Record<string, number>>>
+type Scenes = Record<string, Record<Kind, Record<string, number>>>
+type Record_ = Record<string, Scenes>
 type Report = { page: string; offLine: string[]; overflow: string[]; offScale: string[] }[]
 
 const TABLE = fileURLToPath(new URL('../../packages/ui/src/design/guides-standard.json', import.meta.url))
 const UPDATE = process.env.UPDATE_GUIDES === '1'
+const PLATFORM = process.platform
 const KINDS: Kind[] = ['offLine', 'overflow', 'offScale']
-const observed: Record_ = {}
+const observed: Scenes = {}
 
 const recorded = (): Record_ => {
   try { return JSON.parse(readFileSync(TABLE, 'utf8')) as Record_ } catch { return {} }
@@ -65,19 +84,30 @@ const measure = async (page: Page, url: string, hasSteps: boolean) => {
   throw new Error(`guides never settled at ${url}`)
 }
 
-test.use({ viewport: { width: WINDOW.width, height: WINDOW.height }, screenshot: 'off', trace: 'off', video: 'off' })
-if (UPDATE) writeOnceEveryTestPasses(test, () => writeFileSync(TABLE, `${JSON.stringify(observed, null, 2)}\n`))
+// The wall's clock is one instant, and a finding's text is that instant as the
+// browser's zone prints it: on a runner in UTC "9:34 AM" read "4:34 PM", a
+// finding the record (taken in Pacific time) could not have.
+test.use({ viewport: { width: WINDOW.width, height: WINDOW.height }, timezoneId: 'America/Los_Angeles', screenshot: 'off', trace: 'off', video: 'off' })
+if (UPDATE) writeOnceEveryTestPasses(test, () => writeFileSync(TABLE, `${JSON.stringify(Object.fromEntries(Object.entries({ ...recorded(), [PLATFORM]: observed }).sort(([a], [b]) => a.localeCompare(b))), null, 2)}\n`))
 
 for (const scene of SCENES) {
-  test(`guides standard: ${scene.id}`, async ({ page }) => {
+  test(`guides standard: ${scene.id}`, async ({ page }, testInfo) => {
     if (scene.width || scene.height) await page.setViewportSize({ width: scene.width ?? WINDOW.width, height: scene.height ?? WINDOW.height })
     await page.emulateMedia({ colorScheme: 'light' })
     const report = await measure(page, sceneUrl(scene, 'light', 'lines'), !!scene.steps?.length)
     const found = Object.fromEntries(KINDS.map((kind) => [kind, tally(report.flatMap((one) => one[kind]))])) as Record<Kind, Record<string, number>>
     observed[scene.id] = found
+    // What this machine measured, kept beside the report whether or not it
+    // matches the record: a runner's artifact is how the record is taken from
+    // the machine that gates (text metrics are the machine's own).
+    const kept = path.join(testInfo.project.outputDir, '..', 'guides-observed')
+    mkdirSync(kept, { recursive: true })
+    writeFileSync(path.join(kept, `${scene.id}.json`), `${JSON.stringify(found, null, 2)}\n`)
     if (UPDATE) return
-    const before = recorded()[scene.id]
-    expect(before, `${scene.id} has no record; run with UPDATE_GUIDES=1 and review what it shows`).toBeTruthy()
+    const platformRecord = recorded()[PLATFORM]
+    expect(platformRecord, `no guides record for ${PLATFORM}; run with UPDATE_GUIDES=1 on it and review what it shows`).toBeTruthy()
+    const before = platformRecord![scene.id]
+    expect(before, `${scene.id} has no ${PLATFORM} record; run with UPDATE_GUIDES=1 and review what it shows`).toBeTruthy()
     for (const kind of KINDS) {
       const grown = Object.entries(found[kind])
         .filter(([signature, count]) => count > (before![kind][signature] ?? 0))

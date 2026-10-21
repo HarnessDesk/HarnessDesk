@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, watch } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -20,6 +20,23 @@ const lists = {
   agents: [{ agentType: 'Explore', source: 'builtin', tokens: 20 }],
 }
 
+// Opening a session starts an asynchronous SDK window probe. Its log entry
+// can arrive after createSession resolves, so wait for that observed boundary
+// before measuring only the extension's own requests below.
+const waitForOpenProbe = (log: string): Promise<void> => new Promise((resolve, reject) => {
+  const hasProbe = () => readFileSync(log, 'utf8').split('\n').some(line => line.startsWith('context-detail '))
+  const done = (error?: Error) => {
+    clearTimeout(deadline)
+    watcher.close()
+    if (error) reject(error)
+    else resolve()
+  }
+  const watcher = watch(log, () => { if (hasProbe()) done() })
+  const deadline = setTimeout(() => done(new Error('The session-open SDK context probe did not arrive.')), 10_000)
+  watcher.once('error', done)
+  if (hasProbe()) done()
+})
+
 test('loadout crosses the bridge as plain lists and asks the SDK for summary only', async () => {
   const log = join(scratch('loadout-log-'), 'calls')
   const runtime = make({ FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_CONTEXT: JSON.stringify({ ...lists, skills: { skillFrontmatter: lists.skills }, model: 'private-sdk-field' }) })
@@ -28,6 +45,7 @@ test('loadout crosses the bridge as plain lists and asks the SDK for summary onl
     const session = await runtime.createSession({ cwd: scratch('loadout-cwd-') })
     // The upstream bridge also probes the window in the background at open.
     // Only the requests caused by our extension belong to this assertion.
+    await waitForOpenProbe(log)
     const before = readFileSync(log, 'utf8').length
     const result = await runtime.connectionFor(session.id).request('_harnessdesk/session/loadout', { sessionId: session.id })
     assert.deepEqual(result, { ready: true, ...lists })

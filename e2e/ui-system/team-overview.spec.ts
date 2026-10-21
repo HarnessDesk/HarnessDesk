@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { closeTeamDetails, teamSeats } from './team-frame-actions'
+import { closeTeamDetails, selectTeamPage, teamSeats } from './team-frame-actions'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`Team Overview: precedence, resting ink, faces, fold and pane width in ${theme}`, async ({ page }) => {
@@ -43,7 +43,8 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await narrow.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true)
     const rig = page.locator('#team-overview-team')
     await expect(rig.locator('[data-slot="team-overview"]')).toBeVisible()
-    await expect(rig.getByText('2 done', { exact: true })).toBeVisible()
+    await expect(rig.locator('[data-slot="run-workspace"]')).toHaveAttribute('data-view', 'work')
+    await expect(rig.locator('[data-slot="team-overview"] [aria-label="Seats"]')).toHaveCount(0)
     const members = await teamSeats(rig)
     await expect(members.locator('[data-slot="list-row"]')).toHaveCount(2)
     const completed = members.locator('[data-slot="list-row-trail"] [data-slot="chip"]').filter({ hasText: /^Done$/ })
@@ -66,8 +67,17 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(attention.locator('[data-slot="dot"]')).toHaveAttribute('data-state', 'limit')
     await expect(tree.locator('[data-slot="spinner"]')).toHaveCount(0)
     await expect(tree.locator('[data-slot="chip"]')).toHaveCount(0)
+    // A Team that is not open starts folded; its chevron lists the seats under it and folds them again.
     const disclosure = tree.getByRole('button', { name: 'Show the agents in Retry the checkout call', exact: true })
-    await expect(disclosure).toHaveCount(0)
+    await expect(disclosure).toHaveCount(1)
+    await expect(tree.locator('[data-left-nested]')).toHaveCount(0)
+    await disclosure.click()
+    const fold = tree.getByRole('button', { name: 'Hide the agents in Retry the checkout call', exact: true })
+    await expect(fold).toHaveCount(1)
+    expect(await tree.locator('[data-left-nested]').count()).toBeGreaterThan(0)
+    await tree.getByRole('button', { name: 'Room Retry the checkout call', exact: true }).hover({ position: { x: 8, y: 16 } })
+    await fold.click()
+    await expect(tree.locator('[data-left-nested]')).toHaveCount(0)
     const team = tree.getByRole('button', { name: 'Room Retry the checkout call', exact: true })
     const project = tree.locator('[data-project-root] button[data-draggable]')
     await expect(project).toHaveAttribute('aria-expanded', 'true')
@@ -77,13 +87,13 @@ for (const theme of ['light', 'dark'] as const) {
     await project.click()
     await expect(project).toHaveAttribute('aria-expanded', 'true')
     await expect(team).toBeVisible()
-    // The flat Team row keeps its Seats in Details rather than nesting views.
+    // Details still lists every seat with its conversation.
     const running = page.locator('#team-overview-live-running')
     const runningSeats = await teamSeats(running)
     await expect(runningSeats.locator('[data-slot="list-row"]')).toHaveCount(2)
     await expect(runningSeats.locator('[data-slot="list-row-title"]')).toHaveText(['Alpha', 'Beta'])
-    await expect(runningSeats).toContainText('Writer conversation')
-    await expect(runningSeats).toContainText('Reviewer conversation')
+    await expect(runningSeats.locator('[data-slot="list-row"]').nth(0)).toHaveAccessibleName(/Writer conversation/)
+    await expect(runningSeats.locator('[data-slot="list-row"]').nth(1)).toHaveAccessibleName(/Reviewer conversation/)
     await closeTeamDetails(running)
   })
 }
@@ -116,54 +126,53 @@ for (const theme of ['light', 'dark'] as const) {
       ['running', 'Alpha is working'],
       ['needs-you', 'Beta is waiting for your approval'],
       ['stalled', 'Choose the target before this Run can continue'],
-    ]).entries()) test(`Team Overview: the Run strip keeps live status and clickable faces align in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+    ]).entries()) test(`Team Work: live status and canonical Seat faces align in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
       await page.goto(`/preview.html?team-overview&theme=${theme}`)
       await page.evaluate(() => document.fonts.ready)
-      const overview = page.locator(`#team-overview-live-${scene} [data-slot="team-overview"]`)
+      const frame = page.locator(`#team-overview-live-${scene}`)
+      const overview = frame.locator('[data-slot="team-overview"]')
+      await expect(frame.locator('[data-slot="run-workspace"]')).toHaveAttribute('data-view', 'work')
       if (scene === 'stalled') {
-        // A stalled Run owns its refusal; Overview keeps the action that opens it.
-        await expect(overview.locator('[data-slot="room-live-line"]')).toHaveCount(0)
-        await expect(overview).not.toContainText(sentence!)
-        await expect(page.locator(`#team-overview-live-${scene}`).getByRole('button', { name: 'Review stopped Run', exact: true })).toBeVisible()
+        const pending = frame.getByRole('region', { name: 'Pending', exact: true })
+        await pending.getByRole('button', { name: 'Open Run', exact: true }).click()
+        const inspector = frame.locator('[data-slot="run-inspector"]')
+        await expect(inspector.locator('[aria-label="Team Run facts"]')).toBeVisible()
+        await expect(inspector).toContainText(sentence!)
+        expect((await inspector.textContent())?.split(sentence!)).toHaveLength(2)
+        await frame.getByRole('button', { name: 'Close pane', exact: true }).click()
+      } else if (scene === 'needs-you') {
+        await overview.getByRole('button', { name: 'Open Chat', exact: true }).click()
+        await expect(frame.locator('[data-slot="approval-card"] [data-slot="approval-meta"][data-kind="person"]')).toContainText('Beta')
+        await expect(frame.locator('[data-slot="approval-card"]')).toContainText('Beta asks to edit the checkout file before retrying the payment')
+        await selectTeamPage(frame, 'overview')
       } else await expect(overview.locator('[aria-label="Run"] [data-slot="room-live-line"]')).toContainText(sentence!)
-      await expect(overview.locator('[data-slot="room-run-reason"]')).toHaveCount(0)
-      for (const row of await overview.locator('[data-slot="table-row"][data-seat]').all()) {
+      const seats = await teamSeats(frame)
+      const rows = seats.locator('[data-slot="list-row"]')
+      await expect(rows).toHaveCount(2)
+      for (const row of await rows.all()) {
+        await row.scrollIntoViewIfNeeded()
         const delta = await row.evaluate(e => {
-          const face = e.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
-          const cell = e.querySelector('[data-slot="table-cell"]')!.getBoundingClientRect()
-          const name = e.querySelector('[data-role="subject"]')!
-          const range = document.createRange(); range.selectNodeContents(name)
-          const line = range.getClientRects()[0]!
-          const role = e.querySelector('[data-slot="table-cell"] [data-role="meta"]')
-          const roleRange = document.createRange(); if (role) roleRange.selectNodeContents(role)
-          return {
-            face: Math.abs((face.top + face.bottom) / 2 - (cell.top + cell.bottom) / 2),
-            column: role ? Math.abs(line.left - roleRange.getClientRects()[0]!.left) : 0
-          }
+          const face = e.querySelector('[data-slot="list-row-lead"] svg')!.getBoundingClientRect()
+          const content = e.querySelector('[data-slot="list-row-content"]')!.getBoundingClientRect()
+          const title = e.querySelector('[data-slot="list-row-title"]')!.getBoundingClientRect()
+          const subtitle = e.querySelector('[data-slot="list-row-subtitle"]')?.getBoundingClientRect()
+          return { face: Math.abs((face.top + face.bottom - content.top - content.bottom) / 2),
+            column: subtitle ? Math.abs(title.left - subtitle.left) : 0 }
         })
         expect(delta.face).toBeLessThan(1.5)
         expect(delta.column).toBeLessThan(1.5)
-        const opener = row.getByRole('button', { name: /^Open / })
-        const box = await opener.boundingBox()
-        expect(box!.width).toBeGreaterThanOrEqual(24)
-        expect(box!.height).toBeGreaterThanOrEqual(24)
-        await opener.hover()
-        await expect(opener).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-        for (const title of await row.locator('[title]').all()) {
+        const opener = row.getByRole('button', { name: /^Actions for / })
+        const box = (await opener.boundingBox())!
+        expect(box.width).toBeGreaterThanOrEqual(24)
+        expect(box.height).toBeGreaterThanOrEqual(24)
+        for (const title of await row.locator('[data-slot="list-row-title"] [title]').all()) {
           expect(await title.evaluate(el => {
             const box = el.getBoundingClientRect(), hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
             return hit !== null && el.contains(hit)
           })).toBe(true)
         }
       }
-      if (scene === 'stalled') {
-        const frame = page.locator(`#team-overview-live-${scene}`)
-        await frame.getByRole('button', { name: 'Review stopped Run', exact: true }).click()
-        await expect(frame.locator('[data-slot="run-view"]').first()).toContainText(sentence!)
-        expect((await frame.textContent())?.split(sentence!)).toHaveLength(2)
-      }
-
-
+      await closeTeamDetails(frame)
     })
   }
 }
@@ -172,29 +181,35 @@ for (const theme of ['light', 'dark'] as const) {
   test(`Team Overview: evidence and unrouted reasons stay visible once in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?team-overview&theme=${theme}`)
     const waiting = page.locator('#team-overview-live-waiting-evidence [data-slot="team-overview"]')
-    await expect(waiting.locator('[aria-label="Needs you"]')).toHaveCount(0)
+    await expect(page.locator('#team-overview-live-waiting-evidence [data-topbar="state"] [aria-label="Running"]')).toBeVisible()
     await expect(waiting.locator('[aria-label="Run"]')).toContainText('Waiting for CI to go green at this revision.')
     await expect(waiting).not.toContainText('Rule ')
     await expect(waiting.locator('[data-slot="room-pending-release-line"]')).toHaveText('Waiting for a Seat to finish before releasing its checkout.')
     expect((await waiting.textContent())?.split('Waiting for CI to go green at this revision.')).toHaveLength(2)
-    await waiting.getByRole('button', { name: 'Build and review', exact: true }).click()
+    await expect(page.locator('#team-overview-live-waiting-evidence [data-slot="run-flow"]')).toBeVisible()
     await expect(page.locator('#team-overview-live-waiting-evidence [data-slot="run-view"]').first()).toBeVisible()
     const reason = '"Review the change" (#2) answered revise; no rule continues from it, so this waits for you'
-    const run = page.locator('#team-overview-live-unrouted [data-slot="team-overview"] [aria-label="Run"]')
-    await expect(run.locator('[data-slot="room-run-reason"]')).toHaveText(reason)
-    expect((await run.textContent())?.split(reason)).toHaveLength(2)
+    const unrouted = page.locator('#team-overview-live-unrouted')
+    await expect(unrouted.locator('[data-slot="run-need"]')).toContainText(reason)
+    expect((await unrouted.textContent())?.split(reason)).toHaveLength(2)
 
   })
 }
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`Overview keeps unknown stopped timing as a dash in ${theme}`, async ({ page }) => {
+  test(`Work keeps unknown stopped timing explicit in its Run facts and record in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?team-overview&theme=${theme}`)
-    const overview = page.locator('#team-overview-live-stopped-unknown [data-slot="team-overview"]')
-    expect(await overview.locator('th').allTextContents()).not.toContain('Now')
-    await expect(overview.locator('[data-slot="seat-state"]')).toHaveText(['Stopped', 'Stopped'])
-    for (const seat of await overview.locator('[data-seat]').all()) await expect(seat.locator('td[data-align="end"]').nth(1)).toHaveText('—')
-    await expect(overview).not.toContainText('is working')
+    const frame = page.locator('#team-overview-live-stopped-unknown')
+    await teamSeats(frame)
+    const facts = frame.locator('[aria-label="Team Run facts"] [data-slot="summary-item"]').filter({ has: page.locator('dt', { hasText: /^Elapsed$/ }) })
+    await expect(facts).toContainText('Not recorded')
+    await closeTeamDetails(frame)
+    await frame.getByRole('button', { name: 'Full record', exact: true }).click()
+    const record = frame.getByRole('list', { name: 'Run timeline', exact: true })
+    await expect(record.locator('[data-slot="run-time"]')).toHaveText(['Time not recorded', 'Time not recorded'])
+    await expect(record.locator('[data-step-row="writer"]')).toContainText('Stopped')
+    await expect(record.locator('[data-step-row="reviewer"]')).toContainText('Stopped')
+    await expect(record).not.toContainText('is working')
   })
   test(`Overview keeps findings, posting and pending release reasons once in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?team-overview&theme=${theme}`)
@@ -211,7 +226,7 @@ for (const theme of ['light', 'dark'] as const) {
 for (const theme of ['light', 'dark'] as const) {
   test(`Overview gives the name the available width and drops empty readings in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?team-overview&theme=${theme}`)
-    const overview = page.locator('#team-overview-live-running [data-slot="team-overview"]')
+    const overview = page.locator('#team-overview-running [data-slot="team-overview"]')
     const widths = await overview.locator('th').evaluateAll(heads => heads.map(head => head.getBoundingClientRect().width))
     expect(widths[0]).toBeGreaterThan(widths[4]!)
     await expect(overview.locator('[data-seat="seat-0"] [data-slot="seat-card"]')).toHaveCSS('white-space', 'nowrap')
@@ -228,8 +243,8 @@ for (const theme of ['light', 'dark'] as const) {
     const rig = page.locator('#team-overview-live-unreadable-ledger')
     const overview = rig.locator('[data-slot="team-overview"]')
     const reason = 'Some findings could not be read, so this cannot be ready. A person has to look.'
-    await expect(overview.getByText('Needs you', { exact: true })).toBeVisible()
-    await expect(overview.locator('[aria-label="Needs you"]')).toContainText(reason)
+    await expect(rig.locator('[data-topbar="state"] [aria-label="Needs you"]')).toBeVisible()
+    await expect(overview.getByRole('region', { name: 'Pending', exact: true })).toContainText(reason)
     expect((await overview.textContent())?.split(reason)).toHaveLength(2)
     await expect(overview).not.toContainText('Rule ')
     const open = overview.getByRole('button', { name: 'Open findings', exact: true })
@@ -245,11 +260,73 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto(`/preview.html?team-overview&theme=${theme}`)
     for (const width of [1440, 720]) {
       await page.setViewportSize({ width, height: 1100 })
-      const opener = page.locator('#team-overview-live-running [data-slot="team-overview"]').getByRole('button', { name: /^Open / }).filter({ has: page.locator('[data-role="subject"]') }).first()
+      const opener = page.locator('#team-overview-running [data-slot="team-overview"]').getByRole('button', { name: /^Open / }).filter({ has: page.locator('[data-role="subject"]') }).first()
       await opener.locator('[data-role="subject"]').evaluate(node => { node.textContent = 'A' })
       const box = (await opener.boundingBox())!
       expect(box.width).toBeGreaterThanOrEqual(24)
       expect(box.height).toBeGreaterThanOrEqual(24)
+    }
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Team news: orange waits, blue clears on opening, and unchecked Overview has no count in ${theme}`, async ({page}) => {
+    await page.setViewportSize({width:1200,height:900})
+    await page.emulateMedia({colorScheme:theme})
+    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.evaluate(() => document.fonts.ready)
+    const sidebar=page.locator('#team-attention-sidebar')
+    const orange=sidebar.getByRole('button',{name:'Room Waiting on you',exact:true}).locator('xpath=ancestor::*[@data-left-row][1]')
+    const blue=sidebar.getByRole('button',{name:'Room Finished work',exact:true}).locator('xpath=ancestor::*[@data-left-row][1]')
+    const quiet=sidebar.getByRole('button',{name:'Room Seen work',exact:true}).locator('xpath=ancestor::*[@data-left-row][1]')
+    await expect(orange.locator('[data-left-mark]')).toHaveAttribute('aria-label','Needs you')
+    await expect(orange.locator('[data-slot="dot"]')).toHaveAttribute('data-state','limit')
+    await expect(blue.locator('[data-left-mark]')).toHaveAttribute('aria-label','New')
+    await expect(blue.locator('[data-slot="dot"]')).toHaveAttribute('data-state','new')
+    await expect(quiet.locator('[data-left-mark]')).toHaveCount(0)
+    await sidebar.screenshot({path:`${process.env.HD_1777_FRAMES ?? 'output/playwright/1777'}/sidebar-${theme}.png`})
+    await blue.getByRole('button',{name:'Room Finished work',exact:true}).locator('[data-left-fold-name]').click()
+    await expect(blue.locator('[data-left-mark]')).toHaveCount(0)
+    const frame=page.locator('#team-overview-live-unchecked')
+    const overview=frame.locator('[data-slot="team-overview"]')
+    await expect(overview.locator('[data-unchecked-done]')).toHaveText('141 cards finished without a checkOpen BoardWrap')
+    await expect(frame.locator('[data-topbar="state"] [aria-label="Done"]')).toBeVisible()
+    await expect(overview.getByRole('region', { name: 'Pending', exact: true })).toHaveCount(0)
+    await expect(frame.locator('[data-team-page="overview"] [data-slot="switcher-count"], [data-team-page="overview"] [data-slot="tabs-count"]')).toHaveCount(0)
+    await expect(frame.locator('[data-team-page="overview"]')).toHaveText('Work')
+    await expect(overview.getByRole('button',{name:'Wrap',exact:true})).toBeVisible()
+    const row = overview.locator('[data-unchecked-done]')
+    const textBox = (await row.locator('[data-slot="list-row-title"]').boundingBox())!
+    const actions = row.locator('[data-slot="list-row-trail"]')
+    for (const label of ['Open Board', 'Wrap']) {
+      const actionBox = (await actions.getByRole('button', {name:label, exact:true}).boundingBox())!
+      expect(actionBox.x).toBeGreaterThan(textBox.x + textBox.width)
+      expect(Math.abs(actionBox.y + actionBox.height / 2 - textBox.y - textBox.height / 2)).toBeLessThanOrEqual(2)
+    }
+    await frame.screenshot({path:`${process.env.HD_1777_FRAMES ?? 'output/playwright/1777'}/overview-${theme}.png`})
+    await overview.getByRole('button',{name:'Open Board',exact:true}).click()
+    await expect(frame.locator('[data-team-page="board"]')).toHaveAttribute('data-active','')
+  })
+
+  test(`Work keeps attention readable without a duplicate navigation count in ${theme}`, async ({page}) => {
+    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    for (const scene of ['needs-you','stalled','unrouted','findings-and-posting']) {
+      const frame=page.locator(`#team-overview-live-${scene}`)
+      if (scene === 'needs-you') {
+        await expect(frame.getByRole('button', { name: 'Open Chat', exact: true })).toBeVisible()
+        await expect(frame.locator('[data-team-page="room"]')).toHaveAttribute('title', '1 pending reply')
+      } else if (scene === 'stalled') {
+        await expect(frame.getByRole('region', { name: 'Pending', exact: true }).getByRole('button', { name: 'Open Run', exact: true })).toBeVisible()
+      } else if (scene === 'unrouted') {
+        await expect(frame.locator('[data-slot="run-need"]')).toBeVisible()
+        await expect(frame.locator('[data-slot="run-need"]')).toContainText('no rule continues')
+      } else {
+        const rows=frame.getByRole('region', { name: 'Pending', exact: true }).locator('[data-slot="list-row"]')
+        await expect(rows.first()).toBeVisible()
+        expect(await rows.count()).toBeGreaterThan(0)
+      }
+      await expect(frame.locator('[data-team-page="overview"]')).toHaveText('Work')
+      await expect(frame.locator('[data-team-page="overview"] [data-slot="tabs-count"]')).toHaveCount(0)
     }
   })
 }

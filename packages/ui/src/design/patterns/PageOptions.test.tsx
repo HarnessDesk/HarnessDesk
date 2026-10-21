@@ -1,4 +1,5 @@
 import { act } from 'react'
+import css from './PageOptions.module.css?raw'
 import { createRoot } from 'react-dom/client'
 import { expect, test, vi } from 'vitest'
 import { PageOptions } from './PageOptions'
@@ -46,4 +47,21 @@ test('the page verb starts the row and a disabled verb keeps its reason', async 
     expect(action.title).toBe('The library has not been read.')
     act(() => action.click()); expect(run).not.toHaveBeenCalled()
   } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+test('a page head is one bar tall, the sidebar brand row\'s counterpart', () => {
+  expect(css).toMatch(/\.head\s*\{[^}]*min-height:\s*var\(--hd-bar-h\)/)
+})
+
+test('the page action stands on the control height its neighbours use', () => {
+  /* The tabs and the View trigger beside it are on `--hd-control-h`; the
+     action's `sm` box was a rung above them, so in the compact tab row its
+     top and bottom edges did not share their line. */
+  const host = document.createElement('div'); document.body.append(host)
+  const root = createRoot(host)
+  try {
+    void act(() => root.render(<PageOptions action={{ label: 'Stop run…', run: () => {} }} />))
+    const action = host.querySelector<HTMLButtonElement>('[data-slot="page-options"] > button')!
+    expect(action.className).toContain('h-(--hd-control-h)')
+  } finally { void act(() => root.unmount()); host.remove() }
 })

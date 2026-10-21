@@ -176,3 +176,23 @@ it('names a hand-off from the recorded typed opening rather than the pasted bloc
   await store.handOff(TARGET, 'summary')
   expect(store.getSnapshot().draftHandoff?.title).toContain('<context source="Git"')
 })
+
+it.each([true, false])('a managed-chat handoff allocates a fresh folder (source folder open: %s)', async sourceOpen => {
+  const cwd = '/data/chats/2026-10-16-source'
+  const chat = { ...conversation(), cwd }
+  Object.assign(store.getSnapshot(), { chatsFolderRoots: [cwd] })
+  answers['session/read'] = chat
+  answers['session/resume'] = chat
+  answers['workspace/open'] = { path: cwd, name: '2026-10-16-source', lastOpenedAt: 1, git: null, repo: null }
+  answers['workspace/recent'] = [answers['workspace/open']]
+  await store.openSession(ID, { runtime: SOURCE })
+  if (!sourceOpen) Object.assign(store.getSnapshot(), { workspace: { path: '/other', name: 'other', lastOpenedAt: 1 } })
+  await store.handOff(TARGET, 'summary')
+  expect(store.getSnapshot().draftHandoff?.cwd).toBe(cwd)
+  expect(store.getSnapshot().workspace).toBeNull()
+  expect(store.getSnapshot().draftPlace).toEqual({ kind: 'chats' })
+  answers['session/create'] = { ...chat, id: sessionId('s-2'), runtime: TARGET, cwd: '/data/chats/2026-10-16-new' }
+  await store.queue([{ type: 'text', text: 'Continue the work.' }])
+  const create = vi.mocked(store.transport.request).mock.calls.find(([method]) => method === 'session/create')
+  expect(create?.[1]).toEqual({ runtime: TARGET, options: {} })
+})

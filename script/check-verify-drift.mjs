@@ -288,6 +288,7 @@ export const tierProblems = yaml => {
     'types: [opened, synchronize, reopened]',
     'CI_HEAD_BRANCH: ${{ github.head_ref }}',
     'CI_REF_NAME: ${{ github.ref_name }}',
+    'CI_BEFORE: ${{ github.event.before }}',
     'branches: [main, development]',
     'CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}',
     'tier: ${{ steps.paths.outputs.tier }}',

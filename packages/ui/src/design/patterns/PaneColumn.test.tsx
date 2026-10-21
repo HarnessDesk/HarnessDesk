@@ -2,7 +2,7 @@ import { act, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { PaneColumn, ReadingMeasure, useComposerHeightVar } from './PaneColumn'
+import { PaneColumn, PaneTabsRow, ReadingMeasure, useComposerHeightVar } from './PaneColumn'
 
 /**
  * The column inset four screens shared with no owner: the reading column the
@@ -59,7 +59,7 @@ it('takes the reading column flat, without the scrollbar compensation, and its o
 
 it('gives a prose page the reading inset above and below its content', () => {
   act(() => root.render(<PaneColumn inset="reading" page>receipt</PaneColumn>))
-  expect((container.firstElementChild as HTMLElement).style.padding).toBe('var(--hd-space-6) var(--hd-space-6)')
+  expect((container.firstElementChild as HTMLElement).style.padding).toBe('var(--page-top, var(--hd-space-6)) var(--hd-space-6) var(--hd-space-6)')
 })
 
 it('clears the floating composer only when asked, on top of a notice inset', () => {
@@ -149,4 +149,16 @@ it('releases the old dock and observes a remounted dock through unmount', () => 
   act(() => root.unmount())
   expect(newObserver.disconnect).toHaveBeenCalledOnce()
   root = createRoot(container)
+})
+
+it('keeps several contextual controls in the same aligned row beside the pane tabs', () => {
+  act(() => root.render(<PaneTabsRow controls={<><button>Findings</button><button>New task</button></>}>Tasks</PaneTabsRow>))
+  const controls = container.querySelector('[data-pane-tabs-row]')?.lastElementChild as HTMLElement
+  expect(controls.classList.contains('flex')).toBe(true)
+  expect(controls.classList.contains('items-center')).toBe(true)
+  // The group owns the pane's end gutter while tabs yield on the other edge.
+  // Its buttons remain adjacent rather than sharing the free row space.
+  expect(controls.classList.contains('ms-auto')).toBe(true)
+  expect(controls.classList.contains('shrink-0')).toBe(true)
+  expect([...controls.querySelectorAll('button')].map(one => one.textContent)).toEqual(['Findings', 'New task'])
 })

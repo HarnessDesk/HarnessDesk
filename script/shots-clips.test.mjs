@@ -100,3 +100,9 @@ test('guest pointer targets include the recorded iframe zoom and offset', () => 
   assert.deepEqual(clips.guestTargetBox(iframe, { width: 768, height: 432 }, guest),
     { x: 316, y: 100, width: 100, height: 40 })
 })
+
+test('the Library story reads the skill page and returns through Back to Library', () => {
+  const clicks = clips.CLIP_SCENES.library.actions.filter(action => action.kind === 'click')
+  assert.equal(clicks.at(-1).target.name, 'Back to Library')
+  assert.match(clips.CLIP_SCENES.library.caption, /runtimes/)
+})

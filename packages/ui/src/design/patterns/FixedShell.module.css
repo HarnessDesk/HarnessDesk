@@ -23,6 +23,7 @@
 .top { grid-area: top; min-width: 0; }
 .main { grid-area: main; position: relative; min-width: 0; min-height: 0; }
 .rail { grid-area: rail; position: relative; min-width: 0; min-height: 0; overflow: auto; }
+/* The rail owns its material; its scroller cannot repaint the glass opaque. */
 .right { overflow: hidden; grid-area: right; position: relative; min-width: 0; min-height: 0; }
 .bottom { visibility: hidden; pointer-events: none; position: absolute; left: var(--frame-left); right: 0; bottom: 0; top: calc(100% - var(--frame-bottom-retained)); }
 .shell[data-rail-open='true'][data-rail-floats='false'] { --frame-rail: var(--frame-rail-width); }
@@ -38,13 +39,18 @@
   grid-area: auto; position: absolute; top: var(--hd-bar-h); right: var(--frame-right); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
   bottom: 0; width: var(--frame-rail-width); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
 }
+/* An absolute grid child is contained by its assigned grid area. The sheet
+   belongs to main, so an open tool and live seam drags never sit beneath it. */
 .shell[data-rail-floats='true'] .rail {
-  grid-area: auto; position: absolute; /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
-  top: calc(var(--hd-bar-h) + var(--hd-rail-inset)); right: var(--hd-rail-inset); bottom: var(--hd-rail-inset);
+  grid-area: main; position: absolute; /* desk: contain the floating rail in main so it cannot cover the Details tool. */
+  top: var(--hd-rail-inset); right: var(--hd-rail-inset); bottom: max(var(--hd-rail-inset), var(--hd-composer-clearance)); /* desk: a floating rail stops above the measured visible composer. */
+  height: fit-content;
+  max-height: calc(100% - var(--hd-rail-inset) - max(var(--hd-rail-inset), var(--hd-composer-clearance)));
   width: min(var(--frame-rail-width), calc(100% - var(--hd-rail-inset) * 2)); /* desk: D1 separates the rail and gives the tool pane its own full-height region. */
   z-index: var(--hd-z-drawer);
 }
 .shell[data-pane-expanded='true'] .main { grid-area: right; }
+.shell[data-pane-expanded='true'][data-rail-floats='true'] .rail { grid-area: right; }
 /* The seam's hit area crosses this edge. Clip without letting keyboard focus
    scroll the swapped frame sideways to reveal that hit area. */
 .shell[data-pane-expanded='true'] .right { grid-area: main; overflow: clip; }

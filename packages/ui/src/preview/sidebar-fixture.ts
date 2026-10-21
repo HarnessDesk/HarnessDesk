@@ -541,7 +541,7 @@ export const previewHistory: SessionSummary[] = [
       { title: 'Add fixtures for the refund path before extending the checkout matrix', cwd: worktree('worktree-mgmt-4f10'), branch: 'feat/worktrees', ago: 26 },
       { title: 'Draft the 2.5 migration notes after reviewing the sidebar target behavior', cwd: worktree('settings-audit-77aa'), branch: 'chore/settings-audit', ago: 90 },
       { title: 'Research the agent hand-off', cwd: worktree('research-2b41'), branch: 'docs/research', ago: 150, runtime: CURSOR },
-      { title: '[done] Agents icon to circle-gauge', cwd: worktree('agents-icon-7e7e24'), branch: 'claude/agents-icon', ago: 260 },
+      { title: 'Swap the agents icon for the circle gauge', cwd: worktree('agents-icon-7e7e24'), branch: 'claude/agents-icon', ago: 260 },
       { title: 'Panel system', cwd: HOME, branch: 'feat/panel-system', ago: 400 },
       { title: 'Delegation plane', cwd: HOME, branch: 'feat/runtime-frontier', ago: 520 },
       { title: 'Repo history pane', cwd: worktree('repo-history-1a09'), branch: 'feat/repo-history', ago: 900 },
@@ -818,3 +818,19 @@ export const previewSession = {
     },
   ],
 } as unknown as Session
+
+
+/** Team marks: a waiting person is orange; unseen finished work is blue; seen work is quiet. */
+export const sidebarTeamAttention = (seed: import('@harnessdesk/protocol').GoalView): readonly import('@harnessdesk/protocol').GoalView[] => {
+  const at = Date.now() - 120_000
+  return ['Waiting on you', 'Finished work', 'Seen work'].map((sentence, index) => {
+    const id = `attention-${index}`
+    return { ...seed, goal: { ...seed.goal, id, sentence, origin: { kind: 'person' } },
+      board: { ...seed.board, id, name: sentence, members: [], intents: [], channel: [] }, members: [],
+      activity: index === 0 ? 'needs-you' : 'ready-to-wrap', readyAt: at, lastSeenAt: index === 2 ? at : 0,
+    }
+  })
+}
+
+/** Public seat names used by the sidebar's hierarchy and narrow-width proof. */
+export const sidebarSeatNames = ['Writer 2', 'Reviewer', 'Writer with a long seat label that must truncate'] as const

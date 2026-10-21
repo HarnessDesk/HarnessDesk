@@ -171,7 +171,7 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
 )
 
 const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'floating', 'danger', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
-const BUTTON_CATALOG_SIZES = ['default', 'wrap', 'xs', 'sm', 'sidebar-nav', 'icon-label', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'] as const
+const BUTTON_CATALOG_SIZES = ['default', 'wrap', 'xs', 'sm', 'control', 'sidebar-nav', 'icon-label', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
 const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'bare', 'filled', 'chrome', 'code'] as const
 const INPUT_CATALOG_MEASURE = ['auto', 'name', 'path'] as const
@@ -188,7 +188,7 @@ const SWITCH_CATALOG_VARIANTS = ['default'] as const
 const SWITCH_CATALOG_SIZES = ['default', 'sm'] as const
 const SWITCH_CATALOG_STATES = ['unchecked', 'checked', 'focus-visible', 'disabled'] as const
 const SWITCH_CATALOG_ON = ['true', 'false'] as const
-const TOGGLE_GROUP_CATALOG_VARIANTS = ['default', 'outline'] as const
+const TOGGLE_GROUP_CATALOG_VARIANTS = ['default', 'outline', 'chips'] as const
 const TOGGLE_GROUP_CATALOG_SIZES = ['default', 'sm', 'lg'] as const
 const TOGGLE_GROUP_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 const BUBBLE_CATALOG_VARIANTS = ['secondary', 'ghost'] as const
@@ -223,7 +223,6 @@ const SIDEBAR_CATALOG_STATES = [
 const fullSidebarStore = previewStore(sidebarGeometryFixture(store.getSnapshot()))
 const SidebarBoard = () => (
   <div className="grid gap-(--hd-space-4)" data-catalog-example="sidebar" data-catalog-variants={SIDEBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIDEBAR_CATALOG_SIZES.join(' ')} data-catalog-states={SIDEBAR_CATALOG_STATES.join(' ')}>
-    <section data-catalog-case="project-team-seat-hierarchy"><SidebarStructureExample /></section>
     <div className="grid gap-(--hd-space-2)" aria-label="Sidebar trailing slot anatomy">
       <SidebarMenu className="list-none">
         <SidebarMenuItem data-catalog-label-case="empty">
@@ -281,6 +280,7 @@ const SidebarBoard = () => (
         </SidebarMenuItem>
       </SidebarMenu>
     </div>
+    <section data-catalog-case="project-team-seat-hierarchy"><SidebarStructureExample /></section>
     <div className="relative h-[48rem] w-[12.5rem] max-w-full overflow-hidden rounded-(--hd-radius) border border-sidebar-border">
       <Mount with={fullSidebarStore}><ProductSidebar
         onOpenSettings={() => {}}
@@ -384,6 +384,7 @@ const StateBoard = () => (
         <Dot state="available" />
         <Dot state="signin" />
         <Dot state="limit" />
+        <Dot state="new" aria-label="New" />
         <Dot state="broken" />
         <Dot state="unknown" />
         <Dot state="signin" pulse />
@@ -562,7 +563,8 @@ const ControlBoard = () => {
             ]}
           />
           <div className="mt-2 flex flex-wrap gap-2">
-            {TOGGLE_GROUP_CATALOG_VARIANTS.map((variant) => (
+            {/* Chips render on their own row below, so this row skips them. */}
+            {TOGGLE_GROUP_CATALOG_VARIANTS.map((variant) => variant === 'chips' ? null : (
               <ToggleGroup key={variant} type="single" variant={variant} defaultValue="one" data-catalog-variant={variant}>
                 <ToggleGroupItem value="one">One</ToggleGroupItem>
                 <ToggleGroupItem value="two">Two</ToggleGroupItem>
@@ -574,6 +576,13 @@ const ControlBoard = () => {
                 <ToggleGroupItem value="two">Two</ToggleGroupItem>
               </ToggleGroup>
             ))}
+          </div>
+          {/* Chips get their own row so they cannot rewrap the existing size specimens. */}
+          <div className="mt-2">
+            <ToggleGroup type="single" variant="chips" defaultValue="one" data-catalog-variant="chips">
+              <ToggleGroupItem value="one">One</ToggleGroupItem>
+              <ToggleGroupItem value="two">Two</ToggleGroupItem>
+            </ToggleGroup>
           </div>
           </div>
         </Case>
@@ -598,9 +607,9 @@ const RowBoard = () => {
       <Specimen measure="page" caption="A settings page, assembled from Row, RowButton and RowChoice">
       <div className={styles.stack}>
         <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
-        <SectionHead name={<span data-slot="page-title-case" data-catalog-size="page">General</span>}
+        <SectionHead level="label" name={<span data-slot="page-title-case" data-catalog-size="page">General</span>}
           description="Settings for this desk." />
-        <SectionHead name="Plugins" action={<Button variant="outline" size="sm">Add</Button>} />
+        <SectionHead level="label" name="Plugins" action={<Button variant="outline" size="sm">Add</Button>} />
         <SectionHead
           sticky
           name="What is left"
@@ -628,7 +637,7 @@ const RowBoard = () => {
           />
         </Rows>
 
-        <SectionHead name="A row that opens and folds" />
+        <SectionHead level="label" name="A row that opens and folds" />
         <Rows data-catalog-case="row-fold">
           <RowButton
             kind="record"
@@ -640,7 +649,7 @@ const RowBoard = () => {
           />
           {!folded && <RowButton kind="record" face={<AccountMark size="row" data-tint="blue">JD</AccountMark>} title="dev" desc="dev@example.com" truncateDesc onClick={() => {}} />}
         </Rows>
-        <SectionHead name="A row with its one action" />
+        <SectionHead level="label" name="A row with its one action" />
         <Rows data-catalog-case="row-action">
           <RowButton
             kind="record"
@@ -657,7 +666,7 @@ const RowBoard = () => {
             action={<Button size="sm" variant="outline">Sign in</Button>}
           />
         </Rows>
-        <SectionHead name="A settings record’s actions" />
+        <SectionHead level="label" name="A settings record’s actions" />
         <Rows data-catalog-case="settings-row-menu">
           <Row
             kind="record"
@@ -674,7 +683,7 @@ const RowBoard = () => {
           label={<Text role="navigation">Install for Codex</Text>}
         />
 
-        <SectionHead
+        <SectionHead level="label"
           name="Account marks"
           description="An account's own colour, at every size, and the seat with no one in it."
         />
@@ -700,7 +709,7 @@ const RowBoard = () => {
           <AccountMark size="sm" data-off=""><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
         </div>
 
-        <SectionHead name="When a runtime asks to run something" />
+        <SectionHead level="label" name="When a runtime asks to run something" />
         <Rows>
           {[
             { id: 'ask', title: 'Ask every time', desc: 'Nothing runs until you say so.' },
@@ -741,10 +750,10 @@ const HeadBoard = () => (
     <Specimen measure="page" caption="A Runtimes page, and one row drilled into">
     <div className={styles.stack}>
       <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
-      <SectionHead name={<span data-slot="page-title-case" data-catalog-size="page">Runtimes</span>}
+      <SectionHead level="label" name={<span data-slot="page-title-case" data-catalog-size="page">Runtimes</span>}
         description="Which runtimes this app can start a session with."
         action={<Button variant="outline" size="sm">Add a runtime</Button>} />
-      <SectionHead name="Browser" description="Drive a page and read it back. Available to runtimes that accept plugin tools." action={<Button variant="outline" size="sm">Remove</Button>} />
+      <SectionHead level="label" name="Browser" description="Drive a page and read it back. Available to runtimes that accept plugin tools." action={<Button variant="outline" size="sm">Remove</Button>} />
     </div>
     </Specimen>
     <p className={styles.rule}>
@@ -766,7 +775,7 @@ const FaceBoard = () => (
         <Face avatar={null} size={24} /> <Face avatar="astronaut" size={24} /> <Face avatar="pirate" size={24} />{' '}
         <Face avatar={null} size={44} /> <Face avatar="wizard" size={44} />
       </div>
-      <SectionHead name="Jane Doe" description="A person's face, drawn through the canonical avatar primitive." />
+      <SectionHead level="label" name="Jane Doe" description="A person's face, drawn through the canonical avatar primitive." />
     </div>
     </Specimen>
     <p className={styles.rule}>
@@ -918,6 +927,9 @@ const LegacyNoticeHosts = () => {
             <TurnWorkLive settled>Board-only is on: agents cannot message each other. You still can.</TurnWorkLive>
           </ComposerTail>
         </div>
+      </Case>
+      <Case label="composer tail: plain queue status without a tinted strip">
+        <ComposerTail variant="plain"><Text role="meta">2 agents working · Sends after their turns</Text></ComposerTail>
       </Case>
       <Case label="composer: an Agent asks, and the strip sharing the stack">
         <div style={{ width: 'min(var(--hd-column), 100%)' }}>

@@ -149,7 +149,9 @@ d7a.describe('D7a heading disclosure', () => {
           }, gutter)
           expect(escaped, `${mode}/${leftWidth}: every visible list glyph and text starts at the gutter or later`).toEqual([])
           if (mode === 'settings-navigation') continue
-          const headings = column.locator('[data-slot="sidebar-menu-button"][aria-expanded]')
+          // A heading's name folds it; Team names open the Team and their separate
+          // controls are measured with the seat hierarchy in sidebar-structure.spec.ts.
+          const headings = column.locator('[data-slot="sidebar-menu-button"][aria-expanded]:has([data-slot="disclosure-chevron"])')
           expect(await headings.count()).toBeGreaterThan(2)
           for (const heading of await headings.all()) {
             const arrow = heading.locator('[data-slot="disclosure-chevron"]')

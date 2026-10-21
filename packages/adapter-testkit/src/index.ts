@@ -157,7 +157,9 @@ export const describeAdapterConformance = (name: string, harness: ConformanceHar
           assert.ok(FLOWS.has(method.flow), `unknown sign-in flow ${method.flow}`)
           assert.ok(method.id.length > 0 && method.label.length > 0)
         }
-        if (!runtime.info.capabilities.account) {
+        // An agent nobody has asked yet may offer the ways in it declared —
+        // its own offer, not an account claim (#1759).
+        if (!runtime.info.capabilities.account && !status.unchecked) {
           assert.equal(status.signInMethods.length, 0, 'no account means nothing to sign in to')
         }
       })
@@ -229,12 +231,15 @@ export const describeAdapterConformance = (name: string, harness: ConformanceHar
         assert.equal(after?.type === 'select' && after.currentValue, target)
         assertWellFormedOptions(session.options(), 'after setOption')
 
+        // Some agents send an intermediate options snapshot while the call is
+        // pending; the last announcement is the settled value of the change.
         const announced = tape.events
           .slice(before)
-          .find(
+          .filter(
             (event): event is Extract<AgentEvent, { type: 'session/options' }> =>
               event.type === 'session/options' && event.sessionId === session.id,
           )
+          .at(-1)
         assert.ok(announced, 'a change must be announced as a session/options event')
         assert.equal(findOption(announced.options, option.id)?.currentValue, target)
       })

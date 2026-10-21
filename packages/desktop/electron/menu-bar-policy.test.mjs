@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { menuBarItemDecision, showsMenuBarItem } from './menu-bar-policy.mjs'
+import { menuBarItemDecision, showsMenuBarItem, readMenuBarPreference, writeMenuBarPreference } from './menu-bar-policy.mjs'
 
 const defaultDir = join(homedir(), '.harnessdesk')
 const otherDir = join(tmpdir(), 'harnessdesk-isolated-home')
@@ -62,4 +62,27 @@ test('the off override hides the item for the default home', () => {
 test('ignores an unrecognized override', () => {
   assert.equal(showsMenuBarItem({ stateDir: defaultDir, defaultDir, env: { HARNESSDESK_MENU_BAR: 'yes' } }), true)
   assert.equal(showsMenuBarItem({ stateDir: otherDir, defaultDir, env: { HARNESSDESK_MENU_BAR: 'yes' } }), false)
+})
+
+test('an explicit user choice restores a hidden isolated desk and survives its launch defaults', () => {
+  assert.deepEqual(menuBarItemDecision({ stateDir: otherDir, defaultDir, env: { HARNESSDESK_MENU_BAR: 'off' }, preference: true }), {
+    show: true, reason: 'saved user choice',
+  })
+  assert.equal(showsMenuBarItem({ stateDir: defaultDir, defaultDir, env: { HARNESSDESK_MENU_BAR: 'on' }, preference: false }), false)
+})
+
+test('menu bar visibility persists both choices and ignores missing or malformed preferences', () => {
+  const root = mkdtempSync(join(tmpdir(), 'harnessdesk-menu-preference-'))
+  const file = join(root, 'desk', 'menu-bar.json')
+  try {
+    assert.equal(readMenuBarPreference(file), undefined)
+    for (const visible of [true, false]) {
+      writeMenuBarPreference(file, visible)
+      assert.equal(readMenuBarPreference(file), visible)
+    }
+    for (const raw of ['{', 'null', '{"visible":"yes"}', '{}']) {
+      writeFileSync(file, raw)
+      assert.equal(readMenuBarPreference(file), undefined)
+    }
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })

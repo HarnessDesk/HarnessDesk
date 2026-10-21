@@ -99,7 +99,7 @@ export const ShapeSave = ({ input, onSaved, onClose }: ShapeSaveProps) => {
 
   return (
     <Dialog
-      title="Save this shape"
+      title="Save Flow"
       size="lg"
       onClose={onClose}
       footer={(

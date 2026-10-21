@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, screen, session, shell, Tray, webContents } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { readdir, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -13,14 +13,14 @@ import { createInlineBrowserEngine } from './browser-engine.mjs'
 import { downloadOutcome, remember, uniqueName } from './downloads.mjs'
 import { respondToCrash } from './crash-policy.mjs'
 import { attachQuitSignals } from './quit-signals.mjs'
-import { MARK, drawTrayMeter } from './meter.mjs'
 import { attachAppUpdates, attachAppUpdateBridge } from './app-updates.mjs'
 import { loadMainWindow } from './main-window.mjs'
 import { MENU_LABEL, createCommandLineTool, targetOf } from './cli-install.mjs'
 import { decide, relevant } from './notifications.mjs'
 import { createIntakeNotifier } from './intake-notifications.mjs'
 import { createDockIconSetter, defaultIconPath } from './dock-icon.mjs'
-import { menuBarItemDecision } from './menu-bar-policy.mjs'
+import { menuBarItemDecision, readMenuBarPreference, writeMenuBarPreference } from './menu-bar-policy.mjs'
+import { trayMenuTemplate } from './tray-menu.mjs'
 import { leadEnabled } from './lead-feature.mjs'
 
 import { readWindowState, writeWindowState } from './window-state.mjs'
@@ -39,6 +39,9 @@ const here = dirname(fileURLToPath(import.meta.url))
 const defaultStateDir = join(homedir(), '.harnessdesk')
 const stateDir = process.env['HARNESSDESK_HOME'] ?? defaultStateDir
 const windowStateFile = join(stateDir, 'window.json')
+const menuBarPreferenceFile = join(stateDir, 'menu-bar.json')
+let menuBarVisible = menuBarItemDecision({ stateDir, defaultDir: defaultStateDir, env: process.env,
+  preference: readMenuBarPreference(menuBarPreferenceFile) }).show
 
 /**
  * An uncaught exception in this process is Electron's cue to put up a modal
@@ -376,104 +379,40 @@ const glyph = (file) => {
   return drawn
 }
 
-/** A row and its glyph, when there is one. */
-const withGlyph = (item, file) => {
-  const image = glyph(file)
-  return image ? { ...item, icon: image } : item
-}
-
 /** The mark for an agent's row: its maker's, or the generic agent glyph. */
 const markFor = (brand) => (brand ? glyph(`brands/${brand}.png`) : null) ?? glyph('brands/agent.png')
 
-/*
- * The meters, drawn once per reading.
- *
- * A menu item takes a raster and nothing else, so every bar in the menu is a
- * PNG this process encoded. The menu is rebuilt on every usage snapshot and
- * every minute besides, and nothing about a 42% bar changes between two
- * rebuilds — so the drawing is keyed on what it depicts.
- *
- * Every one is a template image, tinted by macOS to whatever appearance the
- * menu turns out to have. See `meter.mjs` for why the shell must not try to
- * colour them itself.
- */
-const meters = new Map()
-
-const meterIcon = (agent) => {
-  const key = `${agent.brand ?? ''}|${agent.left === null ? 'none' : Math.round(agent.left)}`
-  if (meters.has(key)) return meters.get(key)
-
-  const image = markFor(agent.brand)
-  const size = image?.getSize()
-  const drawn = drawTrayMeter({
-    // An agent with nothing to report draws its mark on the same canvas and no
-    // bar at all, so its row still starts where every other row starts.
-    fraction: agent.left === null ? null : Math.round(agent.left) / 100,
-    // A mark of some other size would land in the wrong pixels; the slot stays
-    // reserved and empty rather than filled with a guess.
-    mark:
-      image && size?.width === MARK && size?.height === MARK
-        ? image.toBitmap({ scaleFactor: 2 })
-        : null,
-  })
-  const icon = nativeImage.createFromBuffer(drawn.png, {
-    width: drawn.width,
-    height: drawn.height,
-    scaleFactor: 2,
-  })
-  icon.setTemplateImage(true)
-  meters.set(key, icon)
-  return icon
-}
-
-const agentRow = (agent) => {
-  // The meter carries the mark inside it, because a row has one image slot and
-  // the reading is worth more than the picture is on its own.
-  const icon = meterIcon(agent) ?? markFor(agent.brand)
-  const row = {
-    label: agent.needsSignIn ? `${agent.name} — Sign in…` : `${agent.name} — ${agent.detail}`,
-    // A signed-out agent's row is the way in; a signed-in one's is a
-    // reading, and a reading you can click is a reading you distrust.
-    enabled: agent.needsSignIn,
-    click: agent.needsSignIn
-      ? () => void showMainWindow().then(() => sendShortcut(agent.id ? `sign-in:${agent.id}` : 'sign-in'))
-      : undefined,
-  }
-  return icon ? { ...row, icon } : row
-}
-
+// Native menus share one icon column across every row. A composite meter
+// would widen that column even for sign-in rows whose bar is transparent.
+// Keep each mark at the standard glyph size; readings remain in the label.
 const buildTrayMenu = () =>
-  Menu.buildFromTemplate([
-    withGlyph({ label: 'Show HarnessDesk', click: () => void showMainWindow() }, 'menu/show.png'),
-    ...(traySummary.agents.length > 0 ? [{ type: 'separator' }, ...traySummary.agents.map(agentRow)] : []),
-    { type: 'separator' },
-    withGlyph(
-      { label: 'New Session', click: () => void showMainWindow().then(() => sendShortcut('new-session')) },
-      'menu/new-session.png',
-    ),
-    withGlyph(
-      { label: 'Open Folder…', click: () => void showMainWindow().then(() => sendShortcut('open-folder')) },
-      'menu/open-folder.png',
-    ),
-    withGlyph(
-      { label: 'Dashboard…', click: () => void showMainWindow().then(() => sendShortcut('usage')) },
-      'menu/usage.png',
-    ),
-    { type: 'separator' },
-    withGlyph(
-      { label: 'Settings…', click: () => void showMainWindow().then(() => sendShortcut('settings')) },
-      'menu/settings.png',
-    ),
-    withGlyph({ label: 'About HarnessDesk', click: () => void showAbout() }, 'menu/about.png'),
-    { type: 'separator' },
-    withGlyph({ label: 'Quit HarnessDesk', click: () => app.quit() }, 'menu/quit.png'),
-  ])
+  Menu.buildFromTemplate(trayMenuTemplate(traySummary, {
+    iconFor: glyph,
+    agentIcon: (agent) => markFor(agent.brand),
+    actions: {
+      show: () => void showMainWindow(),
+      newSession: () => void showMainWindow().then(() => sendShortcut('new-session')),
+      openFolder: () => void showMainWindow().then(() => sendShortcut('open-folder')),
+      openUsage: (id) => void showMainWindow().then(() => sendShortcut(id ? `open-usage:${id}` : 'open-usage')),
+      signIn: (id) => void showMainWindow().then(() => sendShortcut(id ? `sign-in:${id}` : 'sign-in')),
+      settings: () => void showMainWindow().then(() => sendShortcut('settings')),
+      quit: () => app.quit(),
+    },
+  }))
+
+const setMenuBarVisible = (visible) => {
+  menuBarVisible = visible
+  try { writeMenuBarPreference(menuBarPreferenceFile, visible) }
+  catch (error) { logger?.warn('could not save menu bar visibility', { error: String(error) }) }
+  if (visible) createTray()
+  else { tray?.destroy(); tray = null }
+  buildMenu()
+}
 
 const createTray = () => {
   if (process.platform !== 'darwin' || tray) return
-  const decision = menuBarItemDecision({ stateDir, defaultDir: defaultStateDir, env: process.env })
-  if (!decision.show) {
-    logger?.debug('menu bar item skipped', { reason: decision.reason })
+  if (!menuBarVisible) {
+    logger?.debug('menu bar item hidden')
     return
   }
   const image = nativeImage.createFromPath(join(assetsDir, 'trayTemplate.png'))
@@ -481,6 +420,7 @@ const createTray = () => {
   image.setTemplateImage(true)
   tray = new Tray(image)
   tray.setToolTip('HarnessDesk')
+  tray.setTitle(traySummary.title)
   // A menu set this way is what macOS opens on either button, and it keeps the
   // status item highlighted while it is open — `popUpContextMenu` does neither.
   tray.setContextMenu(buildTrayMenu())
@@ -579,6 +519,12 @@ const buildMenu = () => {
     {
       label: 'View',
       submenu: [
+        ...(process.platform === 'darwin' ? [{
+          label: 'Show Menu Bar Icon',
+          type: 'checkbox',
+          checked: menuBarVisible,
+          click: (item) => setMenuBarVisible(item.checked),
+        }, { type: 'separator' }] : []),
         {
           label: 'Toggle Sidebar',
           accelerator: 'Cmd+B',
@@ -635,6 +581,16 @@ const sendShortcut = (name) => {
  */
 const browserEngine = createInlineBrowserEngine({
   allowedProfile: (profile) => host?.browserProfileAllowed(profile) === true,
+  resolveProfile: (partition) => host?.browserProfileForPartition(partition),
+  storedPartitions: async () => {
+    try {
+      return (await readdir(join(app.getPath('sessionData'), 'Partitions'), { withFileTypes: true }))
+        .filter(entry => entry.isDirectory()).map(entry => entry.name)
+    } catch (error) {
+      if (error?.code === 'ENOENT') return []
+      throw error
+    }
+  },
   window: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
   show: async () => {
     await showMainWindow()
@@ -920,6 +876,10 @@ ipcMain.handle('harnessdesk:browser-annotate', async (event, request) => {
 ipcMain.handle('harnessdesk:browser-clear-data', async (event, request) => {
   if (event.sender !== mainWindow?.webContents) {
     throw new Error('Only the desk can clear a browser profile.')
+  }
+  if (request?.all === true) {
+    await browserEngine.clearAllData()
+    return
   }
   const partition = browserEngine.partition(request?.profile ?? null)
   await session.fromPartition(partition).clearStorageData()

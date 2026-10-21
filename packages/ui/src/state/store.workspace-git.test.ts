@@ -46,3 +46,10 @@ it('retains a confirmed non-repository answer for a root absent from recents', a
   expect(store.getSnapshot().workspaceGitFacts.has('/work/plain')).toBe(true)
   expect(store.getSnapshot().workspaceGitFacts.get('/work/plain')).toBeNull()
 })
+
+it('retains the open repository facts when another folder heads recents', async () => {
+  const store = rig()
+  vi.spyOn(store.transport, 'request').mockResolvedValue([{ ...tree }, { ...main, git: null }] as never)
+  await store.loadWorkspaces()
+  expect(store.getSnapshot().workspace?.git).toEqual(main.git)
+})

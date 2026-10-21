@@ -1,3 +1,4 @@
+import { sessionBrowserProfile } from '@harnessdesk/protocol'
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -13,6 +14,7 @@ import {
   type HarnessPlugin,
 } from '../src/index.js'
 import {
+  browserSettingsForProfile,
   KEY_NAMES,
   characterKey,
   chromeEngine,
@@ -1008,4 +1010,13 @@ test('closing a Chrome that keeps nothing waits for it to exit before the profil
   await done
   assert.equal(finished, true)
   assert.equal(existsSync(profile), false, 'the throwaway profile went with the browser it belonged to')
+})
+
+test('session Chrome profiles honor persistence while legacy lane profiles stay retained', () => {
+  const settings = { placement: 'system' as const, keepProfile: false, profileDir: '/fixture/browser-profile' }
+  const scoped = browserSettingsForProfile(settings, sessionBrowserProfile('fixture', 'alpha'))
+  assert.equal(scoped.keepProfile, false)
+  assert.equal(scoped.placement, 'window', 'system handoffs remain confined to a session-owned browser')
+  assert.equal(browserSettingsForProfile(settings, 'lane-fixture').keepProfile, true)
+  assert.equal(browserSettingsForProfile({ ...settings, keepProfile: true }, sessionBrowserProfile('fixture', 'alpha')).keepProfile, true)
 })

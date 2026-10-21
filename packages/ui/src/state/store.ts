@@ -1,15 +1,18 @@
-import { recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
+import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
+import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
+import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
 import { createLeadState } from './lead'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
 import { availableDestinationHistory, destinationAvailable, destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
+import { emptyLibraryView, type LibraryViewSection, type LibraryViewState } from './library-views'
 import { FRAME } from '../design/frame'
 import { terminalCwdForSnapshot } from '../lib/terminal-scope'
 import { type TeamChatLayout, type TeamFramePage } from './layout'
 import { replaceTeamPayload } from './workbench'
 import { settleConversationTool, conversationToolContext, fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
-import { activeView, fixedSubject, normalizeFixedWorkbench } from './workbench'
+import { activeView, fixedSubject, isolateSessionBrowserProfiles, normalizeFixedWorkbench } from './workbench'
 import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
 import { teamsInput } from '../lib/teams-snapshot'
 import { roomFoldersGone } from '../lib/room-folders'
@@ -171,14 +174,17 @@ import {
 } from '../editor'
 import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
-import { sessionLabel, shortLabel } from '../lib/sessions'
+import { indexedSessionLabel, sessionLabel, shortLabel } from '../lib/sessions'
 import { seatLabelsOf } from '../lib/seat-names'
+import { goalRunOf } from '../lib/goal-run'
+import { hasConversation, teamSeats } from '../lib/team-seats'
 import { isStale } from '../lib/versions'
 import { isPathInside } from '../lib/paths'
 import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
+import { explainedBySignIn } from '../lib/sign-in-refusal'
 import { BrowserTileRegistry, browserProfileKey, type BrowserTileMount } from '../lib/browser-tiles'
 import { focusTile, fromStored, toStored, type SideBySideState } from '../lib/side-by-side'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
@@ -597,6 +603,11 @@ export class AppStore {
 
   #snapshot: AppSnapshot = emptySnapshot()
   #teamFrameSerial = 0
+  /**
+   * The Library's view choices per section, for as long as this window is
+   * open. See `state/library-views` — never a preference, never persisted.
+   */
+  #libraryViews: Record<LibraryViewSection, LibraryViewState> = { skill: emptyLibraryView(), mcp: emptyLibraryView() }
   readonly #sessionRemovalRevisions = new Map<SessionKey, number>()
   #listeners = new Set<() => void>()
   readonly #storageListeners = new Set<(usage: import('@harnessdesk/protocol').StorageUsage) => void>()
@@ -1266,7 +1277,7 @@ export class AppStore {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     const options = await this.newSessionDefaultsFor(runtime).catch(error => {
-      if (this.#snapshot.activeRuntime === runtime) this.resultNotice('warning', describe(error))
+      if (this.#snapshot.activeRuntime === runtime && !explainedBySignIn(error, this.#snapshot.accountsByRuntime[runtime])) this.resultNotice('warning', describe(error))
       return []
     })
     if (this.#snapshot.activeRuntime !== runtime) return
@@ -1445,6 +1456,16 @@ export class AppStore {
   navigateBack(): Promise<void> { return this.#enqueueHistory('back') }
   navigateForward(): Promise<void> { return this.#enqueueHistory('forward') }
 
+  /**
+   * The Library's remembered view choices for one section: its filter,
+   * search, chip and list/matrix choice. Read when a section mounts and
+   * written as the person changes it, so leaving for Changes and coming
+   * back keeps the view they left.
+   */
+  libraryView(section: LibraryViewSection): LibraryViewState { return this.#libraryViews[section] }
+  /** Deliberately silent: the section reads this on mount and on section change, so no listener wake is owed. */
+  setLibraryView(section: LibraryViewSection, view: LibraryViewState): void { this.#libraryViews[section] = view }
+
   /** One click on a workspace group's +: that folder, a fresh draft. */
   async startSessionIn(path: string): Promise<void> {
     if (this.#snapshot.workspace?.path !== path) await this.openWorkspace(path)
@@ -1523,13 +1544,12 @@ export class AppStore {
     void this.#writePreference({ teamsPrefs }, 'Hidden Teams')
   }
 
-  /** Mark what was actually shown, so a racing change remains unread. */
-  markTeamSeen(id: string, change: string): void {
-    const teamsPrefs = this.#snapshot.teamsPrefs
-    if (teamsPrefs.seen[id] === change) return
-    const next = { ...teamsPrefs, seen: { ...teamsPrefs.seen, [id]: change } }
-    this.#patch({ teamsPrefs: next })
-    void this.#writePreference({ teamsPrefs: next }, 'Team read marks')
+  /** The host owns read time so every window and relaunch reads the same news. */
+  markTeamSeen(id: string, newsAt = 0): void {
+    if (!this.#snapshot.goals.has(id)) return
+    void this.transport.request('goal/seen', { goal: id, newsAt }).then(view => {
+      if (view?.goal) this.#keepGoal(view)
+    }).catch(error => this.notice('warning', `Team read mark was not saved: ${error instanceof Error ? error.message : String(error)}`))
   }
 
   /** Whether the "Other projects" fold is open. */
@@ -1899,9 +1919,9 @@ export class AppStore {
    * empty account to retry — not a first account quietly overwritten, which is
    * what a single "sign in again" used to do.
    */
-  async addAccount(runtime: RuntimeId): Promise<RuntimeId | null> {
+  async addAccount(runtime: RuntimeId, name?: string): Promise<RuntimeId | null> {
     try {
-      const { runtime: added } = await this.transport.request('runtime/account/add', { runtime })
+      const { runtime: added } = await this.transport.request('runtime/account/add', { runtime, ...(name?.trim() ? { name: name.trim() } : {}) })
       await this.loadAccounts()
       return added
     } catch (error) {
@@ -2425,13 +2445,19 @@ export class AppStore {
           ),
       )
       const labels = seatLabelsOf(this.#snapshot)
+      const seatNames = new Map([...this.#snapshot.teams.values()].flatMap(team => {
+        const goal = this.#snapshot.goals.get(team.id)
+        return teamSeats(goal, team, goalRunOf(team.id, goal, this.#snapshot.flowExecutions))
+          .filter(hasConversation).map(seat => [String(seat.key), seat.name] as const)
+      }))
       const needle = query.trim().toLocaleLowerCase()
       const local = this.#snapshot.historyIdentity.filter(row => {
         const key = sessionKey(row.runtime, row.id)
         const live = this.#snapshot.sessions.get(key)
         const first = live?.turns.flatMap(turn => turn.items).find(item => item.type === 'userMessage')
         const preview = first?.type === 'userMessage' ? first.content.filter(part => part.type === 'text').map(part => part.text).join('') : null
-        return sessionLabel(live?.title ?? row.title, live?.preview ?? preview ?? row.preview, labels.get(String(key))).toLocaleLowerCase().includes(needle)
+        return [indexedSessionLabel(row, { title: live?.title, preview: live?.preview ?? preview }, labels.get(String(key))), seatNames.get(String(key))]
+          .some(label => label?.toLocaleLowerCase().includes(needle))
       })
       const results = [...new Map([...pages.flat(), ...local].map(row => [String(sessionKey(row.runtime, row.id)), row])).values()]
         .filter((row) => this.#snapshot.runtimes.some((entry) => entry.id === row.runtime))
@@ -2767,10 +2793,15 @@ export class AppStore {
    */
   async newSession(
     options: {
-      readonly cwd?: string
+      /** Null asks the host for a fresh chat folder instead of the open workspace. */
+      readonly cwd?: string | null
       readonly worktree?: string
       /** The branch the worktree starts from. HEAD when absent. */
       readonly base?: string
+      readonly fromDefault?: boolean
+      /** Independent tasks started from another conversation still need their own checkout. */
+      readonly isolated?: boolean
+      readonly onCheckout?: (checkout: Worktree) => void
       readonly split?: Split['direction']
       /** Start on this runtime instead of the active one. */
       readonly runtime?: RuntimeId
@@ -2788,36 +2819,56 @@ export class AppStore {
       readonly reveal?: boolean
     } = {},
   ): Promise<SessionKey | null> {
+    const navigation = this.#navigationEpoch
     const candidate = focusedPane(this.#snapshot.layout)
     const draftPane = options.reveal !== false && options.split === undefined && (!options.area || options.area === 'main')
       && candidate.view.kind === 'conversation' && candidate.view.session === null ? candidate : null
     const draftSubject = draftPane ? `draft:${draftPane.id}` : null
     const runtime = options.runtime ?? this.#snapshot.activeRuntime
-    const workspace = options.cwd ?? this.#snapshot.workspace?.path
+    const workspace = options.cwd === null ? undefined : options.cwd ?? this.#snapshot.workspace?.path
     /* A folder this app has proof is gone is never where a session starts.
        Without this, the open folder being the deleted one turned every way
        out of it — the copy a folder-gone conversation offers included — back
        into the same refused `session/create`. */
-    if (!runtime || !workspace || this.#snapshot.foldersGone.has(workspace)) {
+    if (!runtime || (workspace && this.#snapshot.foldersGone.has(workspace)) || (options.worktree !== undefined && !workspace)) {
       this.resultNotice('warning', 'Choose a project folder before starting a session.')
       return null
     }
     try {
       let cwd = workspace
-      if (options.worktree !== undefined) {
+      let worktree = options.worktree, fromDefault = options.fromDefault
+      if (options.isolated && worktree === undefined && workspace) {
+        const status = await this.transport.request('git/status', { root: workspace })
+        if (status?.headSha) {
+          worktree = `session-${crypto.randomUUID()}`
+          fromDefault = true
+        }
+      }
+      if (worktree !== undefined && workspace) {
+        const attemptedPlace = this.#snapshot.draftPlace
         const created = await this.transport.request('worktree/create', {
           root: workspace,
-          name: options.worktree,
+          name: worktree,
           ...(options.base ? { base: options.base } : {}),
+          ...(fromDefault ? { fromDefault: true } : {}),
+        }).catch((error: unknown) => {
+          // Failed allocation made no usable checkout. Restore only this
+          // automatic choice; a newer or explicitly armed place belongs to
+          // the person. Successful allocations still survive runtime refusal.
+          if (attemptedPlace?.kind === 'worktree' && attemptedPlace.fromDefault &&
+            attemptedPlace.root === workspace && attemptedPlace.name === worktree &&
+            this.#snapshot.draftPlace === attemptedPlace) this.#patch({ draftPlace: null })
+          throw error
         })
         cwd = created.path
+        options.onCheckout?.(created)
         void this.loadWorktrees()
         // The worktree exists now. When it is the draft's armed place, the
         // draft points at it: an agent that fails to start leaves the draft as
         // it was, and a retry must start in this worktree, not cut a second
         // one beside it. A race cuts its own worktrees and touches no draft.
         const place = this.#snapshot.draftPlace
-        if (place?.kind === 'worktree' && place.root === workspace && place.name === options.worktree) {
+        if (place?.kind === 'worktree' && place.root === workspace && place.name === worktree) {
           this.#patch({ draftPlace: { kind: 'existing', path: created.path, branch: created.branch } })
         }
       }
@@ -2828,18 +2879,29 @@ export class AppStore {
       // never opens.
       // Validate saved picks at the creation boundary: declarations may have
       // changed since the draft last read them.
-      const values = await this.#newSessionValues(runtime, cwd)
+      const values = await this.#newSessionValues(runtime, cwd ?? null)
       const session = await this.transport.request('session/create', {
         runtime,
         options: {
-          cwd,
+          ...(cwd ? { cwd } : {}),
           ...(Object.keys(values).length > 0 ? { options: values } : {}),
           ...(this.#snapshot.draftRouteId ? { routeId: this.#snapshot.draftRouteId } : {}),
         } as never,
       })
+      if (!cwd) this.#patch({ chatsFolderRoots: [...new Set([...this.#snapshot.chatsFolderRoots, session.cwd])] })
       this.#setSession(session)
       const key = sessionKey(runtime, session.id)
-      if (options.reveal !== false) {
+      let reveal = options.reveal !== false
+      if (reveal && !cwd) {
+        // Adopt the host's folder without replacing the draft and its tools.
+        // A newer navigation owns the screen and the host's workspace scope.
+        const selected = navigation === this.#navigationEpoch
+          ? await this.#openWorkspace(session.cwd, () => navigation === this.#navigationEpoch,
+            undefined, undefined, undefined, true)
+          : null
+        reveal = selected !== null && selected === this.#navigationEpoch
+      }
+      if (reveal) {
         this.#showInPane(key, options.split, options.area, draftPane?.id)
         const promoted = focusedPane(this.#snapshot.layout)
         if (draftSubject && promoted.id === draftPane?.id && promoted.view.kind === 'conversation' && promoted.view.session === key) {
@@ -2862,11 +2924,11 @@ export class AppStore {
           if (intent || scope) {
             const subject = `session:${key}`
             const pane = focusedPane(before.main)
-            this.#setWorkbench({ ...before,
+            this.#setWorkbench(isolateSessionBrowserProfiles({ ...before,
               frameTools: intent ? { ...frameTools, [subject]: intent } : frameTools,
               frameSubjects: { ...frameSubjects, [subject]: { paneId: pane.id, view: pane.view } },
               toolOwners: Object.fromEntries(Object.entries(before.toolOwners).map(([id, owner]) => [id, owner === draftSubject ? subject : owner])),
-            })
+            }))
           }
         }
       }
@@ -2946,6 +3008,8 @@ export class AppStore {
     )
     if (!drafted) this.newDraft()
     this.#parkedHandoff = null
+    const cwd = options.cwd !== undefined ? options.cwd : (open?.cwd ?? null)
+    if (cwd && isChatFolder(cwd, this.#snapshot.chatsFolderRoots)) this.clearDraftFolder()
     this.#patch({
       draftHandoff: {
         runtime,
@@ -2958,7 +3022,7 @@ export class AppStore {
            `null` means no folder at all, and is not the same instruction —
            `??` folded the two together, so the one caller with a folder to
            drop could not drop it. */
-        cwd: options.cwd !== undefined ? options.cwd : (open?.cwd ?? null),
+        cwd,
       },
     })
   }
@@ -3037,6 +3101,9 @@ export class AppStore {
    * abandoned "new session" leaves nothing behind in the backend's history.
    */
   newDraft(options: { readonly split?: Split['direction'] } = {}): void {
+    const place = this.#parkedHandoff?.cwd ?? this.#snapshot.workspace?.path
+    const startsInChats = Boolean(place && isChatFolder(place, this.#snapshot.chatsFolderRoots))
+    if (startsInChats) this.clearDraftFolder()
     const navigation = this.#snapshot.workbench.navigation
     const layout = this.#snapshot.layout
     if (options.split) {
@@ -3068,7 +3135,7 @@ export class AppStore {
     this.#parkedHandoff = null
     // And it starts in the open folder: a worktree chosen for the last draft
     // is a decision about that one, and "New session" is asked to be empty.
-    this.#patch({ draftHandoff: parked, draftPlace: null, sidebarFloating: false })
+    this.#patch({ draftHandoff: parked, draftPlace: startsInChats ? { kind: 'chats' } : null, sidebarFloating: false })
     // Hand the keyboard to the composer, the only thing to do in an empty pane.
     window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: '' }))
   }
@@ -3082,16 +3149,41 @@ export class AppStore {
    * either wastes a trip finding it or, worse, answers about the folder it
    * is actually in.
    */
-  #draftStart(): { readonly cwd?: string; readonly worktree?: string; readonly base?: string } {
+  async #draftStart(): Promise<{ readonly cwd?: string; readonly worktree?: string; readonly base?: string; readonly fromDefault?: boolean } | null> {
     // A place the person chose outranks the one the packet names: the
     // packet says where the work *was*, the choice says where it goes next.
     const place = this.#snapshot.draftPlace
+    if (place?.kind === 'chats') return {}
     if (place?.kind === 'existing') return { cwd: place.path }
     if (place?.kind === 'worktree') {
-      return { cwd: place.root, worktree: place.name, ...(place.base ? { base: place.base } : {}) }
+      return { cwd: place.root, worktree: place.name, ...(place.base ? { base: place.base } : {}), ...(place.fromDefault ? { fromDefault: true } : {}) }
     }
     const carried = this.#snapshot.draftHandoff?.cwd
-    return carried ? { cwd: carried } : {}
+    if (carried) return { cwd: carried }
+    let workspace = this.#snapshot.workspace
+    if (workspace && keepsWorkspacePlace(workspace)) return {}
+    if (workspace && workspace.git == null) {
+      const root = workspace.path, navigation = this.#navigationEpoch
+      const runtime = this.#snapshot.activeRuntime, handoff = this.#snapshot.draftHandoff
+      const checked = await this.refreshWorkspaceGit(root)
+      if (navigation !== this.#navigationEpoch || this.#snapshot.workspace?.path !== root) return null
+      if (runtime !== this.#snapshot.activeRuntime || handoff !== this.#snapshot.draftHandoff) return null
+      // An explicit choice made while the read was pending wins.
+      if (this.#snapshot.draftPlace !== null) return this.#draftStart()
+      workspace = this.#snapshot.workspace
+      if (!checked || workspace.git === undefined) {
+        this.resultNotice('error', 'Could not check this folder’s Git state. Try again, or explicitly choose Local.')
+        return null
+      }
+    }
+    if (workspace && canIsolateDraft(workspace)) {
+      const name = `session-${crypto.randomUUID()}`
+      // Keep the choice before allocation so a failed runtime start retries
+      // in the checkout already made for this draft.
+      this.#patch({ draftPlace: { kind: 'worktree', root: workspace.path, name, fromDefault: true } })
+      return { cwd: workspace.path, worktree: name, fromDefault: true }
+    }
+    return {}
   }
 
   /**
@@ -3107,7 +3199,11 @@ export class AppStore {
   async send(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<void> {
     // Typing into an empty workspace is how a session starts: create it, then
     // send, so the first message is one gesture rather than two.
-    key ??= await this.newSession(this.#draftStart())
+    if (!key) {
+      const place = await this.#draftStart()
+      if (!place) return
+      key = await this.newSession(place)
+    }
     if (!key) return
     try {
       await this.transport.request('turn/send', { ...address(key), input })
@@ -3649,11 +3745,9 @@ export class AppStore {
    * The team room, as a pane. Same keying and the same absence of a round
    * trip as `openTeamBoard` — the channel is already in the snapshot.
    */
-  openTeamRoom(room?: string, observedChange?: string): void {
+  openTeamRoom(room?: string): void {
     const base = this.#roomToShow(room)
     if (!base) return
-    const input = teamsInput(this.#snapshot).find(one => one.team.id === base)
-    if (input) this.markTeamSeen(base, observedChange ?? teamListRow(input).change)
     // Like a conversation: a room is a place to go, the one on screen included.
     this.closeFloatingSidebar()
     // Before the conversation, not after it: sessions on the left, the room in
@@ -3685,7 +3779,14 @@ export class AppStore {
       })
   }
 
-  /** The browser pane, if one is open. There is at most one per layout. */
+  #activeBrowserProfile(): string | null {
+    const key = this.#snapshot.activeSessionKey
+    if (!key) return null
+    const { runtime, id } = splitSessionKey(key)
+    return sessionBrowserProfile(runtime, id)
+  }
+
+  /** The browser pane, if one is open for the requested profile. */
   /**
    * The browser, wherever it is docked.
    *
@@ -3794,8 +3895,8 @@ export class AppStore {
     url?: string,
     options: { readonly split?: Split['direction'] | null; readonly profile?: string | null; readonly driven?: boolean } = {},
   ): void {
-    const profile = options.profile ?? null
-    if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) {
+    const profile = options.profile !== undefined ? options.profile : this.#activeBrowserProfile()
+    if (profile !== null && !isBrowserProfile(profile)) {
       throw new Error('Invalid browser profile.')
     }
     const existing = this.#browserPane(profile)
@@ -3816,8 +3917,28 @@ export class AppStore {
     const restored = this.#closedBrowsers.get(profile ?? 'default')
     this.#closedBrowsers.delete(profile ?? 'default')
     const view = sendDriven(restored ?? browserView(BLANK, profile))
-    // Legacy split arguments normalize to the fixed right panel.
-    this.openDefaultView(view)
+    // A first tool open can arrive for a background conversation. Its browser
+    // belongs to that conversation, even while the person keeps reading another.
+    const owner = profile && browserProfileSession(profile)
+    const ownerKey = owner ? sessionKey(owner.runtime, owner.sessionId) : null
+    const subject = ownerKey ? `session:${ownerKey}` : null
+    const before = this.#snapshot.workbench
+    if (options.driven && subject && subject !== fixedSubject(before.main)) {
+      const scope = before.frameSubjects[subject] ?? {
+        paneId: before.main.focused, view: { kind: 'conversation' as const, session: ownerKey },
+      }
+      const main = { root: { kind: 'pane' as const, id: scope.paneId, view: scope.view }, focused: scope.paneId, expanded: null }
+      let admitted = admitFixedTool({ ...before, main }, view)
+      if (admitted) {
+        const active = activeView(before.right)
+        if (active) admitted = activateIn(admitted, 'right', active.id)
+        this.#setWorkbench({ ...admitted, main: before.main, navigation: before.navigation, focus: before.focus,
+          right: { ...admitted.right, collapsed: before.right.collapsed } })
+      }
+    } else {
+      // Legacy split arguments normalize to the fixed right panel.
+      this.openDefaultView(view)
+    }
     this.#frontBrowserTile(profile)
   }
 
@@ -3913,7 +4034,7 @@ export class AppStore {
   }
 
   get hasClosedBrowserTabs(): boolean {
-    return (this.#closedTabs.get('default')?.length ?? 0) > 0
+    return (this.#closedTabs.get(this.#activeBrowserProfile() ?? 'default')?.length ?? 0) > 0
   }
 
   /** Closing the last tab closes the pane, the way closing a window's last tab does. */
@@ -3966,7 +4087,7 @@ export class AppStore {
     this.#patchBrowser(paneId, (view) => patchBrowserTab(view, tabId, { device }))
   }
 
-  closeBrowser(profile: string | null = null): void {
+  closeBrowser(profile: string | null = this.#activeBrowserProfile()): void {
     const existing = this.#browserPane(profile)
     if (!existing) return
     // A pane in the middle or a view in a dock: `closePane` knows only the
@@ -4324,7 +4445,7 @@ export class AppStore {
         )
       : null
     const migration = rehomed ? normalizeFixedWorkbench(rehomed, true) : null
-    const restored = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
+    const restored = migration ? settleWorkbench(isolateSessionBrowserProfiles(migration.workbench)) : emptyWorkbench()
     const view = selected ? { kind: 'conversation' as const, session: selected.conversation } : null
     const target = view ? { ...restored, main: onlyIn(restored.main, view),
       navigation: visitDestination(restored.navigation, destinationOf(view)) } : restored
@@ -4731,7 +4852,8 @@ export class AppStore {
       (pane) => pane.view.kind === 'conversation' && !sessionOf(pane),
     )
     if (!onDraft) this.newDraft()
-    this.#patch({ draftPlace: place })
+    const workspace = this.#snapshot.workspace
+    this.#patch({ draftPlace: place ?? (workspace ? { kind: 'existing', path: workspace.path, branch: workspace.git?.branch ?? null } : null) })
   }
 
   /**
@@ -4952,7 +5074,10 @@ export class AppStore {
     if (current && current.goal.revision > view.goal.revision) return
     const goals = new Map(this.#snapshot.goals)
     const teams = new Map(this.#snapshot.teams)
-    goals.set(view.goal.id, view)
+    goals.set(view.goal.id, { ...view,
+      lastSeenAt: Math.max(current?.lastSeenAt ?? 0, view.lastSeenAt ?? 0),
+      readyAt: Math.max(current?.readyAt ?? 0, view.readyAt ?? 0),
+    })
     teams.set(view.goal.id, view.board)
     this.#patch({ goals, teams, goalProblem: null })
   }
@@ -4992,6 +5117,12 @@ export class AppStore {
 
   async createGoal(input: Omit<GoalCreateInput, 'origin'>): Promise<GoalView> {
     const view = await this.transport.request('goal/create', input)
+    this.#keepGoal(view)
+    return view
+  }
+
+  async startTeam(input: HostParams<'goal/start'>): Promise<GoalView> {
+    const view = await this.transport.request('goal/start', input)
     this.#keepGoal(view)
     return view
   }
@@ -6274,7 +6405,7 @@ export class AppStore {
   #creationDefaults: Partial<Record<RuntimeId, Promise<Readonly<Record<string, OptionValue>>>>> = {}
 
   /** Capture validated start values without competing starts invalidating each other. */
-  async #newSessionValues(runtime: RuntimeId, cwd: string): Promise<Readonly<Record<string, OptionValue>>> {
+  async #newSessionValues(runtime: RuntimeId, cwd: string | null): Promise<Readonly<Record<string, OptionValue>>> {
     const previous = this.#creationDefaults[runtime] ?? Promise.resolve({})
     const validation = previous.catch(() => ({})).then(async () => {
       while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
@@ -6301,7 +6432,7 @@ export class AppStore {
    * applied. The same question the composer asks for its pre-session
    * controls — Settings and the composer read one answer.
    */
-  async newSessionDefaultsFor(runtime: RuntimeId, cwd = this.#snapshot.workspace?.path): Promise<readonly ConfigOption[]> {
+  async newSessionDefaultsFor(runtime: RuntimeId, cwd: string | null | undefined = this.#snapshot.workspace?.path): Promise<readonly ConfigOption[]> {
     // A read must not invalidate a user pick whose answer is still in flight.
     while (this.#pendingDraftSetters[runtime]) await this.#pendingDraftSetters[runtime]
     const revision = this.#nextDraftRevision(runtime)
@@ -6694,16 +6825,11 @@ export class AppStore {
     }
   }
 
-  /** The selected runtime's plugin catalogue, or an empty one. */
+  /** The selected runtime's plugin catalogue. A failed read rejects; it is not an empty catalogue. */
   async loadCatalog(): Promise<RuntimeCatalog> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return { plugins: [], marketplaces: [], loadErrors: [], featured: [] }
-    return this.transport
-      .request('runtime/catalog', { runtime, ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}) })
-      .catch((error: unknown) => {
-        this.infoNotice('warning', describe(error))
-        return { plugins: [], marketplaces: [], loadErrors: [], featured: [] }
-      })
+    return this.transport.request('runtime/catalog', { runtime, ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}) })
   }
 
   /** Searches the runtime's app/connector directory — thousands of entries, so paged. */
@@ -6839,7 +6965,11 @@ export class AppStore {
    * the queue exists.
    */
   async queue(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<boolean> {
-    key ??= await this.newSession(this.#draftStart())
+    if (!key) {
+      const place = await this.#draftStart()
+      if (!place) return false
+      key = await this.newSession(place)
+    }
     if (!key) return false
     try {
       await this.transport.request('turn/queue', { ...address(key), input })
@@ -6900,19 +7030,21 @@ export class AppStore {
    * only when it *changes* — a job that has been running since before this
    * window opened would otherwise be invisible until it ended.
    */
-  async refreshTasks(key = this.#snapshot.activeSessionKey): Promise<void> {
-    if (!key) return
+  async refreshTasks(key = this.#snapshot.activeSessionKey): Promise<'loaded' | 'unsupported' | 'failed'> {
+    if (!key) return 'unsupported'
     const runtime = this.#snapshot.runtimes.find((entry) => entry.id === address(key).runtime)
-    if (runtime && !runtime.capabilities.backgroundTasks) return
+    if (runtime && !runtime.capabilities.backgroundTasks) return 'unsupported'
     try {
       const tasks = await this.transport.request('tasks/list', address(key))
       const next = new Map(this.#snapshot.tasks)
       if (tasks.length === 0) next.delete(key)
       else next.set(key, orderTasks(tasks))
       this.#patch({ tasks: next })
+      return 'loaded'
     } catch {
-      // A runtime that cannot answer has nothing to show; leaving the last
-      // known list alone beats blanking a panel because one read failed.
+      // Preserve the held list while letting an optional collection distinguish
+      // a failed read from an authoritative empty result.
+      return 'failed'
     }
   }
 
@@ -6986,9 +7118,31 @@ export class AppStore {
 
   // --------------------------------------------------------------- workspaces
 
+  /** Clear only the draft's place, retaining its text, attachments and hand-off. */
+  clearDraftFolder(): void {
+    this.#navigationEpoch += 1
+    this.#flowGeneration += 1
+    this.#folderCleared = true
+    this.#preserveWorkspaceSource()
+    this.#patch({ workspace: null, draftPlace: { kind: 'chats' }, worktrees: [] })
+    void this.loadDraftOptions()
+  }
+
+  async setChatsFolder(path: string | null): Promise<boolean> {
+    try {
+      const preferences = await this.transport.request('app/state/set', { patch: { chatsFolder: path } })
+      this.#patch({ ...readChatsPreferences(preferences), chatsFolderProblem: null })
+      return true
+    } catch (error) {
+      this.#patch({ chatsFolderProblem: describe(error) })
+      return false
+    }
+  }
+
   async loadPreferences(): Promise<void> {
     try {
       const preferences = await this.transport.request('app/state/get', {})
+      this.#patch(readChatsPreferences(preferences))
       const loadedEditor = readEditorState(preferences['editorState'])
       const localEditor = this.#snapshot.editorState.filter(one => this.#editorChanged.has(one.subject) || this.#editorTouched.has(one.subject))
       const editorState = [
@@ -7016,6 +7170,7 @@ export class AppStore {
         typeof layouts === 'object' && layouts !== null && !Array.isArray(layouts)
           ? (layouts as Record<string, Workbench>)
           : {}
+      this.#discardUnsavedStartupChat()
       if (this.#snapshot.workspace) this.#restoreLayout(this.#snapshot.workspace.path)
       const savedOptions = preferences['draftDefaultOptions']
       if (typeof savedOptions === 'object' && savedOptions !== null && !Array.isArray(savedOptions)) {
@@ -7216,27 +7371,48 @@ export class AppStore {
     }
   }
 
-  readonly #workspaceGitReads = new Map<string, object>()
+  readonly #workspaceGitReads = new Map<string, { next?: Promise<boolean> }>()
 
   /** Refresh a menu's checkout without opening it or reordering recent folders. */
-  async refreshWorkspaceGit(root: string): Promise<void> {
-    const read = {}
+  refreshWorkspaceGit(root: string): Promise<boolean> {
+    const previous = this.#workspaceGitReads.get(root)
+    const read: { next?: Promise<boolean> } = {}
     this.#workspaceGitReads.set(root, read)
-    try {
-      const status = await this.transport.request('git/status', { root })
-      if (this.#workspaceGitReads.get(root) !== read) return
-      const update = (entry: WorkspaceEntry): WorkspaceEntry => entry.path === root
-        ? { ...entry, git: status ? { branch: status.branch, sha: status.headSha } : null }
-        : entry
-      this.#patch({
-        workspace: this.#snapshot.workspace ? update(this.#snapshot.workspace) : null,
-        workspaces: this.#snapshot.workspaces.map(update),
-        workspaceGitFacts: new Map(this.#snapshot.workspaceGitFacts).set(root, status ? { branch: status.branch, sha: status.headSha } : null),
-      })
-    } catch { /* Keep the last known facts when Git cannot be read. */ }
-    finally {
-      if (this.#workspaceGitReads.get(root) === read) this.#workspaceGitReads.delete(root)
+    const pending = (async (): Promise<boolean> => {
+      try {
+        const status = await this.transport.request('git/status', { root })
+        // Older callers follow the newer result, even if it already finished
+        // and left the map. A superseded read is not a failed first send.
+        if (read.next) return read.next
+        const update = (entry: WorkspaceEntry): WorkspaceEntry => entry.path === root
+          ? { ...entry, git: status ? { branch: status.branch, sha: status.headSha } : null }
+          : entry
+        this.#patch({
+          workspace: this.#snapshot.workspace ? update(this.#snapshot.workspace) : null,
+          workspaces: this.#snapshot.workspaces.map(update),
+          workspaceGitFacts: new Map(this.#snapshot.workspaceGitFacts).set(root, status ? { branch: status.branch, sha: status.headSha } : null),
+        })
+        return true
+      } catch { return read.next ?? false /* Keep established facts when the latest read fails. */ }
+      finally {
+        if (this.#workspaceGitReads.get(root) === read) this.#workspaceGitReads.delete(root)
+      }
+    })()
+    if (previous) previous.next = pending
+    return pending
+  }
+
+  #folderCleared = false
+  #startupWorkspace: { path: string; navigation: number } | null = null
+
+  #discardUnsavedStartupChat(): void {
+    const automatic = this.#startupWorkspace
+    const workspace = this.#snapshot.workspace
+    if (automatic?.navigation === this.#navigationEpoch && workspace?.path === automatic.path
+      && isChatFolder(workspace.path, this.#snapshot.chatsFolderRoots) && !readWorkbench(this.#layouts?.[workspace.path])) {
+      this.#patch({ workspace: null, worktrees: [] })
     }
+    this.#startupWorkspace = null
   }
 
   async loadWorkspaces(): Promise<void> {
@@ -7245,7 +7421,11 @@ export class AppStore {
       const current = this.#snapshot.workspace
       // The list carries fresh git facts for the folder at its head; the
       // open workspace takes them, or a branch switch would never show.
-      const workspace = (current && workspaces.find((entry) => entry.path === current.path)) ?? current ?? workspaces[0] ?? null
+      const recent = workspaces[0]
+      const fallback = !this.#folderCleared && recent && (!isChatFolder(recent.path, this.#snapshot.chatsFolderRoots)
+        || readWorkbench(this.#layouts?.[recent.path])) ? recent : null
+      const workspace = recentWorkspace(current, workspaces) ?? fallback
+      if (!current && workspace) this.#startupWorkspace = { path: workspace.path, navigation: this.#navigationEpoch }
       const changed = workspace?.path !== this.#snapshot.workspace?.path
       this.#patch({ workspaces, workspace })
       // Preferences and workspaces load in parallel at startup; whichever
@@ -7327,7 +7507,7 @@ export class AppStore {
   }
 
   /** Apply the folder and requested conversation together, before restoring anything else. */
-  async #openWorkspace(path: string, current: () => boolean, conversation?: SessionKey, previous?: { path: string | null; workbench: Workbench }, onError?: (error: unknown) => void): Promise<number | null> {
+  async #openWorkspace(path: string, current: () => boolean, conversation?: SessionKey, previous?: { path: string | null; workbench: Workbench }, onError?: (error: unknown) => void, preserveLayout = false): Promise<number | null> {
     // Overlapping host mutations can finish in either order, even when their
     // renderer replies are discarded. Reassert the final choice once quiet.
     if (this.#workspaceOpensPending > 0) this.#workspaceReconcileNeeded = true
@@ -7340,6 +7520,7 @@ export class AppStore {
       }
       if (!workspace) return null
       this.#flowGeneration += 1
+      this.#folderCleared = false
       // An explicit folder open can abandon the loading conversation too.
       // Put back the source before changing the workspace in either path.
       this.#preserveWorkspaceSource(previous)
@@ -7350,7 +7531,7 @@ export class AppStore {
       }
       else {
         this.#patch({ workspace })
-        if (this.#layouts) this.#restoreLayout(workspace.path)
+        if (this.#layouts && !preserveLayout) this.#restoreLayout(workspace.path)
       }
       const selected = this.#navigationEpoch
       await this.loadWorkspaces()
@@ -8024,26 +8205,34 @@ export class AppStore {
     this.markInboxRead(id)
   }
 
-  /**
-   * Starts the task a kept message suggests: a new conversation, in the
-   * sender's folder and on its runtime, whose first message is the task. The
-   * message is read once it has been acted on.
-   */
+  readonly #suggestedTaskCheckouts = new Map<string, string>()
+  readonly #suggestedTasksStarting = new Set<string>()
+
+  /** Starts an independent task on its sender's runtime, retaining a refused start's checkout for retry. */
   async startSuggestedTask(id: string): Promise<void> {
     const entry = this.#snapshot.inbox.find((message) => message.id === id)
-    if (!entry?.task) return
+    if (!entry?.task || this.#suggestedTasksStarting.has(id)) return
     const from = entry.from
     const sender = from
       ? (this.#snapshot.sessions.get(sessionKey(from.runtime, from.sessionId as SessionId)) ??
         this.#snapshot.history.find((summary) => summary.runtime === from.runtime && summary.id === from.sessionId))
       : undefined
-    const key = await this.newSession({
-      ...(sender?.cwd ? { cwd: sender.cwd } : {}),
-      ...(from ? { runtime: from.runtime as RuntimeId } : {}),
-    })
-    if (!key) return
-    await this.send([{ type: 'text', text: entry.task }], key)
-    this.markInboxRead(id)
+    const source = sender?.cwd ? isChatFolder(sender.cwd, this.#snapshot.chatsFolderRoots) ? null : sender.cwd : this.#snapshot.workspace?.path
+    const allocation = JSON.stringify([id, from?.runtime ?? this.#snapshot.activeRuntime, source, entry.task])
+    const retained = this.#suggestedTaskCheckouts.get(allocation)
+    this.#suggestedTasksStarting.add(id)
+    try {
+      const key = await this.newSession({
+        isolated: !retained,
+        ...(retained ? { cwd: retained } : source !== undefined ? { cwd: source } : {}),
+        onCheckout: checkout => { this.#suggestedTaskCheckouts.set(allocation, checkout.path) },
+        ...(from ? { runtime: from.runtime as RuntimeId } : {}),
+      })
+      if (!key) return
+      this.#suggestedTaskCheckouts.delete(allocation)
+      await this.send([{ type: 'text', text: entry.task }], key)
+      this.markInboxRead(id)
+    } finally { this.#suggestedTasksStarting.delete(id) }
   }
 
   #setInbox(inbox: readonly InboxEntry[]): void {

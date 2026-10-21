@@ -19,7 +19,9 @@ const makeStore = (): AppStore => {
     ceilings: index === 0 ? { read: { settings: [], how: 'Native guard' }, edit: { settings: [], how: 'Workspace guard' } } : { read: { settings: [], how: 'Read guard' } },
   }))
   patch({ runtimes })
-  const before = new URLSearchParams(location.search).has('before')
+  const params = new URLSearchParams(location.search)
+  const before = params.has('before')
+  const warnings = params.has('warnings')
   const policy = before ? BEFORE_TEAM_START_POLICY : EDIT_TEAM_START_POLICY
   return new Proxy(base, { get(target, key, receiver) {
     if (key === 'flowSource') return async () => JSON.stringify(policy)
@@ -44,7 +46,10 @@ const makeStore = (): AppStore => {
         target: { label: 'this project', base: null, head: null, dirty: false, independence: 'known' as const },
         flow: { token: blocked ? null : 'preview-edit-access', compiled: { document: { format: 'agents' as const, flow }, bindings: [], problems: [] }, // hd-secrets-ok: synthetic preview token.
           seats, commands: [], guards: [], messaging: 'board-only' as const,
-          problems: blocked ? [{ level: 'error' as const, at: 'roles.fixer', text: 'Choose an agent that can enforce the writer’s access.' }] : [] },
+          problems: [
+            ...(blocked ? [{ level: 'error' as const, at: 'roles.fixer', text: 'Choose an agent that can enforce the writer’s access.' }] : []),
+            ...(warnings ? [{ level: 'warning' as const, at: 'roles.reviewer', text: 'Runtime Beta may share a provider with Runtime Alpha; independence is checked when the review is reached.' }] : []),
+          ] },
       }
       const front = target.getSnapshot().frontDoor
       if (front) patch({ frontDoor: { ...front, preview } })

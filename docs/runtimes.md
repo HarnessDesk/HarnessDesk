@@ -283,11 +283,18 @@ acp`, and reads its key from `~/.dsh/.credentials.yaml`. See
   sign-in hands back no URL — the server calls `webbrowser.open` on its own
   auth URL from inside the call — so the window waits for the flow to finish
   rather than offering a link.
-- **A home that does not hold the account:** On macOS, Antigravity's OAuth
-  token lives in the keychain, not under `GEMINI_HOME`. Pointing
-  `GEMINI_HOME` at an empty folder still opens a session as the previous
-  account — the server refreshes the keychain token silently — so a second
-  home is not a second account there.
+- **A home that does not hold the account, unless it is told to:** On macOS,
+  Antigravity's OAuth token lives in the keychain, not under `GEMINI_HOME`.
+  Pointing `GEMINI_HOME` at an empty folder still opens a session as the
+  previous account — the server refreshes the keychain token silently — so a
+  second home *alone* is not a second account there (#749, measured
+  2026-09-17). `AGY_ACP_FORCE_FILE_STORAGE=1` changes that: with it set, the
+  server keeps its token in `<GEMINI_HOME>/antigravity-acp/acp_token.json`,
+  and a `GEMINI_HOME` of its own is an account of its own. Measured with two
+  Google accounts on 2026-10-17: each row's token stayed in its own folder,
+  both survived a restart, signing one out left the other signed in, and the
+  keychain was never touched. This pair is how the desk makes a second
+  Antigravity account — a row of its own, over its own folder.
 - **A listing that is not a status:** `opencode auth list` names the
   providers OpenCode holds a credential for and counts them; it carries no
   account, no address and no `--json`. Read as a status it says "signed
@@ -295,6 +302,20 @@ acp`, and reads its key from `~/.dsh/.credentials.yaml`. See
   observation, OpenCode showed a sign-in wall while running perfectly
   (measured on opencode 1.18.30, 2026-09-17). The desk asks it nothing and
   reads `auth.json` under `XDG_DATA_HOME` instead, naming the providers.
+  OpenCode 2 also keeps its sign-ins in `opencode.db` there, a `credential`
+  table with one row per sign-in; the desk reads the provider ids of the
+  active rows and nothing else (measured on opencode 2.0.32, 2026-10-17).
+- **A home that does not take the sign-in:** OpenCode 2 runs a background
+  service (`opencode serve --service`, started by launchd) that keeps the
+  default home, and `opencode auth login` hands the sign-in to it. With
+  `XDG_DATA_HOME` pointed at an empty folder, a Console sign-in wrote nothing
+  there and added an active row to the default home's `opencode.db` (measured
+  on opencode 2.0.32, 2026-10-17). The row's own `opencode` still reads the
+  moved folder, so a row that moves it reads only what is there, and its page
+  says the terminal command cannot sign it in. A second OpenCode account
+  therefore cannot come from `XDG_DATA_HOME` alone while that service runs,
+  and Add another account stays off for OpenCode until a way that holds is
+  measured.
 
 ## Where the model list comes from
 
@@ -630,7 +651,43 @@ active account. Other supported runtimes share this single-identity model.
 Supporting multiple accounts therefore requires running an independent
 runtime process with a dedicated credential directory. In HarnessDesk,
 multiple accounts and gateway accounts are currently implemented for
-Codex; other runtimes operate with their single workstation identity.
+Codex, and multiple accounts for Antigravity; other runtimes operate with
+their single workstation identity.
+
+The two work by different mechanisms, because the agents keep their
+credentials differently.
+
+For **Codex**, an extra account is a symlink farm under
+`~/.harnessdesk/accounts/` — see below.
+
+For **Antigravity**, an extra account is an **agent row of its own** running
+the same ACP server with two environment variables of its own:
+`AGY_ACP_FORCE_FILE_STORAGE=1`, which moves the Google token out of the macOS
+keychain and into a file, and `GEMINI_HOME=<stateDir>/accounts/<row id>`, a
+folder only that row uses (measured with two Google accounts on 2026-10-17).
+Its conversations are its own, in `conversations/` under that folder, rather
+than shared the way a Codex account's are — the trade the keychain forces.
+The desk cannot read which Google account the row is signed in to, so
+Settings and Sign in ask you to name it when you add it, for example “Work”.
+An empty field uses **Antigravity 2**, **Antigravity 3** and so on. The account
+factory declares `slot.asksName` and `slot.ownSessions`; the UI follows those
+facts for naming and folder copy. A supplied name is trimmed and capped at
+80 characters; a blank
+name uses the next number. The agent's original row is untouched: it keeps
+the keychain and the default home. Removing an extra account asks it to sign
+out, unregisters the row, and then moves its folder to the **Trash** — never
+deletes it, because a person removing the wrong row wants it back. If sign-out
+fails, including when the account's server never started, the folder still
+holds a valid token when it goes to the Trash; moving it there does not
+revoke that sign-in.
+
+What that independence needs on the ACP side is already in place: an
+agent's account commands — status, sign-in and sign-out — run with the
+environment its row starts the agent with, under the command's own, and
+once the agent has started, a command that names its CLI runs the copy
+that start chose (before then, the name is looked up on PATH). A row
+whose environment moves the agent's home therefore asks about, signs in
+and signs out its own account rather than the default one (#1761).
 
 ### The credential home as a symlink farm
 

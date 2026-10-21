@@ -2,6 +2,7 @@ import {
   Fragment,
   createContext,
   useContext,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -69,6 +70,7 @@ import {
   ChecklistItem,
 } from '../design'
 import { instant } from '../lib/clock'
+import { sanitizeText } from '../lib/sanitize'
 import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
 import { countFileChange, wholeFileOf, DiffView } from '../editor'
@@ -1395,15 +1397,35 @@ const Compaction = (_: { item: CompactionItem }) => (
  */
 const Notice = ({ item }: { item: NoticeItem }) => {
   const snapshot = useSnapshot()
+  const [expanded, setExpanded] = useState(false)
+  const detailsId = useId()
   if (item.kind === 'agentBrief') return (
     <Row icon={<InfoIcon size={14} />} title="Agent brief">
-      <Markdown text={item.text} document />
+      <Markdown text={sanitizeText(item.text)} document />
     </Row>
   )
   if (item.kind && surfaceFor(snapshot.noticePolicy, item.kind) === null) return null
-  const text = snapshot.home ? item.text.split(`${snapshot.home}/`).join('~/') : item.text
-  return <Note ink="muted" icon={<InfoIcon size={12} className={styles.noticeIcon} />}>
-    {text}{item.count && item.count > 1 ? ` ×${item.count}` : ''}
+  const text = sanitizeText(snapshot.home ? item.text.split(`${snapshot.home}/`).join('~/') : item.text)
+  const count = item.count && item.count > 1 ? ` ×${item.count}` : ''
+  const long = text.length > 180 || text.split('\n').length > 4
+  const warning = item.kind === 'conversation:warning' || item.kind === 'runtime:warning'
+  // Kind, never a phrase in authored text, decides which notices are housekeeping.
+  const neutral = !item.kind || item.kind === 'conversation:compacted' || item.kind === 'conversation:rerouted'
+  if (long && neutral) return <Row icon={<InfoIcon size={14} />} title="Recorded note" meta={count}>
+    <Note>{text}</Note>
+  </Row>
+  if (long && warning) {
+    const firstLine = text.split('\n')[0]?.trim()
+    const summary = firstLine && firstLine.length <= 180 ? firstLine : null
+    return <>
+      <Note tone="warn" icon={<AlertIcon size={14} />} action={<Button variant="link" size="inline-link" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(value => !value)}>{expanded ? 'Hide details' : 'Show details'}</Button>}>
+        Runtime warning{summary ? `: ${summary}` : ''}{count}
+      </Note>
+      {expanded && <Note id={detailsId} tone="warn">{text}</Note>}
+    </>
+  }
+  return <Note ink={warning ? 'secondary' : 'muted'} tone={warning ? 'warn' : undefined} icon={warning ? <AlertIcon size={14} /> : <InfoIcon size={12} className={styles.noticeIcon} />}>
+    {text}{count}
   </Note>
 }
 

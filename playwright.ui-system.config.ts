@@ -81,7 +81,7 @@ export const COLOUR_SPECS = [
   'frame-contract-conversation', 'frame-contract-left-headings', 'frame-contract-left-rows', 'frame-contract-left-surfaces', 'frame-contract-menus',
   'frame-contract-palette', 'frame-contract-reconcile', 'frame-contract-teams', 'frame-contract-tools',
   'frame-contract-top-bar', 'frame-final-columns', 'frame-final-selection', 'frame-final-tiles',
-  'frame-fix9', 'frame-fix10', 'frame-owner5d',
+  'frame-fix9', 'frame-fix10', 'frame-owner5d', 'frame-page-band-headings',
 ] as const
 // Playwright matches `grep` against the project name, the file and the title joined by spaces.
 export const geometryInDark = new RegExp(`^ *(?!(?:${COLOUR_SPECS.join('|')})\\.spec\\.ts )frame-[\\w-]+\\.spec\\.ts .*\\bdark\\b`)

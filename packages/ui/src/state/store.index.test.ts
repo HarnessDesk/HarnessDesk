@@ -102,6 +102,20 @@ it('refreshes runtime metadata without reloading the sidebar', async () => {
   expect(lists()).toHaveLength(0)
 })
 
+it('searches an indexed rename instead of a stale live runtime title', async () => {
+  Object.assign(store.getSnapshot(), { activeRuntime: runtime, runtimes: [{
+    id: runtime, capabilities: { searchHistory: false }, presentation: { name: 'Agent' },
+  }] })
+  change([row('renamed', { title: 'Chosen conversation name' })])
+  handlers().onEvent(runtime, { type: 'session/started', session: { ...session('renamed'), title: 'Stale runtime title' } })
+
+  await store.searchHistory('Chosen conversation')
+  expect(ids()).toEqual(['renamed'])
+  await store.searchHistory('Stale runtime')
+  expect(ids()).toEqual([])
+  expect(request.mock.calls.some(([method]: readonly unknown[]) => method === 'session/search')).toBe(false)
+})
+
 it('creates and forks with returned rows without a list request', async () => {
   await store.selectRuntime(runtime)
   request.mockClear()

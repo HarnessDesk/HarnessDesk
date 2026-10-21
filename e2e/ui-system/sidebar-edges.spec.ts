@@ -333,7 +333,7 @@ test('worktree and gone-folder priority facts survive hover, focus and an open m
       const before = await box(label)
       const mark = row.locator('[data-left-mark]')
       if (row === rows[1]) await expect(mark).toBeVisible()
-      else { await expect(mark).toHaveCount(0); expect(title).toContain('Thinking') }
+      else { await expect(mark).toHaveCount(1); await expect(mark.locator('[data-slot="spinner"]')).toHaveCount(1); expect(title).toContain('Thinking') }
       const target = await box(row.locator('[data-left-trailing]'))
       const action = row.locator('[data-slot="sidebar-menu-action"]')
       for (const focus of [false, true]) {
@@ -480,7 +480,7 @@ test('real session and Team rows preserve full facts and one priority slot', asy
   expect(await session.locator('[data-slot="sidebar-menu-button"]').getAttribute('title')).toContain('Worktree')
   await expect(room.locator('[data-left-mark]')).toHaveAttribute('aria-label', 'Needs you')
   expect(await team.getAttribute('title')).toContain('1 held message')
-  await expect(room.locator('[data-slot="sidebar-menu-action"]')).toHaveCount(0)
+  await expect(room.locator('[data-slot="sidebar-menu-action"]')).toHaveCount(1)
   await expect(sidebar.locator('[data-nested="true"]')).toHaveCount(0)
   for (const width of [200, 260, 320]) {
     await sidebar.locator('..').evaluate((node, value) => { (node as HTMLElement).style.width = `${value + 2}px` }, width)
@@ -500,12 +500,11 @@ test('real session and Team rows preserve full facts and one priority slot', asy
         if (mode === 'hover') await opener.hover()
         else { await page.keyboard.press('Shift'); await opener.evaluate(node => (node as HTMLElement).focus({ preventScroll: true })) }
         expect(await box(label)).toEqual(before)
-        if (row === session) {
-          await expect(row.locator('[data-left-mark]')).toBeHidden()
-          const action = row.locator('[data-slot="sidebar-menu-action"]')
-          await expect(action).toBeVisible()
-          expect(await box(action)).toEqual(await box(row.locator('[data-left-trailing]')))
-        } else await expect(row.locator('[data-left-mark]')).toBeVisible()
+        // A Team row, like a session row, trades its priority mark for its actions button (#1810).
+        await expect(row.locator('[data-left-mark]')).toBeHidden()
+        const action = row.locator('[data-slot="sidebar-menu-action"]')
+        await expect(action).toBeVisible()
+        expect(await box(action)).toEqual(await box(row.locator('[data-left-trailing]')))
       }
     }
   }
@@ -558,7 +557,8 @@ test('nested board and flat Team keep trailing marks on their own label line', a
   }
 
   await expect(productRoom).toHaveCount(1)
-  await expect(productRoom.locator('[data-slot="sidebar-menu-action"], [data-nested="true"]')).toHaveCount(0)
+  await expect(productRoom.locator('[data-nested="true"]')).toHaveCount(0)
+  await expect(productRoom.locator('[data-slot="sidebar-menu-action"]')).toHaveCount(1)
   const button = productRoom.locator('[data-slot="sidebar-menu-button"]')
   const mark = productRoom.locator('[data-left-mark]')
   for (const mode of ['rest', 'hover'] as const) {
@@ -638,7 +638,8 @@ test('real waiting Team keeps the priority mark and all held-message facts at ev
     for (const mode of ['hover', 'focus'] as const) {
       if (mode === 'hover') await team.hover()
       else await team.focus()
-      await expect(row.locator('[data-left-mark]')).toBeVisible()
+      await expect(row.locator('[data-left-mark]')).toBeHidden()
+      await expect(row.locator('[data-slot="sidebar-menu-action"]')).toBeVisible()
       expect(await box(label)).toEqual(before)
       expect(await team.getAttribute('title')).toBe(title)
     }
@@ -675,7 +676,7 @@ test('real header glyph ink occupies the end rail and its adjacent target column
   }
 })
 
-test('real working worktree keeps activity and checkout facts on hover with an empty rail', async ({ page }) => {
+test('real working worktree spins while keeping activity and checkout facts on hover', async ({ page }) => {
   await page.goto('/design.html?view=sidebar')
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-left-column]').first()
   await expandProjects(sidebar)
@@ -685,14 +686,15 @@ test('real working worktree keeps activity and checkout facts on hover with an e
   await expect(active).toHaveCount(1)
   expect(await opener.getAttribute('title')).toContain('Worktree')
   expect(await opener.getAttribute('title')).toContain('Thinking')
-  await expect(active.locator('[data-left-mark]')).toHaveCount(0)
+  await expect(active.locator('[data-left-mark]')).toHaveCount(1)
+  await expect(active.locator('[data-slot="spinner"]')).toHaveCount(1)
   for (const width of [200, 220, 260, 320, 520]) {
     await sidebar.locator('..').evaluate((node, value) => { (node as HTMLElement).style.width = `${value + 2}px` }, width)
     await active.scrollIntoViewIfNeeded()
     await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
     await page.mouse.move(0, 0)
     const mark = active.locator('[data-left-mark]')
-    await expect(mark).toHaveCount(0)
+    await expect(mark).toHaveCount(1)
     await expect(opener).toHaveAttribute('title', /Thinking/)
     const before = await box(opener.locator('[data-slot="sidebar-menu-label-content"]'))
     const target = await box(active.locator('[data-left-trailing]'))
@@ -740,7 +742,8 @@ test('540px window floats the real sidebar with aligned headers and a Needs you 
   expect(bounds.height).toBe(FRAME.rail.rowHeight)
   expect(target.x + target.width).toBeLessThanOrEqual(bounds.x + bounds.width)
   await button.hover()
-  await expect(mark).toBeVisible()
+  await expect(mark).toBeHidden()
+  await expect(button.locator('..').locator('[data-slot="sidebar-menu-action"]')).toBeVisible()
   expect(await box(label)).toEqual(before)
   expect(await sidebar.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
 })
@@ -762,7 +765,7 @@ for (const theme of ['light', 'dark'] as const) {
         const bounds = button.getBoundingClientRect()
         const icon = node.querySelector('[data-slot="sidebar-menu-icon"]')?.getBoundingClientRect()
         return { name: node.querySelector('[data-slot="sidebar-menu-label-content"]')!.textContent, title: button.title, height: bounds.height,
-          project: node.hasAttribute('data-left-project'), fold: button.hasAttribute('aria-expanded'), icon: icon?.x ?? null, iconWidth: icon?.width ?? null, label: label.x, trail: trail.x + trail.width / 2, target: trail.width,
+          project: node.hasAttribute('data-left-project'), fold: button.hasAttribute('aria-expanded') && !node.querySelector('[data-left-disclosure]'), icon: icon?.x ?? null, iconWidth: icon?.width ?? null, label: label.x, trail: trail.x + trail.width / 2, target: trail.width,
           marks: node.querySelectorAll('[data-left-mark]').length }
       }))
       expect(rows.length).toBeGreaterThan(9)
@@ -804,8 +807,8 @@ for (const theme of ['light', 'dark'] as const) {
       for (const mode of ['hover', 'focus'] as const) {
         if (mode === 'hover') await button.hover()
         else await button.focus()
-        await expect(row.locator('[data-left-mark]')).toBeVisible()
-        await expect(row.locator('[data-slot="sidebar-menu-action"]')).toHaveCount(0)
+        await expect(row.locator('[data-left-mark]')).toBeHidden()
+        await expect(row.locator('[data-slot="sidebar-menu-action"]')).toBeVisible()
         expect(await box(label)).toEqual(before)
       }
     }

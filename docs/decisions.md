@@ -7,6 +7,37 @@ the rule is the last line of its section.
 
 ---
 
+## A skill opens as a page, not a sheet — 2026-10-17
+
+A skill has enough definition and evidence to read as a destination: the definition is a card on the left, while loaded runtimes, recorded source and copies, files and cost stay in cards on the right. Back returns to the Library and history retains the route. Findings sit above the columns, and More keeps the less frequent copy actions; writes still open reviewed plans. This keeps the skill consistent with other details and gives long definitions the page’s scroll owner rather than two constrained dialog lanes. MCP retains its existing dialog. **Rule:** a detail is a page with a way back; dialogs are for confirming.
+
+## What the Library changed has its own page, and every write says so in a toast with no Undo — 2026-10-17
+
+The Library keeps its cards for finding skills. Changes made here is a separate
+view of the same destination, reached from More and from a write's View changes
+toast. The audit read covers 90 days, with local-day groups, search and filters.
+Restore remains a previewed plan and is offered only for completed backed-up writes.
+
+The page and toasts share the operation verbs. Each apply summarizes completed
+writes once, keeps failures until dismissed, and ignores skipped operations.
+Restoring refreshes the audit read; no persisted last-seen state or Undo is added.
+
+**Rule:** every Library write ends in one toast with a View changes button.
+
+## Page band headings are 16/600 and field-group labels stay small — 2026-10-16
+
+Heads naming the cards or rows in a page’s body use the existing section text
+role. `SectionHead` defaults to that heading; field groups explicitly choose
+`level="label"`. Titled `Section` bands choose the same heading level. Page
+titles, dialog legends, Settings forms and right-rail cards keep their roles.
+
+This costs an explicit classification at every call site. The explorer shows
+both levels and rendered frame tests hold page bands to the existing role,
+so a new form group cannot silently become another heading style. No size,
+weight or foundation token is added.
+
+**Rule:** a head that names a band of a page's body is a section heading; a label that names a field group stays small.
+
 ## First launch offers installed runtimes — 2026-10-16
 
 The first empty conversation uses the Add a runtime page's machine catalogue
@@ -60,6 +91,37 @@ bounded run.
 
 **Rule:** bounded green is feedback, and only full green is landing evidence.
 
+## Team seats nest under their Team, and running rows spin — 2026-10-18 (owner)
+
+The owner chose seats nested under their Team again, with a spinner on working
+conversations and careful alignment. This supersedes the 2026-10-15 bullet
+“running rows have no spinner” and the app-frame spec's “a Team is one row”.
+
+The chevron follows the Team name like a project header's fold chevron (owner,
+2026-10-18), with no leading gutter. It folds the Seats separately from opening
+the Team's label.
+The selected Team and the Team owning an open Seat start expanded; other Teams
+start collapsed. Deliberate folds last for the UI session, until another Seat
+activation. A matching seat filter temporarily reveals its Team and matching Seats.
+The chevron can fold that reveal; clearing the filter restores the Team's own
+stored state, including selected-Team defaults. Seats use the Overview's names
+and states, in the Team's roster order; activity never reorders the roster. Their runtime icon stands
+under the Team label, one indent step in. Clicking an open Seat opens its
+conversation; a Seat not yet open opens the Team Overview.
+
+Needs you takes priority over New or Failed, then working activity. Working
+Seats show their claimed card number, when present, and a spinner; idle Seats
+have no trailing mark and say Idle on hover. A collapsed working Team spins;
+an expanded Team leaves activity to its Seats. Loose working conversations
+spin too, retaining Needs you, Failed and folder-gone marks; unread output stays
+in the Inbox for loose conversations. Runtime, model, card title and state remain
+in the Seat's hover title.
+
+All rows keep the 34px pitch and one trailing rail. Disclosure never moves a
+Team icon away from loose-conversation icons. Seats belong to a visible Team
+and do not consume the project's five-row allowance; hiding a Team hides its
+Seats. Pins do not lift Seats out of their Team.
+
 ## The sidebar keeps its rhythm quiet and its marks for attention — 2026-10-15
 
 The owner chose five changes so a long conversation list reads calmly and a
@@ -72,9 +134,10 @@ mark means "needs you":
   **Show less**. A selected row beyond the first five takes the fifth slot;
   an expanded project stays expanded for the UI session. Pinned loose
   conversations remain uncapped above the projects.
-- Trailing marks are reserved for attention or errors. Running activity,
-  branch, worktree and pin facts remain on hover and in the existing menus;
-  running rows have no spinner.
+- The original attention/error-only trailing-mark rule is superseded by
+  [the 2026-10-18 owner decision](#team-seats-nest-under-their-team-and-running-rows-spin--2026-10-18-owner),
+  which adds working spinners and nested Seats. Branch, worktree and pin facts
+  remain on hover and in the existing menus.
 - The footer has a full-width hairline and a transparent account row, with
   no pill around the identity. Readiness and usage live in the account menu.
 
@@ -88,6 +151,19 @@ meaning: something needs the person.
 only attention or an error earns a trailing state mark.
 
 ---
+
+## A hidden menu bar item can be restored from View — 2026-10-20
+
+The owner found the macOS status item missing while the development desk was
+launched on an isolated home with `HARNESSDESK_MENU_BAR=off`. The quiet worker
+default was intentional, but the missing item provided no route to restore it.
+
+**View › Show Menu Bar Icon** now creates or removes the item immediately and
+saves the person's choice in that home's `menu-bar.json`. A saved choice wins
+over launch defaults. A fresh secondary home remains quiet, so restoring one
+desk does not put every worker into the menu bar. The native status menu keeps
+six primary actions and puts runtime usage in one submenu, rather than growing
+its root with the runtime roster.
 
 ## Diffs wrap and highlight changed words
 
@@ -146,6 +222,15 @@ folder and the first round's checkout can be admitted, including the Git parent
 and writable destination of isolated attempts, without saving authority or
 allocating a lane. After redeeming that exact preview, Start captures the folder
 through the same `captureShellProject` path as workspace open.
+
+A plain Team has no Flow preview to redeem. Its renderer-only `goal/start`
+request accepts the selected project root, task sentence and checkout mode,
+never a caller-supplied checkout path. Before creating the Team it runs the
+same `admitTeamProject` check: the root must already be a remembered project
+or known from conversation history; an unknown folder is refused. A missing
+legacy identity can be captured, but a changed captured identity is refused
+until the person opens that folder again. Generic `goal/create`, including
+agent calls, does not grant this authority.
 
 The admission belongs to the start request's project, never a folder named by
 the Flow, a card, an agent or a conversation listing. An existing captured
@@ -1204,6 +1289,24 @@ re-ask on a PATH change.
 A copy that exists is never called missing, and the window never waits on the
 asking again.
 
+## Independent development sessions own their checkout and browser — 2026-10-19
+
+The owner's independent bug-fix conversations shared the open folder and its
+branch, so all three published to the same PR. A project draft now defaults to
+a new managed worktree on its own branch, allocated only on first send. It starts
+from the known remote default, then local main or master, with HEAD as the local
+repository fallback. An explicit Local or existing-worktree choice still uses
+that checkout. Opening a linked worktree or repository subfolder is itself a
+place choice, so ordinary drafts keep that code and subfolder scope instead of
+cutting from the default branch. A failed runtime start keeps its allocated checkout for retry.
+Existing conversations are never relocated automatically: already mixed changes
+cannot be safely attributed by moving folders.
+
+PR updates must match the calling checkout's branch. Browser isolation follows
+the runtime/session identity even when the person explicitly shares a checkout;
+tabs, cookies and storage belong to that conversation. Team sidebar actions use
+the same eligibility rules and dialogs as the Team header.
+
 ## A pull request is published through the desk, and the desk signs it
 
 A vendor's own client signs the pull requests its agent opens — "Generated
@@ -1430,11 +1533,12 @@ non-restored Seat establishes membership. Assignment and Release are serialized
 host transactions; the renderer refreshes the resulting Goal instead of
 splicing a member into local state.
 
-Isolated Goal work receives a durable lane: retained checkout, disjoint port
-block and, by default, its own persistent browser partition. The host injects
+Isolated Goal work receives a durable lane: retained checkout and disjoint port
+block. Each conversation has its own browser partition, whose persistence follows
+the browser setting. The host injects
 the lane environment into each agent invocation that can take it per session.
 A lane depends on its checkout, never on a variable in the agent's process: the
-cwd is the confinement and the browser partition is found by it, while the
+cwd is the confinement; browser identity follows the conversation, while the
 ports are a reservation the standing order states either way. So a runtime that
 cannot take the variables is seated in its lane all the same, and told the
 values; refusing it refused every isolated Seat on any ACP agent but the desk's own bridges. A round's
@@ -2942,8 +3046,7 @@ box and the layout's exported gaps, rather than treating the 176×68 layout box
 as the rendered card. A Run supplies its state slot, with `flow-overlay`'s vocabulary;
 failed and skipped are also available to a caller with those recorded facts.
 The first drawing is centred at 100% when it fits; a narrow container shrinks
-it to fit. Edits keep the viewport while any earlier step survives. Fit can
-shrink, never enlarge it.
+it to fit. Edits keep the viewport while any earlier step survives. Explicit Fit recalculates the viewport up to 100%; automatic resize keeps the current zoom when the drawing still fits.
 Read-only plans retain selection and navigation but have no edit affordances.
 Keyboard connection belongs to the builder dock and will arrive in a later
 change; it is not part of this pattern.
@@ -3709,6 +3812,167 @@ Empty and whitespace-only definitions count as hollow. Descriptions in both
 list and matrix, and in the reading sheet, use sanitized markdown so backticks
 produce inline code.
 
+
+## Development pushes run the browser specs their change reaches — 2026-10-16
+
+Owner's decision: approved work lands on `development` by a Lead push, without
+an individual pull request. Five consecutive landings broke browser specs
+without prompt detection, so every development push now runs core CI plus the
+same bounded browser selection formerly used for pull requests. Diff the
+push's `github.event.before` against `HEAD`, fetching the before commit when
+the shallow checkout lacks it, and compute theme metadata over that same range.
+Prefer development's last full-run impact map, falling back to main's and then
+legacy `ui-impact-map-<sha>` entries, to select reached UI specs, retain edited
+specs and include server-facing coverage when reached. Save maps from clean
+full runs on both branches under distinct
+branch keys. Files the specs read, including the interface contract and shot
+rigs, select the specs that read them through the suite's dependency graph.
+Combine those readers with the mapped reach of UI source in a mixed change;
+other docs-only pushes open no browser. A read narrows a file only when it is
+the file's sole tie to the suite. UI package inputs, UI external imports and
+global inputs keep broad coverage with their readers mandatory. Comments are
+not reads, and an unread file under `script/shots/` selects no browser specs.
+
+Global inputs, including manifests, the lockfile, UI build configuration,
+protocol and assets, retain the four-shard cap even without an impact map.
+The summary names the global input. After mandatory specs and recorded reach,
+the cap fills in a deterministic rotation keyed by the pushed SHA, falling
+back to the before revision, so successive pushes sample different specs;
+the nightly full run covers the rest. A change to `.github/workflows/ci.yml`
+or `playwright.ui-system.config.ts` instead runs every spec uncapped: these
+rare changes alter how the suite itself runs.
+
+A missing, all-zero or unavailable before commit runs every browser spec with
+the bounded theme matrix, bypassing the selection cap rather than guessing at
+the pushed change. An unreadable input graph, a missing impact map when one is
+needed, or an unresolvable read does the same on a development push. A map whose
+environment differs (protocol, client, UI configuration or root setup) still supplies
+per-file reach for ranking: reached specs come first, then the four-shard cap
+fills. Its summary names the environment mismatch and every deferred spec.
+Other stale map evidence also ranks a conservative capped sample. Native smoke
+stays full-tier only. Ordinary pull requests remain core-only as decided in
+#1734. Main pushes, nightly/manual dispatches,
+the development release PR, batch heads and the full-ci label retain their full
+tier. Required check names and intentional-skip success stay stable. Push and
+dispatch concurrency groups remain separate so a landing cannot cancel the
+nightly full run. Each development push also has its own commit-keyed group,
+so later pushes cannot cancel running or pending coverage of earlier ranges.
+
+## A page title stands on the wordmark's line — 2026-10-16
+
+A standalone page's title and the sidebar's wordmark are the same type, 20px on a 28px line, and they sat 18 to 20px apart: the page column began under the bar with its full 24px gutter, while the wordmark stands in a bar-tall brand row directly under the sidebar's top row. Two big names at nearly one height read as a near miss, the same flaw the guides report as an edge off its rail. Titles also disagreed with each other by 2px, because a head whose verb is 32px tall centred its title lower than a head with a smaller verb.
+
+The title now shares the wordmark's line. Its head row is one bar tall (`--hd-bar-h`), the brand row's counterpart, and a page that opens with its title drops its top gutter, so both rows start at the bar's bottom and centre on the same line. The title, the wordmark and their baselines coincide, and the page's verb (Refresh, New Team) centres on that line too. Nothing hand-tunes a screen: `PageOptions` sizes the row and `Page` drops the gutter when its first block leads with that row, so every page built from them follows, including one whose head sits inside a toolbar (Teams).
+
+Why the line rather than more air: the window already reads along its bars, and the content's first row is a bar-height row beside the sidebar's. The 6px between the bar and the title is the wordmark's own distance from the row above it, so the two columns open the same way. The title keeps its place when the sidebar is hidden, because the row is measured from the bar, not from the sidebar. Pages without a body title (conversations, canvases, a session or a Team with its subject menu in the bar) keep their insets.
+
+## Conversations can start without a project — 2026-10-16
+
+For #1727 the owner chose option A. This reverses decision 3 of #1721's
+first-run entry: Send no longer opens a folder picker or requires a project.
+The host creates a fresh dated directory with a short unique suffix inside
+its chats folder, defaulting to `chats/` under `HARNESSDESK_HOME`. The renderer
+never constructs that path.
+
+The folder menu starts with **No folder**, which clears a prior choice while
+retaining the draft. Its hover title carries the chats location. Managed chats
+and conversations with unknown folders share one **Chats** group; an empty
+group is omitted. Existing repository-state checks govern folder-only tools.
+
+Settings › General exposes **Chats folder**, **Change…** and **Reset** through
+the existing folder picker and host preferences. Changes affect only future
+conversations. The host retains previous chats roots so existing conversations
+keep both their original folder and their Chats grouping. New drafts and
+hand-offs from a managed chat allocate fresh folders; the hand-off packet
+retains its source location as provenance.
+
+The host-created folder becomes the chat's open workspace before its first
+layout is saved. A recent chat with a saved workbench restores that workbench
+on launch; a recent chat with no saved workbench does not choose a folder for
+an empty draft. Suggested tasks from chats request a fresh folder explicitly,
+even when a different project is open, while tasks from projects retain their
+sender's folder.
+
+## A chats location never claims an existing project — 2026-10-16
+
+The owner's repair to #1727 makes chat identity a record of folders the host
+created, rather than a property inherited from a configured parent. Selecting
+an opened project, or a parent containing one, is refused in Settings, including
+when the location reaches it through a symlink. Changing or resetting the
+location never broadens the recorded set; previous chat allocations keep their
+identity. A pre-existing folder with a dated name is still a project.
+
+Only the latest managed chat appears in recent folders, alongside the fifty
+remembered projects. Settings' folder list, History's project choices and the
+Flows catalogue exclude managed chats. Startup restores a chat only with its
+saved workbench, regardless of read order; an explicit folder choice made while
+preferences load takes precedence. Failed starts remove only empty allocations.
+
+The draft's folder control refreshes Git facts when mounted. Recent entries
+other than the first carry unread facts, so refreshing them preserves the open
+repository's known state. Suggested tasks from a source with an unknown folder
+keep the open project's folder; a recorded managed chat explicitly requests a
+fresh allocation.
+
+
+## The Library's skills page is cards under filter chips — 2026-10-16
+
+Skills open as compact cards with All, Needs you, One runtime and Nobody chips. Chips count all listed skills, while search, state filters and Agent declarations narrow together. Cards carry the runtime reach strip and at most one problem line; Matrix and the skill page retain the detailed comparison. Add skill groups the three existing ways to bring in a skill. MCP keeps its current page. Catalogue banners appear under Needs you even when that chip reads 0: banners describe the catalogue, while chips count skills.
+
+ToggleGroup gained a `chips` variant, and BoardCard gained `marks`, `finding`, `detailLines` and a grid. Keeping this shape costs maintaining those shared contracts and both views over the same filtered rows, using the existing finding and update selectors. Toolbar owns the controls row. Choices remain local to the viewer, history stays at the foot, and empty regions carry a short title without a description.
+
+**Rule:** a card carries at most one problem line, and banners live under Needs you.
+
+
+## Orange waits on a person; blue is unseen Team news — 2026-10-17
+
+A Team’s orange mark means someone waits on the person: an answer, an approval, a held queue, a Flow decision or another actionable board reason. Done cards whose only reason is “nothing checked” keep that column on the Board but raise no Team attention, with or without a Run. Ready to wrap is news, so it joins unread Seat activity and ended Runs under a blue mark, cleared by opening any Team tab. The existing Goal store owns last-seen and ready times so another window, a restart and the phone agree. Overview counts the same attention list it renders and gives unchecked finished cards a quiet count and Board action; no badge can ask for an answer its body does not show.
+
+## Starting a Team says, beside each seat, what will load — 2026-10-17
+
+The dry run already computed, for each seat whose Agent declares skills or MCP servers, whether every declared name would load when the seat opens — but the person read it only as sentences in the problems list, away from the seat they were about, and a seat whose declarations all load said nothing at all. Now the seats section draws one line under such a seat: it counts what would load, says the runtime’s defaults where the Agent declares none, and lists only the names that would not, each in the host’s own words; a refused seat says its refusal in warning ink on the same line.
+
+The line is a rendering of facts the host already decided (`FlowPreviewSeat.attachments`), not a second decision: it adds no problem, removes none, and touches neither `startable` nor the Start button, wherever the seats section is rendered — the Start dialog, the dry-run report on a Flow page, a trigger’s preview and a saved Run again. A declaration of kind `notes` is neither skill nor server and stays out of the line entirely.
+
+**Rule:** a seat's attachment facts sit under that seat; the problems list still decides whether Start is allowed.
+
+
+## A Team opens on its recorded Work — 2026-10-19
+
+The owner found that Overview, Run, Flow and Timeline hid one story behind too
+many choices. Work now opens with the Run's frozen graph and recent activity;
+Full record expands history in place. Tasks groups Board and Findings without
+changing their ledger or actions, and Chat offers combined and Split layouts.
+An explicit saved destination still restores. Run history and Receipt remain
+secondary destinations, and a compact chooser selects a historical Run.
+
+Approvals and questions belong in Chat or their own conversation, backed by
+one request store. Work keeps one aggregate link; Chat carries the pending
+count and warning light. A Team approval names its requester and links their
+conversation. The composer stays visible below the card, retaining its draft
+and recipients. Requests sit at the end of the scrolling Chat thread, so all
+actions scroll with the conversation and cannot be clipped in a second dock. Human
+task decisions remain marked in the graph with the existing task and inspector
+answer actions. The selected Agent's actual glyph identifies each Seat without
+a surrounding coloured tile, and generated duplicate role names keep ordinals.
+
+## Teams follows work; Agents holds reusable roles — 2026-10-20
+
+The owner asked what Teams contributes beside Flows and requested the same
+visual quality for Teams and Agents. Teams keeps attention, working and
+ready-to-wrap work together across projects. Its cards show a concise status
+instead of reproducing an entire runtime refusal; one shared issue mark and
+the exact Team details retain the full explanation, which remains searchable.
+
+Agents uses a responsive role catalogue with source filtering and search.
+Purpose and actual seating facts have separate places. Source paths and
+shadowed copies remain in a deliberate disclosure rather than stretching the
+catalogue between groups. This presentation does not change precedence,
+permission enforcement, authoring recovery or the host's seating decisions.
+
+Superpowers specs and plans are local working notes. Both corresponding
+folders are ignored and untracked at the owner's request; product contracts
+and verification evidence remain in the ordinary documentation tree.
 
 ## Lead window controls have bounded consent, requests and retries — 2026-10-18
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Banner, Button, Chip, EmptyState, IconTile, ListRow, PaneColumn, Progress, Text, Timeline, TimelineItem, type Tint, type TimelineState } from '../design'
+import { Banner, Button, Chip, EmptyState, IconTile, ListRow, PaneColumn, Progress, Section, Text, Timeline, TimelineItem, type Tint, type TimelineState } from '../design'
 import { commandShown } from '../lib/projects'
 import { commitDate } from '../lib/git-refs'
 import { type RunTimelineInput, type RunTimelineRow, type runTimeline } from '../lib/run-timeline'
@@ -24,7 +24,11 @@ const words = (value: string): string => {
 export type RunViewTab = 'timeline' | 'flow'
 
 /** Read-only story. Selection belongs to the caller for the later inspector. */
-export const RunView = ({ home, model, execution, stepsInput, attemptsRead, faceTints, timelineDetail, selectedRow, selectedRows, onSelect, faces, seatNames, doing, pending = false, problem, onRetry, flow, view, onRunAgain, onWrap, onBoard, onReviewCheck, onDetails }: {
+export const RunView = ({ home, model, execution, stepsInput, attemptsRead, faceTints, timelineDetail, selectedRow, selectedRows, onSelect, faces, seatNames, doing, pending = false, problem, onRetry, flow, view, onRunAgain, onWrap, onBoard, onReviewCheck, onDetails, unified = false, introduction, recordRequest }: {
+  /** A Team reads its recorded path and recent events together. Other Run surfaces retain their view choice. */
+  unified?: boolean
+  recordRequest?: number
+  introduction?: ReactNode
   home?: string | null
   stepsInput?: RunTimelineInput
   attemptsRead?: 'reading' | 'failed'
@@ -67,6 +71,27 @@ export const RunView = ({ home, model, execution, stepsInput, attemptsRead, face
   // Consent belongs to the Run view: an ending removes the row's retry control.
   const [retry, setRetry] = useState<{ run: string; card: number } | null>(null)
   useEffect(() => setRetry(null), [model.header.run])
+  const [fullRecord, setFullRecord] = useState(false)
+  const displayedRun = useRef(model.header.run)
+  useEffect(() => {
+    if (displayedRun.current === model.header.run) return
+    displayedRun.current = model.header.run
+    setFullRecord(false)
+  }, [model.header.run])
+  const revealedSelection = useRef<{ identity: string; handled: boolean } | null>(null)
+  useEffect(() => {
+    if (!unified || !selectedRow || !execution) { revealedSelection.current = null; return }
+    const identity = JSON.stringify([model.header.run, selectedRow])
+    if (revealedSelection.current?.identity === identity && revealedSelection.current.handled) return
+    const selectedRound = model.rows.find(row => row.id === selectedRow)?.round
+    const recentRounds = execution.rounds.slice(-3)
+    const selectedStep = selectedRow.startsWith('step:') ? selectedRow.slice(5) : null
+    // A pending row may still arrive; a handled selection never overrides a later manual collapse.
+    revealedSelection.current = { identity, handled: selectedRound != null || selectedStep != null }
+    if (selectedRound != null && !recentRounds.some(round => round.n === selectedRound)
+      || selectedStep && execution.rounds.some(round => round.role === selectedStep && !recentRounds.includes(round))) setFullRecord(true)
+  }, [unified, selectedRow, execution, model.header.run, model.rows])
+  useEffect(() => { if (recordRequest) setFullRecord(true) }, [recordRequest])
   const showing: RunViewTab = flow ? view ?? 'timeline' : 'timeline'
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
@@ -175,28 +200,28 @@ export const RunView = ({ home, model, execution, stepsInput, attemptsRead, face
             </TimelineItem>
 
   }
+  const stepRecords = stepsInput ? <RunSteps recent={unified && !fullRecord ? 3 : undefined} input={stepsInput} selectedRow={selectedRow} selectedStep={selectedRow?.startsWith('step:') ? selectedRow.slice(5) : undefined} faces={faces} faceTints={faceTints} attemptsRead={attemptsRead} onSelect={onSelect}
+    onSelectStep={id => onSelect(`step:${id}`)} timeline seatNames={seatNames} /> : (unified && !fullRecord ? steps.slice(-3) : steps).map(renderTimelineStep)
   return <div data-slot="run-view" className="flex min-h-0 min-w-0 flex-1 flex-col">
     <div className="flex min-h-0 min-w-0 flex-1">
     <div data-slot="run-scroll" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
       <PaneColumn inset="reading">
-        {needsYou && <div data-slot="run-need" className={styles.need}>
+        {unified && flow && <Section title="Flow" level="heading">{flow}</Section>}
+        {introduction}
+        {needsYou && (!introduction || Boolean(header.end)) && <div data-slot="run-need" className={styles.need}>
           <Banner tone="warning" title={words(waiting ? waiting.title : need?.title && need.title !== 'Needs you' ? need.title : 'This Run needs your attention')}
             actions={needActions}>
             {words(runReasonWords(need?.detail ?? execution?.reason ?? (waiting ? 'Waiting for your answer' : 'Review the recorded details to continue.'), execution?.document.flow.rules))}
           </Banner>
         </div>}
-        {showing === 'flow' ? flow : <div data-slot="run-reading" className={styles.reading}><div data-slot="run-steps">
+        {!unified && showing === 'flow' ? flow : <div data-slot="run-reading" className={styles.reading}><div data-slot="run-steps">
         {pending && <Text role="meta" as="div">Reading checks and findings…</Text>}
         {problem && <Banner tone="warning" title="Some Run details could not be read">{words(problem)}{onRetry && <Button variant="link" size="inline-link" onClick={onRetry}>Try again</Button>}</Banner>}
         {stepsInput && header.end && !needsYou && <div data-slot="run-ending"><Banner title={!ending || ['Settled', 'Stopped', 'Needs you', 'Stopped by you', 'Stopped by the desk'].includes(ending.title) ? undefined : words(ending.title)} actions={endActions()}>
           {[ending?.detail ? words(runReasonWords(ending.detail, execution?.document.flow.rules)) : null, header.end.kind === 'stopped' ? header.end.by === 'person' ? 'By you' : 'By the desk' : null].filter(Boolean).join(' · ')}
         </Banner></div>}
-        <Timeline aria-label="Run timeline">
-          {stepsInput ? <>
-            <RunSteps input={stepsInput} selectedRow={selectedRow} selectedStep={selectedRow?.startsWith('step:') ? selectedRow.slice(5) : undefined} faces={faces} faceTints={faceTints} attemptsRead={attemptsRead} onSelect={onSelect}
-              onSelectStep={id => onSelect(`step:${id}`)} timeline seatNames={seatNames} />
-          </> : steps.map(renderTimelineStep)}
-        </Timeline></div>
+        {unified && <Section level="heading" title={fullRecord ? "Timeline" : "Recent activity"} action={<Button variant="outline" size="sm" aria-expanded={fullRecord} onClick={() => setFullRecord(!fullRecord)}>{fullRecord ? "Recent activity" : "Full record"}</Button>} />}
+        {unified && !fullRecord && stepsInput ? stepRecords : <Timeline aria-label="Run timeline">{stepRecords}</Timeline>}</div>
         {!model.rows.some(row => row.kind === 'round') && <EmptyState title="No rounds have opened yet" />}
         </div>}
       </PaneColumn>
@@ -204,7 +229,7 @@ export const RunView = ({ home, model, execution, stepsInput, attemptsRead, face
     {retry?.run === header.run && <RetryCheck run={retry.run} card={retry.card}
       refusal={model.rows.find(row => row.kind === 'check' && row.card === retry.card)?.retryRefusal ?? null}
       onClose={() => setRetry(null)} />}
-    {showing === 'timeline' && timelineDetail}
+    {(unified || showing === 'timeline') && timelineDetail}
     </div>
   </div>
 }

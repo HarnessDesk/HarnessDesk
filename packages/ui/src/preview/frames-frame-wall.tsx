@@ -1,9 +1,12 @@
+import { installSkillPageFixture } from './skill-page-fixture'
+import { README_RUNTIME_NAMES } from './readme-names'
+import { installLibraryChangesFixture, LibraryWriteToastFixture } from './library-changes-fixture'
 import { installEditorMainFixture } from './editor-main-fixture'
 import { EditorModeSelection, editorModeFixture, installEditorModeFixture, type EditorModeScene } from './frames-editor-mode'
 import { installExplorerFixture } from './editor-explorer-fixture'
 import { PREVIEW_FINDINGS } from './findings-fixture'
 import { dashboardDestinationStore } from './dashboard-destination-fixture'
-import { agentsDestinationStore } from './agents-destination-fixture'
+import { AccountNamingFrame, agentsDestinationStore } from './agents-destination-fixture'
 import { pluginsDestinationStore } from './plugins-destination-fixture'
 import { reviewPageStore, type ReviewScene } from './review-page-fixture'
 import { signInSeed } from './signin-fixture'
@@ -231,6 +234,15 @@ export const FrameWall = () => {
       : destination === 'library' && (query.get('frame-library-state') === 'autopilot' || query.get('frame-library-state') === 'import')
         ? frameDestinationStore(showing(libraryAuditFixtureStore(query.get('frame-library-state') as 'autopilot' | 'import'), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
       : frameDestinationStore(storeFor(destination), { workspaceOutsideGit: true })
+    if (destination === 'library') installSkillPageFixture(next, query.get('frame-skill-state'))
+    if (destination === 'library' && (query.get('frame-kind') === 'changes' || query.has('frame-write-toast'))) installLibraryChangesFixture(next, query.get('frame-changes-empty') === '1')
+    if (destination === 'library' && query.get('frame-empty') === '1') {
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = async (method, params) => {
+        const result = await request(method, params)
+        return method === 'library/read' ? { ...result as import('@harnessdesk/protocol').Library, entries: [] } : result
+      }
+    }
     if (initial && !['dashboard','agents','agent','plugins'].includes(destination)) next.openDestination(initial)
     if (destination==='changes-review') next.openReview()
     if (query.get('layout-registry') === '1') {
@@ -250,6 +262,10 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (query.has('readme-names')) Object.assign(snapshot, { runtimes: snapshot.runtimes.map(info => {
+      const name = README_RUNTIME_NAMES[info.presentation.name] ?? info.presentation.name
+      return { ...info, name, presentation: { ...info.presentation, name } }
+    }) })
     if (destination === 'conversation' && query.has('frame-editor')) installEditorMainFixture(next, query.get('frame-editor') === 'entry')
     if (destination === 'conversation' && query.has('frame-editor-mode')) installEditorModeFixture(next, query.get('frame-editor-mode') as EditorModeScene)
     if (destination === 'conversation' && query.has('frame-explorer')) installExplorerFixture(next, query.get('frame-explorer')!)
@@ -577,6 +593,15 @@ export const FrameWall = () => {
       Object.assign(snapshot, { workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1,
         git: { branch: 'main' }, repo: { root: '/work/storefront', worktree: false } } })
     }
+    if (destination === 'draft' && query.get('frame-session-isolation') === '1') {
+      Object.assign(snapshot, { workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1,
+        git: { branch: 'main', sha: '1234567' }, repo: { root: '/work/storefront', worktree: false } } })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method === 'git/status') return { branch: 'main', headSha: '1234567', staged: [], unstaged: [], untracked: [] }
+        return request(method, params as never)
+      }) as typeof next.transport.request
+    }
     if (destination === 'draft' && query.get('frame-fix8-permission-profile') === '1') {
       Object.assign(snapshot, { draftOptions: [{ id: 'permissions', type: 'select', category: '_permissions', label: 'Permissions', currentValue: ':workspace', choices: [
         { value: ':read-only', label: 'Read only' }, { value: ':workspace', label: 'Workspace write' },
@@ -592,6 +617,8 @@ export const FrameWall = () => {
       }) as typeof next.transport.request
     }
     if (destination === 'draft' && query.get('frame-composer-labels') === '1') {
+      // A plain folder: no repository facts reads as "checking Git" and widens the row.
+      Object.assign(snapshot, snapshot.workspace ? { workspace: { ...snapshot.workspace, repo: null } } : {})
       Object.assign(snapshot, { draftOptions: [
         { id: 'sandbox', type: 'select', category: '_permissions', label: 'Sandbox', currentValue: 'workspace', choices: [
           { value: 'read', label: 'Read only' }, { value: 'workspace', label: 'Workspace' },
@@ -625,7 +652,12 @@ export const FrameWall = () => {
         ] },
         ...(fullComposerRow ? [{ id: 'format', type: 'boolean' as const, category: 'other' as const, label: 'Summary format', currentValue: true }] : []),
       ]
-      if (destination === 'draft') Object.assign(snapshot, { draftOptions: composerValues })
+      // These frames measure the toolbar for a plain folder; a workspace with no
+      // repository facts at all reads as "checking Git" and widens the row.
+      if (destination === 'draft') Object.assign(snapshot, {
+        draftOptions: composerValues,
+        ...(snapshot.workspace ? { workspace: { ...snapshot.workspace, repo: null } } : {}),
+      })
       else {
         const session = snapshot.sessions.get(PREVIEW_SESSION_KEY)
         if (session) Object.assign(snapshot, { sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, { ...session, options: composerValues }) })
@@ -648,7 +680,7 @@ export const FrameWall = () => {
     }
     const fix6Folder = query.get('frame-fix6-folder')
     if (destination === 'draft' && (fix6Folder === 'storefront' || fix6Folder === 'pricing-service')) {
-      const workspace = { path: `/work/${fix6Folder}`, name: fix6Folder, lastOpenedAt: 1 }
+      const workspace = { path: `/work/${fix6Folder}`, name: fix6Folder, lastOpenedAt: 1, repo: null }
       Object.assign(snapshot, { workspace, workspaces: [workspace], activeSessionKey: null, sessions: new Map() })
     }
     if (destination === 'draft' && query.get('frame-fix5-long-folder') === '1') {
@@ -707,7 +739,9 @@ export const FrameWall = () => {
           items: [{ id: itemId('frame-fix5-live-title'), type: 'userMessage' as const, content: [{ type: 'text' as const, text: task }] }],
         }],
       }
-      const stale = { ...live, title: 'Untitled session', preview: null }
+      // An index row that has not caught up carries no title yet; an indexed title
+      // would win over the live one, so a placeholder here is not a real state.
+      const stale = { ...live, title: null, preview: null }
       Object.assign(snapshot, {
         sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, live),
         history: [stale],
@@ -888,6 +922,6 @@ export const FrameWall = () => {
   }, [store,destination])
   if (requested === 'topbar') return <TopBarProbe />
   return <StoreProvider store={store}>
-    <div data-frame-id="frame-wall" data-destination={destination} className="h-screen min-h-0 overflow-hidden bg-background"><App/><PopupWall/><EditorModeSelection/></div>
+    <div data-frame-id="frame-wall" data-destination={destination} className="h-screen min-h-0 overflow-hidden bg-background"><App/><AccountNamingFrame/><LibraryWriteToastFixture shape={new URLSearchParams(location.search).get('frame-write-toast')} /><PopupWall/><EditorModeSelection/></div>
   </StoreProvider>
 }

@@ -165,10 +165,34 @@ it('keeps a removed current model visibly unavailable with valid choices and no 
   expect(trigger.title).toContain('Low')
   click(trigger)
   expect(document.querySelector('[role="menu"]')?.textContent).toContain('spark-3 — Unavailable')
+  const unavailable = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((node) => node.textContent?.includes('spark-3'))!
+  expect(unavailable.querySelector('[data-menu-hint]')).toBeNull()
+  expect(unavailable.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toBe('This current value is no longer offered.')
   expect(setOption).not.toHaveBeenCalled()
   const valid = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((node) => node.textContent?.includes('Brain 9'))!
   click(valid)
   expect(setOption).toHaveBeenCalledWith('model', 'brain-9')
+})
+
+it('keeps an unusable model route on one line with its reason on the issue mark', () => {
+  const reason = 'This route needs a credential.'
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id,
+    draftOptions: [model],
+    routes: [{ id: 'route_1', name: 'Acme proxy', endpoint: 'https://proxy.acme.dev/v1',
+      wireProtocol: 'responses', credentialRef: 'cred_a', usable: false, reason }],
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><ModelControl /></StoreProvider>))
+  click(container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!)
+  const routeMenu = [...document.querySelectorAll<HTMLButtonElement>('[data-slot="dropdown-menu-sub-trigger"]')]
+    .find((node) => node.textContent?.includes('Model route'))!
+  click(routeMenu)
+  const route = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+    .find((node) => node.textContent?.includes('Acme proxy'))!
+  expect(route).toBeTruthy()
+  expect(route.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toBe(reason)
+  expect(route.querySelector('[data-menu-hint]')).toBeNull()
 })
 
 it('flags a stale saved model in the control and offers one click to clear its original pick', () => {
@@ -181,8 +205,8 @@ it('flags a stale saved model in the control and offers one click to clear its o
   expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
   click(trigger)
   const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((node) => node.textContent?.includes('Use the runtime’s current value'))!
-  expect(row.textContent).toContain('Retired model')
-  expect(row.textContent).toContain('This value is no longer offered.')
+  expect(row.querySelector('[data-menu-hint]')).toBeNull()
+  expect(row.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toContain('Retired model. This value is no longer offered.')
   click(row)
   expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'model')
 })
@@ -198,6 +222,37 @@ it('reports a recommendation refusal when clearing a stale composer pick', async
   const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(node => node.textContent?.includes('Use the runtime’s current value'))!
   await act(async () => row.click())
   expect(resultNotice).toHaveBeenCalledWith('warning', 'Recommendation unavailable.')
+})
+
+it('keeps a mode consequence visible when its name alone does not explain it', () => {
+  const setOption = vi.fn()
+  const mode: ConfigOption = { id: 'mode', label: 'Mode', category: 'mode', type: 'select', currentValue: 'default', choices: [
+    { value: 'default', label: 'Default', description: 'Ask before running commands.' },
+    { value: 'unattended', label: 'Unattended', description: 'Run commands without asking for permission.' },
+  ] }
+  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [mode] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, setOption } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><ModeControl /></StoreProvider>))
+  click(container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!)
+  const unattended = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(one => one.textContent?.includes('Unattended'))!
+  expect(unattended.querySelector('[data-menu-hint]')?.textContent).toBe('Run commands without asking for permission.')
+  click(unattended)
+  expect(setOption).toHaveBeenCalledWith('mode', 'unattended')
+})
+
+it.each([['other', MoreControl], ['thought_level', ModelControl]] as const)('explains an identifier-only %s switch while ordinary labels use hover', (category, Control) => {
+  const opaque: ConfigOption = { type: 'boolean', id: 'options.runic', category, label: 'runic', description: 'Enable the experimental task history index.', currentValue: false }
+  const ordinary: ConfigOption = { type: 'boolean', id: 'verbose', category, label: 'Show detailed output', description: 'Include additional progress details.', currentValue: false }
+  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [model, opaque, ordinary] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, setOption: vi.fn() } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><Control /></StoreProvider>))
+  click(container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!)
+  const switches = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')]
+  const unknown = switches.find(one => one.textContent?.includes('runic'))!
+  const clear = switches.find(one => one.textContent?.includes('Show detailed output'))!
+  expect(unknown.querySelector('[data-menu-hint]')?.textContent).toBe(opaque.description)
+  expect(clear.querySelector('[data-menu-hint]')).toBeNull()
+  expect(clear.title).toBe(ordinary.description)
 })
 
 it.each(['stale default', 'unavailable current value'] as const)('keeps a single mode actionable for a %s', (state) => {
@@ -216,7 +271,7 @@ it.each(['stale default', 'unavailable current value'] as const)('keeps a single
   if (state === 'stale default') {
     expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
     const clear = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Use the runtime’s current value'))!
-    expect(clear.textContent).toContain('Retired mode')
+    expect(clear.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toContain('Retired mode')
     click(clear)
     expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'mode')
   } else {
@@ -238,7 +293,7 @@ it.each([['model', ModelControl], ['mode', ModeControl], ['_permissions', Permis
   expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
   click(trigger)
   const clear = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Use the runtime’s current value'))!
-  expect(clear.textContent).toContain('Original value')
+  expect(clear.querySelector('[data-slot="issue-mark"]')?.getAttribute('title')).toContain('Original value')
   click(clear)
   expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'removed')
 })

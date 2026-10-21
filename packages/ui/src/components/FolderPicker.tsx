@@ -47,7 +47,7 @@ interface Listing {
   readonly entries: readonly { readonly name: string; readonly path: string }[]
 }
 
-export const FolderPicker = ({ onClose }: { onClose: (chosen?: boolean) => void }) => {
+export const FolderPicker = ({ onClose, onChoose, title = 'Choose a project folder', problem }: { onClose: (chosen?: boolean) => void; onChoose?: (path: string) => Promise<boolean>; title?: string; problem?: string | null }) => {
   const store = useStore()
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(true)
@@ -116,8 +116,9 @@ export const FolderPicker = ({ onClose }: { onClose: (chosen?: boolean) => void 
 
   return (
     <Dialog
-      title="Choose a project folder"
-      description="Click a folder to enter it; open the one you are in."
+      title={title}
+      description={problem ?? 'Click a folder to enter it; open the one you are in.'}
+      scrollDescription={problem != null}
       size="lg"
       tall
       flush
@@ -130,7 +131,7 @@ export const FolderPicker = ({ onClose }: { onClose: (chosen?: boolean) => void 
             disabled={!listing}
             onClick={async () => {
               if (!listing || !active.current) return
-              if (await store.openWorkspace(listing.path)) close(true)
+              if (await (onChoose ? onChoose(listing.path) : store.openWorkspace(listing.path))) close(true)
             }}
           >
             Open {listing ? `“${crumbsOf(listing.path).at(-1)?.name ?? listing.path}”` : 'folder'}

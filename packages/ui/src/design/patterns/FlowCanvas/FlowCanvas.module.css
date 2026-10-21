@@ -28,9 +28,17 @@
   overflow: hidden;
 }
 .card[data-selected] { box-shadow: 0 0 0 var(--hd-ring-width) var(--hd-border-strong); }
-.seats { padding: 0 var(--hd-space-3) var(--hd-space-2); }
+.cardHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--hd-space-2) var(--hd-space-3);
+  padding: var(--hd-space-4);
+}
+.role { grid-column: 2; }
+.seats { padding: 0 var(--hd-space-4) var(--hd-space-3); }
 .state {
-  padding: var(--hd-space-2) var(--hd-space-3);
+  padding: var(--hd-space-2) var(--hd-space-4); /* desk: align state content with the shared Flow card's 16px edge. */
   border-top: var(--hd-border-width) solid var(--hd-border);
 }
 .edge { stroke: var(--hd-muted-foreground); stroke-width: var(--hd-border-width); }
@@ -85,3 +93,12 @@
 
 .canvas[data-inert] :global(.react-flow__pane),
 .canvas[data-position-only] :global(.react-flow__pane) { touch-action: pan-y; }
+
+.mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hd-space-8);
+  height: var(--hd-space-8);
+  color: var(--hd-muted-foreground);
+}

@@ -117,14 +117,29 @@ export const FIX_PREVIEW: FlowPreview = {
   problems: [],
 }
 
-/** The shipped dry-run states added by #1183 and #1194, composed from the
+/**
+ * The shipped dry-run states added by #1183 and #1194, composed from the
  * same FlowPreviewReport the front door uses. Names are fixture personas;
- * the Gemini refusal is the adapter's own presentation sentence. */
+ * the Gemini refusal is the adapter's own presentation sentence.
+ *
+ * #1582: the reviewer's seat carries the host's dry-run of what its Agent
+ * declares — one skill that loads, one that would not, one server — with the
+ * matching problem sentence in `problems`, exactly as the host writes both.
+ */
 export const REVIEWER_REASONS_PREVIEW: FlowPreview = {
   ...FIX_PREVIEW,
   commands: [],
   seats: [{
     role: 'reviewer', index: 0, agent: 'code-reviewer', isolate: false, reviews: true,
+    attachments: {
+      skillsMode: 'allowlist', mcpMode: 'allowlist',
+      declarations: [
+        { kind: 'skill', name: 'review-checklist', identity: null, problem: null },
+        { kind: 'skill', name: 'frontend-design', identity: null, problem: 'Review this content before loading it.' },
+        { kind: 'mcp', name: 'browser', identity: null, problem: null },
+      ],
+      refusal: null,
+    },
     plan: {
       id: 'reviewer', from: 'machine', winner: 1, blocked: null,
       ceiling: { level: 'read', hold: 'held' },
@@ -136,22 +151,47 @@ export const REVIEWER_REASONS_PREVIEW: FlowPreview = {
       ],
     },
   }],
-  problems: [{
-    level: 'warning', at: 'roles.reviewer',
-    text: 'Can’t confirm that Beta uses a different provider from fixer, so independence is checked when this step is reached.',
-  }],
+  problems: [
+    {
+      level: 'warning', at: 'roles.reviewer',
+      text: 'Can’t confirm that Beta uses a different provider from fixer, so independence is checked when this step is reached.',
+    },
+    {
+      level: 'warning', at: 'roles.reviewer.seat',
+      text: 'reviewer[1] skill “frontend-design”: Review this content before loading it.',
+    },
+  ],
 }
 
 export const GEMINI_UNTRUSTED_PREVIEW: FlowPreview = {
   ...FIX_PREVIEW,
   // The refused seat alone: the preview page also carries the front door's own two-seat plan.
-  seats: FIX_PREVIEW.seats.filter((seat) => seat.role === 'reviewer'),
+  seats: [{
+    ...FIX_PREVIEW.seats.find((seat) => seat.role === 'reviewer')!,
+    // #1582: a seat the host refused to open carries the refusal sentence,
+    // which the problems list repeats with where to review it — the plane's
+    // own `UnsuppressedAutoLoadError` words.
+    attachments: {
+      skillsMode: 'allowlist', mcpMode: 'runtime-defaults',
+      declarations: [
+        { kind: 'skill', name: 'review-checklist', identity: null, problem: null },
+        { kind: 'skill', name: 'frontend-design', identity: null, problem: 'Review this content before loading it.' },
+      ],
+      refusal: 'This agent cannot be stopped from loading unapproved repository content on its own for this Seat.',
+    },
+  }],
   token: null,
   commands: [],
-  problems: [{
-    level: 'error', at: 'roles.reviewer.seat',
-    text: "Gemini doesn't trust this folder, so it can't use the board. Open Gemini here, run /permissions trust, and start again.",
-  }],
+  problems: [
+    {
+      level: 'error', at: 'roles.reviewer.seat',
+      text: "Gemini doesn't trust this folder, so it can't use the board. Open Gemini here, run /permissions trust, and start again.",
+    },
+    {
+      level: 'error', at: 'roles.reviewer.seat',
+      text: 'This agent cannot be stopped from loading unapproved repository content on its own for this Seat. Review it on the Agent page.',
+    },
+  ],
 }
 
 const LEGACY_SOURCE = [

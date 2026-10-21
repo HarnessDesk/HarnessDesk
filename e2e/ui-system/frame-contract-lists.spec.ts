@@ -26,20 +26,21 @@ test('Lists R9 empty Teams centres the complete empty state in the page body', a
   expect(Math.abs(geometry.regionCenter - geometry.contentCenter)).toBeLessThanOrEqual(1)
 })
 
-test('Lists R9 Library warning fills the List measure', async ({ page }) => {
+test('Lists R9 Library warning fills the card grid measure under Needs you', async ({ page }) => {
   await openFrame(page, 'frame-wall=library', 'light', 1440)
   const library = page.locator('[data-page-destination="library"]:visible')
+  await page.getByRole('radio', { name: 'Needs you', exact: true }).click()
   const warning = library.locator('[data-slot="alert"]')
-  const list = library.locator('[data-slot="skill-list"]')
+  const list = library.locator('[data-slot="skill-cards"]')
   await expect(warning).toBeVisible()
   await expect(list).toBeVisible()
   const widths = await Promise.all([warning, list].map(async locator => (await locator.boundingBox())!.width))
   expect(Math.abs(widths[0]! - widths[1]!)).toBeLessThanOrEqual(1)
 })
 
-test('Lists R9 Library list description occupies no more than two lines', async ({ page }) => {
+test('Lists R9 Library card description occupies no more than two lines', async ({ page }) => {
   await openFrame(page, 'frame-wall=library', 'light', 1440)
-  const description = page.locator('[data-page-destination="library"]:visible [data-skill-description]').first()
+  const description = page.locator('[data-page-destination="library"]:visible [data-detail-lines]').first()
   await description.evaluate(node => {
     node.textContent = 'Canvas checks compare the exact output, state and layout of a page. '.repeat(18)
   })
@@ -54,9 +55,21 @@ test('Lists R9 Library list description occupies no more than two lines', async 
 test('Lists R9 Agents show each seat mark and the shortened source path', async ({ page }) => {
   await openFrame(page, 'frame-wall=agents', 'light', 1440)
   const agents = page.locator('[data-page-destination="agents"]:visible')
+  const cards = agents.locator('[data-slot="agent-card"]')
+  await expect(cards).toHaveCount(5)
+  await expect(cards.locator('[data-slot="agent-card-face"]')).toHaveCount(5)
+  const sources = agents.getByRole('button', { name: 'Sources and precedence', exact: true })
+  await expect(sources).toHaveAttribute('aria-expanded', 'false')
+  await expect(agents.locator('section[aria-label^="Sources:"]')).toHaveCount(0)
+  await sources.click()
+  await expect(sources).toHaveAttribute('aria-expanded', 'true')
   const rows = agents.locator('[data-kind="record"]')
+  // Five effective roles and one lower-precedence copy; the copy stays in
+  // Sources rather than becoming a duplicate role card in the catalogue.
   await expect(rows).toHaveCount(6)
-  const faceKinds = await rows.locator('[data-slot="row-face"]').evaluateAll(nodes => nodes.map(node => ({
+  const faces = rows.locator('[data-slot="agent-card-face"], [data-slot="row-face"]')
+  await expect(faces).toHaveCount(6)
+  const faceKinds = await faces.evaluateAll(nodes => nodes.map(node => ({
     runtime: node.querySelector('svg[class*="brand-"]') !== null,
     avatar: node.querySelector('[data-slot="monogram"]') !== null,
     generic: node.querySelector('svg.lucide-bot') !== null,
@@ -65,25 +78,25 @@ test('Lists R9 Agents show each seat mark and the shortened source path', async 
 
   const root = '/work/storefront'
   const project = root.split('/').at(-1)!
-  const source = agents.locator(`section[aria-label="In ${project}"] [data-slot="middle-truncate"]`)
+  const source = agents.locator('section[aria-label="Sources: Project"] [data-slot="middle-truncate"]')
   await expect(source).toContainText(`${project}/.harnessdesk/agents`)
   await expect(source).toHaveAttribute('title', `${root}/.harnessdesk/agents`)
 })
 
 test('Lists R9 Library filter and skill detail use group-level facts', async ({ page }) => {
   await openFrame(page, 'frame-wall=library', 'light', 1440)
-  await page.locator('[data-slot="popover-trigger"][title="Declared by"]').click()
+  await page.locator('[data-slot="popover-trigger"][title="Filter the library"]').click()
   await expect(page.getByRole('menuitemradio', { name: 'Any agent', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  const skill = page.locator('[data-slot="skill-row"]').filter({ hasText: 'systematic-debugging' })
+  const skill = page.locator('[data-slot="skill-card"]').filter({ hasText: 'systematic-debugging' })
   await expect(skill).toBeVisible()
   await skill.click()
-  const dialog = page.getByRole('dialog')
-  const group = dialog.locator('section').filter({ has: page.getByRole('heading', { name: 'Which runtimes load it', exact: true }) })
-  await expect(group.getByRole('listitem')).toHaveCount(3)
-  await expect(group).toContainText('Installed where these runtimes do not look')
-  expect(await group.locator('text=Installed where these runtimes do not look').count()).toBe(1)
+  const group = page.locator('[data-slot="skill-page"] [data-slot="tool-section"][aria-label="Loaded by"]')
+  await expect(group.locator('[data-slot="row"]')).toHaveCount(3)
+  await expect(group.getByText('Not read', { exact: true })).toHaveCount(3)
+  await expect(group.locator('[data-slot="row"][title$="Installed where this runtime does not look"]')).toHaveCount(3)
+  await expect(group.getByText('Read from disk against this build’s table of where each runtime looks — the runtimes themselves were not asked.', { exact: true })).toHaveCount(1)
 })
 
 test('Lists R9 Plugins show Active and Built in on the state row', async ({ page }) => {

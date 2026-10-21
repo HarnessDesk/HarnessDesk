@@ -66,7 +66,7 @@ Twenty-one packages make up the repository:
 | `packages/responses-gateway` | Per-route loopback proxy for model routing | Zero dependencies |
 | `packages/agent-inventory` | Standalone cross-agent skill and MCP scanner | `protocol`, Node built-ins |
 
-The shell creates a macOS menu bar item only for the default `~/.harnessdesk` home; `HARNESSDESK_MENU_BAR=on` or `1` forces it on, and `off` or `0` forces it off.
+The shell defaults to a macOS menu bar item only for the default `~/.harnessdesk` home. `HARNESSDESK_MENU_BAR=on` or `1` changes that launch default to on, and `off` or `0` to off. A person's explicit **View › Show Menu Bar Icon** choice is saved in that home's `menu-bar.json` and takes precedence over launch defaults, so an isolated desk can restore its own icon without adding icons to other worker desks.
 
 ## The agent plane
 
@@ -261,12 +261,15 @@ sample.
   and delivery tracking.
 - **Goals, Seats and lanes** — finite work lives in `goals/`, while append-only
   Seat/evidence records say who belonged. Isolated Seats receive a retained git
-  worktree, a durable port block and an invocation-scoped browser profile. The
+  worktree and a durable port block. Every conversation, including sessions
+  sharing a checkout, owns a browser profile keyed by its runtime and session id.
+  Browser panes, Team tiles and tool invocations use that same identity; the host
+  admits restored profiles only for known sessions or retained legacy lanes. The
   six-value lane environment is supplied by the host to each new/resumed agent
   process whose runtime can take it per session; the renderer never reads or
   invents it. A lane needs only its checkout from a runtime — the cwd, from the
-  desk's own lane record, is the confinement, and the browser profile is found
-  by it — so a runtime that cannot take the variables is still seated in its
+  desk's own lane record, is the confinement; released lanes also refuse browser
+  tools — so a runtime that cannot take the variables is still seated in its
   lane, and its standing order tells it the values to pass explicitly.
   A settled Run keeps its Seats open for follow-ups. A Seat that held work
   releases its live session after all its cards are done and it has no turn,
@@ -450,12 +453,19 @@ and fallback commands), `credentials.json`, `usage.sqlite` (the spend ledger),
 `sessions.sqlite` (the conversation index, turn metadata, items and search),
 `sessions-YYYY-MM-DD.sqlite` (the newest three daily snapshots),
 `transcripts/` (legacy files retained after the list-only seed),
-`plugins/`, `worktrees/`, `logs/` (`host.ndjson`),
+`plugins/`, `worktrees/`, `chats/` (the default location for fresh per-conversation
+folders when no project is chosen), `logs/` (`host.ndjson`),
 `audit.ndjson`, `run/` (`tools.sock`), `accounts.json`, `archive.json`,
 `names.json`, `team/`, `acp-registry.json`, `downloads/`,
 `attachment-trust.json` and `attachments/seats/` (a person's local approvals
 and every Seat's frozen attachment history), and `goals/memory-archive/`
 (retained citation snapshots, beside `goals/` itself).
+
+The state store records successful host-created chat folders independently of
+the configured chats location. Their paths, including canonical aliases, are
+host-owned preferences; clients cannot patch them. Recent folders retain fifty
+projects plus at most one managed chat for launch restoration. Failed session
+starts remove only their own empty allocation, preserving anything written there.
 
 ## The extension plane
 

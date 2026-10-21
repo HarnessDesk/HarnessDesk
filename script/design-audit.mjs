@@ -3685,7 +3685,7 @@ for (const file of [...cssFiles(), ...tsxFiles()]) {
 }
 
 /**
- * Components the app frame retires (docs/superpowers/specs/2026-10-09-app-frame-design.md,
+ * Components the app frame retires (docs/design.md,
  * Components). Each use in a screen is a page still drawing a part of the
  * frame the shell will own. A burn-down: it reaches zero when the last page
  * moves into main, and a new use fails at once.
@@ -4335,7 +4335,7 @@ for (const designFile of designSources) {
   // Same-module composition: `Dialog` composes `DialogBody`/`DialogSubhead`
   // in its own body, in the same file, with no import at all — they are
   // already in scope. `designImportsOf` is an *import* scanner and can never
-  // see this, so `DialogBody`'s only screen importer (SkillSheet.tsx) looked
+  // see this, so `DialogBody`'s only screen importer (McpSheet.tsx) looked
   // like its whole reach, when `Dialog`'s own ~46-screen reach is exactly as
   // much this export's own (#925 review round 2, P1).
   for (const [, ref] of exportedNamesOf(designFile)) {
@@ -4424,18 +4424,11 @@ export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
   {
     module: 'design/ui/timeline.tsx',
     kind: 'data-geometry',
-    exports: ['Timeline', 'TimelineItem'],
+    exports: ['Timeline'],
     area: 'room',
     reason: 'An ordered execution data view: title-centred rings and incoming rail segments encode recorded progress. Existing Button and Text own selection and typography; the timeline introduces no independent control.',
   },
 
-  {
-    module: 'design/ui/flow-step.tsx',
-    kind: 'data-geometry',
-    exports: ['FlowStepSurface', 'FlowDoingLine'],
-    area: 'room',
-    reason: 'Run-state marks on measured Flow node boxes: the ring, duration badge, seated faces and doing line read execution data rather than introduce a screen control.',
-  },
   {
     module: 'design/ui/chart.tsx',
     kind: 'data-geometry',

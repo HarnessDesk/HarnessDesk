@@ -11,6 +11,24 @@ const declared: ConfigOption[] = [
   { id: 'mode', label: 'Mode', category: 'mode', type: 'select', currentValue: 'plan', choices: [{ value: 'plan', label: 'Plan' }] },
 ]
 
+it('discovers folderless recommendations instead of the open project defaults for cwd null', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { activeRuntime: runtime, workspace: { path: '/project', name: 'project' } })
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { cwd?: string; values?: Record<string, unknown> }) => {
+    if (method === 'runtime/sessionDefaults') {
+      const recommendation = params.cwd === '/project' ? 'old' : 'current'
+      return [{ ...declared[0]!, currentValue: params.values?.model ?? recommendation, recommendedValue: recommendation }]
+    }
+    if (method === 'session/create') return { runtime, id: sessionId('folderless'), cwd: '/data/chats/new', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return []
+  }) as never)
+  await store.newSession({ cwd: null, reveal: false })
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1])
+    .toEqual({ runtime, options: { options: { model: 'current' } } })
+  expect(request.mock.calls.filter(([method]) => method === 'runtime/sessionDefaults').map(([, params]) => params))
+    .toEqual([{ runtime }, { runtime, values: { model: 'current' } }])
+})
+
 it.each(['missing', 'different choices'] as const)('keeps saved reasoning for the saved model when discovery has %s', async (discovery) => {
   const store = new AppStore('ws://localhost:0/')
   const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown> }) => {
@@ -472,6 +490,35 @@ it('reports a refused recommendation during composer refresh without rejecting t
   const notice = vi.spyOn(store, 'resultNotice')
   await expect(store.loadDraftOptions()).resolves.toBeUndefined()
   expect(notice).toHaveBeenCalledWith('warning', 'The runtime refused its recommendation.')
+})
+
+/* An agent that is signed out refuses this read in so many words, and its
+   page already says it is not signed in: the banner, and the Accounts card.
+   The refusal as a toast repeated that as a paragraph of protocol text, and
+   stayed up on the next agent's page (#1775). */
+const refusal = 'Authentication required — No authentication method selected. Either call the `authenticate` method, or set `auth.type` in settings.json.'
+
+it.each([
+  ['signed out', { accounts: [], signInMethods: [] }],
+  ['not heard from yet', undefined],
+] as const)('keeps a sign-in refusal out of the toasts while the agent is %s', async (_, account) => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { activeRuntime: runtime, accountsByRuntime: account ? { [runtime]: account } : {} })
+  vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error(refusal))
+  const notice = vi.spyOn(store, 'resultNotice')
+  await store.loadDraftOptions()
+  expect(notice).not.toHaveBeenCalled()
+})
+
+it('still raises a sign-in refusal from an agent the desk shows as signed in', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { activeRuntime: runtime, accountsByRuntime: {
+    [runtime]: { accounts: [{ kind: 'oauth', label: 'dev@example.com' }], signInMethods: [] },
+  } })
+  vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error(refusal))
+  const notice = vi.spyOn(store, 'resultNotice')
+  await store.loadDraftOptions()
+  expect(notice).toHaveBeenCalledWith('warning', refusal)
 })
 
 

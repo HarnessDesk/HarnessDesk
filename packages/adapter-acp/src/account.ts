@@ -89,7 +89,8 @@ export class CliAccount {
   readonly #codeSinks = new Map<string, (code: string) => Promise<void>>()
 
   constructor(
-    private readonly commands: AcpAccountCommands,
+    /** The commands, or how to read them as they run now (the row's environment and chosen copy, #1761). */
+    private readonly commandsNow: AcpAccountCommands | (() => AcpAccountCommands),
     private readonly runtime: RuntimeId,
     private readonly emit: (event: AgentEvent) => void,
     private readonly log?: (message: string, details?: unknown) => void,
@@ -107,16 +108,21 @@ export class CliAccount {
     } = {},
   ) {}
 
+  get #commands(): AcpAccountCommands {
+    return typeof this.commandsNow === 'function' ? this.commandsNow() : this.commandsNow
+  }
+
   async status(): Promise<AccountStatus> {
-    const methods = this.commands.login
+    const commands = this.#commands
+    const methods = commands.login
       ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }]
       : []
     // Some CLIs expose authentication only through their interactive prompt.
     // They can still drive login/logout, but probing status would start that
     // prompt and potentially block waiting for a browser flow.
-    if (!this.commands.status) return { accounts: [], signInMethods: methods }
+    if (!commands.status) return { accounts: [], signInMethods: methods }
     try {
-      const stdout = await this.#run(this.commands.status)
+      const stdout = await this.#run(commands.status)
       const parsed = parseStatus(stdout)
       return { accounts: parsed ? [parsed] : [], signInMethods: methods }
     } catch (error) {
@@ -132,7 +138,7 @@ export class CliAccount {
   }
 
   async login(): Promise<LoginStart> {
-    const spec = this.commands.login
+    const spec = this.#commands.login
     if (!spec) throw new Error('This agent declares no sign-in command.')
     const loginId = randomUUID()
     const prompt = spec.pasteCode?.trim() ? spec.pasteCode : null
@@ -447,7 +453,7 @@ export class CliAccount {
   }
 
   async logout(): Promise<void> {
-    const spec = this.commands.logout
+    const spec = this.#commands.logout
     if (!spec) throw new Error('This agent declares no sign-out command.')
     await this.#run(spec)
     this.emit({ type: 'account/changed', runtime: this.runtime })

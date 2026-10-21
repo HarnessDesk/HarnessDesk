@@ -1,7 +1,7 @@
-import { RunRoundCards, CommittedDocumentBlock } from './RunRoundCards'
+import { CommittedDocumentBlock } from './RunRoundCards'
 import { mayBeDocument } from '../state/committed-document'
-import { ToolProse, ToolSection } from '../design'
-import { AgentIcon, PullRequestIcon } from './Icons'
+import { ToolProse, ToolSection, ToolFold, SectionHead, ListRows, ListRow } from '../design'
+import { AgentIcon, CheckIcon, UserIcon } from './Icons'
 import { openExternal } from '../lib/desktop'
 import type { FindingRoundPublication, FlowCheckAttempt, GoalState } from '@harnessdesk/protocol'
 import { attemptWords, runTimeline, type RunTimelineInput } from '../lib/run-timeline'
@@ -49,14 +49,17 @@ export interface RunInspectorProps {
   attemptsRead?: 'reading' | 'failed'
 }
 
-import { Button, SummaryList, SummaryItem, Chip, CodeText, IconTile, ChangeStats, PanelBody, SectionBody, PanelFooter, PanelFrame, PanelRow, ToolBodyControls, Progress, RunStateChip, stateTone, Text, type Tint } from '../design'
+import { Button, SummaryList, SummaryItem, Chip, CodeText, MiddleTruncate, FormStack, ChangeStats, PanelBody, SectionBody, PanelFooter, PanelFrame, PanelRow, ToolBodyControls, Progress, RunStateChip, stateTone, Text, type Tint } from '../design'
 import { commandShown } from '../lib/projects'
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
+import { flowModel } from '../lib/flow-model'
+import { ROLE_KIND_WORDS } from '../lib/shapes'
 import { lifecycleWords } from '../lib/findings'
 import { reviewPublication } from '../lib/review-publication'
 import { ReviewPublicationActions, type ReviewActionsTarget } from './ReviewPublicationActions'
 import { commitDate } from '../lib/git-refs'
+import { formatDuration } from './TurnTail'
 import { useState, type ReactNode } from 'react'
 import { RunAgain } from './RetryCheck'
 import { isRecordState, RECORD_REASON } from '../lib/team-record'
@@ -64,8 +67,11 @@ import { stepDoor } from '../lib/needs-you'
 import { AbandonCard } from './AbandonCard'
 import { StepAnswer } from './StepAnswer'
 
-const Section = ({ title, children }: { title: string; children: ReactNode }) => <ToolSection label={title}>{children}</ToolSection>
-const Words = ({ children }: { children: string }) => <Text as="div" role="prose" className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{sanitizeText(children)}</Text>
+const Section = ({ title, children }: { title: string; children: ReactNode }) => <section aria-label={title}><SectionBody spacing="inline"><SectionHead name={title} level="label" />{children}</SectionBody></section>
+const Words = ({ children, fold = false }: { children: string; fold?: boolean }) => {
+  const text = <Text as="div" role="prose" className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{sanitizeText(children)}</Text>
+  return fold && children.length > 180 ? <ToolFold label="Read full text">{text}</ToolFold> : text
+}
 /**
  * One recorded result of a check: how it ended, when, and the commit it ran at. Its output is the command's own text, which
  * can hold anything a repository or a tool printed, so it goes through the sanitiser like every other agent-reachable text
@@ -98,13 +104,20 @@ const detailWords = (detail: string | null | undefined): string | null => {
   return parts.join('') || null
 }
 
-/** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
+/** Frozen step declarations and recorded detail; no transcript copies or guessed results. */
 export const RunInspector = ({ inspectionOnly = false, home, teamState, input, selectedRow, onSelect, doing, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const model = runTimeline(input)
+  const stepId = selectedRow?.startsWith('step:') ? selectedRow.slice(5) : null
+  const declaredRole = execution.document.flow.roles.find(one => one.id === stepId)
+  const latestStepRound = declaredRole ? execution.rounds.filter(one => one.role === declaredRole.id).sort((a, b) => b.n - a.n)[0] : undefined
+  // Keep a selected future step attached to its first/newest recorded card as
+  // the Run advances, without changing the person's retained step selection.
   const selected = model.rows.find(row => row.id === selectedRow)
+    ?? (latestStepRound ? model.rows.find(row => row.round === latestStepRound.n && ['card', 'check', 'person'].includes(row.kind)) : undefined)
   const round = execution.rounds.find(one => one.n === selected?.round)
   const card = cards.find(one => one.id === selected?.card)
+  const duration = selected?.durationMs ?? (selected?.working && selected.since !== null ? Math.max(0, Date.now() - selected.since) : null)
   const role = execution.document.flow.roles.find(one => one.id === round?.role)
   const seat = seats.find(one => one.id === selected?.seat)
   const findings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === selected?.round
@@ -112,13 +125,30 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
   // None is only said of a read that is whole: until then, say what is happening to it instead.
   const unread = findingsRead ?? (input.findings ? undefined : 'reading')
   const showFindings = <Section title="Findings">{findings.length ? findings.map(finding => <div key={finding.id} className="flex min-w-0 flex-col gap-1">
-    <Words>{finding.title}</Words><Text role="meta">{lifecycleWords(finding)}{finding.inactiveReason ? ' · Not published' : ''}</Text><Words>{finding.body}</Words>{finding.problem && <Words>{finding.problem}</Words>}
+    <Words>{finding.title}</Words><Text role="meta">{lifecycleWords(finding)}{finding.inactiveReason ? ' · Not published' : ''}</Text><Words fold>{finding.body}</Words>{finding.problem && <Words>{finding.problem}</Words>}
   </div>) : unread === 'reading' ? <Text role="meta" as="div">Reading findings…</Text>
     : <Words>{unread === 'failed' ? 'Findings could not be read' : 'No findings recorded'}</Words>}</Section>
   const title = card ? `#${card.id} · ${card.title}` : selected?.kind === 'findings' ? 'Findings' : 'Run details'
   const abandon = onAbandon && card
     ? <div><AbandonCard key={JSON.stringify([execution.id, card.id])} execution={execution} cards={cards} card={card} holder={seat?.name} onAbandon={onAbandon} onStop={onStop} /></div>
     : null
+  // Until a selected step has a recorded card, inspect its frozen declaration
+  // without presenting planned answers as live actions.
+  if (declaredRole && !selected) {
+    const step = flowModel(execution.document.flow, { home }).steps.find(one => one.id === declaredRole.id)!
+    return <div data-slot="run-inspector">
+      <ToolSection key={selectedRow} label={sanitizeText(step.name)} fold value={latestStepRound ? 'No card recorded' : 'Not reached'}><FormStack spacing="section">
+        <ToolProse>{latestStepRound ? 'This round has no recorded card yet.' : 'This step has not opened a round.'}</ToolProse>
+        <SummaryList surface="panel">
+          <SummaryItem label="Kind">{ROLE_KIND_WORDS[step.kind]}</SummaryItem>
+          {declaredRole.kind === 'person' && declaredRole.outcomes.length > 0 && <SummaryItem label="Outcomes">{declaredRole.outcomes.map(wordOf).map(sanitizeText).join(' · ')}</SummaryItem>}
+          {declaredRole.kind === 'agent' && <SummaryItem label="Requested ceiling">{sanitizeText(step.line)}</SummaryItem>}
+          {declaredRole.kind === 'check' && declaredRole.check && <SummaryItem label="Limit">{declaredRole.check.timeout} seconds</SummaryItem>}
+        </SummaryList>
+        {declaredRole.kind === 'check' && declaredRole.check && <Section title="Command"><CodeText block wrap title={sanitizeText(declaredRole.check.run)}>{sanitizeText(commandShown(declaredRole.check.run, home))}</CodeText></Section>}
+      </FormStack></ToolSection>
+    </div>
+  }
   let body: ReactNode
   if (selected?.kind === 'check' && card && role?.kind === 'check' && role.check) {
     const check = role.check
@@ -130,7 +160,9 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
     const fact = record?.fact.kind === 'check' ? record.fact : null
     body = <>
       <Section title="Command"><CodeText block wrap title={sanitizeText(check.run)}>{sanitizeText(commandShown(check.run, home))}</CodeText></Section>
-      <Section title="Where"><Words>{record?.checkout?.cwd ?? (check.cwd ? `Declared folder: ${check.cwd} · Run location not recorded` : 'Run location not recorded')}</Words></Section>
+      <Section title="Where">{record?.checkout?.cwd ? <MiddleTruncate>{sanitizeText(record.checkout.cwd)}</MiddleTruncate>
+        : check.cwd ? <><Text as="div" role="meta">Declared folder</Text><MiddleTruncate>{sanitizeText(check.cwd)}</MiddleTruncate><Text as="div" role="meta">Run location not recorded</Text></>
+        : <Words>Run location not recorded</Words>}</Section>
       <Section title="Limit"><Words>{`${check.timeout} seconds`}</Words></Section>
       <Section title="Exit mapping"><Words>{[...Object.entries(check.exits).map(([exit, outcome]) => `Exit ${exit} → ${wordOf(outcome)}`), `Other exits and timeout → ${wordOf(check.otherwise)}`].join('\n')}</Words></Section>
       <Section title="Latest result"><Words>{selected.status ?? 'Result unavailable'}</Words>{fact && <Text role="meta">{fact.timedOut ? 'Timed out' : fact.exit === null ? 'No exit recorded' : `Exit ${fact.exit}`} · {sanitizeText(fact.at)}</Text>}</Section>
@@ -170,14 +202,14 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
     const completeReview = card.state === 'done' && review && review.state !== 'none' && sanitizeText(reviewText).trim() !== ''
     const reviewReason = review?.reason ?? runReview?.reason
     body = <>
-      <Section title="Input"><Words>{detailWords(card.detail) ?? 'No input recorded'}</Words>{predecessors.map(one => <div key={one.id}><Text role="meta">From #{one.id}</Text><Words>{one.handoff!}</Words></div>)}</Section>
-      <Section title="Handoff"><Words>{card.handoff ?? card.note ?? 'No handoff recorded'}</Words></Section>
-      {showFindings}
-      <Section title="Review">{chip ? <span><Chip tone={chip.tone}>{chip.label}</Chip></span> : <Words>No review recorded</Words>}
-        {reviewReason && <Words>{reviewReason}</Words>}
+      {(detailWords(card.detail) || predecessors.length > 0) && <Section title="Input">{detailWords(card.detail) && <Words fold>{detailWords(card.detail)!}</Words>}{predecessors.map(one => <div key={one.id}><Text role="meta">From #{one.id}</Text><Words fold>{one.handoff!}</Words></div>)}</Section>}
+      {(card.handoff || card.note) && <Section title="Handoff"><Words fold>{(card.handoff || card.note)!}</Words></Section>}
+      {(findings.length > 0 || unread) && showFindings}
+      {(chip || reviewReason) && <Section title="Review">{chip ? <span><Chip tone={chip.tone}>{chip.label}</Chip></span> : <Words>No review recorded</Words>}
+        {reviewReason && <Words fold>{reviewReason}</Words>}
         {completeReview && reviewActions && round && <ReviewPublicationActions key={JSON.stringify([reviewActions.goal,reviewActions.run,round.n])} {...reviewActions} round={round.n} review={reviewText} alreadyShownReason={reviewReason} />}
-      </Section>
-      <Section title="Cost"><Words>{costWords(seat?.cost)}</Words><Text role="meta">Recorded for this Seat</Text></Section>
+      </Section>}
+      <SummaryList surface="panel"><SummaryItem label="Cost">{costWords(seat?.cost)}</SummaryItem></SummaryList>
       {abandon}
       {seat?.onOpen ? <Button variant="link" size="inline-link" onClick={seat.onOpen}>Open the conversation</Button> : <Text role="meta">Conversation not kept</Text>}
     </>
@@ -186,31 +218,50 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
     return <RunSummary input={input} selectedRow={null} seats={seats} faces={faces} faceTints={faceTints} pullRequest={pullRequest} flowFile={flowFile} />
   }
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
-    <ToolSection label={sanitizeText(title)}>
+    <ToolSection key={selected?.id ?? selectedRow} label={sanitizeText(title)} fold value={selected?.status ? sanitizeText(selected.status) : undefined}><FormStack spacing="section">
       {card && selected?.status && <ToolProse>{sanitizeText(selected.status)}</ToolProse>}
       {round && <Section title={`Round ${round.n}`}><Words>{model.rows.find(row => row.kind === 'round' && row.round === round.n)?.detail ?? 'Progress not recorded'}</Words></Section>}
-      {round && onSelect && (round.cards.length > 1 || selected?.pick) && <Section title="Recorded cards"><RunRoundCards
-        rows={model.rows.filter(row => row.round === round.n && ['card', 'check', 'person'].includes(row.kind))}
-        attempts={model.rows.filter(row => row.round === round.n && row.kind === 'attempt')}
-        context={{ home, now: Date.now(), needsYou: model.header.needsYou, faces, selectedRow, onSelect,
-          seatNames: new Map(seats.map(one => [one.id, { name: one.name, detail: one.override ?? null }])),
-          seatOfCard: id => model.rows.find(row => row.card === id && row.seat)?.seat ?? null,
-          doingOf: row => row.seat ? doing?.get(row.seat) ?? null : null }} /></Section>}
+      {round && onSelect && round.cards.length > 1 && <Section title="Recorded cards"><ListRows>
+        {model.rows.filter(row => row.round === round.n && ['card', 'check', 'person'].includes(row.kind)).map(row => <ListRow key={row.id}
+          as="button" size="sm" density="compact" interactive selected={row.id === selected?.id} onClick={() => onSelect(row.id)}
+          lead={row.kind === 'person' ? <UserIcon /> : row.kind === 'check' ? <CheckIcon /> : row.seat ? faces?.get(row.seat) ?? <AgentIcon /> : <AgentIcon />}
+          title={sanitizeText(row.attempt ?? row.title)} wrapTitle
+          subtitle={row.on ? `on ${sanitizeText(row.on)}` : row.change ? <CodeText>{sanitizeText(row.change.revision.slice(0, 12))}</CodeText> : undefined} wrapSubtitle
+          trail={<>{row.keep && <Chip tone={row.keep === 'kept' ? 'success' : 'neutral'}>{row.keep === 'kept' ? 'Picked' : 'Not kept'}</Chip>}{row.status && <RunStateChip state={sanitizeText(row.status)} />}</>} />)}
+      </ListRows></Section>}
+      {selected?.pick && <Section title="Compared attempts"><ListRows>
+        {selected.pick.attempts.map(attempt => {
+          const candidate = model.rows.find(row => row.card === attempt.card && ['card', 'check', 'person'].includes(row.kind))
+          const choose = onSelect && candidate ? () => onSelect(candidate.id) : undefined
+          return <ListRow key={attempt.card} as={choose ? 'button' : 'div'} size="sm" density="compact" interactive={Boolean(choose)} onClick={choose}
+            lead={candidate?.seat ? faces?.get(candidate.seat) ?? <AgentIcon /> : <AgentIcon />}
+            title={sanitizeText(attempt.label)}
+            subtitle={attempt.revision ? <MiddleTruncate>{sanitizeText(attempt.revision)}</MiddleTruncate> : 'No change recorded'} wrapSubtitle
+            trail={attempt.keep ? <Chip tone={attempt.keep === 'kept' ? 'success' : 'neutral'}>{attempt.keep === 'kept' ? 'Picked' : 'Not kept'}</Chip> : undefined} />
+        })}
+      </ListRows></Section>}
       {selected?.working && selected.seat && doing?.get(selected.seat) && <Section title="Activity"><Words>{doing.get(selected.seat)!}</Words></Section>}
-      {selected && mayBeDocument(selected.change) && round?.cards.length === 1 && !selected.pick && <Section title="Committed document"><CommittedDocumentBlock change={selected.change} /></Section>}
+      {selected && mayBeDocument(selected.change) && <Section title="Committed document"><CommittedDocumentBlock change={selected.change} /></Section>}
+      {selected?.kind !== 'person' && (selected?.change || duration !== null || selected?.publication) && <ToolFold label="Recorded facts"><SummaryList surface="panel" aria-label="Selected card facts">
+        {selected?.change && <SummaryItem label="Revision" kind="path">{sanitizeText(selected.change.revision)}</SummaryItem>}
+        {selected?.change?.branch && <SummaryItem label="Branch" kind="path">{sanitizeText(selected.change.branch)}</SummaryItem>}
+        {selected?.change && (selected.change.added > 0 || selected.change.removed > 0) && <SummaryItem label="Changes"><ChangeStats added={selected.change.added} removed={selected.change.removed} /></SummaryItem>}
+        {duration !== null && <SummaryItem label="Elapsed">{formatDuration(duration)}{selected?.working ? ' so far' : ''}</SummaryItem>}
+        {selected?.publication && <SummaryItem label="Publication"><Chip tone={selected.publication.tone}>{selected.publication.label}</Chip></SummaryItem>}
+      </SummaryList></ToolFold>}
       {body}
-    </ToolSection>
+    </FormStack></ToolSection>
   </div>
 }
 
-/** The Run's summary keeps only recorded facts, with one explanation for gaps. */
+/** The Run's summary keeps recorded facts and states an unknown cost explicitly. */
 const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
   const { execution } = input
   const rows = runTimeline(input).rows
   const budget = execution.findings?.budget
   const extra = execution.findings?.extraRound
   const limit = budget ? Math.max(budget.rounds, extra ? extra.after + (extra.count ?? 1) : 0) : null
-  const { ids, recorded, costs, summary: costSummary } = runSeatCosts(execution, seats)
+  const { ids, recorded, summary: costSummary } = runSeatCosts(execution, seats)
   // Evidence is scoped to the cards this Run actually opened; another Run's PR is not this one's.
   const cardIds = new Set(execution.rounds.flatMap(one => one.cards))
   const facts = (input.evidence?.cards ?? []).filter(one => cardIds.has(one.card)).flatMap(one => one.facts)
@@ -221,28 +272,25 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
   const branch = prRecord?.record.checkout?.branch
   const ci = facts.find(one => one.record.fact.kind === 'ci' && one.record.fact.at === pr?.head && one.freshness.state === 'fresh')?.record.fact
   const diff = facts.find(one => one.record.fact.kind === 'diff' && one.record.fact.to === pr?.head && !one.record.fact.dirty && one.freshness.state === 'fresh')?.record.fact
-  const gaps = [!execution.brief && 'brief', !execution.revision && 'Flow revision', !execution.base && 'base', !budget && 'budget',
-    recorded.length !== ids.length && 'Seat details', costs.length !== ids.length && 'Seat costs'].filter(Boolean)
   const closed = execution.findings?.closedRounds.length ?? execution.rounds.filter(one => one.state === 'closed').length
   const idle = execution.findings?.idleRounds ?? 0
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
     <PanelFrame>
       <PanelBody><div className="flex min-w-0 flex-col gap-(--hd-inset-dense)">
-        {execution.brief && <ToolSection label="Brief"><ToolProse><Words>{execution.brief}</Words></ToolProse></ToolSection>}
-        {recorded.length > 0 && <ToolSection label={`Seats ${ids.length}`}>
+        {execution.brief && <ToolSection label="Brief" fold defaultOpen={false} value="Recorded"><ToolProse><Words>{execution.brief}</Words></ToolProse></ToolSection>}
+        {recorded.length > 0 && <ToolSection label="Seats" fold value={ids.length}>
             {recorded.map(one => {
               const keep = rows.find(row => row.seat === one.id && row.attempt)?.keep
               const state = keep === 'kept' ? 'Picked' : keep === 'not-kept' ? 'Not kept' : [...rows].reverse().find(row => row.seat === one.id && row.status)?.status
-              return <PanelRow key={one.id} mark={<IconTile shape="face" tint={faceTints?.get(one.id) ?? 'violet'}>{faces?.get(one.id) ?? <AgentIcon />}</IconTile>}
+              return <PanelRow key={one.id} mark={faces?.get(one.id) ?? <AgentIcon />}
                 title={sanitizeText(rows.find(row => row.seat === one.id && row.attempt)?.attempt ?? one.name)} sub={one.override ? sanitizeText(one.override) : undefined}
                 trail={state ? <RunStateChip state={state} /> : undefined} onClick={one.onOpen} />
             })}
         </ToolSection>}
-        {request && <ToolSection label={`Pull request #${request.number}`} action={<>
-          {pr && <Chip tone={stateTone(pr.state).tone} stale={prRecord?.freshness.state !== 'fresh'}>{wordOf(pr.state)}</Chip>}
+        {request && <ToolSection label={`Pull request #${request.number}`} fold defaultOpen={false} value={pr ? <Chip tone={stateTone(pr.state).tone} stale={prRecord?.freshness.state !== 'fresh'}>{wordOf(pr.state)}</Chip> : undefined} action={<>
           {request.url && <Button variant="link" size="inline-link" onClick={() => openExternal(request.url!)}>Open</Button>}
         </>}><SummaryList surface="panel">
-            {branch && <SummaryItem label="Branch"><CodeText wrap>{sanitizeText(branch)}</CodeText></SummaryItem>}
+            {branch && <SummaryItem label="Branch" kind="path">{sanitizeText(branch)}</SummaryItem>}
             {pr && prRecord?.freshness.state !== 'fresh' && <SummaryItem label="Observation">Earlier observation</SummaryItem>}
             {ci?.kind === 'ci' && <SummaryItem label="Checks"><span className="inline-flex flex-wrap items-center gap-1">
               {[...new Set(ci.checks.map(one => one.state))].map((state, index) => <span key={state} className="inline-flex items-center gap-1">
@@ -253,17 +301,18 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
             </span></SummaryItem>}
             {diff?.kind === 'diff' && <SummaryItem label="Changes"><ChangeStats added={diff.added} removed={diff.removed} /></SummaryItem>}
           </SummaryList></ToolSection>}
-        <ToolSection label="Run" action={flowFile}><SummaryList surface="panel">
+        <ToolSection label="Run" fold value={{ running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' }[execution.state]} action={flowFile}><SummaryList surface="panel" aria-label="Team Run facts">
             <SummaryItem label="Flow">{sanitizeText(execution.document.flow.name)}{execution.revision ? ` · ${sanitizeText(execution.revision)}` : ''}</SummaryItem>
-            {execution.base && <SummaryItem label="Base">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</SummaryItem>}
+            {execution.base && <SummaryItem label="Base" kind="path">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</SummaryItem>}
             {input.origin && <SummaryItem label="Started by">{sanitizeText(input.origin)}</SummaryItem>}
             {budget && <SummaryItem label="Budget"><Progress size="sm" value={closed} max={limit!} label={`${closed} of ${limit} rounds`} aria-label="Budget" /></SummaryItem>}
             {budget && <SummaryItem label="Without progress"><Progress size="sm" value={idle} max={budget.withoutProgress} label={`${idle} of ${budget.withoutProgress} rounds`} aria-label="Without progress" /></SummaryItem>}
-            {costSummary !== null && <SummaryItem label="Cost">{costSummary}</SummaryItem>}
+            <SummaryItem label="Cost">{costSummary ?? 'Not recorded'}</SummaryItem>
           </SummaryList>
+          {execution.reason && <ToolProse variant="note"><Words fold>{execution.reason}</Words></ToolProse>}
           {extra && <div className="mt-2"><Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words></div>}
         </ToolSection>
-        {gaps.length > 0 && <div data-slot="run-recording-gaps"><SectionBody spacing="inline"><Text as="p" role="meta">{`This Run did not record: ${gaps.join(', ')}.`}</Text></SectionBody></div>}
+
       </div></PanelBody>
       <PanelFooter left="Recorded for this Run" right={`${execution.rounds.length} ${execution.rounds.length === 1 ? 'round' : 'rounds'}`} />
     </PanelFrame>

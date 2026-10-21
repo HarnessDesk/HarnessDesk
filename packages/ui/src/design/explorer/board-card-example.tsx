@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CompactBoardCard, Dot, Text } from '..'
+import { CompactBoardCard, CompactBoardCardGrid, Dot, Text } from '..'
 
 /** The shared card without Team-specific path, faces or project facts. */
 export const BoardCardExample = () => {
@@ -14,6 +14,13 @@ export const BoardCardExample = () => {
   <section data-catalog-state="default">
    <CompactBoardCard label="Open invoice" title="Invoice" onOpen={()=>setOpened(count=>count+1)}/>
   </section>
+  <CompactBoardCardGrid>
+   <CompactBoardCard label="Review" title="Review" detail="Read the diff and its callers before proposing a repair." detailLines={2}
+    marks={{label:'Loaded by 1 of 2 runtimes',items:[{id:'alpha',title:'Alpha: Reaches',active:true,mark:'A'}, {id:'beta',title:'Beta: Refused',active:false,attention:true,mark:'B'}]}}
+    finding={{text:'Refused by Beta',tone:'warn'}} onOpen={()=>setOpened(count=>count+1)}/>
+   <CompactBoardCard label="Write notes" title="Write notes" detail="Prepare release notes." detailLines={2}
+    finding={{text:'Update available',tone:'quiet'}} onOpen={()=>setOpened(count=>count+1)}/>
+  </CompactBoardCardGrid>
   <Text role="meta"><span role="status">Opened {opened} {opened===1?'time':'times'}</span></Text>
  </div>
 }

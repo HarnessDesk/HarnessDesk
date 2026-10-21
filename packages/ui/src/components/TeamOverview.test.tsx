@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { overviewModel } from '../preview/team-overview-fixture'
 import { TeamOverview } from './TeamOverview'
+import { RunView } from './RunView'
 import { runTimeline } from '../lib/run-timeline'
 import { runFixture } from '../preview/run-view-fixture'
 import type { SeatRow } from '../lib/team-overview'
@@ -12,6 +13,35 @@ beforeEach(()=>{vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockRetu
 afterEach(()=>{ act(()=>root.render(null));vi.restoreAllMocks(); vi.useRealTimers() })
 const row=(name:string,patch:Partial<SeatRow>={}):SeatRow=>({seat:name,name,role:'writer',card:null,round:null,state:'idle',done:false,reason:null,doing:null,since:null,durationMs:null,cost:null,...patch})
 const render=(seats:SeatRow[])=>act(()=>root.render(<TeamOverview runRules={[{id:'after-review'},{id:'to-referee'}]} model={{run:null,needsYou:[],seats}} metered={new Map(seats.map(one => [one.seat, false]))} />))
+it('leaves terminal Run recovery to the unified Flow warning without another generic Pending door', () => {
+ const fixture=runFixture('stopped')
+ const timeline=runTimeline(fixture)
+ const attention=[{kind:'run' as const,title:'Review the Run',reason:null}]
+ const model={...overviewModel('running'),needsYou:[],seats:[]}
+ act(()=>root.render(<TeamOverview compact pendingInChat timeline={timeline} model={model} attention={attention} onRun={vi.fn()} />))
+ expect(box.textContent).not.toContain('Review the Run')
+ expect(box.textContent).not.toContain('Pending')
+ act(()=>root.render(<TeamOverview pendingInChat timeline={timeline} model={model} attention={attention} onRun={vi.fn()} />))
+ expect(box.textContent).toContain('Review the Run')
+})
+it.each([
+ ['complete',true,false], ['stopped',true,false], ['settled',true,false], ['budget-rounds',true,false],
+ ['running',true,true], ['stalled',true,true], ['settled',false,true],
+] as const)('keeps one %s reason with compact=%s and retains pending-release facts', (scene,compact,includeReason) => {
+ const fixture=runFixture(scene)
+ // The mounted legacy stalled specimen has no explicit ending record.
+ const timeline=runTimeline(scene==='stalled'?{...fixture,execution:{...fixture.execution,end:null}}:fixture)
+ const statusLine=vi.fn((_now:number,withReason:boolean)=><>
+  {withReason&&<span>Recorded Run reason</span>}
+  <span>Waiting for a Seat to finish before releasing its checkout.</span>
+ </>)
+ const model={...overviewModel('running'),needsYou:[],seats:[]}
+ act(()=>root.render(<TeamOverview compact={compact} pendingInChat timeline={timeline} model={model} attention={[]} statusLine={statusLine} />))
+ expect(statusLine.mock.calls.at(-1)?.[1]).toBe(includeReason)
+ expect(box.textContent).toContain('Waiting for a Seat to finish before releasing its checkout.')
+ expect(box.textContent?.includes('Recorded Run reason')).toBe(includeReason)
+})
+
 it.each([600,1000])('keeps an unlinked Seat’s reason visible without a conversation action at %spx',width=>{
  const previous=globalThis.ResizeObserver
  globalThis.ResizeObserver=class {
@@ -233,7 +263,7 @@ it('explains unavailable Run usage',()=>{
 
 it('keeps the ready Team Wrap action outlined',()=>{
  act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats:[]}} onWrap={()=>{}} />))
- expect(box.querySelector('[data-slot="overview-header"] button')?.getAttribute('data-variant')).toBe('outline')
+ expect(box.querySelector('[data-slot="list-row-trail"] button')?.getAttribute('data-variant')).toBe('outline')
 })
 
 it('wraps the Agent work sentence in compact rows while names still truncate',()=>{
@@ -325,4 +355,51 @@ it('summarises comparison attempts and the recorded referee pick without countin
  act(() => root.render(<TeamOverview model={model} timeline={runTimeline(noPick)} />))
  expect(box.textContent).toContain('2 attempts')
  expect(box.textContent).not.toContain('Referee picked')
+})
+
+
+it('unchecked cards have a quiet count and Board action without adding attention rows', async () => {
+ const board=vi.fn()
+ const props={uncheckedDone:141,onBoard:board}
+ act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats:[]}} {...props} />))
+ expect(box.textContent).toContain('141 cards finished without a check')
+ const link=[...box.querySelectorAll('button')].find(one=>one.textContent==='Open Board')!
+ expect(link).toBeTruthy()
+ act(()=>link.click())
+ expect(board).toHaveBeenCalledOnce()
+ expect(box.querySelector('[aria-label="Needs you"]')).toBeNull()
+})
+
+it('Overview counts the exact attention rows it renders, including Run and Board waits', async () => {
+ const {overviewAttention}=await import('../lib/overview-attention')
+ const model=overviewModel('needs-you')
+ const attention=overviewAttention(model,{needsYou:true})
+ act(()=>root.render(<TeamOverview model={model} attention={attention} onBoard={()=>{}} onRun={()=>{}} onFindings={()=>{}} />))
+ expect(box.querySelectorAll('[aria-label="Needs you"] [data-slot="list-row"]')).toHaveLength(attention.length)
+ expect(attention.length).toBeGreaterThan(0)
+})
+
+
+it('keeps unchecked news and both actions in one row after Needs you', () => {
+ const model=overviewModel('needs-you')
+ act(()=>root.render(<TeamOverview model={model} uncheckedDone={1} onBoard={()=>{}} onWrap={()=>{}} />))
+ const needs=box.querySelector('[aria-label="Needs you"]')!
+ const summary=box.querySelector('[data-unchecked-done]')!
+ expect(needs.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+ expect(summary.textContent).toBe('1 card finished without a checkOpen BoardWrap')
+ const trail=summary.querySelector('[data-slot="list-row-trail"]')!
+ expect([...trail.querySelectorAll('button')].map(one=>one.textContent)).toEqual(['Open Board','Wrap'])
+ expect(box.querySelector('[data-slot="overview-header"]')).toBeNull()
+})
+
+
+it('lets the completed unified Run own the only Wrap while retaining unchecked card news', () => {
+ const fixture=runFixture('complete'), timeline=runTimeline(fixture), wrap=vi.fn(), board=vi.fn()
+ act(()=>root.render(<RunView unified number={1} stepsInput={fixture} execution={fixture.execution} model={timeline} selectedRow={null} onSelect={vi.fn()} onWrap={wrap}
+   introduction={<TeamOverview compact timeline={timeline} model={{run:null,needsYou:[],seats:[]}} onWrap={wrap} uncheckedDone={1} onBoard={board} />} />))
+ const wraps=[...box.querySelectorAll<HTMLButtonElement>('button')].filter(one=>one.textContent==='Wrap')
+ expect(wraps).toHaveLength(1)
+ expect(box.querySelector('[data-unchecked-done]')?.textContent).toBe('1 card finished without a checkOpen Board')
+ act(()=>wraps[0]!.click())
+ expect(wrap).toHaveBeenCalledOnce()
 })

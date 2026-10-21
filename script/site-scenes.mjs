@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { chromium, expect } from '@playwright/test'
-import { SCENES } from '../packages/ui/site-demo/scenes.ts'
+import { SCENES, isDashboardScene } from '../packages/ui/site-demo/scenes.ts'
 import { COLLECT, textReasons } from './shots/audit.mjs'
 import { assertSiteIdentities } from './site-scenes-identities.mjs'
 
@@ -20,7 +20,9 @@ const dist = join(app, 'packages/ui/dist-site-demo')
 const files = directory => readdirSync(directory, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? files(join(directory, entry.name)) : [join(directory, entry.name)])
 const bundle = files(dist).filter(file => extname(file) === '.js').map(file => readFileSync(file, 'utf8')).join('\n')
 const addresses = assertSiteIdentities(bundle)
-for (const address of ['shane@harnessdesk.app', 'olivia@harnessdesk.app']) assert.ok(addresses.includes(address), `Build lost demo persona: ${address}`)
+// `--tour-only` checks the tour's App pages alone, without the Dashboard's interaction proof.
+const tourOnly = process.argv.includes('--tour-only')
+if (!tourOnly) for (const address of ['shane@harnessdesk.app', 'olivia@harnessdesk.app']) assert.ok(addresses.includes(address), `Build lost demo persona: ${address}`)
 console.log(`PASS built-bundle identity scan: ${addresses.join(', ')}`)
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' }
 const built = httpServer((request, response) => {
@@ -42,7 +44,8 @@ try {
   const buildOrigin = `http://127.0.0.1:${built.address().port}/`
   browser = await chromium.launch({ headless: true })
   const stamp = new Date('2026-10-08T13:30:00-07:00')
-  for (const [name, scene] of Object.entries(SCENES)) for (const theme of ['light', 'dark']) {
+  const dashboards = tourOnly ? [] : Object.entries(SCENES).filter(([name]) => isDashboardScene(name))
+  for (const [name, scene] of dashboards) for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width: scene.width, height: scene.height }, timezoneId: 'America/Los_Angeles', colorScheme: theme })
     const errors = [], external = []
     page.on('pageerror', error => errors.push(error.message))
@@ -337,6 +340,50 @@ try {
     console.log(`PASS ${name}/${theme}: build and preview controls, theme, reduced motion, geometry, local requests`)
   }
   assert.deepEqual(polishFailures, [], 'Focused Dashboard polish regressions')
+  // The tour's pages: the whole App window on one destination, at 1:1.
+  const TOUR_TEXT = { 'tour-teams': 'Needs you', 'tour-run': 'Writer', 'tour-flows': 'matching Runs', 'tour-library': 'code-review', 'tour-runtimes': 'Ready', 'tour-chats': 'Chats', 'hero-race': 'To: Both',
+    'showcase-run': 'The path this Run took', 'showcase-board': 'Add jitter to the backoff' }
+  for (const [name, scene] of Object.entries(SCENES).filter(([name]) => !isDashboardScene(name))) for (const theme of ['light', 'dark']) {
+    const page = await browser.newPage({ viewport: { width: scene.width, height: scene.height }, colorScheme: theme })
+    const errors = [], external = []
+    page.on('pageerror', error => errors.push(error.message))
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
+    page.on('request', request => { if (!request.url().startsWith(buildOrigin) && !request.url().startsWith('data:')) external.push(request.url()) })
+    await page.goto(`${buildOrigin}?view=${name}&theme=${theme}`)
+    const box = page.locator('[data-site-scene]')
+    await expect(box).toHaveAttribute('data-site-scene', name)
+    assert.ok(TOUR_TEXT[name], `${name} needs a line of text only it renders`)
+    await expect(box).toContainText(TOUR_TEXT[name])
+    // The chat's composer offers a model list under the placeholder account.
+    if (name === 'tour-chats') await expect(box).toContainText('GPT-5.6 Sol')
+    // The Flows diagrams build themselves: some step or rule is not drawn yet while it plays.
+    if (name === 'tour-flows') {
+      await expect(page.locator('[data-flow-pending]').first()).toBeAttached()
+      const widths = await page.locator('[data-slot="flow-mini-graph"]').evaluateAll(graphs => graphs.map(graph => [...new Set([...graph.querySelectorAll('[data-step] rect')].map(rect => rect.getAttribute('width')))].length).filter(count => count > 0))
+      assert.ok(widths.length > 0 && widths.every(count => count === 1), 'Every Flow card draws equal-width steps')
+    }
+    assert.deepEqual(await box.evaluate(node => ({ width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height, pageWidth: document.documentElement.scrollWidth })),
+      { width: scene.width, height: scene.height, pageWidth: scene.width })
+    await expect(page.locator('body[data-hd-dark-theme]')).toHaveCount(theme === 'dark' ? 1 : 0)
+    await page.evaluate(value => postMessage({ type: 'theme', value }, '*'), theme === 'light' ? 'dark' : 'light')
+    await expect(page.locator('body[data-hd-dark-theme]')).toHaveCount(theme === 'light' ? 1 : 0)
+    await page.evaluate(value => postMessage({ type: 'theme', value }, '*'), theme)
+    await page.waitForTimeout(600)
+    // The race's left column is the real sidebar: its project lists the Team the race is running.
+    if (name === 'hero-race') {
+      await page.getByRole('button', { name: 'Show sidebar' }).click()
+      await expect(page.getByRole('button', { name: /Runner game comparison/ }).first()).toBeVisible()
+      await page.getByRole('button', { name: 'Hide sidebar' }).first().click()
+    }
+    const buffer = await page.screenshot()
+    const file = join(out, `${name}-${theme}.png`)
+    writeFileSync(file, buffer)
+    frames.push({ label: `${name} · ${theme}`, file, buffer, width: scene.width, height: scene.height })
+    assert.deepEqual(external, [], 'The embed made an external request')
+    assert.deepEqual(errors, [], 'Scene errors')
+    await page.close()
+    console.log(`PASS ${name}/${theme}: page, geometry, theme, local requests`)
+  }
   for (const [name, scene] of Object.entries(SCENES)) {
     const scale = name === 'dashboard' ? .5 : 1
     const width = scene.width * scale, height = scene.height * scale
@@ -345,6 +392,13 @@ try {
     await expect(embed.frameLocator('iframe').locator('[data-site-scene]')).toHaveCSS('width', `${scene.width}px`)
     await expect.poll(() => embed.evaluate(() => window.ready)).toBe(true)
     assert.deepEqual(await embed.locator('iframe').boundingBox(), { x: 0, y: 0, width, height })
+    // Reduced motion shows the finished Flows page: nothing is held back.
+    if (name === 'tour-flows') {
+      const inner = embed.frameLocator('iframe')
+      await expect(inner.locator('[data-slot="flow-mini-graph"] [data-step]').first()).toBeVisible()
+      await embed.waitForTimeout(1200)
+      assert.equal(await inner.locator('[data-flow-pending]').count(), 0, 'Reduced motion leaves the Flow diagrams whole')
+    }
     await embed.close()
   }
   const sheet = await browser.newPage({ viewport: { width: 1440, height: 672 } })

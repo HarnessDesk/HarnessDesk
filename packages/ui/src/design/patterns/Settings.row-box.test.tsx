@@ -184,3 +184,12 @@ it('shares the record layout between a static row and a row button', () => {
  expect(layoutClass).toBeDefined()
  expect(row).toContain(layoutClass!)
 })
+
+
+it('compact fact rows keep their icon, value and action on the panel row pitch', () => {
+  const host = document.createElement('div')
+  host.innerHTML = renderToStaticMarkup(<Row density="compact" title="Alpha" face={<i />} control={<><span>On</span><button>Disable</button></>} />)
+  expect(host.querySelector('[data-slot="row"]')?.getAttribute('data-density')).toBe('compact')
+  expect(css).toMatch(/\.row\[data-density='compact'\]\s*\{[^}]*min-height:\s*var\(--hd-panel-row-h\)/s)
+  expect(css).toMatch(/\.row\[data-density='compact'\]::after\s*\{[^}]*display:\s*none/s)
+})

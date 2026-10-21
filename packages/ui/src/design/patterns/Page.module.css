@@ -10,6 +10,17 @@
   margin-inline: auto;
 }
 
+/* A page that opens with its title starts at the body's top: its title row is
+   the sidebar brand row's counterpart, one bar tall, so the title and the
+   wordmark share a line (PageOptions.module.css). `--page-top` is meant for
+   this page's own element only: it inherits, so a Page or PaneColumn nested
+   inside one would lose its top gutter too (none is nested today). */
+.page:has(> [data-slot='page-options']:first-child > [data-page-head]),
+/* …directly, or in its first block: a measure, or a toolbar that leads with it. */
+.page:has(> :first-child > [data-slot='page-options']:first-child > [data-page-head]) {
+  --page-top: 0px;
+}
+
 .page[data-fill] {
   min-height: 100%;
 }

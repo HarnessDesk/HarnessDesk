@@ -7,7 +7,8 @@ const source = readFileSync(new URL('./main.mjs', import.meta.url), 'utf8')
 test('Command-G in a native guest uses the menu to reach only the app renderer', () => {
   const calls = []
   const sandbox = { mainWindow: { webContents: { send: (...args) => calls.push(args) } },
-    updateMenuItem: null, commandLineTool: { available: false }, showAbout() {},
+    process: { platform: 'darwin' },
+    updateMenuItem: null, commandLineTool: { available: false }, showAbout() {}, menuBarVisible: false,
     Menu: { buildFromTemplate: template => template, setApplicationMenu: template => { sandbox.menu = template } } }
   const menu = source.slice(source.indexOf('const buildMenu = () => {'), source.indexOf('/**', source.indexOf('const buildMenu = () => {')))
   const send = source.slice(source.indexOf('const sendShortcut = (name) => {'), source.indexOf('/**', source.indexOf('const sendShortcut = (name) => {')))

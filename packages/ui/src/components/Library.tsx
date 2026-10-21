@@ -18,21 +18,21 @@ import {
 import { runtimeLabel } from '../lib/accounts'
 import { isPathInside } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
+import { type LibraryViewFilter, emptyLibraryView, type LibraryViewState } from '../state/library-views'
 import { RuntimeMark } from './BrandIcons'
 import {
   AlertIcon,
   CrossIcon,
   DiffIcon,
   FileIcon,
-  ImportIcon,
   LibraryIcon,
-  PlusIcon,
   SearchIcon,
   TodoPendingIcon,
   TrashIcon,
 } from './Icons'
 import {
   ActionError,
+  CompactBoardCardGrid,
   Banner,
   Chip,
   CodeText,
@@ -49,12 +49,15 @@ import {
 import {
   installSource,
   LibraryFlows,
-  LibraryHistory,
   type LibraryColumn,
   type LibraryFlow,
 } from './LibraryActions'
-import { SkillList, SkillRow } from './SkillRow'
-import { SkillSheet } from './SkillSheet'
+import { chipFor, SkillList, SkillRow, type SkillChip } from './SkillRow'
+import { SkillCard } from './SkillCard'
+import { LibrarySkillsControls } from '../panels/library-skills-controls'
+import { McpSheet } from './McpSheet'
+import { SkillPage } from './SkillPage'
+import { DestinationBar } from '../panels/destination-page'
 import { shortPath } from '../lib/paths'
 import { REACH_NAME } from '../lib/reach-states'
 import { LibraryBar } from '../panels/library-bar'
@@ -77,7 +80,7 @@ import { LibraryMatrix, PageExplanation, FormStack, Row, Rows, type PageOption }
  * matrix rather than in a wizard of its own, because the matrix is the
  * evidence — "install to Cursor" belongs one click from the cell that says
  * Cursor lacks it, and after the write the same cells show whether it
- * landed. What happened here is listed at the foot of the page, from the
+ * landed. What happened here has its own Changes made here page, from the
  * audit log, with the backups each change kept.
  *
  * The design decision that shapes everything below: **a cell is not a
@@ -107,15 +110,7 @@ const attachmentSupportWords = (info?: RuntimeInfo): string | null => {
   return `Skills ${support.skills === 'scoped' ? 'scoped' : 'unscoped'} · Servers ${support.mcp === 'scoped-gated' ? 'gated' : 'unscoped'}`
 }
 
-type Filter =
-  | 'all'
-  | 'problems'
-  | 'partial'
-  | 'hollow'
-  | 'differs'
-  | 'unreachable'
-  | 'unused'
-  | 'off'
+type Filter = LibraryViewFilter
 
 /**
  * The mark for one state.
@@ -222,9 +217,9 @@ const FILTER_WORDS: Record<Filter, string> = {
   unused: 'Never fired',
 }
 
-interface LibrarySectionProps { readonly section: LibraryKind; readonly onSection: (kind: LibraryKind) => void; readonly importIntent: number }
+interface LibrarySectionProps { readonly id?: string; readonly section: LibraryKind; readonly onSection: (kind: LibraryKind) => void; readonly importIntent: number }
 export const LibrarySection = (props: LibrarySectionProps) => <LibraryBody {...props} />
-const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: LibrarySectionProps) => {
+const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: LibrarySectionProps) => {
   const { active } = useDestinationPage()
   const alive = useRef(active)
   alive.current = active
@@ -238,29 +233,61 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
   const [failed, setFailed] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
   const [checkFailed, setCheckFailed] = useState<string | null>(null)
-  const [filter, setFilter] = useState<Filter>('all')
-  const [query, setQuery] = useState('')
+  /**
+   * The section's view choices, held by the store so leaving for Changes and
+   * returning keeps them (`state/library-views`). The old guard stays: a
+   * filter the skills view does not offer never survives the switch to it.
+   */
+  const section = kind === 'mcp' ? 'mcp' : 'skill'
+  /**
+   * A store that does not implement the view memory — a preview proxy, or a
+   * fixture — answers with a placeholder rather than a view; only a real
+   * answer is kept, and anything else starts from the empty view.
+   */
+  const storedView = (): LibraryViewState => {
+    const held = store.libraryView?.(section)
+    return held && typeof held.query === 'string' ? held : emptyLibraryView()
+  }
+  const [screen, setScreen] = useState<LibraryViewState>(storedView)
+  const [screenSection, setScreenSection] = useState(section)
+  /**
+   * What is on screen right now. `patchScreen` merges onto this, never onto
+   * the store's answer: a store without the view memory answers empty every
+   * time, and merging onto it dropped the filter as soon as a search followed.
+   */
+  const latest = useRef(screen)
+  latest.current = screen
+  if (screenSection !== section) {
+    setScreenSection(section)
+    const stored = storedView()
+    setScreen(section === 'skill' && stored.filter === 'problems' ? { ...stored, filter: 'all' } : stored)
+  }
+  const patchScreen = useCallback((patch: Partial<LibraryViewState>) => {
+    const next = { ...latest.current, ...patch }
+    latest.current = next
+    store.setLibraryView?.(section, next)
+    setScreen(next)
+  }, [store, section])
   const [open, setOpen] = useState<string | null>(null)
   /**
-   * List or matrix.
-   *
-   * The list is the default because the question people bring to this page is
-   * "what can my agents do" — the question both Claude's and Codex's skills
-   * pages are built entirely around, and the one this page could not answer
-   * at all. The matrix answers the other question, the one no other app can
-   * touch (*does this reach all four agents?*), and it stays one press away
-   * rather than being the front door. Losing it was never on the table: at a
-   * hundred skills across ten agents, a grid of cards is the wrong tool and
-   * the table is the right one.
+   * The entry whose sheet is open (the reading surface, by name) and the plan
+   * that is open, held with the detail that opened them: `owner` is that
+   * detail's id. A route change to another id reads what another id holds as
+   * cleared in the render that carries the new id, so the previous skill's
+   * plan never stands over the next one; the effect below then drops it for
+   * good, so coming back to the first id does not revive it.
    */
-  const [view, setView] = useState<'list' | 'matrix'>('list')
-  /** The entry whose sheet is open — the reading surface, by name. */
-  const [reading, setReading] = useState<string | null>(null)
-  const [flow, setFlow] = useState<LibraryFlow | null>(null)
+  const [held, setHeld] = useState<{ readonly owner: string | undefined; readonly reading: string | null; readonly flow: LibraryFlow | null }>({ owner: id, reading: null, flow: null })
+  const reading = held.owner === id ? held.reading : null
+  const flow = held.owner === id ? held.flow : null
+  const setReading = useCallback((next: string | null) => setHeld(prev => ({ owner: id, reading: next, flow: prev.owner === id ? prev.flow : null })), [id])
+  const setFlow = useCallback((next: LibraryFlow | null) => setHeld(prev => ({ owner: id, reading: prev.owner === id ? prev.reading : null, flow: next })), [id])
   const lastImport = useRef(0)
   useEffect(() => {
-    if (!active) { setReading(null); setFlow(null) }
+    if (!active) setHeld(prev => ({ ...prev, reading: null, flow: null }))
   }, [active])
+  // Plans belong to the detail that opened them, including within this destination.
+  useEffect(() => { setHeld({ owner: id, reading: null, flow: null }) }, [id])
   useEffect(() => {
     if (!active || importIntent === 0 || importIntent === lastImport.current) return
     lastImport.current = importIntent
@@ -404,65 +431,61 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
     [library, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs],
   )
 
-  /**
-   * The kind on screen, narrowed by what is typed in the search box — and
-   * nothing else. Everything the strip counts and everything the list shows
-   * is drawn from this one set.
-   */
+  /** Hide reserved and wholly hollow skills, retaining mixed copies for repair. */
   const listedEntries = useMemo(() => (library?.entries ?? []).filter(entry =>
     entry.kind !== 'skill' || (!entry.name.startsWith('_') &&
       (entry.copies.length === 0 || entry.copies.some(copy => !copy.hollow)))), [library])
 
   const searched = useMemo(() => {
     if (!library) return []
-    const needle = query.trim().toLowerCase()
+    const needle = screen.query.trim().toLowerCase()
     return listedEntries.filter(
       (entry) =>
         entry.kind === kind &&
         (needle === '' || `${entry.name} ${entry.title ?? ''}`.toLowerCase().includes(needle)),
     )
-  }, [library, listedEntries, kind, query])
+  }, [library, listedEntries, kind, screen.query])
+
+  // State counts match the chip and search; chip counts cover the whole inventory.
+  const chipEntries = useMemo(() => searched.filter(entry =>
+    kind !== 'skill' || screen.chip === 'all' || chipFor(entry, columns) === screen.chip), [searched, kind, screen.chip, columns])
 
   /**
-   * Summarised over the kind on screen *and* the search, not the whole
-   * library.
+   * The Declared by filter, once.
    *
-   * The kind half was always right — a tile saying 86 above a table filtered
-   * to 80 reads as a bug. The search half was not: with `db` typed, the strip
-   * went on saying "2 reach none" from the whole library, and pressing that
-   * chip — which is what a chip is for — narrowed to *nothing*, because the
-   * two rows it counted were not among the ones the search had left. A count
-   * that does not survive being pressed is the same defect the `everywhere`
-   * tile was retired for, and a tooltip cannot repair it either.
+   * Declarations, not measured reach: a name this Agent declared stays in the
+   * set even when no runtime has resolved it yet (decision: "retain unresolved
+   * rows"). Reach is a separate column, read from `entry.reach` exactly as it
+   * always was. Every count on the page is read through this, so a chip or a
+   * filter row shows the number of cards choosing it will leave.
    */
+  const declared = useCallback((entry: LibraryEntry) => {
+    if (!agentFilter) return true
+    const refs = declaredBy?.get(`${entry.kind}:${entry.name}`) ?? []
+    return refs.some((ref) => `${ref.origin}:${ref.id}` === agentFilter)
+  }, [agentFilter, declaredBy])
+
+  const scopedEntries = useMemo(() => chipEntries.filter(declared), [chipEntries, declared])
   const counts = useMemo(
-    () => (library ? summarise({ ...library, entries: searched }) : null),
-    [library, searched],
+    () => (library ? summarise({ ...library, entries: scopedEntries }) : null),
+    [library, scopedEntries],
   )
 
   const rows = useMemo(() => {
-    return searched.filter((entry) => {
-      if (agentFilter) {
-        // Declarations, not measured reach: a name this Agent declared stays
-        // in the filtered set even when no runtime has resolved it yet
-        // (decision: "retain unresolved rows"). Reach is a separate column,
-        // read from `entry.reach` exactly as it always was.
-        const refs = declaredBy?.get(`${entry.kind}:${entry.name}`) ?? []
-        if (!refs.some((ref) => `${ref.origin}:${ref.id}` === agentFilter)) return false
-      }
-      if (filter === 'problems') return entryHasProblem(entry)
-      if (filter === 'partial') {
+    return scopedEntries.filter((entry) => {
+      if (screen.filter === 'problems') return entryHasProblem(entry)
+      if (screen.filter === 'partial') {
         const reaching = entry.reach.filter((one) => one.state === 'reaches').length
         return reaching> 0 && reaching < entry.reach.length
       }
-      if (filter === 'hollow') return entry.copies.some((copy) => copy.hollow)
-      if (filter === 'differs') {
+      if (screen.filter === 'hollow') return entry.copies.some((copy) => copy.hollow)
+      if (screen.filter === 'differs') {
         const digests = new Set(entry.copies.filter((one) => !one.hollow).map((one) => one.digest))
         return digests.size> 1
       }
-      if (filter === 'unreachable') return entry.reach.every((one) => one.state !== 'reaches')
-      if (filter === 'off') return entry.reach.some((one) => one.state === 'off')
-      if (filter === 'unused') {
+      if (screen.filter === 'unreachable') return entry.reach.every((one) => one.state !== 'reaches')
+      if (screen.filter === 'off') return entry.reach.some((one) => one.state === 'off')
+      if (screen.filter === 'unused') {
         return (
           usage !== null &&
           entry.reach.some((one) => one.state === 'reaches') &&
@@ -471,22 +494,18 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
       }
       return true
     })
-  }, [searched, filter, usage, agentFilter, declaredBy])
+  }, [scopedEntries, screen.filter, usage])
 
-  /**
-   * The never-fired view is a to-do list, and a to-do list leads with what
-   * matters most: the row paying the most tokens for nothing. Everywhere
-   * else the order stays alphabetical, because those views are scanned by
-   * name.
-   */
+  // Cards always sort by name. Matrix retains the existing cost order for
+  // Never fired, and MCP retains its own list/matrix ordering.
   const ordered = useMemo(
     () =>
-      filter === 'unused'
+      (kind === 'mcp' || screen.skillView === 'matrix') && screen.filter === 'unused'
         ? [...rows].sort(
             (a, b) => (b.catalogTokens ?? 0) - (a.catalogTokens ?? 0) || a.name.localeCompare(b.name),
           )
-        : rows,
-    [rows, filter],
+        : kind === 'skill' && screen.skillView === 'cards' ? [...rows].sort((a, b) => a.name.localeCompare(b.name)) : rows,
+    [rows, screen.filter, kind, screen.skillView],
   )
 
   /**
@@ -496,17 +515,17 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
    * desk's own record can see, which is what the tile's label says.
    */
   const unusedCount = useMemo(() => {
-    if (!usage) return 0
-    // Over `searched`, for the same reason the strip beside it is: this chip
-    // is a filter, and a filter's number has to be the number of rows it
-    // will leave on screen.
-    return searched.filter(
+    // While usage is still loading, every reaching skill is a candidate rather
+    // than a count: `undefined` leaves the chip without a number while its row
+    // waits, disabled, for the answer.
+    if (usage === null) return undefined
+    return scopedEntries.filter(
       (entry) =>
         entry.kind === 'skill' &&
         entry.reach.some((one) => one.state === 'reaches') &&
         usage.skills[entry.name] === undefined,
     ).length
-  }, [searched, usage])
+  }, [scopedEntries, usage])
 
   const kindCounts = useMemo(
     () => ({
@@ -515,6 +534,16 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
     }),
     [listedEntries],
   )
+
+  const chipCounts = useMemo(() => {
+    const result: Record<SkillChip, number> = { all: 0, 'needs-you': 0, 'one-runtime': 0, nobody: 0 }
+    for (const entry of listedEntries.filter(one => one.kind === 'skill' && declared(one))) {
+      result.all++
+      const group = chipFor(entry, columns)
+      if (group !== 'all') result[group]++
+    }
+    return result
+  }, [listedEntries, declared, columns])
 
   /**
    * Each agent's scanned skill directories in the order a name conflict is
@@ -615,8 +644,8 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
   /** Only the gaps that apply to what is on screen; the rest are noise here. */
   const gaps = (library?.gaps ?? []).filter((gap) => gap.kind === kind)
 
-  /** Over `searched`, like every count in the menu: the rows choosing it will leave. */
-  const problemCount = useMemo(() => searched.filter(entryHasProblem).length, [searched])
+  /** Over `searched` within the Declared by scope, like every count in the menu. */
+  const problemCount = useMemo(() => searched.filter(entry => declared(entry) && entryHasProblem(entry)).length, [searched, declared])
   const agentName = agentFilter
     ? (snapshot.agents?.find((entry) => `${entry.origin}:${entry.id}` === agentFilter)?.definition?.name ?? null)
     : null
@@ -634,26 +663,47 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
       title: usage === null ? undefined : `Reaches at least one runtime, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.` }] : []),
   ]
   const libraryChoices: readonly PageOption[] = [
-    { id: 'view', label: 'How to show the library', value: view,
+    { id: 'view', label: 'How to show the library', value: screen.view,
       items: [{ value: 'list', label: 'List' }, { value: 'matrix', label: 'Matrix' }],
       mode: 'menu',
-      change: value => { setView(value as 'list' | 'matrix'); setOpen(null) } },
-    { id: 'filter', label: 'Filter the library', value: filter, mode: 'menu',
-      items: filterData.filter(item => counts === null || item.value === 'all' || item.value === filter || (item.count ?? 0)> 0).map(item => ({ ...item, disabled: counts === null ? 'Reading every runtime’s directories…' : item.disabled })),
-      change: value => setFilter(value as Filter) },
+      change: value => { patchScreen({ view: value as 'list' | 'matrix' }); setOpen(null) } },
+    { id: 'filter', label: 'Filter the library', value: screen.filter, mode: 'menu',
+      items: filterData.filter(item => counts === null || item.value === 'all' || item.value === screen.filter || (item.count ?? 0)> 0).map(item => ({ ...item, disabled: counts === null ? 'Reading every runtime’s directories…' : item.disabled })),
+      change: value => patchScreen({ filter: value as Filter }) },
     { id: 'agent', label: 'Declared by', value: agentFilter, mode: 'menu',
       items: [{ value: '', label: 'Any agent' }, ...(snapshot.agents ?? []).map(entry => ({ value: `${entry.origin}:${entry.id}`, label: entry.definition?.name ?? entry.id }))], change: setAgentFilter },
   ]
+  const openEntry = (entry: LibraryEntry) => entry.kind === 'skill'
+    ? store.openDestination({ kind: 'library', section: 'skill', id: entry.name })
+    : setReading(entry.name)
+  if (id !== undefined) {
+    const entry = library?.entries.find(one => one.kind === 'skill' && one.name === id)
+    const back = () => store.openDestination({ kind: 'library', section: 'skill' })
+    return <>
+      {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
+      {entry ? <SkillPage key={entry.name} entry={entry} columns={columns} hosts={hosts} cwd={cwd} usage={usage} home={library?.home}
+        onBack={back} onChanged={() => void load()} onFlow={setFlow} /> : <>
+        <DestinationBar place="Library" />
+        {loading ? <EmptyState variant="inline" title="Reading skills…" /> : failed !== null ? <Button variant="ghost" size="sm" onClick={back}>Back to Library</Button> : <EmptyState title="Skill not found">
+          <Button variant="ghost" size="sm" onClick={back}>Back to Library</Button>
+        </EmptyState>}
+      </>}
+      <LibraryFlows flow={active ? flow : null} setFlow={setFlow} library={library} columns={columns} cwd={cwd} onApplied={() => void load()} />
+    </>
+  }
   return (
     <>
       <LibraryBar kind={kind} counts={kindCounts} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
         author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} github={() => setFlow({ type: 'github' })} checking={checking} check={() => void checkUpdates()} rescan={() => void load()}
-        choices={libraryChoices} search={{ label: 'Search library', value: query, change: setQuery }} />
-      <PageExplanation>Every skill and MCP server your runtimes can load, wherever each one keeps them.</PageExplanation>
+        choices={kind === 'mcp' ? libraryChoices : []} search={kind === 'mcp' ? { label: 'Search library', value: screen.query, change: value => patchScreen({ query: value }) } : undefined} />
+      {/* MCP retains its PageOptions, list, matrix and filters; only skills use cards and chips. */}
+      {kind === 'skill' ? <LibrarySkillsControls chip={screen.chip} counts={chipCounts} onChip={value => patchScreen({ chip: value })} view={screen.skillView} onView={next => { patchScreen({ skillView: next }); setOpen(null) }}
+        filters={{ ...libraryChoices[1]!, items: filterData.filter(one => one.value !== 'problems' && (one.value === 'all' || one.value === screen.filter || Boolean(one.disabled) || (one.count ?? 0) > 0)).map(one => ({ ...one, disabled: counts === null ? 'Reading skills…' : one.disabled })) }}
+        agent={libraryChoices[2]!} search={{ label: 'Search library', value: screen.query, change: value => patchScreen({ query: value }) }} /> : <PageExplanation>Every skill and MCP server your runtimes can load, wherever each one keeps them.</PageExplanation>}
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
       {checkFailed !== null && <ActionError>{checkFailed}</ActionError>}
 
-      {kind === 'skill' && (hollowCopies.length> 0 || overloaded.length> 0) && (
+      {kind === 'skill' && screen.chip === 'needs-you' && (hollowCopies.length> 0 || overloaded.length> 0) && (
         <div data-slot="library-attention"><FormStack>
           {hollowCopies.length> 0 && <Banner
             tone="warning"
@@ -673,7 +723,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
             tone="neutral"
             title={`${column.label} skill catalogue`}
             actions={neverFired !== null && neverFired> 0
-              ? <Button variant="outline" size="sm" onClick={() => setFilter('unused')}>Show never fired</Button>
+              ? <Button variant="outline" size="sm" onClick={() => patchScreen({ chip: 'all', filter: 'unused' })}>Show never fired</Button>
               : undefined}
           >
             ≈{total.toLocaleString()} tokens of skill catalogue ride every {column.label} turn
@@ -684,87 +734,37 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
         </FormStack></div>
       )}
 
-      {agentFilter && (
+      {kind === 'mcp' && agentFilter && (
         <Text as="p" role="meta">
           {`${rows.length} of ${searched.length} declared by ${agentName ?? 'this Agent'}`}
         </Text>
       )}
 
       {loading && library === null ? (
-        <EmptyState variant="inline" title="Reading every runtime’s directories…" />
+        <EmptyState variant="inline" title={kind === 'skill' ? 'Reading skills…' : 'Reading every runtime’s directories…'} />
       ) : rows.length === 0 ? (
-        /*
-         * An empty list is two different situations and the old sentence
-         * covered both with "Nothing matches." A filter that found nothing
-         * wants its filter cleared; a machine with no skills on it wants to
-         * be told how to get one. Answering the second with the first is how
-         * a first run reads as a broken page.
-         */
-        query.trim() !== '' || filter !== 'all' ? (
-          <EmptyState
-            tight
-            icon={<SearchIcon size={16} />}
-            title="Nothing matches"
-            /*
-             * Which of the two narrowings emptied the list, said correctly
-             * when both are on. Reading the query first blamed the search box
-             * for a state filter's doing — with `db` typed and "reach none"
-             * pressed, a page holding a skill called db-migrations announced
-             * that nothing here is called db-migrations.
-             */
-            description={
-              query.trim() !== '' && filter !== 'all'
-                ? searched.length> 0
-                  ? `${searched.length} ${searched.length === 1 ? 'entry matches' : 'entries match'} “${query.trim()}”, and none of them is in that state.`
-                  : `No ${kind === 'skill' ? 'skill' : 'server'} here is called “${query.trim()}”.`
-                : query.trim() !== ''
-                  ? `No ${kind === 'skill' ? 'skill' : 'server'} here is called “${query.trim()}”.`
-                  : 'No entry is in that state right now.'
-            }
-          >
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setQuery('')
-                setFilter('all')
-              }}
-            >
-              Clear the filters
-            </Button>
-          </EmptyState>
-        ) : (
-          <EmptyState
-            icon={<LibraryIcon size={16} />}
-            title={kind === 'skill' ? 'No skills on this machine yet' : 'No MCP servers declared yet'}
-            description={
-              kind === 'skill'
-                ? 'A skill is a folder with a SKILL.md in it that a runtime reads before it starts. Write one here, or bring across the ones a runtime already has.'
-                : 'Nothing was found in any configuration file this build knows how to read.'
-            }
-          >
-            {kind === 'skill' && (
-              <Toolbar>
-                <Button size="sm" onClick={() => setFlow({ type: 'author' })}>
-                  <PlusIcon size={13} />
-                  Write a skill
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setFlow({ type: 'import' })}>
-                  <ImportIcon size={13} />
-                  Import
-                </Button>
-              </Toolbar>
-            )}
-          </EmptyState>
-        )
-      ) : view === 'list' ? (
+        kindCounts[kind] === 0 ? <EmptyState icon={<LibraryIcon size={16} />} title={kind === 'skill' ? 'No skills yet' : 'No MCP servers yet'}>
+          {kind === 'skill' && <Toolbar>
+            <Button size="sm" onClick={() => setFlow({ type: 'author' })}>Write a skill</Button>
+            <Button variant="outline" size="sm" onClick={() => setFlow({ type: 'github' })}>From GitHub…</Button>
+          </Toolbar>}
+        </EmptyState> : kind === 'skill' && screen.chip === 'needs-you' && chipCounts['needs-you'] === 0 && !screen.query.trim() && screen.filter === 'all' && !agentFilter ? (
+          <EmptyState tight title="Nothing needs you" />
+        ) : <EmptyState tight icon={<SearchIcon size={16} />} title="Nothing matches">
+          <Button variant="outline" size="sm" onClick={() => { patchScreen({ query: '', filter: 'all', chip: 'all' }); setAgentFilter('') }}>Clear the filters</Button>
+        </EmptyState>
+      ) : kind === 'skill' && screen.skillView === 'cards' ? (
+        <CompactBoardCardGrid data-slot="skill-cards">
+          {ordered.map(entry => <SkillCard key={entry.name} entry={entry} columns={columns} onOpen={() => openEntry(entry)} />)}
+        </CompactBoardCardGrid>
+      ) : kind === 'mcp' && screen.view === 'list' ? (
         <SkillList kind={kind}>
           {ordered.map((entry) => (
             <SkillRow
               key={`${entry.kind}:${entry.name}`}
               entry={entry}
               columns={columns}
-              onOpen={() => setReading(entry.name)}
+              onOpen={() => openEntry(entry)}
             />
           ))}
         </SkillList>
@@ -782,9 +782,9 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
               open: () => setOpen(current => current === entry.name ? null : entry.name),
               cells: entry.reach.map((reach, index) => { const label = `${entry.name} — ${columns[index]?.label ?? reach.runtime}: ${REACH_NAME[reach.state]}`
                 return { id: reach.runtime, state: reach.state, label, problem: isReachProblem(reach.state), help: reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state], mark: <ReachMark state={reach.state} label={label} placement="cell" /> } }),
-              expanded: open === entry.name ? <EntryDetail entry={entry} columns={columns} usage={usage} scanOrder={scanOrder} hosts={hosts} home={library?.home} onFlow={setFlow} onRead={() => setReading(entry.name)} /> : undefined,
+              expanded: open === entry.name ? <EntryDetail entry={entry} columns={columns} usage={usage} scanOrder={scanOrder} hosts={hosts} home={library?.home} onFlow={setFlow} onRead={() => openEntry(entry)} /> : undefined,
             }))}
-            footer={kind === 'skill' ? { label: `Advertised each turn${filter !== 'all' || query.trim() !== '' ? ' (these rows)' : ''}`,
+            footer={kind === 'skill' ? { label: `Advertised each turn${screen.chip !== 'all' || screen.filter !== 'all' || screen.query.trim() !== '' ? ' (these rows)' : ''}`,
               title: 'Name and description at ≈3.6 characters per token — the catalogue line a runtime carries for every skill it loads, fired or not. How each runtime advertises varies; this prices the standard line.',
               values: Object.fromEntries(columns.map((column, index) => [column.id, rows.reduce((sum, entry) => entry.reach[index]?.state === 'reaches' ? sum + (entry.catalogTokens ?? 0) : sum, 0)])) } : undefined}
             fired={kind === 'skill' && usage !== null ? { label: 'Fired here, ever', title: 'Of the rows on screen, how many this runtime loaded in a conversation this desk stores. Conversations held elsewhere are not counted.',
@@ -827,11 +827,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
         </details>
       )}
 
-      <LibraryHistory
-        refreshedAt={library?.generatedAt ?? 0}
-        home={library?.home}
-        onFlow={setFlow}
-      />
+
 
       {/*
        * The reading surface. Mounted from the page rather than from the card
@@ -840,11 +836,10 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
        * stacked dialogs would put the diff a person is confirming behind the
        * document they were reading.
        */}
-      {active && readingEntry && flow === null && (
-        <SkillSheet
+      {active && readingEntry?.kind === 'mcp' && flow === null && (
+        <McpSheet
           entry={readingEntry}
           columns={columns}
-          usage={usage}
           hosts={hosts}
           cwd={cwd}
           home={library?.home}
@@ -894,7 +889,7 @@ const EntryDetail = ({
   /** The host's home directory, so a path prints the way it is written. */
   home: string | undefined
   onFlow: (flow: LibraryFlow) => void
-  /** Open the full reading surface — the same sheet a card opens. */
+  /** Open the full reading surface for this entry. */
   onRead: () => void
 }) => {
   /**

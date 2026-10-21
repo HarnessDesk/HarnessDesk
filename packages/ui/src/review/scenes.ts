@@ -22,7 +22,7 @@ export type Scene = {
 
 export type Section = { readonly id: string; readonly title: string; readonly scenes: readonly Scene[] }
 
-const tab = (value: string): SceneStep => ({ click: `[data-team-page="${value}"]` })
+const tab = (value: string): SceneStep => ({ click: `[data-team-page="${value === 'run' ? 'overview' : value}"]` })
 const rail: SceneStep = { click: '[data-work-rail-toggle][aria-pressed="false"]', unless: '[data-work-rail-toggle][aria-pressed="true"]' }
 const tool = (value: string): SceneStep => ({ click: `[data-work-tool="${value}"]` })
 const left: SceneStep = { click: 'button[aria-label="Show sidebar"]', unless: '[data-left-column]' }
@@ -39,7 +39,7 @@ export const SECTIONS: readonly Section[] = [
       { id: 'conversation-left-open', title: 'With the sidebar', query: 'frame-wall=conversation', steps: [left] },
       { id: 'draft', title: 'A new draft', query: 'frame-wall=draft' },
       { id: 'conversation-details', title: 'Details panel', query: 'frame-wall=conversation', steps: [rail] },
-      { id: 'conversation-details-no-background', title: 'Details, no background list', query: 'frame-wall=conversation&frame-no-background=1', steps: [rail, { scroll: '[data-slot="empty-state"]' }] },
+      { id: 'conversation-details-no-background', title: 'Details, no background list', query: 'frame-wall=conversation&frame-no-background=1', steps: [rail] },
       { id: 'conversation-changes', title: 'Changes panel', query: 'frame-wall=conversation', steps: [tool('changes')] },
       { id: 'conversation-browser', title: 'Browser panel', query: 'frame-wall=conversation', steps: [tool('browser')] },
       { id: 'conversation-git', title: 'Git panel', query: 'frame-wall=conversation&frame-tool=git' },
@@ -64,17 +64,17 @@ export const SECTIONS: readonly Section[] = [
     id: 'team', title: 'Team', scenes: [
       { id: 'team-overview', title: 'Overview', query: 'frame-wall=team', steps: [tab('overview')] },
       { id: 'team-run', title: 'Run', query: 'frame-wall=team', steps: [tab('run')] },
-      { id: 'team-run-flow', title: 'Run as a flow', query: 'frame-wall=team-run-recorded', steps: [tab('run'), ...view('Flow')] },
+      { id: 'team-run-flow', title: 'Run as a flow', query: 'frame-wall=team-run-recorded', steps: [tab('run'), { scroll: '[data-slot="run-flow"]' }] },
       { id: 'team-run-not-reached', title: 'Run, a step not reached', query: 'frame-wall=team-run-not-reached', steps: [tab('run')] },
       { id: 'team-run-repeated', title: 'Run, many times', query: 'frame-wall=team-run-repeated', steps: [tab('run')] },
       { id: 'team-run-equivalent', title: 'Run, an equivalent', query: 'frame-wall=team-run-equivalent', steps: [tab('run')] },
       { id: 'team-board', title: 'Board', query: 'frame-wall=team', steps: [tab('board')] },
       { id: 'team-board-list', title: 'Board as a list', query: 'frame-wall=team', steps: [tab('board'), ...view('List')] },
       { id: 'team-chat', title: 'Chat', query: 'frame-wall=team', steps: [tab('room')] },
-      { id: 'team-chat-side', title: 'Chat side by side', query: 'frame-wall=team', steps: [tab('room'), ...view('Side by side')] },
-      { id: 'team-findings', title: 'Findings', query: 'frame-wall=team', steps: [tab('findings')] },
-      { id: 'team-runs', title: 'Runs', query: 'frame-wall=team-trigger', steps: [tab('runs')] },
-      { id: 'team-receipt', title: 'Receipt', query: 'frame-wall=team-receipt', steps: [tab('receipt')] },
+      { id: 'team-chat-side', title: 'Chat side by side', query: 'frame-wall=team', steps: [tab('room'), { text: 'Chat', within: '[data-slot="page-options"] button' }, { text: 'Split', within: '[role="menuitemradio"]' }] },
+      { id: 'team-findings', title: 'Findings', query: 'frame-wall=team', steps: [tab('board'), { click: '[data-slot="task-navigation"] button[aria-label^="Findings"]' }] },
+      { id: 'team-runs', title: 'Runs', query: 'frame-wall=team-trigger', steps: [open('More'), { text: 'Run history', within: '[role="menuitem"]' }] },
+      { id: 'team-receipt', title: 'Receipt', query: 'frame-wall=team-receipt', steps: [open('More'), { text: 'Receipt', within: '[role="menuitem"]' }] },
       { id: 'team-details', title: 'With details', query: 'frame-wall=team', steps: [tab('overview'), rail] },
       { id: 'teams', title: 'All Teams', query: 'frame-wall=teams' },
     ],

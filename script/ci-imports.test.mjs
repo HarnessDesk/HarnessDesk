@@ -21,6 +21,38 @@ const fixture = (files, run) => {
   }
 }
 
+for (const comment of [
+  "// readFileSync('docs/comment-only.md', 'utf8')",
+  "/* readFileSync('docs/comment-only.md', 'utf8') */",
+  "// import '../docs/comment-only.mjs'",
+  "/* new URL('../docs/comment-only.md', import.meta.url) */",
+]) {
+  test(`repository readers ignore comment literals: ${comment}`, () => {
+    fixture({
+      'e2e/ui-system/example.spec.ts': "import '../../script/reader.mjs'",
+      'script/reader.mjs': `${comment}\nreadFileSync('docs/actual.md', 'utf8')`,
+      'docs/actual.md': 'contract',
+      'docs/comment-only.md': 'comment',
+      'docs/comment-only.mjs': 'export {}',
+    }, root => {
+      const graph = imports.repositoryGraph(root)
+      assert.equal(graph.importers.has(join(root, 'docs/comment-only.md')), false)
+      assert.equal(graph.importers.has(join(root, 'docs/comment-only.mjs')), false)
+      assert.deepEqual(imports.specsReaching(graph, [join(root, 'docs/actual.md')]), [join(root, 'e2e/ui-system/example.spec.ts')])
+    })
+  })
+}
+
+test('repository readers follow a URL inside a generated executable template', () => {
+  fixture({
+    'e2e/ui-system/example.spec.ts': "import '../../script/reader.mjs'",
+    'script/reader.mjs': "writeFileSync(executable, `#!/usr/bin/env node\\nawait import('${new URL('./generated.mjs', import.meta.url).href}')\\n`)",
+    'script/generated.mjs': 'export {}',
+  }, root => {
+    assert.deepEqual(imports.specsReaching(imports.repositoryGraph(root), [join(root, 'script/generated.mjs')]), [join(root, 'e2e/ui-system/example.spec.ts')])
+  })
+})
+
 const patterns = [
   "await page.evaluate(async () => import('/src/state/store.ts'))",
   "const modulePath = '/src/state/store.ts'; await page.evaluate(() => import(/* @vite-ignore */ modulePath))",

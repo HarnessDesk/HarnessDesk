@@ -4,7 +4,7 @@ import { PREVIEW_GOAL } from './goal-fixture'
 import { PREVIEW_FINDINGS } from './findings-fixture'
 import { goalInsightsFrom, previewStore } from './harness'
 
-export const OVERVIEW_STATES = ['running','needs-you','unread','idle','stalled','no-run','no-seats','done','done-open','comparison','narrow'] as const
+export const OVERVIEW_STATES = ['running','needs-you','unread','idle','stalled','no-run','no-seats','done','done-open','unchecked','comparison','narrow'] as const
 export type OverviewScene = typeof OVERVIEW_STATES[number]
 export const OVERVIEW_RUN_REASONS = {
  'unreadable-ledger': `Rule after:review: ${WAITING_LEDGER}`,
@@ -23,21 +23,21 @@ const metric = (value:number,unit:InsightMetric['unit']='count'):InsightMetric =
 const amounts=(n:number):InsightAmounts=>({usd:metric(n===0?0.64:0.21,'usd'),turns:metric(n===0?58:38),tokens:metric(1000,'tokens'),activeMs:metric(120000,'milliseconds')})
 export const overviewReport = ():InsightReport => ({id:'overview-report',goal:'overview-team',generatedAt:at,totals:amounts(0),breakdowns:[{dimension:'seat',rows:[0,1,2].map(n=>({key:`seat-${n}`,seat:`seat-${n}`,goal:'overview-team',label:ids[n]!,session:record(n).session,message:null,note:null,elapsedMs:metric(0,'milliseconds'),amounts:amounts(n)})),unattributed:amounts(0),reason:null}],seats:[],goals:[],query:{root:'/work/storefront',from:at-60000,to:at},receipt:null,elapsedMs:metric(120000,'milliseconds'),sources:[],recordedSpend:[],provenance:{state:'available',note:''},gaps:[]})
 export const overviewInput = (scene:OverviewScene):TeamOverviewInput => {
- const completed=scene==='done'||scene==='done-open'||scene==='comparison'
+ const completed=scene==='done'||scene==='done-open'||scene==='unchecked'||scene==='comparison'
  const baseRun=overviewRun(completed?'settled':scene==='stalled'?'stalled':'running')
- const run=scene==='no-run'?null:scene==='comparison'?{...baseRun,state:'running' as const,reason:'Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved.',rounds:[{n:1,role:'competitor',cards:[1,2],seats:['seat-0','seat-1'],state:'closed' as const,cause:'seed',evidence:[]},{n:3,role:'judge',cards:[3],seats:['seat-2'],state:'waiting-evidence' as const,cause:'compare',evidence:[]}]}:baseRun
+ const run=scene==='no-run'||scene==='unchecked'?null:scene==='comparison'?{...baseRun,state:'running' as const,reason:'Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved.',rounds:[{n:1,role:'competitor',cards:[1,2],seats:['seat-0','seat-1'],state:'closed' as const,cause:'seed',evidence:[]},{n:3,role:'judge',cards:[3],seats:['seat-2'],state:'waiting-evidence' as const,cause:'compare',evidence:[]}]}:baseRun
  const mixed=scene==='running'||scene==='narrow'
  return {team:'overview-team',seats:scene==='no-seats'?[]:(completed?[0,1,2]:[0,1,2,3]).map(n=>({record:scene==='comparison'?{...record(n),role:n===2?'judge':'competitor'}:record(n),name:scene==='comparison'?['Model A · High','Model B · Medium','Judge'][n]!:ids[n]!,runtime:{capabilities:{metered:n!==2}},session:completed?{...session(n),turns:[{id:turnId('done'),status:'completed',startedAt:at,completedAt:at+[12000,14000,2000][n]!,items:[]}]}:session(n,(mixed||scene==='needs-you')&&n===0),unreadSince:(mixed||scene==='unread')&&n===2?at:null,approvals:(mixed||scene==='needs-you')&&n===1?[{id:approvalId('overview-approval'),sessionId:sessionId(`overview-${n}`),requestedAt:at,type:'permission',summary:'Beta asks to edit the checkout file before retrying the payment; choose whether to keep the original payment method so this review can continue.',options:[]}]:[]})),signals:completed?[0,1,2].map(n=>({id:`completed-${n}`,kind:'signal',at,signal:'completed',intent:n+1,title:card(n).title,by:{kind:'agent',runtime:runtimeId('codex'),sessionId:`overview-${n}`,title:ids[n]!}})):[],cards:completed?[0,1,2].map(n=>scene==='comparison'?{...card(n,true),role:n===2?'judge':'competitor',title:n===2?'Choose the comparison result':'Build the requested change'}:card(n,true)):mixed||scene==='needs-you'?[card(0),card(1)]:[],run:run?{execution:run,startedAt:null}:null,report:scene==='comparison'?null:overviewReport()}
 }
 export const overviewModel = (scene:OverviewScene) => teamOverview(overviewInput(scene))
 
 /** Membership shape measured on the host rig, with the older list emptied to cover #1278. */
-export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'stalled' | 'no-run' | keyof typeof OVERVIEW_RUN_REASONS = 'done') => {
+export const overviewTeamStore = (scene: 'unchecked' | 'done' | 'running' | 'needs-you' | 'stalled' | 'no-run' | keyof typeof OVERVIEW_RUN_REASONS = 'done') => {
  const evidenceWait=scene==='waiting-evidence'||scene==='findings-and-posting'||scene==='unreadable-ledger'
  const input=overviewInput(evidenceWait?'idle':scene==='stopped-unknown'?'running':scene==='unrouted'?'done':scene)
  const seats=input.seats.slice(0,2).map(one=>one.record as SeatRecord)
- const board={...PREVIEW_GOAL.board,id:'overview-team',name:'Retry the checkout call',root:'/work/storefront',members:[],intents:input.cards.slice(0,2),channel:input.signals!.slice(0,2),nicknames:{}}
- const goal:GoalView={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:board.id,sentence:board.name,root:board.root,cwd:board.root,origin:{kind:'person'}},board,members:seats,activity:scene==='done'?'ready-to-wrap':null}
+ const board={...PREVIEW_GOAL.board,id:'overview-team',name:'Retry the checkout call',root:'/work/storefront',members:[],intents:scene==='unchecked'?Array.from({length:141},(_,n)=>({...input.cards[0]!,id:n+1,state:'done' as const,claim:null})):input.cards.slice(0,2),channel:input.signals!.slice(0,2),nicknames:{}}
+ const goal:GoalView={...PREVIEW_GOAL,...(scene==='unchecked'?{uncheckedDone:141,readyAt:at}:{}),goal:{...PREVIEW_GOAL.goal,id:board.id,sentence:board.name,root:board.root,cwd:board.root,origin:{kind:'person'}},board,members:seats,activity:scene==='done'||scene==='unchecked'?'ready-to-wrap':null}
  const baseRun=overviewRun(scene==='done'||scene==='unrouted'?'settled':scene==='stopped-unknown'?'stopped':scene==='stalled'?'stalled':'running')
  const run:FlowExecution=evidenceWait
   ? {...baseRun,reason:OVERVIEW_RUN_REASONS[scene],pendingReleaseNote:'Waiting for a Seat to finish before releasing its checkout.',rounds:baseRun.rounds.map(round=>round.n===2?{...round,state:'waiting-evidence'}:round)}
@@ -50,7 +50,7 @@ export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'sta
  const seededFindings = scene==='running'||scene==='findings-and-posting'
  const findings = { filter: 'all' as const, rows: ledger, totals: { all: 3, open: 3, blocking: 3 }, next: null, problem: null, loading: false, loadingMore: false, error: null, stale: false }
  const requestedTheme = new URLSearchParams(location.search).get('theme')
- const base=previewStore({theme:requestedTheme==='light'||requestedTheme==='dark'?requestedTheme:'system',findings:seededFindings?new Map([[board.id,findings]]):new Map(),teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:scene==='no-run'?new Map():new Map([[run.id,run]]),findingRuns:seededFindings?new Map([[run.id,findingRun]]):new Map(),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
+ const base=previewStore({theme:requestedTheme==='light'||requestedTheme==='dark'?requestedTheme:'system',findings:seededFindings?new Map([[board.id,findings]]):new Map(),teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:scene==='no-run'||scene==='unchecked'?new Map():new Map([[run.id,run]]),findingRuns:seededFindings?new Map([[run.id,findingRun]]):new Map(),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
  const loadFindings = base.loadFindings
  if (seededFindings) Object.assign(base, { loadFindings: async (requestedGoal: string, filter: 'all' | 'open' | 'blocking' = 'all') => {
    if (requestedGoal !== board.id) return loadFindings(requestedGoal, filter)

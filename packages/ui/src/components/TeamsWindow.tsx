@@ -126,7 +126,7 @@ const TeamsList = ({onNew}: TeamsPageProps) => {
  },[store])
  useReadOnce(reviewScope,readReviews)
  const open=(row:TeamListRow)=>{
-  store.markTeamSeen(row.id,row.change); void store.openTeamRoom(row.id,row.change)
+  void store.openTeamRoom(row.id)
  }
  const say=(row:TeamListRow):RowWords=>text.get(row.id) ?? rowWords(row)
  const faces=(row:TeamListRow)=>row.seats.length ? <AvatarStack size="stack" aria-label={`${row.seats.length} ${row.seats.length === 1 ? 'seat' : 'seats'}`} members={row.seats.map((seat,index)=>{
@@ -134,7 +134,8 @@ const TeamsList = ({onNew}: TeamsPageProps) => {
   return {id:seat.seat,name:say(row).seats[index] ?? plain(seat.name),tint:runtime?runtimeTint(runtime):'blue',mark:runtime?<RuntimeMark runtime={runtime}/>:<AgentIcon/>}
  })}/>:undefined
  const card=(item:ReturnType<typeof teamBoardItem>)=><TeamsBoardCard key={item.row.id} id={item.row.id}
-  title={plain(item.title)} brief={say(item.row).sentence} summary={plain(item.summary)} attention={item.column==='needs-you'} unread={item.row.unread}
+  title={plain(item.title)} brief={say(item.row).sentence} summary={item.column==='needs-you'?item.status:plain(item.summary)}
+  issue={item.column==='needs-you'?plain(item.summary):undefined} attention={item.column==='needs-you'} unread={item.row.unread}
   path={item.path} faces={faces(item.row)} project={folderName(item.row.project)} age={<StateTime since={item.createdAt}/>} open={()=>open(item.row)}/>
  return <MinuteClock><Page width="wide" fill>
   <DestinationBar place="Teams" more={close=><MenuItem icon={<ResetIcon/>} label="Refresh Teams" onSelect={()=>{void store.loadGoals();close()}}/>}/>

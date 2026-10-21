@@ -32,6 +32,7 @@
   background: var(--hd-success);
 }
 
+.dot[data-state='new'],
 .dot[data-state='signin'] {
   background: var(--hd-accent);
 }
@@ -105,7 +106,7 @@
   padding: 0 var(--hd-space-2) 0 var(--hd-space-2);
   border-radius: var(--hd-chip-radius);
   font-size: var(--hd-text-xs);
-  line-height: 1;
+  line-height: var(--hd-line-xs); /* desk: give Chip text its 16px line box without changing the fixed plate dimensions. */
   white-space: nowrap;
 }
 
@@ -858,20 +859,13 @@
   min-width: 0;
 }
 
-/* The word over a settings card is a group label, not another page title: it
-   is drawn by `GroupLabel`, and only its place in the head is said here. */
+/* The column sizes and truncates the name. Its inline text inherits the
+   same role; a second block box would duplicate the measured line. */
 .sectionName {
   flex: 0 1 auto; /* desk: long headings surrender width and ellipsize before reaching their action. */
   min-width: 0;
   overflow: hidden;
   margin: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sectionName [data-role='section'] {
-  display: block;
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1238,6 +1232,12 @@
   white-space: pre-wrap;
 }
 
+pre.mono:not([data-block])[data-wrap] {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Spaced code sets the spacing on the words it holds too, so a text role
    inside it (a one-time code at the page step) does not take its own
    tracking back. */
@@ -1422,6 +1422,29 @@
   object-fit: contain;
 }
 
+/* The brand colourways carry the Dock's 824px plate inside a 1024px canvas
+   (script/build-icons.mjs). Crop at that plate, in the face's own corner;
+   counter-scale the image so the mark keeps its original size and margin.
+   Plain and the sticker drawings keep the uncropped image above. The picture
+   is meant to be larger than this box, so it carries `data-crop`: the guides
+   must not read the crop as content lost past an edge. */
+.avatarPicturePlate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(100% * 824 / 1024);
+  height: calc(100% * 824 / 1024);
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.avatarPicturePlate > .avatarPicture {
+  flex: none;
+  width: calc(100% * 1024 / 824);
+  height: calc(100% * 1024 / 824);
+  max-width: none;
+}
+
 /* A row that is one answer among several. */
 .rowChoice:disabled {
   opacity: 0.5;
@@ -1556,3 +1579,24 @@
 /* A record can be unavailable to an agent while remaining editable here. */
 .row[data-unavailable] > .rowMark,
 .row[data-unavailable] [data-slot="row-title-name"] { opacity: 0.55; }
+
+
+/* A fact inside an already framed card keeps its compact, unruled pitch. */
+.row[data-density='compact'] {
+  min-height: var(--hd-panel-row-h);
+  padding: 0 var(--hd-inset-row);
+  gap: var(--hd-space-2);
+  flex-wrap: nowrap;
+}
+.row[data-density='compact']::after { display: none; }
+.row[data-density='compact'] .rowText { flex: 1; min-width: 0; }
+.row[data-density='compact'] .rowTitle { font-size: var(--hd-text-sm); font-weight: var(--hd-weight-normal); }
+.row[data-density='compact'] .rowFace { width: var(--hd-space-4); height: var(--hd-space-4); margin: 0; }
+.row[data-density='compact'] .rowFace > * { width: var(--hd-space-4); height: var(--hd-space-4); }
+.row[data-density='compact'] .rowCtl { flex: none; gap: var(--hd-space-2); }
+.row[data-density='compact'] .rowFixed { white-space: nowrap; }
+
+.row[data-density='compact'] .rowCtl:has(> .rowFixed:only-child:not([data-numeric])) {
+  flex-grow: 0;
+  margin-inline-start: auto;
+}

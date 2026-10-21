@@ -36,6 +36,7 @@ const toggleVariants = cva(
       variant: {
         default: 'bg-transparent',
         outline: 'border border-input bg-transparent hover:bg-accent hover:text-accent-foreground',
+        chips: 'bg-transparent',
       },
       size: {
         default: 'h-(--hd-control-h) px-2 min-w-(--hd-control-h)',
@@ -91,6 +92,7 @@ const ToggleGroup = ({
     role={type === 'single' ? 'radiogroup' : 'group'}
     className={cn(
       'group/toggle-group flex w-fit items-center rounded-md data-[variant=outline]:shadow-xs',
+      variant === 'chips' && 'gap-1',
       className,
     )}
     multiple={type === 'multiple'}
@@ -145,6 +147,7 @@ const ToggleGroupItem = ({
         // Intrinsic widths keep long labels inside their own segment. Equal
         // zero-basis cells overflow when the group's labels differ in length.
         'flex-none rounded-none shadow-none first:rounded-l-md last:rounded-r-md data-[variant=outline]:border-l-0 data-[variant=outline]:first:border-l',
+        context.variant === 'chips' && 'rounded-md first:rounded-md last:rounded-md',
         className,
       )}
       render={(renderProps, state) => (

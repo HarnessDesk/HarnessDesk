@@ -19,6 +19,7 @@ it('preserves the recorded brief, frozen base and only fresh checks and clean ch
   const container = document.createElement('div'), root = createRoot(container)
   try {
     act(() => root.render(<TeamRunFacts input={input} number={1} at="head-a" />))
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Record details'))!.click())
     for (const words of [fixture.execution.brief!, 'origin · main · abc123', '1 success', '5', '2']) expect(container.textContent).toContain(words)
     expect(container.textContent).not.toContain('failure')
     expect(container.textContent).not.toContain('pending')
@@ -34,5 +35,63 @@ it('keeps the origin description and its Open action on Started by', () => {
     const row = [...container.querySelectorAll('[data-slot="summary-item"]')].find(one => one.textContent?.includes('Started by'))
     expect(row?.textContent).toContain('From the pull request')
     expect(row?.querySelector('button')?.textContent).toBe('Open origin')
+  } finally { act(() => root.unmount()) }
+})
+
+it('gives up the middle of a long revision rather than overflowing, keeping the whole hash readable', () => {
+  const fixture = runFixture()
+  const revision = 'f'.repeat(40)
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<TeamRunFacts input={{ ...fixture, execution: { ...fixture.execution, revision } }} number={1} at="head-a" />))
+    expect(container.textContent).not.toContain(`Revision ${revision}`)
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Record details'))!.click())
+    const row = [...container.querySelectorAll('[data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Revision')
+    expect(row?.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain(revision)
+  } finally { act(() => root.unmount()) }
+})
+
+it('keeps the first glance concise and puts the complete brief behind an explicit detail door', () => {
+  const fixture = runFixture()
+  const brief = 'A long task description. '.repeat(80)
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<TeamRunFacts input={{ ...fixture, execution: { ...fixture.execution, brief } }} number={1} at={null} />))
+    expect(container.textContent).not.toContain(brief)
+    expect(container.textContent).not.toContain('Not recorded for this Run:')
+    const labels = [...container.querySelectorAll('[aria-label="Team Run facts"] dt')].map(one => one.textContent)
+    expect(labels).not.toContain('Run')
+    expect(labels).not.toContain('No progress')
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Record details'))!.click())
+    expect(container.textContent).toContain(brief)
+    const cost = [...container.querySelectorAll('[aria-label="Run record details"] [data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Seat cost')
+    expect(cost?.querySelector('[data-slot="summary-value"]')?.textContent).toBe('Not recorded')
+  } finally { act(() => root.unmount()) }
+})
+
+
+it('shows a human state, actual round progress and explicit unknown elapsed time', () => {
+  const fixture = runFixture()
+  const execution = { ...fixture.execution, state: 'stalled' as const, startedAt: undefined, rounds: [fixture.execution.rounds[0]!],
+    findings: { ...fixture.execution.findings!, budget: { rounds: 4, withoutProgress: 2 }, closedRounds: [], idleRounds: 0 } }
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<TeamRunFacts input={{ ...fixture, execution }} number={1} at={null} />))
+    const value = (label: string) => [...container.querySelectorAll('[aria-label="Team Run facts"] [data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === label)?.querySelector('[data-slot="summary-value"]')?.textContent
+    expect(value('State')).toBe('Needs you')
+    expect(value('Progress')).toBe('Round 1 of 4')
+    expect(value('Elapsed')).toBe('Not recorded')
+    expect(value('Started')).toBeUndefined()
+    expect(value('Rounds')).toBeUndefined()
+  } finally { act(() => root.unmount()) }
+})
+
+it('keeps execution identity and the chooser available when there are multiple Runs', () => {
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<TeamRunFacts input={runFixture()} number={2} chooser={<button>Choose Run</button>} at={null} />))
+    const row = [...container.querySelectorAll('[aria-label="Team Run facts"] [data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Run')
+    expect(row?.textContent).toContain('Run 2')
+    expect(row?.querySelector('button')?.textContent).toBe('Choose Run')
   } finally { act(() => root.unmount()) }
 })
