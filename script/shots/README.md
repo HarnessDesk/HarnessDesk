@@ -197,11 +197,35 @@ frames as Playwright attachments. The runner accepts `--ui <renderer>` because
 the ordinary preview server does not serve the token-gated host connection used
 by these journeys.
 
-## The README's race and tiles
+## The README's race and scenes
 
 ```sh
 node script/shots/readme-race.mjs --out /tmp/hd-race          # 10 s at 12 fps, light and dark
-node script/shots/readme-tiles.mjs --out /tmp/hd-tiles        # teams, run-flow, skill, dashboard
+node script/shots/readme-scenes.mjs --out /tmp/hd-scenes      # the website's scenes: loops as frames, every one's still
 ```
 
-Both open `preview.html` headlessly at device scale 2; no agent, account or desk. The race is the production Side by side view (`?readme-race`, `packages/ui/src/preview/readme-race.tsx`): two Seats' Browsers load the pages Codex and Claude Code built for the brief (`packages/ui/site-demo/public/race/`, which the website's hero serves too) on their lanes' first ports (fulfilled locally), the camera raises each attempt's build level and the Run's stage, and the judge's pick ends the loop. The camera crops the Team's bar and tabs away. Encode with ffmpeg (`scale=960:-1:flags=lanczos`, a 192-colour palette) and keep the last frame as the reduced-motion poster. `?readme-names` names the preview's runtimes after the shipped agents. Every page passes `audit.mjs` before capture; read every coalesced GIF frame before committing.
+The race opens `preview.html` headlessly at device scale 2; no agent, account or desk. The race is the production Side by side view (`?readme-race`, `packages/ui/src/preview/readme-race.tsx`): two Seats' Browsers load the pages Codex and Claude Code built for the brief (`packages/ui/site-demo/public/race/`, which the website's hero serves too) on their lanes' first ports (fulfilled locally), the camera raises each attempt's build level and the Run's stage, and the judge's pick ends the loop. The camera crops the Team's bar and tabs away. Encode with ffmpeg (`scale=960:-1:flags=lanczos`, a 192-colour palette) and keep the last frame as the reduced-motion poster. `?readme-names` names the preview's runtimes after the shipped agents. Every page passes `audit.mjs` before capture; read every coalesced GIF frame before committing.
+
+The scenes are the website's own (`packages/ui/site-demo`, the views harnessdesk.app embeds live, served by `vite.site-demo.config.ts`), so the README and the site show the same Run, board, Flows, Dashboard and tour. `README_SCENES` in the script says which loop each one records: the Run and the board for one pass of their steps, the Flows page from one restart of its drawing to the next; every scene also gets its reduced-motion still, the poster. Time is held still between frames, so a frame's capture never costs the loop any of its own time. Encode at 10 fps with the race's palette, each scene at its width, and the Dashboard's three bands as one cross-fade:
+
+```sh
+IN=/tmp/hd-scenes OUT=docs/images/app
+PAL='split[a][b];[a]palettegen=max_colors=192:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle'
+for t in light dark; do
+  for s in showcase-run:run:1260 showcase-board:board:1480 tour-flows:flows:880; do
+    scene=${s%%:*} rest=${s#*:} name=${rest%%:*} width=${rest#*:}
+    ffmpeg -y -framerate 10 -i $IN/$scene/$t/f%04d.png -vf "scale=$width:-1:flags=lanczos,$PAL" -loop 0 $OUT/readme-$name-$t.gif
+    magick $IN/$scene/$t/poster.png -resize ${width}x -strip $OUT/readme-$name-$t-poster.png
+  done
+  # Spend, Limits, Activity and back: 2.6 s each, a 0.4 s fade.
+  ffmpeg -y $(for b in spend limits activity spend; do echo -loop 1 -t 3 -i $IN/dashboard-$b/$t/poster.png; done) -filter_complex \
+    "[0][1]xfade=transition=fade:duration=0.4:offset=2.6[x1];[x1][2]xfade=transition=fade:duration=0.4:offset=5.2[x2];[x2][3]xfade=transition=fade:duration=0.4:offset=7.8,trim=duration=8.2,fps=10,scale=1008:-1:flags=lanczos,$PAL" \
+    -loop 0 $OUT/readme-dashboard-$t.gif
+  magick $IN/dashboard-spend/$t/poster.png -resize 1008x -strip $OUT/readme-dashboard-$t-poster.png
+  for s in teams run library runtimes chats; do
+    magick $IN/tour-$s/$t/poster.png -resize 880x -strip -define png:compression-level=9 $OUT/readme-tour-$s-$t.png
+  done
+done
+```
+
+Every page passes `audit.mjs` before capture; read every coalesced frame before committing, as for the race.
