@@ -632,7 +632,9 @@ Effort levels use that hover explanation even when every choice has a distinct
 description: Low and High already name the distinction. Runtime-defined modes
 retain their comparison column: a mode name alone may not explain its consequences.
 Ordinary boolean options keep their explanation on hover too; a refused
-switch still shows its reason. Models and custom codenames retain a complete,
+switch still shows its reason. A switch labelled only with its option identifier
+(including a namespace-qualified identifier) keeps its description visible,
+because the machine name does not explain the setting. Models and custom codenames retain a complete,
 distinct comparison column.
 
 For plugin tools, the short manifest title is the name to scan. Capabilities

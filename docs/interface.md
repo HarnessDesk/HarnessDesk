@@ -481,7 +481,9 @@ tooltip still names who new sessions run as and any applicable quota warning.
 The menu stays at five actions: your profile, the current account, Usage,
 Settings and signing out (when signed in). The account opens a separate picker;
 **Run new sessions as** lists each available account on one line, grouped by
-runtime where there are several, with the selected account filled. Long names
+runtime where there are several. Current marks identify the selected runtime,
+so its sibling accounts share the mark: credential selection belongs to that
+agent, while the root names the account whose report decides its usage. Long names
 truncate; full identity remains on hover. A second word distinguishes names
 that collide: the runtime across runtimes, or the domain within one runtime.
 Unavailable and Needs sign-in remain visible on the current account. **Add an

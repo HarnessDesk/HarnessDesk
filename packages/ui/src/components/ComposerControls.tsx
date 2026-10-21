@@ -390,6 +390,11 @@ const ChoiceRows = ({
 }
 
 /** One option, whole: its heading, its reason when refused, and its rows. */
+// An identifier used as its own label is not a human explanation. Keep that
+// switch's description visible even when its identifier has a namespace.
+const toggleHint = (option: ConfigOption): string | undefined =>
+  option.label === option.id || option.label === option.id.split(/[.:/]/).at(-1) ? option.description : undefined
+
 const OptionRows = ({ option }: { option: ConfigOption }) => {
   const store = useStore()
   const key = useSessionKey()
@@ -402,6 +407,7 @@ const OptionRows = ({ option }: { option: ConfigOption }) => {
       {option.type === 'boolean' ? (
         <MenuToggle
           label={option.label}
+          hint={toggleHint(option)}
           title={option.description}
           checked={option.currentValue}
           disabled={option.disabled}
@@ -729,6 +735,7 @@ export const ModelControl = () => {
                         <MenuToggle
                           key={toggle.id}
                           label={toggle.label}
+                          hint={toggleHint(toggle)}
                           title={toggle.description}
                           checked={toggle.currentValue}
                           disabled={toggle.disabled}
@@ -746,6 +753,7 @@ export const ModelControl = () => {
                     <MenuToggle
                       key={toggle.id}
                       label={toggle.label}
+                      hint={toggleHint(toggle)}
                       title={toggle.description}
                       checked={toggle.currentValue}
                       disabled={toggle.disabled}

@@ -39,7 +39,7 @@ import {
   type MenuAccountFigure,
   type Tone,
 } from '../design'
-import { accountKey, accountName, accountIdentity, agentKey, prefsForUsage, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
+import { accountForUsage, accountKey, accountName, accountIdentity, agentKey, prefsForUsage, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken } from '../lib/agents'
 import { FlowIcon } from './Icons'
@@ -655,8 +655,7 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
   const current = view.anchor?.kind === 'meter' ? view.anchor.meter : null
   const others = view.rest?.meters ?? []
   const shortAccountName = (meter: StripMeter): string => {
-    const account = snapshot.accountsByRuntime[meter.runtime]?.accounts.find(one =>
-      (one.email ?? one.label)?.trim() === meter.report.account?.trim())
+    const account = accountForUsage(meter.runtime, meter.report.account, snapshot.accountsByRuntime)
     return account
       ? accountName(account, snapshot.accountPrefs[accountKey(meter.runtime, account)], meter.name)
       : meter.account?.split('@')[0] ?? meter.name

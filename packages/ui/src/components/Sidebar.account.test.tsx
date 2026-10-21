@@ -1073,6 +1073,16 @@ it('keeps distinct reporting accounts recognizable in Usage without repeating fu
   expect(details.textContent).not.toContain('second@example.com')
 })
 
+it('uses the canonical report label to retain another account nickname when it has an email too', () => {
+  const account = { kind: 'oauth' as const, label: 'work', email: 'jane@acme.dev' }
+  mount({ accountsByRuntime: { [CLAUDE]: signedIn('dev@example.com'), [CODEX]: { accounts: [account, { kind: 'oauth', label: 'other' }], signInMethods: [] } },
+    accountPrefs: { [accountKey(CODEX, account)]: { nickname: 'Review account' } },
+    usage: [{ ...usageReport(CODEX, [lane({ id: 'weekly', usedPercent: 20 })]), account: 'work' },
+      { ...usageReport(CODEX, [lane({ id: 'weekly', usedPercent: 30 })]), account: 'other' }] })
+  click(row())
+  expect(openUsage().textContent).toContain('OpenAI Codex · Review account')
+})
+
 
 it('identifies the reporting account when one runtime chooses its second quota report', () => {
   const first = 'first@example.com', second = 'second@example.com'
