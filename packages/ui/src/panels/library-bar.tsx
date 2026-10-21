@@ -6,7 +6,6 @@ import { CustomizeNavigation } from './customize-navigation'
 
 export const LibraryBar = ({ kind, change, loaded, loading, author, importing, github, checking, check, rescan, choices = [], search }: {
   readonly kind: 'skill' | 'mcp'
-  readonly counts: Readonly<Record<'skill' | 'mcp', number>>
   readonly change: (kind: 'skill' | 'mcp') => void
   readonly loaded: boolean
   readonly loading: boolean

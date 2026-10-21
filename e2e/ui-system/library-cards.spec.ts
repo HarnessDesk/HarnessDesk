@@ -12,7 +12,9 @@ for (const theme of ['light', 'dark'] as const) {
     await openFrame(page, 'frame-wall=library', theme, 1440)
     const cards = page.locator('[data-slot="skill-card"]')
     await expect(cards).toHaveCount(6)
-    await expect(page.getByRole('radio', { name: /^All/ })).toHaveText('All6')
+    const commands = page.getByRole('group', { name: 'Runtime commands', exact: true })
+    const nativeCount = await commands.count() ? await commands.evaluate(node => node.children.length) : 0
+    await expect(page.getByRole('radio', { name: /^All/ })).toHaveText(`All${6 + nativeCount}`)
     await expect(page.locator('[data-slot="library-attention"]')).toHaveCount(0)
     await expect(page.getByRole('radio', { name: 'List', exact: true })).toHaveCount(0)
     await expect(cards.filter({ hasText: 'code-review' })).toContainText('Update available')

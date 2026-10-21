@@ -97,3 +97,50 @@ it('applies external runtime scope to a retained Customize page, including while
   expect(store.libraryView('skill').runtime).toBe('')
   expect(runtime().textContent).toContain('All runtimes')
 })
+
+
+it('replaces a legacy Skills history entry so Back can leave Customize', async () => {
+  const store = libraryStore()
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'skills', focus: null } })
+  await renderPages(store); await settle(); await settle()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'library', section: 'skill' })
+  expect(store.getSnapshot().workbench.navigation.back.some(page => page.kind === 'settings' && page.route.kind === 'section' && page.route.section === 'skills')).toBe(false)
+  await act(async () => store.navigateBack()); await settle(); await settle()
+  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
+  await act(async () => store.navigateForward()); await settle(); await settle()
+  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('library')
+})
+
+it('library view edits notify only their dedicated subscribers', async () => {
+  const store = libraryStore(); await settle()
+  const snapshot = store.getSnapshot(), global = vi.fn(), local = vi.fn()
+  const offGlobal = store.subscribe(global)
+  const subscribe = (store as AppStore & { subscribeLibraryViews?: (listener: () => void) => () => void }).subscribeLibraryViews
+  expect(subscribe).toBeTypeOf('function')
+  const offLocal = subscribe!(local)
+  store.setLibraryView('skill', { ...store.libraryView('skill'), query: 'review' }); await settle()
+  expect(store.getSnapshot()).toBe(snapshot)
+  expect(global).not.toHaveBeenCalled()
+  expect(local).toHaveBeenCalledOnce()
+  offLocal(); offGlobal()
+})
+
+it('browses runtime commands absent from the library and reaches their toggle and composer action', async () => {
+  const store = libraryStore(), id = runtimeId('one')
+  Object.assign(store.getSnapshot(), { activeRuntime: id, runtimes: [{ id, name: 'Agent One', capabilities: {}, presentation: { name: 'Agent One' } }],
+    skills: [{ name: 'native-command', displayName: 'Native command', shortDescription: 'A runtime-only command', description: 'Full command instructions.', enabled: true, toggleable: true }] })
+  store.setSkillEnabled = vi.fn(async () => {})
+  store.openDestination({ kind: 'library', section: 'skill' })
+  await renderPages(store); await settle()
+  expect(container.textContent).not.toContain('No skills yet')
+  expect(container.textContent).toContain('A runtime-only command')
+  const toggle = container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="native-command"]')!
+  expect(toggle).not.toBeNull()
+  await act(async () => toggle.click())
+  expect(store.setSkillEnabled).toHaveBeenCalledWith({ name: 'native-command', path: undefined }, false, id)
+  const row = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.querySelector('[data-slot="row-title"]')?.textContent === 'Native command')!
+  await act(async () => row.click()); await settle()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'settings', route: { kind: 'skill', name: 'native-command' } })
+  expect(container.textContent).toContain('Full command instructions.')
+  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Use in composer')).toBe(true)
+})

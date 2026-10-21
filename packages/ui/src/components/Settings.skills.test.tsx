@@ -55,18 +55,18 @@ const mount = (name: string | null = null, active = true) => {
   const info = runtime()
   const snapshot = { ...emptySnapshot(), status: 'open', activeRuntime: info.id, runtimes: [info], skills: SKILLS } as AppSnapshot
   const view = { filter: 'all', query: 'saved search', chip: 'all', view: 'list', skillView: 'cards' }
-  const openDestination = vi.fn(), setLibraryView = vi.fn(), onUse = vi.fn()
+  const openDestination = vi.fn(), replaceDestination = vi.fn(), setLibraryView = vi.fn(), onUse = vi.fn()
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot,
-    libraryView: () => view, setLibraryView, openDestination, setSkillEnabled: vi.fn(async () => {}) } as unknown as AppStore
+    libraryView: () => view, setLibraryView, openDestination, replaceDestination, setSkillEnabled: vi.fn(async () => {}) } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><SkillsSection name={name} active={active} onUse={onUse} /></StoreProvider>))
-  return { openDestination, setLibraryView, onUse }
+  return { openDestination, replaceDestination, setLibraryView, onUse }
 }
 
 it('redirects legacy Skills to the runtime scope in Customize', () => {
   const name = null
-  const { openDestination, setLibraryView } = mount(name)
+  const { replaceDestination, setLibraryView } = mount(name)
   expect(setLibraryView).toHaveBeenCalledWith('skill', expect.objectContaining({ runtime: runtime().id, query: 'saved search' }))
-  expect(openDestination).toHaveBeenCalledWith({ kind: 'library', section: 'skill' })
+  expect(replaceDestination).toHaveBeenCalledWith({ kind: 'library', section: 'skill' })
   expect(container.querySelector('[data-slot="row"]')).toBeNull()
 })
 

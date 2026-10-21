@@ -1,3 +1,4 @@
+import { RuntimeSkillRows } from './RuntimeSkills'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
@@ -14,11 +15,12 @@ import {
   type ReachState,
   type RuntimeId,
   type RuntimeInfo,
+  type SkillInfo,
 } from '@harnessdesk/protocol'
 
 import { runtimeLabel } from '../lib/accounts'
 import { isPathInside } from '../lib/paths'
-import { useSnapshot, useStore } from '../state/context'
+import { useLibraryView, useSnapshot, useStore } from '../state/context'
 import { type LibraryViewFilter, emptyLibraryView, type LibraryViewState } from '../state/library-views'
 import { RuntimeMark } from './BrandIcons'
 import {
@@ -63,7 +65,7 @@ import { shortPath } from '../lib/paths'
 import { REACH_NAME } from '../lib/reach-states'
 import { LibraryBar } from '../panels/library-bar'
 import { useDestinationPage } from '../panels/destination-page'
-import { LibraryMatrix, PageExplanation, FormStack, Row, Rows, type PageOption } from '../design'
+import { LibraryMatrix, PageExplanation, FormStack, Row, Rows, SectionHead, type PageOption } from '../design'
 
 /**
  * The library: every skill and MCP server on this machine, and which agents
@@ -245,7 +247,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
    * fixture — answers with a placeholder rather than a view; only a real
    * answer is kept, and anything else starts from the empty view.
    */
-  const storedView = store.libraryView?.(section)
+  const storedView = useLibraryView(section)
   const [localScreen, setLocalScreen] = useState<LibraryViewState>(emptyLibraryView)
   const [screenSection, setScreenSection] = useState(section)
   // The real store is authoritative, including writes from Settings while this
@@ -530,13 +532,20 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
     ).length
   }, [scopedEntries, usage])
 
-  const kindCounts = useMemo(
-    () => ({
-      skill: listedEntries.filter(entry => entry.kind === 'skill').length,
-      mcp: listedEntries.filter(entry => entry.kind === 'mcp').length,
-    }),
-    [listedEntries],
-  )
+  // snapshot.skills belongs only to the active runtime. Name its owner and
+  // never project its commands into another runtime's scope or disk diagnostics.
+  const commandRuntime = snapshot.runtimes.find(info => info.id === snapshot.activeRuntime)
+  const nativeSkills = useMemo(() => {
+    if (kind !== 'skill' || !commandRuntime || (screen.runtime && screen.runtime !== commandRuntime.id)) return []
+    const covered = new Set(listedEntries.filter(entry => entry.kind === 'skill').map(entry => entry.name))
+    return snapshot.skills.filter(skill => !covered.has(skill.name))
+  }, [kind, commandRuntime, screen.runtime, listedEntries, snapshot.skills])
+  const searchedNativeSkills = screen.chip === 'all' && !agentFilter ? nativeSkills.filter(skill => {
+    const needle = screen.query.trim().toLowerCase()
+    return !needle || `${skill.name} ${skill.displayName ?? ''} ${skill.description ?? ''} ${skill.shortDescription ?? ''}`.toLowerCase().includes(needle)
+  }) : []
+  const visibleNativeSkills: readonly SkillInfo[] = screen.filter === 'all' ? searchedNativeSkills
+    : screen.filter === 'off' ? searchedNativeSkills.filter(skill => !skill.enabled) : []
 
   const chipCounts = useMemo(() => {
     const result: Record<SkillChip, number> = { all: 0, 'needs-you': 0, 'one-runtime': 0, nobody: 0 }
@@ -545,8 +554,9 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
       const group = chipFor(entry, columns)
       if (group !== 'all') result[group]++
     }
+    result.all += nativeSkills.length
     return result
-  }, [listedEntries, declared, columns, screen.runtime])
+  }, [listedEntries, declared, columns, screen.runtime, nativeSkills])
 
   /**
    * Each agent's scanned skill directories in the order a name conflict is
@@ -654,13 +664,13 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
     : null
 
   const filterData: PageOption['items'] = [
-    { value: 'all', label: FILTER_WORDS.all, count: counts?.total },
+    { value: 'all', label: FILTER_WORDS.all, count: counts ? counts.total + searchedNativeSkills.length : undefined },
     { value: 'problems', label: FILTER_WORDS.problems, count: problemCount, title: 'Anything wrong: reaches no runtime, empty on disk, or copies that differ.' },
     { value: 'partial', label: FILTER_WORDS.partial, count: counts?.partial },
     { value: 'unreachable', label: FILTER_WORDS.unreachable, count: counts?.unreachable },
     { value: 'hollow', label: FILTER_WORDS.hollow, count: counts?.hollow },
     { value: 'differs', label: FILTER_WORDS.differs, count: counts?.differs },
-    { value: 'off', label: FILTER_WORDS.off, count: counts?.off, title: 'Installed in a runtime and turned off in its own settings, so nothing loads it there.' },
+    { value: 'off', label: FILTER_WORDS.off, count: counts ? counts.off + searchedNativeSkills.filter(skill => !skill.enabled).length : undefined, title: 'Installed in a runtime and turned off in its own settings, so nothing loads it there.' },
     ...(kind === 'skill' ? [{ value: 'unused', label: FILTER_WORDS.unused, count: unusedCount,
       disabled: usage === null ? 'Counting activations in the stored conversations…' : false as const,
       title: usage === null ? undefined : `Reaches at least one runtime, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.` }] : []),
@@ -696,7 +706,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
   }
   return (
     <>
-      <LibraryBar kind={kind} counts={kindCounts} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
+      <LibraryBar kind={kind} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
         author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} github={() => setFlow({ type: 'github' })} checking={checking} check={() => void checkUpdates()} rescan={() => void load()}
         choices={kind === 'mcp' ? libraryChoices : []} search={kind === 'mcp' ? { label: 'Search servers', value: screen.query, change: value => patchScreen({ query: value }) } : undefined} />
       {/* MCP retains its PageOptions, list, matrix and filters; only skills use cards and chips. */}
@@ -746,8 +756,8 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
 
       {loading && library === null ? (
         <EmptyState variant="inline" title={kind === 'skill' ? 'Reading skills…' : 'Reading every runtime’s directories…'} />
-      ) : rows.length === 0 ? (
-        kindCounts[kind] === 0 ? <EmptyState icon={<LibraryIcon size={16} />} title={kind === 'skill' ? 'No skills yet' : 'No MCP servers yet'}>
+      ) : rows.length === 0 && visibleNativeSkills.length > 0 ? null : rows.length === 0 ? (
+        !listedEntries.some(entry => entry.kind === kind) && nativeSkills.length === 0 ? <EmptyState icon={<LibraryIcon size={16} />} title={kind === 'skill' ? 'No skills yet' : 'No MCP servers yet'}>
           {kind === 'skill' && <Toolbar>
             <Button size="sm" onClick={() => setFlow({ type: 'author' })}>Write a skill</Button>
             <Button variant="outline" size="sm" onClick={() => setFlow({ type: 'github' })}>From GitHub…</Button>
@@ -798,6 +808,11 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
           />
         </>
       )}
+
+      {commandRuntime && visibleNativeSkills.length > 0 && <>
+        <SectionHead name="Runtime commands" description={commandRuntime.presentation.name} />
+        <RuntimeSkillRows skills={visibleNativeSkills} runtime={commandRuntime.id} onOpen={name => store.openDestination({ kind: 'settings', route: { kind: 'skill', name } })} />
+      </>}
 
       {gaps.length> 0 && gaps.length <= 2 && (
         <div>

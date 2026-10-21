@@ -606,6 +606,7 @@ export class AppStore {
    * The Library's view choices per section, for as long as this window is
    * open. See `state/library-views` — never a preference, never persisted.
    */
+  readonly #libraryViewListeners = new Set<() => void>()
   #libraryViews: Record<LibraryViewSection, LibraryViewState> = { skill: emptyLibraryView(), mcp: emptyLibraryView() }
   readonly #sessionRemovalRevisions = new Map<SessionKey, number>()
   #listeners = new Set<() => void>()
@@ -1443,12 +1444,15 @@ export class AppStore {
    * back keeps the view they left.
    */
   libraryView(section: LibraryViewSection): LibraryViewState { return this.#libraryViews[section] }
-  /** Publishes view changes so retained pages also receive explicit navigation scope. */
+  subscribeLibraryViews = (listener: () => void): (() => void) => {
+    this.#libraryViewListeners.add(listener)
+    return () => { this.#libraryViewListeners.delete(listener) }
+  }
+  /** View edits notify their readers without rebuilding the global app snapshot. */
   setLibraryView(section: LibraryViewSection, view: LibraryViewState): void {
     if (this.#libraryViews[section] === view) return
     this.#libraryViews[section] = view
-    // Explicit scope changes must reach a retained page, even if it is already active.
-    this.#patch({})
+    for (const listener of this.#libraryViewListeners) listener()
   }
 
   /** One click on a workspace group's +: that folder, a fresh draft. */

@@ -31,7 +31,9 @@ export interface LibraryViewState {
 export const emptyLibraryView = (): LibraryViewState => ({ filter: 'all', query: '', chip: 'all', view: 'list', skillView: 'cards' })
 
 /** Native Skills links and legacy command details share the same scoped entrance. */
-export const openCustomizeSkills = (store: Pick<AppStore, 'libraryView' | 'setLibraryView' | 'openDestination'>, runtime: RuntimeId | ''): void => {
+export const openCustomizeSkills = (store: Pick<AppStore, 'libraryView' | 'setLibraryView' | 'openDestination' | 'replaceDestination'>, runtime: RuntimeId | '', mode: 'visit' | 'replace' = 'visit'): void => {
   store.setLibraryView('skill', { ...store.libraryView('skill'), runtime })
-  store.openDestination({ kind: 'library', section: 'skill' })
+  const target = { kind: 'library', section: 'skill' } as const
+  if (mode === 'replace') store.replaceDestination(target)
+  else store.openDestination(target)
 }

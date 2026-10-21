@@ -22,7 +22,7 @@ it.each(['skill', 'mcp'] as const)('%s keeps shared Customize sections and the a
   const add = async () => act(async () => box.querySelector<HTMLButtonElement>('[title="Add skill"]')!.click())
   try {
     await act(async () => root.render(<StoreProvider store={store}><TopBarProvider>
-      <DestinationPageScope owner="destination:library" active><LibraryBar kind={kind} counts={{ skill: 4, mcp: 2 }} change={change} loaded loading={false}
+      <DestinationPageScope owner="destination:library" active><LibraryBar kind={kind} change={change} loaded loading={false}
         author={author} importing={importing} github={github} checking={false} check={check} rescan={rescan} /></DestinationPageScope>
       <TopBarOutlet owner="destination:library" fallback={{ place: 'Fallback', more: () => null }} />
     </TopBarProvider></StoreProvider>))
@@ -59,7 +59,7 @@ it('disables Add skill and Check for updates until the library has been read', a
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, openDestination } as unknown as AppStore
   try {
     await act(async () => root.render(<StoreProvider store={store}><TopBarProvider>
-      <DestinationPageScope owner="destination:library" active><LibraryBar kind="skill" counts={{skill:0,mcp:0}} change={()=>{}} loaded={false} loading
+      <DestinationPageScope owner="destination:library" active><LibraryBar kind="skill" change={()=>{}} loaded={false} loading
         author={()=>{}} importing={()=>{}} github={github} checking={false} check={()=>{}} rescan={()=>{}} /></DestinationPageScope>
       <TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}} />
     </TopBarProvider></StoreProvider>))

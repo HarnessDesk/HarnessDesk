@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { runtimeId } from '@harnessdesk/protocol'
-import type { AgentAttachmentsView, AgentEntry, AgentOrigin, Library, LibraryEntry, LibrarySkillUpdate, LibraryUsage, ReachState, RuntimeInfo } from '@harnessdesk/protocol'
+import type { AgentAttachmentsView, AgentEntry, AgentOrigin, Library, LibraryEntry, LibrarySkillUpdate, LibraryUsage, ReachState, RuntimeInfo, RuntimeId, SkillInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
@@ -153,6 +153,8 @@ const mount = async (
     readAgentAttachments?: (id: string) => Promise<AgentAttachmentsView | undefined>
     /** A store with no `libraryView`/`setLibraryView`: the preview proxy's shape, where the page must carry its own screen. */
     initialView?: Partial<LibraryViewState>
+    activeRuntime?: RuntimeId
+    nativeSkills?: readonly SkillInfo[]
     noViewMemory?: boolean
   } = {},
 ): Promise<ReturnType<typeof vi.fn<(method: string, params?: unknown) => Promise<unknown>>>> => {
@@ -177,6 +179,8 @@ const mount = async (
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
+    activeRuntime: options.activeRuntime ?? null,
+    skills: options.nativeSkills ?? [],
     runtimes: options.runtimes ?? [runtime('one', 'First Agent'), runtime('two', 'Second Agent')],
     ...(options.agents ? { agents: options.agents } : {}),
   } as AppSnapshot
@@ -2447,4 +2451,31 @@ it('runtime scope narrows skill cards and chip counts, and never scopes MCP', as
   expect(container.querySelector('[title="Runtime"]')?.textContent).toBe('First Agent')
   await chooseKind('mcp')
   expect(container.querySelector('tbody')?.textContent).toContain('server')
+})
+
+
+it('deduplicates native commands, counts them, and keeps them out of another runtime scope', async () => {
+  await mount(library([entry('covered', ['reaches', 'absent'])]), undefined, {
+    activeRuntime: runtimeId('one'), nativeSkills: [
+      { name: 'covered', description: 'Already scanned.', enabled: true },
+      { name: 'native-only', description: 'Searchable command description.', shortDescription: 'A native command', enabled: false },
+    ],
+  })
+  const nativeRows = () => [...container.querySelectorAll<HTMLButtonElement>('button')].filter(one => one.querySelector('[data-slot="row-title"]')?.textContent === 'Native Only')
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['covered'])
+  expect(nativeRows()).toHaveLength(1)
+  expect(container.querySelector('[aria-label="Skills"] [role="radio"]')?.textContent).toBe('All2')
+  expect(await countOf('Everything')).toBe('Everything2')
+  expect(await countOf('Switched off')).toBe('Switched off1')
+  await chooseFilter('Switched off')
+  expect(nativeRows()).toHaveLength(1)
+  expect(cards()).toHaveLength(0)
+  await typeSearch('Searchable command')
+  expect(nativeRows()).toHaveLength(1)
+  await chooseFilter('Everything')
+  await act(async () => container.querySelector<HTMLButtonElement>('[title="Runtime"]')!.click())
+  await act(async () => filterRow('Second Agent')!.click())
+  expect(nativeRows()).toHaveLength(0)
+  expect(container.textContent).not.toContain('A native command')
+  expect(container.querySelector('[aria-label="Skills"] [role="radio"]')?.textContent).toBe('All0')
 })

@@ -600,7 +600,7 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
 
   return (
     <>
-      <DestinationBar place="Plugins" />
+      <DestinationBar place="Customize" />
       <PageOptions title="Customize" action={tab === 'list' ? { label: 'Add plugin', run: () => setInstalling(true) } : undefined} />
       <CustomizeNavigation section="plugins" />
       <PageOptions search={tab === 'list' ? { label: 'Search plugins', value: query, change: setQuery }
